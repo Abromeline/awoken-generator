@@ -210,7 +210,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     // Simple grid layout for now; parallax via row scaling
   // Render hex grid with parallax
   const renderGrid = () => {
-    const size = 34, tilt = 0.62;
+    const size = 17, tilt = 0.62; // 50% size, still connected
     // Base spacing uses consistent size; parallax only affects visual scale
     const baseS = size;
     const elements = tiles.map((t, i) => {
@@ -250,7 +250,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                   { dx: 0, dy: -0.28 },    // back-center
                 ];
                 const ks = keystones[idx];
-                const ws = 30 * ps, hs = 40 * ps;
+                const ws = 15 * ps, hs = 20 * ps;
                 const kx = cx + ks.dx * s * 2;
                 const ky = cy + ks.dy * s * 2 * tilt;
                 const isWhispering = whisper?.awakenedId === a.id;
