@@ -25,7 +25,7 @@ interface Props {
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
-  const [selectedHand, setSelectedHand] = useState<number | null>(null);
+  const [selectedHands, setSelectedHands] = useState<number[]>([]);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [energy, setEnergy] = useState(5);
 
@@ -98,8 +98,34 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Hand = Awoken not on field (defined above for energy calc)
 
   const handleDeploy = async (tileId: number) => {
-    if (selectedHand === null) return;
-    const awoken = hand[selectedHand];
+    if (selectedHands.length === 0) return;
+    const tile = tiles.find(t => t.id === tileId);
+    if (!tile) return;
+
+    // DIRECT ATTACK: 3 Awoken on a cursed tile purifies it by force
+    if (tile.cursed && selectedHands.length === 3) {
+      const attackers = selectedHands.map(i => hand[i]).filter(Boolean);
+      const totalCost = attackers.reduce((sum, a) => sum + deployCost(a.power), 0);
+      if (energy < totalCost) return;
+      try {
+        for (const a of attackers) {
+          await api.deployAwoken({ awakenedId: a.id, tileId });
+        }
+        setEnergy(e => e - totalCost);
+        const { tiles, placements } = await api.getTerritory();
+        setTiles(tiles); setPlacements(placements);
+        setSelectedHands([]);
+        onUpdate();
+      } catch (e) {
+        console.error("Direct attack failed", e);
+      }
+      return;
+    }
+
+    // Normal deploy: 1 Awoken to purified tile
+    if (tile.cursed) return;
+    if (selectedHands.length !== 1) return;
+    const awoken = hand[selectedHands[0]];
     if (!awoken) return;
     const cost = deployCost(awoken.power);
     if (energy < cost) return;
@@ -108,11 +134,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setEnergy(e => e - cost);
       const { tiles, placements } = await api.getTerritory();
       setTiles(tiles); setPlacements(placements);
-      setSelectedHand(null);
+      setSelectedHands([]);
       onUpdate();
     } catch (e) {
       console.error("Deploy failed", e);
     }
+  };
+
+  const toggleHandSelect = (index: number) => {
+    setSelectedHands(prev => {
+      if (prev.includes(index)) return prev.filter(i => i !== index);
+      if (prev.length >= 3) return prev;
+      return [...prev, index];
+    });
   };
 
   const handleFirstVictory = async (teamIds: number[]) => {
@@ -212,8 +246,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
           </g>
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
-            style={{ cursor: selectedHand !== null && !t.cursed ? "pointer" : "default", pointerEvents: "all" }}
-            onClick={() => selectedHand !== null && !t.cursed && handleDeploy(t.id)} />
+            style={{ cursor: selectedHands.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
+            onClick={() => selectedHands.length > 0 && handleDeploy(t.id)} />
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
@@ -323,11 +357,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </div>
       </div>
       <div className="territory-hand">
-        <div className="hand-label">Hand — tap a card, then a tile to deploy</div>
+        <div className="hand-label">Hand — tap 1 for deploy, 3 for direct attack on cursed</div>
         <div className="hand-cards">
           {hand.map((a, i) => (
-            <button key={a.id} className={`hand-card ${selectedHand === i ? "selected" : ""}`}
-              onClick={() => setSelectedHand(selectedHand === i ? null : i)}>
+            <button key={a.id} className={`hand-card ${selectedHands.includes(i) ? "selected" : ""}`}
+              onClick={() => toggleHandSelect(i)}>
               <img src={a.image_url} alt={a.name} />
               <div className="hand-card-name">{a.name}</div>
               <div className="hand-card-stats">{a.power} / {a.toughness}</div>

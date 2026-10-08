@@ -13,7 +13,6 @@ interface Props {
 
 export default function FirstTrial({ hand, assets, onVictory }: Props) {
   const [placed, setPlaced] = useState<Map<number, Awakened>>(new Map());
-  const [selected, setSelected] = useState<number | null>(null);
   const [purifying, setPurifying] = useState(false);
   // Energy: 5 base + power-scaled bonus per Awoken in hand.
   const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
@@ -50,10 +49,10 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     tiles.push({ q, r, x, y, s, isCenter: idx === 0 });
   });
 
-  // 4 battle positions ON the center hex (the battle ground) — matches 4-per-tile law
+  // 4 keystone positions ON the center hex (invisible — auto-place)
   const center = tiles[0];
-  const battlePositions = [
-    { dx: 0, dy: 0.35 },      // middle-front (default)
+  const keystones = [
+    { dx: 0, dy: 0.35 },      // middle-front (default, first placed)
     { dx: -0.35, dy: 0.1 },   // front-left
     { dx: 0.35, dy: 0.1 },    // front-right
     { dx: 0, dy: -0.3 },      // back-center
@@ -72,29 +71,33 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     }, 1800);
   };
 
-  const handlePositionClick = (posIdx: number) => {
+  // Auto-place: tap a card → goes to next available keystone on center
+  const handleCardTap = (index: number) => {
     if (purifying) return;
-    if (selected === null) {
-      // Tap placed Awoken to remove it (refund energy)
-      if (placed.has(posIdx)) {
-        const awoken = placed.get(posIdx)!;
+    const awoken = hand[index];
+    if (!awoken) return;
+    // If already placed, remove it
+    for (const [posIdx, a] of placed) {
+      if (a.id === awoken.id) {
         const next = new Map(placed);
         next.delete(posIdx);
         setPlaced(next);
-        setEnergy(e => Math.min(e + deployCost(awoken.power), maxEnergy));
+        setEnergy(e => Math.min(e + deployCost(a.power), maxEnergy));
+        return;
       }
-      return;
     }
-    const awoken = hand[selected];
-    if (!awoken) return;
+    // Find next available keystone
+    const usedPositions = new Set(placed.keys());
+    let posIdx = -1;
+    for (let i = 0; i < 4; i++) {
+      if (!usedPositions.has(i)) { posIdx = i; break; }
+    }
+    if (posIdx === -1) return; // All 4 filled
     const cost = deployCost(awoken.power);
     if (energy < cost) return;
-    // Check not already placed elsewhere
-    for (const [, a] of placed) if (a.id === awoken.id) return;
     const next = new Map(placed);
     next.set(posIdx, awoken);
     setPlaced(next);
-    setSelected(null);
     setEnergy(e => e - cost);
   };
 
@@ -155,24 +158,15 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           </g>
           );
         })}
-        {/* Battle positions on center hex */}
-        {!purifying && battlePositions.map((p, i) => {
-          const awoken = placed.get(i);
+        {/* Placed Awoken on center hex (no visible positions — auto-placed) */}
+        {!purifying && Array.from(placed.entries()).map(([posIdx, awoken]) => {
+          const p = keystones[posIdx];
           return (
-            <g key={`bp-${i}`} onClick={() => handlePositionClick(i)}
+            <g key={`placed-${posIdx}`} onClick={() => handleCardTap(hand.findIndex(h => h.id === awoken.id))}
               style={{ cursor: "pointer" }}>
-              <circle cx={p.x} cy={p.y} r="18"
-                fill={awoken ? "#1a2a1a" : "rgba(0,0,0,0.3)"}
-                stroke={awoken ? "#5aaa5a" : "#666"}
-                strokeWidth="1.5" strokeDasharray={awoken ? "none" : "3,3"}
-                style={{ pointerEvents: "all" }} />
-              {awoken ? (
-                <FieldAwoken awoken={awoken} assets={assets}
-                  x={p.x - 14} y={p.y - 18} width={28} height={36}
-                  showFieldBornMarker={false} />
-              ) : (
-                <text x={p.x} y={p.y + 4} textAnchor="middle" fill="#666" fontSize="12">+</text>
-              )}
+              <FieldAwoken awoken={awoken} assets={assets}
+                x={p.x - 14} y={p.y - 18} width={28} height={36}
+                showFieldBornMarker={false} />
             </g>
           );
         })}
@@ -196,14 +190,14 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         })}
       </svg>
       <div className="trial-hand">
-        <div className="hand-label">Tap a card, then tap a surrounding hex — combined power must reach 7</div>
+        <div className="hand-label">Tap cards to send them into the dark — combined power must reach 7</div>
         <div className="hand-cards">
           {hand.map((a, i) => {
             const used = Array.from(placed.values()).some(p => p.id === a.id);
             return (
-              <button key={a.id} className={`hand-card ${selected === i ? "selected" : ""} ${used ? "used" : ""}`}
-                disabled={used || purifying}
-                onClick={() => setSelected(selected === i ? null : i)}>
+              <button key={a.id} className={`hand-card ${used ? "used" : ""}`}
+                disabled={purifying}
+                onClick={() => handleCardTap(i)}>
                 <img src={a.image_url} alt={a.name} />
                 <div className="hand-card-name">{a.name}</div>
                 <div className="hand-card-stats">{a.power} power</div>
