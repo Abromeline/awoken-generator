@@ -4,6 +4,7 @@ import FieldAwoken from "./FieldAwoken";
 import cursedImg from "./assets/terrain/cursed.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
 import unravelerImg from "./assets/adversaries/unraveler.png";
+import cosmicPoolBg from "./assets/cosmic-pool-bg.jpg";
 
 interface Props {
   hand: Awakened[];
@@ -12,7 +13,7 @@ interface Props {
 }
 
 export default function FirstTrial({ hand, assets, onVictory }: Props) {
-  const [placed, setPlaced] = useState<Map<number, Awakened>>(new Map());
+  const [pool, setPool] = useState<number[]>([]); // hand indices waiting in the cosmic pool, max 4
   const [purifying, setPurifying] = useState(false);
   // Energy: 5 base + power-scaled bonus per Awoken in hand.
   const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
@@ -60,8 +61,9 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     y: center.y + dy * center.s * 1.6 * tilt,
   }));
 
-  const combinedPower = Array.from(placed.values()).reduce((sum, a) => sum + a.power, 0);
-  const canBegin = combinedPower >= 7 && placed.size > 0;
+  const pooled = pool.map(i => hand[i]).filter(Boolean);
+  const combinedPower = pooled.reduce((sum, a) => sum + a.power, 0);
+  const canBegin = combinedPower >= 7 && pool.length > 0;
 
   const handleBegin = async () => {
     setPurifying(true);
@@ -69,44 +71,31 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     // come back — don't leave the Tender staring at "Purifying..." forever.
     await new Promise(r => setTimeout(r, 1800));
     try {
-      await onVictory(Array.from(placed.values()).map(a => a.id));
+      await onVictory(pooled.map(a => a.id));
     } catch (e) {
       console.error("[Trial] Purification refused", e);
       setPurifying(false);
     }
   };
 
-  // Auto-place: tap a card → goes to next available keystone on center
+  // Pool: tap a card → waits in the cosmic pool (max 4). Tap again to pull it back.
   const handleCardTap = (index: number) => {
     if (purifying) return;
     const awoken = hand[index];
     if (!awoken) return;
-    // If already placed, remove it
-    for (const [posIdx, a] of placed) {
-      if (a.id === awoken.id) {
-        const next = new Map(placed);
-        next.delete(posIdx);
-        setPlaced(next);
-        setEnergy(e => Math.min(e + deployCost(a.power), maxEnergy));
-        return;
-      }
+    if (pool.includes(index)) {
+      setPool(pool.filter(i => i !== index));
+      setEnergy(e => Math.min(e + deployCost(awoken.power), maxEnergy));
+      return;
     }
-    // Find next available keystone
-    const usedPositions = new Set(placed.keys());
-    let posIdx = -1;
-    for (let i = 0; i < 4; i++) {
-      if (!usedPositions.has(i)) { posIdx = i; break; }
-    }
-    if (posIdx === -1) return; // All 4 filled
+    if (pool.length >= 4) return;
     const cost = deployCost(awoken.power);
     if (energy < cost) return;
-    const next = new Map(placed);
-    next.set(posIdx, awoken);
-    setPlaced(next);
+    setPool([...pool, index]);
     setEnergy(e => e - cost);
   };
 
-  const hasPlaced = placed.size > 0;
+  const hasPlaced = pool.length > 0;
 
   return (
     <div className="first-trial">
@@ -115,9 +104,9 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         <div className="hand-label">Tap cards to send them into the dark — combined power must reach 7</div>
         <div className="hand-cards">
           {hand.map((a, i) => {
-            const used = Array.from(placed.values()).some(p => p.id === a.id);
+            const inPool = pool.includes(i);
             return (
-              <button key={a.id} className={`hand-card ${used ? "used" : ""}`}
+              <button key={a.id} className={`hand-card ${inPool ? "in-pool" : ""}`}
                 disabled={purifying}
                 onClick={() => handleCardTap(i)}>
                 <img src={a.image_url} alt={a.name} />
@@ -128,6 +117,19 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           })}
         </div>
       </div>
+      {pool.length > 0 && (
+        <div className="cosmic-pool" style={{ backgroundImage: `url(${cosmicPoolBg})` }}>
+          <div className="cosmic-pool-label">Waiting in the void — {pool.length}/4</div>
+          <div className="cosmic-pool-cards">
+            {pooled.map(a => (
+              <div key={a.id} className="cosmic-pool-card">
+                <FieldAwoken awoken={a} assets={assets} x={0} y={0} width={48} height={60} showFieldBornMarker={false} />
+                <div className="cosmic-pool-card-name">{a.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="trial-field-wrap">
         <svg viewBox="0 0 500 340" className="trial-svg">
         <defs>
@@ -172,21 +174,6 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
               </>
             )}
           </g>
-          );
-        })}
-        {/* Placed Awoken on center hex (no visible positions — auto-placed) */}
-        {!purifying && Array.from(placed.entries()).map(([posIdx, awoken]) => {
-          const p = keystones[posIdx];
-          const driftDur = (6 + (awoken.id % 5)).toFixed(1);
-          const driftDelay = (-(awoken.id % 7)).toFixed(1);
-          return (
-            <g key={`placed-${posIdx}`} onClick={() => handleCardTap(hand.findIndex(h => h.id === awoken.id))}
-              className="field-drifter"
-              style={{ cursor: "pointer", "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` } as React.CSSProperties}>
-              <FieldAwoken awoken={awoken} assets={assets}
-                x={p.x - 14} y={p.y - 18} width={28} height={36}
-                showFieldBornMarker={false} />
-            </g>
           );
         })}
         {/* Unraveler on center */}
