@@ -175,18 +175,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return <FirstTrial hand={hand} assets={assets} onVictory={handleFirstVictory} />;
     }
     // Simple grid layout for now; parallax via row scaling
-  // Render hex grid with parallax
+  // Render hex grid with parallax — proper pointy-top axial layout
   const renderGrid = () => {
-    const size = 17, tilt = 0.62; // 50% size, still connected
-    // Base spacing uses consistent size; parallax only affects visual scale
-    const baseS = size;
+    const size = 17, tilt = 0.62;
+    // Center the (0,0) tile in the viewBox
+    const originX = 250, originY = 170;
     const elements = tiles.map((t, i) => {
-      const col = t.q + 5, row = t.r + 5;
-      const ps = 0.7 + (row / 10) * 0.5; // visual scale only
+      // Pointy-top axial to pixel (with vertical squash)
+      const px = size * Math.sqrt(3) * (t.q + t.r / 2);
+      const py = size * 1.5 * tilt * t.r;
+      const cx = originX + px + pan.x;
+      const cy = originY + py + pan.y;
+      // Parallax: visual scale by distance from center (further = smaller)
+      const dist = Math.sqrt(t.q * t.q + t.r * t.r + t.q * t.r);
+      const ps = Math.max(0.6, 1 - dist * 0.08);
       const s = size * ps;
-      // Position with consistent spacing (not scaled)
-      const cx = 60 + col * (Math.sqrt(3) * baseS * 0.92) + pan.x;
-      const cy = 60 + row * (2 * baseS * 0.78 * tilt) + pan.y;
       const pts: string[] = [];
       for (let k = 0; k < 6; k++) {
         const a = Math.PI / 180 * (60 * k);

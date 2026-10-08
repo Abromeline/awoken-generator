@@ -252,3 +252,6 @@
 @keyframes hollow-pulse{0%,100%{transform:scale(1);opacity:0.9}50%{transform:scale(0.92);opacity:1}}
 .adversary-tangle{animation:tangle-writhe 2.5s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
 @keyframes tangle-writhe{0%,100%{transform:rotate(-3deg) scale(1)}50%{transform:rotate(3deg) scale(1.05)}}
+
+/* Pinned hand */
+.territory-hand{position:sticky;bottom:0;background:rgba(5,5,5,0.95);backdrop-filter:blur(4px);border-top:1px solid #b89b5e;padding:8px;z-index:20}
