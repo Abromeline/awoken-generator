@@ -12,6 +12,9 @@ export default function FirstTrial({ hand, onVictory }: Props) {
   const [placed, setPlaced] = useState<Map<number, Awakened>>(new Map());
   const [selected, setSelected] = useState<number | null>(null);
   const [purifying, setPurifying] = useState(false);
+  // Energy: 5 base + 1 per Awoken in hand (burst at start)
+  const maxEnergy = 5 + hand.length;
+  const [energy, setEnergy] = useState(maxEnergy);
 
   const baseSize = 32, tilt = 0.62;
   const cx = 250, cy = 150;
@@ -55,14 +58,16 @@ export default function FirstTrial({ hand, onVictory }: Props) {
   const handleHexClick = (tileIdx: number) => {
     if (purifying || tileIdx === 0) return; // center not placeable
     if (selected === null) {
-      // Tap placed Awoken to remove it
+      // Tap placed Awoken to remove it (refund energy)
       if (placed.has(tileIdx)) {
         const next = new Map(placed);
         next.delete(tileIdx);
         setPlaced(next);
+        setEnergy(e => Math.min(e + 2, maxEnergy));
       }
       return;
     }
+    if (energy < 2) return;
     const awoken = hand[selected];
     if (!awoken) return;
     // Check not already placed elsewhere
@@ -71,10 +76,20 @@ export default function FirstTrial({ hand, onVictory }: Props) {
     next.set(tileIdx, awoken);
     setPlaced(next);
     setSelected(null);
+    setEnergy(e => e - 2);
   };
 
   return (
     <div className="first-trial">
+      <div className="territory-hud">
+        <div className="energy-meter">
+          <span className="energy-label">Energy</span>
+          <div className="energy-bar">
+            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
+          </div>
+          <span className="energy-value">{energy}/{maxEnergy}</span>
+        </div>
+      </div>
       <svg viewBox="0 0 500 340" className="trial-svg">
         <defs>
           {tiles.map((t, i) => (

@@ -59,7 +59,18 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedHand, setSelectedHand] = useState<number | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [energy, setEnergy] = useState(5);
-  const maxEnergy = 5;
+
+  // Hand = Awoken not on field
+  const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
+  const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
+
+  // Energy cap: 5 base + 1 per Awoken in hand. Burst early, tapers as you commit.
+  const maxEnergy = 5 + hand.length;
+
+  // Clamp energy to cap when hand shrinks
+  useEffect(() => {
+    setEnergy(e => Math.min(e, maxEnergy));
+  }, [maxEnergy]);
 
   useEffect(() => {
     api.getTerritory().then(({ tiles, placements }) => {
@@ -67,9 +78,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }).catch(() => {});
   }, []);
 
-  // Hand = Awoken not on the field
-  const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
-  const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
+  // Hand = Awoken not on field (defined above for energy calc)
 
   const handleDeploy = async (tileId: number) => {
     if (selectedHand === null || energy < 2) return;
