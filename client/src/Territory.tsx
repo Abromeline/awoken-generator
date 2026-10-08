@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import FirstTrial from "./FirstTrial";
 import { randomWhisper } from "./whispers";
+import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain/tide.jpg";
 import skyImg from "./assets/terrain/sky.jpg";
 import stoneImg from "./assets/terrain/stone.jpg";
@@ -16,7 +17,7 @@ const TERRAIN: Record<string, string> = {
 
 interface Props {
   tenderItems: Awakened[];
-  assets: { sourceId: string; imageUrl: string; category: string }[];
+  assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
   onUpdate: () => void;
 }
 
@@ -74,8 +75,41 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // 1-3: 2, 4-6: 3, 7-9: 4, 10+: 5.
   const deployCost = (power: number) => 2 + Math.floor((power - 1) / 3);
 
+  // Timed birth: every 4 hours, a new Awoken joins the hand
+  const [birthStatus, setBirthStatus] = useState<{ ready: boolean; msUntil: number } | null>(null);
+
   // Whisper state: which field Awoken is speaking
   const [whisper, setWhisper] = useState<{ awakenedId: number; text: string } | null>(null);
+
+  useEffect(() => {
+    api.getBirthStatus().then(setBirthStatus).catch(() => {});
+    const timer = setInterval(() => {
+      api.getBirthStatus().then(setBirthStatus).catch(() => {});
+    }, 60000); // Check every minute
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleTimedBirth = async () => {
+    try {
+      const birthLayers = pickBirthLayers(assets.map(a => ({
+        sourceId: a.sourceId, name: a.name, category: a.category,
+        rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
+      })));
+      if (birthLayers.length < 3) return;
+      const imageBase64 = await composeBirth(birthLayers);
+      const layerRefs = birthLayers.map(l => ({
+        source_id: l.sourceId, name: l.name,
+        category: l.category as "body" | "arms" | "aura" | "head",
+        rarity: "common" as const, power: null, toughness: null,
+      }));
+      await api.claimTimedBirth({ layers: layerRefs, imageBase64 });
+      const status = await api.getBirthStatus();
+      setBirthStatus(status);
+      onUpdate();
+    } catch (e) {
+      console.error("Timed birth failed", e);
+    }
+  };
 
   // Field Awoken whisper from time to time (only on field, never in hand)
   useEffect(() => {
@@ -119,6 +153,30 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       await api.claimFirstTile({ teamIds });
       const { tiles, placements } = await api.getTerritory();
       setTiles(tiles); setPlacements(placements);
+      // Birth the newborn: a real Wake, not a clone. 5% fire chance.
+      const center = tiles.find(t => t.q === 0 && t.r === 0);
+      if (center && teamIds.length > 0) {
+        const team = tenderItems.filter(a => teamIds.includes(a.id));
+        const liberatorNames = team.map(t => t.name);
+        const birthLayers = pickBirthLayers(assets.map(a => ({
+          sourceId: a.sourceId, name: a.name, category: a.category,
+          rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
+        })));
+        if (birthLayers.length >= 3) {
+          const imageBase64 = await composeBirth(birthLayers);
+          const layerRefs = birthLayers.map(l => ({
+            source_id: l.sourceId, name: l.name,
+            category: l.category as "body" | "arms" | "aura" | "head",
+            rarity: "common" as const, power: null, toughness: null,
+          }));
+          await api.birthFieldAwoken({
+            layers: layerRefs, imageBase64,
+            tileId: center.id, liberatorNames,
+          });
+          const refreshed = await api.getTerritory();
+          setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+        }
+      }
       onUpdate();
     } catch (e) {
       console.error("Claim failed", e);
@@ -153,12 +211,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Render hex grid with parallax
   const renderGrid = () => {
     const size = 34, tilt = 0.62;
+    // Base spacing uses consistent size; parallax only affects visual scale
+    const baseS = size;
     const elements = tiles.map((t, i) => {
       const col = t.q + 5, row = t.r + 5;
-      const ps = 0.7 + (row / 10) * 0.5;
+      const ps = 0.7 + (row / 10) * 0.5; // visual scale only
       const s = size * ps;
-      const cx = 60 + col * (Math.sqrt(3) * s * 0.92) + pan.x;
-      const cy = 60 + row * (2 * s * 0.78 * tilt) + pan.y;
+      // Position with consistent spacing (not scaled)
+      const cx = 60 + col * (Math.sqrt(3) * baseS * 0.92) + pan.x;
+      const cy = 60 + row * (2 * baseS * 0.78 * tilt) + pan.y;
       const pts: string[] = [];
       for (let k = 0; k < 6; k++) {
         const a = Math.PI / 180 * (60 * k);
@@ -175,8 +236,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <g clipPath={`url(#terr-${t.id})`}>
             <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
           </g>
-          <polygon points={pts.join(" ")} fill="none" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
-            style={{ cursor: selectedHand !== null && !t.cursed ? "pointer" : "default" }}
+          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
+            style={{ cursor: selectedHand !== null && !t.cursed ? "pointer" : "default", pointerEvents: "all" }}
             onClick={() => selectedHand !== null && !t.cursed && handleDeploy(t.id)} />
           {awokens.length > 0 && (
             <g>
@@ -265,6 +326,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
           <span className="energy-value">{energy}/{maxEnergy}</span>
         </div>
+        {birthStatus?.ready ? (
+          <button className="abtn birth-ready" onClick={handleTimedBirth}>
+            ✨ A new Awoken awaits
+          </button>
+        ) : birthStatus && (
+          <div className="birth-countdown">
+            Next birth in {Math.floor(birthStatus.msUntil / 3600000)}h {Math.floor((birthStatus.msUntil % 3600000) / 60000)}m
+          </div>
+        )}
       </div>
       <div className="territory-map">
         <svg viewBox="0 0 500 340" className="territory-svg">

@@ -113,13 +113,15 @@ CREATE TABLE IF NOT EXISTS field_placements (
 );
 `;
 
+// (tender_births table created after sqlite init below)
+
 // Lightweight migration: awakened.field_born for field-born marker.
 // (Moved after sqlite init below.)
 
 mkdirSync(DATA_DIR, { recursive: true });
 mkdirSync(BLOBS_DIR, { recursive: true });
 
-const sqlite = new Database(join(DATA_DIR, "app.db"));
+export const sqlite = new Database(join(DATA_DIR, "app.db"));
 sqlite.exec(DDL);
 
 // Lightweight migration: awakened.owner_key for per-Tender decks.
@@ -134,6 +136,11 @@ if (!awakenedCols.some((col) => col.name === "story_count")) {
 if (!awakenedCols.some((col) => col.name === "field_born")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN field_born INTEGER NOT NULL DEFAULT 0`);
 }
+// 4-hour birth cycle: tracks last free birth per Tender
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
+  owner_key TEXT PRIMARY KEY,
+  last_birth_at INTEGER NOT NULL
+);`);
 
 // Stories table for the Confluence power-up.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (

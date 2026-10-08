@@ -236,3 +236,9 @@
 .whisper-bubble{animation:whisper-fade 7s ease-in-out}
 .whisper-text{font-family:Georgia,serif;text-shadow:0 1px 3px #000}
 @keyframes whisper-fade{0%{opacity:0}10%{opacity:0.85}80%{opacity:0.85}100%{opacity:0}}
+
+.territory-nav{z-index:10}
+.territory-nav button{pointer-events:auto}
+
+/* Trial title */
+.trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}

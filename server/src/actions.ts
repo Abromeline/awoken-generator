@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, blobs, schema } from "./store.js";
+import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
 import { creditBalance, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
@@ -677,35 +677,89 @@ export const handlers = {
         ownerKey, q: dq, r: dr, element: el, cursed: 1,
       });
     }
-    // Place team on center tile (max 4 total, including newborn below).
-    // Newborn: a new Awoken wakes on the purified tile, born from the team's victory.
-    // Marked field-born with gold tree; story tells of liberation.
-    if (teamRows.length > 0) {
-      const progenitor = teamRows[0];
-      const liberatorNames = teamRows.map(t => t.name).join(", ");
-      const story = `Liberated by ${liberatorNames}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
-      const [newborn] = await db.insert(schema.awakened).values({
-        name: "Newborn of the Purified Land",
-        imageBlobKey: progenitor.imageBlobKey,
-        compositionJson: progenitor.compositionJson,
-        collection: "tender",
-        ownerName: ownerKey,
-        ownerKey,
-        identityKey: `newborn-${Date.now()}`,
-        flavorText: story,
-        fieldBorn: 1,
-      }).returning({ id: schema.awakened.id });
-      await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: newborn.id, tileId: center.id,
-      });
-    }
-    // Place up to 3 team members (newborn + 3 = 4 max).
-    for (let i = 0; i < Math.min(3, teamRows.length); i++) {
+    // Place team on center tile (max 4 total).
+    // Newborn is birthed client-side via birthFieldAwoken (real Wake, not a clone).
+    for (let i = 0; i < Math.min(4, teamRows.length); i++) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: teamRows[i].id, tileId: center.id,
       });
     }
     return okResponse.parse({ ok: true });
+  },
+
+  async birthFieldAwoken(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      layers: z.array(layerRefShape),
+      imageBase64: z.string(),
+      tileId: z.number(),
+      liberatorNames: z.array(z.string()),
+    }).parse(args);
+    const story = `Liberated by ${parsed.liberatorNames.join(", ")}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
+    const blobKey = `fieldborn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
+    blobs.put(blobKey, Buffer.from(base64Data, "base64"), "image/png");
+    const [newborn] = await db.insert(schema.awakened).values({
+      name: "Newborn of the Purified Land",
+      imageBlobKey: blobKey,
+      compositionJson: JSON.stringify(parsed.layers),
+      collection: "tender",
+      ownerName: ownerKey,
+      ownerKey,
+      identityKey: `newborn-${Date.now()}`,
+      flavorText: story,
+      fieldBorn: 1,
+    }).returning({ id: schema.awakened.id });
+    await db.insert(schema.fieldPlacements).values({
+      ownerKey, awakenedId: newborn.id, tileId: parsed.tileId,
+    });
+    return okResponse.parse({ ok: true, id: newborn.id });
+  },
+
+  async getBirthStatus(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;
+    const now = Date.now();
+    const fourHours = 4 * 60 * 60 * 1000;
+    if (!row) {
+      // First time: birth is ready
+      return { ready: true, msUntil: 0 };
+    }
+    const elapsed = now - row.last_birth_at;
+    if (elapsed >= fourHours) {
+      return { ready: true, msUntil: 0 };
+    }
+    return { ready: false, msUntil: fourHours - elapsed };
+  },
+
+  async claimTimedBirth(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      layers: z.array(layerRefShape),
+      imageBase64: z.string(),
+    }).parse(args);
+    const now = Date.now();
+    const fourHours = 4 * 60 * 60 * 1000;
+    const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;
+    if (row && (now - row.last_birth_at) < fourHours) {
+      badRequest("The next birth is not ready yet.");
+    }
+    const blobKey = `timed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
+    blobs.put(blobKey, Buffer.from(base64Data, "base64"), "image/png");
+    const [newborn] = await db.insert(schema.awakened).values({
+      name: "Child of Time",
+      imageBlobKey: blobKey,
+      compositionJson: JSON.stringify(parsed.layers),
+      collection: "tender",
+      ownerName: ownerKey,
+      ownerKey,
+      identityKey: `timed-${Date.now()}`,
+      flavorText: "Born of patience. Every four hours, the world offers a new form.",
+      fieldBorn: 0, // Born of time, not of battle
+    }).returning({ id: schema.awakened.id });
+    sqlite.prepare(`INSERT OR REPLACE INTO tender_births (owner_key, last_birth_at) VALUES (?, ?)`).run(ownerKey, now);
+    return okResponse.parse({ ok: true, id: newborn.id });
   },
 };
 

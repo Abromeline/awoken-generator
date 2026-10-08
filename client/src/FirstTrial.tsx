@@ -33,14 +33,15 @@ export default function FirstTrial({ hand, onVictory }: Props) {
   // Full field with parallax: rows scale by distance (top smaller, bottom larger)
   // Center hex (0,0) is the trial hex, highlighted. Surrounding 6 are cursed previews.
   const tiles: { q: number; r: number; x: number; y: number; s: number; isCenter: boolean }[] = [];
-  const coords = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1], [2, -1], [-1, 2]];
+  const coords = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const baseW = Math.sqrt(3) * baseSize;
   coords.forEach(([q, r], idx) => {
-    // Parallax: scale by row (r). Higher r (lower on screen) = larger.
+    // Parallax: visual scale by row (r). Higher r (lower on screen) = larger.
     const ps = 0.75 + ((r + 2) / 4) * 0.5; // 0.75 to 1.25
     const s = baseSize * ps * (idx === 0 ? 1.4 : 1); // Center is larger
-    const W = Math.sqrt(3) * s;
-    const x = cx + q * (W * 0.92) + (r % 2 ? W * 0.46 : 0);
-    const y = cy + r * (s * 1.1 * tilt);
+    // Position with consistent spacing
+    const x = cx + q * (baseW * 0.92) + (r % 2 ? baseW * 0.46 : 0);
+    const y = cy + r * (baseSize * 1.1 * tilt);
     tiles.push({ q, r, x, y, s, isCenter: idx === 0 });
   });
 
@@ -85,6 +86,7 @@ export default function FirstTrial({ hand, onVictory }: Props) {
 
   return (
     <div className="first-trial">
+      <div className="trial-title">Purify the dark to begin</div>
       <div className="territory-hud">
         <div className="energy-meter">
           <span className="energy-label">Energy</span>
@@ -122,10 +124,11 @@ export default function FirstTrial({ hand, onVictory }: Props) {
                 preserveAspectRatio="xMidYMid slice"
                 opacity={t.isCenter ? 1 : 0.7} />
             </g>
-            <polygon points={hexPoints(t.x, t.y, t.s)} fill="none"
+            <polygon points={hexPoints(t.x, t.y, t.s)} fill="rgba(0,0,0,0)"
               stroke={t.isCenter ? "#b89b5e" : placedAwoken ? "#5aaa5a" : "#6a1a1a"}
               strokeWidth={t.isCenter ? 3 : placedAwoken ? 2 : 1.2}
-              opacity={t.isCenter ? 1 : 0.6} />
+              opacity={t.isCenter ? 1 : 0.6}
+              style={{ pointerEvents: "all" }} />
             {placedAwoken && (
               <image href={placedAwoken.image_url}
                 x={t.x - t.s * 0.45} y={t.y - t.s * 0.6}
@@ -164,10 +167,6 @@ export default function FirstTrial({ hand, onVictory }: Props) {
               style={{ "--px": `${Math.cos(angle) * dist}px`, "--py": `${Math.sin(angle) * dist}px` } as React.CSSProperties} />
           );
         })}
-        {/* Text under hex */}
-        <text x={center.x} y={center.y + center.s * tilt + 28} textAnchor="middle" fill="#555" fontSize="14" fontStyle="italic" opacity="0.85">
-          Purify the dark to begin
-        </text>
       </svg>
       <div className="trial-hand">
         <div className="hand-label">Tap a card, then tap a surrounding hex — combined power must reach 7</div>
