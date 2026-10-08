@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import FirstTrial from "./FirstTrial";
 import FieldAwoken from "./FieldAwoken";
+import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain/tide.jpg";
@@ -20,6 +21,22 @@ interface Props {
   tenderItems: Awakened[];
   assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
   onUpdate: () => void;
+}
+
+
+// Dominant element of an Awoken, for corner motifs.
+function dominantElement(a: Awakened): Element {
+  const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
+  for (const layer of a.layers ?? []) {
+    const el = elementForPiece(layer.name);
+    counts[el] = (counts[el] ?? 0) + 1;
+  }
+  let best: Element = "root";
+  let max = -1;
+  for (const [el, n] of Object.entries(counts)) {
+    if (n > max) { max = n; best = el as Element; }
+  }
+  return best;
 }
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
@@ -375,8 +392,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               {battlePool.map(i => {
                 const a = hand[i];
                 if (!a) return null;
+                const el = dominantElement(a);
                 return (
                   <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(i)} title="Remove">
+                    <Corner element={el} className="hcorner tl" />
+                    <Corner element={el} className="hcorner br" />
                     <img src={a.image_url} alt={a.name} />
                     <div className="battle-pool-card-name">{a.name}</div>
                   </button>
@@ -386,15 +406,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         )}
         <div className="hand-cards">
-          {hand.map((a, i) => (
+          {hand.map((a, i) => {
+            const el = dominantElement(a);
+            return (
             <button key={a.id} className={`hand-card ${battlePool.includes(i) ? "in-pool" : ""}`}
               onClick={() => toggleBattlePool(i)}>
+              <Corner element={el} className="hcorner tl" />
+              <Corner element={el} className="hcorner tr" />
+              <Corner element={el} className="hcorner bl" />
+              <Corner element={el} className="hcorner br" />
               <img src={a.image_url} alt={a.name} />
               <div className="hand-card-name">{a.name}</div>
               <div className="hand-card-stats">{a.power} / {a.toughness}</div>
               <div className="hand-card-cost">⚡{deployCost(a.power)} · +{energyBonus(a.power)}✦</div>
             </button>
-          ))}
+            );
+          })}
           {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}
         </div>
       </div>

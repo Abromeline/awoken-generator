@@ -141,8 +141,8 @@ function toRoman(num: number): string {
   return result || "I";
 }
 
-type Element = "tide" | "sky" | "stone" | "root" | "fire";
-function elementForPiece(name: string): Element {
+export type Element = "tide" | "sky" | "stone" | "root" | "fire";
+export function elementForPiece(name: string): Element {
   const n = name.toLowerCase();
   if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
   if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
@@ -151,16 +151,16 @@ function elementForPiece(name: string): Element {
   return "root";
 }
 
-const cornerPaths: Record<Element, string[]> = {
+export const cornerPaths: Record<Element, string[]> = {
   tide: ["M4 18 A16 16 0 0 1 18 4", "M4 27 A25 25 0 0 1 27 4", "M4 36 A34 34 0 0 1 36 4"],
   sky: ["M10 24 C10 15 19 9 28 12 C35 14 38 22 34 28 C31 33 23 34 19 29 C16 25 19 19 24 19 C28 19 30 24 27 27"],
   stone: ["M4 40 L14 16 L22 28 L30 10 L40 24", "M14 16 L18 22 L14 28 L10 22 Z", "M30 10 L33 15 L30 20 L27 15 Z"],
   root: ["M4 40 C4 24 10 12 22 8 C30 5 38 6 41 10", "M41 10 c-3 -4 -9 -4 -12 -1 c-2.5 2.5 -2 7 1 8.5 c2.4 1.2 5.5 -0.3 5.4 -3 c-0.1 -2.2 -2.8 -3.4 -4.6 -2.2", "M10 34 C14 32 18 32 21 34 C19 36 15 36 13 34 Z"],
   fire: ["M22 6 C22 6 11 21 11 29 A11 11 0 0 0 33 29 C33 21 22 6 22 6 Z"],
 };
-const elementColors: Record<Element, string> = { tide: "#4e8a9b", sky: "#7ba7c4", stone: "#8a7f70", root: "#6a8a4e", fire: "#b8542e" };
+export const elementColors: Record<Element, string> = { tide: "#4e8a9b", sky: "#7ba7c4", stone: "#8a7f70", root: "#6a8a4e", fire: "#b8542e" };
 
-function Corner({ element, className }: { element: Element; className: string }) {
+export function Corner({ element, className }: { element: Element; className: string }) {
   return <svg className={className} viewBox="0 0 44 44" fill="none" stroke={elementColors[element]} strokeWidth="1.1" strokeLinecap="round" aria-hidden="true">
     {cornerPaths[element].map((d, i) => <path key={i} d={d} />)}
   </svg>;

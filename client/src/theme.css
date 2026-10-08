@@ -162,7 +162,10 @@
 .territory-hand{margin-top:12px}
 .hand-label{text-align:center;font-size:11px;color:#888;margin-bottom:8px;font-style:italic}
 .hand-cards{display:flex;gap:8px;overflow-x:auto;padding:4px;justify-content:center;flex-wrap:wrap}
-.hand-card{width:84px;background:#161616;border:2px solid #444;border-radius:6px;padding:4px;cursor:pointer;text-align:center}
+.hand-card{width:84px;background:#161616;border:2px solid #444;border-radius:6px;padding:4px;cursor:pointer;text-align:center;position:relative}
+.hcorner{position:absolute;width:18px;height:18px;pointer-events:none;z-index:2}
+.hcorner.tl{top:1px;left:1px}.hcorner.tr{top:1px;right:1px;transform:scaleX(-1)}
+.hcorner.bl{bottom:1px;left:1px;transform:scaleY(-1)}.hcorner.br{bottom:1px;right:1px;transform:scale(-1,-1)}
 .hand-card.selected{border-color:#b89b5e;box-shadow:0 0 12px rgba(184,155,94,0.4)}
 .hand-card img{width:72px;height:92px;object-fit:contain}
 .hand-card-name{font-size:10px;color:#e8e0d0;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -247,7 +250,7 @@
 .battle-pool{margin-top:10px;padding:10px;background:#0d0d0d;border:1px solid #b89b5e;border-radius:8px}
 .battle-pool-label{font-size:12px;color:#b89b5e;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
 .battle-pool-cards{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-.battle-pool-card{background:#1a1a1a;border:1px solid #b89b5e;border-radius:6px;padding:6px;cursor:pointer;width:72px}
+.battle-pool-card{background:#1a1a1a;border:1px solid #b89b5e;border-radius:6px;padding:6px;cursor:pointer;width:72px;position:relative}
 .battle-pool-card img{width:100%;height:auto;border-radius:4px}
 .battle-pool-card-name{font-size:10px;color:#e8e0d0;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hand-card.in-pool{opacity:0.35}
