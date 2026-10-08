@@ -633,8 +633,8 @@ export const handlers = {
     if (!tile.length) badRequest("That tile is not yours.");
     if (tile[0].cursed) badRequest("Cannot deploy on cursed land.");
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId)).limit(1);
-    if (occupied.length) badRequest("Tile occupied.");
+      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
+    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId: parsed.data.awakenedId, tileId: parsed.data.tileId,
     });
@@ -677,10 +677,29 @@ export const handlers = {
         ownerKey, q: dq, r: dr, element: el, cursed: 1,
       });
     }
-    // Place team on center tile (first one; others remain in hand for now).
+    // Place team on center tile (max 4 total, including newborn below).
+    // Newborn: a new Awoken wakes on the purified tile, born from the team's victory.
+    // (MVP: uses first team member's image as placeholder; proper birth rendering comes later.)
     if (teamRows.length > 0) {
+      const progenitor = teamRows[0];
+      const [newborn] = await db.insert(schema.awakened).values({
+        name: "Newborn of the Purified Land",
+        imageBlobKey: progenitor.imageBlobKey,
+        compositionJson: progenitor.compositionJson,
+        collection: "tender",
+        ownerName: ownerKey,
+        ownerKey,
+        identityKey: `newborn-${Date.now()}`,
+        flavorText: "Born from victory, on land reclaimed from the dark.",
+      }).returning({ id: schema.awakened.id });
       await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: teamRows[0].id, tileId: center.id,
+        ownerKey, awakenedId: newborn.id, tileId: center.id,
+      });
+    }
+    // Place up to 3 team members (newborn + 3 = 4 max).
+    for (let i = 0; i < Math.min(3, teamRows.length); i++) {
+      await db.insert(schema.fieldPlacements).values({
+        ownerKey, awakenedId: teamRows[i].id, tileId: center.id,
       });
     }
     return okResponse.parse({ ok: true });

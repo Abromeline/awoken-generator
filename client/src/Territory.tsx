@@ -15,10 +15,38 @@ const TERRAIN: Record<string, string> = {
 
 interface Props {
   tenderItems: Awakened[];
+  assets: { sourceId: string; imageUrl: string; category: string }[];
   onUpdate: () => void;
 }
 
-export default function Territory({ tenderItems, onUpdate }: Props) {
+// Renders an Awoken's layers stacked, WITHOUT the background.
+// Layers draw back-to-front: body → arms → aura → head.
+function FieldAwoken({ awoken, assets, x, y, width, height }: {
+  awoken: Awakened; assets: Props["assets"]; x: number; y: number; width: number; height: number;
+}) {
+  const assetMap = useMemo(() => {
+    const m = new Map<string, string>();
+    assets.forEach(a => m.set(a.sourceId, a.imageUrl));
+    return m;
+  }, [assets]);
+  const layers = awoken.layers
+    .filter(l => l.category !== "background")
+    .sort((a, b) => {
+      const order = ["body", "arms", "aura", "head"];
+      return order.indexOf(a.category) - order.indexOf(b.category);
+    });
+  return (
+    <g>
+      {layers.map((l, i) => {
+        const url = assetMap.get(l.source_id);
+        if (!url) return null;
+        return <image key={i} href={url} x={x} y={y} width={width} height={height} preserveAspectRatio="xMidYMid meet" />;
+      })}
+    </g>
+  );
+}
+
+export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [selectedHand, setSelectedHand] = useState<number | null>(null);
@@ -101,7 +129,9 @@ export default function Territory({ tenderItems, onUpdate }: Props) {
       }
       const tex = t.cursed ? "cursed" : t.element;
       const placement = placements.find(p => p.tileId === t.id);
-      const awoken = placement ? tenderItems.find(a => a.id === placement.awakenedId) : null;
+      const tilePlacements = placements.filter(p => p.tileId === t.id);
+      const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
+      const awoken = awokens[0] ?? null;
       return (
         <g key={t.id}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
@@ -111,12 +141,22 @@ export default function Territory({ tenderItems, onUpdate }: Props) {
           <polygon points={pts.join(" ")} fill="none" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
             style={{ cursor: selectedHand !== null && !t.cursed ? "pointer" : "default" }}
             onClick={() => selectedHand !== null && !t.cursed && handleDeploy(t.id)} />
-          {awoken && (
+          {awokens.length > 0 && (
             <g>
-              <image href={awoken.image_url} x={cx - 20 * ps} y={cy - 42 * ps} width={40 * ps} height={52 * ps} />
+              {awokens.slice(0, 4).map((a, idx) => {
+                // 2x2 grid on tile
+                const ox = (idx % 2 === 0 ? -1 : 1) * 14 * ps;
+                const oy = (idx < 2 ? -1 : 1) * 10 * ps;
+                const ws = 28 * ps, hs = 36 * ps;
+                return (
+                  <FieldAwoken key={a.id} awoken={a} assets={assets}
+                    x={cx + ox - ws / 2} y={cy + oy - hs / 2 - 8 * ps}
+                    width={ws} height={hs} />
+                );
+              })}
               {(() => {
-                const placement = placements.find(p => p.tileId === t.id);
-                if (!placement) return null;
+                const placement = tilePlacements[0];
+                if (!placement || !awoken) return null;
                 const remaining = getAttuneRemaining(t, placement, awoken);
                 if (remaining === null || remaining <= 0) return null;
                 return (
