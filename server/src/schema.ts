@@ -189,3 +189,13 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // Stance: attack | defense | binding. Defense is the default — holding ground.
   stance: text("stance").notNull().default("defense"),
 });
+
+// Wave defense: the Unraveling attacks in waves. The center is the last bastion.
+export const waveState = sqliteTable("wave_state", {
+  ownerKey: text("owner_key").primaryKey(),
+  waveNumber: integer("wave_number").notNull().default(1),
+  lastWaveAt: integer("last_wave_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  wavesDefeated: integer("waves_defeated").notNull().default(0),
+});

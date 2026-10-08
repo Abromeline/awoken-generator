@@ -152,6 +152,13 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,
   last_birth_at INTEGER NOT NULL
 );`);
+// Wave defense: the Unraveling attacks the bastion in waves.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
+  owner_key TEXT PRIMARY KEY,
+  wave_number INTEGER NOT NULL DEFAULT 1,
+  last_wave_at INTEGER NOT NULL,
+  waves_defeated INTEGER NOT NULL DEFAULT 0
+);`);
 
 // Stories table for the Confluence power-up.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (

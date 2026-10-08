@@ -902,6 +902,141 @@ export const handlers = {
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
+
+  async getWave(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    let state = await db.select().from(schema.waveState)
+      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
+    if (!state.length) {
+      const [row] = await db.insert(schema.waveState).values({ ownerKey }).returning();
+      state = [row];
+    }
+    const wave = state[0].waveNumber;
+    // Wave composition: Fray swarm + Unraveler every 3rd wave.
+    const frayCount = 2 + wave;
+    const frayPower = 1;
+    const unravelers = Math.floor(wave / 3);
+    const unravelerPower = 4;
+    const totalPower = frayCount * frayPower + unravelers * unravelerPower;
+    return {
+      waveNumber: wave,
+      wavesDefeated: state[0].wavesDefeated,
+      frayCount, unravelers,
+      totalPower,
+    };
+  },
+
+  async defendWave(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    let state = await db.select().from(schema.waveState)
+      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
+    if (!state.length) {
+      const [row] = await db.insert(schema.waveState).values({ ownerKey }).returning();
+      state = [row];
+    }
+    const wave = state[0].waveNumber;
+    const frayCount = 2 + wave;
+    const unravelers = Math.floor(wave / 3);
+    const wavePower = frayCount * 1 + unravelers * 4;
+
+    // Defense: Awoken on the bastion (center tile) in defense stance.
+    // The center is the last bastion — it never falls.
+    const center = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.q, 0),
+        eq(schema.territoryTiles.r, 0)
+      )).limit(1);
+    if (!center.length) badRequest("No bastion found.");
+
+    const defenders = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        eq(schema.fieldPlacements.tileId, center[0].id),
+        eq(schema.fieldPlacements.stance, "defense")
+      ));
+
+    const owned = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.collection, "tender"),
+        or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+      ));
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const assetRow of assetRows) {
+      const rarity = raritySchema.safeParse(assetRow.rarity);
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+    }
+
+    let defensePower = 0;
+    for (const d of defenders) {
+      const a = owned.find(o => o.id === d.awakenedId);
+      if (!a) continue;
+      const layers = parseLayers(a.compositionJson, assetStats);
+      // Full power: layers + empowerment + stories (same as client)
+      const identity = a.identityKey === "legacy" ? identityFor(layers) : a.identityKey;
+      const allRows = await db.select().from(schema.awakened);
+      const idsByIdentity = new Map<string, number[]>();
+      for (const other of allRows) {
+        const otherLayers = parseLayers(other.compositionJson, assetStats);
+        const otherIdentity = other.identityKey === "legacy" ? identityFor(otherLayers) : other.identityKey;
+        idsByIdentity.set(otherIdentity, [...(idsByIdentity.get(otherIdentity) ?? []), other.id].sort((a, b) => a - b));
+      }
+      defensePower += toAwakenedPayload(a, layers, identity, idsByIdentity).power;
+      defensePower += 2; // Defense stance bonus
+    }
+
+    const victory = defensePower >= wavePower;
+
+    if (victory) {
+      // Purify one adjacent cursed tile (player's choice comes later — auto for now).
+      const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      for (const [dq, dr] of dirs) {
+        const target = await db.select().from(schema.territoryTiles)
+          .where(and(
+            eq(schema.territoryTiles.ownerKey, ownerKey),
+            eq(schema.territoryTiles.q, dq),
+            eq(schema.territoryTiles.r, dr),
+            eq(schema.territoryTiles.cursed, 1)
+          )).limit(1);
+        if (target.length) {
+          await db.update(schema.territoryTiles)
+            .set({ cursed: 0, element: "neutral" })
+            .where(eq(schema.territoryTiles.id, target[0].id));
+          await expandFrontier(ownerKey, dq, dr);
+          break;
+        }
+      }
+      await db.update(schema.waveState)
+        .set({
+          waveNumber: wave + 1,
+          wavesDefeated: state[0].wavesDefeated + 1,
+          lastWaveAt: new Date(),
+        })
+        .where(eq(schema.waveState.ownerKey, ownerKey));
+    } else {
+      // Defeat: a random purified border tile (not the bastion) becomes cursed.
+      const purified = await db.select().from(schema.territoryTiles)
+        .where(and(
+          eq(schema.territoryTiles.ownerKey, ownerKey),
+          eq(schema.territoryTiles.cursed, 0)
+        ));
+      const border = purified.filter(t => !(t.q === 0 && t.r === 0));
+      if (border.length) {
+        const victim = border[Math.floor(Math.random() * border.length)];
+        await db.update(schema.territoryTiles)
+          .set({ cursed: 1 })
+          .where(eq(schema.territoryTiles.id, victim.id));
+      }
+      // Wave number stays — you face it again.
+      await db.update(schema.waveState)
+        .set({ lastWaveAt: new Date() })
+        .where(eq(schema.waveState.ownerKey, ownerKey));
+    }
+
+    return { victory, wavePower, defensePower, waveNumber: victory ? wave + 1 : wave };
+  },
+
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({

@@ -48,6 +48,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
+  const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
+  const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
@@ -81,6 +83,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }, 60000); // Check every minute
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (tiles.length) {
+      api.getWave().then(setWave).catch(() => {});
+    }
+  }, [tiles.length]);
 
   // Passive purification: the Awoken's power stirs adjacent cursed tiles.
   // Check on load and every 5 minutes — the server enforces the 48h rest.
@@ -248,6 +256,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     } catch (e) {
       console.error("Move failed", e);
       setMoveTargeting(false);
+    }
+  };
+
+  const handleDefend = async () => {
+    try {
+      const result = await api.defendWave();
+      setWaveResult({ victory: result.victory, wavePower: result.wavePower, defensePower: result.defensePower });
+      const refreshed = await api.getTerritory();
+      setTiles(refreshed.tiles);
+      setPlacements(refreshed.placements);
+      const w = await api.getWave();
+      setWave(w);
+      if (result.victory) {
+        api.birthNewbornToHand({ tileId: 0, liberatorNames: [] }).catch(() => {});
+      }
+      onUpdate();
+      setTimeout(() => setWaveResult(null), 5000);
+    } catch (e) {
+      console.error("Defense failed", e);
     }
   };
 
@@ -482,6 +509,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         )}
       </div>
+      {wave && (
+        <div className="wave-panel">
+          <div className="wave-title">🌊 Wave {wave.waveNumber} approaches</div>
+          <div className="wave-comp">
+            {wave.frayCount} Fray{wave.unravelers > 0 && ` + ${wave.unravelers} Unraveler${wave.unravelers > 1 ? "s" : ""}`}
+            {" "}· Power {wave.totalPower}
+          </div>
+          <button className="abtn wave-defend" onClick={handleDefend}>
+            🛡 Defend the Bastion
+          </button>
+          {waveResult && (
+            <div className={`wave-result ${waveResult.victory ? "victory" : "defeat"}`}>
+              {waveResult.victory
+                ? `Victory! The wave breaks. (${waveResult.defensePower} vs ${waveResult.wavePower})`
+                : `The line bends... (${waveResult.defensePower} vs ${waveResult.wavePower})`}
+            </div>
+          )}
+        </div>
+      )}
       {selectedAwoken !== null && (() => {
         const placement = placements.find(p => p.awakenedId === selectedAwoken);
         const awoken = tenderItems.find(a => a.id === selectedAwoken);
