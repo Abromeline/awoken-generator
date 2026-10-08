@@ -108,17 +108,9 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
 
   return (
     <div className="first-trial">
-      <div className="trial-title">Purify the dark to begin</div>
-      <div className="territory-hud">
-        <div className="energy-meter">
-          <span className="energy-label">Energy</span>
-          <div className="energy-bar">
-            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
-          </div>
-          <span className="energy-value">{energy}/{maxEnergy}</span>
-        </div>
-      </div>
-      <svg viewBox="0 0 500 340" className="trial-svg">
+      <div className="trial-field-wrap">
+        <div className="trial-title-overlay">Purify the dark to begin</div>
+        <svg viewBox="0 0 500 340" className="trial-svg">
         <defs>
           {tiles.map((t, i) => (
             <clipPath key={i} id={`ft-${i}`}>
@@ -194,6 +186,7 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           );
         })}
       </svg>
+      </div>
       <div className="trial-hand">
         <div className="hand-label">Tap cards to send them into the dark — combined power must reach 7</div>
         <div className="hand-cards">
@@ -216,6 +209,13 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         <button className="abtn" disabled={!canBegin || purifying} onClick={handleBegin}>
           {purifying ? "Purifying..." : "Begin the Purification"}
         </button>
+        <div className="energy-meter trial-energy">
+          <span className="energy-label">Energy</span>
+          <div className="energy-bar">
+            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
+          </div>
+          <span className="energy-value">{energy}/{maxEnergy}</span>
+        </div>
       </div>
     </div>
   );
