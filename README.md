@@ -118,7 +118,8 @@ server actions one-to-one:
 
 | Endpoint | Body | Returns |
 |---|---|---|
-| `getStudio` | `{}` | `{ assets, awakened, credits }` — `credits` carries `{ balance, packPriceCents, packPriceLabel, creditsPerPack, pricePerWakeCents, checkoutEnabled }` |
+| `getStudio` | `{}` | `{ assets, awakened, credits }` — Tender-face data: pool pieces, the Tender deck only, and `credits` (`{ balance, packPriceCents, packPriceLabel, creditsPerPack, pricePerWakeCents, checkoutEnabled }`). Credit balance is per-visitor when `X-Visitor-Id` is sent. |
+| `getWorkshopStudio` | `{}` | Full studio (assets, all awakened, credits) — requires the workshop token when the workshop is locked. |
 | `uploadLayerAsset` | `{ category, imageBase64, mimeType: "image/png" }` | `{ id, name }` |
 | `updateLayerAssetStats` | `{ id, power, toughness }` | `{ ok, rarity }` |
 | `renameLayerAsset` | `{ id, name }` | `{ ok }` |
@@ -131,6 +132,61 @@ Images: `GET /blobs/<base64url(logical key)>` → PNG bytes.
 Health: `GET /api/health`.
 
 Errors are `{ error: "message" }` with a 4xx/5xx status.
+
+### Welcome ritual (free wakes)
+
+Visitor identity is soft: the client mints a UUID on first visit, keeps it in
+`localStorage`, and sends it as the `X-Visitor-Id` header. Clearing storage
+starts over — real Tender accounts will replace this one day.
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `GET /api/welcome` | — (header only) | `{ welcomeGranted, needsSeed, welcome, freeWake, freeWakeAvailable, nextFreeWakeAt }` — `welcome`/`freeWake` are `{ awakened, respinsUsed, respinsRemaining }` or `null` |
+| `POST /api/welcome/seed` | `{ layers, imageBase64 }` | the held-apart greeting Awoken (first visit; idempotent) |
+| `POST /api/welcome/claim` | `{ slot: "welcome" \| "free" }` | `{ ok, awakenedId }` — moves the waiting Awoken into the Tender deck |
+| `POST /api/welcome/reconstitute` | `{ slot, layers, imageBase64 }` | the re-woven Awoken — once per waiting Awoken (403 after) |
+| `POST /api/welcome/free-wake` | `{ layers, imageBase64 }` | the new waiting Awoken — 429 unless a free wake has gathered |
+
+Rules: first visit grants 20 wake credits (reason `welcome`, a bonus on top of
+nothing) and holds one greeting Awoken apart with "Add to deck" /
+"Reconstitute matter". A free wake gathers every 4 hours (`FREE_WAKE_MS`),
+one at a time — unclaimed = lost, never stacked, never announced (pull only,
+per the Anti-Duolingo law).
+
+### The Grove Fund
+
+`$1` of every `$5` wake pack accrues toward planting native trees
+(`GROVE_PER_PACK_CENTS=100`, configurable). The Stripe webhook accrues it
+automatically on each paid pack.
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `GET /api/grove` | — | `{ centsAccrued, dollarsAccrued, treesPlanted, perPackCents, perPackLabel }` |
+| `POST /api/grove/record-planting` | `{ trees, note? }` | `{ ok, treesPlanted }` — workshop use |
+
+**Monthly routine (manual):** check `GET /api/grove`, donate the accrued
+dollars to One Tree Planted (or another native-species project, ~$1/tree),
+then `POST /api/grove/record-planting` with `{ "trees": N, "note": "..." }`.
+Convention: `centsAccrued` is lifetime dollars grown (never decreases);
+`treesPlanted` counts trees actually planted. A future Ecologi auto-plant
+integration can hook into the same accumulator (see the comment in
+`server/src/grove.ts`).
+
+### Workshop lock
+
+Set `WORKSHOP_PASSWORD` in the environment (Railway → Variables). When set:
+
+- the workshop face shows a password prompt instead of the studio;
+- `POST /api/workshop/unlock { password }` mints a token (valid ~30 days),
+  kept in the browser's `sessionStorage` and sent as `X-Workshop-Token`;
+- all workshop endpoints require it — layer asset upload/rename/delete/stats,
+  awoken delete, and `getWorkshopStudio` (the creator's full data, which the
+  workshop face now uses instead of `getStudio`).
+
+`GET /api/workshop/status` → `{ locked }` (public). The Tender ritual,
+welcome, free wakes, lore, grove counter, and Stripe endpoints stay public.
+When `WORKSHOP_PASSWORD` is unset the workshop stays open exactly as before,
+and the server logs a loud warning at startup.
 
 ## Notes on the port
 

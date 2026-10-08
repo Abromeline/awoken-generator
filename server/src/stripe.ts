@@ -12,6 +12,8 @@ import {
   stripeTestKey,
 } from "./config.js";
 import { alreadyCredited, grantCredits, SINGLE_OWNER } from "./credits.js";
+import { groveAccrue } from "./grove.js";
+import { GROVE_PER_PACK_CENTS } from "./config.js";
 import { db, eq, schema } from "./store.js";
 
 let stripe: Stripe | null = null;
@@ -47,11 +49,16 @@ export function stripeConfig() {
 
 export async function createCheckoutSession(req: {
   headers: Record<string, string | string[] | undefined>;
+  visitorId?: string | null;
 }): Promise<{ url: string }> {
   const s = client();
   if (!s) throw Object.assign(new Error("Payments are not configured yet — add your Stripe test keys to .env."), { status: 503 });
+  // The buying visitor's mark rides along so the webhook credits the right
+  // ledger (per-visitor balances); falls back to the single owner for old clients.
+  const owner = req.visitorId ?? SINGLE_OWNER;
   const session = await s.checkout.sessions.create({
     mode: "payment",
+    client_reference_id: owner,
     line_items: [
       {
         price_data: {
@@ -62,7 +69,7 @@ export async function createCheckoutSession(req: {
         quantity: 1,
       },
     ],
-    metadata: { user_id: SINGLE_OWNER, credits: String(CREDITS_PER_PACK) },
+    metadata: { user_id: owner, credits: String(CREDITS_PER_PACK) },
     success_url: `${baseUrl(req)}/?wakes=welcome`,
     cancel_url: `${baseUrl(req)}/?wakes=cancelled`,
   });
@@ -116,8 +123,13 @@ export async function stripeWebhookHandler(req: { body: Buffer; headers: Record<
   }
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+    const buyer = typeof session.client_reference_id === "string" && session.client_reference_id
+      ? session.client_reference_id
+      : SINGLE_OWNER;
     if (session.payment_status === "paid" && !(await alreadyCredited(session.id))) {
-      await grantCredits(SINGLE_OWNER, CREDITS_PER_PACK, "stripe_pack", session.id);
+      await grantCredits(buyer, CREDITS_PER_PACK, "stripe_pack", session.id);
+      // The Grove Fund: a share of every pack accrues toward native trees.
+      await groveAccrue(GROVE_PER_PACK_CENTS);
     }
   }
   res.status(200).json({ received: true });

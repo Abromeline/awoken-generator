@@ -2,8 +2,13 @@ import express from "express";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { blobs, DATA_DIR } from "./store.js";
-import { handlers, type ActionName } from "./actions.js";
+import { handlers, type ActionContext, type ActionName } from "./actions.js";
 import { stripeConfig, createCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
+import {
+  claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader,
+} from "./welcome.js";
+import { groveStatus, recordPlanting } from "./grove.js";
+import { requireWorkshop, unlockWorkshop, workshopLockEnabled } from "./workshopAuth.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -20,20 +25,84 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (req,
 app.use(express.json({ limit: "25mb" }));
 
 const actionNames = Object.keys(handlers) as ActionName[];
+// Everything the workshop touches but the Tender ritual doesn't: gated by
+// the workshop token when WORKSHOP_PASSWORD is set.
+const WORKSHOP_ACTIONS = new Set([
+  "uploadLayerAsset",
+  "updateLayerAssetStats",
+  "renameLayerAsset",
+  "deleteLayerAsset",
+  "deleteAwoken",
+  "getWorkshopStudio",
+]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
     try {
-      const result = await handlers[name](req.body ?? {});
+      if (WORKSHOP_ACTIONS.has(name)) requireWorkshop(req);
+      const handler = handlers[name] as (args: unknown, ctx?: ActionContext) => Promise<unknown>;
+      const result = await handler(req.body ?? {}, { visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]) });
       res.json(result);
     } catch (error) {
-      const status = typeof (error as { status?: unknown }).status === "number"
-        ? (error as { status: number }).status
-        : 500;
-      const message = error instanceof Error ? error.message : "Something interrupted the ritual.";
-      res.status(status).json({ error: message });
+      sendError(res, error);
     }
   });
 }
+
+function sendError(res: express.Response, error: unknown) {
+  const status = typeof (error as { status?: unknown }).status === "number"
+    ? (error as { status: number }).status
+    : 500;
+  const message = error instanceof Error ? error.message : "Something interrupted the ritual.";
+  res.status(status).json({ error: message });
+}
+
+/** The welcome ritual needs a visitor mark; without one there is no one to greet. */
+function needVisitor(req: express.Request): string {
+  const id = visitorIdFromHeader(req.headers["x-visitor-id"]);
+  if (!id) throw Object.assign(new Error("A visitor mark is required to receive wakes."), { status: 400 });
+  return id;
+}
+
+// Welcome ritual: first-visit greeting, held-apart Awoken, 4-hourly free wakes.
+app.get("/api/welcome", async (req, res) => {
+  try { res.json(await getWelcomeStatus(needVisitor(req))); }
+  catch (error) { sendError(res, error); }
+});
+app.post("/api/welcome/seed", async (req, res) => {
+  try { res.json(await seedWelcome(needVisitor(req), req.body ?? {})); }
+  catch (error) { sendError(res, error); }
+});
+app.post("/api/welcome/claim", async (req, res) => {
+  try { res.json(await claimWelcome(needVisitor(req), req.body ?? {})); }
+  catch (error) { sendError(res, error); }
+});
+app.post("/api/welcome/reconstitute", async (req, res) => {
+  try { res.json(await reconstituteWelcome(needVisitor(req), req.body ?? {})); }
+  catch (error) { sendError(res, error); }
+});
+app.post("/api/welcome/free-wake", async (req, res) => {
+  try { res.json(await claimFreeWake(needVisitor(req), req.body ?? {})); }
+  catch (error) { sendError(res, error); }
+});
+
+// The Grove Fund: public tally, workshop-recorded plantings.
+app.get("/api/grove", async (_req, res) => {
+  try { res.json(await groveStatus()); }
+  catch (error) { sendError(res, error); }
+});
+app.post("/api/grove/record-planting", async (req, res) => {
+  try { res.json(await recordPlanting(req.body ?? {})); }
+  catch (error) { sendError(res, error); }
+});
+
+// Workshop lock: public status, password-for-token unlock.
+app.get("/api/workshop/status", (_req, res) => res.json({ locked: workshopLockEnabled() }));
+app.post("/api/workshop/unlock", async (req, res) => {
+  try {
+    const password = (req.body as { password?: unknown } | null)?.password;
+    res.json(unlockWorkshop(password));
+  } catch (error) { sendError(res, error); }
+});
 
 // Blob serving: /blobs/<base64url(logical key)> -> stored bytes.
 app.get("/blobs/:b64", (req, res) => {
@@ -53,7 +122,10 @@ app.get("/blobs/:b64", (req, res) => {
 // without them these endpoints explain what is missing (never a crash).
 app.get("/api/stripe/config", (_req, res) => res.json(stripeConfig()));
 app.post("/api/stripe/checkout", (req, res) => {
-  createCheckoutSession({ headers: req.headers as Record<string, string | string[] | undefined> })
+  createCheckoutSession({
+    headers: req.headers as Record<string, string | string[] | undefined>,
+    visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]),
+  })
     .then((result) => res.json(result))
     .catch((error: unknown) => {
       const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 500;
@@ -84,4 +156,12 @@ const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`Awoken Generator (standalone) listening on :${port}`);
   console.log(`Data directory: ${DATA_DIR}`);
+  if (workshopLockEnabled()) {
+    console.log("[workshop] locked — the workshop face and its tools require the workshop password.");
+  } else {
+    console.warn(
+      "[workshop] WARNING: WORKSHOP_PASSWORD is not set — the workshop face and its tools are OPEN to anyone with the URL. " +
+      "Set WORKSHOP_PASSWORD in the environment (Railway variables) to lock it."
+    );
+  }
 });

@@ -52,6 +52,21 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY NOT NULL,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS visitors (
+  visitor_id TEXT PRIMARY KEY NOT NULL,
+  created_at INTEGER NOT NULL,
+  welcome_wakes_granted INTEGER NOT NULL DEFAULT 0,
+  welcome_claimed INTEGER NOT NULL DEFAULT 0,
+  last_free_wake_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS pending_welcomes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visitor_id TEXT NOT NULL,
+  slot TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  respins_used INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
 `;
 
 mkdirSync(DATA_DIR, { recursive: true });

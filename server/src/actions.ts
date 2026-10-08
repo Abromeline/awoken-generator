@@ -13,6 +13,11 @@ import { creditBalance, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
 import { stripeReady } from "./stripe.js";
 
+export interface ActionContext {
+  /** Browser-visitor mark from the X-Visitor-Id header (null when absent). */
+  visitorId: string | null;
+}
+
 const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "head"]);
 const raritySchema = z.enum(["common", "uncommon", "rare", "mythic"]);
 const collectionSchema = z.enum(["tender", "workshop"]);
@@ -52,7 +57,7 @@ const storedLayerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable().optional(), toughness: statSchema.nullable().optional(),
 });
-const layerRefShape = z.object({
+export const layerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable(), toughness: statSchema.nullable(),
 });
@@ -94,7 +99,97 @@ export function blobUrl(key: string): string {
   return `/blobs/${Buffer.from(key, "utf8").toString("base64url")}`;
 }
 
-async function buildStudio() {
+type AwakenedRow = typeof schema.awakened.$inferSelect;
+
+/** One awakened row → the full creature payload the client renders. */
+export function toAwakenedPayload(
+  row: AwakenedRow,
+  layers: z.infer<typeof layerRefShape>[],
+  identity: string,
+  idsByIdentity: Map<string, number[]>
+) {
+  const basePower = layers.reduce((sum, layer) => sum + (layer.power ?? 0), 0);
+  const baseToughness = layers.reduce((sum, layer) => sum + (layer.toughness ?? 0), 0);
+  const familyIds = idsByIdentity.get(identity) ?? [row.id];
+  const empowerment = Math.max(0, familyIds.length - 1);
+  const occurrenceIndex = familyIds.indexOf(row.id);
+  const iteration = occurrenceIndex < 0 ? row.iteration : occurrenceIndex;
+  const collection = collectionSchema.safeParse(row.collection);
+  return {
+    id: row.id, name: row.name, image_url: blobUrl(row.imageBlobKey), layers,
+    base_power: basePower, base_toughness: baseToughness, power: basePower + empowerment, toughness: baseToughness + empowerment,
+    empowerment, iteration, collection: collection.success ? collection.data : ("workshop" as const),
+    owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
+  };
+}
+
+/** Full creature payload for a single awakened id, or null when it is gone.
+ *  Shared by the welcome endpoints so a waiting Awoken renders exactly like
+ *  a decked one. */
+export async function awakenedPayloadById(id: number) {
+  const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, id)).limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  const assetRows = await db.select().from(schema.layerAssets);
+  const assetStats = new Map<number, AssetStats>();
+  for (const assetRow of assetRows) {
+    const rarity = raritySchema.safeParse(assetRow.rarity);
+    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+  }
+  const layers = parseLayers(row.compositionJson, assetStats);
+  const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
+  const allRows = await db.select().from(schema.awakened);
+  const idsByIdentity = new Map<string, number[]>();
+  for (const other of allRows) {
+    const otherIdentity = other.identityKey === "legacy" ? identityFor(parseLayers(other.compositionJson, assetStats)) : other.identityKey;
+    idsByIdentity.set(otherIdentity, [...(idsByIdentity.get(otherIdentity) ?? []), other.id].sort((a, b) => a - b));
+  }
+  return toAwakenedPayload(row, layers, identity, idsByIdentity);
+}
+
+export interface AwakeningPlan {
+  canonicalLayers: z.infer<typeof layerRefShape>[];
+  identityKey: string;
+  previousCount: number;
+  name: string;
+  flavorText: string;
+  basePower: number;
+  baseToughness: number;
+}
+
+/** Shared awakening arithmetic: canonicalize layers against current pool
+ *  stats, derive the identity family, name and flavor the form. Used by both
+ *  the paid Wake One and the free welcome-wake generation. */
+export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Promise<AwakeningPlan> {
+  const [latest, currentAssets, existing] = await Promise.all([
+    db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1),
+    db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness }).from(schema.layerAssets),
+    db.select({ identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
+  ]);
+  const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
+    const rarity = raritySchema.safeParse(row.rarity);
+    return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness }] as const] : [];
+  }));
+  const canonicalLayers = layers.map((layer) => {
+    const id = parseDbId(layer.source_id); const current = id === null ? undefined : currentStats.get(id);
+    return { ...layer, rarity: current?.rarity ?? layer.rarity, power: current?.power ?? layer.power, toughness: current?.toughness ?? layer.toughness };
+  });
+  const identityKey = identityFor(canonicalLayers);
+  let previousCount = 0;
+  for (const row of existing) {
+    const rowIdentity = row.identityKey === "legacy" ? identityFor(parseLayers(row.compositionJson, currentStats)) : row.identityKey;
+    if (rowIdentity === identityKey) previousCount += 1;
+  }
+  const nextNumber = (latest[0]?.id ?? 0) + 1;
+  const name = `Awoken ${String(nextNumber).padStart(3, "0")}`;
+  const namedMatter = canonicalLayers.filter((layer) => statCategories.has(layer.category)).map((layer) => layer.name);
+  const flavorText = birthFlavorText(namedMatter);
+  const basePower = canonicalLayers.reduce((sum, layer) => sum + (layer.power ?? 0), 0);
+  const baseToughness = canonicalLayers.reduce((sum, layer) => sum + (layer.toughness ?? 0), 0);
+  return { canonicalLayers, identityKey, previousCount, name, flavorText, basePower, baseToughness };
+}
+
+async function buildStudio(visitorId: string | null, opts?: { tenderOnly?: boolean }) {
   let assetRows = await db.select().from(schema.layerAssets).orderBy(asc(schema.layerAssets.category), desc(schema.layerAssets.id));
   const renames = assetRows.flatMap((row) => {
     const next = mysticalLegacyName(row.category, row.name);
@@ -104,7 +199,14 @@ async function buildStudio() {
     await Promise.all(renames.map((item) => db.update(schema.layerAssets).set({ name: item.name }).where(eq(schema.layerAssets.id, item.id))));
     assetRows = await db.select().from(schema.layerAssets).orderBy(asc(schema.layerAssets.category), desc(schema.layerAssets.id));
   }
-  const awakenedRows = await db.select().from(schema.awakened).orderBy(desc(schema.awakened.id));
+  const pendingIds = new Set(
+    (await db.select({ awakenedId: schema.pendingWelcomes.awakenedId }).from(schema.pendingWelcomes))
+      .map((row) => row.awakenedId)
+  );
+  const awakenedRows = (await db.select().from(schema.awakened).orderBy(desc(schema.awakened.id)))
+    // Held-apart forms (the welcome greeting, unclaimed free wakes) stay out
+    // of every deck until their Tender claims them.
+    .filter((row) => !pendingIds.has(row.id));
   const supportedAssetRows = assetRows.flatMap((row) => {
     const category = layerCategorySchema.safeParse(row.category); const rarity = raritySchema.safeParse(row.rarity);
     return category.success && rarity.success ? [{ ...row, category: category.data, rarity: rarity.data }] : [];
@@ -114,33 +216,19 @@ async function buildStudio() {
     id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness,
     image_url: blobUrl(row.imageBlobKey), mime_type: row.mimeType, created_at: row.createdAt.toISOString(),
   }));
-  const parsedRows = awakenedRows.map((row) => {
+  const parsedRows = (opts?.tenderOnly ? awakenedRows.filter((row) => row.collection === "tender") : awakenedRows).map((row) => {
     const layers = parseLayers(row.compositionJson, assetStats);
     const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
     return { row, layers, identity };
   });
   const idsByIdentity = new Map<string, number[]>();
   for (const item of parsedRows) idsByIdentity.set(item.identity, [...(idsByIdentity.get(item.identity) ?? []), item.row.id].sort((a, b) => a - b));
-  const awakened = parsedRows.map(({ row, layers, identity }) => {
-    const basePower = layers.reduce((sum, layer) => sum + (layer.power ?? 0), 0);
-    const baseToughness = layers.reduce((sum, layer) => sum + (layer.toughness ?? 0), 0);
-    const familyIds = idsByIdentity.get(identity) ?? [row.id];
-    const empowerment = Math.max(0, familyIds.length - 1);
-    const occurrenceIndex = familyIds.indexOf(row.id);
-    const iteration = occurrenceIndex < 0 ? row.iteration : occurrenceIndex;
-    const collection = collectionSchema.safeParse(row.collection);
-    return {
-      id: row.id, name: row.name, image_url: blobUrl(row.imageBlobKey), layers,
-      base_power: basePower, base_toughness: baseToughness, power: basePower + empowerment, toughness: baseToughness + empowerment,
-      empowerment, iteration, collection: collection.success ? collection.data : ("workshop" as const),
-      owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
-    };
-  });
+  const awakened = parsedRows.map(({ row, layers, identity }) => toAwakenedPayload(row, layers, identity, idsByIdentity));
   return {
     assets,
     awakened,
     credits: {
-      balance: await creditBalance(SINGLE_OWNER),
+      balance: await creditBalance(visitorId ?? SINGLE_OWNER),
       packPriceCents: PACK_PRICE_CENTS,
       packPriceLabel: formatUsd(PACK_PRICE_CENTS),
       creditsPerPack: CREDITS_PER_PACK,
@@ -155,8 +243,15 @@ function badRequest(message: string): never {
 }
 
 export const handlers = {
-  async getStudio() {
-    return buildStudio();
+  async getStudio(_args: unknown, ctx?: ActionContext) {
+    // The Tender ritual's data: pool pieces, the Tender deck, credits.
+    // Workshop pieces of the collection stay behind the workshop lock.
+    return buildStudio(ctx?.visitorId ?? null, { tenderOnly: true });
+  },
+
+  async getWorkshopStudio(_args: unknown, ctx?: ActionContext) {
+    // Everything, for the creator's eyes only. Gated by requireWorkshop in index.ts.
+    return buildStudio(ctx?.visitorId ?? null);
   },
 
   async uploadLayerAsset(args: unknown) {
@@ -203,13 +298,13 @@ export const handlers = {
     return okResponse.parse({ ok: true });
   },
 
-  async saveAwoken(args: unknown) {
+  async saveAwoken(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(5), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid awakening.");
     const { layers, imageBase64, collection, ownerName } = parsed.data;
     // Tender wakes cost one credit; the workshop (Nigel's own hand) is free.
     if (collection === "tender") {
-      const spent = await spendWakeCredit(SINGLE_OWNER);
+      const spent = await spendWakeCredit(ctx?.visitorId ?? SINGLE_OWNER);
       if (!spent.ok) {
         throw Object.assign(
           new Error(`The vessel is empty — ${formatUsd(PACK_PRICE_CENTS)} gathers ${CREDITS_PER_PACK} wakes.`),
@@ -217,37 +312,14 @@ export const handlers = {
         );
       }
     }
-    const [latest, currentAssets, existing] = await Promise.all([
-      db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1),
-      db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness }).from(schema.layerAssets),
-      db.select({ identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
-    ]);
-    const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
-      const rarity = raritySchema.safeParse(row.rarity);
-      return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness }] as const] : [];
-    }));
-    const canonicalLayers = layers.map((layer) => {
-      const id = parseDbId(layer.source_id); const current = id === null ? undefined : currentStats.get(id);
-      return { ...layer, rarity: current?.rarity ?? layer.rarity, power: current?.power ?? layer.power, toughness: current?.toughness ?? layer.toughness };
-    });
-    const identityKey = identityFor(canonicalLayers);
-    let previousCount = 0;
-    for (const row of existing) {
-      const rowIdentity = row.identityKey === "legacy" ? identityFor(parseLayers(row.compositionJson, currentStats)) : row.identityKey;
-      if (rowIdentity === identityKey) previousCount += 1;
-    }
-    const iteration = previousCount;
-    const nextNumber = (latest[0]?.id ?? 0) + 1;
-    const name = `Awoken ${String(nextNumber).padStart(3, "0")}`;
-    const namedMatter = canonicalLayers.filter((layer) => statCategories.has(layer.category)).map((layer) => layer.name);
-    const flavorText = birthFlavorText(namedMatter);
+    const plan = await planAwakening(layers);
     const blobKey = `awakened/${Date.now()}-${randomUUID()}.png`;
     const bytes = Buffer.from(imageBase64, "base64");
     blobs.put(blobKey, bytes, "image/png");
-    const rows = await db.insert(schema.awakened).values({ name, imageBlobKey: blobKey, compositionJson: JSON.stringify(canonicalLayers), collection, ownerName, identityKey, iteration, flavorText }).returning({ id: schema.awakened.id });
+    const rows = await db.insert(schema.awakened).values({ name: plan.name, imageBlobKey: blobKey, compositionJson: JSON.stringify(plan.canonicalLayers), collection, ownerName, identityKey: plan.identityKey, iteration: plan.previousCount, flavorText: plan.flavorText }).returning({ id: schema.awakened.id });
     const row = rows[0] as { id: number } | undefined;
     if (!row) { blobs.delete(blobKey); badRequest("This awakening could not be saved."); }
-    return { id: (row as { id: number }).id, name, iteration, empowerment: iteration, flavor_text: flavorText };
+    return { id: (row as { id: number }).id, name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
   },
 
   async renameAwoken(args: unknown) {

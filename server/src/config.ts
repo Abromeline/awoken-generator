@@ -13,6 +13,15 @@ export const PACK_PRICE_CENTS = intEnv("PACK_PRICE_CENTS", 500);
 export const CREDITS_PER_PACK = intEnv("CREDITS_PER_PACK", 20);
 export const PRICE_PER_WAKE_CENTS = intEnv("PRICE_PER_WAKE_CENTS", 25);
 
+/** The Grove Fund: this many cents of every wake pack accrues toward
+ *  planting native trees. $1 of every $5 pack by default. */
+export const GROVE_PER_PACK_CENTS = intEnv("GROVE_PER_PACK_CENTS", 100);
+
+/** Workshop lock: when set, the workshop face and all workshop API endpoints
+ *  require the password. When unset, the workshop stays open (with a loud
+ *  startup warning). Set it in Railway variables. */
+export const WORKSHOP_PASSWORD = process.env.WORKSHOP_PASSWORD ?? "";
+
 export const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 export const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY ?? "";

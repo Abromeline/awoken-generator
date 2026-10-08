@@ -68,14 +68,87 @@ export interface StripeConfig {
   packPriceLabel: string;
 }
 
+export interface GroveStatus {
+  centsAccrued: number;
+  dollarsAccrued: string;
+  treesPlanted: number;
+  perPackCents: number;
+  perPackLabel: string;
+}
+
+export interface WaitingAwoken {
+  awakened: Awakened | null;
+  respinsUsed: number;
+  respinsRemaining: number;
+}
+
+export interface WelcomeStatus {
+  welcomeGranted: boolean;
+  needsSeed: boolean;
+  welcome: WaitingAwoken | null;
+  freeWake: WaitingAwoken | null;
+  freeWakeAvailable: boolean;
+  nextFreeWakeAt: string | null;
+}
+
+// Soft visitor identity: a UUID kept in this browser, sent on every call so
+// the server can greet first-timers and pace free wakes. Clearing storage
+// starts over — real Tender accounts will replace this one day.
+const VISITOR_KEY = "awoken-visitor-id";
+
+export function visitorId(): string {
+  try {
+    const existing = window.localStorage.getItem(VISITOR_KEY);
+    if (existing && /^[A-Za-z0-9_-]{8,64}$/.test(existing)) return existing;
+    const id = crypto.randomUUID();
+    window.localStorage.setItem(VISITOR_KEY, id);
+    return id;
+  } catch {
+    return `anon-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  }
+}
+
+// Workshop lock token: minted by /api/workshop/unlock, kept for the tab
+// only (sessionStorage). Sent on every call; the server ignores it unless
+// the workshop is locked.
+const WORKSHOP_TOKEN_KEY = "awoken-workshop-token";
+
+export function workshopToken(): string | null {
+  try {
+    return window.sessionStorage.getItem(WORKSHOP_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearWorkshopToken(): void {
+  try {
+    window.sessionStorage.removeItem(WORKSHOP_TOKEN_KEY);
+  } catch {
+    /* the tab keeps no secrets */
+  }
+}
+
+export function storeWorkshopToken(token: string): void {
+  try {
+    window.sessionStorage.setItem(WORKSHOP_TOKEN_KEY, token);
+  } catch {
+    /* the tab keeps no secrets */
+  }
+}
+
+function throwApiError(response: Response, data: { error?: string }): never {
+  throw Object.assign(new Error(data.error ?? `Request failed (${response.status}).`), { status: response.status });
+}
+
 async function post<T>(name: string, args: unknown): Promise<T> {
   const response = await fetch(`/api/${name}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "" },
     body: JSON.stringify(args ?? {}),
   });
   const data = (await response.json()) as { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status}).`);
+  if (!response.ok) throwApiError(response, data);
   return data as T;
 }
 
@@ -94,15 +167,29 @@ export const api = {
   stripeConfig: () => postPath<StripeConfig>("/api/stripe/config"),
   createCheckoutSession: () => postPath<{ url: string }>("/api/stripe/checkout", {}),
   createPortalSession: () => postPath<{ url: string }>("/api/stripe/portal", {}),
+  getWelcome: () => postPath<WelcomeStatus>("/api/welcome"),
+  seedWelcome: (args: { layers: LayerRef[]; imageBase64: string }) =>
+    postPath<{ awakened: Awakened | null; respinsUsed: number; respinsRemaining: number }>("/api/welcome/seed", args),
+  claimWelcome: (args: { slot: "welcome" | "free" }) =>
+    postPath<{ ok: true; awakenedId: number }>("/api/welcome/claim", args),
+  reconstituteWelcome: (args: { slot: "welcome" | "free"; layers: LayerRef[]; imageBase64: string }) =>
+    postPath<{ awakened: Awakened | null; respinsUsed: number; respinsRemaining: number }>("/api/welcome/reconstitute", args),
+  claimFreeWake: (args: { layers: LayerRef[]; imageBase64: string }) =>
+    postPath<{ awakened: Awakened | null; respinsUsed: number; respinsRemaining: number }>("/api/welcome/free-wake", args),
+  getGrove: () => postPath<GroveStatus>("/api/grove"),
+  workshopStatus: () => postPath<{ locked: boolean }>("/api/workshop/status"),
+  unlockWorkshop: (args: { password: string }) =>
+    postPath<{ token: string; expiresAt: string }>("/api/workshop/unlock", args),
+  getWorkshopStudio: () => post<Studio>("getWorkshopStudio", {}),
 };
 
 async function postPath<T>(path: string, args?: unknown): Promise<T> {
   const response = await fetch(path, {
     method: args === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "" },
     body: args === undefined ? undefined : JSON.stringify(args),
   });
   const data = (await response.json()) as { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status}).`);
+  if (!response.ok) throwApiError(response, data);
   return data as T;
 }
