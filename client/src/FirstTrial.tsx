@@ -50,15 +50,17 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     tiles.push({ q, r, x, y, s, isCenter: idx === 0 });
   });
 
-  // 6 positions ON the center hex (the battle ground)
+  // 4 battle positions ON the center hex (the battle ground) — matches 4-per-tile law
   const center = tiles[0];
-  const battlePositions = [];
-  for (let i = 0; i < 6; i++) {
-    const a = Math.PI / 180 * (60 * i - 90);
-    const px = center.x + (center.s * 0.55) * Math.cos(a);
-    const py = center.y + (center.s * 0.55) * Math.sin(a) * tilt;
-    battlePositions.push({ x: px, y: py });
-  }
+  const battlePositions = [
+    { dx: 0, dy: 0.35 },      // middle-front (default)
+    { dx: -0.35, dy: 0.1 },   // front-left
+    { dx: 0.35, dy: 0.1 },    // front-right
+    { dx: 0, dy: -0.3 },      // back-center
+  ].map(({ dx, dy }) => ({
+    x: center.x + dx * center.s * 1.6,
+    y: center.y + dy * center.s * 1.6 * tilt,
+  }));
 
   const combinedPower = Array.from(placed.values()).reduce((sum, a) => sum + a.power, 0);
   const canBegin = combinedPower >= 7 && placed.size > 0;
