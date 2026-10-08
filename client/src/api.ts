@@ -38,6 +38,7 @@ export interface Awakened {
   toughness: number;
   empowerment: number;
   story_count: number;
+  field_born: number;
   iteration: number;
   collection: Collection;
   owner_name: string;

@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS field_placements (
 );
 `;
 
+// Lightweight migration: awakened.field_born for field-born marker.
+// (Moved after sqlite init below.)
+
 mkdirSync(DATA_DIR, { recursive: true });
 mkdirSync(BLOBS_DIR, { recursive: true });
 
@@ -127,6 +130,9 @@ if (!awakenedCols.some((col) => col.name === "owner_key")) {
 }
 if (!awakenedCols.some((col) => col.name === "story_count")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN story_count INTEGER NOT NULL DEFAULT 0`);
+}
+if (!awakenedCols.some((col) => col.name === "field_born")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN field_born INTEGER NOT NULL DEFAULT 0`);
 }
 
 // Stories table for the Confluence power-up.

@@ -21,6 +21,7 @@ interface Props {
 
 // Renders an Awoken's layers stacked, WITHOUT the background.
 // Layers draw back-to-front: body → arms → aura → head.
+// Field-born Awoken get a small gold tree symbol.
 function FieldAwoken({ awoken, assets, x, y, width, height }: {
   awoken: Awakened; assets: Props["assets"]; x: number; y: number; width: number; height: number;
 }) {
@@ -42,6 +43,12 @@ function FieldAwoken({ awoken, assets, x, y, width, height }: {
         if (!url) return null;
         return <image key={i} href={url} x={x} y={y} width={width} height={height} preserveAspectRatio="xMidYMid meet" />;
       })}
+      {awoken.field_born === 1 && (
+        <g transform={`translate(${x + width - 10}, ${y + 4})`}>
+          <circle r="8" fill="#1a1a1a" stroke="#b89b5e" strokeWidth="1.5" />
+          <text textAnchor="middle" dy="4" fontSize="10" fill="#b89b5e">🌳</text>
+        </g>
+      )}
     </g>
   );
 }
@@ -144,13 +151,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
-                // 2x2 grid on tile
-                const ox = (idx % 2 === 0 ? -1 : 1) * 14 * ps;
-                const oy = (idx < 2 ? -1 : 1) * 10 * ps;
-                const ws = 28 * ps, hs = 36 * ps;
+                // 4 keystone points: middle-front (default), front-left, front-right, back-center
+                const keystones = [
+                  { dx: 0, dy: 0.35 },      // middle-front (default)
+                  { dx: -0.35, dy: 0.18 }, // front-left
+                  { dx: 0.35, dy: 0.18 },  // front-right
+                  { dx: 0, dy: -0.28 },    // back-center
+                ];
+                const ks = keystones[idx];
+                const ws = 30 * ps, hs = 40 * ps;
+                const kx = cx + ks.dx * s * 2;
+                const ky = cy + ks.dy * s * 2 * tilt;
                 return (
                   <FieldAwoken key={a.id} awoken={a} assets={assets}
-                    x={cx + ox - ws / 2} y={cy + oy - hs / 2 - 8 * ps}
+                    x={kx - ws / 2} y={ky - hs / 2}
                     width={ws} height={hs} />
                 );
               })}

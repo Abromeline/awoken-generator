@@ -33,6 +33,8 @@ export const awakened = sqliteTable("awakened", {
   flavorText: text("flavor_text").notNull().default("Every form begins as scattered matter."),
   // Stories shared to the Confluence: each grants +1/+1, max 3.
   storyCount: integer("story_count").notNull().default(0),
+  // Born on the field (purified land), not through Wake One. Marked with gold tree.
+  fieldBorn: integer("field_born").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

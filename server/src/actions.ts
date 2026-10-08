@@ -139,7 +139,7 @@ export function toAwakenedPayload(
     id: row.id, name: row.name, image_url: blobUrl(row.imageBlobKey), layers,
     base_power: basePower, base_toughness: baseToughness,
     power: basePower + empowerment + storyCount, toughness: baseToughness + empowerment + storyCount,
-    empowerment, story_count: storyCount, iteration, collection: collection.success ? collection.data : ("workshop" as const),
+    empowerment, story_count: storyCount, field_born: row.fieldBorn ?? 0, iteration, collection: collection.success ? collection.data : ("workshop" as const),
     owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
   };
 }
@@ -679,9 +679,11 @@ export const handlers = {
     }
     // Place team on center tile (max 4 total, including newborn below).
     // Newborn: a new Awoken wakes on the purified tile, born from the team's victory.
-    // (MVP: uses first team member's image as placeholder; proper birth rendering comes later.)
+    // Marked field-born with gold tree; story tells of liberation.
     if (teamRows.length > 0) {
       const progenitor = teamRows[0];
+      const liberatorNames = teamRows.map(t => t.name).join(", ");
+      const story = `Liberated by ${liberatorNames}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
       const [newborn] = await db.insert(schema.awakened).values({
         name: "Newborn of the Purified Land",
         imageBlobKey: progenitor.imageBlobKey,
@@ -690,7 +692,8 @@ export const handlers = {
         ownerName: ownerKey,
         ownerKey,
         identityKey: `newborn-${Date.now()}`,
-        flavorText: "Born from victory, on land reclaimed from the dark.",
+        flavorText: story,
+        fieldBorn: 1,
       }).returning({ id: schema.awakened.id });
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: newborn.id, tileId: center.id,
