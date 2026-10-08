@@ -60,12 +60,33 @@ export default function Territory({ tenderItems, onUpdate }: Props) {
     }
   };
 
-  // Render hex grid with parallax
-  const renderGrid = () => {
+  // Helper: get dominant element from Awoken layers (simplified)
+  const getDominantElement = (awoken: Awakened): string => {
+    // TODO: detect from piece names; default to neutral for now
+    return "neutral";
+  };
+
+  // Helper: attunement time remaining in ms
+  const getAttuneRemaining = (tile: TerritoryTile, placement: FieldPlacement, awoken: Awakened): number | null => {
+    const awokenEl = getDominantElement(awoken);
+    if (tile.element === awokenEl) return null; // already attuned
+    const placedAt = new Date(placement.placedAt).getTime();
+    const duration = tile.element === "neutral" ? 4 * 3600 * 1000 : 8 * 3600 * 1000;
+    const remaining = placedAt + duration - Date.now();
+    return remaining > 0 ? remaining : 0;
+  };
+
+  const formatRemaining = (ms: number): string => {
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
     if (!tiles.length) {
       return <FirstTrial hand={hand} onVictory={handleFirstVictory} />;
     }
     // Simple grid layout for now; parallax via row scaling
+  // Render hex grid with parallax
+  const renderGrid = () => {
     const size = 34, tilt = 0.62;
     const elements = tiles.map((t, i) => {
       const col = t.q + 5, row = t.r + 5;
@@ -91,7 +112,23 @@ export default function Territory({ tenderItems, onUpdate }: Props) {
             style={{ cursor: selectedHand !== null && !t.cursed ? "pointer" : "default" }}
             onClick={() => selectedHand !== null && !t.cursed && handleDeploy(t.id)} />
           {awoken && (
-            <image href={awoken.image_url} x={cx - 20 * ps} y={cy - 42 * ps} width={40 * ps} height={52 * ps} />
+            <g>
+              <image href={awoken.image_url} x={cx - 20 * ps} y={cy - 42 * ps} width={40 * ps} height={52 * ps} />
+              {(() => {
+                const placement = placements.find(p => p.tileId === t.id);
+                if (!placement) return null;
+                const remaining = getAttuneRemaining(t, placement, awoken);
+                if (remaining === null || remaining <= 0) return null;
+                return (
+                  <g>
+                    <rect x={cx - 28 * ps} y={cy - 58 * ps} width={56 * ps} height={14 * ps} rx={7 * ps} fill="#000" opacity="0.7" />
+                    <text x={cx} y={cy - 48 * ps} textAnchor="middle" fill="#b89b5e" fontSize={10 * ps}>
+                      {formatRemaining(remaining)}
+                    </text>
+                  </g>
+                );
+              })()}
+            </g>
           )}
         </g>
       );

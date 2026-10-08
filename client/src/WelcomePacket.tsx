@@ -75,8 +75,8 @@ const PAGES: Page[] = [
     title: "Attunement",
     body: [
       "An Awoken's presence slowly attunes surrounding lands toward its elements.",
-      "Leave a Tide Awoken on a neutral tile for 4 hours, and the tile begins to turn Tide.",
-      "Attuned tiles empower matching Awoken who stand on them.",
+      "A counter appears above the tile, counting down 4 hours until attunement completes.",
+      "Once attuned, the tile holds its element. A different element takes 8 hours to neutralize and re-attune it — the land remembers.",
       "Your land becomes a reflection of who you've placed there. Tend it well.",
     ],
     diagram: "attune",
