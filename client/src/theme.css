@@ -292,6 +292,8 @@
 @keyframes cosmic-rotate-rev{from{transform:rotate(360deg) scale(1)}to{transform:rotate(0deg) scale(1)}}
 @keyframes cosmic-breathe{0%,100%{scale:1}50%{scale:1.04}}
 
+.trial-error{background:rgba(120,20,20,0.9);color:#ffd0d0;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;border:1px solid #a03030}
+
 /* Trial title */
 .trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}
 

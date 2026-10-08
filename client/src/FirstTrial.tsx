@@ -31,6 +31,7 @@ function dominantElement(a: Awakened): Element {
 export default function FirstTrial({ hand, assets, onVictory }: Props) {
   const [pool, setPool] = useState<number[]>([]); // hand indices waiting in the cosmic pool, max 4
   const [purifying, setPurifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Energy: 5 base + power-scaled bonus per Awoken in hand.
   const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
   const deployCost = (power: number) => 2 + Math.floor((power - 1) / 3);
@@ -86,10 +87,12 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     // Let the animation breathe, then ask the server. If it refuses,
     // come back — don't leave the Tender staring at "Purifying..." forever.
     await new Promise(r => setTimeout(r, 1800));
+    setError(null);
     try {
       await onVictory(pooled.map(a => a.id));
     } catch (e) {
       console.error("[Trial] Purification refused", e);
+      setError(e instanceof Error ? e.message : "The ritual was refused.");
       setPurifying(false);
     }
   };
@@ -138,6 +141,7 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           })}
         </div>
       </div>
+      {error && <div className="trial-error">{error}</div>}
       <div className="trial-actions">
         <div className="trial-power">Combined Power: <b>{combinedPower}</b> / 7</div>
         <button className="abtn" disabled={!canBegin || purifying} onClick={handleBegin}>
