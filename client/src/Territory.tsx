@@ -244,7 +244,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return <FirstTrial hand={hand} assets={assets} onVictory={handleFirstVictory} />;
     }
     // Simple grid layout for now; parallax via row scaling
-  // Render hex grid with parallax — proper pointy-top axial layout
+  // Render hex grid — proper pointy-top axial layout, hexes meet edge-to-edge
   const renderGrid = () => {
     const size = 17, tilt = 0.62;
     // Center the (0,0) tile in the viewBox
@@ -255,13 +255,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const py = size * 1.5 * tilt * t.r;
       const cx = originX + px + pan.x;
       const cy = originY + py + pan.y;
-      // Parallax: visual scale by distance from center (further = smaller)
-      const dist = Math.sqrt(t.q * t.q + t.r * t.r + t.q * t.r);
-      const ps = Math.max(0.6, 1 - dist * 0.08);
-      const s = size * ps;
+      // Uniform size so hexes tile edge-to-edge. (Per-hex parallax scaling
+      // broke the tiling — distant hexes shrank but their centers didn't move.)
+      const s = size;
       const pts: string[] = [];
       for (let k = 0; k < 6; k++) {
-        const a = Math.PI / 180 * (60 * k);
+        // Pointy-top: first vertex at 30°, not 0° (0° gives flat-top,
+        // which doesn't match the axial positioning math above).
+        const a = Math.PI / 180 * (60 * k + 30);
         pts.push(`${(cx + s * Math.cos(a)).toFixed(1)},${(cy + s * Math.sin(a) * tilt).toFixed(1)}`);
       }
       const tex = t.cursed ? "cursed" : t.element;
@@ -289,7 +290,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                   { dx: 0, dy: -0.28 },    // back-center
                 ];
                 const ks = keystones[idx];
-                const ws = 15 * ps, hs = 20 * ps;
+                const ws = 15, hs = 20;
                 const kx = cx + ks.dx * s * 2;
                 const ky = cy + ks.dy * s * 2 * tilt;
                 const isWhispering = whisper?.awakenedId === a.id;
@@ -317,8 +318,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 if (remaining === null || remaining <= 0) return null;
                 return (
                   <g>
-                    <rect x={cx - 28 * ps} y={cy - 58 * ps} width={56 * ps} height={14 * ps} rx={7 * ps} fill="#000" opacity="0.7" />
-                    <text x={cx} y={cy - 48 * ps} textAnchor="middle" fill="#b89b5e" fontSize={10 * ps}>
+                    <rect x={cx - 28} y={cy - 58} width={56} height={14} rx={7} fill="#000" opacity="0.7" />
+                    <text x={cx} y={cy - 48} textAnchor="middle" fill="#b89b5e" fontSize={10}>
                       {formatRemaining(remaining)}
                     </text>
                   </g>

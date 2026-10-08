@@ -26,7 +26,8 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
   const hexPoints = (x: number, y: number, s: number) => {
     const pts: string[] = [];
     for (let i = 0; i < 6; i++) {
-      const a = Math.PI / 180 * (60 * i);
+      // Pointy-top: 30° offset so vertices align with the axial grid.
+      const a = Math.PI / 180 * (60 * i + 30);
       pts.push(`${(x + s * Math.cos(a)).toFixed(1)},${(y + s * Math.sin(a) * tilt).toFixed(1)}`);
     }
     return pts.join(" ");
@@ -42,10 +43,8 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     const py = baseSize * 1.5 * tilt * r;
     const x = cx + px;
     const y = cy + py;
-    // Parallax: visual scale by distance from center
-    const dist = Math.sqrt(q*q + r*r + q*r);
-    const ps = Math.max(0.7, 1 - dist * 0.1);
-    const s = baseSize * ps * (idx === 0 ? 1.4 : 1); // Center is larger
+    // All hexes the same size — the center tiles naturally with its neighbors.
+    const s = baseSize;
     tiles.push({ q, r, x, y, s, isCenter: idx === 0 });
   });
 
