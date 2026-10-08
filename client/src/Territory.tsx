@@ -11,17 +11,10 @@ import stoneImg from "./assets/terrain/stone.jpg";
 import rootImg from "./assets/terrain/root.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
 import cursedImg from "./assets/terrain/cursed.jpg";
-import debrisDark from "./assets/debris-dark.jpg";
 
 const TERRAIN: Record<string, string> = {
-  tide: debrisDark, sky: debrisDark, stone: debrisDark,
-  root: debrisDark, neutral: debrisDark, cursed: debrisDark,
-};
-// Elemental tint overlays so the Awoken stand out against the dark debris
-const ELEMENT_TINT: Record<string, string> = {
-  tide: "rgba(40,80,120,0.25)", sky: "rgba(120,160,200,0.20)",
-  stone: "rgba(120,100,80,0.25)", root: "rgba(60,100,60,0.25)",
-  neutral: "rgba(0,0,0,0)", cursed: "rgba(80,20,20,0.35)",
+  tide: tideImg, sky: skyImg, stone: stoneImg,
+  root: rootImg, neutral: neutralImg, cursed: cursedImg,
 };
 
 interface Props {
@@ -266,7 +259,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
           <g clipPath={`url(#terr-${t.id})`}>
             <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
-            <polygon points={pts.join(" ")} fill={ELEMENT_TINT[tex] ?? "rgba(0,0,0,0)"} />
           </g>
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
             style={{ cursor: battlePool.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
