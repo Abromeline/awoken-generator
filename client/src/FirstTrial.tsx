@@ -106,10 +106,29 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     setEnergy(e => e - cost);
   };
 
+  const hasPlaced = placed.size > 0;
+
   return (
     <div className="first-trial">
+      <div className={`trial-title-large ${hasPlaced ? "faded" : ""}`}>Purify the dark to begin</div>
+      <div className="trial-hand trial-hand-top">
+        <div className="hand-label">Tap cards to send them into the dark — combined power must reach 7</div>
+        <div className="hand-cards">
+          {hand.map((a, i) => {
+            const used = Array.from(placed.values()).some(p => p.id === a.id);
+            return (
+              <button key={a.id} className={`hand-card ${used ? "used" : ""}`}
+                disabled={purifying}
+                onClick={() => handleCardTap(i)}>
+                <img src={a.image_url} alt={a.name} />
+                <div className="hand-card-name">{a.name}</div>
+                <div className="hand-card-stats">{a.power} power</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="trial-field-wrap">
-        <div className="trial-title-overlay">Purify the dark to begin</div>
         <svg viewBox="0 0 500 340" className="trial-svg">
         <defs>
           {tiles.map((t, i) => (
@@ -189,23 +208,6 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           );
         })}
       </svg>
-      </div>
-      <div className="trial-hand">
-        <div className="hand-label">Tap cards to send them into the dark — combined power must reach 7</div>
-        <div className="hand-cards">
-          {hand.map((a, i) => {
-            const used = Array.from(placed.values()).some(p => p.id === a.id);
-            return (
-              <button key={a.id} className={`hand-card ${used ? "used" : ""}`}
-                disabled={purifying}
-                onClick={() => handleCardTap(i)}>
-                <img src={a.image_url} alt={a.name} />
-                <div className="hand-card-name">{a.name}</div>
-                <div className="hand-card-stats">{a.power} power</div>
-              </button>
-            );
-          })}
-        </div>
       </div>
       <div className="trial-actions">
         <div className="trial-power">Combined Power: <b>{combinedPower}</b> / 7</div>
