@@ -263,6 +263,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
             style={{ cursor: battlePool.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
             onClick={() => battlePool.length > 0 && handleDeploy(t.id)} />
+          {t.cursed && battlePool.length > 0 && (
+            <polygon points={pts.join(" ")} fill="none" stroke="#ff4444" strokeWidth="2"
+              className="cursed-target-pulse" style={{ pointerEvents: "none" }} />
+          )}
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
