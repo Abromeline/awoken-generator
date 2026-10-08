@@ -295,6 +295,11 @@
 
 .trial-error{background:rgba(120,20,20,0.9);color:#ffd0d0;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;border:1px solid #a03030}
 
+/* Binding prompt */
+.binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}
+.binding-prompt-title{font-size:16px;font-weight:bold;color:#88bbff;margin-bottom:6px}
+.binding-prompt-text{font-size:14px;color:#ccddff;margin-bottom:10px}
+
 /* Wave panel */
 .wave-panel{background:rgba(20,10,10,0.9);border:1px solid #6a1a1a;border-radius:8px;padding:10px 14px;margin:0 0 10px;text-align:center}
 .wave-title{font-size:16px;font-weight:bold;color:#ff8888;margin-bottom:4px}

@@ -50,6 +50,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
+  const [showBindingPrompt, setShowBindingPrompt] = useState(false);
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
@@ -86,7 +87,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   useEffect(() => {
     if (tiles.length) {
-      api.getWave().then(setWave).catch(() => {});
+      api.getWave().then(w => {
+        setWave(w);
+        // After 3 victories, prompt the binding — it protects tiles from waves.
+        if (w.wavesDefeated >= 3 && !localStorage.getItem("bindingPromptSeen")) {
+          setShowBindingPrompt(true);
+        }
+      }).catch(() => {});
     }
   }, [tiles.length]);
 
@@ -509,6 +516,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         )}
       </div>
+      {showBindingPrompt && (
+        <div className="binding-prompt">
+          <div className="binding-prompt-title">✦ The Binding awaits</div>
+          <div className="binding-prompt-text">
+            You hold three territories. Set an Awoken to <b>Binding stance</b> — 
+            while they hold a tile, the waves cannot take it.
+          </div>
+          <button className="abtn" onClick={() => {
+            localStorage.setItem("bindingPromptSeen", "1");
+            setShowBindingPrompt(false);
+          }}>
+            I understand
+          </button>
+        </div>
+      )}
       {wave && (
         <div className="wave-panel">
           <div className="wave-title">🌊 Wave {wave.waveNumber} approaches</div>

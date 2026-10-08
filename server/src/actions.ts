@@ -912,12 +912,11 @@ export const handlers = {
       state = [row];
     }
     const wave = state[0].waveNumber;
-    // Wave composition: Fray swarm + Unraveler every 3rd wave.
-    const frayCount = 2 + wave;
-    const frayPower = 1;
+    // First wave is 7. Each wave gets harder: +2 power per wave.
+    // Composition: Unravelers (power 4) every 3rd wave, Fray (power 1) make up the rest.
     const unravelers = Math.floor(wave / 3);
-    const unravelerPower = 4;
-    const totalPower = frayCount * frayPower + unravelers * unravelerPower;
+    const totalPower = 7 + (wave - 1) * 2 + unravelers * 4;
+    const frayCount = totalPower - unravelers * 4;
     return {
       waveNumber: wave,
       wavesDefeated: state[0].wavesDefeated,
@@ -935,9 +934,8 @@ export const handlers = {
       state = [row];
     }
     const wave = state[0].waveNumber;
-    const frayCount = 2 + wave;
     const unravelers = Math.floor(wave / 3);
-    const wavePower = frayCount * 1 + unravelers * 4;
+    const wavePower = 7 + (wave - 1) * 2 + unravelers * 4;
 
     // Defense: Awoken on the bastion (center tile) in defense stance.
     // The center is the last bastion — it never falls.
@@ -1015,13 +1013,23 @@ export const handlers = {
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {
-      // Defeat: a random purified border tile (not the bastion) becomes cursed.
+      // Defeat: a random purified border tile becomes cursed.
+      // The bastion never falls. Tiles held by binding Awoken are protected.
       const purified = await db.select().from(schema.territoryTiles)
         .where(and(
           eq(schema.territoryTiles.ownerKey, ownerKey),
           eq(schema.territoryTiles.cursed, 0)
         ));
-      const border = purified.filter(t => !(t.q === 0 && t.r === 0));
+      const binders = await db.select({ tileId: schema.fieldPlacements.tileId })
+        .from(schema.fieldPlacements)
+        .where(and(
+          eq(schema.fieldPlacements.ownerKey, ownerKey),
+          eq(schema.fieldPlacements.stance, "binding")
+        ));
+      const protectedIds = new Set(binders.map(b => b.tileId));
+      const border = purified.filter(t =>
+        !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id)
+      );
       if (border.length) {
         const victim = border[Math.floor(Math.random() * border.length)];
         await db.update(schema.territoryTiles)
