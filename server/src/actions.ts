@@ -6,6 +6,7 @@
 
 import { randomUUID } from "node:crypto";
 import { asc, desc, eq } from "drizzle-orm";
+import sharp from "sharp";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
@@ -262,12 +263,24 @@ export const handlers = {
     const signature = [137, 80, 78, 71, 13, 10, 26, 10];
     if (!signature.every((byte, index) => bytes[index] === byte) || bytes.length < 26) badRequest("That file is not a true PNG.");
     const width = bytes.readUInt32BE(16); const height = bytes.readUInt32BE(20);
-    if (width !== 750 || height !== 971) badRequest(`That PNG is ${width} × ${height}. Use the 750 × 971 template.`);
+    // Normalize uploads onto the shared 750×971 canvas. The artist's Procreate
+    // exports are 2550×3300 (same aspect ratio); anything close to the template
+    // ratio is resized with transparency preserved — never flattened, no
+    // background fill. Anything else is rejected with the template message.
+    const TEMPLATE_W = 750; const TEMPLATE_H = 971;
+    let normalized = bytes;
+    if (width !== TEMPLATE_W || height !== TEMPLATE_H) {
+      const templateRatio = TEMPLATE_W / TEMPLATE_H;
+      const ratioOk = Math.abs(width / height - templateRatio) / templateRatio <= 0.01;
+      const sizeOk = width >= TEMPLATE_W && height >= TEMPLATE_H && Math.max(width, height) <= 4000;
+      if (!ratioOk || !sizeOk) badRequest(`That PNG is ${width} × ${height}. Use the 750 × 971 template.`);
+      normalized = await sharp(bytes).resize(TEMPLATE_W, TEMPLATE_H, { fit: "fill" }).png().toBuffer();
+    }
     const existing = await db.select({ name: schema.layerAssets.name }).from(schema.layerAssets).where(eq(schema.layerAssets.category, category));
     const name = mysticalPieceName(category, new Set(existing.map((row) => row.name)));
     const blobKey = `layer-assets/${Date.now()}-${randomUUID()}.png`;
     const hasStats = statCategories.has(category);
-    blobs.put(blobKey, bytes, mimeType);
+    blobs.put(blobKey, normalized, mimeType);
     const rows = await db.insert(schema.layerAssets).values({ name, category, rarity: "common", power: hasStats ? 1 : null, toughness: hasStats ? 1 : null, imageBlobKey: blobKey, mimeType }).returning({ id: schema.layerAssets.id });
     const row = rows[0];
     if (!row) { blobs.delete(blobKey); badRequest("The drawing could not be added to the layer pool."); }
