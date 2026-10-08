@@ -3,6 +3,7 @@ import type { Awakened } from "./api";
 import FieldAwoken from "./FieldAwoken";
 import cursedImg from "./assets/terrain/cursed.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
+import unravelerImg from "./assets/adversaries/unraveler.png";
 
 interface Props {
   hand: Awakened[];
@@ -154,9 +155,9 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         {/* Unraveler on center */}
         {!purifying && (
           <g>
-            <circle cx={center.x} cy={center.y} r="20" fill="#1a0a0a" stroke="#aa2a2a" strokeWidth="3" />
-            <text x={center.x} y={center.y + 7} textAnchor="middle" fill="#cc5555" fontSize="18">✕</text>
-            <text x={center.x} y={center.y + 38} textAnchor="middle" fill="#aa5555" fontSize="11">Power 7</text>
+            <image href={unravelerImg} x={center.x - 30} y={center.y - 36}
+              width="60" height="72" className="adversary-unraveler" />
+            <text x={center.x} y={center.y + 42} textAnchor="middle" fill="#aa5555" fontSize="11">Power 7</text>
           </g>
         )}
         {/* Purification particles */}

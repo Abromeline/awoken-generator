@@ -242,3 +242,13 @@
 
 /* Trial title */
 .trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}
+
+/* Adversary animations */
+.adversary-unraveler{animation:unraveler-breathe 4s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes unraveler-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+.adversary-fray{animation:fray-skitter 0.6s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes fray-skitter{0%,100%{transform:translate(0,0) rotate(0deg)}25%{transform:translate(2px,-1px) rotate(2deg)}75%{transform:translate(-2px,1px) rotate(-2deg)}}
+.adversary-hollow{animation:hollow-pulse 3s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes hollow-pulse{0%,100%{transform:scale(1);opacity:0.9}50%{transform:scale(0.92);opacity:1}}
+.adversary-tangle{animation:tangle-writhe 2.5s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes tangle-writhe{0%,100%{transform:rotate(-3deg) scale(1)}50%{transform:rotate(3deg) scale(1.05)}}
