@@ -295,6 +295,28 @@ function badRequest(message: string): never {
   throw Object.assign(new Error(message), { status: 400 });
 }
 
+
+/** Expand the frontier: when a tile is purified, cursed wilds push outward.
+ *  Any missing neighbor of (q,r) becomes a new cursed tile. */
+async function expandFrontier(ownerKey: string, q: number, r: number) {
+  const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
+  const existing = await db.select({ q: schema.territoryTiles.q, r: schema.territoryTiles.r })
+    .from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const seen = new Set(existing.map(t => `${t.q},${t.r}`));
+  const now = new Date();
+  for (const [dq, dr] of dirs) {
+    const nq = q + dq, nr = r + dr;
+    if (seen.has(`${nq},${nr}`)) continue;
+    const el = elements[Math.floor(Math.random() * elements.length)];
+    await db.insert(schema.territoryTiles).values({
+      ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
+    });
+    seen.add(`${nq},${nr}`);
+  }
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -757,6 +779,8 @@ export const handlers = {
             ));
         }
         purified = true;
+        // The frontier pushes outward — new wilds to purify.
+        await expandFrontier(ownerKey, tile[0].q, tile[0].r);
       }
     }
     return z.object({ ok: z.literal(true), purified: z.boolean() }).parse({ ok: true, purified });
@@ -836,6 +860,10 @@ export const handlers = {
       await db.insert(schema.territoryTiles).values({
         ownerKey, q: dq, r: dr, element: el, cursed: 1, lastPassiveAt: now,
       });
+    }
+    // The wilds press in from beyond the first ring.
+    for (const [dq, dr] of dirs) {
+      await expandFrontier(ownerKey, dq, dr);
     }
     // Place team on center tile (max 4 total).
     // Newborn is birthed client-side via birthFieldAwoken (real Wake, not a clone).
@@ -1145,6 +1173,7 @@ export const handlers = {
     await db.update(schema.territoryTiles)
       .set({ cursed: 0 })
       .where(eq(schema.territoryTiles.id, tile[0].id));
+    await expandFrontier(ownerKey, tile[0].q, tile[0].r);
     return purifyResponse.parse({ ok: true, purified: true });
   },
 };
