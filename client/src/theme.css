@@ -196,7 +196,8 @@
 .trial-hand-top{position:static;margin-top:0;margin-bottom:12px;border-bottom:1px solid #b89b5e;padding-bottom:12px}
 .trial-svg{display:block;width:100%;height:auto;background:#050505;border:2px solid #6a1a1a;border-radius:6px}
 .trial-hand{background:#0a0a0a;padding:10px 0 12px;z-index:5}
-.trial-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;flex-wrap:wrap}
+.trial-actions{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:0;margin-bottom:12px;flex-wrap:wrap;background:#0a0a0a;padding:10px 12px;border-bottom:1px solid #b89b5e;border-radius:0 0 8px 8px}
+.trial-actions .abtn{font-size:18px;padding:12px 28px;font-weight:bold}
 .trial-energy{margin-left:auto}
 .trial-power{font-size:14px;color:#e8e0d0;margin-bottom:8px}
 .trial-power b{color:#b89b5e;font-size:18px}

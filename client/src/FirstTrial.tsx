@@ -117,6 +117,19 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           })}
         </div>
       </div>
+      <div className="trial-actions">
+        <div className="trial-power">Combined Power: <b>{combinedPower}</b> / 7</div>
+        <button className="abtn" disabled={!canBegin || purifying} onClick={handleBegin}>
+          {purifying ? "Purifying..." : "Begin the Ritual"}
+        </button>
+        <div className="energy-meter trial-energy">
+          <span className="energy-label">Energy</span>
+          <div className="energy-bar">
+            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
+          </div>
+          <span className="energy-value">{energy}/{maxEnergy}</span>
+        </div>
+      </div>
       {pool.length > 0 && (
         <div className="cosmic-pool" style={{ backgroundImage: `url(${cosmicPoolBg})` }}>
           <div className="cosmic-pool-label">Waiting in the void — {pool.length}/4</div>
@@ -195,19 +208,6 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           );
         })}
       </svg>
-      </div>
-      <div className="trial-actions">
-        <div className="trial-power">Combined Power: <b>{combinedPower}</b> / 7</div>
-        <button className="abtn" disabled={!canBegin || purifying} onClick={handleBegin}>
-          {purifying ? "Purifying..." : "Begin the Ritual"}
-        </button>
-        <div className="energy-meter trial-energy">
-          <span className="energy-label">Energy</span>
-          <div className="energy-bar">
-            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
-          </div>
-          <span className="energy-value">{energy}/{maxEnergy}</span>
-        </div>
       </div>
     </div>
   );

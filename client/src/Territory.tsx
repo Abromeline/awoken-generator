@@ -157,35 +157,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       await api.claimFirstTile({ teamIds });
       const { tiles, placements } = await api.getTerritory();
       setTiles(tiles); setPlacements(placements);
-      // Birth the newborn: a real Wake, not a clone. 5% fire chance.
+      // Newborn joins the hand — server-side, fire-and-forget. Cannot hang the ritual.
       const center = tiles.find(t => t.q === 0 && t.r === 0);
       if (center && teamIds.length > 0) {
         const team = tenderItems.filter(a => teamIds.includes(a.id));
         const liberatorNames = team.map(t => t.name);
-        console.log("[Birth] Starting birth, assets:", assets.length);
-        const birthLayers = pickBirthLayers(assets.map(a => ({
-          sourceId: a.sourceId, name: a.name, category: a.category,
-          rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
-        })));
-        console.log("[Birth] Picked layers:", birthLayers.length);
-        if (birthLayers.length >= 3) {
-          const imageBase64 = await composeBirth(birthLayers);
-          console.log("[Birth] Composed image, length:", imageBase64.length);
-          const layerRefs = birthLayers.map(l => ({
-            source_id: l.sourceId, name: l.name,
-            category: l.category as "body" | "arms" | "aura" | "head",
-            rarity: "common" as const, power: null, toughness: null,
-          }));
-          const result = await api.birthFieldAwoken({
-            layers: layerRefs, imageBase64,
-            tileId: center.id, liberatorNames,
-          });
-          console.log("[Birth] Birth result:", result);
-          const refreshed = await api.getTerritory();
-          setTiles(refreshed.tiles); setPlacements(refreshed.placements);
-        } else {
-          console.warn("[Birth] Not enough layers picked:", birthLayers.length);
-        }
+        api.birthNewbornToHand({ tileId: center.id, liberatorNames }).catch(e =>
+          console.error("[Birth] Newborn failed — ritual complete", e)
+        );
       }
       onUpdate();
     } catch (e) {
