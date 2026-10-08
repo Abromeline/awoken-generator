@@ -81,24 +81,3 @@ const tenderNamePool = [
 export function suggestTenderName(): string {
   return tenderNamePool[Math.floor(Math.random() * tenderNamePool.length)];
 }
-
-// Names for newly woken creatures — given by the generator at birth, in the
-// same voice as the piece names. A Tender may rename afterward; the given
-// name is how the creature first knows itself.
-const creatureNames = [
-  "Silt-and-Starlight", "The Waking Dark", "He-Who-Gathers-Rain", "The Soft Avalanche",
-  "Murmuration", "The Patient Weather", "Root-and-River", "The Held Breath",
-  "She-Who-Listens", "The Gentle Erosion", "Thunder's Kin", "The Moss-Bearer",
-  "Quiet-as-Pondwater", "The Ink-Drunk", "Warden of the Between", "The Slow Thunder",
-  "Pebble-and-Prayer", "The Unfolding", "Dusk-That-Walks", "The Lichen-Throated",
-  "Morning's First Thought", "The Stone-Singer", "Rain-That-Stays", "The Hollow-That-Holds",
-  "Bramble-Crowned", "The Tide-Turned", "Frost-and-Fern", "The Deep Listener",
-  "Cloud-That-Rooted", "The Ember-Keeper",
-];
-
-/** Pick a mystical name for a newborn Awoken, preferring one not already in use. */
-export function mysticalCreatureName(usedNames: Set<string>): string {
-  const unused = creatureNames.filter((name) => !usedNames.has(name));
-  const source = unused.length ? unused : creatureNames;
-  return source[Math.floor(Math.random() * source.length)];
-}

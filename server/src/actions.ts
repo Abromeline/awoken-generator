@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
-import { mysticalPieceName, birthFlavorText, mysticalCreatureName } from "./naming.js";
+import { mysticalPieceName, birthFlavorText } from "./naming.js";
 import { creditBalance, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
 import { stripeReady } from "./stripe.js";
@@ -182,7 +182,7 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
   const [latest, currentAssets, existing] = await Promise.all([
     db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1),
     db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness }).from(schema.layerAssets),
-    db.select({ name: schema.awakened.name, identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
+    db.select({ identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
   ]);
   const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
     const rarity = raritySchema.safeParse(row.rarity);
@@ -198,8 +198,8 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
     const rowIdentity = row.identityKey === "legacy" ? identityFor(parseLayers(row.compositionJson, currentStats)) : row.identityKey;
     if (rowIdentity === identityKey) previousCount += 1;
   }
-  const usedCreatureNames = new Set(existing.map((row) => row.name));
-  const name = mysticalCreatureName(usedCreatureNames);
+  const nextNumber = (latest[0]?.id ?? 0) + 1;
+  const name = `Awoken ${String(nextNumber).padStart(3, "0")}`;
   const namedMatter = canonicalLayers.filter((layer) => statCategories.has(layer.category)).map((layer) => layer.name);
   const flavorText = birthFlavorText(namedMatter);
   const basePower = canonicalLayers.reduce((sum, layer) => sum + (layer.power ?? 0), 0);
