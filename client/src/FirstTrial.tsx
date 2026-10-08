@@ -212,7 +212,7 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
       <div className="trial-actions">
         <div className="trial-power">Combined Power: <b>{combinedPower}</b> / 7</div>
         <button className="abtn" disabled={!canBegin || purifying} onClick={handleBegin}>
-          {purifying ? "Purifying..." : "Begin the Purification"}
+          {purifying ? "Purifying..." : "Begin the Ritual"}
         </button>
         <div className="energy-meter trial-energy">
           <span className="energy-label">Energy</span>
