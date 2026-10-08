@@ -62,6 +62,7 @@ export interface FieldPlacement {
   tileId: number;
   placedAt: string;
   lastMovedAt: string;
+  stance: "attack" | "defense" | "binding";
 }
 
 export interface CreditInfo {
@@ -241,6 +242,10 @@ export const api = {
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
+  setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding" }) =>
+    post<{ ok: true }>("setStance", args),
+  attackTile: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; purified: boolean; need?: number; have?: number }>("attackTile", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;

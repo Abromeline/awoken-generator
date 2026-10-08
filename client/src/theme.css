@@ -295,6 +295,16 @@
 
 .trial-error{background:rgba(120,20,20,0.9);color:#ffd0d0;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;border:1px solid #a03030}
 
+/* Stance picker */
+.stance-picker{position:relative;background:rgba(10,10,10,0.95);border:1px solid #b89b5e;border-radius:8px;padding:10px 12px;margin:0 0 10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.stance-picker-name{font-weight:bold;color:#e8d5a8;font-size:14px}
+.stance-buttons{display:flex;gap:8px}
+.stance-btn{background:#1a1a1a;border:1px solid #444;color:#ccc;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer}
+.stance-btn.active{background:#2a2418;border-color:#b89b5e;color:#ffd700}
+.stance-btn:hover{border-color:#b89b5e}
+.attack-hint{color:#ff8888;font-size:12px;font-style:italic}
+.stance-close{background:none;border:none;color:#888;font-size:16px;cursor:pointer;margin-left:auto}
+
 /* Trial title */
 .trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}
 

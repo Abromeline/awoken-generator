@@ -325,6 +325,80 @@ function corruptionToughness(q: number, r: number): number {
   return 3 + 2 * Math.max(ring, 1);
 }
 
+
+/** Defense bonus: each Awoken in defense stance grants +2 power to all
+ *  adjacent tiles for purification. Returns a map of tileId -> bonus. */
+async function defenseBonuses(ownerKey: string): Promise<Map<number, number>> {
+  const bonuses = new Map<number, number>();
+  const defenders = await db.select({
+    tileId: schema.fieldPlacements.tileId,
+  }).from(schema.fieldPlacements)
+    .where(and(
+      eq(schema.fieldPlacements.ownerKey, ownerKey),
+      eq(schema.fieldPlacements.stance, "defense")
+    ));
+  if (!defenders.length) return bonuses;
+  const tiles = await db.select({
+    id: schema.territoryTiles.id,
+    q: schema.territoryTiles.q,
+    r: schema.territoryTiles.r,
+  }).from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const tileById = new Map(tiles.map(t => [t.id, t]));
+  const tileByCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+  for (const d of defenders) {
+    const tile = tileById.get(d.tileId);
+    if (!tile) continue;
+    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    for (const [dq, dr] of dirs) {
+      const neighbor = tileByCoord.get(`${tile.q + dq},${tile.r + dr}`);
+      if (neighbor) {
+        bonuses.set(neighbor.id, (bonuses.get(neighbor.id) ?? 0) + 2);
+      }
+    }
+  }
+  return bonuses;
+}
+
+
+/** Binding bonus: Awoken in binding stance channel power into the land.
+ *  Their own tile gets +3, adjacent tiles get +1. The energy cost is
+ *  tracked client-side (2 to enter, 1 per hour). */
+async function bindingBonuses(ownerKey: string): Promise<Map<number, number>> {
+  const bonuses = new Map<number, number>();
+  const binders = await db.select({
+    tileId: schema.fieldPlacements.tileId,
+  }).from(schema.fieldPlacements)
+    .where(and(
+      eq(schema.fieldPlacements.ownerKey, ownerKey),
+      eq(schema.fieldPlacements.stance, "binding")
+    ));
+  if (!binders.length) return bonuses;
+  const tiles = await db.select({
+    id: schema.territoryTiles.id,
+    q: schema.territoryTiles.q,
+    r: schema.territoryTiles.r,
+  }).from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const tileById = new Map(tiles.map(t => [t.id, t]));
+  const tileByCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+  for (const b of binders) {
+    const tile = tileById.get(b.tileId);
+    if (!tile) continue;
+    // Own tile gets +3
+    bonuses.set(tile.id, (bonuses.get(tile.id) ?? 0) + 3);
+    // Neighbors get +1
+    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    for (const [dq, dr] of dirs) {
+      const neighbor = tileByCoord.get(`${tile.q + dq},${tile.r + dr}`);
+      if (neighbor) {
+        bonuses.set(neighbor.id, (bonuses.get(neighbor.id) ?? 0) + 1);
+      }
+    }
+  }
+  return bonuses;
+}
+
 /** Expand the frontier: when a tile is purified, cursed wilds push outward.
  *  Any missing neighbor of (q,r) becomes a new cursed tile. */
 async function expandFrontier(ownerKey: string, q: number, r: number) {
@@ -768,6 +842,7 @@ export const handlers = {
         .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
       let totalPower = 0;
       const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+      const weight = corruptionToughness(tile[0].q, tile[0].r);
       for (const p of allOnTile) {
         const a = owned.find(o => o.id === p.awakenedId);
         if (!a) continue;
@@ -778,7 +853,12 @@ export const handlers = {
           if (el !== "fire") elementCounts[el] += 1;
         }
       }
-      const weight = corruptionToughness(tile[0].q, tile[0].r);
+      // Defense stance: adjacent defenders lend +2 each.
+      // Binding stance: binders channel +3 to their tile, +1 to neighbors.
+      const defBonus = await defenseBonuses(ownerKey);
+      const bindBonus = await bindingBonuses(ownerKey);
+      totalPower += defBonus.get(tile[0].id) ?? 0;
+      totalPower += bindBonus.get(tile[0].id) ?? 0;
       if (totalPower >= weight) {
         let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
         let maxCount = 0; let tie = false;
@@ -812,6 +892,104 @@ export const handlers = {
       }
     }
     return z.object({ ok: z.literal(true), purified: z.boolean() }).parse({ ok: true, purified });
+  },
+
+
+  async setStance(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      stance: z.enum(["attack", "defense", "binding"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid stance.");
+    // Verify the Awoken is on the field and owned by the Tender.
+    const placement = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
+        eq(schema.fieldPlacements.ownerKey, ownerKey)
+      )).limit(1);
+    if (!placement.length) badRequest("That Awoken is not on your field.");
+    await db.update(schema.fieldPlacements)
+      .set({ stance: parsed.data.stance })
+      .where(eq(schema.fieldPlacements.id, placement[0].id));
+    return z.object({ ok: z.literal(true) }).parse({ ok: true });
+  },
+
+  async attackTile(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid attack.");
+    // The attacker must be on the field in attack stance.
+    const placement = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
+        eq(schema.fieldPlacements.ownerKey, ownerKey)
+      )).limit(1);
+    if (!placement.length) badRequest("That Awoken is not on your field.");
+    if (placement[0].stance !== "attack") badRequest("Set attack stance first.");
+    // The target must be a cursed tile owned by the Tender.
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey)
+      )).limit(1);
+    if (!tile.length) badRequest("That tile is not yours.");
+    if (!tile[0].cursed) badRequest("That land is already pure.");
+    // Target must be adjacent to the attacker's current tile.
+    const fromTile = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.id, placement[0].tileId)).limit(1);
+    if (!fromTile.length) badRequest("Attacker has no ground.");
+    const dq = Math.abs(tile[0].q - fromTile[0].q);
+    const dr = Math.abs(tile[0].r - fromTile[0].r);
+    const dist = Math.max(dq, dr, Math.abs((tile[0].q + tile[0].r) - (fromTile[0].q + fromTile[0].r)));
+    if (dist !== 1) badRequest("Can only attack adjacent tiles.");
+    // Power vs toughness: the attacker's power must meet the corruption.
+    const owned = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.collection, "tender"),
+        or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+      ));
+    const attacker = owned.find(a => a.id === parsed.data.awakenedId);
+    if (!attacker) badRequest("Attacker not found.");
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const assetRow of assetRows) {
+      const rarity = raritySchema.safeParse(assetRow.rarity);
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+    }
+    const layers = parseLayers(attacker.compositionJson, assetStats);
+    const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
+    const toughness = corruptionToughness(tile[0].q, tile[0].r);
+    if (power < toughness) {
+      return z.object({ ok: z.literal(true), purified: z.literal(false), need: z.number(), have: z.number() })
+        .parse({ ok: true, purified: false, need: toughness, have: power });
+    }
+    // Victory: purify the tile, move the attacker onto it.
+    const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    for (const layer of layers) {
+      const el = elementForPieceName(layer.name);
+      if (el !== "fire") elementCounts[el] += 1;
+    }
+    let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+    let maxCount = 0; let tie = false;
+    for (const [el, count] of Object.entries(elementCounts)) {
+      if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+      else if (count === maxCount && count > 0) { tie = true; }
+    }
+    if (tie) element = "neutral";
+    await db.update(schema.territoryTiles)
+      .set({ cursed: 0, element })
+      .where(eq(schema.territoryTiles.id, tile[0].id));
+    // Move the attacker onto the purified tile.
+    await db.update(schema.fieldPlacements)
+      .set({ tileId: tile[0].id, lastMovedAt: new Date() })
+      .where(eq(schema.fieldPlacements.id, placement[0].id));
+    await expandFrontier(ownerKey, tile[0].q, tile[0].r);
+    // A newborn joins the hand for the victory.
+    return z.object({ ok: z.literal(true), purified: z.literal(true) }).parse({ ok: true, purified: true });
   },
 
   async claimFirstTile(args: unknown, ctx?: ActionContext) {
@@ -1188,6 +1366,12 @@ export const handlers = {
     for (const p of placements) {
       if (neighborIds.has(p.tileId)) nearbyPower += powerById.get(p.awakenedId) ?? 0;
     }
+    // Defense stance: defenders lend +2 to the tiles they protect.
+    // Binding stance: binders channel power into the land.
+    const defBonus = await defenseBonuses(ownerKey);
+    const bindBonus = await bindingBonuses(ownerKey);
+    nearbyPower += defBonus.get(tile[0].id) ?? 0;
+    nearbyPower += bindBonus.get(tile[0].id) ?? 0;
     if (nearbyPower < weight) {
       return purifyResponse.parse({ ok: false, reason: "too-weak", need: weight, have: nearbyPower });
     }

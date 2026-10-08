@@ -45,6 +45,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [energy, setEnergy] = useState(5);
+  const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
+  const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
@@ -175,6 +177,44 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
+  const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding") => {
+    try {
+      await api.setStance({ awakenedId, stance });
+      const refreshed = await api.getTerritory();
+      setPlacements(refreshed.placements);
+      if (stance === "attack") {
+        setAttackTargeting(true);
+      } else {
+        setAttackTargeting(false);
+      }
+      // Binding costs 2 energy to enter
+      if (stance === "binding") {
+        setEnergy(e => Math.max(0, e - 2));
+      }
+    } catch (e) {
+      console.error("Stance change failed", e);
+    }
+  };
+
+  const handleAttack = async (tileId: number) => {
+    if (selectedAwoken === null) return;
+    try {
+      const result = await api.attackTile({ awakenedId: selectedAwoken, tileId });
+      const refreshed = await api.getTerritory();
+      setTiles(refreshed.tiles);
+      setPlacements(refreshed.placements);
+      if (result.purified) {
+        api.birthNewbornToHand({ tileId, liberatorNames: [] }).catch(() => {});
+      }
+      setSelectedAwoken(null);
+      setAttackTargeting(false);
+      onUpdate();
+    } catch (e) {
+      console.error("Attack failed", e);
+      setAttackTargeting(false);
+    }
+  };
+
   const toggleBattlePool = (index: number) => {
     setBattlePool(prev => {
       if (prev.includes(index)) return prev.filter(i => i !== index);
@@ -264,8 +304,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#4a2a2a") : "#b89b5e"}
             strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
             opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
-            style={{ cursor: battlePool.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
-            onClick={() => battlePool.length > 0 && handleDeploy(t.id)} />
+            style={{
+              cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
+              pointerEvents: "all"
+            }}
+            onClick={() => {
+              if (attackTargeting && selectedAwoken !== null) {
+                handleAttack(t.id);
+              } else if (battlePool.length > 0) {
+                handleDeploy(t.id);
+              }
+            }} />
 
           {awokens.length > 0 && (
             <g>
@@ -285,12 +334,32 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
                 const driftDur = (6 + (a.id % 5)).toFixed(1);
                 const driftDelay = (-(a.id % 7)).toFixed(1);
+                const placement = tilePlacements.find(p => p.awakenedId === a.id);
+                const isSelected = selectedAwoken === a.id;
                 return (
                   <g key={a.id} className="field-drifter"
-                    style={{ "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` } as React.CSSProperties}>
+                    style={{
+                      "--drift-dur": `${driftDur}s`,
+                      "--drift-delay": `${driftDelay}s`,
+                      cursor: "pointer",
+                    } as React.CSSProperties}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAwoken(isSelected ? null : a.id);
+                      setAttackTargeting(false);
+                    }}>
+                    {isSelected && (
+                      <circle cx={kx} cy={ky} r={14} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
+                    )}
                     <FieldAwoken awoken={a} assets={assets}
                       x={kx - ws / 2} y={ky - hs / 2}
                       width={ws} height={hs} />
+                    {placement && placement.stance !== "defense" && (
+                      <text x={kx} y={ky - hs / 2 - 4} textAnchor="middle" fontSize={7}
+                        fill={placement.stance === "attack" ? "#ff6666" : "#66aaff"}>
+                        {placement.stance === "attack" ? "⚔" : "✦"}
+                      </text>
+                    )}
                     {isWhispering && (
                       <g className="whisper-bubble" opacity="0.85">
                         <text x={kx} y={ky - hs / 2 - 12}
@@ -308,10 +377,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 if (!placement || !awoken) return null;
                 const remaining = getAttuneRemaining(t, placement, awoken);
                 if (remaining === null || remaining <= 0) return null;
+                const attuneEl = dominantElement(awoken);
+                const elColor: Record<string, string> = {
+                  tide: "#6aa8d8", sky: "#a8d8f0", stone: "#c8a878",
+                  root: "#78b878", fire: "#e87848", neutral: "#b89b5e",
+                };
                 return (
                   <g>
-                    <rect x={cx - 28} y={cy - 58} width={56} height={14} rx={7} fill="#000" opacity="0.7" />
-                    <text x={cx} y={cy - 48} textAnchor="middle" fill="#b89b5e" fontSize={10}>
+                    <rect x={cx - 18} y={cy + s * 0.55} width={36} height={9} rx={4.5} fill="#000" opacity="0.8" />
+                    <circle cx={cx - 12} cy={cy + s * 0.55 + 4.5} r={2.8} fill={elColor[attuneEl] ?? "#b89b5e"} opacity="0.95" />
+                    <text x={cx + 3} y={cy + s * 0.55 + 7} textAnchor="middle" fill="#e8e0d0" fontSize={6.5}>
                       {formatRemaining(remaining)}
                     </text>
                   </g>
@@ -367,6 +442,42 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         )}
       </div>
+      {selectedAwoken !== null && (() => {
+        const placement = placements.find(p => p.awakenedId === selectedAwoken);
+        const awoken = tenderItems.find(a => a.id === selectedAwoken);
+        if (!placement || !awoken) return null;
+        return (
+          <div className="stance-picker">
+            <div className="stance-picker-name">{awoken.name}</div>
+            <div className="stance-buttons">
+              <button
+                className={`stance-btn ${placement.stance === "attack" ? "active" : ""}`}
+                onClick={() => handleSetStance(selectedAwoken, "attack")}
+                title="Focus all power on one tile. Attack an adjacent cursed tile to purify it.">
+                ⚔ Attack
+              </button>
+              <button
+                className={`stance-btn ${placement.stance === "defense" ? "active" : ""}`}
+                onClick={() => handleSetStance(selectedAwoken, "defense")}
+                title="Hold ground. +2 power to all adjacent tiles.">
+                🛡 Defense
+              </button>
+              <button
+                className={`stance-btn ${placement.stance === "binding" ? "active" : ""}`}
+                onClick={() => handleSetStance(selectedAwoken, "binding")}
+                title="Channel power into the land. +3 to own tile, +1 to neighbors. Costs 2 energy.">
+                ✦ Binding
+              </button>
+            </div>
+            {attackTargeting && placement.stance === "attack" && (
+              <div className="attack-hint">Tap an adjacent cursed tile to attack</div>
+            )}
+            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); }}>
+              ✕
+            </button>
+          </div>
+        );
+      })()}
       <div className="territory-hand">
         <div className="hand-label">Tap cards to ready them for battle — then tap a hex to send them</div>
         {battlePool.length > 0 && (

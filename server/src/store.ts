@@ -142,6 +142,11 @@ const tileCols = sqlite.prepare(`PRAGMA table_info(territory_tiles)`).all() as {
 if (!tileCols.some((col) => col.name === "last_passive_at")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN last_passive_at INTEGER`);
 }
+// Stance for field placements: attack | defense | binding.
+const placementCols = sqlite.prepare(`PRAGMA table_info(field_placements)`).all() as { name: string }[];
+if (!placementCols.some((col) => col.name === "stance")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN stance TEXT NOT NULL DEFAULT 'defense'`);
+}
 // 4-hour birth cycle: tracks last free birth per Tender
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,

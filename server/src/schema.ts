@@ -186,4 +186,6 @@ export const fieldPlacements = sqliteTable("field_placements", {
   lastMovedAt: integer("last_moved_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+  // Stance: attack | defense | binding. Defense is the default — holding ground.
+  stance: text("stance").notNull().default("defense"),
 });
