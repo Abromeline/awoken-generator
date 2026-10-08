@@ -125,28 +125,34 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       if (center && teamIds.length > 0) {
         const team = tenderItems.filter(a => teamIds.includes(a.id));
         const liberatorNames = team.map(t => t.name);
+        console.log("[Birth] Starting birth, assets:", assets.length);
         const birthLayers = pickBirthLayers(assets.map(a => ({
           sourceId: a.sourceId, name: a.name, category: a.category,
           rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
         })));
+        console.log("[Birth] Picked layers:", birthLayers.length);
         if (birthLayers.length >= 3) {
           const imageBase64 = await composeBirth(birthLayers);
+          console.log("[Birth] Composed image, length:", imageBase64.length);
           const layerRefs = birthLayers.map(l => ({
             source_id: l.sourceId, name: l.name,
             category: l.category as "body" | "arms" | "aura" | "head",
             rarity: "common" as const, power: null, toughness: null,
           }));
-          await api.birthFieldAwoken({
+          const result = await api.birthFieldAwoken({
             layers: layerRefs, imageBase64,
             tileId: center.id, liberatorNames,
           });
+          console.log("[Birth] Birth result:", result);
           const refreshed = await api.getTerritory();
           setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+        } else {
+          console.warn("[Birth] Not enough layers picked:", birthLayers.length);
         }
       }
       onUpdate();
     } catch (e) {
-      console.error("Claim failed", e);
+      console.error("[Birth] Claim failed", e);
     }
   };
 
@@ -158,8 +164,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   // Helper: attunement time remaining in ms
   const getAttuneRemaining = (tile: TerritoryTile, placement: FieldPlacement, awoken: Awakened): number | null => {
-    const awokenEl = getDominantElement(awoken);
-    if (tile.element === awokenEl) return null; // already attuned
+    // TODO: real element detection; for now show countdown on all fresh placements
     const placedAt = new Date(placement.placedAt).getTime();
     const duration = tile.element === "neutral" ? 4 * 3600 * 1000 : 8 * 3600 * 1000;
     const remaining = placedAt + duration - Date.now();

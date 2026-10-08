@@ -33,23 +33,32 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     return pts.join(" ");
   };
 
-  // Full field with parallax: rows scale by distance (top smaller, bottom larger)
+  // Full field with parallax — proper pointy-top axial layout
   // Center hex (0,0) is the trial hex, highlighted. Surrounding 6 are cursed previews.
   const tiles: { q: number; r: number; x: number; y: number; s: number; isCenter: boolean }[] = [];
   const coords = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-  const baseW = Math.sqrt(3) * baseSize;
   coords.forEach(([q, r], idx) => {
-    // Parallax: visual scale by row (r). Higher r (lower on screen) = larger.
-    const ps = 0.75 + ((r + 2) / 4) * 0.5; // 0.75 to 1.25
+    // Pointy-top axial to pixel
+    const px = baseSize * Math.sqrt(3) * (q + r / 2);
+    const py = baseSize * 1.5 * tilt * r;
+    const x = cx + px;
+    const y = cy + py;
+    // Parallax: visual scale by distance from center
+    const dist = Math.sqrt(q*q + r*r + q*r);
+    const ps = Math.max(0.7, 1 - dist * 0.1);
     const s = baseSize * ps * (idx === 0 ? 1.4 : 1); // Center is larger
-    // Position with consistent spacing
-    const x = cx + q * (baseW * 0.92) + (r % 2 ? baseW * 0.46 : 0);
-    const y = cy + r * (baseSize * 1.1 * tilt);
     tiles.push({ q, r, x, y, s, isCenter: idx === 0 });
   });
 
-  // 6 surrounding hexes are the placement targets (indices 1-6)
+  // 6 positions ON the center hex (the battle ground)
   const center = tiles[0];
+  const battlePositions = [];
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 180 * (60 * i - 90);
+    const px = center.x + (center.s * 0.55) * Math.cos(a);
+    const py = center.y + (center.s * 0.55) * Math.sin(a) * tilt;
+    battlePositions.push({ x: px, y: py });
+  }
 
   const combinedPower = Array.from(placed.values()).reduce((sum, a) => sum + a.power, 0);
   const canBegin = combinedPower >= 7 && placed.size > 0;
@@ -61,14 +70,14 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     }, 1800);
   };
 
-  const handleHexClick = (tileIdx: number) => {
-    if (purifying || tileIdx === 0) return; // center not placeable
+  const handlePositionClick = (posIdx: number) => {
+    if (purifying) return;
     if (selected === null) {
       // Tap placed Awoken to remove it (refund energy)
-      if (placed.has(tileIdx)) {
-        const awoken = placed.get(tileIdx)!;
+      if (placed.has(posIdx)) {
+        const awoken = placed.get(posIdx)!;
         const next = new Map(placed);
-        next.delete(tileIdx);
+        next.delete(posIdx);
         setPlaced(next);
         setEnergy(e => Math.min(e + deployCost(awoken.power), maxEnergy));
       }
@@ -81,7 +90,7 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
     // Check not already placed elsewhere
     for (const [, a] of placed) if (a.id === awoken.id) return;
     const next = new Map(placed);
-    next.set(tileIdx, awoken);
+    next.set(posIdx, awoken);
     setPlaced(next);
     setSelected(null);
     setEnergy(e => e - cost);
@@ -114,12 +123,10 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         {tiles.map((t, i) => (
           <polygon key={`sh-${i}`} points={hexPoints(t.x, t.y + 8, t.s)} fill="#000" opacity="0.5" filter="url(#ft-shadow)" />
         ))}
-        {/* Tiles — surrounding hexes are clickable to place Awoken */}
+        {/* Tiles — surrounding hexes are visual only; battle happens on center */}
         {tiles.map((t, i) => {
-          const placedAwoken = placed.get(i);
           return (
-          <g key={`t-${i}`} onClick={() => handleHexClick(i)}
-            style={{ cursor: !t.isCenter && !purifying ? "pointer" : "default" }}>
+          <g key={`t-${i}`}>
             <g clipPath={`url(#ft-${i})`}>
               <image href={cursedImg}
                 x={t.x - t.s * 1.3} y={t.y - t.s * 1.3 * tilt}
@@ -128,16 +135,10 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
                 opacity={t.isCenter ? 1 : 0.7} />
             </g>
             <polygon points={hexPoints(t.x, t.y, t.s)} fill="rgba(0,0,0,0)"
-              stroke={t.isCenter ? "#b89b5e" : placedAwoken ? "#5aaa5a" : "#6a1a1a"}
-              strokeWidth={t.isCenter ? 3 : placedAwoken ? 2 : 1.2}
+              stroke={t.isCenter ? "#b89b5e" : "#6a1a1a"}
+              strokeWidth={t.isCenter ? 3 : 1.2}
               opacity={t.isCenter ? 1 : 0.6}
               style={{ pointerEvents: "all" }} />
-            {placedAwoken && (
-              <FieldAwoken awoken={placedAwoken} assets={assets}
-                x={t.x - t.s * 0.45} y={t.y - t.s * 0.6}
-                width={t.s * 0.9} height={t.s * 1.15}
-                showFieldBornMarker={false} />
-            )}
             {t.isCenter && purifying && (
               <>
                 <polygon points={hexPoints(t.x, t.y, t.s)} fill="#fff8e8" className="purify-flash" />
@@ -150,6 +151,27 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
               </>
             )}
           </g>
+          );
+        })}
+        {/* Battle positions on center hex */}
+        {!purifying && battlePositions.map((p, i) => {
+          const awoken = placed.get(i);
+          return (
+            <g key={`bp-${i}`} onClick={() => handlePositionClick(i)}
+              style={{ cursor: "pointer" }}>
+              <circle cx={p.x} cy={p.y} r="18"
+                fill={awoken ? "#1a2a1a" : "rgba(0,0,0,0.3)"}
+                stroke={awoken ? "#5aaa5a" : "#666"}
+                strokeWidth="1.5" strokeDasharray={awoken ? "none" : "3,3"}
+                style={{ pointerEvents: "all" }} />
+              {awoken ? (
+                <FieldAwoken awoken={awoken} assets={assets}
+                  x={p.x - 14} y={p.y - 18} width={28} height={36}
+                  showFieldBornMarker={false} />
+              ) : (
+                <text x={p.x} y={p.y + 4} textAnchor="middle" fill="#666" fontSize="12">+</text>
+              )}
+            </g>
           );
         })}
         {/* Unraveler on center */}
