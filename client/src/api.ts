@@ -160,6 +160,7 @@ export const api = {
     post<{ ok: true; rarity: Rarity }>("updateLayerAssetStats", args),
   renameLayerAsset: (args: { id: number; name: string }) => post<{ ok: true }>("renameLayerAsset", args),
   deleteLayerAsset: (args: { id: number }) => post<{ ok: true }>("deleteLayerAsset", args),
+  moveLayerAsset: (args: { id: number; category: string }) => post<{ ok: true }>("moveLayerAsset", args),
   saveAwoken: (args: { layers: LayerRef[]; imageBase64: string; collection: Collection; ownerName: string }) =>
     post<{ id: number; name: string; iteration: number; empowerment: number; flavor_text: string }>("saveAwoken", args),
   renameAwoken: (args: { id: number; name: string }) => post<{ ok: true }>("renameAwoken", args),

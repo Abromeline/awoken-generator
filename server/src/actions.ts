@@ -313,6 +313,22 @@ export const handlers = {
     return okResponse.parse({ ok: true });
   },
 
+  async moveLayerAsset(args: unknown) {
+    const parsed = z.object({ id: z.number().int().positive(), category: layerCategorySchema }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid move.");
+    const rows = await db.select({ category: schema.layerAssets.category, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness }).from(schema.layerAssets).where(eq(schema.layerAssets.id, parsed.data.id)).limit(1);
+    const row = rows[0]; if (!row) badRequest("That piece is gone.");
+    if (row.category === parsed.data.category) badRequest("It already rests in that pool.");
+    // Stat-bearing pools (arms/body/head) carry power/toughness; background
+    // and aura do not. Crossing that line resets or seeds the stats.
+    const toStats = statCategories.has(parsed.data.category);
+    const fromStats = statCategories.has(row.category as z.infer<typeof layerCategorySchema>);
+    const power = toStats ? (fromStats ? row.power : 1) : null;
+    const toughness = toStats ? (fromStats ? row.toughness : 1) : null;
+    await db.update(schema.layerAssets).set({ category: parsed.data.category, power, toughness }).where(eq(schema.layerAssets.id, parsed.data.id));
+    return okResponse.parse({ ok: true });
+  },
+
   async saveAwoken(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(5), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid awakening.");

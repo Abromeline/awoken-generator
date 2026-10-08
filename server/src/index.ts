@@ -32,6 +32,7 @@ const WORKSHOP_ACTIONS = new Set([
   "updateLayerAssetStats",
   "renameLayerAsset",
   "deleteLayerAsset",
+  "moveLayerAsset",
   "deleteAwoken",
   "getWorkshopStudio",
 ]);
