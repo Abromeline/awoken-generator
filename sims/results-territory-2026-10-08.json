@@ -1,0 +1,68 @@
+[
+  {
+    "strategy": "turtle",
+    "friction": false,
+    "days": 30,
+    "purifiedTiles": 6,
+    "handSize": 9,
+    "fieldSize": 4,
+    "totalAwoken": 13,
+    "finalEnergyCap": 27,
+    "fieldPower": 24
+  },
+  {
+    "strategy": "turtle",
+    "friction": true,
+    "days": 30,
+    "purifiedTiles": 6,
+    "handSize": 9,
+    "fieldSize": 4,
+    "totalAwoken": 13,
+    "finalEnergyCap": 27,
+    "fieldPower": 24
+  },
+  {
+    "strategy": "balanced",
+    "friction": false,
+    "days": 30,
+    "purifiedTiles": 17,
+    "handSize": 2,
+    "fieldSize": 22,
+    "totalAwoken": 24,
+    "finalEnergyCap": 9,
+    "fieldPower": 137
+  },
+  {
+    "strategy": "balanced",
+    "friction": true,
+    "days": 30,
+    "purifiedTiles": 9,
+    "handSize": 3,
+    "fieldSize": 13,
+    "totalAwoken": 16,
+    "finalEnergyCap": 14,
+    "fieldPower": 80
+  },
+  {
+    "strategy": "aggressive",
+    "friction": false,
+    "days": 30,
+    "purifiedTiles": 10,
+    "handSize": 2,
+    "fieldSize": 15,
+    "totalAwoken": 17,
+    "finalEnergyCap": 9,
+    "fieldPower": 100
+  },
+  {
+    "strategy": "aggressive",
+    "friction": true,
+    "days": 30,
+    "purifiedTiles": 7,
+    "handSize": 2,
+    "fieldSize": 12,
+    "totalAwoken": 14,
+    "finalEnergyCap": 9,
+    "fieldPower": 79
+  }
+]

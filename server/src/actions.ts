@@ -802,6 +802,72 @@ export const handlers = {
     sqlite.prepare(`INSERT OR REPLACE INTO tender_births (owner_key, last_birth_at) VALUES (?, ?)`).run(ownerKey, now);
     return okResponse.parse({ ok: true, id: newborn.id });
   },
+
+  /**
+   * Direct attack: send exactly 3 Awoken at a cursed tile. Overwhelming force
+   * breaks the dark — the tile is purified, takes the dominant element of the
+   * attackers (fire is never inherited; ties stay neutral), and the attackers
+   * stand on the reclaimed land. Energy cost is enforced client-side.
+   */
+  async directAttack(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedIds: z.array(z.number().int().positive()).length(3),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid direct attack.");
+    if (new Set(parsed.data.awakenedIds).size !== 3) badRequest("Three distinct Awoken must strike together.");
+    // Verify the tile belongs to the Tender and is cursed.
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    if (!tile.length) badRequest("That tile is not yours.");
+    if (!tile[0].cursed) badRequest("The dark has already broken there.");
+    // Verify all three Awoken belong to the Tender and are not on the field.
+    const owned = await db.select().from(schema.awakened)
+      .where(and(eq(schema.awakened.ownerKey, ownerKey)));
+    const attackers = owned.filter(t => parsed.data.awakenedIds.includes(t.id));
+    if (attackers.length !== 3) badRequest("Those Awoken are not all yours.");
+    const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+      .from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
+    for (const a of attackers) {
+      if (!canTouchAwoken(a, ownerKey)) badRequest("That Awoken is not yours to send.");
+      if (placedIds.has(a.id)) badRequest("Already on the field.");
+    }
+    // The tile becomes what the attackers are: dominant element of their
+    // layers, read from piece names. Fire never sparks on conquered land.
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const assetRow of assetRows) {
+      const rarity = raritySchema.safeParse(assetRow.rarity);
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+    }
+    const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    for (const a of attackers) {
+      for (const layer of parseLayers(a.compositionJson, assetStats)) {
+        const el = elementForPieceName(layer.name);
+        if (el !== "fire") elementCounts[el] += 1;
+      }
+    }
+    let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+    let maxCount = 0; let tie = false;
+    for (const [el, count] of Object.entries(elementCounts)) {
+      if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+      else if (count === maxCount && count > 0) { tie = true; }
+    }
+    if (tie) element = "neutral";
+    // Break the curse.
+    await db.update(schema.territoryTiles)
+      .set({ cursed: 0, element })
+      .where(eq(schema.territoryTiles.id, tile[0].id));
+    // The attackers stand on the reclaimed land (3 < 4 tile cap).
+    for (const a of attackers) {
+      await db.insert(schema.fieldPlacements).values({
+        ownerKey, awakenedId: a.id, tileId: tile[0].id,
+      });
+    }
+    return okResponse.parse({ ok: true });
+  },
 };
 
 /** A deck the caller owns — or a refusal. Decks are never shared. */

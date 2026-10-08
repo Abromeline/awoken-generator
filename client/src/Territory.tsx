@@ -102,19 +102,48 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const tile = tiles.find(t => t.id === tileId);
     if (!tile) return;
 
-    // DIRECT ATTACK: 3 Awoken on a cursed tile purifies it by force
+    // DIRECT ATTACK: 3 Awoken on a cursed tile purifies it by force.
+    // The server breaks the curse, re-elements the tile, and places the attackers.
     if (tile.cursed && selectedHands.length === 3) {
       const attackers = selectedHands.map(i => hand[i]).filter(Boolean);
       const totalCost = attackers.reduce((sum, a) => sum + deployCost(a.power), 0);
       if (energy < totalCost) return;
+      const attackerIds = attackers.map(a => a.id);
       try {
-        for (const a of attackers) {
-          await api.deployAwoken({ awakenedId: a.id, tileId });
-        }
+        await api.directAttack({ awakenedIds: attackerIds, tileId });
         setEnergy(e => e - totalCost);
-        const { tiles, placements } = await api.getTerritory();
-        setTiles(tiles); setPlacements(placements);
+        const { tiles: newTiles } = await api.getTerritory();
+        setTiles(newTiles);
         setSelectedHands([]);
+        // A purified tile births a newborn — a real Wake, not a clone.
+        const purified = newTiles.find(t => t.id === tileId);
+        if (purified) {
+          const liberatorNames = attackers.map(a => a.name);
+          console.log("[Birth] Starting birth after direct attack, assets:", assets.length);
+          const birthLayers = pickBirthLayers(assets.map(a => ({
+            sourceId: a.sourceId, name: a.name, category: a.category,
+            rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
+          })));
+          console.log("[Birth] Picked layers:", birthLayers.length);
+          if (birthLayers.length >= 3) {
+            const imageBase64 = await composeBirth(birthLayers);
+            console.log("[Birth] Composed image, length:", imageBase64.length);
+            const layerRefs = birthLayers.map(l => ({
+              source_id: l.sourceId, name: l.name,
+              category: l.category as "body" | "arms" | "aura" | "head",
+              rarity: "common" as const, power: null, toughness: null,
+            }));
+            const result = await api.birthFieldAwoken({
+              layers: layerRefs, imageBase64,
+              tileId: purified.id, liberatorNames,
+            });
+            console.log("[Birth] Birth result:", result);
+          } else {
+            console.warn("[Birth] Not enough layers picked:", birthLayers.length);
+          }
+        }
+        const refreshed = await api.getTerritory();
+        setTiles(refreshed.tiles); setPlacements(refreshed.placements);
         onUpdate();
       } catch (e) {
         console.error("Direct attack failed", e);

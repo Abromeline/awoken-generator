@@ -1,0 +1,90 @@
+[
+  {
+    "eventPower": 30,
+    "helpers": 0,
+    "weakHelper": false,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 0,
+    "uplift": 0,
+    "avgHelperPower": 0,
+    "defeatRiskRate": 0
+  },
+  {
+    "eventPower": 30,
+    "helpers": 1,
+    "weakHelper": false,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 1,
+    "uplift": 1,
+    "avgHelperPower": 24.1,
+    "defeatRiskRate": 0
+  },
+  {
+    "eventPower": 30,
+    "helpers": 2,
+    "weakHelper": false,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 1,
+    "uplift": 1,
+    "avgHelperPower": 48.2,
+    "defeatRiskRate": 0
+  },
+  {
+    "eventPower": 45,
+    "helpers": 0,
+    "weakHelper": false,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 0,
+    "uplift": 0,
+    "avgHelperPower": 0,
+    "defeatRiskRate": 0
+  },
+  {
+    "eventPower": 45,
+    "helpers": 1,
+    "weakHelper": false,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 0.959,
+    "uplift": 0.959,
+    "avgHelperPower": 24.1,
+    "defeatRiskRate": 0.041
+  },
+  {
+    "eventPower": 45,
+    "helpers": 2,
+    "weakHelper": false,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 1,
+    "uplift": 1,
+    "avgHelperPower": 48.2,
+    "defeatRiskRate": 0
+  },
+  {
+    "eventPower": 30,
+    "helpers": 1,
+    "weakHelper": true,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 1,
+    "uplift": 1,
+    "avgHelperPower": 15,
+    "defeatRiskRate": 0
+  },
+  {
+    "eventPower": 30,
+    "helpers": 2,
+    "weakHelper": true,
+    "trials": 20000,
+    "soloWinRate": 0,
+    "winRate": 1,
+    "uplift": 1,
+    "avgHelperPower": 30,
+    "defeatRiskRate": 0
+  }
+]
