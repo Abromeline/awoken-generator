@@ -330,8 +330,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const tilePlacements = placements.filter(p => p.tileId === t.id);
       const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
       const awoken = awokens[0] ?? null;
+      const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
       return (
-        <g key={t.id}>
+        <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
           <g clipPath={`url(#terr-${t.id})`}>
             <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
