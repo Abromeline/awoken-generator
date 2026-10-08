@@ -168,6 +168,9 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+  // 48h passive purification timer: last time this tile was considered for
+  // passive purification. Null = never attempted.
+  lastPassiveAt: integer("last_passive_at", { mode: "timestamp_ms" }),
 });
 
 // Field placements: which Awoken stands on which tile.

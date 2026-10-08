@@ -42,6 +42,14 @@ const collectionSchema = z.enum(["tender", "workshop"]);
 const statSchema = z.number().int().min(1).max(3);
 const statCategories = new Set<z.infer<typeof layerCategorySchema>>(["arms", "body", "head"]);
 const okResponse = z.object({ ok: z.literal(true) });
+const purifyResponse = z.object({
+  ok: z.boolean(),
+  reason: z.enum(["resting", "too-weak", "not-yet"]).optional(),
+  hoursLeft: z.number().optional(),
+  need: z.number().optional(),
+  have: z.number().optional(),
+  purified: z.boolean().optional(),
+});
 
 type Rarity = z.infer<typeof raritySchema>;
 type AssetStats = { name: string; rarity: Rarity; power: number | null; toughness: number | null };
@@ -867,6 +875,87 @@ export const handlers = {
       });
     }
     return okResponse.parse({ ok: true });
+  },
+
+  /**
+   * Passive purification: the slow work of presence. Once every 48 hours, a
+   * cursed tile adjacent to purified land may purify on its own if the
+   * combined power of nearby field Awoken exceeds the tile's curse weight.
+   * 30% chance per attempt. The land grows because it is tended, not because
+   * time passes.
+   */
+  async passivePurify(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid purification attempt.");
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    if (!tile.length) badRequest("That tile is not yours.");
+    if (!tile[0].cursed) badRequest("The dark has already broken there.");
+    // 48-hour timer: the tile must rest between attempts.
+    const now = Date.now();
+    const lastAttempt = tile[0].lastPassiveAt ? tile[0].lastPassiveAt.getTime() : tile[0].createdAt.getTime();
+    const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+    if (now - lastAttempt < FORTY_EIGHT_HOURS) {
+      const hoursLeft = Math.ceil((FORTY_EIGHT_HOURS - (now - lastAttempt)) / (60 * 60 * 1000));
+      return purifyResponse.parse({ ok: false, reason: "resting", hoursLeft });
+    }
+    // Record the attempt now — the timer resets whether or not it succeeds.
+    await db.update(schema.territoryTiles)
+      .set({ lastPassiveAt: new Date(now) })
+      .where(eq(schema.territoryTiles.id, tile[0].id));
+    // Curse weight scales with distance from center (ring number).
+    const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
+    const weight = 3 + 2 * Math.max(ring, 1);
+    // Field power: sum of power of Awoken on adjacent purified tiles.
+    const neighbors = [
+      [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
+      [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
+      [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
+    ];
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const owned = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.ownerKey, ownerKey));
+    // Power comes from layers, same formula the trial uses.
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const assetRow of assetRows) {
+      const rarity = raritySchema.safeParse(assetRow.rarity);
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+    }
+    const powerById = new Map<number, number>();
+    for (const a of owned) {
+      const layers = parseLayers(a.compositionJson, assetStats);
+      powerById.set(a.id, layers.reduce((s, l) => s + (l.power ?? 0), 0));
+    }
+    let nearbyPower = 0;
+    const neighborTiles = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const neighborIds = new Set(
+      neighborTiles
+        .filter(t => !t.cursed && neighbors.some(([q, r]) => t.q === q && t.r === r))
+        .map(t => t.id)
+    );
+    // Also count Awoken standing on the tile itself (defenders).
+    neighborIds.add(tile[0].id);
+    for (const p of placements) {
+      if (neighborIds.has(p.tileId)) nearbyPower += powerById.get(p.awakenedId) ?? 0;
+    }
+    if (nearbyPower < weight) {
+      return purifyResponse.parse({ ok: false, reason: "too-weak", need: weight, have: nearbyPower });
+    }
+    // 30% chance — the land decides in its own time.
+    if (Math.random() >= 0.30) {
+      return purifyResponse.parse({ ok: false, reason: "not-yet", need: weight, have: nearbyPower });
+    }
+    // The dark breaks. The tile takes the element of its liberators.
+    await db.update(schema.territoryTiles)
+      .set({ cursed: 0 })
+      .where(eq(schema.territoryTiles.id, tile[0].id));
+    return purifyResponse.parse({ ok: true, purified: true });
   },
 };
 

@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS territory_tiles (
   cursed INTEGER NOT NULL DEFAULT 1,
   spark INTEGER NOT NULL DEFAULT 0,
   building TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  last_passive_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS field_placements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,6 +136,11 @@ if (!awakenedCols.some((col) => col.name === "story_count")) {
 }
 if (!awakenedCols.some((col) => col.name === "field_born")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN field_born INTEGER NOT NULL DEFAULT 0`);
+}
+// 48h passive purification timer on territory tiles.
+const tileCols = sqlite.prepare(`PRAGMA table_info(territory_tiles)`).all() as { name: string }[];
+if (!tileCols.some((col) => col.name === "last_passive_at")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN last_passive_at INTEGER`);
 }
 // 4-hour birth cycle: tracks last free birth per Tender
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (

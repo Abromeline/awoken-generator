@@ -240,6 +240,14 @@ export const api = {
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[] }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
+  passivePurify: (args: { tileId: number }) => post<{
+    ok: boolean;
+    reason?: "resting" | "too-weak" | "not-yet";
+    hoursLeft?: number;
+    need?: number;
+    have?: number;
+    purified?: boolean;
+  }>("passivePurify", args),
   claimFirstTile: (args: { teamIds: number[] }) => post<{ ok: true }>("claimFirstTile", args),
   birthFieldAwoken: (args: { layers: LayerRef[]; imageBase64: string; tileId: number; liberatorNames: string[] }) =>
     post<{ ok: true; id: number }>("birthFieldAwoken", args),
