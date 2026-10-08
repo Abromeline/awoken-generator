@@ -5,7 +5,7 @@
 // -> the curated naming/flavor pools in naming.ts.
 
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
@@ -766,8 +766,16 @@ export const handlers = {
       .where(eq(schema.territoryTiles.ownerKey, ownerKey)).limit(1);
     if (existing.length) badRequest("Already claimed.");
     // Verify team ownership and combined power >= 7.
+    // Legacy shared rows (ownerKey IS NULL) are visible to everyone in the
+    // hand — match buildStudio's filter so the team the Tender sees is the
+    // team the server accepts.
     const team = await db.select().from(schema.awakened)
-      .where(and(eq(schema.awakened.ownerKey, ownerKey)));
+      .where(
+        and(
+          eq(schema.awakened.collection, "tender"),
+          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+        )
+      );
     const teamRows = team.filter(t => parsed.data.teamIds.includes(t.id));
     if (teamRows.length !== parsed.data.teamIds.length) badRequest("Invalid team.");
     // The Unraveler at power 7: the server measures the team's true combined
