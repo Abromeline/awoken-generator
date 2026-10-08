@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Awakened } from "./api";
 import cursedImg from "./assets/terrain/cursed.jpg";
+import neutralImg from "./assets/terrain/neutral.jpg";
 
 interface Props {
   hand: Awakened[];
@@ -10,6 +11,7 @@ interface Props {
 export default function FirstTrial({ hand, onVictory }: Props) {
   const [slots, setSlots] = useState<(Awakened | null)[]>([null, null, null, null, null, null]);
   const [selected, setSelected] = useState<number | null>(null);
+  const [purifying, setPurifying] = useState(false);
 
   const size = 70, tilt = 0.62;
   const cx = 250, cy = 140;
@@ -34,6 +36,14 @@ export default function FirstTrial({ hand, onVictory }: Props) {
 
   const combinedPower = slots.filter(Boolean).reduce((sum, a) => sum + (a?.power ?? 0), 0);
   const canBegin = combinedPower >= 7 && slots.some(Boolean);
+
+  const handleBegin = () => {
+    setPurifying(true);
+    // Animation sequence: shake (0.4s) → shatter (0.6s) → flash (0.8s) → reveal (0.8s)
+    setTimeout(() => {
+      onVictory(slots.filter(Boolean).map(a => a!.id));
+    }, 1800);
+  };
 
   const placeInSlot = (slotIdx: number) => {
     if (selected === null) return;
@@ -64,15 +74,41 @@ export default function FirstTrial({ hand, onVictory }: Props) {
         </defs>
         {/* Shadow under hex */}
         <polygon points={hexPoints(cx, cy + 12, size)} fill="#000" opacity="0.6" filter="url(#trial-shadow)" />
-        {/* Cursed center hex */}
-        <g clipPath="url(#trial-center)">
-          <image href={cursedImg} x={cx - size * 1.3} y={cy - size * 1.3 * tilt} width={size * 2.6} height={size * 2.6 * tilt} preserveAspectRatio="xMidYMid slice" />
+        {/* Cursed center hex — shatters when purifying */}
+        <g clipPath="url(#trial-center)" className={purifying ? "purifying" : ""}>
+          <g className="trial-hex">
+            <image href={cursedImg} x={cx - size * 1.3} y={cy - size * 1.3 * tilt} width={size * 2.6} height={size * 2.6 * tilt} preserveAspectRatio="xMidYMid slice" />
+          </g>
         </g>
         <polygon points={hexPoints(cx, cy, size)} fill="none" stroke="#8a1a1a" strokeWidth="2.5" />
-        {/* Unraveler */}
-        <circle cx={cx} cy={cy} r="22" fill="#1a0a0a" stroke="#aa2a2a" strokeWidth="3" />
-        <text x={cx} y={cy + 7} textAnchor="middle" fill="#cc5555" fontSize="20">✕</text>
-        <text x={cx} y={cy + 42} textAnchor="middle" fill="#aa5555" fontSize="12">Power 7</text>
+        {/* Unraveler — fades when purifying */}
+        {!purifying && (
+          <g>
+            <circle cx={cx} cy={cy} r="22" fill="#1a0a0a" stroke="#aa2a2a" strokeWidth="3" />
+            <text x={cx} y={cy + 7} textAnchor="middle" fill="#cc5555" fontSize="20">✕</text>
+            <text x={cx} y={cy + 42} textAnchor="middle" fill="#aa5555" fontSize="12">Power 7</text>
+          </g>
+        )}
+        {/* Purification particles */}
+        {purifying && Array.from({ length: 12 }).map((_, i) => {
+          const angle = (i / 12) * Math.PI * 2;
+          const dist = 80 + Math.random() * 40;
+          return (
+            <circle key={i} cx={cx} cy={cy} r="4" fill="#b89b5e"
+              className="purify-particle"
+              style={{ "--px": `${Math.cos(angle) * dist}px`, "--py": `${Math.sin(angle) * dist}px` } as React.CSSProperties} />
+          );
+        })}
+        {/* Flash of light */}
+        {purifying && (
+          <polygon points={hexPoints(cx, cy, size)} fill="#fff8e8" className="purify-flash" />
+        )}
+        {/* Neutral tile revealed */}
+        {purifying && (
+          <g clipPath="url(#trial-center)" className="purify-reveal" opacity="0">
+            <image href={neutralImg} x={cx - size * 1.3} y={cy - size * 1.3 * tilt} width={size * 2.6} height={size * 2.6 * tilt} preserveAspectRatio="xMidYMid slice" />
+          </g>
+        )}
         {/* Slots */}
         {slotPos.map((p, i) => (
           <g key={i} onClick={() => slots[i] ? removeFromSlot(i) : placeInSlot(i)} style={{ cursor: "pointer" }}>
@@ -108,8 +144,8 @@ export default function FirstTrial({ hand, onVictory }: Props) {
       </div>
       <div className="trial-actions">
         <div className="trial-power">Combined Power: <b>{combinedPower}</b> / 7</div>
-        <button className="abtn" disabled={!canBegin} onClick={() => onVictory(slots.filter(Boolean).map(a => a!.id))}>
-          Begin the Purification
+        <button className="abtn" disabled={!canBegin || purifying} onClick={handleBegin}>
+          {purifying ? "Purifying..." : "Begin the Purification"}
         </button>
       </div>
     </div>
