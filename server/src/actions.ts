@@ -6,7 +6,6 @@
 
 import { randomUUID } from "node:crypto";
 import { asc, desc, eq } from "drizzle-orm";
-import sharp from "sharp";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
@@ -274,6 +273,9 @@ export const handlers = {
       const ratioOk = Math.abs(width / height - templateRatio) / templateRatio <= 0.01;
       const sizeOk = width >= TEMPLATE_W && height >= TEMPLATE_H && Math.max(width, height) <= 4000;
       if (!ratioOk || !sizeOk) badRequest(`That PNG is ${width} × ${height}. Use the 750 × 971 template.`);
+      // Lazy-load sharp: if its native binding ever fails in an environment,
+      // only resizing breaks — the server still boots and 750×971 uploads work.
+      const sharp = (await import("sharp")).default;
       normalized = await sharp(bytes).resize(TEMPLATE_W, TEMPLATE_H, { fit: "fill" }).png().toBuffer();
     }
     const existing = await db.select({ name: schema.layerAssets.name }).from(schema.layerAssets).where(eq(schema.layerAssets.category, category));
