@@ -471,7 +471,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               <button
                 className={`stance-btn ${placement.stance === "defense" ? "active" : ""}`}
                 onClick={() => handleSetStance(selectedAwoken, "defense")}
-                title="Hold ground. +2 power to all adjacent tiles.">
+                title="Hold ground. Generates 1 energy. Protects your purified land.">
                 🛡 Defense
               </button>
               <button

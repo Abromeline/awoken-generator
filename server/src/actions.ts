@@ -326,40 +326,6 @@ function corruptionToughness(q: number, r: number): number {
 }
 
 
-/** Defense bonus: each Awoken in defense stance grants +2 power to all
- *  adjacent tiles for purification. Returns a map of tileId -> bonus. */
-async function defenseBonuses(ownerKey: string): Promise<Map<number, number>> {
-  const bonuses = new Map<number, number>();
-  const defenders = await db.select({
-    tileId: schema.fieldPlacements.tileId,
-  }).from(schema.fieldPlacements)
-    .where(and(
-      eq(schema.fieldPlacements.ownerKey, ownerKey),
-      eq(schema.fieldPlacements.stance, "defense")
-    ));
-  if (!defenders.length) return bonuses;
-  const tiles = await db.select({
-    id: schema.territoryTiles.id,
-    q: schema.territoryTiles.q,
-    r: schema.territoryTiles.r,
-  }).from(schema.territoryTiles)
-    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
-  const tileById = new Map(tiles.map(t => [t.id, t]));
-  const tileByCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
-  for (const d of defenders) {
-    const tile = tileById.get(d.tileId);
-    if (!tile) continue;
-    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-    for (const [dq, dr] of dirs) {
-      const neighbor = tileByCoord.get(`${tile.q + dq},${tile.r + dr}`);
-      if (neighbor) {
-        bonuses.set(neighbor.id, (bonuses.get(neighbor.id) ?? 0) + 2);
-      }
-    }
-  }
-  return bonuses;
-}
-
 
 /** Binding bonus: Awoken in binding stance channel power into the land.
  *  Their own tile gets +3, adjacent tiles get +1. The energy cost is
@@ -853,11 +819,9 @@ export const handlers = {
           if (el !== "fire") elementCounts[el] += 1;
         }
       }
-      // Defense stance: adjacent defenders lend +2 each.
       // Binding stance: binders channel +3 to their tile, +1 to neighbors.
-      const defBonus = await defenseBonuses(ownerKey);
+      // (Defense does not aid purification — it holds purified land.)
       const bindBonus = await bindingBonuses(ownerKey);
-      totalPower += defBonus.get(tile[0].id) ?? 0;
       totalPower += bindBonus.get(tile[0].id) ?? 0;
       if (totalPower >= weight) {
         let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
@@ -1366,11 +1330,9 @@ export const handlers = {
     for (const p of placements) {
       if (neighborIds.has(p.tileId)) nearbyPower += powerById.get(p.awakenedId) ?? 0;
     }
-    // Defense stance: defenders lend +2 to the tiles they protect.
     // Binding stance: binders channel power into the land.
-    const defBonus = await defenseBonuses(ownerKey);
+    // (Defense does not aid purification — it holds purified land.)
     const bindBonus = await bindingBonuses(ownerKey);
-    nearbyPower += defBonus.get(tile[0].id) ?? 0;
     nearbyPower += bindBonus.get(tile[0].id) ?? 0;
     if (nearbyPower < weight) {
       return purifyResponse.parse({ ok: false, reason: "too-weak", need: weight, have: nearbyPower });
