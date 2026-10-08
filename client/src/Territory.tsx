@@ -47,6 +47,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [energy, setEnergy] = useState(5);
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
+  const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
@@ -227,6 +228,29 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
+  // Move cost: 1 energy for small Awoken, up to 4 for fully powered.
+  const moveCost = (power: number) => 1 + Math.floor((power - 1) / 3);
+
+  const handleMove = async (tileId: number) => {
+    if (selectedAwoken === null) return;
+    const awoken = tenderItems.find(a => a.id === selectedAwoken);
+    if (!awoken) return;
+    const cost = moveCost(awoken.power);
+    if (energy < cost) return;
+    try {
+      await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
+      setEnergy(e => e - cost);
+      const refreshed = await api.getTerritory();
+      setPlacements(refreshed.placements);
+      setSelectedAwoken(null);
+      setMoveTargeting(false);
+      onUpdate();
+    } catch (e) {
+      console.error("Move failed", e);
+      setMoveTargeting(false);
+    }
+  };
+
   const toggleBattlePool = (index: number) => {
     setBattlePool(prev => {
       if (prev.includes(index)) return prev.filter(i => i !== index);
@@ -323,6 +347,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             onClick={() => {
               if (attackTargeting && selectedAwoken !== null) {
                 handleAttack(t.id);
+              } else if (moveTargeting && selectedAwoken !== null) {
+                handleMove(t.id);
               } else if (battlePool.length > 0) {
                 handleDeploy(t.id);
               }
@@ -359,6 +385,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       e.stopPropagation();
                       setSelectedAwoken(isSelected ? null : a.id);
                       setAttackTargeting(false);
+                      setMoveTargeting(false);
                     }}>
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
@@ -482,9 +509,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               </button>
             </div>
             {attackTargeting && placement.stance === "attack" && (
-              <div className="attack-hint">Tap an adjacent cursed tile to attack</div>
+              <div className="attack-hint">Tap an adjacent cursed tile to attack (1 energy)</div>
             )}
-            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); }}>
+            {moveTargeting && (
+              <div className="attack-hint">Tap an adjacent purified tile to move ({moveCost(awoken.power)} energy)</div>
+            )}
+            {!attackTargeting && !moveTargeting && (
+              <button
+                className="stance-btn"
+                onClick={() => setMoveTargeting(true)}
+                title={`Move to an adjacent tile. Costs ${moveCost(awoken.power)} energy.`}>
+                ➤ Move ({moveCost(awoken.power)}⚡)
+              </button>
+            )}
+            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); }}>
               ✕
             </button>
           </div>

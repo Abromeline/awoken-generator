@@ -246,6 +246,8 @@ export const api = {
     post<{ ok: true }>("setStance", args),
   attackTile: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true; purified: boolean; need?: number; have?: number }>("attackTile", args),
+  moveAwoken: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true }>("moveAwoken", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;

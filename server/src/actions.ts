@@ -859,6 +859,49 @@ export const handlers = {
   },
 
 
+
+  async moveAwoken(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid move.");
+    // The Awoken must be on the field.
+    const placement = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
+        eq(schema.fieldPlacements.ownerKey, ownerKey)
+      )).limit(1);
+    if (!placement.length) badRequest("That Awoken is not on your field.");
+    // Target must be a purified tile owned by the Tender.
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey)
+      )).limit(1);
+    if (!tile.length) badRequest("That tile is not yours.");
+    if (tile[0].cursed) badRequest("Cannot move onto cursed land — attack it first.");
+    // Must be adjacent.
+    const fromTile = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.id, placement[0].tileId)).limit(1);
+    if (!fromTile.length) badRequest("Mover has no ground.");
+    const dq = Math.abs(tile[0].q - fromTile[0].q);
+    const dr = Math.abs(tile[0].r - fromTile[0].r);
+    const dist = Math.max(dq, dr, Math.abs((tile[0].q + tile[0].r) - (fromTile[0].q + fromTile[0].r)));
+    if (dist !== 1) badRequest("Can only move to adjacent tiles.");
+    // Tile capacity: max 4.
+    const occupied = await db.select({ id: schema.fieldPlacements.id })
+      .from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
+    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
+    // No timer — movement costs energy instead. Client enforces the cost.
+    await db.update(schema.fieldPlacements)
+      .set({ tileId: tile[0].id, lastMovedAt: new Date() })
+      .where(eq(schema.fieldPlacements.id, placement[0].id));
+    return z.object({ ok: z.literal(true) }).parse({ ok: true });
+  },
+
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
