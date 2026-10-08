@@ -79,6 +79,38 @@ CREATE TABLE IF NOT EXISTS tender_sessions (
   tender_id INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS decks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  face_card_id INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deck_cards (
+  deck_id INTEGER NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (deck_id, awakened_id)
+);
+CREATE TABLE IF NOT EXISTS territory_tiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  q INTEGER NOT NULL,
+  r INTEGER NOT NULL,
+  element TEXT NOT NULL DEFAULT 'neutral',
+  cursed INTEGER NOT NULL DEFAULT 1,
+  spark INTEGER NOT NULL DEFAULT 0,
+  building TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS field_placements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  tile_id INTEGER NOT NULL,
+  placed_at INTEGER NOT NULL,
+  last_moved_at INTEGER NOT NULL
+);
 `;
 
 mkdirSync(DATA_DIR, { recursive: true });

@@ -126,3 +126,59 @@ export const pendingWelcomes = sqliteTable("pending_welcomes", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Tender decks: named gatherings of Awoken, each with a chosen face card.
+// Decks belong to one owner key (a Tender account, or a soft visitor).
+// Membership lives in deck_cards; the awakened rows themselves are never
+// touched by deck operations.
+export const decks = sqliteTable("decks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  name: text("name").notNull(),
+  faceCardId: integer("face_card_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const deckCards = sqliteTable("deck_cards", {
+  deckId: integer("deck_id").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  addedAt: integer("added_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Territory: the Tender's land. Each tile has axial coords (q, r),
+// an element, and may be cursed (Unraveling-held) or sparked (fire-touched).
+// Tiles belong to one Tender; the deck IS the territory.
+export const territoryTiles = sqliteTable("territory_tiles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  q: integer("q").notNull(),
+  r: integer("r").notNull(),
+  element: text("element", {
+    enum: ["tide", "sky", "stone", "root", "neutral", "fire"],
+  }).notNull().default("neutral"),
+  cursed: integer("cursed").notNull().default(1),
+  spark: integer("spark").notNull().default(0),
+  building: text("building"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Field placements: which Awoken stands on which tile.
+// An Awoken on the field cannot return to hand except by dissipation.
+export const fieldPlacements = sqliteTable("field_placements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  tileId: integer("tile_id").notNull(),
+  placedAt: integer("placed_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  lastMovedAt: integer("last_moved_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

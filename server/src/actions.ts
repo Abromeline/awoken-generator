@@ -5,7 +5,7 @@
 // -> the curated naming/flavor pools in naming.ts.
 
 import { randomUUID } from "node:crypto";
-import { asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
@@ -476,7 +476,200 @@ export const handlers = {
       .sort((a, b) => b.awokenCount - a.awokenCount || a.createdAt.localeCompare(b.createdAt));
     return { tenders };
   },
+
+  // -- Tender decks ---------------------------------------------------------
+  // Named gatherings of Awoken, each with a chosen face card. Decks belong
+  // to one owner key (a Tender account, or a soft visitor). Deck operations
+  // never touch the awakened rows themselves — only membership rows.
+  async createDeck(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ name: z.string().trim().min(1).max(60) }).safeParse(args);
+    if (!parsed.success) badRequest("Name your deck.");
+    const rows = await db
+      .insert(schema.decks)
+      .values({ ownerKey, name: parsed.data.name })
+      .returning({ id: schema.decks.id });
+    const row = rows[0];
+    if (!row) badRequest("The deck could not be gathered.");
+    return { id: row.id, name: parsed.data.name, faceCardId: null as number | null, cardCount: 0 };
+  },
+
+  async listDecks(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const deckRows = await db
+      .select()
+      .from(schema.decks)
+      .where(eq(schema.decks.ownerKey, ownerKey))
+      .orderBy(asc(schema.decks.createdAt));
+    const decks: { id: number; name: string; faceCardId: number | null; cardCount: number }[] = [];
+    for (const deck of deckRows) {
+      const count = await db
+        .select({ n: sql<number>`count(*)` })
+        .from(schema.deckCards)
+        .where(eq(schema.deckCards.deckId, deck.id));
+      decks.push({
+        id: deck.id,
+        name: deck.name,
+        faceCardId: deck.faceCardId ?? null,
+        cardCount: Number(count[0]?.n ?? 0),
+      });
+    }
+    return { decks };
+  },
+
+  async renameDeck(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z
+      .object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(60) })
+      .safeParse(args);
+    if (!parsed.success) badRequest("Invalid rename.");
+    await ownDeck(parsed.data.id, ownerKey);
+    await db.update(schema.decks).set({ name: parsed.data.name }).where(eq(schema.decks.id, parsed.data.id));
+    return okResponse.parse({ ok: true });
+  },
+
+  async deleteDeck(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid id.");
+    await ownDeck(parsed.data.id, ownerKey);
+    await db.delete(schema.deckCards).where(eq(schema.deckCards.deckId, parsed.data.id));
+    await db.delete(schema.decks).where(eq(schema.decks.id, parsed.data.id));
+    return okResponse.parse({ ok: true });
+  },
+
+  async addCardToDeck(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z
+      .object({ deckId: z.number().int().positive(), awakenedId: z.number().int().positive() })
+      .safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await ownDeck(parsed.data.deckId, ownerKey);
+    const rows = await db
+      .select()
+      .from(schema.awakened)
+      .where(eq(schema.awakened.id, parsed.data.awakenedId))
+      .limit(1);
+    const awoken = rows[0];
+    if (!awoken || !canTouchAwoken(awoken, ownerKey))
+      badRequest("That Awoken does not belong to your collection.");
+    await db
+      .insert(schema.deckCards)
+      .values({ deckId: parsed.data.deckId, awakenedId: parsed.data.awakenedId })
+      .onConflictDoNothing();
+    return okResponse.parse({ ok: true });
+  },
+
+  async removeCardFromDeck(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z
+      .object({ deckId: z.number().int().positive(), awakenedId: z.number().int().positive() })
+      .safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const deck = await ownDeck(parsed.data.deckId, ownerKey);
+    await db
+      .delete(schema.deckCards)
+      .where(
+        and(
+          eq(schema.deckCards.deckId, parsed.data.deckId),
+          eq(schema.deckCards.awakenedId, parsed.data.awakenedId)
+        )
+      );
+    if (deck.faceCardId === parsed.data.awakenedId) {
+      await db.update(schema.decks).set({ faceCardId: null }).where(eq(schema.decks.id, deck.id));
+    }
+    return okResponse.parse({ ok: true });
+  },
+
+  async setDeckFace(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z
+      .object({ deckId: z.number().int().positive(), awakenedId: z.number().int().positive() })
+      .safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await ownDeck(parsed.data.deckId, ownerKey);
+    const ids = await deckCardIds(parsed.data.deckId);
+    if (!ids.includes(parsed.data.awakenedId)) badRequest("The face must be one of the deck's own.");
+    await db
+      .update(schema.decks)
+      .set({ faceCardId: parsed.data.awakenedId })
+      .where(eq(schema.decks.id, parsed.data.deckId));
+    return okResponse.parse({ ok: true });
+  },
+
+  async getDeckCards(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ deckId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid id.");
+    const deck = await ownDeck(parsed.data.deckId, ownerKey);
+    const cardIds = await deckCardIds(deck.id);
+    return {
+      deck: { id: deck.id, name: deck.name, faceCardId: deck.faceCardId ?? null },
+      cardIds,
+    };
+  },
+
+  async getTerritory(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    return { tiles, placements };
+  },
+
+  async deployAwoken(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid deploy request.");
+    // Verify the Tender owns this Awoken and it is not already placed.
+    const owned = await db.select({ id: schema.awakened.id }).from(schema.awakened)
+      .where(and(eq(schema.awakened.id, parsed.data.awakenedId), eq(schema.awakened.ownerKey, ownerKey))).limit(1);
+    if (!owned.length) badRequest("That Awoken is not yours.");
+    const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    if (already.length) badRequest("Already on the field.");
+    // Verify the tile belongs to the Tender and is not cursed.
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    if (!tile.length) badRequest("That tile is not yours.");
+    if (tile[0].cursed) badRequest("Cannot deploy on cursed land.");
+    const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId)).limit(1);
+    if (occupied.length) badRequest("Tile occupied.");
+    await db.insert(schema.fieldPlacements).values({
+      ownerKey, awakenedId: parsed.data.awakenedId, tileId: parsed.data.tileId,
+    });
+    return okResponse.parse({ ok: true });
+  },
 };
+
+/** A deck the caller owns — or a refusal. Decks are never shared. */
+async function ownDeck(id: number, ownerKey: string) {
+  const rows = await db
+    .select()
+    .from(schema.decks)
+    .where(and(eq(schema.decks.id, id), eq(schema.decks.ownerKey, ownerKey)))
+    .limit(1);
+  const deck = rows[0];
+  if (!deck) badRequest("That deck is not yours to touch.");
+  return deck;
+}
+
+/** Card ids currently gathered in a deck. */
+async function deckCardIds(deckId: number): Promise<number[]> {
+  const rows = await db
+    .select({ awakenedId: schema.deckCards.awakenedId })
+    .from(schema.deckCards)
+    .where(eq(schema.deckCards.deckId, deckId));
+  return rows.map((row) => row.awakenedId);
+}
+
+/** A Tender may only gather their own Tender-collection Awoken. */
+function canTouchAwoken(awoken: typeof schema.awakened.$inferSelect, ownerKey: string): boolean {
+  return (
+    awoken.collection === "tender" &&
+    (awoken.ownerKey === null || awoken.ownerKey === ownerKey)
+  );
+}
 
 export type ActionName = keyof typeof handlers;
 export { assetShape, awakenedShape };

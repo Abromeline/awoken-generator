@@ -45,6 +45,24 @@ export interface Awakened {
   created_at: string;
 }
 
+export interface TerritoryTile {
+  id: number;
+  q: number;
+  r: number;
+  element: "tide" | "sky" | "stone" | "root" | "neutral" | "fire";
+  cursed: number;
+  spark: number;
+  building: string | null;
+}
+
+export interface FieldPlacement {
+  id: number;
+  awakenedId: number;
+  tileId: number;
+  placedAt: string;
+  lastMovedAt: string;
+}
+
 export interface CreditInfo {
   balance: number;
   packPriceCents: number;
@@ -218,6 +236,8 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[] }>("getTerritory", {}),
+  deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   deleteAwoken: (args: { id: number }) => post<{ ok: true }>("deleteAwoken", args),
   stripeConfig: () => postPath<StripeConfig>("/api/stripe/config"),
   createCheckoutSession: () => postPath<{ url: string }>("/api/stripe/checkout", {}),
