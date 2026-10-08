@@ -216,6 +216,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       onUpdate();
     } catch (e) {
       console.error("[Birth] Claim failed", e);
+      throw e;
     }
   };
 

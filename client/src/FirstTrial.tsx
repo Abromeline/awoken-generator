@@ -64,11 +64,17 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
   const combinedPower = Array.from(placed.values()).reduce((sum, a) => sum + a.power, 0);
   const canBegin = combinedPower >= 7 && placed.size > 0;
 
-  const handleBegin = () => {
+  const handleBegin = async () => {
     setPurifying(true);
-    setTimeout(() => {
-      onVictory(Array.from(placed.values()).map(a => a.id));
-    }, 1800);
+    // Let the animation breathe, then ask the server. If it refuses,
+    // come back — don't leave the Tender staring at "Purifying..." forever.
+    await new Promise(r => setTimeout(r, 1800));
+    try {
+      await onVictory(Array.from(placed.values()).map(a => a.id));
+    } catch (e) {
+      console.error("[Trial] Purification refused", e);
+      setPurifying(false);
+    }
   };
 
   // Auto-place: tap a card → goes to next available keystone on center
