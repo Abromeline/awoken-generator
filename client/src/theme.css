@@ -105,3 +105,22 @@
 .tender-leaderboard .tender-who small{color:var(--dim);font-size:11px;letter-spacing:.06em}
 .tender-leaderboard .count{font-size:13px;white-space:nowrap}
 .tender-leaderboard time{color:var(--dim);font-size:11px;white-space:nowrap}
+
+/* Trading card (deck view) — final design 2026-10-08 */
+.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:18px}
+.trading-card{position:relative;background:#f3f1ea;color:#222;border:7px solid #141414;border-radius:3px;padding:10px;box-shadow:var(--hatch-widget-shadow,0 2px 8px rgba(0,0,0,.2))}
+.trading-card::before{content:"";position:absolute;inset:5px;border:1px solid #b89b5e;border-radius:2px;pointer-events:none;z-index:3}
+.trading-card::after{content:"";position:absolute;inset:8px;border:1px solid #d4c08a;border-radius:2px;pointer-events:none;z-index:3}
+.tcorner{position:absolute;width:40px;height:40px;pointer-events:none;z-index:4}
+.tcorner.tl{top:2px;left:2px}.tcorner.tr{top:2px;right:2px;transform:scaleX(-1)}
+.tcorner.bl{bottom:2px;left:2px;transform:scaleY(-1)}.tcorner.br{bottom:2px;right:2px;transform:scale(-1,-1)}
+.tc-banner{position:relative;z-index:2;background:#1a1a1a;color:#f3f1ea;padding:7px 10px;font-size:16px;font-weight:700;text-align:center;letter-spacing:.1em;font-family:var(--display)}
+.tc-title{position:relative;z-index:2;text-align:center;font-size:10.5px;color:#6b5e45;padding:6px 8px 4px;letter-spacing:.03em}
+.tc-art{position:relative;z-index:2}
+.tc-art img{display:block;width:100%;aspect-ratio:750/971;object-fit:cover;background:#f3f1ea;filter:grayscale(1) contrast(1.04)}
+.tc-pips{position:absolute;bottom:6px;left:0;right:0;display:flex;gap:6px;justify-content:center}
+.tc-pip{background:#1a1a1a;color:#ffd700;border:1px solid #b89b5e;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.tc-iteration{position:absolute;left:8px;bottom:8px;padding:5px 7px;background:#11110f;color:#f3f1ea;font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.tc-pieces{position:relative;z-index:2;padding:9px 8px 4px;font-size:10px;color:#555;line-height:1.7;text-align:center}
+.tc-watermark{position:absolute;bottom:26px;right:8px;z-index:1;font-size:60px;color:rgba(0,0,0,.07);font-family:var(--display);pointer-events:none}
+@media(min-width:760px){.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}

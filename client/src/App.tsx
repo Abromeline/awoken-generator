@@ -130,6 +130,69 @@ function ordinal(iteration: number) {
   return `${iteration}${suffix} iteration`;
 }
 
+function toRoman(num: number): string {
+  const map: [number, string][] = [[1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"], [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+  let result = "";
+  for (const [val, sym] of map) { while (num >= val) { result += sym; num -= val; } }
+  return result || "I";
+}
+
+type Element = "tide" | "sky" | "stone" | "root" | "fire";
+function elementForPiece(name: string): Element {
+  const n = name.toLowerCase();
+  if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
+  if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
+  if (/mountain|monolith|stone|rock|crystal/.test(n)) return "stone";
+  if (/sky|bird|moon|star|lantern|upward|weather|bell/.test(n)) return "sky";
+  return "root";
+}
+
+const cornerPaths: Record<Element, string[]> = {
+  tide: ["M4 18 A16 16 0 0 1 18 4", "M4 27 A25 25 0 0 1 27 4", "M4 36 A34 34 0 0 1 36 4"],
+  sky: ["M10 24 C10 15 19 9 28 12 C35 14 38 22 34 28 C31 33 23 34 19 29 C16 25 19 19 24 19 C28 19 30 24 27 27"],
+  stone: ["M4 40 L14 16 L22 28 L30 10 L40 24", "M14 16 L18 22 L14 28 L10 22 Z", "M30 10 L33 15 L30 20 L27 15 Z"],
+  root: ["M4 40 C4 24 10 12 22 8 C30 5 38 6 41 10", "M41 10 c-3 -4 -9 -4 -12 -1 c-2.5 2.5 -2 7 1 8.5 c2.4 1.2 5.5 -0.3 5.4 -3 c-0.1 -2.2 -2.8 -3.4 -4.6 -2.2", "M10 34 C14 32 18 32 21 34 C19 36 15 36 13 34 Z"],
+  fire: ["M22 6 C22 6 11 21 11 29 A11 11 0 0 0 33 29 C33 21 22 6 22 6 Z"],
+};
+const elementColors: Record<Element, string> = { tide: "#4e8a9b", sky: "#7ba7c4", stone: "#8a7f70", root: "#6a8a4e", fire: "#b8542e" };
+
+function Corner({ element, className }: { element: Element; className: string }) {
+  return <svg className={className} viewBox="0 0 44 44" fill="none" stroke={elementColors[element]} strokeWidth="1.1" strokeLinecap="round" aria-hidden="true">
+    {cornerPaths[element].map((d, i) => <path key={i} d={d} />)}
+  </svg>;
+}
+
+function creatureRarity(power: number): string {
+  if (power <= 4) return "Common";
+  if (power <= 6) return "Uncommon";
+  if (power <= 8) return "Rare";
+  return "Mythic";
+}
+
+function TradingCard({ item }: { item: Awoken }) {
+  const roman = toRoman(item.id);
+  const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
+  const elements = litany.map((layer) => elementForPiece(layer.name));
+  const unique = [...new Set(elements)];
+  const corners: Element[] = [0, 1, 2, 3].map((i) => unique[i % unique.length] ?? "root");
+  const [tl, tr, bl, br] = corners;
+  return <article className="trading-card" aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
+    <Corner element={tl} className="tcorner tl" />
+    <Corner element={tr} className="tcorner tr" />
+    <Corner element={bl} className="tcorner bl" />
+    <Corner element={br} className="tcorner br" />
+    <div className="tc-banner">{roman}</div>
+    <div className="tc-title">{item.owner_name} · {creatureRarity(item.base_power)}</div>
+    <div className="tc-art">
+      <img src={item.image_url} alt={`${item.name}, a layered ink-wash Awoken`} />
+      <div className="tc-pips"><span className="tc-pip">⚔{item.power}</span><span className="tc-pip">🛡{item.toughness}</span></div>
+      {item.iteration > 0 && <span className="tc-iteration">{ordinal(item.iteration)}</span>}
+    </div>
+    <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>
+    <div className="tc-watermark" aria-hidden="true">{roman}</div>
+  </article>;
+}
+
 function CreatureCard({ item, allowDelete = false, newborn = false }: { item: Awoken; allowDelete?: boolean; newborn?: boolean }) {
   const queryClient = useQueryClient(); const [editing, setEditing] = useState(newborn); const [name, setName] = useState(item.name);
   const rename = useMutation({ mutationFn: () => api.renameAwoken({ id: item.id, name }), onSuccess: () => { setEditing(false); invalidateStudios(queryClient); } });
@@ -200,7 +263,7 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
   }, [items, sort, filter]);
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
   return <section className="collection"><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
-    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header><div className="collection-grid">{visible.map((item) => <CreatureCard key={item.id} item={item} allowDelete={allowDelete} newborn={item.id === focusId} />)}</div></section>;
+    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header><div className="collection-grid trading">{visible.map((item) => <TradingCard key={item.id} item={item} />)}</div></section>;
 }
 
 function PoolPanel({ assets }: { assets: LayerAsset[] }) {
