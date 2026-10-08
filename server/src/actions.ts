@@ -681,7 +681,12 @@ export const handlers = {
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
     if (!tile.length) badRequest("That tile is not yours.");
     const owned = await db.select().from(schema.awakened)
-      .where(eq(schema.awakened.ownerKey, ownerKey));
+      .where(
+        and(
+          eq(schema.awakened.collection, "tender"),
+          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+        )
+      );
     const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
     if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awoken are not all yours.");
     const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
@@ -1098,7 +1103,12 @@ export const handlers = {
     const placements = await db.select().from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     const owned = await db.select().from(schema.awakened)
-      .where(eq(schema.awakened.ownerKey, ownerKey));
+      .where(
+        and(
+          eq(schema.awakened.collection, "tender"),
+          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+        )
+      );
     // Power comes from layers, same formula the trial uses.
     const assetRows = await db.select().from(schema.layerAssets);
     const assetStats = new Map<number, AssetStats>();

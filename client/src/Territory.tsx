@@ -73,6 +73,37 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return () => clearInterval(timer);
   }, []);
 
+  // Passive purification: the Awoken's power stirs adjacent cursed tiles.
+  // Check on load and every 5 minutes — the server enforces the 48h rest.
+  useEffect(() => {
+    const checkPassive = async () => {
+      if (!tiles.length) return;
+      const cursed = tiles.filter(t => t.cursed);
+      let changed = false;
+      for (const tile of cursed) {
+        try {
+          const result = await api.passivePurify({ tileId: tile.id });
+          if (result.ok && result.purified) {
+            changed = true;
+            // A newborn joins the hand for each passive purification
+            api.birthNewbornToHand({ tileId: tile.id, liberatorNames: [] }).catch(() => {});
+          }
+        } catch {
+          // Not ready, too weak, or already purified — silent
+        }
+      }
+      if (changed) {
+        const refreshed = await api.getTerritory();
+        setTiles(refreshed.tiles);
+        setPlacements(refreshed.placements);
+        onUpdate();
+      }
+    };
+    checkPassive();
+    const timer = setInterval(checkPassive, 5 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [tiles.length]);
+
   const handleTimedBirth = async () => {
     try {
       const birthLayers = pickBirthLayers(assets.map(a => ({
