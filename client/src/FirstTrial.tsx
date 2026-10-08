@@ -4,7 +4,6 @@ import FieldAwoken from "./FieldAwoken";
 import cursedImg from "./assets/terrain/cursed.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
 import unravelerImg from "./assets/adversaries/unraveler.png";
-import debrisDark from "./assets/debris-dark.jpg";
 import { Corner, elementForPiece, type Element } from "./App";
 
 interface Props {
@@ -153,7 +152,7 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         </div>
       </div>
       {pool.length > 0 && (
-        <div className="cosmic-pool" style={{ backgroundImage: `url(${debrisDark})` }}>
+        <div className="cosmic-pool">
           <div className="cosmic-pool-label">Waiting in the void — {pool.length}/4</div>
           <div className="cosmic-pool-cards">
             {pooled.map(a => (
