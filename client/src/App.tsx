@@ -439,11 +439,9 @@ function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlo
 function TenderGate({ onDone }: { onDone: (token: string) => void }) {
   const [mode, setMode] = useState<"claim" | "login">("claim");
   const [suggestedCode, setSuggestedCode] = useState<string | null>(null);
-  const [useCustom, setUseCustom] = useState(false);
-  const [customCode, setCustomCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [loginCode, setLoginCode] = useState("");
+  const [loginIdentity, setLoginIdentity] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -453,18 +451,17 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
 
   const claim = useMutation({
     mutationFn: () => {
-      if (password.length < 8) throw new Error("Give your code a password of at least 8 characters.");
+      if (password.length < 8) throw new Error("Give your key a password of at least 8 characters.");
       if (password !== confirm) throw new Error("The two passwords do not match.");
-      const code = useCustom && customCode.trim() ? customCode.trim() : undefined;
-      return api.claimTender({ code, password });
+      return api.claimTender({ password });
     },
     onSuccess: (data) => onDone(data.token),
-    onError: (e) => setError(e instanceof Error ? e.message : "The code could not be claimed."),
+    onError: (e) => setError(e instanceof Error ? e.message : "The key could not be claimed."),
   });
   const login = useMutation({
-    mutationFn: () => api.loginTender({ code: loginCode.trim(), password: loginPassword }),
+    mutationFn: () => api.loginTender({ identity: loginIdentity.trim(), password: loginPassword }),
     onSuccess: (data) => onDone(data.token),
-    onError: (e) => setError(e instanceof Error ? e.message : "That code and password do not match."),
+    onError: (e) => setError(e instanceof Error ? e.message : "That name and password do not match."),
   });
   const reroll = () => {
     setSuggestedCode(null);
@@ -474,24 +471,20 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
   return <main className="tender-gate">
     <p className="eyebrow">Become a Tender</p>
     <h1>Every Awoken needs someone to wake it.</h1>
-    <p>Claim a secret code — it is yours alone, and it keeps your wakes and your deck wherever you go. No email, no noise.</p>
+    <p>Take a secret key — it is yours alone, and it locks your wakes and your deck to you wherever you go. No email, no noise. Your name comes later, when the Awoken ask.</p>
     <div className="gate-tabs">
-      <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>Claim a code</button>
+      <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>Take a key</button>
       <button type="button" className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(null); }}>Already have one?</button>
     </div>
     {mode === "claim" ? (
       <form onSubmit={(event) => { event.preventDefault(); setError(null); claim.mutate(); }}>
         <div className="code-line">
-          <label>Your secret code</label>
-          {useCustom ? (
-            <input value={customCode} onChange={(e) => setCustomCode(e.target.value)} placeholder="Choose your own…" autoComplete="off" maxLength={32} />
-          ) : (
-            <p className="given-code">{suggestedCode ?? "Gathering…"}</p>
-          )}
+          <label>Your secret key</label>
+          <p className="given-code">{suggestedCode ?? "Gathering…"}</p>
           <div className="code-actions">
-            {!useCustom && <button type="button" onClick={reroll}>Another</button>}
-            <button type="button" onClick={() => setUseCustom((v) => !v)}>{useCustom ? "Give me one" : "Choose my own"}</button>
+            <button type="button" onClick={reroll}>Another</button>
           </div>
+          <p className="quiet">Given once, never changed. Keep it somewhere safe — it is how you prove the account is yours.</p>
         </div>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></label>
         <label>Again<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></label>
@@ -499,7 +492,7 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
       </form>
     ) : (
       <form onSubmit={(event) => { event.preventDefault(); setError(null); login.mutate(); }}>
-        <label>Secret code<input value={loginCode} onChange={(e) => setLoginCode(e.target.value)} autoComplete="username" /></label>
+        <label>Tender name or secret key<input value={loginIdentity} onChange={(e) => setLoginIdentity(e.target.value)} autoComplete="username" /></label>
         <label>Password<input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} autoComplete="current-password" /></label>
         <button disabled={login.isPending}>{login.isPending ? "Returning…" : "Return"}</button>
       </form>
@@ -629,7 +622,7 @@ export function App() {
       return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
-    return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)}>{showDeck ? "Return to the ritual" : `My deck · ${tenderItems.length}`}</button>{tender ? <button className="tender-name" onClick={() => setRenaming((v) => !v)} title="Rename yourself">{tender.tenderName ?? "Name yourself"}</button> : <button onClick={() => setShowGate(true)} className="quiet-link">Claim a code</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
+    return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)}>{showDeck ? "Return to the ritual" : `My deck · ${tenderItems.length}`}</button>{tender ? <button className="tender-name" onClick={() => setRenaming((v) => !v)} title="Rename yourself">{tender.tenderName ?? "Name yourself"}</button> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
       {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
       {showDeck ? <CollectionView items={tenderItems} title={deckTitle} note="Each name is yours to keep or change." focusId={focusId} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} /><LoreSection />{focused?.collection === "tender" && <section className="newborn-reveal" aria-live="polite"><p className="eyebrow">The newly awakened</p><CreatureCard item={focused} newborn /></section>}</>}

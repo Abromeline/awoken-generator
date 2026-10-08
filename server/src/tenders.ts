@@ -144,15 +144,11 @@ function badRequest(message: string): never {
  */
 export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null } }> {
   const parsed = z
-    .object({ code: codeSchema.optional(), password: z.string().min(8).max(128) })
+    .object({ password: z.string().min(8).max(128) })
     .safeParse(args);
-  if (!parsed.success) badRequest("A secret code and a password of at least 8 characters.");
-  let code = parsed.data.code;
-  if (!code) {
-    code = await suggestTenderCode();
-  } else if (await codeTaken(code)) {
-    throw Object.assign(new Error("That secret code is already held by another Tender — choose another, or log in with it."), { status: 409 });
-  }
+  if (!parsed.success) badRequest("A password of at least 8 characters.");
+  // The key is given, never chosen — it is the account's immutable lock.
+  const code = await suggestTenderCode();
   const tenderRows = await db
     .insert(schema.tenders)
     .values({ code, passwordHash: hashPassword(parsed.data.password), tenderName: null, createdAt: new Date() })
@@ -199,30 +195,41 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
   return { token, tender: publicTender(fresh[0] ?? tender) };
 }
 
-/** Log in on a new device with code + password. */
+/** Log in with Tender name + password, or secret key + password as fallback. */
 export async function loginTender(args: unknown): Promise<{ token: string; tender: { code: string; tenderName: string | null } }> {
-  const parsed = z.object({ code: codeSchema, password: z.string().min(1).max(128) }).safeParse(args);
-  if (!parsed.success) badRequest("A secret code and password are needed.");
-  const rows = await db.select().from(schema.tenders).where(eq(schema.tenders.code, parsed.data.code)).limit(1);
+  const parsed = z.object({ identity: z.string().trim().min(1).max(64), password: z.string().min(1).max(128) }).safeParse(args);
+  if (!parsed.success) badRequest("A Tender name (or secret key) and password are needed.");
+  const identity = parsed.data.identity;
+  // Try the name first, then the immutable key.
+  let rows = await db.select().from(schema.tenders).where(eq(schema.tenders.tenderName, identity)).limit(1);
+  if (!rows[0]) {
+    rows = await db.select().from(schema.tenders).where(eq(schema.tenders.code, identity)).limit(1);
+  }
   const tender = rows[0];
   if (!tender || !verifyPassword(parsed.data.password, tender.passwordHash)) {
-    throw Object.assign(new Error("That code and password do not match any Tender."), { status: 401 });
+    throw Object.assign(new Error("That name (or key) and password do not match any Tender."), { status: 401 });
   }
   const token = await createSession(tender.id);
   return { token, tender: publicTender(tender) };
 }
 
-/** Set (or change) the Tender's name — the naming ritual and later renames. */
+/** Set (or change) the Tender's name — the naming ritual and later renames.
+ *  Names are unique: they are the login identity. */
 export async function setTenderName(tenderId: number, args: unknown): Promise<{ tenderName: string }> {
   const parsed = z.object({ name: z.string().trim().min(2).max(40) }).safeParse(args);
   if (!parsed.success) badRequest("A Tender name is 2–40 characters.");
-  await db.update(schema.tenders).set({ tenderName: parsed.data.name }).where(eq(schema.tenders.id, tenderId));
+  const name = parsed.data.name;
+  const taken = await db.select({ id: schema.tenders.id }).from(schema.tenders).where(eq(schema.tenders.tenderName, name)).limit(1);
+  if (taken[0] && taken[0].id !== tenderId) {
+    throw Object.assign(new Error("That name is already held by another Tender — choose another."), { status: 409 });
+  }
+  await db.update(schema.tenders).set({ tenderName: name }).where(eq(schema.tenders.id, tenderId));
   // Keep already-woken creatures' attribution in step.
   await db
     .update(schema.awakened)
-    .set({ ownerName: parsed.data.name })
+    .set({ ownerName: name })
     .where(eq(schema.awakened.ownerKey, tenderOwnerKey(tenderId)));
-  return { tenderName: parsed.data.name };
+  return { tenderName: name };
 }
 
 export function newTenderNameSuggestion(): string {
