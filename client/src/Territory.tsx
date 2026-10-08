@@ -58,6 +58,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [selectedHand, setSelectedHand] = useState<number | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [energy, setEnergy] = useState(5);
+  const maxEnergy = 5;
 
   useEffect(() => {
     api.getTerritory().then(({ tiles, placements }) => {
@@ -70,11 +72,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
 
   const handleDeploy = async (tileId: number) => {
-    if (selectedHand === null) return;
+    if (selectedHand === null || energy < 2) return;
     const awoken = hand[selectedHand];
     if (!awoken) return;
     try {
       await api.deployAwoken({ awakenedId: awoken.id, tileId });
+      setEnergy(e => e - 2);
       const { tiles, placements } = await api.getTerritory();
       setTiles(tiles); setPlacements(placements);
       setSelectedHand(null);
@@ -215,6 +218,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   return (
     <div className="territory-view">
+      <div className="territory-hud">
+        <div className="energy-meter">
+          <span className="energy-label">Energy</span>
+          <div className="energy-bar">
+            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
+          </div>
+          <span className="energy-value">{energy}/{maxEnergy}</span>
+        </div>
+      </div>
       <div className="territory-map">
         <svg viewBox="0 0 500 340" className="territory-svg">
           {renderGrid()}
