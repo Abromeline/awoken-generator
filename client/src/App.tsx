@@ -24,8 +24,8 @@ type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStat
 
 const categories: { id: Category; label: string; note: string }[] = [
   { id: "background", label: "Background", note: "the world beneath" },
-  { id: "arms", label: "Arms", note: "reach and gesture" },
   { id: "body", label: "Body", note: "the held matter" },
+  { id: "arms", label: "Arms", note: "reach and gesture" },
   { id: "aura", label: "Aura", note: "the binding force" },
   { id: "head", label: "Head", note: "the final waking layer" },
 ];
@@ -101,17 +101,24 @@ async function preparePng(file: File) {
     return { ok: true as const, file: new File([blob], file.name, { type: "image/png", lastModified: file.lastModified }), note: "2550 × 3300 PNG · fitted to the shared canvas" };
   } finally { URL.revokeObjectURL(url); }
 }
+/** Back-to-front draw order, per the artist: background, body, arms, aura, head. */
+const LAYER_ORDER: Category[] = ["background", "body", "arms", "aura", "head"];
 async function compose(layers: LayerAsset[], target?: HTMLCanvasElement | null) {
   const canvas = target ?? document.createElement("canvas"); canvas.width = TEMPLATE_WIDTH; canvas.height = TEMPLATE_HEIGHT;
   const context = canvas.getContext("2d"); if (!context) throw new Error("This device could not prepare the awakening canvas.");
   const ranked = layers.filter((layer) => layer.power !== null && layer.toughness !== null);
   const score = ranked.reduce((sum, layer) => sum + rarityScore[layer.rarity], 0); const min = ranked.length; const max = ranked.length * 4;
   const auraOpacity = 1 / 3 + (max === min ? 0 : (score - min) / (max - min)) * (2 / 3);
+  // Draw back-to-front in the artist's order, never in whatever order the
+  // caller happened to pass. Preload every image before drawing so layers
+  // never pop in piecemeal and get buried by a late arrival.
+  const ordered = [...layers].sort((a, b) => LAYER_ORDER.indexOf(a.category) - LAYER_ORDER.indexOf(b.category));
+  const images = await Promise.all(ordered.map((layer) => loadImage(layer.imageUrl)));
   context.fillStyle = "#f3f1ea"; context.fillRect(0, 0, 750, 971);
-  for (const layer of layers) {
-    const image = await loadImage(layer.imageUrl); context.globalCompositeOperation = layer.category === "background" || layer.mimeType === "image/png" ? "source-over" : "multiply";
+  ordered.forEach((layer, index) => {
+    const image = images[index]; context.globalCompositeOperation = layer.category === "background" || layer.mimeType === "image/png" ? "source-over" : "multiply";
     context.globalAlpha = layer.category === "aura" ? auraOpacity : 1; context.drawImage(image, 0, 0, 750, 971);
-  }
+  });
   context.globalCompositeOperation = "source-over"; context.globalAlpha = 1;
   return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
 }
