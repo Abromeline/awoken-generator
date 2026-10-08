@@ -52,10 +52,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
   const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
 
-  // Energy cap: 5 base + power-based bonus per Awoken in hand.
+  // Energy cap: 5 base + power-based bonus per Awoken (hand AND field).
   // 1-3 power: +1, 4-6: +2, 7-9: +3, 10+: +4. Stronger beings contribute more existence.
+  // Defenders generate +1 max energy each — they hold the line and gather strength.
   const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
-  const maxEnergy = 5 + hand.reduce((sum, a) => sum + energyBonus(a.power), 0);
+  const fieldAwoken = placements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
+  const defenderCount = placements.filter(p => p.stance === "defense").length;
+  const maxEnergy = 5
+    + hand.reduce((sum, a) => sum + energyBonus(a.power), 0)
+    + fieldAwoken.reduce((sum, a) => sum + energyBonus(a.power), 0)
+    + defenderCount;
 
   // Deploy cost scales with power: 2 base + 1 per 3 power.
   // 1-3: 2, 4-6: 3, 7-9: 4, 10+: 5.
@@ -191,6 +197,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       if (stance === "binding") {
         setEnergy(e => Math.max(0, e - 2));
       }
+      // Defense generates 1 energy — holding ground gathers strength
+      if (stance === "defense") {
+        setEnergy(e => Math.min(e + 1, maxEnergy));
+      }
     } catch (e) {
       console.error("Stance change failed", e);
     }
@@ -198,8 +208,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const handleAttack = async (tileId: number) => {
     if (selectedAwoken === null) return;
+    if (energy < 1) return; // Attacks cost 1 energy
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId });
+      setEnergy(e => e - 1);
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
