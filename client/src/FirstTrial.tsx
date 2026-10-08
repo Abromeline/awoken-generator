@@ -1,14 +1,16 @@
 import { useState } from "react";
 import type { Awakened } from "./api";
+import FieldAwoken from "./FieldAwoken";
 import cursedImg from "./assets/terrain/cursed.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
 
 interface Props {
   hand: Awakened[];
+  assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
   onVictory: (teamIds: number[]) => void;
 }
 
-export default function FirstTrial({ hand, onVictory }: Props) {
+export default function FirstTrial({ hand, assets, onVictory }: Props) {
   const [placed, setPlaced] = useState<Map<number, Awakened>>(new Map());
   const [selected, setSelected] = useState<number | null>(null);
   const [purifying, setPurifying] = useState(false);
@@ -130,10 +132,10 @@ export default function FirstTrial({ hand, onVictory }: Props) {
               opacity={t.isCenter ? 1 : 0.6}
               style={{ pointerEvents: "all" }} />
             {placedAwoken && (
-              <image href={placedAwoken.image_url}
+              <FieldAwoken awoken={placedAwoken} assets={assets}
                 x={t.x - t.s * 0.45} y={t.y - t.s * 0.6}
                 width={t.s * 0.9} height={t.s * 1.15}
-                preserveAspectRatio="xMidYMid meet" />
+                showFieldBornMarker={false} />
             )}
             {t.isCenter && purifying && (
               <>

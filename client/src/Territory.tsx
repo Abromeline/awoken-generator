@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import FirstTrial from "./FirstTrial";
+import FieldAwoken from "./FieldAwoken";
 import { randomWhisper } from "./whispers";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain/tide.jpg";
@@ -19,40 +20,6 @@ interface Props {
   tenderItems: Awakened[];
   assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
   onUpdate: () => void;
-}
-
-// Renders an Awoken's layers stacked, WITHOUT the background.
-// Layers draw back-to-front: body → arms → aura → head.
-// Field-born Awoken get a small gold tree symbol.
-function FieldAwoken({ awoken, assets, x, y, width, height }: {
-  awoken: Awakened; assets: Props["assets"]; x: number; y: number; width: number; height: number;
-}) {
-  const assetMap = useMemo(() => {
-    const m = new Map<string, string>();
-    assets.forEach(a => m.set(a.sourceId, a.imageUrl));
-    return m;
-  }, [assets]);
-  const layers = awoken.layers
-    .filter(l => l.category !== "background")
-    .sort((a, b) => {
-      const order = ["body", "arms", "aura", "head"];
-      return order.indexOf(a.category) - order.indexOf(b.category);
-    });
-  return (
-    <g>
-      {layers.map((l, i) => {
-        const url = assetMap.get(l.source_id);
-        if (!url) return null;
-        return <image key={i} href={url} x={x} y={y} width={width} height={height} preserveAspectRatio="xMidYMid meet" />;
-      })}
-      {awoken.field_born === 1 && (
-        <g transform={`translate(${x + width - 10}, ${y + 4})`}>
-          <circle r="8" fill="#1a1a1a" stroke="#b89b5e" strokeWidth="1.5" />
-          <text textAnchor="middle" dy="4" fontSize="10" fill="#b89b5e">🌳</text>
-        </g>
-      )}
-    </g>
-  );
 }
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
@@ -205,7 +172,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
     if (!tiles.length) {
-      return <FirstTrial hand={hand} onVictory={handleFirstVictory} />;
+      return <FirstTrial hand={hand} assets={assets} onVictory={handleFirstVictory} />;
     }
     // Simple grid layout for now; parallax via row scaling
   // Render hex grid with parallax
