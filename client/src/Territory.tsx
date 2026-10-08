@@ -249,7 +249,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const a = Math.PI / 180 * (60 * k + 30);
         pts.push(`${(cx + s * Math.cos(a)).toFixed(1)},${(cy + s * Math.sin(a) * tilt).toFixed(1)}`);
       }
-      const tex = t.cursed ? "cursed" : t.element;
+      const tex = t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral");
       const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
       const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
