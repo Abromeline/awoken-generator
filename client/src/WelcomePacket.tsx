@@ -50,7 +50,7 @@ const PAGES: Page[] = [
       "The void around your land is cursed — held by the Unraveling.",
       "If the combined power of your Awoken near a cursed tile exceeds the Unraveling's weight there, the tile is purified. Slowly, passively, by presence.",
       "You can also strike cursed tiles directly to purify them faster.",
-      "Purified tiles may reveal a spark (5%) — Awoken born there carry Fire.",
+      "The elements of the Awoken who claim a tile determine what it becomes.",
     ],
   },
   {

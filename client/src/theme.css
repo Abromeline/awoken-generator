@@ -183,3 +183,13 @@
 .packet-nav button{background:#1a1a1a;color:#e8e0d0;border:1px solid #b89b5e;border-radius:4px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:Georgia,serif}
 .packet-nav button:disabled{opacity:0.3;cursor:default}
 .packet-nav button.packet-done{background:#b89b5e;color:#111;font-weight:bold}
+
+/* First Trial */
+.first-trial{padding:12px}
+.trial-svg{display:block;width:100%;height:auto;background:#050505;border:2px solid #6a1a1a;border-radius:6px}
+.trial-hand{margin-top:12px}
+.trial-actions{text-align:center;margin-top:12px}
+.trial-power{font-size:14px;color:#e8e0d0;margin-bottom:8px}
+.trial-power b{color:#b89b5e;font-size:18px}
+.hand-card.used{opacity:0.3;cursor:default}
+.abtn:disabled{opacity:0.3;cursor:default}

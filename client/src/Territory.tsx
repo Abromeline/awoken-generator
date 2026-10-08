@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
+import FirstTrial from "./FirstTrial";
 import tideImg from "./assets/terrain/tide.jpg";
 import skyImg from "./assets/terrain/sky.jpg";
 import stoneImg from "./assets/terrain/stone.jpg";
@@ -48,10 +49,21 @@ export default function Territory({ tenderItems, onUpdate }: Props) {
     }
   };
 
+  const handleFirstVictory = async (teamIds: number[]) => {
+    try {
+      await api.claimFirstTile({ teamIds });
+      const { tiles, placements } = await api.getTerritory();
+      setTiles(tiles); setPlacements(placements);
+      onUpdate();
+    } catch (e) {
+      console.error("Claim failed", e);
+    }
+  };
+
   // Render hex grid with parallax
   const renderGrid = () => {
     if (!tiles.length) {
-      return <text x="250" y="150" textAnchor="middle" fill="#666" fontSize="14">Your land awaits. Purify the cursed dark to begin.</text>;
+      return <FirstTrial hand={hand} onVictory={handleFirstVictory} />;
     }
     // Simple grid layout for now; parallax via row scaling
     const size = 34, tilt = 0.62;

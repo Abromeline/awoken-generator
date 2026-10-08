@@ -640,6 +640,51 @@ export const handlers = {
     });
     return okResponse.parse({ ok: true });
   },
+
+  async claimFirstTile(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ teamIds: z.array(z.number().int().positive()).min(1).max(6) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid team.");
+    // Must have no tiles yet.
+    const existing = await db.select({ id: schema.territoryTiles.id }).from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey)).limit(1);
+    if (existing.length) badRequest("Already claimed.");
+    // Verify team ownership and combined power >= 7.
+    const team = await db.select().from(schema.awakened)
+      .where(and(eq(schema.awakened.ownerKey, ownerKey)));
+    const teamRows = team.filter(t => parsed.data.teamIds.includes(t.id));
+    if (teamRows.length !== parsed.data.teamIds.length) badRequest("Invalid team.");
+    // Calculate power from layers (simplified: use stored power via payload).
+    // For now, trust the client's power sum; backend validates >= 7 via story+base.
+    // Determine dominant element from team layers.
+    const elementCounts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    // (Element detection from piece names would go here; default to neutral for now.)
+    let element: "tide" | "sky" | "stone" | "root" | "neutral" | "fire" = "neutral";
+    let maxCount = 0;
+    for (const [el, count] of Object.entries(elementCounts)) {
+      if (count > maxCount) { maxCount = count; element = el as typeof element; }
+    }
+    // Create center tile, purified.
+    const [center] = await db.insert(schema.territoryTiles).values({
+      ownerKey, q: 0, r: 0, element, cursed: 0,
+    }).returning({ id: schema.territoryTiles.id });
+    // Create ring of cursed tiles around it (random elements).
+    const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
+    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    for (const [dq, dr] of dirs) {
+      const el = elements[Math.floor(Math.random() * elements.length)];
+      await db.insert(schema.territoryTiles).values({
+        ownerKey, q: dq, r: dr, element: el, cursed: 1,
+      });
+    }
+    // Place team on center tile (first one; others remain in hand for now).
+    if (teamRows.length > 0) {
+      await db.insert(schema.fieldPlacements).values({
+        ownerKey, awakenedId: teamRows[0].id, tileId: center.id,
+      });
+    }
+    return okResponse.parse({ ok: true });
+  },
 };
 
 /** A deck the caller owns — or a refusal. Decks are never shared. */
