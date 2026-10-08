@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import deckButtonImg from "./assets/deck-button.jpg";
+import { DecksView } from "./Decks";
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type WaitingAwoken, type WelcomeStatus } from "./api";
 import auraWhisper from "./assets/auras/haze-01.png";
@@ -15,7 +17,7 @@ import auraWispy from "./assets/auras/haze-10.png";
 import auraBloom from "./assets/auras/haze-11.png";
 import auraDisc from "./assets/auras/haze-12.png";
 
-type Awoken = Awakened;
+export type Awoken = Awakened;
 type Face = "tender" | "workshop";
 type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
@@ -169,7 +171,7 @@ function creatureRarity(power: number): string {
   return "Mythic";
 }
 
-function TradingCard({ item }: { item: Awoken }) {
+export function TradingCard({ item }: { item: Awoken }) {
   const roman = toRoman(item.id);
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
   const elements = litany.map((layer) => elementForPiece(layer.name));
@@ -624,10 +626,10 @@ export function App() {
       return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
-    return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)}>{showDeck ? "Return to the ritual" : `My deck · ${tenderItems.length}`}</button>{tender ? <button className="tender-name" onClick={() => setRenaming((v) => !v)} title="Rename yourself">{tender.tenderName ?? "Name yourself"}</button> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
+    return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : `Decks · ${tenderItems.length}`}</span></button>{tender ? <button className="tender-name" onClick={() => setRenaming((v) => !v)} title="Rename yourself">{tender.tenderName ?? "Name yourself"}</button> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
       {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
-      {showDeck ? <CollectionView items={tenderItems} title={deckTitle} note="Each name is yours to keep or change." focusId={focusId} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} /><LoreSection />{focused?.collection === "tender" && <section className="newborn-reveal" aria-live="polite"><p className="eyebrow">The newly awakened</p><CreatureCard item={focused} newborn /></section>}</>}
+      {showDeck ? <DecksView items={tenderItems} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} /><LoreSection />{focused?.collection === "tender" && <section className="newborn-reveal" aria-live="polite"><p className="eyebrow">The newly awakened</p><CreatureCard item={focused} newborn /></section>}</>}
     </main></div>;
   }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;
