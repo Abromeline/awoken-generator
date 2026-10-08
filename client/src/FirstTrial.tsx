@@ -5,11 +5,28 @@ import cursedImg from "./assets/terrain/cursed.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
 import unravelerImg from "./assets/adversaries/unraveler.png";
 import cosmicPoolBg from "./assets/cosmic-pool-bg.jpg";
+import { Corner, elementForPiece, type Element } from "./App";
 
 interface Props {
   hand: Awakened[];
   assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
   onVictory: (teamIds: number[]) => void;
+}
+
+
+// Dominant element of an Awoken, for corner motifs.
+function dominantElement(a: Awakened): Element {
+  const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
+  for (const layer of (a as any).layers ?? []) {
+    const el = elementForPiece(layer.name);
+    counts[el] = (counts[el] ?? 0) + 1;
+  }
+  let best: Element = "root";
+  let max = -1;
+  for (const [el, n] of Object.entries(counts)) {
+    if (n > max) { max = n; best = el as Element; }
+  }
+  return best;
 }
 
 export default function FirstTrial({ hand, assets, onVictory }: Props) {
@@ -105,10 +122,15 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         <div className="hand-cards">
           {hand.map((a, i) => {
             const inPool = pool.includes(i);
+            const el = dominantElement(a);
             return (
               <button key={a.id} className={`hand-card ${inPool ? "in-pool" : ""}`}
                 disabled={purifying}
                 onClick={() => handleCardTap(i)}>
+                <Corner element={el} className="hcorner tl" />
+                <Corner element={el} className="hcorner tr" />
+                <Corner element={el} className="hcorner bl" />
+                <Corner element={el} className="hcorner br" />
                 <img src={a.image_url} alt={a.name} />
                 <div className="hand-card-name">{a.name}</div>
                 <div className="hand-card-stats">{a.power} power</div>
