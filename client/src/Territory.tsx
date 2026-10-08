@@ -325,23 +325,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return (
       <>
         <defs>
-          {tiles.map(t => (
-            <clipPath key={`cp-${t.id}`} id={`terr-${t.id}`}>
-              <polygon points={(() => {
-                const col = t.q + 5, row = t.r + 5;
-                const ps = 0.7 + (row / 10) * 0.5;
-                const s = size * ps;
-                const cx = 60 + col * (Math.sqrt(3) * s * 0.92) + pan.x;
-                const cy = 60 + row * (2 * s * 0.78 * tilt) + pan.y;
-                const p: string[] = [];
-                for (let k = 0; k < 6; k++) {
-                  const a = Math.PI / 180 * (60 * k);
-                  p.push(`${(cx + s * Math.cos(a)).toFixed(1)},${(cy + s * Math.sin(a) * tilt).toFixed(1)}`);
-                }
-                return p.join(" ");
-              })()} />
-            </clipPath>
-          ))}
+          {tiles.map(t => {
+            const px = size * Math.sqrt(3) * (t.q + t.r / 2);
+            const py = size * 1.5 * tilt * t.r;
+            const cx = 250 + px + pan.x;
+            const cy = 170 + py + pan.y;
+            const pts: string[] = [];
+            for (let k = 0; k < 6; k++) {
+              const a = Math.PI / 180 * (60 * k + 30);
+              pts.push(`${(cx + size * Math.cos(a)).toFixed(1)},${(cy + size * Math.sin(a) * tilt).toFixed(1)}`);
+            }
+            return (
+              <clipPath key={`cp-${t.id}`} id={`terr-${t.id}`}>
+                <polygon points={pts.join(" ")} />
+              </clipPath>
+            );
+          })}
         </defs>
         {elements}
       </>
