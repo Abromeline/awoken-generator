@@ -157,8 +157,9 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
           <div className="cosmic-pool-label">Waiting in the void — {pool.length}/4</div>
           <div className="cosmic-pool-cards">
             {pooled.map(a => (
-              <div key={a.id} className="cosmic-pool-card">
-                <FieldAwoken awoken={a} assets={assets} x={0} y={0} width={48} height={60} showFieldBornMarker={false} />
+              <div key={a.id} className="cosmic-pool-card field-drifter"
+                style={{ "--drift-dur": `${(6 + (a.id % 5)).toFixed(1)}s`, "--drift-delay": `${(-(a.id % 7)).toFixed(1)}s` } as React.CSSProperties}>
+                <img src={a.image_url} alt={a.name} className="cosmic-pool-img" />
                 <div className="cosmic-pool-card-name">{a.name}</div>
               </div>
             ))}

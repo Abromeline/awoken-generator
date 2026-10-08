@@ -196,8 +196,10 @@
 .trial-hand-top{position:static;margin-top:0;margin-bottom:12px;border-bottom:1px solid #b89b5e;padding-bottom:12px}
 .trial-svg{display:block;width:100%;height:auto;background:#050505;border:2px solid #6a1a1a;border-radius:6px}
 .trial-hand{background:#0a0a0a;padding:10px 0 12px;z-index:5}
-.trial-actions{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:0;margin-bottom:12px;flex-wrap:wrap;background:#0a0a0a;padding:10px 12px;border-bottom:1px solid #b89b5e;border-radius:0 0 8px 8px}
-.trial-actions .abtn{font-size:18px;padding:12px 28px;font-weight:bold}
+.trial-actions{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:0;margin-bottom:12px;flex-wrap:wrap;background:linear-gradient(to bottom,rgba(10,10,10,0.95) 60%,rgba(10,10,10,0));padding:10px 12px 18px;border-bottom:none;animation:trial-breathe 6s ease-in-out infinite}
+@keyframes trial-breathe{0%,100%{opacity:0.92}50%{opacity:1}}
+.trial-actions .abtn{font-size:18px;padding:12px 28px;font-weight:bold;box-shadow:0 0 20px rgba(184,155,94,0.25);transition:box-shadow 0.3s}
+.trial-actions .abtn:not(:disabled):hover{box-shadow:0 0 32px rgba(184,155,94,0.5)}
 .trial-energy{margin-left:auto}
 .trial-power{font-size:14px;color:#e8e0d0;margin-bottom:8px}
 .trial-power b{color:#b89b5e;font-size:18px}
@@ -278,6 +280,7 @@
 .cosmic-pool-label{font-size:12px;color:#b89b5e;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;text-align:center;text-shadow:0 1px 3px #000}
 .cosmic-pool-cards{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .cosmic-pool-card{display:flex;flex-direction:column;align-items:center;cursor:default}
+.cosmic-pool-img{width:48px;height:60px;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.8))}
 .cosmic-pool-card-name{font-size:10px;color:#e8e0d0;margin-top:4px;text-shadow:0 1px 3px #000;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Trial title */
