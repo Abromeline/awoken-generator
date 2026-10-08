@@ -1,14 +1,16 @@
-// The welcome ritual: free wakes for new Tenders.
+// The welcome ritual: free wakes for Tenders.
 //
-// First visit: the visitor's browser mark is new, so 20 welcome wakes are
-// granted (a bonus "first deck") and one Awoken is held apart, already
-// waiting, with a single free re-weaving ("Reconstitute matter").
-// Every 4 hours a free wake gathers — one at a time, never stacked, never
-// announced. Pull only: the Anti-Duolingo law holds even here.
+// First visit (with a Tender account): 20 welcome wakes are granted (a bonus
+// "first deck") and one Awoken is held apart, already waiting, with a single
+// free re-weaving ("Reconstitute matter"). Every 4 hours a free wake gathers
+// — one at a time, never stacked, never announced. Pull only: the
+// Anti-Duolingo law holds even here.
 //
-// Identity is soft: a UUID in the visitor's localStorage, sent as
-// X-Visitor-Id. Clearing storage starts over. Real Tender accounts will
-// replace this; the credit ledger already carries a user_id column for them.
+// Identity is the Tender account (secret code + password), keyed as
+// "tender:<id>". Soft browser visitors (localStorage UUID) are grandfathered:
+// a soft visitor whose welcome was already granted keeps working, but new
+// soft visitors must claim a code first. Clearing storage no longer mints
+// fresh wakes.
 
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -17,6 +19,7 @@ import { db, blobs, schema } from "./store.js";
 import { awakenedPayloadById, layerRefShape, planAwakening } from "./actions.js";
 import { CREDITS_PER_PACK } from "./config.js";
 import { grantCredits } from "./credits.js";
+import { tenderFromToken, tenderOwnerKey, type TenderRow } from "./tenders.js";
 
 /** One free wake gathers every four hours. Not sooner, not stacked. */
 export const FREE_WAKE_MS = 4 * 60 * 60 * 1000;
@@ -42,6 +45,31 @@ export function visitorIdFromHeader(value: unknown): string | null {
 
 type Visitor = typeof schema.visitors.$inferSelect;
 type Pending = typeof schema.pendingWelcomes.$inferSelect;
+
+/** Who may use the welcome ritual, and under what owner key. */
+export type WelcomeIdentity = { ownerKey: string; ownerName: string; tender: TenderRow | null };
+
+/**
+ * Resolve the welcome identity for a request. Tender token wins; otherwise
+ * a grandfathered soft visitor (whose welcome was already granted) keeps
+ * working. Brand-new soft visitors must claim a secret code first.
+ */
+export async function welcomeIdentity(tenderToken: string | null, visitorId: string | null): Promise<WelcomeIdentity> {
+  if (tenderToken) {
+    const tender = await tenderFromToken(tenderToken);
+    if (tender) {
+      return { ownerKey: tenderOwnerKey(tender.id), ownerName: tender.tenderName ?? "Tender", tender };
+    }
+  }
+  if (visitorId) {
+    const rows = await db.select().from(schema.visitors).where(eq(schema.visitors.visitorId, visitorId)).limit(1);
+    const visitor = rows[0];
+    if (visitor && visitor.welcomeWakesGranted === 1) {
+      return { ownerKey: visitorId, ownerName: "Tender", tender: null };
+    }
+  }
+  throw Object.assign(new Error("Claim your secret code to begin — the welcome is for Tenders."), { status: 403 });
+}
 
 async function ensureVisitor(visitorId: string): Promise<{ visitor: Visitor; isNew: boolean }> {
   const rows = await db.select().from(schema.visitors).where(eq(schema.visitors.visitorId, visitorId)).limit(1);
@@ -82,9 +110,9 @@ async function removePending(pending: Pending): Promise<void> {
 }
 
 /** Generate an Awoken with the same arithmetic as Wake One, but hold it
- *  apart in the visitor's slot instead of dropping it in the deck. Costs
+ *  apart in the Tender's slot instead of dropping it in the deck. Costs
  *  no credit — the welcome and the free wakes are gifts. */
-async function holdAwakening(visitorId: string, slot: Slot, layers: unknown, imageBase64: unknown, respinsUsed: number) {
+async function holdAwakening(ownerKey: string, ownerName: string, slot: Slot, layers: unknown, imageBase64: unknown, respinsUsed: number) {
   const parsed = generationInput.safeParse({ layers, imageBase64 });
   if (!parsed.success) badRequest("That awakening could not be gathered.");
   const plan = await planAwakening(parsed.data.layers);
@@ -98,7 +126,8 @@ async function holdAwakening(visitorId: string, slot: Slot, layers: unknown, ima
       imageBlobKey: blobKey,
       compositionJson: JSON.stringify(plan.canonicalLayers),
       collection: "tender",
-      ownerName: "Tender",
+      ownerName,
+      ownerKey,
       identityKey: plan.identityKey,
       iteration: plan.previousCount,
       flavorText: plan.flavorText,
@@ -110,7 +139,7 @@ async function holdAwakening(visitorId: string, slot: Slot, layers: unknown, ima
     badRequest("This awakening could not be saved.");
   }
   await db.insert(schema.pendingWelcomes).values({
-    visitorId, slot, awakenedId: (row as { id: number }).id, respinsUsed,
+    visitorId: ownerKey, slot, awakenedId: (row as { id: number }).id, respinsUsed,
   });
   return awakenedPayloadById((row as { id: number }).id);
 }
@@ -132,10 +161,10 @@ function freeWakeState(lastFreeWakeAt: Date | null, nowMs: number) {
   };
 }
 
-export async function getWelcomeStatus(visitorId: string) {
-  const { visitor } = await ensureVisitor(visitorId);
-  const welcomeRow = await pendingFor(visitorId, "welcome");
-  const freeRow = await pendingFor(visitorId, "free");
+export async function getWelcomeStatus(ownerKey: string) {
+  const { visitor } = await ensureVisitor(ownerKey);
+  const welcomeRow = await pendingFor(ownerKey, "welcome");
+  const freeRow = await pendingFor(ownerKey, "free");
   const free = freeWakeState(visitor.lastFreeWakeAt, Date.now());
   return {
     welcomeGranted: visitor.welcomeWakesGranted === 1,
@@ -149,39 +178,39 @@ export async function getWelcomeStatus(visitorId: string) {
 
 /** First visit: hold the greeting Awoken apart. Idempotent — a second call
  *  returns the already-waiting one instead of making another. */
-export async function seedWelcome(visitorId: string, body: unknown) {
-  const { visitor } = await ensureVisitor(visitorId);
+export async function seedWelcome(ownerKey: string, ownerName: string, body: unknown) {
+  const { visitor } = await ensureVisitor(ownerKey);
   if (visitor.welcomeClaimed === 1) badRequest("Your welcome has already been received.");
-  const existing = await pendingFor(visitorId, "welcome");
+  const existing = await pendingFor(ownerKey, "welcome");
   if (existing) return waitingPayload(existing);
   if (visitor.welcomeWakesGranted !== 1) badRequest("No welcome is waiting for this visitor.");
   const parsed = generationInput.safeParse(body);
   if (!parsed.success) badRequest("That awakening could not be gathered.");
-  const awakened = await holdAwakening(visitorId, "welcome", parsed.data.layers, parsed.data.imageBase64, 0);
+  const awakened = await holdAwakening(ownerKey, ownerName, "welcome", parsed.data.layers, parsed.data.imageBase64, 0);
   return { awakened, respinsUsed: 0, respinsRemaining: 1 };
 }
 
 /** Accept the waiting Awoken into the Tender deck. */
-export async function claimWelcome(visitorId: string, body: unknown) {
+export async function claimWelcome(ownerKey: string, body: unknown) {
   const parsed = z.object({ slot: slotSchema }).safeParse(body);
   if (!parsed.success) badRequest("Invalid claim.");
-  await ensureVisitor(visitorId);
-  const existing = await pendingFor(visitorId, parsed.data.slot);
+  await ensureVisitor(ownerKey);
+  const existing = await pendingFor(ownerKey, parsed.data.slot);
   if (!existing) badRequest("Nothing is waiting to be claimed.");
   await db.delete(schema.pendingWelcomes).where(eq(schema.pendingWelcomes.id, existing.id));
   if (parsed.data.slot === "welcome") {
-    await db.update(schema.visitors).set({ welcomeClaimed: 1 }).where(eq(schema.visitors.visitorId, visitorId));
+    await db.update(schema.visitors).set({ welcomeClaimed: 1 }).where(eq(schema.visitors.visitorId, ownerKey));
   }
   return { ok: true as const, awakenedId: existing.awakenedId };
 }
 
 /** Reconstitute the waiting matter into a new form. Exactly once per
  *  waiting Awoken — one free re-weaving per free generation. */
-export async function reconstituteWelcome(visitorId: string, body: unknown) {
+export async function reconstituteWelcome(ownerKey: string, ownerName: string, body: unknown) {
   const parsed = z.object({ slot: slotSchema }).merge(generationInput).safeParse(body);
   if (!parsed.success) badRequest("That reconstitution could not be gathered.");
-  await ensureVisitor(visitorId);
-  const existing = await pendingFor(visitorId, parsed.data.slot);
+  await ensureVisitor(ownerKey);
+  const existing = await pendingFor(ownerKey, parsed.data.slot);
   if (!existing) badRequest("Nothing is waiting to be reconstituted.");
   if (existing.respinsUsed >= 1) {
     throw Object.assign(
@@ -189,24 +218,24 @@ export async function reconstituteWelcome(visitorId: string, body: unknown) {
       { status: 403 }
     );
   }
-  const awakened = await holdAwakening(visitorId, parsed.data.slot, parsed.data.layers, parsed.data.imageBase64, 1);
+  const awakened = await holdAwakening(ownerKey, ownerName, parsed.data.slot, parsed.data.layers, parsed.data.imageBase64, 1);
   await removePending(existing);
   return { awakened, respinsUsed: 1, respinsRemaining: 0 };
 }
 
 /** Receive the 4-hourly free wake. One at a time: an unclaimed waiting one
  *  is released back into the matter when the new one arrives. */
-export async function claimFreeWake(visitorId: string, body: unknown) {
+export async function claimFreeWake(ownerKey: string, ownerName: string, body: unknown) {
   const parsed = generationInput.safeParse(body);
   if (!parsed.success) badRequest("That awakening could not be gathered.");
-  const { visitor } = await ensureVisitor(visitorId);
+  const { visitor } = await ensureVisitor(ownerKey);
   const free = freeWakeState(visitor.lastFreeWakeAt, Date.now());
   if (!free.available) {
     throw Object.assign(new Error("The next free wake is still gathering — it arrives in its own time."), { status: 429 });
   }
-  const old = await pendingFor(visitorId, "free");
+  const old = await pendingFor(ownerKey, "free");
   if (old) await removePending(old);
-  const awakened = await holdAwakening(visitorId, "free", parsed.data.layers, parsed.data.imageBase64, 0);
-  await db.update(schema.visitors).set({ lastFreeWakeAt: new Date() }).where(eq(schema.visitors.visitorId, visitorId));
+  const awakened = await holdAwakening(ownerKey, ownerName, "free", parsed.data.layers, parsed.data.imageBase64, 0);
+  await db.update(schema.visitors).set({ lastFreeWakeAt: new Date() }).where(eq(schema.visitors.visitorId, ownerKey));
   return { awakened, respinsUsed: 0, respinsRemaining: 1 };
 }

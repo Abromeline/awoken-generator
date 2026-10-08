@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
-import { api, clearWorkshopToken, storeWorkshopToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type WaitingAwoken, type WelcomeStatus } from "./api";
+import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type WaitingAwoken, type WelcomeStatus } from "./api";
 import auraWhisper from "./assets/auras/haze-01.png";
 import auraSoft from "./assets/auras/haze-02.png";
 import auraHaloRing from "./assets/auras/haze-03.png";
@@ -17,7 +17,7 @@ import auraDisc from "./assets/auras/haze-12.png";
 
 type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "collection" | "compendium";
+type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -350,8 +350,7 @@ function LoreSection() {
   </section>;
 }
 
-function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlock: (token: string) => void; note?: string }) {
-  const [password, setPassword] = useState("");
+function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlock: (token: string) => void; note?: string }) {  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const unlock = useMutation({
     mutationFn: () => api.unlockWorkshop({ password }),
@@ -373,11 +372,144 @@ function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlo
   </main>;
 }
 
+/** The Tender account gate: claim a secret code (or log in) to begin. */
+function TenderGate({ onDone }: { onDone: (token: string) => void }) {
+  const [mode, setMode] = useState<"claim" | "login">("claim");
+  const [suggestedCode, setSuggestedCode] = useState<string | null>(null);
+  const [useCustom, setUseCustom] = useState(false);
+  const [customCode, setCustomCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loginCode, setLoginCode] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.suggestTenderCode().then((r) => setSuggestedCode(r.code)).catch(() => setSuggestedCode(null));
+  }, []);
+
+  const claim = useMutation({
+    mutationFn: () => {
+      if (password.length < 8) throw new Error("Give your code a password of at least 8 characters.");
+      if (password !== confirm) throw new Error("The two passwords do not match.");
+      const code = useCustom && customCode.trim() ? customCode.trim() : undefined;
+      return api.claimTender({ code, password });
+    },
+    onSuccess: (data) => onDone(data.token),
+    onError: (e) => setError(e instanceof Error ? e.message : "The code could not be claimed."),
+  });
+  const login = useMutation({
+    mutationFn: () => api.loginTender({ code: loginCode.trim(), password: loginPassword }),
+    onSuccess: (data) => onDone(data.token),
+    onError: (e) => setError(e instanceof Error ? e.message : "That code and password do not match."),
+  });
+  const reroll = () => {
+    setSuggestedCode(null);
+    api.suggestTenderCode().then((r) => setSuggestedCode(r.code)).catch(() => {});
+  };
+
+  return <main className="tender-gate">
+    <p className="eyebrow">Become a Tender</p>
+    <h1>Every Awoken needs someone to wake it.</h1>
+    <p>Claim a secret code — it is yours alone, and it keeps your wakes and your deck wherever you go. No email, no noise.</p>
+    <div className="gate-tabs">
+      <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>Claim a code</button>
+      <button type="button" className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(null); }}>Already have one?</button>
+    </div>
+    {mode === "claim" ? (
+      <form onSubmit={(event) => { event.preventDefault(); setError(null); claim.mutate(); }}>
+        <div className="code-line">
+          <label>Your secret code</label>
+          {useCustom ? (
+            <input value={customCode} onChange={(e) => setCustomCode(e.target.value)} placeholder="Choose your own…" autoComplete="off" maxLength={32} />
+          ) : (
+            <p className="given-code">{suggestedCode ?? "Gathering…"}</p>
+          )}
+          <div className="code-actions">
+            {!useCustom && <button type="button" onClick={reroll}>Another</button>}
+            <button type="button" onClick={() => setUseCustom((v) => !v)}>{useCustom ? "Give me one" : "Choose my own"}</button>
+          </div>
+        </div>
+        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></label>
+        <label>Again<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></label>
+        <button disabled={claim.isPending}>{claim.isPending ? "Binding…" : "Begin"}</button>
+      </form>
+    ) : (
+      <form onSubmit={(event) => { event.preventDefault(); setError(null); login.mutate(); }}>
+        <label>Secret code<input value={loginCode} onChange={(e) => setLoginCode(e.target.value)} autoComplete="username" /></label>
+        <label>Password<input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} autoComplete="current-password" /></label>
+        <button disabled={login.isPending}>{login.isPending ? "Returning…" : "Return"}</button>
+      </form>
+    )}
+    {error && <p className="notice error" role="status">{error}</p>}
+  </main>;
+}
+
+/** The naming ritual: at the first creature entering the deck, the Tender
+ *  is named — they take the given name or set their own. */
+function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boolean }) {
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [custom, setCustom] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.suggestTenderName().then((r) => setSuggestion(r.name)).catch(() => setSuggestion(null));
+  }, []);
+  const setName = useMutation({
+    mutationFn: (name: string) => api.setTenderName({ name }),
+    onSuccess: () => onDone(),
+    onError: (e) => setError(e instanceof Error ? e.message : "The name did not take."),
+  });
+  const reroll = () => {
+    setSuggestion(null);
+    api.suggestTenderName().then((r) => setSuggestion(r.name)).catch(() => {});
+  };
+  return <section className="tender-naming" aria-live="polite">
+    <p className="eyebrow">{isRename ? "A new name" : "The naming"}</p>
+    <h2>What shall the Awoken call you?</h2>
+    {!isRename && <p>Your first creature has joined your deck. Take the name they offer — or give your own.</p>}
+    <div className="naming-given">
+      <p className="given-name">{suggestion ?? "Listening…"}</p>
+      <div className="naming-actions">
+        <button type="button" onClick={reroll}>Another</button>
+        <button type="button" disabled={!suggestion || setName.isPending} onClick={() => suggestion && setName.mutate(suggestion)}>Take this name</button>
+      </div>
+    </div>
+    <form onSubmit={(event) => { event.preventDefault(); setError(null); if (custom.trim()) setName.mutate(custom.trim()); }}>
+      <label>Or name yourself<input value={custom} onChange={(e) => setCustom(e.target.value)} maxLength={40} placeholder="Your Tender name…" /></label>
+      <button disabled={!custom.trim() || setName.isPending}>Choose</button>
+    </form>
+    {error && <p className="notice error" role="status">{error}</p>}
+  </section>;
+}
+
+/** Nigel's private view of his Tenders, ranked by Awoken woken. Workshop only. */
+function TendersPanel() {
+  const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
+  if (query.isPending) return <p className="quiet">Gathering the Tenders…</p>;
+  if (query.error || !query.data) return <p className="notice error" role="status">{mutationError(query.error)}</p>;
+  const tenders = query.data.tenders;
+  return <section className="tender-leaderboard">
+    <header><p className="eyebrow">The Tenders</p><h1>Those who tend.</h1><p className="quiet">Only you see this. Tenders never see each other's counts.</p></header>
+    {!tenders.length ? <p className="quiet">No Tender has claimed a code yet.</p> : (
+      <ol>{tenders.map((t, i) => <li key={t.code}>
+        <span className="rank">{i + 1}</span>
+        <div className="tender-who"><strong>{t.displayName}</strong><small>{t.code}</small></div>
+        <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awoken" : "Awoken"}</span>
+        <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
+      </li>)}</ol>
+    )}
+  </section>;
+}
+
 export function App() {
+  const queryClient = useQueryClient();
   const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null);
   const [wtoken, setWtoken] = useState<string | null>(() => storedWorkshopToken());
-  const query = useQuery({ queryKey: ["studio"], queryFn: () => api.getStudio() });
-  const welcomeQuery = useQuery({ queryKey: ["welcome"], queryFn: () => api.getWelcome() });
+  const [tenderTokenState, setTenderTokenState] = useState<string | null>(() => storedTenderToken());
+  const [showGate, setShowGate] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const query = useQuery({ queryKey: ["studio", tenderTokenState], queryFn: () => api.getStudio() });
+  const welcomeQuery = useQuery({ queryKey: ["welcome", tenderTokenState], queryFn: () => api.getWelcome(), retry: false });
   const lockQuery = useQuery({ queryKey: ["workshopStatus"], queryFn: () => api.workshopStatus() });
   const workshopOpen = !lockQuery.data?.locked || !!wtoken;
   const workshopQuery = useQuery({
@@ -386,12 +518,60 @@ export function App() {
     enabled: face === "workshop" && workshopOpen,
     retry: false,
   });
+  // A token the server no longer recognizes is dropped quietly.
+  useEffect(() => {
+    if (tenderTokenState && query.data && !query.data.tender) {
+      clearTenderToken();
+      setTenderTokenState(null);
+    }
+  }, [tenderTokenState, query.data]);
+  function handleTenderDone(token: string) {
+    storeTenderToken(token);
+    setTenderTokenState(token);
+    setShowGate(false);
+    void queryClient.invalidateQueries({ queryKey: ["studio"] });
+    void queryClient.invalidateQueries({ queryKey: ["welcome"] });
+  }
+  function handleLogout() {
+    const token = tenderTokenState;
+    clearTenderToken();
+    setTenderTokenState(null);
+    setShowDeck(false);
+    if (token) void api.logoutTender(token).catch(() => {});
+    void queryClient.invalidateQueries({ queryKey: ["studio"] });
+    void queryClient.invalidateQueries({ queryKey: ["welcome"] });
+  }
   const assets = useMemo<LayerAsset[]>(() => toLayerAssets(query.data?.assets ?? []), [query.data?.assets]);
   if (query.isPending) return <main className="loading-screen">The ink is settling…</main>;
   if (query.error || !query.data) return <main className="loading-screen error"><span>{mutationError(query.error)}</span><button onClick={() => query.refetch()}>Try again</button></main>;
   const studio = query.data; const tenderItems = studio.awakened.filter((item) => item.collection === "tender"); const focused = studio.awakened.find((item) => item.id === focusId);
-  function saved(id: number) { setFocusId(id); if (face === "workshop") void workshopQuery.refetch(); else void query.refetch(); }
-  if (face === "tender") return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)}>{showDeck ? "Return to the ritual" : `My deck · ${tenderItems.length}`}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>{showDeck ? <CollectionView items={tenderItems} title="Your awakened" note="Each name is yours to keep or change." focusId={focusId} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName="Tender" manual={false} onSaved={saved} credits={studio.credits} /><LoreSection />{focused?.collection === "tender" && <section className="newborn-reveal" aria-live="polite"><p className="eyebrow">The newly awakened</p><CreatureCard item={focused} newborn /></section>}</>}</main></div>;
+  const tender = studio.tender;
+  const needsNaming = !!tender && !tender.tenderName && tenderItems.length > 0;
+  function saved(id: number) {
+    setFocusId(id);
+    if (face === "workshop") void workshopQuery.refetch();
+    else { void query.refetch(); void welcomeQuery.refetch(); }
+  }
+  function refreshTender() {
+    void queryClient.invalidateQueries({ queryKey: ["studio"] });
+    void queryClient.invalidateQueries({ queryKey: ["welcome"] });
+  }
+  if (face === "tender") {
+    const welcomeForbidden = (welcomeQuery.error as { status?: number } | null)?.status === 403;
+    // No account: the gate — unless the visitor explicitly asked for it, or
+    // the welcome ritual refused them (brand-new soft visitor). Grandfathered
+    // soft visitors (welcome still resolves) keep their ritual.
+    const showGateUI = !tenderTokenState && (showGate || welcomeForbidden);
+    if (showGateUI) {
+      return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div>;
+    }
+    const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
+    return <div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)}>{showDeck ? "Return to the ritual" : `My deck · ${tenderItems.length}`}</button>{tender ? <button className="tender-name" onClick={() => setRenaming((v) => !v)} title="Rename yourself">{tender.tenderName ?? "Name yourself"}</button> : <button onClick={() => setShowGate(true)} className="quiet-link">Claim a code</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
+      {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
+      {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
+      {showDeck ? <CollectionView items={tenderItems} title={deckTitle} note="Each name is yours to keep or change." focusId={focusId} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} /><LoreSection />{focused?.collection === "tender" && <section className="newborn-reveal" aria-live="polite"><p className="eyebrow">The newly awakened</p><CreatureCard item={focused} newborn /></section>}</>}
+    </main></div>;
+  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;
   if (lockQuery.data?.locked && !wtoken) {
     return <div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><WorkshopUnlock onBack={() => setFace("tender")} onUnlock={(token) => setWtoken(token)} /></div>;
@@ -406,11 +586,12 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }];
   return <div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>
     {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} />{wFocused?.collection === "workshop" && <section className="newborn-reveal"><CreatureCard item={wFocused} newborn allowDelete /></section>}</>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
+    {workshopView === "tenders" && <TendersPanel />}
   </main></div>;
 }

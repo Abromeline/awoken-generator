@@ -64,3 +64,20 @@ export function birthFlavorText(pieceNames: string[]): string {
   const template = flavorTemplates[Math.floor(Math.random() * flavorTemplates.length)];
   return template.replace("{matter}", matter);
 }
+
+// Names the Awoken offer their Tenders at the naming ritual — the first
+// creature entering the deck. A Tender may take the given name or set
+// their own; either way it becomes how the deck knows them.
+const tenderNamePool = [
+  "Warden of Small Rains", "Tender of the Quiet Moss", "Keeper of Wet Ink",
+  "Watcher of the First Pond", "Friend of Falling Leaves", "Holder of Soft Thunder",
+  "Listener to Still Water", "Walker of the Moss Path", "Keeper of the First Weather",
+  "Tender of Buried Bells", "Watcher of Returning Birds", "Holder of the Pale Current",
+  "Friend of the Deep Bell", "Warden of the Bound Hollow", "Listener to New Weather",
+  "Keeper of the Gathered Matter", "Tender of the Unlit Moon", "Watcher of Small Stars",
+];
+
+/** A given Tender name in the Awoken voice, for the naming ritual. */
+export function suggestTenderName(): string {
+  return tenderNamePool[Math.floor(Math.random() * tenderNamePool.length)];
+}

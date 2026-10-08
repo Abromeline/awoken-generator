@@ -25,6 +25,9 @@ export const awakened = sqliteTable("awakened", {
   compositionJson: text("composition_json").notNull().default("[]"),
   collection: text("collection", { enum: ["tender", "workshop"] }).notNull().default("workshop"),
   ownerName: text("owner_name").notNull().default("Nigel"),
+  // Which Tender (or soft visitor) this belongs to. NULL = legacy shared
+  // Tender-master-collection rows, visible to everyone.
+  ownerKey: text("owner_key"),
   identityKey: text("identity_key").notNull().default("legacy"),
   iteration: integer("iteration").notNull().default(0),
   flavorText: text("flavor_text").notNull().default("Every form begins as scattered matter."),
@@ -71,6 +74,29 @@ export const visitors = sqliteTable("visitors", {
   welcomeWakesGranted: integer("welcome_wakes_granted").notNull().default(0),
   welcomeClaimed: integer("welcome_claimed").notNull().default(0),
   lastFreeWakeAt: integer("last_free_wake_at", { mode: "timestamp_ms" }),
+});
+
+// Self-serve Tender accounts: a secret code + password. No email, no OAuth.
+// The code is the Tender's identity; tender_name is chosen at the naming
+// ritual (first creature entering the deck).
+export const tenders = sqliteTable("tenders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  tenderName: text("tender_name"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// DB-backed sessions so logins survive restarts. Token lives in the
+// Tender's localStorage, sent as X-Tender-Token.
+export const tenderSessions = sqliteTable("tender_sessions", {
+  token: text("token").primaryKey(),
+  tenderId: integer("tender_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 // Awoken generated but not yet claimed: the first-visit "welcome" greeting

@@ -5,8 +5,9 @@ import { blobs, DATA_DIR } from "./store.js";
 import { handlers, type ActionContext, type ActionName } from "./actions.js";
 import { stripeConfig, createCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
 import {
-  claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader,
+  claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
 } from "./welcome.js";
+import { tenderFromToken, tenderOwnerKey, tenderTokenFromHeader } from "./tenders.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled } from "./workshopAuth.js";
 
@@ -35,13 +36,15 @@ const WORKSHOP_ACTIONS = new Set([
   "moveLayerAsset",
   "deleteAwoken",
   "getWorkshopStudio",
+  "listTenders",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
     try {
       if (WORKSHOP_ACTIONS.has(name)) requireWorkshop(req);
+      const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
       const handler = handlers[name] as (args: unknown, ctx?: ActionContext) => Promise<unknown>;
-      const result = await handler(req.body ?? {}, { visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]) });
+      const result = await handler(req.body ?? {}, { visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]), tender });
       res.json(result);
     } catch (error) {
       sendError(res, error);
@@ -57,32 +60,34 @@ function sendError(res: express.Response, error: unknown) {
   res.status(status).json({ error: message });
 }
 
-/** The welcome ritual needs a visitor mark; without one there is no one to greet. */
-function needVisitor(req: express.Request): string {
-  const id = visitorIdFromHeader(req.headers["x-visitor-id"]);
-  if (!id) throw Object.assign(new Error("A visitor mark is required to receive wakes."), { status: 400 });
-  return id;
+/** The welcome ritual needs a Tender account (or a grandfathered soft visitor). */
+async function needWelcomeIdentity(req: express.Request) {
+  return welcomeIdentity(
+    tenderTokenFromHeader(req.headers["x-tender-token"]),
+    visitorIdFromHeader(req.headers["x-visitor-id"])
+  );
 }
 
 // Welcome ritual: first-visit greeting, held-apart Awoken, 4-hourly free wakes.
+// Gated to Tender accounts (soft visitors grandfathered only if welcomed).
 app.get("/api/welcome", async (req, res) => {
-  try { res.json(await getWelcomeStatus(needVisitor(req))); }
+  try { res.json(await getWelcomeStatus((await needWelcomeIdentity(req)).ownerKey)); }
   catch (error) { sendError(res, error); }
 });
 app.post("/api/welcome/seed", async (req, res) => {
-  try { res.json(await seedWelcome(needVisitor(req), req.body ?? {})); }
+  try { const id = await needWelcomeIdentity(req); res.json(await seedWelcome(id.ownerKey, id.ownerName, req.body ?? {})); }
   catch (error) { sendError(res, error); }
 });
 app.post("/api/welcome/claim", async (req, res) => {
-  try { res.json(await claimWelcome(needVisitor(req), req.body ?? {})); }
+  try { res.json(await claimWelcome((await needWelcomeIdentity(req)).ownerKey, req.body ?? {})); }
   catch (error) { sendError(res, error); }
 });
 app.post("/api/welcome/reconstitute", async (req, res) => {
-  try { res.json(await reconstituteWelcome(needVisitor(req), req.body ?? {})); }
+  try { const id = await needWelcomeIdentity(req); res.json(await reconstituteWelcome(id.ownerKey, id.ownerName, req.body ?? {})); }
   catch (error) { sendError(res, error); }
 });
 app.post("/api/welcome/free-wake", async (req, res) => {
-  try { res.json(await claimFreeWake(needVisitor(req), req.body ?? {})); }
+  try { const id = await needWelcomeIdentity(req); res.json(await claimFreeWake(id.ownerKey, id.ownerName, req.body ?? {})); }
   catch (error) { sendError(res, error); }
 });
 
@@ -122,16 +127,19 @@ app.get("/blobs/:b64", (req, res) => {
 // Stripe: public config, checkout, and customer portal. Keys come from env;
 // without them these endpoints explain what is missing (never a crash).
 app.get("/api/stripe/config", (_req, res) => res.json(stripeConfig()));
-app.post("/api/stripe/checkout", (req, res) => {
-  createCheckoutSession({
-    headers: req.headers as Record<string, string | string[] | undefined>,
-    visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]),
-  })
-    .then((result) => res.json(result))
-    .catch((error: unknown) => {
-      const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 500;
-      res.status(status).json({ error: error instanceof Error ? error.message : "Checkout could not begin." });
+app.post("/api/stripe/checkout", async (req, res) => {
+  try {
+    const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+    if (!tender) throw Object.assign(new Error("Claim your secret code to gather wakes."), { status: 403 });
+    const result = await createCheckoutSession({
+      headers: req.headers as Record<string, string | string[] | undefined>,
+      visitorId: tenderOwnerKey(tender.id),
     });
+    res.json(result);
+  } catch (error) {
+    const status = typeof (error as { status?: number }).status === "number" ? (error as { status: number }).status : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "Checkout could not begin." });
+  }
 });
 app.post("/api/stripe/portal", (req, res) => {
   createPortalSession({ headers: req.headers as Record<string, string | string[] | undefined> })

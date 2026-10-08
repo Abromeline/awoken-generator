@@ -56,7 +56,21 @@ export interface CreditInfo {
 export interface Studio {
   assets: Asset[];
   awakened: Awakened[];
+  tender: TenderInfo | null;
   credits: CreditInfo;
+}
+
+export interface TenderInfo {
+  code: string;
+  tenderName: string | null;
+}
+
+export interface TenderLeaderboardEntry {
+  code: string;
+  tenderName: string | null;
+  displayName: string;
+  createdAt: string;
+  awokenCount: number;
 }
 
 export interface StripeConfig {
@@ -108,6 +122,36 @@ export function visitorId(): string {
   }
 }
 
+// Tender account token: minted by /api/claimTender or /api/loginTender, kept
+// in this browser's localStorage. Sent on every call; the server resolves
+// it to the Tender, or ignores it when absent/invalid.
+const TENDER_TOKEN_KEY = "awoken-tender-token";
+
+export function tenderToken(): string | null {
+  try {
+    const token = window.localStorage.getItem(TENDER_TOKEN_KEY);
+    return token && /^[a-f0-9]{64}$/.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeTenderToken(token: string): void {
+  try {
+    window.localStorage.setItem(TENDER_TOKEN_KEY, token);
+  } catch {
+    /* the browser keeps no secrets */
+  }
+}
+
+export function clearTenderToken(): void {
+  try {
+    window.localStorage.removeItem(TENDER_TOKEN_KEY);
+  } catch {
+    /* the browser keeps no secrets */
+  }
+}
+
 // Workshop lock token: minted by /api/workshop/unlock, kept for the tab
 // only (sessionStorage). Sent on every call; the server ignores it unless
 // the workshop is locked.
@@ -144,7 +188,7 @@ function throwApiError(response: Response, data: { error?: string }): never {
 async function post<T>(name: string, args: unknown): Promise<T> {
   const response = await fetch(`/api/${name}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "" },
+    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "", "X-Tender-Token": tenderToken() ?? "" },
     body: JSON.stringify(args ?? {}),
   });
   const data = (await response.json()) as { error?: string };
@@ -182,12 +226,22 @@ export const api = {
   unlockWorkshop: (args: { password: string }) =>
     postPath<{ token: string; expiresAt: string }>("/api/workshop/unlock", args),
   getWorkshopStudio: () => post<Studio>("getWorkshopStudio", {}),
+  // Self-serve Tender accounts: secret code + password.
+  suggestTenderCode: () => post<{ code: string }>("suggestTenderCode", {}),
+  claimTender: (args: { code?: string; password: string }) =>
+    post<{ token: string; tender: TenderInfo }>("claimTender", args),
+  loginTender: (args: { code: string; password: string }) =>
+    post<{ token: string; tender: TenderInfo }>("loginTender", args),
+  logoutTender: (token: string) => post<{ ok: true }>("logoutTender", { token }),
+  suggestTenderName: () => post<{ name: string }>("suggestTenderName", {}),
+  setTenderName: (args: { name: string }) => post<{ tenderName: string }>("setTenderName", args),
+  listTenders: () => post<{ tenders: TenderLeaderboardEntry[] }>("listTenders", {}),
 };
 
 async function postPath<T>(path: string, args?: unknown): Promise<T> {
   const response = await fetch(path, {
     method: args === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "" },
+    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "", "X-Tender-Token": tenderToken() ?? "" },
     body: args === undefined ? undefined : JSON.stringify(args),
   });
   const data = (await response.json()) as { error?: string };

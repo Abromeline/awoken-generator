@@ -67,6 +67,18 @@ CREATE TABLE IF NOT EXISTS pending_welcomes (
   respins_used INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tenders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  tender_name TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tender_sessions (
+  token TEXT PRIMARY KEY NOT NULL,
+  tender_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `;
 
 mkdirSync(DATA_DIR, { recursive: true });
@@ -74,6 +86,13 @@ mkdirSync(BLOBS_DIR, { recursive: true });
 
 const sqlite = new Database(join(DATA_DIR, "app.db"));
 sqlite.exec(DDL);
+
+// Lightweight migration: awakened.owner_key for per-Tender decks.
+// (CREATE TABLE IF NOT EXISTS can't add columns to existing tables.)
+const awakenedCols = sqlite.prepare(`PRAGMA table_info(awakened)`).all() as { name: string }[];
+if (!awakenedCols.some((col) => col.name === "owner_key")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN owner_key TEXT`);
+}
 
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, { schema });
 

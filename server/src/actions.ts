@@ -5,17 +5,35 @@
 // -> the curated naming/flavor pools in naming.ts.
 
 import { randomUUID } from "node:crypto";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
 import { creditBalance, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
 import { stripeReady } from "./stripe.js";
+import {
+  claimTender, destroySession, loginTender, newTenderNameSuggestion,
+  publicTender, setTenderName, suggestTenderCode, tenderOwnerKey,
+  type TenderRow,
+} from "./tenders.js";
 
 export interface ActionContext {
   /** Browser-visitor mark from the X-Visitor-Id header (null when absent). */
   visitorId: string | null;
+  /** Logged-in Tender from the X-Tender-Token header (null when absent). */
+  tender: TenderRow | null;
+}
+
+/** Owner key for credits, welcome state, and deck ownership. */
+function ownerKeyFor(ctx?: ActionContext): string {
+  if (ctx?.tender) return tenderOwnerKey(ctx.tender.id);
+  return ctx?.visitorId ?? SINGLE_OWNER;
+}
+
+/** Display name for newly woken creatures. */
+function ownerNameFor(ctx?: ActionContext): string {
+  return ctx?.tender?.tenderName ?? "Tender";
 }
 
 const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "head"]);
@@ -189,7 +207,8 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
   return { canonicalLayers, identityKey, previousCount, name, flavorText, basePower, baseToughness };
 }
 
-async function buildStudio(visitorId: string | null, opts?: { tenderOnly?: boolean }) {
+async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?: boolean }) {
+  const ownerKey = ownerKeyFor(ctx);
   let assetRows = await db.select().from(schema.layerAssets).orderBy(asc(schema.layerAssets.category), desc(schema.layerAssets.id));
   const renames = assetRows.flatMap((row) => {
     const next = mysticalLegacyName(row.category, row.name);
@@ -216,7 +235,17 @@ async function buildStudio(visitorId: string | null, opts?: { tenderOnly?: boole
     id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness,
     image_url: blobUrl(row.imageBlobKey), mime_type: row.mimeType, created_at: row.createdAt.toISOString(),
   }));
-  const parsedRows = (opts?.tenderOnly ? awakenedRows.filter((row) => row.collection === "tender") : awakenedRows).map((row) => {
+  const parsedRows = (
+    opts?.tenderOnly
+      ? awakenedRows.filter(
+          (row) =>
+            row.collection === "tender" &&
+            // Legacy shared rows (no owner) stay visible to everyone; new
+            // rows belong to the Tender who woked them.
+            (row.ownerKey === null || row.ownerKey === ownerKey)
+        )
+      : awakenedRows
+  ).map((row) => {
     const layers = parseLayers(row.compositionJson, assetStats);
     const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
     return { row, layers, identity };
@@ -227,8 +256,9 @@ async function buildStudio(visitorId: string | null, opts?: { tenderOnly?: boole
   return {
     assets,
     awakened,
+    tender: ctx?.tender ? publicTender(ctx.tender) : null,
     credits: {
-      balance: await creditBalance(visitorId ?? SINGLE_OWNER),
+      balance: await creditBalance(ownerKey),
       packPriceCents: PACK_PRICE_CENTS,
       packPriceLabel: formatUsd(PACK_PRICE_CENTS),
       creditsPerPack: CREDITS_PER_PACK,
@@ -246,12 +276,12 @@ export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
     // Workshop pieces of the collection stay behind the workshop lock.
-    return buildStudio(ctx?.visitorId ?? null, { tenderOnly: true });
+    return buildStudio(ctx, { tenderOnly: true });
   },
 
   async getWorkshopStudio(_args: unknown, ctx?: ActionContext) {
     // Everything, for the creator's eyes only. Gated by requireWorkshop in index.ts.
-    return buildStudio(ctx?.visitorId ?? null);
+    return buildStudio(ctx);
   },
 
   async uploadLayerAsset(args: unknown) {
@@ -332,10 +362,14 @@ export const handlers = {
   async saveAwoken(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(5), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid awakening.");
-    const { layers, imageBase64, collection, ownerName } = parsed.data;
+    const { layers, imageBase64, collection } = parsed.data;
     // Tender wakes cost one credit; the workshop (Nigel's own hand) is free.
+    // Tender wakes require a Tender account — the vessel belongs to someone.
     if (collection === "tender") {
-      const spent = await spendWakeCredit(ctx?.visitorId ?? SINGLE_OWNER);
+      if (!ctx?.tender) {
+        throw Object.assign(new Error("Claim your secret code to wake — the vessel belongs to a Tender."), { status: 403 });
+      }
+      const spent = await spendWakeCredit(tenderOwnerKey(ctx.tender.id));
       if (!spent.ok) {
         throw Object.assign(
           new Error(`The vessel is empty — ${formatUsd(PACK_PRICE_CENTS)} gathers ${CREDITS_PER_PACK} wakes.`),
@@ -347,7 +381,9 @@ export const handlers = {
     const blobKey = `awakened/${Date.now()}-${randomUUID()}.png`;
     const bytes = Buffer.from(imageBase64, "base64");
     blobs.put(blobKey, bytes, "image/png");
-    const rows = await db.insert(schema.awakened).values({ name: plan.name, imageBlobKey: blobKey, compositionJson: JSON.stringify(plan.canonicalLayers), collection, ownerName, identityKey: plan.identityKey, iteration: plan.previousCount, flavorText: plan.flavorText }).returning({ id: schema.awakened.id });
+    const ownerName = collection === "tender" ? ownerNameFor(ctx) : parsed.data.ownerName;
+    const ownerKey = collection === "tender" && ctx?.tender ? tenderOwnerKey(ctx.tender.id) : null;
+    const rows = await db.insert(schema.awakened).values({ name: plan.name, imageBlobKey: blobKey, compositionJson: JSON.stringify(plan.canonicalLayers), collection, ownerName, ownerKey, identityKey: plan.identityKey, iteration: plan.previousCount, flavorText: plan.flavorText }).returning({ id: schema.awakened.id });
     const row = rows[0] as { id: number } | undefined;
     if (!row) { blobs.delete(blobKey); badRequest("This awakening could not be saved."); }
     return { id: (row as { id: number }).id, name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
@@ -367,6 +403,58 @@ export const handlers = {
     await db.delete(schema.awakened).where(eq(schema.awakened.id, parsed.data.id));
     const key = rows[0]?.key; if (key) blobs.delete(key);
     return okResponse.parse({ ok: true });
+  },
+
+  // -- Self-serve Tender accounts -------------------------------------------
+  async suggestTenderCode() {
+    return { code: await suggestTenderCode() };
+  },
+
+  async claimTender(args: unknown, ctx?: ActionContext) {
+    return claimTender(args, ctx?.visitorId ?? null);
+  },
+
+  async loginTender(args: unknown) {
+    return loginTender(args);
+  },
+
+  async logoutTender(args: unknown, ctx?: ActionContext) {
+    const token = (args as { token?: unknown } | null)?.token;
+    await destroySession(token);
+    return okResponse.parse({ ok: true });
+  },
+
+  async suggestTenderName() {
+    return { name: newTenderNameSuggestion() };
+  },
+
+  async setTenderName(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    return setTenderName(ctx.tender.id, args);
+  },
+
+  // -- Workshop: the Tender leaderboard ------------------------------------
+  // Nigel's private view of his Tenders, ranked by Awoken woken. Never
+  // exposed publicly — Tenders never see each other's counts.
+  async listTenders() {
+    const tenderRows = await db.select().from(schema.tenders).orderBy(desc(schema.tenders.createdAt));
+    const counts = await db
+      .select({ ownerKey: schema.awakened.ownerKey, count: sql<number>`count(*)` })
+      .from(schema.awakened)
+      .where(isNotNull(schema.awakened.ownerKey))
+      .groupBy(schema.awakened.ownerKey);
+    const countByKey = new Map<string, number>();
+    for (const row of counts) if (row.ownerKey) countByKey.set(row.ownerKey, row.count);
+    const tenders = tenderRows
+      .map((t) => ({
+        code: t.code,
+        tenderName: t.tenderName,
+        displayName: t.tenderName ?? t.code,
+        createdAt: t.createdAt.toISOString(),
+        awokenCount: countByKey.get(tenderOwnerKey(t.id)) ?? 0,
+      }))
+      .sort((a, b) => b.awokenCount - a.awokenCount || a.createdAt.localeCompare(b.createdAt));
+    return { tenders };
   },
 };
 
