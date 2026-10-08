@@ -718,12 +718,14 @@ export const handlers = {
       ownerKey, q: 0, r: 0, element, cursed: 0,
     }).returning({ id: schema.territoryTiles.id });
     // Create ring of cursed tiles around it (random elements).
+    // Their 48h passive timers start now — the center's purification stirs them.
+    const now = new Date();
     const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
     const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
     for (const [dq, dr] of dirs) {
       const el = elements[Math.floor(Math.random() * elements.length)];
       await db.insert(schema.territoryTiles).values({
-        ownerKey, q: dq, r: dr, element: el, cursed: 1,
+        ownerKey, q: dq, r: dr, element: el, cursed: 1, lastPassiveAt: now,
       });
     }
     // Place team on center tile (max 4 total).
@@ -873,6 +875,24 @@ export const handlers = {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: a.id, tileId: tile[0].id,
       });
+    }
+    // The neighboring cursed land feels the shift — their 48h passive timers
+    // start now.
+    const now = new Date();
+    const neighborCoords = [
+      [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
+      [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
+      [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
+    ];
+    for (const [nq, nr] of neighborCoords) {
+      await db.update(schema.territoryTiles)
+        .set({ lastPassiveAt: now })
+        .where(and(
+          eq(schema.territoryTiles.ownerKey, ownerKey),
+          eq(schema.territoryTiles.q, nq),
+          eq(schema.territoryTiles.r, nr),
+          eq(schema.territoryTiles.cursed, 1),
+        ));
     }
     return okResponse.parse({ ok: true });
   },

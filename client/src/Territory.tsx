@@ -112,11 +112,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       try {
         await api.directAttack({ awakenedIds: attackerIds, tileId });
         setEnergy(e => e - totalCost);
-        const { tiles: newTiles } = await api.getTerritory();
-        setTiles(newTiles);
+        // Refresh tiles AND placements immediately — the attackers are on the
+        // field now. The birth below must not block this.
+        const afterAttack = await api.getTerritory();
+        setTiles(afterAttack.tiles);
+        setPlacements(afterAttack.placements);
         setSelectedHands([]);
         // A purified tile births a newborn — a real Wake, not a clone.
-        const purified = newTiles.find(t => t.id === tileId);
+        // Wrapped on its own: if the birth fails, the attackers stay put.
+        try {
+          const purified = afterAttack.tiles.find(t => t.id === tileId);
         if (purified) {
           const liberatorNames = attackers.map(a => a.name);
           console.log("[Birth] Starting birth after direct attack, assets:", assets.length);
@@ -141,6 +146,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           } else {
             console.warn("[Birth] Not enough layers picked:", birthLayers.length);
           }
+        }
+        } catch (birthErr) {
+          console.error("[Birth] Birth after attack failed — attackers remain", birthErr);
         }
         const refreshed = await api.getTerritory();
         setTiles(refreshed.tiles); setPlacements(refreshed.placements);
