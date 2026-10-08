@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import FirstTrial from "./FirstTrial";
+import { randomWhisper } from "./whispers";
 import tideImg from "./assets/terrain/tide.jpg";
 import skyImg from "./assets/terrain/sky.jpg";
 import stoneImg from "./assets/terrain/stone.jpg";
@@ -64,13 +65,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
   const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
 
-  // Energy cap: 5 base + 1 per Awoken in hand. Burst early, tapers as you commit.
-  const maxEnergy = 5 + hand.length;
+  // Energy cap: 5 base + power-based bonus per Awoken in hand.
+  // 1-3 power: +1, 4-6: +2, 7-9: +3, 10+: +4. Stronger beings contribute more existence.
+  const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
+  const maxEnergy = 5 + hand.reduce((sum, a) => sum + energyBonus(a.power), 0);
 
-  // Clamp energy to cap when hand shrinks
+  // Deploy cost scales with power: 2 base + 1 per 3 power.
+  // 1-3: 2, 4-6: 3, 7-9: 4, 10+: 5.
+  const deployCost = (power: number) => 2 + Math.floor((power - 1) / 3);
+
+  // Whisper state: which field Awoken is speaking
+  const [whisper, setWhisper] = useState<{ awakenedId: number; text: string } | null>(null);
+
+  // Field Awoken whisper from time to time (only on field, never in hand)
   useEffect(() => {
-    setEnergy(e => Math.min(e, maxEnergy));
-  }, [maxEnergy]);
+    if (placements.length === 0) return;
+    const whisperTimer = setInterval(() => {
+      const placement = placements[Math.floor(Math.random() * placements.length)];
+      setWhisper({ awakenedId: placement.awakenedId, text: randomWhisper() });
+      setTimeout(() => setWhisper(null), 7000);
+    }, 20000 + Math.random() * 15000);
+    return () => clearInterval(whisperTimer);
+  }, [placements]);
 
   useEffect(() => {
     api.getTerritory().then(({ tiles, placements }) => {
@@ -81,12 +97,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Hand = Awoken not on field (defined above for energy calc)
 
   const handleDeploy = async (tileId: number) => {
-    if (selectedHand === null || energy < 2) return;
+    if (selectedHand === null) return;
     const awoken = hand[selectedHand];
     if (!awoken) return;
+    const cost = deployCost(awoken.power);
+    if (energy < cost) return;
     try {
       await api.deployAwoken({ awakenedId: awoken.id, tileId });
-      setEnergy(e => e - 2);
+      setEnergy(e => e - cost);
       const { tiles, placements } = await api.getTerritory();
       setTiles(tiles); setPlacements(placements);
       setSelectedHand(null);
@@ -174,10 +192,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const ws = 30 * ps, hs = 40 * ps;
                 const kx = cx + ks.dx * s * 2;
                 const ky = cy + ks.dy * s * 2 * tilt;
+                const isWhispering = whisper?.awakenedId === a.id;
                 return (
-                  <FieldAwoken key={a.id} awoken={a} assets={assets}
-                    x={kx - ws / 2} y={ky - hs / 2}
-                    width={ws} height={hs} />
+                  <g key={a.id}>
+                    <FieldAwoken awoken={a} assets={assets}
+                      x={kx - ws / 2} y={ky - hs / 2}
+                      width={ws} height={hs} />
+                    {isWhispering && (
+                      <g className="whisper-bubble" opacity="0.85">
+                        <text x={kx} y={ky - hs / 2 - 12}
+                          textAnchor="middle" fontSize="10" fontStyle="italic"
+                          fill="#e8d5a8" className="whisper-text">
+                          {whisper.text.length > 60 ? whisper.text.slice(0, 60) + "…" : whisper.text}
+                        </text>
+                      </g>
+                    )}
+                  </g>
                 );
               })}
               {(() => {
@@ -256,6 +286,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               <img src={a.image_url} alt={a.name} />
               <div className="hand-card-name">{a.name}</div>
               <div className="hand-card-stats">{a.power} / {a.toughness}</div>
+              <div className="hand-card-cost">⚡{deployCost(a.power)} · +{energyBonus(a.power)}✦</div>
             </button>
           ))}
           {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}

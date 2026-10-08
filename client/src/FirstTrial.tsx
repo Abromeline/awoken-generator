@@ -12,8 +12,10 @@ export default function FirstTrial({ hand, onVictory }: Props) {
   const [placed, setPlaced] = useState<Map<number, Awakened>>(new Map());
   const [selected, setSelected] = useState<number | null>(null);
   const [purifying, setPurifying] = useState(false);
-  // Energy: 5 base + 1 per Awoken in hand (burst at start)
-  const maxEnergy = 5 + hand.length;
+  // Energy: 5 base + power-scaled bonus per Awoken in hand.
+  const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
+  const deployCost = (power: number) => 2 + Math.floor((power - 1) / 3);
+  const maxEnergy = 5 + hand.reduce((sum, a) => sum + energyBonus(a.power), 0);
   const [energy, setEnergy] = useState(maxEnergy);
 
   const baseSize = 32, tilt = 0.62;
@@ -60,23 +62,25 @@ export default function FirstTrial({ hand, onVictory }: Props) {
     if (selected === null) {
       // Tap placed Awoken to remove it (refund energy)
       if (placed.has(tileIdx)) {
+        const awoken = placed.get(tileIdx)!;
         const next = new Map(placed);
         next.delete(tileIdx);
         setPlaced(next);
-        setEnergy(e => Math.min(e + 2, maxEnergy));
+        setEnergy(e => Math.min(e + deployCost(awoken.power), maxEnergy));
       }
       return;
     }
-    if (energy < 2) return;
     const awoken = hand[selected];
     if (!awoken) return;
+    const cost = deployCost(awoken.power);
+    if (energy < cost) return;
     // Check not already placed elsewhere
     for (const [, a] of placed) if (a.id === awoken.id) return;
     const next = new Map(placed);
     next.set(tileIdx, awoken);
     setPlaced(next);
     setSelected(null);
-    setEnergy(e => e - 2);
+    setEnergy(e => e - cost);
   };
 
   return (

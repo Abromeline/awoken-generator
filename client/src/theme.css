@@ -231,3 +231,8 @@
 .energy-bar{width:120px;height:10px;background:#222;border-radius:5px;overflow:hidden}
 .energy-fill{height:100%;background:linear-gradient(90deg,#b89b5e,#e8d5a8);transition:width 0.3s}
 .energy-value{font-size:12px;color:#b89b5e;font-weight:bold}
+
+/* Whisper bubbles */
+.whisper-bubble{animation:whisper-fade 7s ease-in-out}
+.whisper-text{font-family:Georgia,serif;text-shadow:0 1px 3px #000}
+@keyframes whisper-fade{0%{opacity:0}10%{opacity:0.85}80%{opacity:0.85}100%{opacity:0}}

@@ -21,7 +21,8 @@ const PAGES: Page[] = [
       "Your deck is not a pile of cards. It is a territory — hexes floating in the void.",
       "Your HAND holds cards: Awoken not yet placed, ready to deploy.",
       "Your FIELD holds your land: tiles you've claimed, with Awoken standing guard.",
-      "Tap a card, then tap a tile to deploy. Deployment costs 2 energy.",
+      "Tap a card, then tap a tile to deploy. Stronger Awoken cost more: 2 energy for 1-3 power, 3 for 4-6, 4 for 7-9.",
+      "While in hand, Awoken grant energy: +1 for 1-3 power, +2 for 4-6, +3 for 7-9. They work together to exist — holding them gives you strength.",
     ],
   },
   {
@@ -49,7 +50,7 @@ const PAGES: Page[] = [
     body: [
       "The void around your land is cursed — held by the Unraveling.",
       "If the combined power of your Awoken near a cursed tile exceeds the Unraveling's weight there, the tile is purified. Slowly, passively, by presence.",
-      "You can also strike cursed tiles directly to purify them faster.",
+      "Lower the Binding to earn new territory through trial — survive waves, and the periphery becomes yours.",
       "The elements of the Awoken who claim a tile determine what it becomes.",
     ],
   },
