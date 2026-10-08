@@ -114,6 +114,18 @@ function identityFor(layers: z.infer<typeof layerRefShape>[]) {
   return ["arms", "body", "head"].map((category) => layers.find((layer) => layer.category === category)?.source_id ?? "none").join("|");
 }
 
+/** Mirror of the client's element keyword read (App.tsx): a piece's element
+ *  from its name. The server keeps its own copy so it never trusts the
+ *  client's claim about what a team is. */
+function elementForPieceName(name: string): "tide" | "sky" | "stone" | "root" | "fire" {
+  const n = name.toLowerCase();
+  if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
+  if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
+  if (/mountain|monolith|stone|rock|crystal/.test(n)) return "stone";
+  if (/sky|bird|moon|star|lantern|upward|weather|bell/.test(n)) return "sky";
+  return "root";
+}
+
 export function blobUrl(key: string): string {
   return `/blobs/${Buffer.from(key, "utf8").toString("base64url")}`;
 }
@@ -654,16 +666,45 @@ export const handlers = {
       .where(and(eq(schema.awakened.ownerKey, ownerKey)));
     const teamRows = team.filter(t => parsed.data.teamIds.includes(t.id));
     if (teamRows.length !== parsed.data.teamIds.length) badRequest("Invalid team.");
-    // Calculate power from layers (simplified: use stored power via payload).
-    // For now, trust the client's power sum; backend validates >= 7 via story+base.
-    // Determine dominant element from team layers.
-    const elementCounts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-    // (Element detection from piece names would go here; default to neutral for now.)
-    let element: "tide" | "sky" | "stone" | "root" | "neutral" | "fire" = "neutral";
-    let maxCount = 0;
-    for (const [el, count] of Object.entries(elementCounts)) {
-      if (count > maxCount) { maxCount = count; element = el as typeof element; }
+    // The Unraveler at power 7: the server measures the team's true combined
+    // power from their layers (current pool stats) + empowerment + stories —
+    // never the client's word for it. Identical arithmetic to toAwakenedPayload.
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const assetRow of assetRows) {
+      const rarity = raritySchema.safeParse(assetRow.rarity);
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
     }
+    const allRows = await db.select().from(schema.awakened);
+    const idsByIdentity = new Map<string, number[]>();
+    for (const other of allRows) {
+      const otherLayers = parseLayers(other.compositionJson, assetStats);
+      const otherIdentity = other.identityKey === "legacy" ? identityFor(otherLayers) : other.identityKey;
+      idsByIdentity.set(otherIdentity, [...(idsByIdentity.get(otherIdentity) ?? []), other.id].sort((a, b) => a - b));
+    }
+    let totalPower = 0;
+    const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    for (const t of teamRows) {
+      const layers = parseLayers(t.compositionJson, assetStats);
+      const identity = t.identityKey === "legacy" ? identityFor(layers) : t.identityKey;
+      totalPower += toAwakenedPayload(t, layers, identity, idsByIdentity).power;
+      // The tile becomes what the team is: each layer's element, read from
+      // its name with the same keyword rules the client uses. Fire is never
+      // inherited here — it only ever sparks on wild land.
+      for (const layer of layers) {
+        const el = elementForPieceName(layer.name);
+        if (el !== "fire") elementCounts[el] += 1;
+      }
+    }
+    if (totalPower < 7) badRequest("Your combined power must reach 7 to face the Unraveler.");
+    // Dominant element claims the tile; a tie stays neutral.
+    let element: "tide" | "sky" | "stone" | "root" | "neutral" | "fire" = "neutral";
+    let maxCount = 0; let tie = false;
+    for (const [el, count] of Object.entries(elementCounts)) {
+      if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+      else if (count === maxCount && count > 0) { tie = true; }
+    }
+    if (tie) element = "neutral";
     // Create center tile, purified.
     const [center] = await db.insert(schema.territoryTiles).values({
       ownerKey, q: 0, r: 0, element, cursed: 0,
