@@ -130,31 +130,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setTiles(after.tiles);
       setPlacements(after.placements);
       setBattlePool([]);
-      // If the dark broke, a newborn joins the hand — like any other Awoken.
+      // If the dark broke, a newborn joins the hand. Server-side, fire-and-forget —
+      // it can never hang the purification.
       if (result.purified) {
-        try {
-          const liberatorNames = fighters.map(a => a.name);
-          const birthLayers = pickBirthLayers(assets.map(a => ({
-            sourceId: a.sourceId, name: a.name, category: a.category,
-            rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
-          })));
-          if (birthLayers.length >= 3) {
-            const imageBase64 = await composeBirth(birthLayers);
-            const layerRefs = birthLayers.map(l => ({
-              source_id: l.sourceId, name: l.name,
-              category: l.category as "body" | "arms" | "aura" | "head",
-              rarity: "common" as const, power: null, toughness: null,
-            }));
-            await api.birthFieldAwoken({
-              layers: layerRefs, imageBase64,
-              tileId, liberatorNames, toHand: true,
-            });
-          }
-        } catch (birthErr) {
-          console.error("[Birth] Newborn failed — fighters remain", birthErr);
-        }
-        const refreshed = await api.getTerritory();
-        setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+        const liberatorNames = fighters.map(a => a.name);
+        api.birthNewbornToHand({ tileId, liberatorNames }).catch(e =>
+          console.error("[Birth] Newborn failed — game continues", e)
+        );
       }
       onUpdate();
     } catch (e) {

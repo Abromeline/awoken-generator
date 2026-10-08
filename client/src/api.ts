@@ -241,6 +241,7 @@ export const api = {
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
+  birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;
     reason?: "resting" | "too-weak" | "not-yet";
