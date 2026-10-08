@@ -276,7 +276,7 @@
 }
 
 /* Cosmic pool — where Awoken wait before battle, against interstellar debris */
-.cosmic-pool{margin:0 0 12px;padding:14px;border-radius:8px;min-height:110px}
+.cosmic-pool{margin:0 0 12px;padding:0;min-height:0;background:none;border:none}
 .cosmic-pool-label{font-size:12px;color:#b89b5e;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;text-align:center;text-shadow:0 1px 3px #000}
 .cosmic-pool-cards{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .cosmic-pool-card{display:flex;flex-direction:column;align-items:center;cursor:default}
