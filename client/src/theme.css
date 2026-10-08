@@ -155,7 +155,7 @@
 
 /* Territory view */
 .territory-view{padding:12px}
-.territory-map{position:relative;background:#050505;border:2px solid #b89b5e;border-radius:6px;overflow:hidden}
+.territory-map{position:relative;background:#050505 url('./assets/debris-dark.jpg') center/cover;border:2px solid #b89b5e;border-radius:6px;overflow:hidden}
 .territory-svg{display:block;width:100%;height:auto}
 .territory-nav{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px}
 .territory-nav button{width:32px;height:32px;border-radius:50%;background:#1a1a1a;border:2px solid #b89b5e;color:#b89b5e;font-size:14px;cursor:pointer}
@@ -191,7 +191,7 @@
 .first-trial{padding:12px}
 .trial-title-large{font-family:Papyrus,"Bradley Hand",cursive;font-size:42px;font-weight:bold;color:#b89b5e;text-align:center;margin:8px 0 12px;text-shadow:0 3px 8px #000;letter-spacing:2px;transition:opacity 0.8s ease, margin 0.8s ease}
 .trial-title-large.faded{opacity:0;margin:0;height:0;overflow:hidden}
-.trial-field-wrap{position:relative}
+.trial-field-wrap{position:relative;background:url('./assets/debris-dark.jpg') center/cover;border-radius:6px;overflow:hidden}
 .trial-title-overlay{display:none}
 .trial-hand-top{position:static;margin-top:0;margin-bottom:12px;border-bottom:1px solid #b89b5e;padding-bottom:12px}
 .trial-svg{display:block;width:100%;height:auto;background:#050505;border:2px solid #6a1a1a;border-radius:6px}
