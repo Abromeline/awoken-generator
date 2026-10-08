@@ -296,6 +296,35 @@ function badRequest(message: string): never {
 }
 
 
+
+/**
+ * CORRUPTION TOUGHNESS PROTOCOL
+ *
+ * Every cursed tile has a Corruption Toughness that the Awoken must overcome:
+ *   Toughness = 3 + (2 × ring)
+ * Where "ring" is the hex distance from the purified center (0,0):
+ *   Ring 1 (adjacent to center): 5 toughness
+ *   Ring 2: 7 toughness
+ *   Ring 3: 9 toughness... and so on outward.
+ *
+ * How Awoken break it:
+ * - ACTIVE ASSAULT (deployBattle): The combined power of ALL Awoken standing
+ *   on the tile must meet or exceed its toughness. If so, the dark breaks
+ *   immediately. The tile takes the dominant element of its liberators.
+ * - PASSIVE SIEGE (passivePurify): Every 48 hours, each cursed tile adjacent
+ *   to purified land may attempt to break. If the combined power of Awoken
+ *   on neighboring purified tiles (plus defenders on the tile itself) meets
+ *   the toughness, there is a 30% chance the dark breaks. The timer resets
+ *   whether the attempt succeeds or fails.
+ *
+ * Power is always measured from the Awoken's layers (current pool stats),
+ * never from the client's word.
+ */
+function corruptionToughness(q: number, r: number): number {
+  const ring = Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
+  return 3 + 2 * Math.max(ring, 1);
+}
+
 /** Expand the frontier: when a tile is purified, cursed wilds push outward.
  *  Any missing neighbor of (q,r) becomes a new cursed tile. */
 async function expandFrontier(ownerKey: string, q: number, r: number) {
@@ -749,8 +778,7 @@ export const handlers = {
           if (el !== "fire") elementCounts[el] += 1;
         }
       }
-      const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
-      const weight = 3 + 2 * Math.max(ring, 1);
+      const weight = corruptionToughness(tile[0].q, tile[0].r);
       if (totalPower >= weight) {
         let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
         let maxCount = 0; let tie = false;
@@ -1119,9 +1147,7 @@ export const handlers = {
     await db.update(schema.territoryTiles)
       .set({ lastPassiveAt: new Date(now) })
       .where(eq(schema.territoryTiles.id, tile[0].id));
-    // Curse weight scales with distance from center (ring number).
-    const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
-    const weight = 3 + 2 * Math.max(ring, 1);
+    const weight = corruptionToughness(tile[0].q, tile[0].r);
     // Field power: sum of power of Awoken on adjacent purified tiles.
     const neighbors = [
       [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],

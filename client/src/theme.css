@@ -156,7 +156,8 @@
 /* Territory view */
 .territory-view{padding:12px}
 .territory-map{position:relative;background:#050505 url('./assets/debris-dark.jpg') center/cover;border:2px solid #b89b5e;border-radius:6px;overflow:hidden}
-.territory-svg{display:block;width:100%;height:auto}
+.territory-svg{display:block;width:100%;height:auto;overflow:visible}
+/* Remove the old pulse animation (now integrated into border) */
 .territory-nav{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px}
 .territory-nav button{width:32px;height:32px;border-radius:50%;background:#1a1a1a;border:2px solid #b89b5e;color:#b89b5e;font-size:14px;cursor:pointer}
 .territory-hand{margin-top:12px}
@@ -293,9 +294,6 @@
 @keyframes cosmic-breathe{0%,100%{scale:1}50%{scale:1.04}}
 
 .trial-error{background:rgba(120,20,20,0.9);color:#ffd0d0;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;border:1px solid #a03030}
-
-.cursed-target-pulse{animation:cursed-pulse 1.5s ease-in-out infinite}
-@keyframes cursed-pulse{0%,100%{opacity:0.3}50%{opacity:1}}
 
 /* Trial title */
 .trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}

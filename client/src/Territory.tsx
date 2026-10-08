@@ -260,13 +260,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <g clipPath={`url(#terr-${t.id})`}>
             <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
           </g>
-          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
+          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
+            stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#4a2a2a") : "#b89b5e"}
+            strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
+            opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
             style={{ cursor: battlePool.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
             onClick={() => battlePool.length > 0 && handleDeploy(t.id)} />
-          {t.cursed && battlePool.length > 0 && (
-            <polygon points={pts.join(" ")} fill="none" stroke="#ff4444" strokeWidth="2"
-              className="cursed-target-pulse" style={{ pointerEvents: "none" }} />
-          )}
+
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
