@@ -25,7 +25,7 @@ interface Props {
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
-  const [selectedHands, setSelectedHands] = useState<number[]>([]);
+  const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [energy, setEnergy] = useState(5);
 
@@ -98,90 +98,57 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Hand = Awoken not on field (defined above for energy calc)
 
   const handleDeploy = async (tileId: number) => {
-    if (selectedHands.length === 0) return;
+    if (battlePool.length === 0) return;
     const tile = tiles.find(t => t.id === tileId);
     if (!tile) return;
-
-    // DIRECT ATTACK: 3 Awoken on a cursed tile purifies it by force.
-    // The server breaks the curse, re-elements the tile, and places the attackers.
-    if (tile.cursed && selectedHands.length === 3) {
-      const attackers = selectedHands.map(i => hand[i]).filter(Boolean);
-      const totalCost = attackers.reduce((sum, a) => sum + deployCost(a.power), 0);
-      if (energy < totalCost) return;
-      const attackerIds = attackers.map(a => a.id);
-      try {
-        await api.directAttack({ awakenedIds: attackerIds, tileId });
-        setEnergy(e => e - totalCost);
-        // Refresh tiles AND placements immediately — the attackers are on the
-        // field now. The birth below must not block this.
-        const afterAttack = await api.getTerritory();
-        setTiles(afterAttack.tiles);
-        setPlacements(afterAttack.placements);
-        setSelectedHands([]);
-        // A purified tile births a newborn — a real Wake, not a clone.
-        // Wrapped on its own: if the birth fails, the attackers stay put.
+    const fighters = battlePool.map(i => hand[i]).filter(Boolean);
+    if (fighters.length === 0) return;
+    const totalCost = fighters.reduce((sum, a) => sum + deployCost(a.power), 0);
+    if (energy < totalCost) return;
+    const fighterIds = fighters.map(a => a.id);
+    try {
+      const result = await api.deployBattle({ awakenedIds: fighterIds, tileId });
+      setEnergy(e => e - totalCost);
+      const after = await api.getTerritory();
+      setTiles(after.tiles);
+      setPlacements(after.placements);
+      setBattlePool([]);
+      // If the dark broke, a newborn joins the hand — like any other Awoken.
+      if (result.purified) {
         try {
-          const purified = afterAttack.tiles.find(t => t.id === tileId);
-        if (purified) {
-          const liberatorNames = attackers.map(a => a.name);
-          console.log("[Birth] Starting birth after direct attack, assets:", assets.length);
+          const liberatorNames = fighters.map(a => a.name);
           const birthLayers = pickBirthLayers(assets.map(a => ({
             sourceId: a.sourceId, name: a.name, category: a.category,
             rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
           })));
-          console.log("[Birth] Picked layers:", birthLayers.length);
           if (birthLayers.length >= 3) {
             const imageBase64 = await composeBirth(birthLayers);
-            console.log("[Birth] Composed image, length:", imageBase64.length);
             const layerRefs = birthLayers.map(l => ({
               source_id: l.sourceId, name: l.name,
               category: l.category as "body" | "arms" | "aura" | "head",
               rarity: "common" as const, power: null, toughness: null,
             }));
-            const result = await api.birthFieldAwoken({
+            await api.birthFieldAwoken({
               layers: layerRefs, imageBase64,
-              tileId: purified.id, liberatorNames,
+              tileId, liberatorNames, toHand: true,
             });
-            console.log("[Birth] Birth result:", result);
-          } else {
-            console.warn("[Birth] Not enough layers picked:", birthLayers.length);
           }
-        }
         } catch (birthErr) {
-          console.error("[Birth] Birth after attack failed — attackers remain", birthErr);
+          console.error("[Birth] Newborn failed — fighters remain", birthErr);
         }
         const refreshed = await api.getTerritory();
         setTiles(refreshed.tiles); setPlacements(refreshed.placements);
-        onUpdate();
-      } catch (e) {
-        console.error("Direct attack failed", e);
       }
-      return;
-    }
-
-    // Normal deploy: 1 Awoken to purified tile
-    if (tile.cursed) return;
-    if (selectedHands.length !== 1) return;
-    const awoken = hand[selectedHands[0]];
-    if (!awoken) return;
-    const cost = deployCost(awoken.power);
-    if (energy < cost) return;
-    try {
-      await api.deployAwoken({ awakenedId: awoken.id, tileId });
-      setEnergy(e => e - cost);
-      const { tiles, placements } = await api.getTerritory();
-      setTiles(tiles); setPlacements(placements);
-      setSelectedHands([]);
       onUpdate();
     } catch (e) {
-      console.error("Deploy failed", e);
+      console.error("Battle deployment failed", e);
     }
   };
 
-  const toggleHandSelect = (index: number) => {
-    setSelectedHands(prev => {
+  const toggleBattlePool = (index: number) => {
+    setBattlePool(prev => {
       if (prev.includes(index)) return prev.filter(i => i !== index);
-      if (prev.length >= 3) return prev;
+      if (prev.length >= 4) return prev;
       return [...prev, index];
     });
   };
@@ -285,8 +252,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
           </g>
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)" stroke={t.cursed ? "#6a1a1a" : "#b89b5e"} strokeWidth="1" opacity="0.7"
-            style={{ cursor: selectedHands.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
-            onClick={() => selectedHands.length > 0 && handleDeploy(t.id)} />
+            style={{ cursor: battlePool.length > 0 ? "pointer" : "default", pointerEvents: "all" }}
+            onClick={() => battlePool.length > 0 && handleDeploy(t.id)} />
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
@@ -302,8 +269,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const kx = cx + ks.dx * s * 2;
                 const ky = cy + ks.dy * s * 2 * tilt;
                 const isWhispering = whisper?.awakenedId === a.id;
+                // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
+                const driftDur = (6 + (a.id % 5)).toFixed(1);
+                const driftDelay = (-(a.id % 7)).toFixed(1);
                 return (
-                  <g key={a.id}>
+                  <g key={a.id} className="field-drifter"
+                    style={{ "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` } as React.CSSProperties}>
                     <FieldAwoken awoken={a} assets={assets}
                       x={kx - ws / 2} y={ky - hs / 2}
                       width={ws} height={hs} />
@@ -396,11 +367,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </div>
       </div>
       <div className="territory-hand">
-        <div className="hand-label">Hand — tap 1 for deploy, 3 for direct attack on cursed</div>
+        <div className="hand-label">Tap cards to ready them for battle — then tap a hex to send them</div>
+        {battlePool.length > 0 && (
+          <div className="battle-pool">
+            <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
+            <div className="battle-pool-cards">
+              {battlePool.map(i => {
+                const a = hand[i];
+                if (!a) return null;
+                return (
+                  <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(i)} title="Remove">
+                    <img src={a.image_url} alt={a.name} />
+                    <div className="battle-pool-card-name">{a.name}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="hand-cards">
           {hand.map((a, i) => (
-            <button key={a.id} className={`hand-card ${selectedHands.includes(i) ? "selected" : ""}`}
-              onClick={() => toggleHandSelect(i)}>
+            <button key={a.id} className={`hand-card ${battlePool.includes(i) ? "in-pool" : ""}`}
+              onClick={() => toggleBattlePool(i)}>
               <img src={a.image_url} alt={a.name} />
               <div className="hand-card-name">{a.name}</div>
               <div className="hand-card-stats">{a.power} / {a.toughness}</div>

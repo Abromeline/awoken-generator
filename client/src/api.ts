@@ -240,6 +240,7 @@ export const api = {
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[] }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
+  deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;
     reason?: "resting" | "too-weak" | "not-yet";
@@ -249,7 +250,7 @@ export const api = {
     purified?: boolean;
   }>("passivePurify", args),
   claimFirstTile: (args: { teamIds: number[] }) => post<{ ok: true }>("claimFirstTile", args),
-  birthFieldAwoken: (args: { layers: LayerRef[]; imageBase64: string; tileId: number; liberatorNames: string[] }) =>
+  birthFieldAwoken: (args: { layers: LayerRef[]; imageBase64: string; tileId: number; liberatorNames: string[]; toHand?: boolean }) =>
     post<{ ok: true; id: number }>("birthFieldAwoken", args),
   getBirthStatus: () => post<{ ready: boolean; msUntil: number }>("getBirthStatus", {}),
   claimTimedBirth: (args: { layers: LayerRef[]; imageBase64: string }) =>

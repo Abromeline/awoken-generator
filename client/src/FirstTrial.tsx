@@ -158,9 +158,12 @@ export default function FirstTrial({ hand, assets, onVictory }: Props) {
         {/* Placed Awoken on center hex (no visible positions — auto-placed) */}
         {!purifying && Array.from(placed.entries()).map(([posIdx, awoken]) => {
           const p = keystones[posIdx];
+          const driftDur = (6 + (awoken.id % 5)).toFixed(1);
+          const driftDelay = (-(awoken.id % 7)).toFixed(1);
           return (
             <g key={`placed-${posIdx}`} onClick={() => handleCardTap(hand.findIndex(h => h.id === awoken.id))}
-              style={{ cursor: "pointer" }}>
+              className="field-drifter"
+              style={{ cursor: "pointer", "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` } as React.CSSProperties}>
               <FieldAwoken awoken={awoken} assets={assets}
                 x={p.x - 14} y={p.y - 18} width={28} height={36}
                 showFieldBornMarker={false} />

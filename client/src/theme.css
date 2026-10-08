@@ -243,6 +243,29 @@
 .territory-nav{z-index:10}
 .territory-nav button{pointer-events:auto}
 
+/* Battle pool — staged Awoken above the hand */
+.battle-pool{margin-top:10px;padding:10px;background:#0d0d0d;border:1px solid #b89b5e;border-radius:8px}
+.battle-pool-label{font-size:12px;color:#b89b5e;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
+.battle-pool-cards{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.battle-pool-card{background:#1a1a1a;border:1px solid #b89b5e;border-radius:6px;padding:6px;cursor:pointer;width:72px}
+.battle-pool-card img{width:100%;height:auto;border-radius:4px}
+.battle-pool-card-name{font-size:10px;color:#e8e0d0;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hand-card.in-pool{opacity:0.35}
+
+/* Field drift — Awoken on the land breathe and drift gently, each on its own rhythm */
+@keyframes field-drift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(1.5px, -2px) rotate(0.6deg); }
+  50% { transform: translate(-1px, -3px) rotate(-0.4deg); }
+  75% { transform: translate(-2px, 1px) rotate(0.3deg); }
+}
+.field-drifter {
+  animation: field-drift var(--drift-dur, 7s) ease-in-out infinite;
+  animation-delay: var(--drift-delay, 0s);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
 /* Trial title */
 .trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}
 

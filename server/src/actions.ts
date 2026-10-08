@@ -661,6 +661,102 @@ export const handlers = {
     return okResponse.parse({ ok: true });
   },
 
+  /**
+   * Battle deployment: send 1-4 Awoken from the battle pool to a tile.
+   * If the tile is cursed and the combined power on it meets the curse weight,
+   * the dark breaks — the tile purifies, takes the attackers' dominant element,
+   * and neighboring cursed tiles start their 48h passive timers.
+   */
+  async deployBattle(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedIds: z.array(z.number().int().positive()).min(1).max(4),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid battle deployment.");
+    if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
+      badRequest("Each Awoken fights once.");
+    }
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    if (!tile.length) badRequest("That tile is not yours.");
+    const owned = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.ownerKey, ownerKey));
+    const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
+    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awoken are not all yours.");
+    const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+      .from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
+    for (const f of fighters) {
+      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awoken is not yours to send.");
+      if (placedIds.has(f.id)) badRequest("Already on the field.");
+    }
+    const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
+    if (occupied.length + fighters.length > 4) badRequest("Tile holds at most 4 Awoken.");
+    for (const f of fighters) {
+      await db.insert(schema.fieldPlacements).values({
+        ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
+      });
+    }
+    let purified = false;
+    if (tile[0].cursed) {
+      const assetRows = await db.select().from(schema.layerAssets);
+      const assetStats = new Map<number, AssetStats>();
+      for (const assetRow of assetRows) {
+        const rarity = raritySchema.safeParse(assetRow.rarity);
+        if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+      }
+      const allOnTile = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+        .from(schema.fieldPlacements)
+        .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
+      let totalPower = 0;
+      const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+      for (const p of allOnTile) {
+        const a = owned.find(o => o.id === p.awakenedId);
+        if (!a) continue;
+        const layers = parseLayers(a.compositionJson, assetStats);
+        totalPower += layers.reduce((s, l) => s + (l.power ?? 0), 0);
+        for (const layer of layers) {
+          const el = elementForPieceName(layer.name);
+          if (el !== "fire") elementCounts[el] += 1;
+        }
+      }
+      const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
+      const weight = 3 + 2 * Math.max(ring, 1);
+      if (totalPower >= weight) {
+        let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+        let maxCount = 0; let tie = false;
+        for (const [el, count] of Object.entries(elementCounts)) {
+          if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+          else if (count === maxCount && count > 0) { tie = true; }
+        }
+        if (tie) element = "neutral";
+        await db.update(schema.territoryTiles)
+          .set({ cursed: 0, element })
+          .where(eq(schema.territoryTiles.id, tile[0].id));
+        const now = new Date();
+        const neighborCoords = [
+          [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
+          [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
+          [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
+        ];
+        for (const [nq, nr] of neighborCoords) {
+          await db.update(schema.territoryTiles)
+            .set({ lastPassiveAt: now })
+            .where(and(
+              eq(schema.territoryTiles.ownerKey, ownerKey),
+              eq(schema.territoryTiles.q, nq),
+              eq(schema.territoryTiles.r, nr),
+              eq(schema.territoryTiles.cursed, 1),
+            ));
+        }
+        purified = true;
+      }
+    }
+    return z.object({ ok: z.literal(true), purified: z.boolean() }).parse({ ok: true, purified });
+  },
+
   async claimFirstTile(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ teamIds: z.array(z.number().int().positive()).min(1).max(6) }).safeParse(args);
@@ -745,6 +841,7 @@ export const handlers = {
       imageBase64: z.string(),
       tileId: z.number(),
       liberatorNames: z.array(z.string()),
+      toHand: z.boolean().optional(),
     }).parse(args);
     const story = `Liberated by ${parsed.liberatorNames.join(", ")}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
     const blobKey = `fieldborn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -761,9 +858,12 @@ export const handlers = {
       flavorText: story,
       fieldBorn: 1,
     }).returning({ id: schema.awakened.id });
-    await db.insert(schema.fieldPlacements).values({
-      ownerKey, awakenedId: newborn.id, tileId: parsed.tileId,
-    });
+    // Newborns from battle purification join the hand, not the field.
+    if (!parsed.toHand) {
+      await db.insert(schema.fieldPlacements).values({
+        ownerKey, awakenedId: newborn.id, tileId: parsed.tileId,
+      });
+    }
     return okResponse.parse({ ok: true, id: newborn.id });
   },
 
