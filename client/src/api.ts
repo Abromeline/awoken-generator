@@ -37,6 +37,7 @@ export interface Awakened {
   power: number;
   toughness: number;
   empowerment: number;
+  story_count: number;
   iteration: number;
   collection: Collection;
   owner_name: string;
@@ -208,6 +209,7 @@ export const api = {
   saveAwoken: (args: { layers: LayerRef[]; imageBase64: string; collection: Collection; ownerName: string }) =>
     post<{ id: number; name: string; iteration: number; empowerment: number; flavor_text: string }>("saveAwoken", args),
   renameAwoken: (args: { id: number; name: string }) => post<{ ok: true }>("renameAwoken", args),
+  shareStory: (args: { id: number; story: string }) => post<{ ok: true; storyCount: number }>("shareStory", args),
   deleteAwoken: (args: { id: number }) => post<{ ok: true }>("deleteAwoken", args),
   stripeConfig: () => postPath<StripeConfig>("/api/stripe/config"),
   createCheckoutSession: () => postPath<{ url: string }>("/api/stripe/checkout", {}),

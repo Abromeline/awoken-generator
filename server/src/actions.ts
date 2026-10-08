@@ -87,6 +87,7 @@ const awakenedShape = z.object({
   id: z.number(), name: z.string(), image_url: z.string(), layers: z.array(layerRefShape),
   base_power: z.number().int().min(0), base_toughness: z.number().int().min(0),
   power: z.number().int().min(0), toughness: z.number().int().min(0), empowerment: z.number().int().min(0),
+  story_count: z.number().int().min(0).max(3),
   iteration: z.number().int().min(0), collection: collectionSchema, owner_name: z.string(), flavor_text: z.string(), created_at: z.string(),
 });
 
@@ -133,10 +134,12 @@ export function toAwakenedPayload(
   const occurrenceIndex = familyIds.indexOf(row.id);
   const iteration = occurrenceIndex < 0 ? row.iteration : occurrenceIndex;
   const collection = collectionSchema.safeParse(row.collection);
+  const storyCount = row.storyCount ?? 0;
   return {
     id: row.id, name: row.name, image_url: blobUrl(row.imageBlobKey), layers,
-    base_power: basePower, base_toughness: baseToughness, power: basePower + empowerment, toughness: baseToughness + empowerment,
-    empowerment, iteration, collection: collection.success ? collection.data : ("workshop" as const),
+    base_power: basePower, base_toughness: baseToughness,
+    power: basePower + empowerment + storyCount, toughness: baseToughness + empowerment + storyCount,
+    empowerment, story_count: storyCount, iteration, collection: collection.success ? collection.data : ("workshop" as const),
     owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
   };
 }
@@ -403,6 +406,23 @@ export const handlers = {
     await db.delete(schema.awakened).where(eq(schema.awakened.id, parsed.data.id));
     const key = rows[0]?.key; if (key) blobs.delete(key);
     return okResponse.parse({ ok: true });
+  },
+
+  async shareStory(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("A Tender must share the story.");
+    const parsed = z.object({ id: z.number().int().positive(), story: z.string().trim().min(100).max(2000) }).safeParse(args);
+    if (!parsed.success) badRequest("A story is 100–2000 characters — a real telling, not a note.");
+    const ownerKey = tenderOwnerKey(ctx.tender.id);
+    const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.id)).limit(1);
+    const awoken = rows[0];
+    if (!awoken) badRequest("That Awoken is not found.");
+    if (awoken.ownerKey !== ownerKey) badRequest("You can only share stories of your own Awoken.");
+    if ((awoken.storyCount ?? 0) >= 3) badRequest("This Awoken has already heard three stories — it is full.");
+    await db.insert(schema.awokenStories).values({
+      awakenedId: parsed.data.id, tenderId: ctx.tender.id, storyText: parsed.data.story, createdAt: new Date(),
+    });
+    await db.update(schema.awakened).set({ storyCount: (awoken.storyCount ?? 0) + 1 }).where(eq(schema.awakened.id, parsed.data.id));
+    return okResponse.parse({ ok: true, storyCount: (awoken.storyCount ?? 0) + 1 });
   },
 
   // -- Self-serve Tender accounts -------------------------------------------

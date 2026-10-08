@@ -124,3 +124,4 @@
 .tc-pieces{position:relative;z-index:2;padding:9px 8px 4px;font-size:10px;color:#555;line-height:1.7;text-align:center}
 .tc-watermark{position:absolute;bottom:26px;right:8px;z-index:1;font-size:60px;color:rgba(0,0,0,.07);font-family:var(--display);pointer-events:none}
 @media(min-width:760px){.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
+.tc-stories{text-align:center;font-size:10px;color:#b89b5e;letter-spacing:.2em;padding:2px 0 6px;position:relative;z-index:2}

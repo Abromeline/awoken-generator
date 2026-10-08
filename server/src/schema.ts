@@ -31,6 +31,20 @@ export const awakened = sqliteTable("awakened", {
   identityKey: text("identity_key").notNull().default("legacy"),
   iteration: integer("iteration").notNull().default(0),
   flavorText: text("flavor_text").notNull().default("Every form begins as scattered matter."),
+  // Stories shared to the Confluence: each grants +1/+1, max 3.
+  storyCount: integer("story_count").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Stories Tenders tell about their Awoken. Sharing to the Confluence is
+// what grants the power-up: each story is +1/+1, max 3 per Awoken.
+export const awokenStories = sqliteTable("awoken_stories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  awakenedId: integer("awakened_id").notNull(),
+  tenderId: integer("tender_id").notNull(),
+  storyText: text("story_text").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

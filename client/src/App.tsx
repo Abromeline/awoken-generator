@@ -176,6 +176,7 @@ function TradingCard({ item }: { item: Awoken }) {
   const unique = [...new Set(elements)];
   const corners: Element[] = [0, 1, 2, 3].map((i) => unique[i % unique.length] ?? "root");
   const [tl, tr, bl, br] = corners;
+  const stories = item.story_count ?? 0;
   return <article className="trading-card" aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
     <Corner element={tl} className="tcorner tl" />
     <Corner element={tr} className="tcorner tr" />
@@ -189,6 +190,7 @@ function TradingCard({ item }: { item: Awoken }) {
       {item.iteration > 0 && <span className="tc-iteration">{ordinal(item.iteration)}</span>}
     </div>
     <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>
+    <div className="tc-stories" title={`${stories} of 3 stories shared`}>{"●".repeat(stories)}{"○".repeat(3 - stories)}</div>
     <div className="tc-watermark" aria-hidden="true">{roman}</div>
   </article>;
 }

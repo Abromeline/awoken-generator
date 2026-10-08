@@ -93,6 +93,18 @@ const awakenedCols = sqlite.prepare(`PRAGMA table_info(awakened)`).all() as { na
 if (!awakenedCols.some((col) => col.name === "owner_key")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN owner_key TEXT`);
 }
+if (!awakenedCols.some((col) => col.name === "story_count")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN story_count INTEGER NOT NULL DEFAULT 0`);
+}
+
+// Stories table for the Confluence power-up.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  awakened_id INTEGER NOT NULL,
+  tender_id INTEGER NOT NULL,
+  story_text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`);
 
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, { schema });
 
