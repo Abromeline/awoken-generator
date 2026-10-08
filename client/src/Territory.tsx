@@ -333,17 +333,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         )}
       </div>
-      <div className="territory-map">
-        <svg viewBox="0 0 500 340" className="territory-svg">
-          {renderGrid()}
-        </svg>
-        <div className="territory-nav">
-          <button onClick={() => setPan(p => ({ ...p, y: p.y + 40 }))} aria-label="Pan up">▲</button>
-          <button onClick={() => setPan(p => ({ ...p, y: p.y - 40 }))} aria-label="Pan down">▼</button>
-          <button onClick={() => setPan(p => ({ ...p, x: p.x + 40 }))} aria-label="Pan left">◀</button>
-          <button onClick={() => setPan(p => ({ ...p, x: p.x - 40 }))} aria-label="Pan right">▶</button>
-        </div>
-      </div>
       <div className="territory-hand">
         <div className="hand-label">Tap cards to ready them for battle — then tap a hex to send them</div>
         {battlePool.length > 0 && (
@@ -386,6 +375,18 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}
         </div>
       </div>
+      <div className="territory-map">
+        <svg viewBox="0 0 500 340" className="territory-svg">
+          {renderGrid()}
+        </svg>
+        <div className="territory-nav">
+          <button onClick={() => setPan(p => ({ ...p, y: p.y + 40 }))} aria-label="Pan up">▲</button>
+          <button onClick={() => setPan(p => ({ ...p, y: p.y - 40 }))} aria-label="Pan down">▼</button>
+          <button onClick={() => setPan(p => ({ ...p, x: p.x + 40 }))} aria-label="Pan left">◀</button>
+          <button onClick={() => setPan(p => ({ ...p, x: p.x - 40 }))} aria-label="Pan right">▶</button>
+        </div>
+      </div>
+      
     </div>
   );
 }

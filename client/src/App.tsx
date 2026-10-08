@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/deck-button.jpg";
 import debrisDark from "./assets/debris-dark.jpg";
-import debrisLight from "./assets/debris-light.jpg";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
 import WelcomePacket, { AcornButton } from "./WelcomePacket";
@@ -571,7 +570,6 @@ function CosmicBackground() {
   return (
     <div className="cosmic-bg" aria-hidden="true">
       <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
-      <div className="cosmic-layer cosmic-light" style={{ backgroundImage: `url(${debrisLight})` }} />
     </div>
   );
 }
