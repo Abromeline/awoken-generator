@@ -108,40 +108,46 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   };
 
   const doAttack = (atk: Fighter, def: Fighter) => {
+    if (busy) return;
     setBusy(true);
-    setLog(`${atk.name} strikes ${def.name}!`);
-    setTimeout(() => {
-      const dmg = Math.max(1, atk.power - def.tough);
+    setSelected(null);
+    const dmg = Math.max(1, atk.power - def.tough);
+    setLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
+    // Apply damage
+    if (def.side === "en") {
       setEnemies(prev => prev.map(e => e.id === def.id ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
+    } else {
       setFighters(prev => prev.map(f => f.id === def.id ? { ...f, hp: Math.max(0, f.hp - dmg) } : f));
-      setLog(`${atk.name} hits ${def.name} for ${dmg}!`);
-      setTimeout(() => {
-        const defDead = def.hp - dmg <= 0;
-        if (defDead) setLog(`${def.name} dissipates!`);
-        // Enemy counterattack
-        setTimeout(() => {
-          const aliveEnemies = enemies.filter(e => e.hp > 0 && e.id !== def.id || (e.id === def.id && !defDead));
-          // Use current state via functional update
-          setEnemies(currentEnemies => {
-            const alive = currentEnemies.filter(e => e.hp > 0);
-            if (alive.length === 0) return currentEnemies;
-            const attacker = alive[Math.floor(Math.random() * alive.length)];
-            setFighters(currentFighters => {
-              const targets = currentFighters.filter(f => f.hp > 0);
-              if (targets.length === 0) return currentFighters;
-              const target = targets[Math.floor(Math.random() * targets.length)];
-              const edmg = Math.max(1, attacker.power - target.tough);
-              setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
-              return currentFighters.map(f =>
-                f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
-              );
-            });
-            return currentEnemies;
-          });
+    }
+    // Counterattack after delay (only if defender was enemy and survives are left)
+    setTimeout(() => {
+      setEnemies(currentEnemies => {
+        const alive = currentEnemies.filter(e => e.hp > 0);
+        if (alive.length === 0) {
           setBusy(false);
-        }, 800);
-      }, 750);
-    }, 975);
+          return currentEnemies;
+        }
+        // Random alive enemy counterattacks a random alive fighter
+        const attacker = alive[Math.floor(Math.random() * alive.length)];
+        setFighters(currentFighters => {
+          const targets = currentFighters.filter(f => f.hp > 0);
+          if (targets.length === 0) {
+            setBusy(false);
+            return currentFighters;
+          }
+          const target = targets[Math.floor(Math.random() * targets.length)];
+          const edmg = Math.max(1, attacker.power - target.tough);
+          setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
+          setBusy(false);
+          return currentFighters.map(f =>
+            f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
+          );
+        });
+        return currentEnemies;
+      });
+    }, 900);
+    // Safety: always unblock after 3s
+    setTimeout(() => setBusy(false), 3000);
   };
 
   // Check for battle end whenever fighters or enemies change
@@ -227,6 +233,9 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               </svg>
             )}
             <div className="fighter-stats">{f.power}⚔ {f.tough}🛡</div>
+            <div className="health-bar">
+              <div className="health-fill" style={{ width: `${(f.hp / f.maxHp) * 100}%` }} />
+            </div>
             {f.field && <div className="field-badge">⚔</div>}
           </div>
         ))}
@@ -248,6 +257,9 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
             />
             <div className="fighter-stats">❤{e.hp}/{e.maxHp}</div>
+            <div className="health-bar enemy-hp">
+              <div className="health-fill" style={{ width: `${(e.hp / e.maxHp) * 100}%` }} />
+            </div>
           </div>
         ))}
       </div>
