@@ -109,7 +109,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (w.wavesDefeated >= 3 && !localStorage.getItem("bindingPromptSeen")) {
           setShowBindingPrompt(true);
         }
-      }).catch(() => {});
+      }).catch((e) => {
+        console.error("[Territory] getWave failed:", e);
+      });
+    } else {
+      console.warn("[Territory] Skipping getWave: tiles.length is 0");
     }
     return () => window.removeEventListener("focus", onFocus);
   }, [tiles.length]);
@@ -181,7 +185,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   useEffect(() => {
     api.getTerritory().then(({ tiles, placements }) => {
       setTiles(tiles); setPlacements(placements);
-    }).catch(() => {});
+    }).catch((e) => {
+      console.error("[Territory] getTerritory failed:", e);
+    });
   }, []);
 
   // Hand = Awoken not on field (defined above for energy calc)
