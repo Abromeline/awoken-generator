@@ -160,21 +160,10 @@
 .territory-view{position:relative;min-height:100vh;overflow:visible;display:flex;flex-direction:column;}
 .territory-view > .territory-map{flex:1;min-height:60vh;}
 .nav-compass{position:fixed;bottom:20px;right:20px;z-index:50;width:120px;height:160px;pointer-events:none;}
-.hand-cards{
-  margin-top:auto !important;z-index:40 !important;
-  display:flex !important;gap:8px;overflow-x:auto;padding:10px 16px;
-  background:linear-gradient(0deg, rgba(0,0,0,0.95), rgba(0,0,0,0.7));
-  pointer-events:all;flex-wrap:nowrap !important;justify-content:flex-start !important;
-  position:relative !important;bottom:auto !important;left:auto !important;right:auto !important;
-}
-.hand-cards:empty{display:none;}
+/* hand-cards removed — now using bottom-dock */
 .territory-hud{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none;}
 .territory-hud > *{pointer-events:all;}
-.energy-meter{
-  position:fixed !important;bottom:90px !important;left:16px !important;top:auto !important;
-  z-index:41;background:rgba(0,0,0,0.8);border:1px solid #b89b5e;border-radius:8px;
-  padding:8px 12px;
-}
+/* energy-meter removed — now using energy-orb */
 .compass-btn{position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.7);
   border:1px solid #b89b5e;color:#ffd700;font-size:14px;cursor:pointer;pointer-events:all;
   display:flex;align-items:center;justify-content:center;}
@@ -541,6 +530,63 @@ body.defeat-flash {
 .stance-picker-field .stance-btn:hover { background: rgba(50,50,80,0.9); }
 .stance-picker-field .stance-btn.active { border-color: #ffd700; color: #ffd700; }
 .stance-picker-field .stance-btn.dissipate { border-color: #8a4a4a; color: #faa; }
+
+/* Bottom dock: energy orb + hand */
+.bottom-dock{
+  position:absolute;bottom:0;left:0;right:0;z-index:45;
+  display:flex;align-items:flex-end;gap:12px;
+  padding:12px 16px 12px 16px;
+  background:linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 70%, transparent 100%);
+  pointer-events:none;
+}
+.bottom-dock > *{pointer-events:all;}
+.energy-orb{
+  position:relative;width:64px;height:64px;border-radius:50%;flex-shrink:0;
+  background:radial-gradient(circle at 30% 30%, #1a2a3a, #0a0a15);
+  border:2px solid #4a8aaa;overflow:hidden;cursor:default;
+  box-shadow:0 0 20px rgba(100,180,255,0.4), inset 0 0 20px rgba(0,0,0,0.6);
+}
+.orb-liquid{
+  position:absolute;bottom:0;left:0;right:0;
+  background:linear-gradient(180deg, rgba(100,200,255,0.9), rgba(40,120,200,0.9));
+  transition:height 0.5s ease;
+  box-shadow:0 0 15px rgba(100,200,255,0.8);
+}
+.orb-liquid::before{
+  content:'';position:absolute;top:-6px;left:0;right:0;height:12px;
+  background:radial-gradient(ellipse at center, rgba(150,220,255,0.9), transparent);
+  animation:orb-wave 2s ease-in-out infinite;
+}
+@keyframes orb-wave{
+  0%,100%{transform:translateY(0) scaleX(1);}
+  50%{transform:translateY(2px) scaleX(1.1);}
+}
+.orb-glow{
+  position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 50% 80%, rgba(100,200,255,0.3), transparent 60%);
+  pointer-events:none;
+}
+.orb-text{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-family:Georgia,serif;font-size:18px;font-weight:bold;
+  text-shadow:0 0 8px rgba(100,200,255,0.9), 0 2px 4px #000;
+  pointer-events:none;
+}
+.dock-hand{
+  display:flex;gap:8px;overflow-x:auto;flex:1;align-items:flex-end;
+  padding-bottom:4px;min-height:80px;
+}
+.dock-card{
+  width:64px;flex-shrink:0;background:#161616;border:2px solid #444;border-radius:6px;
+  padding:4px;cursor:pointer;text-align:center;position:relative;
+  transition:transform 0.15s;
+}
+.dock-card:hover{transform:translateY(-4px);border-color:#888;}
+.dock-card.in-pool{border-color:#ffd700;box-shadow:0 0 10px rgba(255,215,0,0.5);}
+.dock-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;display:block;}
+.dock-card-name{font-size:9px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+.dock-card-stats{font-size:10px;color:#888;font-family:monospace;}
+.dock-empty{color:#666;font-style:italic;font-size:12px;padding:20px;}
 
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}

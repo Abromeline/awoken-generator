@@ -637,13 +637,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   return (
     <div className="territory-view">
       <div className="territory-hud">
-        <div className="energy-meter">
-          <span className="energy-label">Energy</span>
-          <div className="energy-bar">
-            <div className="energy-fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
-          </div>
-          <span className="energy-value">{energy}/{maxEnergy}</span>
-        </div>
         {birthStatus?.ready ? (
           <button className="abtn birth-ready" onClick={handleTimedBirth}>
             ✨ A new Awoken awaits
@@ -789,30 +782,36 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             </div>
           </div>
         )}
-        <div className="hand-cards">
-          {hand.map((a, i) => {
-            const el = dominantElement(a);
-            return (
-            <button key={a.id} className={`hand-card ${battlePool.includes(i) ? "in-pool" : ""}`}
-              onClick={() => toggleBattlePool(i)}>
-              <Corner element={el} className="hcorner tl" />
-              <Corner element={el} className="hcorner tr" />
-              <Corner element={el} className="hcorner bl" />
-              <Corner element={el} className="hcorner br" />
-              <img src={a.image_url} alt={a.name} />
-              <div className="hand-card-name">{a.name}</div>
-              <div className="hand-card-stats">{a.power} / {a.toughness}</div>
-              <div className="hand-card-cost">⚡{deployCost(a.power)} · +{energyBonus(a.power)}✦</div>
-            </button>
-            );
-          })}
-          {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}
-        </div>
+        {/* Hand moved to bottom dock */}
       </div>
       <div className="territory-map">
         <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}>
           {renderGrid()}
         </svg>
+      </div>
+      {/* Bottom dock: energy orb + hand */}
+      <div className="bottom-dock">
+        <div className="energy-orb" title={`${energy} / ${maxEnergy} energy`}>
+          <div className="orb-liquid" style={{ height: `${(energy / maxEnergy) * 100}%` }} />
+          <div className="orb-glow" />
+          <span className="orb-text">{energy}</span>
+        </div>
+        <div className="dock-hand">
+          {hand.map((a, i) => {
+            const el = dominantElement(a);
+            return (
+            <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""}`}
+              onClick={() => toggleBattlePool(i)}>
+              <Corner element={el} className="hcorner tl" />
+              <Corner element={el} className="hcorner br" />
+              <img src={a.image_url} alt={a.name} />
+              <div className="dock-card-name">{a.name}</div>
+              <div className="dock-card-stats">{a.power}/{a.toughness}</div>
+            </button>
+            );
+          })}
+          {hand.length === 0 && <div className="dock-empty">All Awoken stand on the field.</div>}
+        </div>
       </div>
       <div className="nav-compass">
         <button className="compass-btn north" onClick={() => setPan(p => ({ ...p, y: p.y + 40 }))} aria-label="Pan up">▲</button>
