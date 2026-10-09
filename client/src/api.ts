@@ -92,6 +92,7 @@ export interface TenderLeaderboardEntry {
   displayName: string;
   createdAt: string;
   awokenCount: number;
+  ownerKey: string;
 }
 
 export interface StripeConfig {
@@ -241,12 +242,12 @@ export const api = {
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[] }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
-  deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
-  setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding" }) =>
+  deployBattle: (args: { awakenedIds: number[]; tileId: number; energyCost: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
+  setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),
   attackTile: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true; purified: boolean; need?: number; have?: number }>("attackTile", args),
-  moveAwoken: (args: { awakenedId: number; tileId: number }) =>
+  moveAwoken: (args: { awakenedId: number; tileId: number; energyCost: number }) =>
     post<{ ok: true }>("moveAwoken", args),
   getWave: () => post<{
     waveNumber: number; wavesDefeated: number;
@@ -255,6 +256,10 @@ export const api = {
   defendWave: () => post<{
     victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
   }>("defendWave", {}),
+  getEnergy: () => post<{ energy: number }>("getEnergy", {}),
+  adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
+  adminSetEnergy: (args: { ownerKey: string; energy: number }) => post<{ ok: true }>("adminSetEnergy", args),
+  adminClearTimers: (args: { ownerKey: string }) => post<{ ok: true }>("adminClearTimers", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;

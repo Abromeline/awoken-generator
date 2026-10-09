@@ -4,6 +4,7 @@ import FirstTrial from "./FirstTrial";
 import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
+import { battleMusic } from "./battleMusic";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain/tide.jpg";
 import skyImg from "./assets/terrain/sky.jpg";
@@ -45,6 +46,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [energy, setEnergy] = useState(5);
+  const refreshEnergy = async () => {
+    try {
+      const { energy: e } = await api.getEnergy();
+      setEnergy(e);
+    } catch {}
+  };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
@@ -86,6 +93,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   }, []);
 
   useEffect(() => {
+    refreshEnergy();
     if (tiles.length) {
       api.getWave().then(w => {
         setWave(w);
@@ -179,8 +187,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (energy < totalCost) return;
     const fighterIds = fighters.map(a => a.id);
     try {
-      const result = await api.deployBattle({ awakenedIds: fighterIds, tileId });
-      setEnergy(e => e - totalCost);
+      const result = await api.deployBattle({ awakenedIds: fighterIds, tileId, energyCost: totalCost });
+      await refreshEnergy();
       const after = await api.getTerritory();
       setTiles(after.tiles);
       setPlacements(after.placements);
@@ -201,7 +209,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding") => {
     try {
-      await api.setStance({ awakenedId, stance });
+      await api.setStance({ awakenedId, stance, maxEnergy });
+      await refreshEnergy();
       const refreshed = await api.getTerritory();
       setPlacements(refreshed.placements);
       if (stance === "attack") {
@@ -209,14 +218,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       } else {
         setAttackTargeting(false);
       }
-      // Binding costs 2 energy to enter
-      if (stance === "binding") {
-        setEnergy(e => Math.max(0, e - 2));
-      }
-      // Defense generates 1 energy — holding ground gathers strength
-      if (stance === "defense") {
-        setEnergy(e => Math.min(e + 1, maxEnergy));
-      }
+
     } catch (e) {
       console.error("Stance change failed", e);
     }
@@ -227,7 +229,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (energy < 1) return; // Attacks cost 1 energy
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId });
-      setEnergy(e => e - 1);
+      await refreshEnergy();
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
@@ -253,8 +255,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const cost = moveCost(awoken.power);
     if (energy < cost) return;
     try {
-      await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
-      setEnergy(e => e - cost);
+      await api.moveAwoken({ awakenedId: selectedAwoken, tileId, energyCost: cost });
+      await refreshEnergy();
       const refreshed = await api.getTerritory();
       setPlacements(refreshed.placements);
       setSelectedAwoken(null);
@@ -267,6 +269,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleDefend = async () => {
+    battleMusic.start();
+    // Screen shake
+    document.body.classList.add("battle-shake");
     try {
       const result = await api.defendWave();
       setWaveResult({ victory: result.victory, wavePower: result.wavePower, defensePower: result.defensePower });
@@ -279,7 +284,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         api.birthNewbornToHand({ tileId: 0, liberatorNames: [] }).catch(() => {});
       }
       onUpdate();
-      setTimeout(() => setWaveResult(null), 5000);
+      // Flash effect
+      document.body.classList.add(result.victory ? "victory-flash" : "defeat-flash");
+      setTimeout(() => {
+        document.body.classList.remove("battle-shake", "victory-flash", "defeat-flash");
+        battleMusic.stop();
+        setWaveResult(null);
+      }, 3000);
     } catch (e) {
       console.error("Defense failed", e);
     }

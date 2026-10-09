@@ -548,17 +548,44 @@ function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boo
 /** Nigel's private view of his Tenders, ranked by Awoken woken. Workshop only. */
 function TendersPanel() {
   const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
+  const [adminMsg, setAdminMsg] = useState<string | null>(null);
+  const doAdmin = async (fn: () => Promise<any>, label: string) => {
+    try {
+      await fn();
+      setAdminMsg(label + " done.");
+      query.refetch();
+      setTimeout(() => setAdminMsg(null), 3000);
+    } catch (e) {
+      setAdminMsg("Failed: " + (e as Error).message);
+    }
+  };
   if (query.isPending) return <p className="quiet">Gathering the Tenders…</p>;
   if (query.error || !query.data) return <p className="notice error" role="status">{mutationError(query.error)}</p>;
   const tenders = query.data.tenders;
   return <section className="tender-leaderboard">
     <header><p className="eyebrow">The Tenders</p><h1>Those who tend.</h1><p className="quiet">Only you see this. Tenders never see each other's counts.</p></header>
+    {adminMsg && <p className="notice">{adminMsg}</p>}
     {!tenders.length ? <p className="quiet">No Tender has claimed a code yet.</p> : (
       <ol>{tenders.map((t, i) => <li key={t.code}>
         <span className="rank">{i + 1}</span>
         <div className="tender-who"><strong>{t.displayName}</strong><small>{t.code}</small></div>
         <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awoken" : "Awoken"}</span>
         <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
+        <div className="tender-admin">
+          <button className="abtn small" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey, energy: 50 }), "Energy refilled")}>
+            ⚡ Refill
+          </button>
+          <button className="abtn small" onClick={() => doAdmin(() => api.adminClearTimers({ ownerKey: t.ownerKey }), "Timers cleared")}>
+            🕐 Timers
+          </button>
+          <button className="abtn small danger" onClick={() => {
+            if (confirm(`Reset ${t.displayName}'s territory? This clears their map, field, and waves but keeps their Awoken.`)) {
+              doAdmin(() => api.adminResetTender({ ownerKey: t.ownerKey }), "Territory reset");
+            }
+          }}>
+            🔄 Reset
+          </button>
+        </div>
       </li>)}</ol>
     )}
   </section>;

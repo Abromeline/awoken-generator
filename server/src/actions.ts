@@ -389,6 +389,35 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
   }
 }
 
+
+// Energy helpers: server-authoritative energy per tender.
+async function getEnergyFor(ownerKey: string): Promise<number> {
+  const res = await db.select().from(schema.tenderResources)
+    .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+  if (!res.length) {
+    await db.insert(schema.tenderResources).values({ ownerKey, energy: 5 });
+    return 5;
+  }
+  return res[0].energy;
+}
+
+async function spendEnergy(ownerKey: string, amount: number): Promise<boolean> {
+  const current = await getEnergyFor(ownerKey);
+  if (current < amount) return false;
+  await db.update(schema.tenderResources)
+    .set({ energy: current - amount, updatedAt: new Date() })
+    .where(eq(schema.tenderResources.ownerKey, ownerKey));
+  return true;
+}
+
+async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): Promise<void> {
+  const current = await getEnergyFor(ownerKey);
+  const next = Math.min(current + amount, maxEnergy);
+  await db.update(schema.tenderResources)
+    .set({ energy: next, updatedAt: new Date() })
+    .where(eq(schema.tenderResources.ownerKey, ownerKey));
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -586,6 +615,7 @@ export const handlers = {
         displayName: t.tenderName ?? t.code,
         createdAt: t.createdAt.toISOString(),
         awokenCount: countByKey.get(tenderOwnerKey(t.id)) ?? 0,
+        ownerKey: tenderOwnerKey(t.id),
       }))
       .sort((a, b) => b.awokenCount - a.awokenCount || a.createdAt.localeCompare(b.createdAt));
     return { tenders };
@@ -766,8 +796,13 @@ export const handlers = {
     const parsed = z.object({
       awakenedIds: z.array(z.number().int().positive()).min(1).max(4),
       tileId: z.number().int().positive(),
+      energyCost: z.number().int().min(0),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle deployment.");
+    // Server-authoritative energy check.
+    if (!(await spendEnergy(ownerKey, parsed.data.energyCost))) {
+      badRequest("Not enough energy.");
+    }
     if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
       badRequest("Each Awoken fights once.");
     }
@@ -868,8 +903,12 @@ export const handlers = {
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       tileId: z.number().int().positive(),
+      energyCost: z.number().int().min(1).max(4),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid move.");
+    if (!(await spendEnergy(ownerKey, parsed.data.energyCost))) {
+      badRequest("Not enough energy.");
+    }
     // The Awoken must be on the field.
     const placement = await db.select().from(schema.fieldPlacements)
       .where(and(
@@ -1061,13 +1100,91 @@ export const handlers = {
     return { victory, wavePower, defensePower, waveNumber: victory ? wave + 1 : wave };
   },
 
+
+  async getEnergy(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    let res = await db.select().from(schema.tenderResources)
+      .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+    if (!res.length) {
+      const [row] = await db.insert(schema.tenderResources).values({ ownerKey, energy: 5 }).returning();
+      res = [row];
+    }
+    return { energy: res[0].energy };
+  },
+
+  // Admin: reset a tender's territory, field, waves, and timers. Keeps their Awoken.
+  async adminResetTender(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid reset.");
+    const targetKey = parsed.data.ownerKey;
+    // Clear field placements
+    await db.delete(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, targetKey));
+    // Clear territory tiles
+    await db.delete(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, targetKey));
+    // Clear dispersed (return Awoken from time)
+    await db.update(schema.awakened)
+      .set({ dispersedUntil: null })
+      .where(eq(schema.awakened.ownerKey, targetKey));
+    // Reset waves
+    await db.delete(schema.waveState).where(eq(schema.waveState.ownerKey, targetKey));
+    // Reset energy to 5
+    await db.insert(schema.tenderResources)
+      .values({ ownerKey: targetKey, energy: 5 })
+      .onConflictDoUpdate({ target: schema.tenderResources.ownerKey, set: { energy: 5 } });
+    // Re-create the bastion: center purified + 6 cursed ring
+    const now = new Date();
+    await db.insert(schema.territoryTiles).values({
+      ownerKey: targetKey, q: 0, r: 0, element: "neutral", cursed: 0, createdAt: now,
+    });
+    for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) {
+      await db.insert(schema.territoryTiles).values({
+        ownerKey: targetKey, q: dq, r: dr, element: "neutral", cursed: 1, createdAt: now,
+      });
+    }
+    return { ok: true };
+  },
+
+  // Admin: set a tender's energy.
+  async adminSetEnergy(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({ ownerKey: z.string(), energy: z.number().int().min(0).max(999) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid energy.");
+    await db.insert(schema.tenderResources)
+      .values({ ownerKey: parsed.data.ownerKey, energy: parsed.data.energy })
+      .onConflictDoUpdate({ target: schema.tenderResources.ownerKey, set: { energy: parsed.data.energy } });
+    return { ok: true };
+  },
+
+  // Admin: clear all timers (dispersed, passive, etc.) for a tender.
+  async adminClearTimers(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const targetKey = parsed.data.ownerKey;
+    await db.update(schema.awakened)
+      .set({ dispersedUntil: null })
+      .where(eq(schema.awakened.ownerKey, targetKey));
+    await db.update(schema.territoryTiles)
+      .set({ lastPassiveAt: null })
+      .where(eq(schema.territoryTiles.ownerKey, targetKey));
+    return { ok: true };
+  },
+
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       stance: z.enum(["attack", "defense", "binding"]),
+      maxEnergy: z.number().int().min(1),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid stance.");
+    // Binding costs 2 energy to enter. Defense generates 1.
+    if (parsed.data.stance === "binding") {
+      if (!(await spendEnergy(ownerKey, 2))) {
+        badRequest("Not enough energy (need 2 for binding).");
+      }
+    }
     // Verify the Awoken is on the field and owned by the Tender.
     const placement = await db.select().from(schema.fieldPlacements)
       .where(and(
@@ -1078,6 +1195,9 @@ export const handlers = {
     await db.update(schema.fieldPlacements)
       .set({ stance: parsed.data.stance })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
+    if (parsed.data.stance === "defense") {
+      await gainEnergy(ownerKey, 1, parsed.data.maxEnergy);
+    }
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
@@ -1088,6 +1208,9 @@ export const handlers = {
       tileId: z.number().int().positive(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid attack.");
+    if (!(await spendEnergy(ownerKey, 1))) {
+      badRequest("Not enough energy (need 1).");
+    }
     // The attacker must be on the field in attack stance.
     const placement = await db.select().from(schema.fieldPlacements)
       .where(and(

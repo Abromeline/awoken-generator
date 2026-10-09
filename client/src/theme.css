@@ -295,10 +295,41 @@
 
 .trial-error{background:rgba(120,20,20,0.9);color:#ffd0d0;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;border:1px solid #a03030}
 
+/* Battle FX */
+@keyframes battle-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-4px, 2px); }
+  40% { transform: translate(4px, -2px); }
+  60% { transform: translate(-3px, -1px); }
+  80% { transform: translate(3px, 1px); }
+}
+body.battle-shake .territory-map {
+  animation: battle-shake 0.4s ease-in-out infinite;
+}
+@keyframes victory-flash {
+  0% { box-shadow: inset 0 0 100px rgba(100, 255, 100, 0.3); }
+  100% { box-shadow: inset 0 0 100px rgba(100, 255, 100, 0); }
+}
+body.victory-flash {
+  animation: victory-flash 1s ease-out;
+}
+@keyframes defeat-flash {
+  0% { box-shadow: inset 0 0 100px rgba(255, 50, 50, 0.4); }
+  100% { box-shadow: inset 0 0 100px rgba(255, 50, 50, 0); }
+}
+body.defeat-flash {
+  animation: defeat-flash 1s ease-out;
+}
+
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}
 .binding-prompt-title{font-size:16px;font-weight:bold;color:#88bbff;margin-bottom:6px}
 .binding-prompt-text{font-size:14px;color:#ccddff;margin-bottom:10px}
+
+.tender-admin{display:flex;gap:6px;margin-top:6px}
+.abtn.small{font-size:12px;padding:4px 10px}
+.abtn.small.danger{background:#3a1a1a;border-color:#6a2a2a}
+.abtn.small.danger:hover{background:#4a2222}
 
 /* Wave panel */
 .wave-panel{background:rgba(20,10,10,0.9);border:1px solid #6a1a1a;border-radius:8px;padding:10px 14px;margin:0 0 10px;text-align:center}

@@ -200,3 +200,12 @@ export const waveState = sqliteTable("wave_state", {
     .$defaultFn(() => new Date()),
   wavesDefeated: integer("waves_defeated").notNull().default(0),
 });
+
+// Tender energy: server-authoritative. Admin can refill.
+export const tenderResources = sqliteTable("tender_resources", {
+  ownerKey: text("owner_key").primaryKey(),
+  energy: integer("energy").notNull().default(5),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

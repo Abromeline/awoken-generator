@@ -163,6 +163,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   last_wave_at INTEGER NOT NULL,
   waves_defeated INTEGER NOT NULL DEFAULT 0
 );`);
+// Tender energy: server-authoritative. Admin can refill.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_resources (
+  owner_key TEXT PRIMARY KEY,
+  energy INTEGER NOT NULL DEFAULT 5,
+  updated_at INTEGER NOT NULL
+);`);
 
 // Stories table for the Confluence power-up.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (
