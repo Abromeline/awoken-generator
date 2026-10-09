@@ -7,7 +7,7 @@ import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
-import BuildingMenu, { buildingImage } from "./BuildingMenu";
+import BuildingMenu, { buildingImage, wheatStageImage } from "./BuildingMenu";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain-3d/tide.png";
 import skyImg from "./assets/terrain-3d/sky.png";
@@ -494,7 +494,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             return (
               <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}>
                 <image
-                  href={buildingImage(b.buildingType)}
+                  href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * 0.5} y={bpx.y - s * 0.5}
                   width={s} height={s}
                   preserveAspectRatio="xMidYMid meet"
