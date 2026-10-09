@@ -984,12 +984,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           .filter(p => p.tileId === targetTileId)
           .map(p => {
             const aw = tenderItems.find(a => a.id === p.awakenedId);
-            return aw ? { placementId: p.id, awoken: aw, stance: p.stance } : null;
+            return aw ? { placementId: p.id, awoken: aw, stance: p.stance, tileId: p.tileId } : null;
           })
           .filter(Boolean) as { placementId: number; awoken: Awakened; stance: string }[];
         return (
           <Battleground
             defenders={defs}
+            thornWallTiles={buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active").map(b => b.tileId)}
             wave={wave}
             hand={hand}
             assets={assets}

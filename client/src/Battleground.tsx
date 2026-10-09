@@ -13,6 +13,7 @@ interface Defender {
   placementId: number;
   awoken: Awakened;
   stance?: string; // field stance, locked in battle
+  tileId?: number; // for building effects (thorn wall)
 }
 
 interface WaveInfo {
@@ -24,6 +25,7 @@ interface WaveInfo {
 
 interface BattlegroundProps {
   defenders: Defender[];  // Field Awoken on the bastion
+  thornWallTiles?: number[]; // tile IDs with active thorn walls
   wave: WaveInfo;
   hand: Awakened[];  // For reinforcements
   assets: FieldAsset[];
@@ -43,9 +45,10 @@ interface Fighter {
   side: "aw" | "en";
   field: boolean;  // True if field defender, false if reinforcement
   awoken?: Awakened;  // For FieldAwoken rendering
+  tileId?: number;  // For building effects (thorn wall)
 }
 
-export default function Battleground({ defenders, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -76,6 +79,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
       return {
       id: `a-${d.awoken.id}`,
       awokenId: d.awoken.id,
+      tileId: d.tileId,
       x: 5 + i * 11, y: 30, w: 13,
       power: basePower, tough: baseTough,
       hp: baseTough, maxHp: baseTough,
@@ -193,7 +197,19 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
           }
           const target = targets[Math.floor(Math.random() * targets.length)];
           const edmg = Math.max(1, attacker.power - target.tough);
-          setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
+          // Thorn Wall: 1 damage to every attacker striking a walled tile
+          const thornHit = target.tileId && thornWallTiles.includes(target.tileId);
+          if (thornHit) {
+            setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}! Thorns bite back for 1!`);
+          } else {
+            setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
+          }
+          // Apply thorn damage to attacker
+          if (thornHit) {
+            setEnemies(ens => ens.map(e =>
+              e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - 1) } : e
+            ));
+          }
           return currentFighters.map(f =>
             f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
           );
