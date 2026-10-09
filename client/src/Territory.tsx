@@ -464,67 +464,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const tyb = tiltPoint(0, cyb).y;
       return tya - tyb;
     });
-    const elements = sortedTiles.map((t, i) => {
-      // Pointy-top axial to pixel
+    // Entity layer: Awoken + buildings render ABOVE all terrain (Option A)
+    const entityElements = sortedTiles.map((t) => {
       const px = size * Math.sqrt(3) * (t.q + t.r / 2);
       const py = size * 1.5 * t.r;
       const cx = originX + px + pan.x;
       const cy = originY + py + pan.y;
       const s = size;
-      const pts: string[] = [];
-      for (let k = 0; k < 6; k++) {
-        const a = Math.PI / 180 * (60 * k + 30);
-        const vx = cx + s * Math.cos(a);
-        const vy = cy + s * Math.sin(a);
-        const tp = tiltPoint(vx, vy);
-        pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
-      }
-
-      const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
       const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
       const awoken = awokens[0] ?? null;
-      const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
+      const lift = t.cursed ? 0 : -5;
       return (
-        <g key={t.id} transform={`translate(0,${lift})`}>
-          <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
-          <g clipPath={`url(#terr-${t.id})`}>
-            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.5} y={tiltPoint(cx, cy).y - s * 1.9} width={s * 3} height={s * 3} preserveAspectRatio="xMidYMid meet" style={{ filter: t.cursed ? "brightness(0.4) saturate(0.3)" : undefined }} />
-          </g>
-          {/* Siege timer on cursed tiles */}
-          {t.cursed && t.lastPassiveAt && (() => {
-            const last = new Date(t.lastPassiveAt).getTime();
-            const elapsed = Date.now() - last;
-            const remaining = 48 * 60 * 60 * 1000 - elapsed;
-            if (remaining <= 0) return null;
-            const hours = Math.floor(remaining / (60 * 60 * 1000));
-            const tp = tiltPoint(cx, cy);
-            return (
-              <text x={tp.x} y={tp.y + 8} textAnchor="middle" fontSize={7}
-                fill={auraTiles.has(t.id) ? "#88ff88" : "#888"} opacity="0.9">
-                {hours}h
-              </text>
-            );
-          })()}
-          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
-            stroke={t.cursed ? (auraTiles.has(t.id) ? "#88ff88" : (battlePool.length > 0 ? "#ff4444" : "#5a2a2a")) : "#b89b5e"}
-            strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
-            opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
-            style={{
-              cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
-              filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
-              pointerEvents: "all"
-            }}
-            onClick={() => {
-              if (attackTargeting && selectedAwoken !== null) {
-                handleAttack(t.id);
-              } else if (moveTargeting && selectedAwoken !== null) {
-                handleMove(t.id);
-              } else if (battlePool.length > 0) {
-                handleDeploy(t.id);
-              }
-            }} />
-
+        <g key={`entity-${t.id}`} transform={`translate(0,${lift})`}>
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
@@ -644,6 +596,72 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </g>
       );
     });
+
+    const elements = sortedTiles.map((t, i) => {
+      // Pointy-top axial to pixel
+      const px = size * Math.sqrt(3) * (t.q + t.r / 2);
+      const py = size * 1.5 * t.r;
+      const cx = originX + px + pan.x;
+      const cy = originY + py + pan.y;
+      const s = size;
+      const pts: string[] = [];
+      for (let k = 0; k < 6; k++) {
+        const a = Math.PI / 180 * (60 * k + 30);
+        const vx = cx + s * Math.cos(a);
+        const vy = cy + s * Math.sin(a);
+        const tp = tiltPoint(vx, vy);
+        pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
+      }
+
+      const placement = placements.find(p => p.tileId === t.id);
+      const tilePlacements = placements.filter(p => p.tileId === t.id);
+      const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
+      const awoken = awokens[0] ?? null;
+      const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
+      return (
+        <g key={t.id} transform={`translate(0,${lift})`}>
+          <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
+          <g clipPath={`url(#terr-${t.id})`}>
+            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.5} y={tiltPoint(cx, cy).y - s * 1.9} width={s * 3} height={s * 3} preserveAspectRatio="xMidYMid meet" style={{ filter: t.cursed ? "brightness(0.4) saturate(0.3)" : undefined }} />
+          </g>
+          {/* Siege timer on cursed tiles */}
+          {t.cursed && t.lastPassiveAt && (() => {
+            const last = new Date(t.lastPassiveAt).getTime();
+            const elapsed = Date.now() - last;
+            const remaining = 48 * 60 * 60 * 1000 - elapsed;
+            if (remaining <= 0) return null;
+            const hours = Math.floor(remaining / (60 * 60 * 1000));
+            const tp = tiltPoint(cx, cy);
+            return (
+              <text x={tp.x} y={tp.y + 8} textAnchor="middle" fontSize={7}
+                fill={auraTiles.has(t.id) ? "#88ff88" : "#888"} opacity="0.9">
+                {hours}h
+              </text>
+            );
+          })()}
+          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
+            stroke={t.cursed ? (auraTiles.has(t.id) ? "#88ff88" : (battlePool.length > 0 ? "#ff4444" : "#5a2a2a")) : "#b89b5e"}
+            strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
+            opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
+            style={{
+              cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
+              filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
+              pointerEvents: "all"
+            }}
+            onClick={() => {
+              if (attackTargeting && selectedAwoken !== null) {
+                handleAttack(t.id);
+              } else if (moveTargeting && selectedAwoken !== null) {
+                handleMove(t.id);
+              } else if (battlePool.length > 0) {
+                handleDeploy(t.id);
+              }
+            }} />
+
+          {/* Awoken render in entity layer */}
+        </g>
+      );
+    });
     return (
       <>
         <defs>
@@ -668,6 +686,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           })}
         </defs>
         {elements}
+        {entityElements}
       </>
     );
   };
