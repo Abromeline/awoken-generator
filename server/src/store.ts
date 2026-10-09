@@ -169,6 +169,30 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_resources (
   energy INTEGER NOT NULL DEFAULT 5,
   updated_at INTEGER NOT NULL
 );`);
+// Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  track_data TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);`);
+
+// Seed the 4 FF-inspired battle tracks if empty.
+const trackCount = sqlite.prepare(`SELECT COUNT(*) as n FROM battle_tracks`).get() as { n: number };
+if (trackCount.n === 0) {
+  const tracks = [
+    { name: "Unraveling Assault", data: { bpm: 150, lead: [[587.33, 0.5], [698.46, 0.5], [880, 0.5], [783.99, 0.5], [698.46, 0.5], [659.25, 0.5], [587.33, 1]], bass: [[146.83, 1], [146.83, 1], [174.61, 1], [196, 1]], drums: "kick-hat-kick-hat-snare-hat-kick-hat" } },
+    { name: "Bastion's Stand", data: { bpm: 120, lead: [[698.46, 1], [880, 1], [1046.5, 1.5], [880, 0.5], [1046.5, 1], [1174.66, 1], [1046.5, 2]], bass: [[174.61, 2], [196, 2], [174.61, 2], [146.83, 2]], drums: "kick-kick-snare-kick" } },
+    { name: "The Hollow March", data: { bpm: 90, lead: [[220, 1.5], [261.63, 1.5], [329.63, 1.5], [293.66, 1.5], [220, 2]], bass: [[110, 3], [98, 3], [110, 3], [130.81, 3]], drums: "kick---snare---" } },
+    { name: "Victory's Dawn", data: { bpm: 140, lead: [[523.25, 0.5], [659.25, 0.5], [783.99, 0.5], [1046.5, 1], [783.99, 0.5], [1046.5, 1.5]], bass: [[130.81, 1], [164.81, 1], [196, 1], [130.81, 1]], drums: "kick-hat-snare-hat-kick-hat-snare-hat" } },
+  ];
+  const now = Date.now();
+  const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled, created_at) VALUES (?, ?, 1, ?)`);
+  for (const t of tracks) {
+    stmt.run(t.name, JSON.stringify(t.data), now);
+  }
+}
 
 // Stories table for the Confluence power-up.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (

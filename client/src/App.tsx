@@ -22,7 +22,7 @@ import auraDisc from "./assets/auras/haze-12.png";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders";
+type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -584,6 +584,69 @@ function TendersPanel() {
   </section>;
 }
 
+/** Battle tracks: Nigel curates the rotating 8-bit music. Workshop only. */
+function TracksPanel() {
+  const query = useQuery({ queryKey: ["battleTracks"], queryFn: () => api.listBattleTracks() });
+  const [msg, setMsg] = useState<string | null>(null);
+  const doAction = async (fn: () => Promise<any>, label: string) => {
+    try { await fn(); setMsg(label); query.refetch(); setTimeout(() => setMsg(null), 2500); }
+    catch (e) { setMsg("Failed: " + (e as Error).message); }
+  };
+  if (query.isPending) return <p className="quiet">Loading tracks…</p>;
+  if (query.error) return <p className="notice error">{mutationError(query.error)}</p>;
+  const tracks = query.data?.tracks ?? [];
+  return <section className="tender-leaderboard">
+    <header><p className="eyebrow">Battle Tracks</p><h1>Music of the Unraveling.</h1>
+    <p className="quiet">A random enabled track plays when a battleground starts. Add your own 8-bit compositions.</p></header>
+    {msg && <p className="notice">{msg}</p>}
+    {!tracks.length ? <p className="quiet">No tracks yet. Add one below.</p> : (
+      <ol>{tracks.map(t => <li key={t.id}>
+        <div className="tender-who"><strong>{t.name}</strong><small>{t.enabled ? "✓ enabled" : "○ disabled"}</small></div>
+        <div className="tender-admin">
+          <button className="abtn small" onClick={() => doAction(() => api.toggleBattleTrack({ id: t.id, enabled: !t.enabled }), t.enabled ? "Disabled" : "Enabled")}>
+            {t.enabled ? "○" : "✓"}
+          </button>
+          <button className="abtn small" onClick={() => {
+            api.getBattleTrack({ id: t.id }).then(({ trackData }) => {
+              import("./trackPlayer").then(({ trackPlayer }) => {
+                trackPlayer.play(JSON.parse(trackData));
+                setTimeout(() => trackPlayer.stop(), 10000);
+              });
+            });
+          }}>▶</button>
+          <button className="abtn small danger" onClick={() => {
+            if (confirm(`Delete "${t.name}"?`)) doAction(() => api.deleteBattleTrack({ id: t.id }), "Deleted");
+          }}>✕</button>
+        </div>
+      </li>)}</ol>
+    )}
+    <AddTrackForm onAdded={() => query.refetch()} />
+  </section>;
+}
+
+function AddTrackForm({ onAdded }: { onAdded: () => void }) {
+  const [name, setName] = useState("");
+  const [json, setJson] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const submit = async () => {
+    try {
+      JSON.parse(json); // validate
+      await api.addBattleTrack({ name, trackData: json });
+      setName(""); setJson(""); setMsg("Track added!");
+      onAdded();
+      setTimeout(() => setMsg(null), 2500);
+    } catch (e) { setMsg("Invalid JSON or failed: " + (e as Error).message); }
+  };
+  return <div style={{ marginTop: 20, padding: 16, border: "1px solid #444", borderRadius: 8 }}>
+    <h3>Add Battle Track</h3>
+    <p className="quiet">Paste track JSON with bpm, lead, bass, and drums fields.</p>
+    <input value={name} onChange={e => setName(e.target.value)} placeholder="Track name" style={{ width: "100%", marginBottom: 8, padding: 8 }} />
+    <textarea value={json} onChange={e => setJson(e.target.value)} placeholder='{"bpm": 140, "lead": [[440, 0.5]], ...}' rows={6} style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
+    <button className="abtn" onClick={submit} disabled={!name || !json} style={{ marginTop: 8 }}>Add Track</button>
+    {msg && <p className="notice">{msg}</p>}
+  </div>;
+}
+
 
 /** Layered cosmic background: interstellar debris over black, slowly rotating and breathing. Edges never cross the screen. */
 function CosmicBackground() {
@@ -678,11 +741,12 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }];
   return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>    {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} />{wFocused?.collection === "workshop" && <section className="newborn-reveal"><CreatureCard item={wFocused} newborn allowDelete /></section>}</>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
     {workshopView === "tenders" && <TendersPanel />}
+    {workshopView === "tracks" && <TracksPanel />}
   </main></div></>;
 }

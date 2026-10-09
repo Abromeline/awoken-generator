@@ -260,6 +260,12 @@ export const api = {
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string; energy: number }) => post<{ ok: true }>("adminSetEnergy", args),
   adminClearTimers: (args: { ownerKey: string }) => post<{ ok: true }>("adminClearTimers", args),
+  listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
+  getBattleTrack: (args: { id: number }) => post<{ id: number; name: string; trackData: string }>("getBattleTrack", args),
+  getRandomBattleTrack: () => post<{ track: { id: number; name: string; trackData: string } | null }>("getRandomBattleTrack", {}),
+  addBattleTrack: (args: { name: string; trackData: string }) => post<{ id: number }>("addBattleTrack", args),
+  toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
+  deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;

@@ -209,3 +209,14 @@ export const tenderResources = sqliteTable("tender_resources", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Battle tracks: rotating 8-bit music for battlegrounds.
+export const battleTracks = sqliteTable("battle_tracks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  trackData: text("track_data").notNull(),
+  enabled: integer("enabled").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

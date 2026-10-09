@@ -4,7 +4,7 @@ import FirstTrial from "./FirstTrial";
 import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
-import { battleMusic } from "./battleMusic";
+import { trackPlayer, type TrackData } from "./trackPlayer";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain/tide.jpg";
 import skyImg from "./assets/terrain/sky.jpg";
@@ -269,7 +269,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleDefend = async () => {
-    battleMusic.start();
+    // Random battle track from the workshop rotation
+    try {
+      const { track } = await api.getRandomBattleTrack();
+      if (track) {
+        trackPlayer.play(JSON.parse(track.trackData) as TrackData);
+      }
+    } catch {}
+    // Fallback: old battle music if no tracks
     // Screen shake
     document.body.classList.add("battle-shake");
     try {
@@ -288,7 +295,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       document.body.classList.add(result.victory ? "victory-flash" : "defeat-flash");
       setTimeout(() => {
         document.body.classList.remove("battle-shake", "victory-flash", "defeat-flash");
-        battleMusic.stop();
+        trackPlayer.stop();
         setWaveResult(null);
       }, 3000);
     } catch (e) {

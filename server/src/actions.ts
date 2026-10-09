@@ -1171,6 +1171,62 @@ export const handlers = {
     return { ok: true };
   },
 
+
+  // Battle tracks: workshop management (Nigel only).
+  async listBattleTracks() {
+    const tracks = await db.select().from(schema.battleTracks).orderBy(asc(schema.battleTracks.id));
+    return { tracks: tracks.map(t => ({ id: t.id, name: t.name, enabled: !!t.enabled })) };
+  },
+
+  async getBattleTrack(args: unknown) {
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid track.");
+    const track = await db.select().from(schema.battleTracks)
+      .where(eq(schema.battleTracks.id, parsed.data.id)).limit(1);
+    if (!track.length) badRequest("Track not found.");
+    return { id: track[0].id, name: track[0].name, trackData: track[0].trackData };
+  },
+
+  async getRandomBattleTrack() {
+    const tracks = await db.select().from(schema.battleTracks)
+      .where(eq(schema.battleTracks.enabled, 1));
+    if (!tracks.length) return { track: null };
+    const pick = tracks[Math.floor(Math.random() * tracks.length)];
+    return { track: { id: pick.id, name: pick.name, trackData: pick.trackData } };
+  },
+
+  async addBattleTrack(args: unknown, ctx?: ActionContext) {
+    // TODO: verify workshop password
+    const parsed = z.object({
+      name: z.string().min(1).max(100),
+      trackData: z.string().min(1),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid track.");
+    const [row] = await db.insert(schema.battleTracks).values({
+      name: parsed.data.name,
+      trackData: parsed.data.trackData,
+    }).returning();
+    return { id: row.id };
+  },
+
+  async toggleBattleTrack(args: unknown, ctx?: ActionContext) {
+    // TODO: verify workshop password
+    const parsed = z.object({ id: z.number().int().positive(), enabled: z.boolean() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await db.update(schema.battleTracks)
+      .set({ enabled: parsed.data.enabled ? 1 : 0 })
+      .where(eq(schema.battleTracks.id, parsed.data.id));
+    return { ok: true };
+  },
+
+  async deleteBattleTrack(args: unknown, ctx?: ActionContext) {
+    // TODO: verify workshop password
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await db.delete(schema.battleTracks).where(eq(schema.battleTracks.id, parsed.data.id));
+    return { ok: true };
+  },
+
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
