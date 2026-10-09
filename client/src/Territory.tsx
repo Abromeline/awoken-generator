@@ -1014,6 +1014,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             defenders={defs}
             thornWallTiles={buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active").map(b => b.tileId)}
             watchtowerTiles={buildings.filter(b => b.buildingType === "watchtower" && b.status === "active").map(b => b.tileId)}
+            towerAuraTiles={(() => {
+              const towers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
+              const aura = new Set<number>();
+              const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+              for (const t of towers) {
+                aura.add(t.tileId);
+                const tile = tiles.find(tl => tl.id === t.tileId);
+                if (!tile) continue;
+                for (const [dq, dr] of dirs) {
+                  const adj = tiles.find(tl => tl.q === tile.q + dq && tl.r === tile.r + dr);
+                  if (adj) aura.add(adj.id);
+                }
+              }
+              return [...aura];
+            })()}
             wave={wave}
             hand={hand}
             assets={assets}

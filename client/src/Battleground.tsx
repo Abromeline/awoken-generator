@@ -26,7 +26,8 @@ interface WaveInfo {
 interface BattlegroundProps {
   defenders: Defender[];  // Field Awoken on the bastion
   thornWallTiles?: number[]; // tile IDs with active thorn walls
-  watchtowerTiles?: number[]; // tile IDs with active watchtowers
+  watchtowerTiles?: number[]; // tile IDs with active watchtowers (first-strike)
+  towerAuraTiles?: number[]; // tiles with +2 power from adjacent watchtowers
   wave: WaveInfo;
   hand: Awakened[];  // For reinforcements
   assets: FieldAsset[];
@@ -49,7 +50,7 @@ interface Fighter {
   tileId?: number;  // For building effects (thorn wall)
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
   const watchtowerFired = useRef<Set<number>>(new Set());
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
@@ -76,7 +77,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       // Defense stance: +2 toughness, Attack stance: +2 power
       const stanceBonusPower = d.stance === "attack" ? 2 : 0;
       const stanceBonusTough = d.stance === "defense" ? 2 : 0;
-      const towerBonus = d.tileId && watchtowerTiles.includes(d.tileId) ? 2 : 0;
+      const towerBonus = d.tileId && towerAuraTiles.includes(d.tileId) ? 2 : 0;
       const basePower = d.awoken.power + stanceBonusPower + towerBonus;
       const baseTough = d.awoken.toughness + stanceBonusTough;
       return {
