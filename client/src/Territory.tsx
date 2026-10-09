@@ -62,6 +62,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBindingPrompt, setShowBindingPrompt] = useState(false);
   const [showBattleground, setShowBattleground] = useState(false);
+  const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number }; defenderIds: number[] } | null>(null);
+  const [showTargetMap, setShowTargetMap] = useState(false);
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
@@ -276,7 +278,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleDefend = async () => {
-    // Open the interactive battleground overlay
+    // Phase 1: Show minimap with the targeted territory
+    try {
+      const target = await api.getWaveTarget();
+      setWaveTarget(target);
+      setShowTargetMap(true);
+    } catch (e) {
+      console.error("Failed to get wave target", e);
+    }
+  };
+
+  const handleTargetConfirmed = () => {
+    // Phase 2: Open the battleground with the target's defenders
+    setShowTargetMap(false);
     setShowBattleground(true);
   };
 
@@ -737,11 +751,41 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <button onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
         </div>
       </div>
-      {showBattleground && wave && (() => {
-        const center = tiles.find(t => t.q === 0 && t.r === 0);
-        if (!center) return null;
+      {showTargetMap && waveTarget && wave && (
+        <div className="target-map-overlay">
+          <div className="target-map-modal">
+            <h2 style={{ color: "#ff6666", fontFamily: "Georgia, serif" }}>⚠ The Unraveling Comes</h2>
+            <p style={{ color: "#aaa" }}>Wave {wave.waveNumber} targets this territory:</p>
+            <div className="target-minimap">
+              {tiles.slice(0, 12).map(t => {
+                const isTarget = t.id === waveTarget.tile.id;
+                const hasDefenders = waveTarget.defenderIds.length > 0;
+                return (
+                  <div
+                    key={t.id}
+                    className={`target-hex ${isTarget ? "targeted" : ""} ${t.cursed ? "cursed" : ""}`}
+                    title={isTarget ? "Under attack!" : ""}
+                  />
+                );
+              })}
+            </div>
+            <p style={{ color: waveTarget.defenderIds.length > 0 ? "#8f8" : "#fa0", fontSize: 14 }}>
+              {waveTarget.defenderIds.length > 0
+                ? `${waveTarget.defenderIds.length} defender(s) hold this land.`
+                : "No defenders! You must play Awoken from hand (costs energy)."}
+            </p>
+            <button className="abtn battle-cta" onClick={handleTargetConfirmed}>
+              ⚔ Defend
+            </button>
+            <button className="abtn small" onClick={() => setShowTargetMap(false)} style={{ marginLeft: 8 }}>
+              Retreat
+            </button>
+          </div>
+        </div>
+      )}
+      {showBattleground && wave && waveTarget && (() => {
         const defs = placements
-          .filter(p => p.tileId === center.id)
+          .filter(p => p.tileId === waveTarget.tile.id)
           .map(p => {
             const aw = tenderItems.find(a => a.id === p.awakenedId);
             return aw ? { placementId: p.id, awoken: aw } : null;

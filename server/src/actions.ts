@@ -1322,6 +1322,41 @@ export const handlers = {
 
   // Resolve an interactive battleground battle. Client reports the outcome,
   // server validates plausibility and applies territory changes.
+  async getWaveTarget(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    // The wave targets a random border tile (purified, non-center, non-binding)
+    // If no border tiles, targets the bastion.
+    const tiles = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.cursed, 0)
+      ));
+    const binders = await db.select({ tileId: schema.fieldPlacements.tileId })
+      .from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        eq(schema.fieldPlacements.stance, "binding")
+      ));
+    const protectedIds = new Set(binders.map(b => b.tileId));
+    // Border = purified, not center, not protected by binding
+    const border = tiles.filter(t => !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id));
+    let target;
+    if (border.length > 0) {
+      target = border[Math.floor(Math.random() * border.length)];
+    } else {
+      // Fallback to bastion
+      target = tiles.find(t => t.q === 0 && t.r === 0);
+    }
+    if (!target) badRequest("No territory to defend.");
+    // Get Awoken on the target hex
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.tileId, target.id));
+    return {
+      tile: { id: target.id, q: target.q, r: target.r, element: target.element },
+      defenderIds: placements.map(p => p.awakenedId),
+    };
+  },
+
   async resolveBattle(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
