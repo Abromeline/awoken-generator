@@ -49,7 +49,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState("The Unraveling comes...");
-  const [busy, setBusy] = useState(false);
+
   const [energyLeft, setEnergyLeft] = useState(energy);
   const [deck, setDeck] = useState(hand.slice(0, 6));
   const [turnOrder, setTurnOrder] = useState<string[]>([]);
@@ -109,8 +109,6 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   };
 
   const doAttack = (atk: Fighter, def: Fighter) => {
-    if (busy) return;
-    setBusy(true);
     setSelected(null);
     setAttacking(atk.id);
     setTimeout(() => setAttacking(null), 600);
@@ -127,7 +125,6 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
       setEnemies(currentEnemies => {
         const alive = currentEnemies.filter(e => e.hp > 0);
         if (alive.length === 0) {
-          setBusy(false);
           return currentEnemies;
         }
         // Random alive enemy counterattacks a random alive fighter
@@ -135,13 +132,11 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         setFighters(currentFighters => {
           const targets = currentFighters.filter(f => f.hp > 0);
           if (targets.length === 0) {
-            setBusy(false);
-            return currentFighters;
+              return currentFighters;
           }
           const target = targets[Math.floor(Math.random() * targets.length)];
           const edmg = Math.max(1, attacker.power - target.tough);
           setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
-          setBusy(false);
           return currentFighters.map(f =>
             f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
           );
@@ -149,8 +144,6 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         return currentEnemies;
       });
     }, 900);
-    // Safety: always unblock after 3s
-    setTimeout(() => setBusy(false), 3000);
   };
 
   // Check for battle end whenever fighters or enemies change
@@ -259,7 +252,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
             className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${attacking === e.id ? "attacking" : ""}`}
             style={{ left: `${e.x}%`, bottom: `${e.y}%`, width: `${e.w}%` }}
             onClick={() => {
-              if (selected && !busy) {
+              if (selected) {
                 const atk = fighters.find(f => f.id === selected);
                 if (atk) doAttack(atk, e);
               }

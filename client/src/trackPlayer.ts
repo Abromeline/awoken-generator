@@ -3,6 +3,7 @@ export interface TrackData {
   bpm: number;
   lead: [number, number][];  // [freq Hz, beats]
   bass: [number, number][];
+  violin?: [number, number][];  // sorrowful violin counter-melody
   drums: string;
 }
 
@@ -15,6 +16,10 @@ export class TrackPlayer {
   async play(trackData: TrackData) {
     this.stop();
     this.ctx = new AudioContext();
+    // iOS requires resume() from user gesture context
+    if (this.ctx.state === "suspended") {
+      await this.ctx.resume().catch(() => {});
+    }
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.12;
     this.master.connect(this.ctx.destination);
@@ -55,6 +60,19 @@ export class TrackPlayer {
       time += beats * beatMs;
     });
 
+    // Schedule violin (sorrowful: sawtooth + vibrato, slow attack)
+    if (data.violin) {
+      time = 0;
+      data.violin.forEach(([freq, beats]) => {
+        if (freq > 0) {
+          const startAt = time;
+          const durMs = beats * beatMs * 0.95;
+          this.timers.push(window.setTimeout(() => this.playViolin(freq, durMs), startAt));
+        }
+        time += beats * beatMs;
+      });
+    }
+
     // Schedule drums
     this.scheduleDrums(data.drums, beatMs);
 
@@ -76,6 +94,39 @@ export class TrackPlayer {
     g.connect(this.master);
     osc.start(t);
     osc.stop(t + durationMs / 1000 + 0.05);
+  }
+
+  private playViolin(freq: number, durationMs: number) {
+    if (!this.ctx || !this.master || !this.playing) return;
+    const t = this.ctx.currentTime;
+    const dur = durationMs / 1000;
+    const osc = this.ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = freq;
+    // Vibrato: 5.5Hz, ±15 cents
+    const vib = this.ctx.createOscillator();
+    vib.frequency.value = 5.5;
+    const vibGain = this.ctx.createGain();
+    vibGain.gain.value = freq * 0.008;
+    vib.connect(vibGain);
+    vibGain.connect(osc.frequency);
+    const g = this.ctx.createGain();
+    // Slow attack (0.3s), sustain, gentle release
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.linearRampToValueAtTime(0.22, t + Math.min(0.3, dur * 0.3));
+    g.gain.setValueAtTime(0.22, t + dur * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.01, t + dur);
+    // Lowpass to soften the sawtooth into strings
+    const f = this.ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 2200;
+    osc.connect(f);
+    f.connect(g);
+    g.connect(this.master);
+    osc.start(t);
+    vib.start(t);
+    osc.stop(t + dur + 0.05);
+    vib.stop(t + dur + 0.05);
   }
 
   private scheduleDrums(pattern: string, beatMs: number) {
