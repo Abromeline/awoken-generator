@@ -1308,7 +1308,7 @@ export const handlers = {
         { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 480, desc: "Grows in 8h. Harvest for +4 energy.", icon: "🌾" },
         { type: "elemental-shrine", name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
         { type: "stillwater-pool", name: "Stillwater Pool", cost: 10, buildMinutes: 360, desc: "+3 max energy. Max 2 per territory.", icon: "💧" },
-        { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "3 damage to first attacker. Single use.", icon: "🌵" },
+        { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
         { type: "binding-circle", name: "Binding Circle", cost: 6, buildMinutes: 180, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
       ]
     };
