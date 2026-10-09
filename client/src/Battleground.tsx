@@ -51,7 +51,6 @@ interface Fighter {
 }
 
 export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
-  const watchtowerFired = useRef<Set<number>>(new Set());
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -62,6 +61,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [turnOrder, setTurnOrder] = useState<string[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
   const [attacking, setAttacking] = useState<string | null>(null);
+  const [towerVolley, setTowerVolley] = useState(false);
   const [hitFlash, setHitFlash] = useState<string | null>(null);
   const [dmgNumbers, setDmgNumbers] = useState<{id: string, fighterId: string, dmg: number, crit: boolean}[]>([]);
   const [critFlash, setCritFlash] = useState(false);
@@ -125,6 +125,30 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     }
     setFighters(aw);
     setEnemies(en);
+
+    // Watchtower opening volley: each tower fires 1 damage at a random enemy
+    if (watchtowerTiles.length > 0 && en.length > 0) {
+      setTowerVolley(true);
+      setTimeout(() => {
+        setEnemies(current => {
+          const updated = [...current];
+          for (let i = 0; i < watchtowerTiles.length; i++) {
+            const alive = updated.filter(e => e.hp > 0);
+            if (alive.length === 0) break;
+            const target = alive[Math.floor(Math.random() * alive.length)];
+            const idx = updated.findIndex(e => e.id === target.id);
+            updated[idx] = { ...updated[idx], hp: Math.max(0, updated[idx].hp - 1) };
+            // Damage number animation
+            const numId = `tower-${Date.now()}-${i}`;
+            setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: 1, crit: false }]);
+            setTimeout(() => setDmgNumbers(prev => prev.filter(n => n.id !== numId)), 1200);
+          }
+          return updated;
+        });
+        setLog(`🗼 Watchtower volley! ${watchtowerTiles.length} tower${watchtowerTiles.length > 1 ? "s" : ""} fire!`);
+        setTimeout(() => setTowerVolley(false), 1500);
+      }, 800);
+    }
 
     // Random battle track
     api.getRandomBattleTrack().then(({ track }) => {
@@ -203,17 +227,11 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const edmg = Math.max(1, attacker.power - target.tough);
           // Thorn Wall: 1 damage to every attacker striking a walled tile
           const thornHit = target.tileId && thornWallTiles.includes(target.tileId);
-          // Watchtower: 1 damage to the FIRST enemy to attack this tile (once per battle)
-          const watchHit = target.tileId && watchtowerTiles.includes(target.tileId) && !watchtowerFired.current.has(target.tileId);
           let logMsg = `${attacker.name} strikes back at ${target.name} for ${edmg}!`;
           if (thornHit) logMsg += " Thorns bite back for 1!";
-          if (watchHit) {
-            logMsg += " Watchtower fires for 1!";
-            watchtowerFired.current.add(target.tileId!);
-          }
           setLog(logMsg);
-          // Apply thorn + watchtower damage to attacker
-          const retaliation = (thornHit ? 1 : 0) + (watchHit ? 1 : 0);
+          // Apply thorn damage to attacker
+          const retaliation = thornHit ? 1 : 0;
           if (retaliation > 0) {
             setEnemies(ens => ens.map(e =>
               e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - retaliation) } : e
@@ -303,6 +321,12 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     <div className="battleground-overlay">
       <div className="battleground-bg" style={{ backgroundImage: `url(${battlegroundBg})` }} />
       <div className="battle-fog" />
+      {towerVolley && (
+        <div className="tower-volley-banner">
+          <div className="volley-flash" />
+          <div className="volley-text">🗼 TOWER VOLLEY 🗼</div>
+        </div>
+      )}
       <div className="battle-hud">
         <div className="energy-display">⚡ {energyLeft}/{maxEnergy}</div>
         <button 

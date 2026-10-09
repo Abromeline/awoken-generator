@@ -536,6 +536,35 @@ body.defeat-flash {
   0%, 100% { opacity: 0.6; }
   50% { opacity: 0.9; }
 }
+/* Tower volley animation */
+.tower-volley-banner {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; z-index: 50;
+}
+.volley-flash {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(circle, rgba(255,200,80,0.3) 0%, transparent 70%);
+  animation: volley-flash 1.5s ease-out;
+}
+.volley-text {
+  font-size: 32px; font-weight: bold; color: #ffcc44;
+  text-shadow: 0 0 20px #ff9900, 0 2px 4px #000;
+  animation: volley-text 1.5s ease-out;
+  z-index: 51;
+}
+@keyframes volley-flash {
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes volley-text {
+  0% { transform: scale(0.5); opacity: 0; }
+  20% { transform: scale(1.2); opacity: 1; }
+  40% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
 /* Builder selection */
 .builder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
 .builder-card {
