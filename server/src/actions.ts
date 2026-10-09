@@ -1336,6 +1336,7 @@ export const handlers = {
       tileId: z.number().int(),
       buildingType: z.string(),
       element: z.string().optional(),
+      builderIds: z.array(z.number().int()).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid request.");
     const defs: Record<string, { cost: number; buildMinutes: number }> = {
@@ -1348,18 +1349,16 @@ export const handlers = {
     };
     const def = defs[parsed.data.buildingType];
     if (!def) badRequest("Unknown building.");
-    // Find helpers: Awoken on this tile not in a combat stance (idle/neutral)
-    // Each helper exponentially reduces build time: time / 2^helpers
-    const helpers = await db.select().from(schema.fieldPlacements)
+    // Builders: manually selected Awoken from the tile (any stance -> building)
+    // Each builder exponentially reduces build time: time / 2^builders
+    const builderIds = parsed.data.builderIds || [];
+    const helpers = builderIds.length ? await db.select().from(schema.fieldPlacements)
       .where(and(
         eq(schema.fieldPlacements.ownerKey, ownerKey),
         eq(schema.fieldPlacements.tileId, parsed.data.tileId),
-        or(
-          eq(schema.fieldPlacements.stance, "none"),
-          eq(schema.fieldPlacements.stance, "idle")
-        )
-      ));
-    const helperCount = helpers.length;
+      )) : [];
+    const validHelpers = helpers.filter(h => builderIds.includes(h.awakenedId));
+    const helperCount = validHelpers.length;
     const timeDivisor = Math.pow(2, helperCount);
     const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes / timeDivisor));
     const tile = await db.select().from(schema.territoryTiles)
@@ -1375,8 +1374,8 @@ export const handlers = {
       .set({ energy: energyRes.energy - def.cost })
       .where(eq(schema.tenderResources.ownerKey, ownerKey));
     const readyAt = new Date(Date.now() + actualBuildMinutes * 60 * 1000);
-    // Helpers enter build mode (can't fight/defend while building)
-    for (const h of helpers) {
+    // Builders enter build mode (can't fight/defend while building)
+    for (const h of validHelpers) {
       await db.update(schema.fieldPlacements)
         .set({ stance: "building" })
         .where(eq(schema.fieldPlacements.id, h.id));

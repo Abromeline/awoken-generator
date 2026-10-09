@@ -47,6 +47,8 @@ function dominantElement(a: Awakened): Element {
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
   const [buildings, setBuildings] = useState<any[]>([]);
+  const [pendingTile, setPendingTile] = useState<number | null>(null);
+  const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
@@ -655,14 +657,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             }}
             onClick={async () => {
               if (selectedBuilding && !t.cursed) {
-                // Place building on purified tile
-                try {
-                  await api.placeBuilding({ tileId: t.id, buildingType: selectedBuilding.type });
-                  setSelectedBuilding(null);
-                  onUpdate();
-                } catch (e) {
-                  console.error("Place building failed", e);
-                }
+                // Open builder selection for this tile
+                setPendingTile(t.id);
+                setSelectedBuilders([]);
               } else if (attackTargeting && selectedAwoken !== null) {
                 handleAttack(t.id);
               } else if (moveTargeting && selectedAwoken !== null) {
@@ -999,6 +996,75 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             onBattleEnd={handleBattleEnd}
             onClose={() => setShowBattleground(false)}
           />
+        );
+      })()}
+      {/* Builder selection popup */}
+      {pendingTile !== null && selectedBuilding && (() => {
+        const tileAwoken = placements
+          .filter(p => p.tileId === pendingTile)
+          .map(p => {
+            const aw = tenderItems.find(a => a.id === p.awakenedId);
+            return aw ? { ...aw, placement: p } : null;
+          })
+          .filter(Boolean);
+        const helperCount = selectedBuilders.length;
+        const timeDivisor = Math.pow(2, helperCount);
+        const baseMinutes = selectedBuilding.buildMinutes;
+        const actualMinutes = Math.max(1, Math.floor(baseMinutes / timeDivisor));
+        return (
+          <div className="admin-popup" onClick={() => { setPendingTile(null); setSelectedBuilders([]); }}>
+            <div className="admin-popup-inner" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+              <h3>🗼 {selectedBuilding.name}</h3>
+              <p className="quiet">Tap Awoken on this tile to assign as builders. Each halves the build time.</p>
+              <div className="builder-grid">
+                {tileAwoken.map((aw: any) => {
+                  const isSelected = selectedBuilders.includes(aw.id);
+                  const isBuilding = aw.placement.stance === "building";
+                  return (
+                    <button
+                      key={aw.id}
+                      className={`builder-card ${isSelected ? "selected" : ""}`}
+                      disabled={isBuilding}
+                      onClick={() => {
+                        setSelectedBuilders(prev =>
+                          isSelected ? prev.filter(id => id !== aw.id) : [...prev, aw.id]
+                        );
+                      }}
+                    >
+                      <span className="builder-name">{aw.name}</span>
+                      <span className="builder-stance">{isBuilding ? "🔨 building" : aw.placement.stance}</span>
+                      {isSelected && <span className="builder-check">✓</span>}
+                    </button>
+                  );
+                })}
+                {tileAwoken.length === 0 && <p className="quiet">No Awoken on this tile. The build will take full time.</p>}
+              </div>
+              <div className="builder-summary">
+                <span>⏱ {baseMinutes >= 60 ? `${baseMinutes/60}h` : `${baseMinutes}m`} → <strong>{actualMinutes >= 60 ? `${(actualMinutes/60).toFixed(1)}h` : `${actualMinutes}m`}</strong></span>
+                <span>🂠 {helperCount} helper{helperCount === 1 ? "" : "s"}</span>
+              </div>
+              <div className="wave-edit-actions">
+                <button className="abtn" onClick={async () => {
+                  try {
+                    await api.placeBuilding({
+                      tileId: pendingTile,
+                      buildingType: selectedBuilding.type,
+                      builderIds: selectedBuilders,
+                    });
+                    setPendingTile(null);
+                    setSelectedBuilders([]);
+                    setSelectedBuilding(null);
+                    const r = await api.getBuildings();
+                    setBuildings(r.buildings);
+                    onUpdate();
+                  } catch (e) {
+                    console.error("Place failed", e);
+                  }
+                }}>Begin Build</button>
+                <button className="abtn small" onClick={() => { setPendingTile(null); setSelectedBuilders([]); }}>Cancel</button>
+              </div>
+            </div>
+          </div>
         );
       })()}
     </div>
