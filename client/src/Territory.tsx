@@ -5,6 +5,7 @@ import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
 import { trackPlayer, type TrackData } from "./trackPlayer";
+import Battleground from "./Battleground";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain/tide.jpg";
 import skyImg from "./assets/terrain/sky.jpg";
@@ -58,6 +59,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBindingPrompt, setShowBindingPrompt] = useState(false);
+  const [showBattleground, setShowBattleground] = useState(false);
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
@@ -269,37 +271,33 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleDefend = async () => {
-    // Random battle track from the workshop rotation
+    // Open the interactive battleground overlay
+    setShowBattleground(true);
+  };
+
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[] }) => {
+    setShowBattleground(false);
+    if (!wave) return;
     try {
-      const { track } = await api.getRandomBattleTrack();
-      if (track) {
-        trackPlayer.play(JSON.parse(track.trackData) as TrackData);
-      }
-    } catch {}
-    // Fallback: old battle music if no tracks
-    // Screen shake
-    document.body.classList.add("battle-shake");
-    try {
-      const result = await api.defendWave();
-      setWaveResult({ victory: result.victory, wavePower: result.wavePower, defensePower: result.defensePower });
+      // Calculate energy spent (simplified: track during battle)
+      await api.resolveBattle({
+        victory: result.victory,
+        waveNumber: wave.waveNumber,
+        survivorIds: result.survivors,
+        energySpent: 0, // TODO: track actual spend
+      });
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
       const w = await api.getWave();
       setWave(w);
+      await refreshEnergy();
       if (result.victory) {
         api.birthNewbornToHand({ tileId: 0, liberatorNames: [] }).catch(() => {});
       }
       onUpdate();
-      // Flash effect
-      document.body.classList.add(result.victory ? "victory-flash" : "defeat-flash");
-      setTimeout(() => {
-        document.body.classList.remove("battle-shake", "victory-flash", "defeat-flash");
-        trackPlayer.stop();
-        setWaveResult(null);
-      }, 3000);
     } catch (e) {
-      console.error("Defense failed", e);
+      console.error("Battle resolve failed", e);
     }
   };
 
@@ -684,7 +682,29 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <button onClick={() => setPan(p => ({ ...p, x: p.x - 40 }))} aria-label="Pan right">▶</button>
         </div>
       </div>
-      
+      {showBattleground && wave && (() => {
+        const center = tiles.find(t => t.q === 0 && t.r === 0);
+        if (!center) return null;
+        const defs = placements
+          .filter(p => p.tileId === center.id)
+          .map(p => {
+            const aw = tenderItems.find(a => a.id === p.awakenedId);
+            return aw ? { placementId: p.id, awoken: aw } : null;
+          })
+          .filter(Boolean) as { placementId: number; awoken: Awakened }[];
+        return (
+          <Battleground
+            defenders={defs}
+            wave={wave}
+            hand={hand}
+            assets={assets}
+            energy={energy}
+            maxEnergy={maxEnergy}
+            onBattleEnd={handleBattleEnd}
+            onClose={() => setShowBattleground(false)}
+          />
+        );
+      })()}
     </div>
   );
 }

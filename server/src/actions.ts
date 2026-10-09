@@ -1227,6 +1227,115 @@ export const handlers = {
     return { ok: true };
   },
 
+
+  // Resolve an interactive battleground battle. Client reports the outcome,
+  // server validates plausibility and applies territory changes.
+  async resolveBattle(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      victory: z.boolean(),
+      waveNumber: z.number().int().positive(),
+      survivorIds: z.array(z.number().int().positive()),
+      energySpent: z.number().int().min(0),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid battle result.");
+
+    // Validate: wave number must match current
+    const state = await db.select().from(schema.waveState)
+      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
+    const currentWave = state.length ? state[0].waveNumber : 1;
+    if (parsed.data.waveNumber !== currentWave) badRequest("Wave mismatch.");
+
+    // Validate: survivors must be Awoken on the bastion
+    const center = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.q, 0),
+        eq(schema.territoryTiles.r, 0)
+      )).limit(1);
+    if (!center.length) badRequest("No bastion.");
+
+    const defenders = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        eq(schema.fieldPlacements.tileId, center[0].id)
+      ));
+    const defenderIds = new Set(defenders.map(d => d.awakenedId));
+    for (const id of parsed.data.survivorIds) {
+      if (!defenderIds.has(id)) badRequest("Invalid survivor.");
+    }
+
+    // Spend the reported energy
+    if (parsed.data.energySpent > 0) {
+      await spendEnergy(ownerKey, parsed.data.energySpent);
+    }
+
+    if (parsed.data.victory) {
+      // Purify one adjacent cursed tile
+      const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      for (const [dq, dr] of dirs) {
+        const target = await db.select().from(schema.territoryTiles)
+          .where(and(
+            eq(schema.territoryTiles.ownerKey, ownerKey),
+            eq(schema.territoryTiles.q, dq),
+            eq(schema.territoryTiles.r, dr),
+            eq(schema.territoryTiles.cursed, 1)
+          )).limit(1);
+        if (target.length) {
+          await db.update(schema.territoryTiles)
+            .set({ cursed: 0, element: "neutral" })
+            .where(eq(schema.territoryTiles.id, target[0].id));
+          await expandFrontier(ownerKey, dq, dr);
+          break;
+        }
+      }
+      await db.update(schema.waveState)
+        .set({
+          waveNumber: currentWave + 1,
+          wavesDefeated: (state[0]?.wavesDefeated ?? 0) + 1,
+          lastWaveAt: new Date(),
+        })
+        .where(eq(schema.waveState.ownerKey, ownerKey));
+    } else {
+      // Defeat: unbound border tile falls, Awoken disperse
+      const purified = await db.select().from(schema.territoryTiles)
+        .where(and(
+          eq(schema.territoryTiles.ownerKey, ownerKey),
+          eq(schema.territoryTiles.cursed, 0)
+        ));
+      const binders = await db.select({ tileId: schema.fieldPlacements.tileId })
+        .from(schema.fieldPlacements)
+        .where(and(
+          eq(schema.fieldPlacements.ownerKey, ownerKey),
+          eq(schema.fieldPlacements.stance, "binding")
+        ));
+      const protectedIds = new Set(binders.map(b => b.tileId));
+      const border = purified.filter(t => !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id));
+      if (border.length) {
+        const victim = border[Math.floor(Math.random() * border.length)];
+        const victims = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+          .from(schema.fieldPlacements)
+          .where(eq(schema.fieldPlacements.tileId, victim.id));
+        const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
+        for (const v of victims) {
+          await db.update(schema.awakened)
+            .set({ dispersedUntil })
+            .where(eq(schema.awakened.id, v.awakenedId));
+          await db.delete(schema.fieldPlacements)
+            .where(eq(schema.fieldPlacements.awakenedId, v.awakenedId));
+        }
+        await db.update(schema.territoryTiles)
+          .set({ cursed: 1 })
+          .where(eq(schema.territoryTiles.id, victim.id));
+      }
+      await db.update(schema.waveState)
+        .set({ lastWaveAt: new Date() })
+        .where(eq(schema.waveState.ownerKey, ownerKey));
+    }
+
+    return { ok: true };
+  },
+
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({

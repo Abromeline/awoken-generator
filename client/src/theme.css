@@ -321,6 +321,93 @@ body.defeat-flash {
   animation: defeat-flash 1s ease-out;
 }
 
+/* Battleground overlay */
+.battleground-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: #000; overflow: hidden;
+}
+.battleground-bg {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 30%, #1a0a0a 0%, #000 70%);
+}
+.battle-hud {
+  position: absolute; top: 12px; left: 12px; right: 12px; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.energy-display {
+  background: rgba(0,0,0,0.7); color: #88ccff;
+  font-family: monospace; font-size: 14px;
+  padding: 8px 14px; border-radius: 8px;
+}
+.battle-log {
+  position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  color: #ffcc88; font-family: Georgia, serif; font-size: 14px;
+  text-shadow: 0 2px 8px #000; z-index: 10; text-align: center;
+}
+.battle-field {
+  position: absolute; inset: 100px 0 140px 0;
+}
+.battle-fighter {
+  position: absolute; cursor: pointer;
+  transition: left 0.9s, bottom 0.9s, opacity 1.2s;
+  animation: float-breathe 4.5s ease-in-out infinite;
+}
+.battle-fighter.selected {
+  filter: drop-shadow(0 0 14px #ffd700);
+}
+.battle-fighter.critical {
+  animation: critical-glow 0.7s ease-in-out infinite;
+}
+.battle-fighter.enemy {
+  filter: hue-rotate(320deg) saturate(2);
+}
+.fighter-stats {
+  position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+  font-family: monospace; font-size: 11px; color: #fff;
+  background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px;
+  white-space: nowrap;
+}
+.field-badge {
+  position: absolute; top: -10px; right: -10px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(0,0,0,0.8); border: 1px solid #ffd700;
+  color: #ffd700; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.battle-deck {
+  position: absolute; bottom: -60px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 10;
+  transition: bottom 0.3s;
+  padding-top: 12px;
+}
+.battle-deck:hover { bottom: 12px; }
+.deck-card-mini {
+  width: 70px; height: 96px; background: #0a0a0a;
+  border: 2px solid #b89b5e; border-radius: 6px;
+  cursor: pointer; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #ccc; font-size: 9px;
+}
+.deck-card-mini:hover { transform: translateY(-4px); }
+.mini-cost {
+  position: absolute; top: 4px; right: 4px;
+  background: rgba(0,0,0,0.8); color: #88ccff;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; border: 1px solid #44aaff;
+}
+.mini-name { font-family: Georgia, serif; font-size: 8px; margin: 4px 0; text-align: center; }
+.mini-stats { font-family: monospace; font-size: 10px; }
+.victory-overlay {
+  position: absolute; inset: 0; z-index: 50;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.victory-text {
+  color: #ffd700; font-family: Georgia, serif; font-size: 32px;
+  letter-spacing: 0.15em; text-shadow: 0 4px 20px #000;
+}
+
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}
 .binding-prompt-title{font-size:16px;font-weight:bold;color:#88bbff;margin-bottom:6px}
