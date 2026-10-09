@@ -632,6 +632,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         );
       })()}
+      <div className="territory-battle-trigger">
+        <button className="abtn battle-cta" onClick={handleDefend} disabled={!wave}>
+          ⚔ {wave ? `Battle Wave ${wave.waveNumber}` : "Loading..."}
+        </button>
+      </div>
       <div className="territory-hand">
         <div className="hand-label">Tap cards to ready them for battle — then tap a hex to send them</div>
         {battlePool.length > 0 && (

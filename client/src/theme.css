@@ -443,6 +443,22 @@ body.defeat-flash {
   letter-spacing: 0.15em; text-shadow: 0 4px 20px #000;
 }
 
+.territory-battle-trigger {
+  display: flex; justify-content: center; margin: 12px 0;
+}
+.battle-cta {
+  font-size: 16px; padding: 12px 28px;
+  background: linear-gradient(135deg, #3a1a1a, #5a2a2a);
+  border: 2px solid #ff6666; color: #ffccaa;
+  border-radius: 10px; cursor: pointer;
+  font-family: Georgia, serif; letter-spacing: 0.05em;
+}
+.battle-cta:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5a2a2a, #7a3a3a);
+  box-shadow: 0 0 16px rgba(255, 100, 100, 0.4);
+}
+.battle-cta:disabled { opacity: 0.5; cursor: default; }
+
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}
 .binding-prompt-title{font-size:16px;font-weight:bold;color:#88bbff;margin-bottom:6px}
