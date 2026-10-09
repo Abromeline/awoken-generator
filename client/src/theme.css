@@ -371,21 +371,28 @@ body.defeat-flash {
   text-shadow: 0 2px 8px #000; z-index: 10; text-align: center;
 }
 .battle-field {
-  position: absolute; left: 0; right: 0; bottom: 105px; height: 120px;
-  overflow: hidden;
+  position: absolute; left: 0; right: 0; bottom: 105px; min-height: 140px; max-height: 280px;
+  overflow: visible;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   padding: 0 5%;
 }
 .battle-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  max-width: 45%;
+  justify-content: flex-start;
+}
+.enemies-row {
+  justify-content: flex-end;
 }
 .battle-row .battle-fighter {
   position: relative;
-  width: 120px;
-  margin-left: -50px;
+  width: 150px;
+  margin-left: -60px;
+  margin-bottom: -20px;
 }
 .battle-row .battle-fighter:first-child {
   margin-left: 0;
