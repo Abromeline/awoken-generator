@@ -634,7 +634,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       })()}
       <div className="territory-battle-trigger">
         <button className="abtn battle-cta" onClick={handleDefend} disabled={!wave}>
-          ⚔ {wave ? `Battle Wave ${wave.waveNumber}` : "Loading..."}
+          ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "Loading..."}
         </button>
       </div>
       <div className="territory-hand">
