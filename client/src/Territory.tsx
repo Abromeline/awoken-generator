@@ -358,27 +358,52 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return <FirstTrial hand={hand} assets={assets} onVictory={handleFirstVictory} />;
     }
     // Simple grid layout for now; parallax via row scaling
-  // Render hex grid — proper pointy-top axial layout, hexes meet edge-to-edge
+  // Project a point from the tilted map plane to screen coordinates.
+  // The map container has: perspective(900px) rotateX(32deg), origin at center 60%.
+  const projectTilted = (cx: number, cy: number, viewW: number, viewH: number) => {
+    const theta = 32 * Math.PI / 180;
+    const ox = viewW / 2, oy = viewH * 0.6;
+    const dy = cy - oy;
+    const y1 = dy * Math.cos(theta);
+    const z = dy * Math.sin(theta);
+    const scale = 900 / (900 - z);
+    return {
+      x: ox + (cx - ox) * scale,
+      y: oy + y1 * scale,
+      scale,
+    };
+  };
+
+  // Render hex grid with mathematical perspective tilt.
+  // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
+  // positions but drawn upright (not skewed).
   const renderGrid = () => {
-    const size = 17, tilt = 1.0; // No squash — hexes tile edge-to-edge
+    const size = 17;
+    const viewW = 500, viewH = 340;
+    const tiltPoint = (x: number, y: number) => {
+      const p = projectTilted(x, y, viewW, viewH);
+      return p;
+    };
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
     const elements = tiles.map((t, i) => {
-      // Pointy-top axial to pixel (with vertical squash)
+      // Pointy-top axial to pixel
       const px = size * Math.sqrt(3) * (t.q + t.r / 2);
-      const py = size * 1.5 * tilt * t.r;
+      const py = size * 1.5 * t.r;
       const cx = originX + px + pan.x;
       const cy = originY + py + pan.y;
-      // Uniform size so hexes tile edge-to-edge. (Per-hex parallax scaling
-      // broke the tiling — distant hexes shrank but their centers didn't move.)
       const s = size;
       const pts: string[] = [];
       for (let k = 0; k < 6; k++) {
-        // Pointy-top: first vertex at 30°, not 0° (0° gives flat-top,
-        // which doesn't match the axial positioning math above).
         const a = Math.PI / 180 * (60 * k + 30);
-        pts.push(`${(cx + s * Math.cos(a)).toFixed(1)},${(cy + s * Math.sin(a) * tilt).toFixed(1)}`);
+        const vx = cx + s * Math.cos(a);
+        const vy = cy + s * Math.sin(a);
+        // Apply perspective tilt to each vertex
+        const tp = tiltPoint(vx, vy);
+        pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
       }
+      // Project the center for Awoken positioning (but Awoken drawn upright)
+      const tc = tiltPoint(cx, cy);
       const tex = t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral");
       const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
@@ -389,7 +414,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
           <g clipPath={`url(#terr-${t.id})`}>
-            <image href={TERRAIN[tex]} x={cx - s * 1.2} y={cy - s * 1.2 * tilt} width={s * 2.4} height={s * 2.4 * tilt} preserveAspectRatio="xMidYMid slice" />
+            <image href={TERRAIN[tex]} x={tc.x - s * 1.2} y={tc.y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
           </g>
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
             stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#4a2a2a") : "#b89b5e"}
@@ -421,8 +446,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 ];
                 const ks = keystones[idx];
                 const ws = 15, hs = 20;
-                const kx = cx + ks.dx * s * 2;
-                const ky = cy + ks.dy * s * 2 * tilt;
+                // Position on the tilted plane, but draw upright
+                const rawKx = cx + ks.dx * s * 2;
+                const rawKy = cy + ks.dy * s * 2;
+                const tk = tiltPoint(rawKx, rawKy);
+                const kx = tk.x, ky = tk.y;
+                // Scale by perspective (further = smaller), but don't skew
+                const awScale = tk.scale;
+                const aws = ws * awScale, ahs = hs * awScale;
                 const isWhispering = whisper?.awakenedId === a.id;
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
                 const driftDur = (6 + (a.id % 5)).toFixed(1);
@@ -443,13 +474,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       setMoveTargeting(false);
                     }}>
                     {isSelected && (
-                      <circle cx={kx} cy={ky} r={14} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
+                      <circle cx={kx} cy={ky} r={14 * awScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
                     )}
                     <FieldAwoken awoken={a} assets={assets}
-                      x={kx - ws / 2} y={ky - hs / 2}
-                      width={ws} height={hs} />
+                      x={kx - aws / 2} y={ky - ahs / 2}
+                      width={aws} height={ahs} />
                     {placement && placement.stance !== "defense" && (
-                      <text x={kx} y={ky - hs / 2 - 4} textAnchor="middle" fontSize={7}
+                      <text x={kx} y={ky - ahs / 2 - 4} textAnchor="middle" fontSize={7}
                         fill={placement.stance === "attack" ? "#ff6666" : "#66aaff"}>
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
@@ -470,7 +501,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       return (
                         <g className="whisper-bubble" opacity="0.9">
                           {lines.map((ln, i) => (
-                            <text key={i} x={kx} y={ky - hs / 2 - 12 - (lines.length - 1 - i) * 9}
+                            <text key={i} x={kx} y={ky - ahs / 2 - 12 - (lines.length - 1 - i) * 9}
                               textAnchor="middle" fontSize="7.5" fontStyle="italic"
                               fill="#e8d5a8" className="whisper-text">
                               {ln}
@@ -512,13 +543,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <defs>
           {tiles.map(t => {
             const px = size * Math.sqrt(3) * (t.q + t.r / 2);
-            const py = size * 1.5 * tilt * t.r;
+            const py = size * 1.5 * t.r;
             const cx = 250 + px + pan.x;
             const cy = 170 + py + pan.y;
             const pts: string[] = [];
             for (let k = 0; k < 6; k++) {
               const a = Math.PI / 180 * (60 * k + 30);
-              pts.push(`${(cx + size * Math.cos(a)).toFixed(1)},${(cy + size * Math.sin(a) * tilt).toFixed(1)}`);
+              const vx = cx + size * Math.cos(a);
+              const vy = cy + size * Math.sin(a);
+              const tp = tiltPoint(vx, vy);
+              pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
             }
             return (
               <clipPath key={`cp-${t.id}`} id={`terr-${t.id}`}>
@@ -686,10 +720,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}
         </div>
       </div>
-      <div className="territory-map" style={{
-        transform: "perspective(900px) rotateX(32deg)",
-        transformOrigin: "center 60%",
-      }}>
+      <div className="territory-map">
         <svg viewBox="0 0 500 340" className="territory-svg">
           {renderGrid()}
         </svg>
