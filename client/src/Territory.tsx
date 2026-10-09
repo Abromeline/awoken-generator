@@ -873,9 +873,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         </div>
       )}
-      {showBattleground && wave && waveTarget && (() => {
+      {showBattleground && wave && (() => {
+        // Use waveTarget tile if available, else fall back to bastion (center)
+        const targetTileId = waveTarget?.tile.id ?? tiles.find(t => t.q === 0 && t.r === 0)?.id;
         const defs = placements
-          .filter(p => p.tileId === waveTarget.tile.id)
+          .filter(p => p.tileId === targetTileId)
           .map(p => {
             const aw = tenderItems.find(a => a.id === p.awakenedId);
             return aw ? { placementId: p.id, awoken: aw } : null;
