@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "./api";
 import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
@@ -61,9 +61,10 @@ interface Props {
   onSelect: (def: BuildingDef | null) => void;
   selected: BuildingDef | null;
   energy: number;
+  alwaysOpen?: boolean;
 }
 
-export default function BuildingMenu({ onSelect, selected, energy }: Props) {
+export default function BuildingMenu({ onSelect, selected, energy, alwaysOpen = false }: Props) {
   const [defs, setDefs] = useState<BuildingDef[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -75,11 +76,18 @@ export default function BuildingMenu({ onSelect, selected, energy }: Props) {
     setOpen(!open);
   };
 
+  useEffect(() => {
+    if (alwaysOpen && defs.length === 0) load();
+  }, []);
+
+  const showPicker = alwaysOpen || open;
   return <div className="building-menu">
-    <button className="abtn" onClick={load}>
-      🏗️ {open ? "Close" : "Build"}
-    </button>
-    {open && <div className="building-picker">
+    {!alwaysOpen && (
+      <button className="abtn" onClick={load}>
+        🏗️ {open ? "Close" : "Build"}
+      </button>
+    )}
+    {showPicker && <div className="building-picker">
       {defs.map(d => <button
         key={d.type}
         className={`building-option ${selected?.type === d.type ? "selected" : ""} ${energy < d.cost ? "cant-afford" : ""}`}
