@@ -384,8 +384,8 @@ body.defeat-flash {
 }
 .battle-row .battle-fighter {
   position: relative;
-  width: 80px;
-  margin-left: -25px;
+  width: 120px;
+  margin-left: -50px;
 }
 .battle-row .battle-fighter:first-child {
   margin-left: 0;
