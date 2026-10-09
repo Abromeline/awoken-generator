@@ -208,6 +208,8 @@ export const tenderResources = sqliteTable("tender_resources", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" })
+    .$defaultFn(() => new Date()),
 });
 
 // Battle tracks: rotating 8-bit music for battlegrounds.

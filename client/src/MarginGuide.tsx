@@ -28,8 +28,8 @@ const MESSAGES = [
   "What you love shapes what is born. Name a champion, and tend them well.",
   "Every victory birth creates twins — one for you, one for your fellow Tender, one for the commons.",
   // Energy: How it regains
-  "Energy returns on its own, Tender — +1 every 12 minutes, up to your max. No need to hurry.",
-  "Your energy refills automatically. Watch the orb glow as the 12 minutes pass.",
+  "Energy returns on its own, Tender — +1 every 4 minutes while you are here (12 min when away). No need to hurry.",
+  "Your energy refills automatically. Watch the orb glow as the minutes pass — faster while you tend.",
   "Defense stance Awoken generate +1 energy when set. They also raise your max energy.",
   "Your max energy grows with your Awoken — stronger Awoken hold more light.",
   "Energy cap: 5 base, plus bonus per Awoken in hand and field. Tend many, hold much.",
@@ -46,7 +46,7 @@ const MESSAGES = [
   "Stories shared to the Confluence are rituals of attention — that is why they grant +1/+1.",
   "Defense is a ritual of protection. The Awoken holds its ground, and in the holding, generates light.",
   "Your energy orb fills because you are here, Tender. Presence is the ritual. Attention is the fuel.",
-  "The 12-minute refill is the rhythm of attention — even when you look away, the binding remembers.",
+  "The refill is the rhythm of attention — 4 minutes while you are present, 12 when you wander. The binding remembers.",
   "To generate energy, tend. To tend, attend. The words share a root, Tender. That is no accident.",
   // Stances & Battle
   "Tap an Awoken on your territory to set its stance — ⚔ Attack, 🛡 Defense, or ✦ Binding.",

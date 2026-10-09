@@ -6,7 +6,7 @@ import { api } from "./api";
 export default function EnergyTimer() {
   const [energy, setEnergy] = useState(0);
   const [maxEnergy, setMaxEnergy] = useState(10);
-  const [secondsLeft, setSecondsLeft] = useState(720); // 12 min = 720s
+  const [secondsLeft, setSecondsLeft] = useState(240); // 4 min = 240s (online, 1/3 of 12min)
 
   useEffect(() => {
     const fetch = async () => {
@@ -33,7 +33,7 @@ export default function EnergyTimer() {
             setEnergy(e);
             setMaxEnergy(m);
           }).catch(() => {});
-          return 720;
+          return 240;
         }
         return s - 1;
       });
@@ -44,7 +44,7 @@ export default function EnergyTimer() {
   const isFull = energy >= maxEnergy;
   const mins = Math.floor(secondsLeft / 60);
   const secs = secondsLeft % 60;
-  const progress = 1 - secondsLeft / 720; // 0 to 1
+  const progress = 1 - secondsLeft / 240; // 0 to 1
 
   return (
     <div className={`energy-orb ${isFull ? "full" : "charging"}`} title={

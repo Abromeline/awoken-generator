@@ -1164,14 +1164,23 @@ export const handlers = {
     const maxEnergy = await calculateMaxEnergy(ownerKey);
     let energy = res[0].energy;
     const updatedAt = res[0].updatedAt ? new Date(res[0].updatedAt).getTime() : Date.now();
-    // Regen: 1 energy per 12 minutes, up to max
+    const lastSeen = res[0].lastSeenAt ? new Date(res[0].lastSeenAt).getTime() : 0;
     const now = Date.now();
+    // Online detection: if last seen within 5 min, Tender is online
+    // Online: 4 min per energy (1/3 of 12 min). Offline: 12 min per energy.
+    const isOnline = (now - lastSeen) < 5 * 60 * 1000;
+    const regenMinutes = isOnline ? 4 : 12;
     const elapsedMin = (now - updatedAt) / (1000 * 60);
-    const regen = Math.floor(elapsedMin / 12);
+    const regen = Math.floor(elapsedMin / regenMinutes);
     if (regen > 0 && energy < maxEnergy) {
       energy = Math.min(energy + regen, maxEnergy);
       await db.update(schema.tenderResources)
-        .set({ energy, updatedAt: new Date() })
+        .set({ energy, updatedAt: new Date(), lastSeenAt: new Date() })
+        .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    } else {
+      // Update lastSeen even if no regen
+      await db.update(schema.tenderResources)
+        .set({ lastSeenAt: new Date() })
         .where(eq(schema.tenderResources.ownerKey, ownerKey));
     } else if (energy > maxEnergy) {
       // Clamp to max (in case max decreased)
