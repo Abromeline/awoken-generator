@@ -376,7 +376,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Project a point from the tilted map plane to screen coordinates.
   // The map container has: perspective(900px) rotateX(32deg), origin at center 60%.
   const projectTilted = (cx: number, cy: number, viewW: number, viewH: number) => {
-    const theta = 40 * Math.PI / 180; // More dramatic tilt
+    const theta = 40 * Math.PI / 180;
     const ox = viewW / 2, oy = viewH * 0.6;
     const dy = cy - oy;
     const y1 = dy * Math.cos(theta);
@@ -388,17 +388,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       scale,
     };
   };
+  const tiltPoint = (x: number, y: number) => {
+    return projectTilted(x, y, 500, 340);
+  };
 
   // Render hex grid with mathematical perspective tilt.
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
     const size = 17 * zoom;
-    const viewW = 500, viewH = 340;
-    const tiltPoint = (x: number, y: number) => {
-      const p = projectTilted(x, y, viewW, viewH);
-      return p;
-    };
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
     // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
