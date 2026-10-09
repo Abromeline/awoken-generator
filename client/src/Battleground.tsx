@@ -137,10 +137,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
             if (alive.length === 0) break;
             const target = alive[Math.floor(Math.random() * alive.length)];
             const idx = updated.findIndex(e => e.id === target.id);
-            updated[idx] = { ...updated[idx], hp: Math.max(0, updated[idx].hp - 1) };
+            updated[idx] = { ...updated[idx], hp: Math.max(0, updated[idx].hp - 3) };
             // Damage number animation
             const numId = `tower-${Date.now()}-${i}`;
-            setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: 1, crit: false }]);
+            setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: 3, crit: false }]);
             setTimeout(() => setDmgNumbers(prev => prev.filter(n => n.id !== numId)), 1200);
           }
           return updated;

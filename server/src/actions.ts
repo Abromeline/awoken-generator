@@ -1313,7 +1313,7 @@ export const handlers = {
   getBuildingDefs() {
     return {
       defs: [
-        { type: "watchtower", name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile. 1 damage to first enemy.", icon: "🗼" },
+        { type: "watchtower", name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start.", icon: "🗼" },
         { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 240, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
         { type: "elemental-shrine", name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
         { type: "awakening-well", name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
