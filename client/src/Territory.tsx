@@ -7,7 +7,7 @@ import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
-import BuildingMenu, { buildingImage } from "./BuildingMenu";
+import BuildingMenu from "./BuildingMenu";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain-3d/tide.png";
 import skyImg from "./assets/terrain-3d/sky.png";
@@ -175,6 +175,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       console.error("Timed birth failed", e);
     }
   };
+
+  // Load buildings
+  useEffect(() => {
+    api.getBuildings().then(r => setBuildings(r.buildings)).catch(() => {});
+  }, []);
 
   // Field Awoken whisper from time to time (only on field, never in hand)
   useEffect(() => {
@@ -648,8 +653,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
               pointerEvents: "all"
             }}
-            onClick={() => {
-              if (attackTargeting && selectedAwoken !== null) {
+            onClick={async () => {
+              if (selectedBuilding && !t.cursed) {
+                // Place building on purified tile
+                try {
+                  await api.placeBuilding({ tileId: t.id, buildingType: selectedBuilding.type });
+                  setSelectedBuilding(null);
+                  onUpdate();
+                } catch (e) {
+                  console.error("Place building failed", e);
+                }
+              } else if (attackTargeting && selectedAwoken !== null) {
                 handleAttack(t.id);
               } else if (moveTargeting && selectedAwoken !== null) {
                 handleMove(t.id);
@@ -694,6 +708,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   return (
     <div className="territory-view">
       <div className="territory-hud">
+        <BuildingMenu
+          onSelect={setSelectedBuilding}
+          selected={selectedBuilding}
+          energy={energy}
+        />
         {birthStatus?.ready ? (
           <button className="abtn birth-ready" onClick={handleTimedBirth}>
             ✨ A new Awoken awaits
