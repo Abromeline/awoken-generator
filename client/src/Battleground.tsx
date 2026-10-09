@@ -64,7 +64,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     const aw: Fighter[] = defenders.map((d, i) => ({
       id: `a-${d.awoken.id}`,
       awokenId: d.awoken.id,
-      x: 8 + i * 12, y: 20 + (i % 2) * 8, w: 14,
+      x: 5 + i * 11, y: 30, w: 13,
       power: d.awoken.power, tough: d.awoken.toughness,
       hp: d.awoken.toughness, maxHp: d.awoken.toughness,
       name: d.awoken.name, side: "aw", field: true,
@@ -74,7 +74,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     for (let i = 0; i < wave.frayCount; i++) {
       en.push({
         id: `e-fray-${i}`, img: "fray",
-        x: 65 + Math.random() * 18, y: 18 + Math.random() * 16, w: 10,
+        x: 55 + i * 6, y: 30, w: 10,
         power: 2, tough: 0, hp: 3, maxHp: 3,
         name: "Fray", side: "en", field: false,
       });
@@ -82,7 +82,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     for (let i = 0; i < wave.unravelers; i++) {
       en.push({
         id: `e-unrav-${i}`, img: "unraveler",
-        x: 74 + Math.random() * 10, y: 24 + Math.random() * 8, w: 13,
+        x: 55 + (wave.frayCount * 6) + i * 7, y: 30, w: 12,
         power: 4, tough: 0, hp: 6, maxHp: 6,
         name: "Unraveler", side: "en", field: false,
       });
@@ -189,7 +189,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         const newFighter: Fighter = {
           id: `a-birth-${Date.now()}`,
           awokenId: card.id,
-          x: 5 + Math.random() * 15, y: 18 + Math.random() * 12, w: 13,
+          x: 5 + fighters.length * 11, y: 30, w: 13,
           power: card.power, tough: card.toughness,
           hp: card.toughness, maxHp: card.toughness,
           name: card.name, side: "aw", field: false,
