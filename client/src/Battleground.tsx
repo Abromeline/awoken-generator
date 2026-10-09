@@ -58,6 +58,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   const [hitFlash, setHitFlash] = useState<string | null>(null);
   const [dmgNumbers, setDmgNumbers] = useState<{id: string, fighterId: string, dmg: number, crit: boolean}[]>([]);
   const [critFlash, setCritFlash] = useState(false);
+  const [autoBattle, setAutoBattle] = useState(false);
   const [simRunning, setSimRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [victory, setVictory] = useState<boolean | null>(null);
@@ -110,6 +111,23 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     setTurnOrder(all.map(f => f.id));
     setTurnIndex(0);
   };
+
+  // Auto-battle: automatically attack until battle ends or toggled off
+  useEffect(() => {
+    if (!autoBattle) return;
+    const livingFighters = fighters.filter(f => f.hp > 0);
+    const livingEnemies = enemies.filter(e => e.hp > 0);
+    if (livingFighters.length === 0 || livingEnemies.length === 0) {
+      setAutoBattle(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const atk = livingFighters[0];
+      const def = livingEnemies[0];
+      doAttack(atk, def);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [autoBattle, fighters, enemies]);
 
   const doAttack = (atk: Fighter, def: Fighter) => {
     setSelected(null);
@@ -238,6 +256,13 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
       <div className="battle-fog" />
       <div className="battle-hud">
         <div className="energy-display">⚡ {energyLeft}/{maxEnergy}</div>
+        <button 
+          className={`abtn small ${autoBattle ? "active" : ""}`} 
+          onClick={() => setAutoBattle(!autoBattle)}
+          title="Automatically battle until victory or defeat"
+        >
+          {autoBattle ? "⏸ Auto" : "▶ Auto"}
+        </button>
         <button className="abtn small" onClick={onClose}>✕ Retreat</button>
       </div>
       <div className="battle-log">{log}</div>
