@@ -7,11 +7,12 @@ import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
+import BuildingMenu, { buildingImage } from "./BuildingMenu";
 import { pickBirthLayers, composeBirth } from "./birth";
-import tideImg from "./assets/terrain/tide.jpg";
-import skyImg from "./assets/terrain/sky.jpg";
-import stoneImg from "./assets/terrain/stone.jpg";
-import rootImg from "./assets/terrain/root.jpg";
+import tideImg from "./assets/terrain-3d/tide.png";
+import skyImg from "./assets/terrain-3d/sky.png";
+import stoneImg from "./assets/terrain-3d/stone.png";
+import rootImg from "./assets/terrain-3d/root.png";
 import neutralImg from "./assets/terrain/neutral.jpg";
 
 import cursedImg from "./assets/terrain/cursed.jpg";
@@ -44,6 +45,8 @@ function dominantElement(a: Awakened): Element {
 }
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
+  const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
+  const [buildings, setBuildings] = useState<any[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
@@ -486,7 +489,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
           <g clipPath={`url(#terr-${t.id})`}>
-            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.2} y={tiltPoint(cx, cy).y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
+            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.5} y={tiltPoint(cx, cy).y - s * 1.5} width={s * 3} height={s * 3} preserveAspectRatio="xMidYMid meet" />
           </g>
           {/* Siege timer on cursed tiles */}
           {t.cursed && t.lastPassiveAt && (() => {
