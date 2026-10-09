@@ -126,7 +126,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     setFighters(aw);
     setEnemies(en);
 
-    // Watchtower opening volley: each tower fires 1 damage at a random enemy
+    // Watchtower opening volley: each tower fires 3 damage at a random enemy
     if (watchtowerTiles.length > 0 && en.length > 0) {
       setTowerVolley(true);
       setTimeout(() => {

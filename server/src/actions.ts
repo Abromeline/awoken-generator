@@ -467,6 +467,17 @@ async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): 
     .where(eq(schema.tenderResources.ownerKey, ownerKey));
 }
 
+// Single source of truth for building definitions
+export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string }> = {
+  "watchtower": { name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start.", icon: "🗼" },
+  "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 240, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
+  "elemental-shrine": { name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
+  "awakening-well": { name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
+  "thorn-wall": { name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
+  "binding-circle": { name: "Binding Circle", cost: 6, buildMinutes: 180, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
+  "tree": { name: "Dream Tree", cost: 4, buildMinutes: 240, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
+};
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -1312,15 +1323,7 @@ export const handlers = {
   // Admin: clear all timers (dispersed, passive, etc.) for a tender.
   getBuildingDefs() {
     return {
-      defs: [
-        { type: "watchtower", name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start.", icon: "🗼" },
-        { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 240, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
-        { type: "elemental-shrine", name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
-        { type: "awakening-well", name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
-        { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
-        { type: "binding-circle", name: "Binding Circle", cost: 6, buildMinutes: 180, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
-        { type: "tree", name: "Dream Tree", cost: 4, buildMinutes: 240, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
-      ]
+      defs: Object.entries(BUILDING_DEFS).map(([type, d]) => ({ type, ...d })),
     };
   },
 
@@ -1360,16 +1363,7 @@ export const handlers = {
       builderIds: z.array(z.number().int()).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid request.");
-    const defs: Record<string, { cost: number; buildMinutes: number }> = {
-      "watchtower": { cost: 5, buildMinutes: 120 },
-      "dream-wheat": { cost: 2, buildMinutes: 240 },
-      "elemental-shrine": { cost: 8, buildMinutes: 240 },
-      "awakening-well": { cost: 10, buildMinutes: 360 },
-      "thorn-wall": { cost: 3, buildMinutes: 60 },
-      "binding-circle": { cost: 6, buildMinutes: 180 },
-      "tree": { cost: 4, buildMinutes: 240 },
-    };
-    const def = defs[parsed.data.buildingType];
+    const def = BUILDING_DEFS[parsed.data.buildingType];
     if (!def) badRequest("Unknown building.");
     // Builders: manually selected Awoken from the tile (any stance -> building)
     // Each builder exponentially reduces build time: time / 2^builders
