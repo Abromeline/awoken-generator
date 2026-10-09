@@ -496,7 +496,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={`entity-${t.id}`} transform={`translate(0,${lift})`}>
           {/* Buildings on this tile (max 2) */}
           {tileBuildings.map((b, bi) => {
-            const bpx = tiltPoint(cx + (bi === 0 ? -s * 0.4 : s * 0.4), cy - s * 0.3);
+            const bpx = { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 };
             const isBuilding = b.status === "building";
             const isDormant = b.status === "dormant";
             const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
@@ -547,11 +547,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 ];
                 const ks = keystones[idx];
                 const ws = 15, hs = 20;
-                const rawKx = cx + ks.dx * s * 2;
-                const rawKy = cy + ks.dy * s * 2;
-                const tk = tiltPoint(rawKx, rawKy);
-                const kx = tk.x, ky = tk.y;
-                const awScale = tk.scale;
+                const kx = cx + ks.dx * s * 2;
+                const ky = cy + ks.dy * s * 2;
+                const awScale = 1;
                 const aws = ws * awScale, ahs = hs * awScale;
                 const isWhispering = whisper?.awakenedId === a.id;
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
@@ -592,7 +590,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       if (remaining === null || remaining <= 0) return null;
                       const el = dominantElement(a);
                       const elIcon = ({ tide: "🌊", sky: "🌪", stone: "⛰", root: "🌿", fire: "🔥" } as Record<string, string>)[(el || "").toLowerCase()] || "✦";
-                      const akx = tk.x, aky = tk.y + ahs / 2 + 10;
+                      const akx = kx, aky = ky + ahs / 2 + 10;
                       return (
                         <g className="attunement-badge" opacity="0.9">
                           <text x={akx} y={aky} textAnchor="middle" fontSize={8} fill="#ffd700">
@@ -686,9 +684,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const remaining = 48 * 60 * 60 * 1000 - elapsed;
             if (remaining <= 0) return null;
             const hours = Math.floor(remaining / (60 * 60 * 1000));
-            const tp = tiltPoint(cx, cy);
             return (
-              <text x={tp.x} y={tp.y + 8} textAnchor="middle" fontSize={7}
+              <text x={cx} y={cy + 8} textAnchor="middle" fontSize={7}
                 fill={auraTiles.has(t.id) ? "#88ff88" : "#888"} opacity="0.9">
                 {hours}h
               </text>
@@ -723,27 +720,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     });
     return (
       <>
-        <defs>
-          {tiles.map(t => {
-            const px = size * Math.sqrt(3) * (t.q + t.r / 2);
-            const py = size * 1.5 * t.r;
-            const cx = 250 + px + pan.x;
-            const cy = 170 + py + pan.y;
-            const pts: string[] = [];
-            for (let k = 0; k < 6; k++) {
-              const a = Math.PI / 180 * (60 * k + 30);
-              const vx = cx + size * Math.cos(a);
-              const vy = cy + size * Math.sin(a);
-              const tp = tiltPoint(vx, vy);
-              pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
-            }
-            return (
-              <clipPath key={`cp-${t.id}`} id={`terr-${t.id}`}>
-                <polygon points={pts.join(" ")} />
-              </clipPath>
-            );
-          })}
-        </defs>
         {elements}
         {entityElements}
       </>
@@ -808,14 +784,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const py = size * Math.sqrt(3) * (tile.r + tile.q / 2) - (tile.height || 0) * HEIGHT_PX;
         const cx = 250 + px + pan.x;
         const cy = 170 + py + pan.y;
-        const tp = tiltPoint(cx, cy);
         // Render as HTML overlay positioned over the Awoken
         return (
           <div 
             className={`stance-picker-field ${stanceMinimized ? "minimized" : ""}`} 
             style={{
-              left: `${(tp.x / 500) * 100}%`,
-              top: `${(tp.y / 340) * 100}%`,
+              left: `${(cx / 500) * 100}%`,
+              top: `${(cy / 340) * 100}%`,
             }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -977,9 +952,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const scale = 22; // hex size
                 return tiles.map(t => {
                   const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
-                  // Hex positioning (same math as main map, scaled down)
-                  const px = scale * Math.sqrt(3) * ((t.q - centerQ) + (t.r - centerR) / 2);
-                  const py = scale * 1.5 * (t.r - centerR);
+                  // Hex positioning (flat-top, same math as main map, scaled down)
+                  const px = scale * 1.5 * (t.q - centerQ);
+                  const py = scale * Math.sqrt(3) * ((t.r - centerR) + (t.q - centerQ) / 2);
                   return (
                     <div
                       key={t.id}
