@@ -233,8 +233,9 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               </svg>
             )}
             <div className="fighter-stats">{f.power}⚔ {f.tough}🛡</div>
-            <div className="health-bar">
-              <div className="health-fill" style={{ width: `${(f.hp / f.maxHp) * 100}%` }} />
+            <div className="thermometer">
+              <div className="thermo-fill" style={{ height: `${(f.hp / f.maxHp) * 100}%` }} />
+              <div className="thermo-bulb" />
             </div>
             {f.field && <div className="field-badge">⚔</div>}
           </div>
@@ -257,8 +258,9 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
             />
             <div className="fighter-stats">❤{e.hp}/{e.maxHp}</div>
-            <div className="health-bar enemy-hp">
-              <div className="health-fill" style={{ width: `${(e.hp / e.maxHp) * 100}%` }} />
+            <div className="thermometer enemy-thermo">
+              <div className="thermo-fill" style={{ height: `${(e.hp / e.maxHp) * 100}%` }} />
+              <div className="thermo-bulb" />
             </div>
           </div>
         ))}
