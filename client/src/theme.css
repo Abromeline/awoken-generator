@@ -604,18 +604,18 @@ body.defeat-flash {
 .thermometer{
   position:absolute;left:-10px;top:10%;bottom:10%;width:8px;
   background:rgba(0,0,0,0.6);border:1px solid #666;border-radius:4px;
-  display:flex;flex-direction:column;justify-content:flex-end;
+  display:flex;flex-direction:column;justify-content:flex-start;
   overflow:visible;
-}
-.thermo-fill{
-  width:100%;background:linear-gradient(0deg, #2a6a2a, #5aaa5a);
-  border-radius:0 0 3px 3px;transition:height 0.3s ease;
-  min-height:2px;
 }
 .thermo-bulb{
   width:14px;height:14px;border-radius:50%;
   background:radial-gradient(circle at 35% 35%, #6aaa6a, #2a6a2a);
-  border:1px solid #666;margin-left:-4px;margin-top:-2px;flex-shrink:0;
+  border:1px solid #666;margin-left:-4px;margin-bottom:-2px;flex-shrink:0;order:-1;
+}
+.thermo-fill{
+  width:100%;background:linear-gradient(180deg, #2a6a2a, #5aaa5a);
+  border-radius:3px 3px 0 0;transition:height 0.3s ease;
+  min-height:2px;
 }
 .enemy-thermo .thermo-fill{
   background:linear-gradient(0deg, #6a2a2a, #aa5a5a);
