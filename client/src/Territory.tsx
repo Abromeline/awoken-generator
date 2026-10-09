@@ -100,7 +100,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     refreshEnergy();
     const onFocus = () => refreshEnergy();
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
     if (tiles.length) {
       api.getWave().then(w => {
         setWave(w);
@@ -110,6 +109,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         }
       }).catch(() => {});
     }
+    return () => window.removeEventListener("focus", onFocus);
   }, [tiles.length]);
 
   // Passive purification: the Awoken's power stirs adjacent cursed tiles.
