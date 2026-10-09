@@ -21,13 +21,25 @@ export default function FieldAwoken({ awoken, assets, x, y, width, height, showF
     assets.forEach(a => m.set(a.sourceId, a.imageUrl));
     return m;
   }, [assets]);
+  const assetCatMap = useMemo(() => {
+    const m = new Map<string, string>();
+    assets.forEach(a => m.set(a.sourceId, (a.category || "").toLowerCase().trim()));
+    return m;
+  }, [assets]);
 
   // LAW: filter out background. Always. No exceptions.
   // Backgrounds are locked to card art ONLY. Never on the field.
+  // Check BOTH layer category AND asset category (catches miscategorized pieces).
   const layers = awoken.layers
     .filter(l => {
-      const cat = (l.category || "").toLowerCase();
-      return cat !== "background" && !cat.includes("background");
+      const cat = (l.category || "").toLowerCase().trim();
+      const assetCat = assetCatMap.get(l.source_id) || "";
+      const combined = cat + " " + assetCat;
+      if (combined.includes("background")) return false;
+      if (cat === "bg" || assetCat === "bg") return false;
+      if (cat === "scene" || assetCat === "scene") return false;
+      if (cat === "scenery" || assetCat === "scenery") return false;
+      return true;
     })
     .sort((a, b) => {
       const order = ["body", "arms", "aura", "head"];
