@@ -223,6 +223,7 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   readyAt: integer("ready_at", { mode: "timestamp_ms" }),
   element: text("element"),
   builderStances: text("builder_stances"),
+  lastHarvestAt: integer("last_harvest_at", { mode: "timestamp_ms" }),
 });
 
 // UI Workspace: editable sprites and config for enemies, buildings, timers.

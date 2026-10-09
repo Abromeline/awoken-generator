@@ -1558,6 +1558,39 @@ export const handlers = {
     return { ok: true };
   },
 
+  async harvestWheat(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ buildingId: z.number().int() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    const [building] = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.id, parsed.data.buildingId),
+        eq(schema.territoryBuildings.ownerKey, ownerKey),
+        eq(schema.territoryBuildings.buildingType, "dream-wheat"),
+        eq(schema.territoryBuildings.status, "active"),
+      )).limit(1);
+    if (!building) badRequest("Wheat not found.");
+    const gameConfig = await loadGameConfig();
+    const harvestEnergy = gameConfig.buildings["dream-wheat"]?.harvestEnergy ?? 4;
+    const growMs = 4 * 60 * 60 * 1000;
+    const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime()
+      : building.readyAt ? new Date(building.readyAt).getTime() : Date.now();
+    if (Date.now() - lastHarvest < growMs) badRequest("Not ready yet.");
+    // Give energy
+    const maxEnergy = await calculateMaxEnergy(ownerKey);
+    const res = await db.select().from(schema.tenderResources)
+      .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+    const current = res.length ? res[0].energy : 0;
+    await db.update(schema.tenderResources)
+      .set({ energy: Math.min(current + harvestEnergy, maxEnergy) })
+      .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    // Reset growth timer
+    await db.update(schema.territoryBuildings)
+      .set({ lastHarvestAt: new Date() })
+      .where(eq(schema.territoryBuildings.id, building.id));
+    return { ok: true, energyGained: harvestEnergy };
+  },
+
   async adminClearTimers(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
     const parsed = z.object({ ownerKey: z.string() }).safeParse(args);

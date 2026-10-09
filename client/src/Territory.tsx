@@ -495,7 +495,23 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
             const readyMin = Math.max(0, Math.ceil(readyMs / 60000));
             return (
-              <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}>
+              <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (b.buildingType !== "dream-wheat" || b.status !== "active") return;
+                  const readyAt = b.readyAt ? new Date(b.readyAt).getTime() : Date.now();
+                  const lastHarvest = b.lastHarvestAt ? new Date(b.lastHarvestAt).getTime() : readyAt;
+                  const isReady = Date.now() - lastHarvest >= 4 * 60 * 60 * 1000;
+                  if (isReady) {
+                    try {
+                      const r: any = await api.call("harvestWheat", { buildingId: b.id });
+                      const rb = await api.getBuildings();
+                      setBuildings(rb.buildings);
+                      onUpdate();
+                    } catch (err) { console.error("Harvest failed", err); }
+                  }
+                }}
+                style={{ cursor: b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * 0.5} y={bpx.y - s * 0.5}
