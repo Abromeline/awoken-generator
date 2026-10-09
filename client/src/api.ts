@@ -257,9 +257,9 @@ export const api = {
   defendWave: () => post<{
     victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
   }>("defendWave", {}),
-  getEnergy: () => post<{ energy: number }>("getEnergy", {}),
+  getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
-  adminSetEnergy: (args: { ownerKey: string; energy: number }) => post<{ ok: true }>("adminSetEnergy", args),
+  adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminClearTimers: (args: { ownerKey: string }) => post<{ ok: true }>("adminClearTimers", args),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
   getBattleTrack: (args: { id: number }) => post<{ id: number; name: string; trackData: string }>("getBattleTrack", args),

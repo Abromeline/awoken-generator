@@ -573,7 +573,7 @@ function TendersPanel() {
         <span className="energy-level" title="Energy">⚡{t.energy}</span>
         <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
         <div className="tender-admin">
-          <button className="abtn small" title="Refill energy" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey, energy: 50 }), "Energy refilled")}>
+          <button className="abtn small" title="Refill energy to max" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey }), "Energy refilled to max")}>
             ⚡
           </button>
           <button className="abtn small" title="Clear timers" onClick={() => doAdmin(() => api.adminClearTimers({ ownerKey: t.ownerKey }), "Timers cleared")}>

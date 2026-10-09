@@ -391,6 +391,27 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
 
 
 // Energy helpers: server-authoritative energy per tender.
+async function calculateMaxEnergy(ownerKey: string): Promise<number> {
+  // 5 base + power-scaled bonus per Awoken in hand, deployed, or binding
+  // 1-3pwr:+1, 4-6:+2, 7-9:+3, 10+:+4
+  const awoken = await db.select().from(schema.awakened)
+    .where(eq(schema.awakened.ownerKey, ownerKey));
+  let max = 5;
+  for (const a of awoken) {
+    // Skip dispersed (in re-coalescence)
+    if (a.dispersedUntil && new Date(a.dispersedUntil) > new Date()) continue;
+    try {
+      const layers = JSON.parse(a.compositionJson) as { power?: number }[];
+      const p = layers.reduce((sum, l) => sum + (l.power ?? 0), 0);
+      if (p >= 10) max += 4;
+      else if (p >= 7) max += 3;
+      else if (p >= 4) max += 2;
+      else if (p >= 1) max += 1;
+    } catch {}
+  }
+  return max;
+}
+
 async function getEnergyFor(ownerKey: string): Promise<number> {
   const res = await db.select().from(schema.tenderResources)
     .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
@@ -1116,7 +1137,16 @@ export const handlers = {
       const [row] = await db.insert(schema.tenderResources).values({ ownerKey, energy: 5 }).returning();
       res = [row];
     }
-    return { energy: res[0].energy };
+    const maxEnergy = await calculateMaxEnergy(ownerKey);
+    // Clamp energy to max (in case max decreased)
+    let energy = res[0].energy;
+    if (energy > maxEnergy) {
+      await db.update(schema.tenderResources)
+        .set({ energy: maxEnergy })
+        .where(eq(schema.tenderResources.ownerKey, ownerKey));
+      energy = maxEnergy;
+    }
+    return { energy, maxEnergy };
   },
 
   // Admin: reset a tender's territory, field, waves, and timers. Keeps their Awoken.
@@ -1155,12 +1185,14 @@ export const handlers = {
   // Admin: set a tender's energy.
   async adminSetEnergy(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
-    const parsed = z.object({ ownerKey: z.string(), energy: z.number().int().min(0).max(999) }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid energy.");
+    const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    // Refill to the tender's calculated max (not flat 50)
+    const maxEnergy = await calculateMaxEnergy(parsed.data.ownerKey);
     await db.insert(schema.tenderResources)
-      .values({ ownerKey: parsed.data.ownerKey, energy: parsed.data.energy })
-      .onConflictDoUpdate({ target: schema.tenderResources.ownerKey, set: { energy: parsed.data.energy } });
-    return { ok: true };
+      .values({ ownerKey: parsed.data.ownerKey, energy: maxEnergy })
+      .onConflictDoUpdate({ target: schema.tenderResources.ownerKey, set: { energy: maxEnergy } });
+    return { ok: true, energy: maxEnergy };
   },
 
   // Admin: clear all timers (dispersed, passive, etc.) for a tender.
