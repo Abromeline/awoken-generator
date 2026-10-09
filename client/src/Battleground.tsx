@@ -5,6 +5,7 @@ import FieldAwoken from "./FieldAwoken";
 import { api, type Awakened } from "./api";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
+import battlegroundBg from "./assets/battleground-bg.jpg";
 
 interface Defender {
   placementId: number;
@@ -156,7 +157,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
 
   return (
     <div className="battleground-overlay">
-      <div className="battleground-bg" />
+      <div className="battleground-bg" style={{ backgroundImage: `url(${battlegroundBg})` }} />
       <div className="battle-hud">
         <div className="energy-display">⚡ {energyLeft}/{maxEnergy}</div>
         <button className="abtn small" onClick={onClose}>✕ Retreat</button>

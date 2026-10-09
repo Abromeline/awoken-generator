@@ -328,7 +328,9 @@ body.defeat-flash {
 }
 .battleground-bg {
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 50% 30%, #1a0a0a 0%, #000 70%);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .battle-hud {
   position: absolute; top: 12px; left: 12px; right: 12px; z-index: 10;
