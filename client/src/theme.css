@@ -156,7 +156,19 @@
 
 /* Territory view */
 .territory-view{padding:12px}
-.territory-map{position:relative;background:transparent;border:none;border-radius:0;overflow:visible;margin:0 -20px;padding:20px 0;}
+.territory-map{position:absolute;inset:0;background:transparent;border:none;border-radius:0;overflow:hidden;}
+.territory-view{position:relative;min-height:100vh;overflow:hidden;}
+.nav-compass{position:fixed;bottom:20px;right:20px;z-index:50;width:120px;height:160px;pointer-events:none;}
+.compass-btn{position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.7);
+  border:1px solid #b89b5e;color:#ffd700;font-size:14px;cursor:pointer;pointer-events:all;
+  display:flex;align-items:center;justify-content:center;}
+.compass-btn:hover{background:rgba(40,30,10,0.9);}
+.compass-btn.north{top:0;left:42px;}
+.compass-btn.south{bottom:40px;left:42px;}
+.compass-btn.west{left:0;top:42px;}
+.compass-btn.east{right:0;top:42px;}
+.compass-btn.zoom-in{left:12px;bottom:0;background:rgba(20,40,20,0.7);border-color:#4a8a4a;}
+.compass-btn.zoom-out{right:12px;bottom:0;background:rgba(40,20,20,0.7);border-color:#8a4a4a;}
 .territory-map::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:5;
   background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.7) 80%, #000 100%);}
 .territory-svg{display:block;width:100%;height:auto;overflow:visible}
