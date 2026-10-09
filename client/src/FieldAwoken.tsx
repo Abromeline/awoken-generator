@@ -1,6 +1,7 @@
-// LAW: No Awoken on the field shall bear a background.
+// LAW: No Awoken on the field shall bear a background or aura.
 // This is the ONLY component for rendering Awoken on tiles.
-// It stacks body → arms → aura → head. Background is NEVER included.
+// It stacks body → arms → head. Background and aura are NEVER included.
+// (Auras are old uploads with baked-in grey backgrounds; they belong on cards only.)
 
 import { useMemo } from "react";
 import type { Awakened } from "./api";
@@ -27,26 +28,18 @@ export default function FieldAwoken({ awoken, assets, x, y, width, height, showF
     return m;
   }, [assets]);
 
-  // LAW: filter out background. Always. No exceptions.
-  // Backgrounds are locked to card art ONLY. Never on the field.
-  // Check BOTH layer category AND asset category (catches miscategorized pieces).
+  // LAW: filter out background AND aura. Always. No exceptions.
+  // Backgrounds and auras are locked to card art ONLY. Never on the field.
   const layers = awoken.layers
     .filter(l => {
       const cat = (l.category || "").toLowerCase().trim();
-      const assetCat = assetCatMap.get(l.source_id) || "";
-      const name = (l.name || "").toLowerCase();
-      const combined = cat + " " + assetCat + " " + name;
-      // Block anything background-like by category OR name
-      if (combined.includes("background")) return false;
-      if (combined.includes("backdrop")) return false;
-      const words = combined.split(/[^a-z]+/);
-      if (words.includes("bg")) return false;
-      if (words.includes("scene")) return false;
-      if (words.includes("scenery")) return false;
+      // Block background and aura by category
+      if (cat === "background" || cat === "aura") return false;
+      if (cat.includes("background") || cat.includes("aura")) return false;
       return true;
     })
     .sort((a, b) => {
-      const order = ["body", "arms", "aura", "head"];
+      const order = ["body", "arms", "head"];
       return order.indexOf(a.category) - order.indexOf(b.category);
     });
 
