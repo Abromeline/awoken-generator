@@ -225,6 +225,21 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   builderStances: text("builder_stances"),
 });
 
+// UI Workspace: editable sprites and config for enemies, buildings, timers.
+export const uiSprites = sqliteTable("ui_sprites", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  category: text("category").notNull(),
+  name: text("name").notNull(),
+  blobKey: text("blob_key").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const uiConfig = sqliteTable("ui_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // Battle tracks: rotating 8-bit music for battlegrounds.
 export const battleTracks = sqliteTable("battle_tracks", {
   id: integer("id").primaryKey({ autoIncrement: true }),

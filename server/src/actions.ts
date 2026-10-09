@@ -1451,6 +1451,61 @@ export const handlers = {
     return { ok: true, building };
   },
 
+  // UI Workspace APIs
+  async uploadUiSprite(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({
+      category: z.enum(["enemy", "building", "timer", "ui"]),
+      name: z.string().min(1).max(100),
+      imageBase64: z.string().min(100).max(16_000_000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid upload.");
+    const bytes = Buffer.from(parsed.data.imageBase64, "base64");
+    const blobKey = `ui-sprites/${Date.now()}-${randomUUID()}.png`;
+    blobs.put(blobKey, bytes, "image/png");
+    const [sprite] = await db.insert(schema.uiSprites).values({
+      category: parsed.data.category,
+      name: parsed.data.name,
+      blobKey,
+    }).returning();
+    return { ok: true, sprite };
+  },
+
+  async listUiSprites(args: unknown, ctx?: ActionContext) {
+    const sprites = await db.select().from(schema.uiSprites).orderBy(schema.uiSprites.createdAt);
+    return { sprites: sprites.map(s => ({
+      ...s,
+      url: `/blobs/${Buffer.from(s.blobKey).toString("base64url")}`,
+    })) };
+  },
+
+  async deleteUiSprite(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ id: z.number().int() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    await db.delete(schema.uiSprites).where(eq(schema.uiSprites.id, parsed.data.id));
+    return { ok: true };
+  },
+
+  async getUiConfig(args: unknown, ctx?: ActionContext) {
+    const rows = await db.select().from(schema.uiConfig);
+    const config: Record<string, any> = {};
+    for (const r of rows) {
+      try { config[r.key] = JSON.parse(r.value); } catch {}
+    }
+    return { config };
+  },
+
+  async setUiConfig(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({
+      key: z.string().min(1).max(100),
+      value: z.any(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    await db.insert(schema.uiConfig)
+      .values({ key: parsed.data.key, value: JSON.stringify(parsed.data.value) })
+      .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(parsed.data.value) } });
+    return { ok: true };
+  },
+
   async adminClearTimers(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
     const parsed = z.object({ ownerKey: z.string() }).safeParse(args);

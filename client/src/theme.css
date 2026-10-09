@@ -565,6 +565,38 @@ body.defeat-flash {
   80% { opacity: 1; }
   100% { opacity: 0; }
 }
+/* UI Workspace */
+.ui-workspace { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.ui-workspace h2 { color: #b89b5e; }
+.workspace-tabs { display: flex; gap: 8px; margin: 16px 0 24px; }
+.workspace-tabs button {
+  background: rgba(255,255,255,0.05); border: 1px solid #444; color: #ccc;
+  padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+.workspace-tabs button.active { border-color: #b89b5e; color: #ffd700; background: rgba(184,155,94,0.15); }
+.workspace-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.workspace-card {
+  background: rgba(255,255,255,0.03); border: 1px solid #333; border-radius: 12px; padding: 16px;
+}
+.workspace-card.wide { grid-column: 1 / -1; }
+.workspace-card h3 { margin: 0 0 12px 0; color: #ddc38b; text-transform: capitalize; }
+.sprite-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.sprite-thumb { width: 60px; height: 60px; object-fit: contain; border-radius: 8px; border: 1px solid #444; background: rgba(0,0,0,0.3); }
+.upload-btn {
+  background: rgba(184,155,94,0.1); border: 1px dashed #b89b5e; color: #b89b5e;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.upload-btn:hover { background: rgba(184,155,94,0.2); }
+.upload-btn:disabled { opacity: 0.5; }
+.stat-rows { display: flex; flex-direction: column; gap: 8px; }
+.stat-rows label { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #aaa; }
+.stat-rows input[type="number"] {
+  width: 70px; background: rgba(0,0,0,0.3); border: 1px solid #444; color: #fff;
+  padding: 6px 8px; border-radius: 6px; font-size: 13px;
+}
+.stat-rows small { font-size: 11px; color: #666; display: block; }
+.stat-rows .toggle { justify-content: flex-start; gap: 8px; cursor: pointer; }
+.stat-rows .toggle input { width: auto; }
 /* Builder selection */
 .builder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
 .builder-card {

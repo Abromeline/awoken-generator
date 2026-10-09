@@ -268,6 +268,7 @@ export const api = {
   getBuildingDefs: () => post<{ defs: Array<{ type: string; name: string; cost: number; buildMinutes: number; desc: string; icon: string }> }>("getBuildingDefs", {}),
   getBuildings: () => post<{ buildings: Array<{ id: number; tileId: number; buildingType: string; status: string; readyAt: string | null; element: string | null }> }>("getBuildings", {}),
   placeBuilding: (args: { tileId: number; buildingType: string; element?: string; builderIds?: number[] }) => post<{ ok: true; building: any }>("placeBuilding", args),
+  call: (action: string, args: any) => post<any>(action, args),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
   getBattleTrack: (args: { id: number }) => post<{ id: number; name: string; trackData: string }>("getBattleTrack", args),
   getRandomBattleTrack: () => post<{ track: { id: number; name: string; trackData: string } | null }>("getRandomBattleTrack", {}),
