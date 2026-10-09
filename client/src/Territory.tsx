@@ -489,7 +489,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
           <g clipPath={`url(#terr-${t.id})`}>
-            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.5} y={tiltPoint(cx, cy).y - s * 1.5} width={s * 3} height={s * 3} preserveAspectRatio="xMidYMid meet" />
+            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.5} y={tiltPoint(cx, cy).y - s * 1.7} width={s * 3} height={s * 3} preserveAspectRatio="xMidYMid meet" style={{ filter: t.cursed ? "brightness(0.4) saturate(0.3)" : undefined }} />
           </g>
           {/* Siege timer on cursed tiles */}
           {t.cursed && t.lastPassiveAt && (() => {
