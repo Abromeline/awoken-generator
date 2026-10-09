@@ -886,18 +886,36 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <div className="target-map-modal">
             <h2 style={{ color: "#ff6666", fontFamily: "Georgia, serif" }}>⚠ The Unraveling Comes</h2>
             <p style={{ color: "#aaa" }}>Wave {wave.waveNumber} targets this territory:</p>
-            <div className="target-minimap">
-              {tiles.slice(0, 12).map(t => {
-                const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
-                const hasDefenders = waveTarget.defenderIds.length > 0;
-                return (
-                  <div
-                    key={t.id}
-                    className={`target-hex ${isTarget ? "targeted" : ""} ${t.cursed ? "cursed" : ""}`}
-                    title={isTarget ? "Under attack!" : ""}
-                  />
-                );
-              })}
+            <div className="target-minimap" style={{ position: "relative", width: "280px", height: "200px", margin: "16px auto" }}>
+              {(() => {
+                // Find bounds to center the territory
+                const qs = tiles.map(t => t.q);
+                const rs = tiles.map(t => t.r);
+                const minQ = Math.min(...qs), maxQ = Math.max(...qs);
+                const minR = Math.min(...rs), maxR = Math.max(...rs);
+                const centerQ = (minQ + maxQ) / 2;
+                const centerR = (minR + maxR) / 2;
+                const scale = 22; // hex size
+                return tiles.map(t => {
+                  const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
+                  // Hex positioning (same math as main map, scaled down)
+                  const px = scale * Math.sqrt(3) * ((t.q - centerQ) + (t.r - centerR) / 2);
+                  const py = scale * 1.5 * (t.r - centerR);
+                  return (
+                    <div
+                      key={t.id}
+                      className={`target-hex ${isTarget ? "targeted" : ""} ${t.cursed ? "cursed" : ""}`}
+                      title={isTarget ? "Under attack!" : t.cursed ? "Cursed wilds" : "Purified"}
+                      style={{
+                        position: "absolute",
+                        left: `calc(50% + ${px}px)`,
+                        top: `calc(50% + ${py}px)`,
+                        transform: "translate(-50%, -50%)",
+                      }}
+                    />
+                  );
+                });
+              })()}
             </div>
             <p style={{ color: waveTarget.defenderIds.length > 0 ? "#8f8" : "#fa0", fontSize: 14 }}>
               {waveTarget.defenderIds.length > 0
