@@ -1348,6 +1348,20 @@ export const handlers = {
     };
     const def = defs[parsed.data.buildingType];
     if (!def) badRequest("Unknown building.");
+    // Find helpers: Awoken on this tile not in a combat stance (idle/neutral)
+    // Each helper exponentially reduces build time: time / 2^helpers
+    const helpers = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        eq(schema.fieldPlacements.tileId, parsed.data.tileId),
+        or(
+          eq(schema.fieldPlacements.stance, "none"),
+          eq(schema.fieldPlacements.stance, "idle")
+        )
+      ));
+    const helperCount = helpers.length;
+    const timeDivisor = Math.pow(2, helperCount);
+    const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes / timeDivisor));
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(
         eq(schema.territoryTiles.id, parsed.data.tileId),
@@ -1360,7 +1374,13 @@ export const handlers = {
     await db.update(schema.tenderResources)
       .set({ energy: energyRes.energy - def.cost })
       .where(eq(schema.tenderResources.ownerKey, ownerKey));
-    const readyAt = new Date(Date.now() + def.buildMinutes * 60 * 1000);
+    const readyAt = new Date(Date.now() + actualBuildMinutes * 60 * 1000);
+    // Helpers enter build mode (can't fight/defend while building)
+    for (const h of helpers) {
+      await db.update(schema.fieldPlacements)
+        .set({ stance: "building" })
+        .where(eq(schema.fieldPlacements.id, h.id));
+    }
     const [building] = await db.insert(schema.territoryBuildings).values({
       ownerKey,
       tileId: parsed.data.tileId,
