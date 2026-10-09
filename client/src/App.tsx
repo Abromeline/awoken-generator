@@ -572,18 +572,11 @@ function TendersPanel() {
         <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awoken" : "Awoken"}</span>
         <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
         <div className="tender-admin">
-          <button className="abtn small" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey, energy: 50 }), "Energy refilled")}>
-            ⚡ Refill
+          <button className="abtn small" title="Refill energy" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey, energy: 50 }), "Energy refilled")}>
+            ⚡
           </button>
-          <button className="abtn small" onClick={() => doAdmin(() => api.adminClearTimers({ ownerKey: t.ownerKey }), "Timers cleared")}>
-            🕐 Timers
-          </button>
-          <button className="abtn small danger" onClick={() => {
-            if (confirm(`Reset ${t.displayName}'s territory? This clears their map, field, and waves but keeps their Awoken.`)) {
-              doAdmin(() => api.adminResetTender({ ownerKey: t.ownerKey }), "Territory reset");
-            }
-          }}>
-            🔄 Reset
+          <button className="abtn small" title="Clear timers" onClick={() => doAdmin(() => api.adminClearTimers({ ownerKey: t.ownerKey }), "Timers cleared")}>
+            🕐
           </button>
         </div>
       </li>)}</ol>
