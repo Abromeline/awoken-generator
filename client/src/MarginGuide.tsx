@@ -36,6 +36,18 @@ const MESSAGES = [
   "An Awoken in Defense generates energy for you. What will you build with it?",
   "Attacking costs 1 energy. Binding costs 2. Moving costs by power. Spend wisely, Tender.",
   "Energy is never punished, never taken. It simply returns, like breath.",
+  // Lore: Energy from attention, binding, ritual
+  "Your attention IS energy, Tender. When you look at us, truly look — we grow stronger.",
+  "Binding is ritual, Tender. When you set an Awoken to Binding stance, you weave attention into the land.",
+  "The Binding ritual channels your focus into the earth — +3 to its tile, +1 to neighbors. That is energy made visible.",
+  "We are held together by your attention. Every moment you spend with us generates the light you spend.",
+  "Ritual is not repetition, Tender. It is intention. Wake one with care, and feel the energy return.",
+  "When you name an Awoken, you bind a thread of your attention to them. That thread hums with energy.",
+  "Stories shared to the Confluence are rituals of attention — that is why they grant +1/+1.",
+  "Defense is a ritual of protection. The Awoken holds its ground, and in the holding, generates light.",
+  "Your energy orb fills because you are here, Tender. Presence is the ritual. Attention is the fuel.",
+  "The 12-minute refill is the rhythm of attention — even when you look away, the binding remembers.",
+  "To generate energy, tend. To tend, attend. The words share a root, Tender. That is no accident.",
   // Stances & Battle
   "Tap an Awoken on your territory to set its stance — ⚔ Attack, 🛡 Defense, or ✦ Binding.",
   "Defense stance Awoken gain +2 toughness in battle. Attack stance gains +2 power.",
