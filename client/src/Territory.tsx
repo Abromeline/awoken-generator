@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
+import EnergyTimer from "./EnergyTimer";
 import FirstTrial from "./FirstTrial";
 import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
@@ -851,11 +852,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       </div>
       {/* Bottom dock: energy orb + hand */}
       <div className="bottom-dock">
-        <div className="energy-orb" title={`${energy} / ${maxEnergy} energy`}>
-          <div className="orb-liquid" style={{ height: `${(energy / maxEnergy) * 100}%` }} />
-          <div className="orb-glow" />
-          <span className="orb-text">{energy}</span>
-        </div>
+        <EnergyTimer />
         <div className="dock-hand">
           {hand.map((a, i) => {
             const el = dominantElement(a);
