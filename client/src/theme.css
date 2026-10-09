@@ -371,7 +371,12 @@ body.defeat-flash {
   text-shadow: 0 2px 8px #000; z-index: 10; text-align: center;
 }
 .battle-field {
-  position: absolute; inset: 100px 0 140px 0;
+  position: absolute; inset: 80px 0 120px 0;
+  overflow: hidden;
+}
+@media (max-height: 700px) {
+  .battle-field { inset: 70px 0 100px 0; }
+  .battle-fighter { width: 12% !important; }
 }
 .battle-fighter {
   position: absolute; cursor: pointer;
