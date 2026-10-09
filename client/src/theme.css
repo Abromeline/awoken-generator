@@ -394,6 +394,10 @@ body.defeat-flash {
   margin-left: -60px;
   margin-bottom: -20px;
 }
+.defenders-row .battle-fighter {
+  width: 300px;
+  margin-left: -120px;
+}
 .battle-row .battle-fighter:first-child {
   margin-left: 0;
 }
