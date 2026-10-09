@@ -76,7 +76,6 @@ export default function MarginGuide({ awoken, assets }: Props) {
 
   // Pick up to 2 Awoken for the margins
   const guides = awoken.slice(0, 2);
-  if (guides.length === 0 || dismissed) return null;
 
   useEffect(() => {
     // Appear after a moment
@@ -88,6 +87,7 @@ export default function MarginGuide({ awoken, assets }: Props) {
     return () => { clearTimeout(showTimer); clearInterval(msgTimer); };
   }, []);
 
+  if (guides.length === 0 || dismissed) return null;
   if (!visible) return null;
 
   return (
