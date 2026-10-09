@@ -46,6 +46,7 @@ function dominantElement(a: Awakened): Element {
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
+  const [showBuildingMenu, setShowBuildingMenu] = useState(false);
   const [buildings, setBuildings] = useState<any[]>([]);
   const [pendingTile, setPendingTile] = useState<number | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
@@ -730,11 +731,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   return (
     <div className="territory-view">
       <div className="territory-hud">
-        <BuildingMenu
-          onSelect={setSelectedBuilding}
-          selected={selectedBuilding}
-          energy={energy}
-        />
         {birthStatus?.ready ? (
           <button className="abtn birth-ready" onClick={handleTimedBirth}>
             ✨ A new Awoken awaits
@@ -1039,6 +1035,26 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           />
         );
       })()}
+      {/* Castle button - toggles building menu */}
+      <button
+        className={`castle-toggle ${showBuildingMenu ? "open" : ""}`}
+        onClick={() => setShowBuildingMenu(v => !v)}
+        title="Buildings"
+      >
+        🏰
+      </button>
+
+      {/* Right-side building panel */}
+      {showBuildingMenu && (
+        <div className="building-side-panel">
+          <BuildingMenu
+            onSelect={(b) => { setSelectedBuilding(b); }}
+            selected={selectedBuilding}
+            energy={energy}
+          />
+        </div>
+      )}
+
       {/* Builder selection popup */}
       {pendingTile !== null && selectedBuilding && (() => {
         const tileAwoken = placements

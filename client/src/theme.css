@@ -565,6 +565,24 @@ body.defeat-flash {
   80% { opacity: 1; }
   100% { opacity: 0; }
 }
+/* Castle toggle + right-side building panel */
+.castle-toggle {
+  position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
+  width: 56px; height: 56px; border-radius: 50%;
+  background: rgba(20,20,35,0.9); border: 2px solid #b89b5e;
+  font-size: 28px; cursor: pointer; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.castle-toggle:hover { background: rgba(184,155,94,0.2); }
+.castle-toggle.open { background: rgba(184,155,94,0.3); border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.4); }
+.building-side-panel {
+  position: fixed; right: 84px; top: 50%; transform: translateY(-50%);
+  width: 340px; max-height: 80vh; overflow-y: auto;
+  background: rgba(10,10,25,0.95); border: 2px solid #b89b5e; border-radius: 16px;
+  padding: 16px; z-index: 39;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
 /* UI Workspace */
 .ui-workspace { padding: 20px; max-width: 1200px; margin: 0 auto; }
 .ui-workspace h2 { color: #b89b5e; }
