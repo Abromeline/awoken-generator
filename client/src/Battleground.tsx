@@ -56,6 +56,8 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   const [turnIndex, setTurnIndex] = useState(0);
   const [attacking, setAttacking] = useState<string | null>(null);
   const [hitFlash, setHitFlash] = useState<string | null>(null);
+  const [dmgNumbers, setDmgNumbers] = useState<{id: string, fighterId: string, dmg: number, crit: boolean}[]>([]);
+  const [critFlash, setCritFlash] = useState(false);
   const [simRunning, setSimRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [victory, setVictory] = useState<boolean | null>(null);
@@ -117,7 +119,16 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     setHitFlash(def.id);
     setTimeout(() => setHitFlash(null), 400);
     const dmg = Math.max(1, atk.power - def.tough);
+    const isCrit = dmg >= atk.power * 1.5;
     setLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
+    // Floating damage number
+    const numId = `dmg-${Date.now()}-${Math.random()}`;
+    setDmgNumbers(prev => [...prev, {id: numId, fighterId: def.id, dmg, crit: isCrit}]);
+    setTimeout(() => setDmgNumbers(prev => prev.filter(n => n.id !== numId)), 1200);
+    if (isCrit) {
+      setCritFlash(true);
+      setTimeout(() => setCritFlash(false), 500);
+    }
     // Apply damage
     if (def.side === "en") {
       setEnemies(prev => prev.map(e => e.id === def.id ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
@@ -229,12 +240,12 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         <button className="abtn small" onClick={onClose}>✕ Retreat</button>
       </div>
       <div className="battle-log">{log}</div>
-      <div className="battle-field">
+      <div className={`battle-field ${critFlash ? "crit-flash" : ""}`}>
         <div className="battle-row defenders-row">
         {fighters.filter(f => f.hp > 0).map(f => (
           <div
             key={f.id}
-            className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""} ${attacking === f.id ? "attacking" : ""} ${hitFlash === f.id ? "hit-flash" : ""}`}
+            className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""} ${f.hp < f.maxHp * 0.5 && f.hp >= f.maxHp * 0.25 ? "wounded" : ""} ${f.hp < f.maxHp * 0.25 ? "bloodied" : ""} ${attacking === f.id ? "attacking" : ""} ${hitFlash === f.id ? "hit-flash" : ""}`}
             onClick={() => setSelected(selected === f.id ? null : f.id)}
           >
             {f.awoken && (
@@ -248,6 +259,9 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               <div className="thermo-bulb" />
             </div>
             {f.field && <div className="field-badge">⚔</div>}
+            {dmgNumbers.filter(n => n.fighterId === f.id).map(n => (
+              <div key={n.id} className={`dmg-number ${n.crit ? "crit" : ""}`}>-{n.dmg}</div>
+            ))}
           </div>
         ))}
         </div>
@@ -255,7 +269,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         {enemies.filter(e => e.hp > 0).map(e => (
           <div
             key={e.id}
-            className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${attacking === e.id ? "attacking" : ""} ${hitFlash === e.id ? "hit-flash" : ""}`}
+            className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${e.hp < e.maxHp * 0.5 && e.hp >= e.maxHp * 0.25 ? "wounded" : ""} ${e.hp < e.maxHp * 0.25 ? "bloodied" : ""} ${attacking === e.id ? "attacking" : ""} ${hitFlash === e.id ? "hit-flash" : ""}`}
             onClick={() => {
               if (selected) {
                 const atk = fighters.find(f => f.id === selected);
@@ -273,6 +287,9 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               <div className="thermo-fill" style={{ height: `${(e.hp / e.maxHp) * 100}%` }} />
               <div className="thermo-bulb" />
             </div>
+            {dmgNumbers.filter(n => n.fighterId === e.id).map(n => (
+              <div key={n.id} className={`dmg-number ${n.crit ? "crit" : ""}`}>-{n.dmg}</div>
+            ))}
           </div>
         ))}
         </div>
