@@ -4,6 +4,7 @@ import deckButtonImg from "./assets/terrain-mountain.png";
 import debrisDark from "./assets/debris-dark.jpg";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
+import MarginGuide from "./MarginGuide";
 import WelcomePacket, { AcornButton } from "./WelcomePacket";
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type WaitingAwoken, type WelcomeStatus } from "./api";
@@ -723,7 +724,7 @@ export function App() {
     // soft visitors (welcome still resolves) keep their ritual.
     const showGateUI = !tenderTokenState && (showGate || welcomeForbidden);
     if (showGateUI) {
-      return <><CosmicBackground /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div></>;
+      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div></>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
     return <><CosmicBackground /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
