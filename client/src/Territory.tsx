@@ -12,6 +12,7 @@ import skyImg from "./assets/terrain/sky.jpg";
 import stoneImg from "./assets/terrain/stone.jpg";
 import rootImg from "./assets/terrain/root.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
+import nebulaBg from "./assets/battleground-bg.jpg";
 import cursedImg from "./assets/terrain/cursed.jpg";
 
 const TERRAIN: Record<string, string> = {
@@ -359,7 +360,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     // Simple grid layout for now; parallax via row scaling
   // Render hex grid — proper pointy-top axial layout, hexes meet edge-to-edge
   const renderGrid = () => {
-    const size = 17, tilt = 0.62;
+    const size = 17, tilt = 1.0; // No squash — hexes tile edge-to-edge
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
     const elements = tiles.map((t, i) => {
@@ -532,7 +533,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   return (
-    <div className="territory-view">
+    <div className="territory-view" style={{ position: "relative" }}>
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: `url(${nebulaBg})`,
+        backgroundSize: "cover", backgroundPosition: "center",
+        opacity: 0.4, pointerEvents: "none", zIndex: 0,
+      }} />
       <div className="territory-hud">
         <div className="energy-meter">
           <span className="energy-label">Energy</span>
