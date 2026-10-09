@@ -524,6 +524,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
                     )}
+                    {/* Attunement: element + timer */}
+                    {(() => {
+                      const remaining = getAttuneRemaining(t, placement, a);
+                      if (remaining === null || remaining <= 0) return null;
+                      const el = dominantElement(a);
+                      const elIcon = { Tide: "🌊", Sky: "🌪", Stone: "⛰", Root: "🌿", Fire: "🔥" }[el] || "✦";
+                      const akx = tk.x, aky = tk.y + ahs / 2 + 10;
+                      return (
+                        <g className="attunement-badge" opacity="0.9">
+                          <text x={akx} y={aky} textAnchor="middle" fontSize={8} fill="#ffd700">
+                            {elIcon} {formatRemaining(remaining)}
+                          </text>
+                        </g>
+                      );
+                    })()}
                     {isWhispering && (() => {
                       const words = whisper.text.split(" ");
                       const lines: string[] = [];
