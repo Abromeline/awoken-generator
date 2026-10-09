@@ -392,11 +392,12 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
 
 // Energy helpers: server-authoritative energy per tender.
 async function calculateMaxEnergy(ownerKey: string): Promise<number> {
-  // 5 base + power-scaled bonus per Awoken in hand, deployed, or binding
+  // 10 base + power-scaled bonus per Awoken in hand, deployed, defending, or binding
   // 1-3pwr:+1, 4-6:+2, 7-9:+3, 10+:+4
+  // Defending/binding only raise the cap, not the refresh rate.
   const awoken = await db.select().from(schema.awakened)
     .where(eq(schema.awakened.ownerKey, ownerKey));
-  let max = 5;
+  let max = 10;
   for (const a of awoken) {
     // Skip dispersed (in re-coalescence)
     if (a.dispersedUntil && new Date(a.dispersedUntil) > new Date()) continue;
@@ -416,8 +417,8 @@ async function getEnergyFor(ownerKey: string): Promise<number> {
   const res = await db.select().from(schema.tenderResources)
     .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
   if (!res.length) {
-    await db.insert(schema.tenderResources).values({ ownerKey, energy: 5 });
-    return 5;
+    await db.insert(schema.tenderResources).values({ ownerKey, energy: 10 });
+    return 10;
   }
   return res[0].energy;
 }
@@ -1134,13 +1135,23 @@ export const handlers = {
     let res = await db.select().from(schema.tenderResources)
       .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
     if (!res.length) {
-      const [row] = await db.insert(schema.tenderResources).values({ ownerKey, energy: 5 }).returning();
+      const [row] = await db.insert(schema.tenderResources).values({ ownerKey, energy: 10 }).returning();
       res = [row];
     }
     const maxEnergy = await calculateMaxEnergy(ownerKey);
-    // Clamp energy to max (in case max decreased)
     let energy = res[0].energy;
-    if (energy > maxEnergy) {
+    const updatedAt = res[0].updatedAt ? new Date(res[0].updatedAt).getTime() : Date.now();
+    // Regen: 1 energy per 12 minutes, up to max
+    const now = Date.now();
+    const elapsedMin = (now - updatedAt) / (1000 * 60);
+    const regen = Math.floor(elapsedMin / 12);
+    if (regen > 0 && energy < maxEnergy) {
+      energy = Math.min(energy + regen, maxEnergy);
+      await db.update(schema.tenderResources)
+        .set({ energy, updatedAt: new Date() })
+        .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    } else if (energy > maxEnergy) {
+      // Clamp to max (in case max decreased)
       await db.update(schema.tenderResources)
         .set({ energy: maxEnergy })
         .where(eq(schema.tenderResources.ownerKey, ownerKey));

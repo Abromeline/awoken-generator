@@ -46,7 +46,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [energy, setEnergy] = useState(5);
+  const [energy, setEnergy] = useState(10);
   const refreshEnergy = async () => {
     try {
       const { energy: e } = await api.getEnergy();
@@ -71,7 +71,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
   const fieldAwoken = placements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
   const defenderCount = placements.filter(p => p.stance === "defense").length;
-  const maxEnergy = 5
+  const maxEnergy = 10
     + hand.reduce((sum, a) => sum + energyBonus(a.power), 0)
     + fieldAwoken.reduce((sum, a) => sum + energyBonus(a.power), 0)
     + defenderCount;
