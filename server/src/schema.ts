@@ -212,6 +212,18 @@ export const tenderResources = sqliteTable("tender_resources", {
     .$defaultFn(() => new Date()),
 });
 
+// Territory buildings: placed by Tenders on purified tiles.
+export const territoryBuildings = sqliteTable("territory_buildings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  tileId: integer("tile_id").notNull(),
+  buildingType: text("building_type").notNull(),
+  status: text("status").notNull().default("building"),
+  placedAt: integer("placed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  readyAt: integer("ready_at", { mode: "timestamp_ms" }),
+  element: text("element"),
+});
+
 // Battle tracks: rotating 8-bit music for battlegrounds.
 export const battleTracks = sqliteTable("battle_tracks", {
   id: integer("id").primaryKey({ autoIncrement: true }),

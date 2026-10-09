@@ -1301,6 +1301,77 @@ export const handlers = {
   },
 
   // Admin: clear all timers (dispersed, passive, etc.) for a tender.
+  getBuildingDefs() {
+    return {
+      defs: [
+        { type: "watchtower", name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile. 1 damage to first enemy.", icon: "🗼" },
+        { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 480, desc: "Grows in 8h. Harvest for +4 energy.", icon: "🌾" },
+        { type: "elemental-shrine", name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
+        { type: "stillwater-pool", name: "Stillwater Pool", cost: 10, buildMinutes: 360, desc: "+3 max energy. Max 2 per territory.", icon: "💧" },
+        { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "3 damage to first attacker. Single use.", icon: "🌵" },
+        { type: "binding-circle", name: "Binding Circle", cost: 6, buildMinutes: 180, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
+      ]
+    };
+  },
+
+  async getBuildings(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const buildings = await db.select().from(schema.territoryBuildings)
+      .where(eq(schema.territoryBuildings.ownerKey, ownerKey));
+    const now = Date.now();
+    for (const b of buildings) {
+      if (b.status === "building" && b.readyAt && new Date(b.readyAt).getTime() <= now) {
+        await db.update(schema.territoryBuildings)
+          .set({ status: "active" })
+          .where(eq(schema.territoryBuildings.id, b.id));
+        b.status = "active";
+      }
+    }
+    return { buildings };
+  },
+
+  async placeBuilding(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int(),
+      buildingType: z.string(),
+      element: z.string().optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const defs: Record<string, { cost: number; buildMinutes: number }> = {
+      "watchtower": { cost: 5, buildMinutes: 120 },
+      "dream-wheat": { cost: 2, buildMinutes: 480 },
+      "elemental-shrine": { cost: 8, buildMinutes: 240 },
+      "stillwater-pool": { cost: 10, buildMinutes: 360 },
+      "thorn-wall": { cost: 3, buildMinutes: 60 },
+      "binding-circle": { cost: 6, buildMinutes: 180 },
+    };
+    const def = defs[parsed.data.buildingType];
+    if (!def) badRequest("Unknown building.");
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.cursed, 0)
+      )).limit(1);
+    if (!tile.length) badRequest("Tile must be purified.");
+    const energyRes = await this.getEnergy({}, ctx);
+    if (energyRes.energy < def.cost) badRequest("Not enough energy.");
+    await db.update(schema.tenderResources)
+      .set({ energy: energyRes.energy - def.cost })
+      .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    const readyAt = new Date(Date.now() + def.buildMinutes * 60 * 1000);
+    const [building] = await db.insert(schema.territoryBuildings).values({
+      ownerKey,
+      tileId: parsed.data.tileId,
+      buildingType: parsed.data.buildingType,
+      status: "building",
+      readyAt,
+      element: parsed.data.element || null,
+    }).returning();
+    return { ok: true, building };
+  },
+
   async adminClearTimers(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
     const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
