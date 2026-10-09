@@ -209,6 +209,7 @@ try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN last_seen_at INTEGER`
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN builder_stances TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_harvest_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_upkeep_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN height INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 // Seed the 4 extended battle tracks (with sorrowful violin). Replaces short versions.
 const trackCount = sqlite.prepare(`SELECT COUNT(*) as n FROM battle_tracks`).get() as { n: number };

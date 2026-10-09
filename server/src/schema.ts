@@ -172,6 +172,8 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   // 48h passive purification timer: last time this tile was considered for
   // passive purification. Null = never attempted.
   lastPassiveAt: integer("last_passive_at", { mode: "timestamp_ms" }),
+  // XYZ grid: terrain height level. 0 = base. Future terraforming mechanic.
+  height: integer("height").notNull().default(0),
 });
 
 // Field placements: which Awoken stands on which tile.

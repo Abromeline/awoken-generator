@@ -9,17 +9,16 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage } from "./BuildingMenu";
 import { pickBirthLayers, composeBirth } from "./birth";
-import tideImg from "./assets/terrain-3d/tide.png";
-import skyImg from "./assets/terrain-3d/sky.png";
-import stoneImg from "./assets/terrain-3d/stone.png";
-import rootImg from "./assets/terrain-3d/root.png";
-import neutralImg from "./assets/terrain/neutral.jpg";
-
-import cursedImg from "./assets/terrain/cursed.jpg";
+import tideImg from "./assets/terrain-iso/tide-v2.png";
+import skyImg from "./assets/terrain-iso/sky-v2.png";
+import stoneImg from "./assets/terrain-iso/stone-v2.png";
+import rootImg from "./assets/terrain-iso/root-v2.png";
+import neutralImg from "./assets/terrain-iso/neutral-v2.png";
+import cursedImg from "./assets/terrain-iso/cursed-v2.png";
 
 const TERRAIN: Record<string, string> = {
-  tide: tideImg, sky: skyImg, stone: stoneImg,
-  root: rootImg, neutral: neutralImg, cursed: cursedImg,
+  tide: tideImg, sky: skyImg, stone: stoneImg, root: rootImg,
+  neutral: neutralImg, cursed: cursedImg,
 };
 
 interface Props {
@@ -444,8 +443,18 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
     const size = 17 * zoom;
+    // XYZ grid: height in pixels per terrain level (for future terraforming)
+    const HEIGHT_PX = 22 * zoom;
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
+    // Flat-top axial to pixel (XYZ: z lifts tile up on screen)
+    const tilePos = (t: any) => {
+      const px = size * 1.5 * t.q;
+      const py = size * Math.sqrt(3) * (t.r + t.q / 2);
+      const cx = originX + px + pan.x;
+      const cy = originY + py + pan.y - (t.height || 0) * HEIGHT_PX;
+      return { cx, cy };
+    };
     // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
     // This ensures front tiles always overlap back tiles, regardless of lift.
     // Build a set of cursed tile IDs adjacent to Awoken-occupied tiles (passive aura)
@@ -468,19 +477,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       }
     }
     const sortedTiles = [...tiles].sort((a, b) => {
-      const cya = originY + size * 1.5 * a.r + pan.y;
-      const cyb = originY + size * 1.5 * b.r + pan.y;
-      const tya = tiltPoint(0, cya).y;
-      const tyb = tiltPoint(0, cyb).y;
-      return tya - tyb;
+      const pa = tilePos(a), pb = tilePos(b);
+      return pa.cy - pb.cy;
     });
     // Entity layer: Awoken + buildings render ABOVE all terrain (Option A)
+    // XYZ: entities sit on the tile top face, lifted by terrain height
     const entityElements = sortedTiles.map((t) => {
-      const px = size * Math.sqrt(3) * (t.q + t.r / 2);
-      const py = size * 1.5 * t.r;
-      const cx = originX + px + pan.x;
-      const cy = originY + py + pan.y;
+      const { cx, cy } = tilePos(t);
       const s = size;
+      // Two building slots per hex: offset left/right on the tile top face
+      const slotOffset = s * 0.45;
       const tilePlacements = placements.filter(p => p.tileId === t.id);
       const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
       const awoken = awokens[0] ?? null;
@@ -650,19 +656,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     });
 
     const elements = sortedTiles.map((t, i) => {
-      // Pointy-top axial to pixel
-      const px = size * Math.sqrt(3) * (t.q + t.r / 2);
-      const py = size * 1.5 * t.r;
-      const cx = originX + px + pan.x;
-      const cy = originY + py + pan.y;
+      // Flat-top XYZ: tilePos handles axial->pixel + height lift
+      const { cx, cy } = tilePos(t);
       const s = size;
+      // Flat-top hexagon points for click hit area (no tilt)
       const pts: string[] = [];
       for (let k = 0; k < 6; k++) {
-        const a = Math.PI / 180 * (60 * k + 30);
+        const a = Math.PI / 180 * (60 * k);
         const vx = cx + s * Math.cos(a);
         const vy = cy + s * Math.sin(a);
-        const tp = tiltPoint(vx, vy);
-        pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
+        pts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
       }
 
       const placement = placements.find(p => p.tileId === t.id);
@@ -672,8 +675,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
       return (
         <g key={t.id} transform={`translate(0,${lift})`}>
-          <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
-          <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.5} y={tiltPoint(cx, cy).y - s * 1.9} width={s * 3} height={s * 3} preserveAspectRatio="xMidYMid meet" style={{ filter: t.cursed ? "brightness(0.4) saturate(0.3)" : undefined }} />
+          {/* Isometric tile: 1920x1280 PNG, hex face ~1345px wide. Scale to hex radius s. */}
+          <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]}
+            x={cx - s * 1.43} y={cy - s * 1.05} width={s * 2.86} height={s * 1.9}
+            preserveAspectRatio="xMidYMid meet" />
           {/* Siege timer on cursed tiles */}
           {t.cursed && t.lastPassiveAt && (() => {
             const last = new Date(t.lastPassiveAt).getTime();
@@ -798,8 +803,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const tile = tiles.find(t => t.id === placement.tileId);
         if (!tile) return null;
         const size = 17 * zoom;
-        const px = size * Math.sqrt(3) * (tile.q + tile.r / 2);
-        const py = size * 1.5 * tile.r;
+        const HEIGHT_PX = 22 * zoom;
+        const px = size * 1.5 * tile.q;
+        const py = size * Math.sqrt(3) * (tile.r + tile.q / 2) - (tile.height || 0) * HEIGHT_PX;
         const cx = 250 + px + pan.x;
         const cy = 170 + py + pan.y;
         const tp = tiltPoint(cx, cy);

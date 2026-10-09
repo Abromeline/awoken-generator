@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Isometric Tile Tessellation Test</title>
+<style>
+body { background: #0a0a18; margin: 0; padding: 20px; color: #d4c9a8; font-family: system-ui; }
+h1 { font-size: 18px; }
+#map { position: relative; width: 100%; max-width: 900px; margin: 0 auto; }
+.tile { position: absolute; }
+.tile img { display: block; width: 100%; }
+</style></head><body>
+<h1>Isometric Tile Tessellation Test (back-to-front)</h1>
+<div id="map"></div>
+<script>
+const TILES = ["tide","sky","stone","root","neutral","cursed"];
+const W = 180, H = 200; // tile display size (adjust to match PNG aspect)
+const map = document.getElementById("map");
+// Hex grid: flat-top axial, rendered back-to-front
+const tiles = [];
+for (let r = 0; r < 4; r++) {
+  for (let q = 0; q < 5; q++) {
+    const x = q * W * 0.75;
+    const y = r * H * 0.88 + (q % 2 ? H * 0.44 : 0);
+    const type = TILES[(r * 5 + q) % TILES.length];
+    tiles.push({x, y, type, depth: y});
+  }
+}
+tiles.sort((a,b) => a.depth - b.depth);
+let maxX = 0, maxY = 0;
+for (const t of tiles) {
+  const d = document.createElement("div");
+  d.className = "tile";
+  d.style.left = t.x + "px";
+  d.style.top = t.y + "px";
+  d.style.width = W + "px";
+  d.innerHTML = `<img src="/assets/terrain-iso/${t.type}.png">`;
+  map.appendChild(d);
+  maxX = Math.max(maxX, t.x + W); maxY = Math.max(maxY, t.y + H);
+}
+map.style.height = maxY + "px";
+</script>
+</body></html>
