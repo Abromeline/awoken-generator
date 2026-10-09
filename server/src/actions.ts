@@ -1182,7 +1182,8 @@ export const handlers = {
       await db.update(schema.tenderResources)
         .set({ lastSeenAt: new Date() })
         .where(eq(schema.tenderResources.ownerKey, ownerKey));
-    } else if (energy > maxEnergy) {
+    }
+    if (energy > maxEnergy) {
       // Clamp to max (in case max decreased)
       await db.update(schema.tenderResources)
         .set({ energy: maxEnergy })
@@ -1487,7 +1488,6 @@ export const handlers = {
           await expandFrontier(ownerKey, dq, dr);
           break;
         }
-      }
       }
       await db.update(schema.waveState)
         .set({
