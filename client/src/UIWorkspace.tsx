@@ -1,7 +1,38 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api";
+// Current default sprites (bundled with the app)
+import frayImg from "./assets/enemies/fray.png";
+import unravelerImg from "./assets/enemies/unraveler.png";
+import hollowImg from "./assets/enemies/hollow.png";
+import tangleImg from "./assets/enemies/tangle.png";
+import watchtowerImg from "./assets/buildings/watchtower.png";
+import dreamWheatImg from "./assets/buildings/dream-wheat.png";
+import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
+import awakeningWellImg from "./assets/buildings/awakening-well.png";
+import thornWallImg from "./assets/buildings/thorn-wall.png";
+import bindingCircleImg from "./assets/buildings/binding-circle.png";
+import treeImg from "./assets/buildings/tree.png";
+import tideTileImg from "./assets/terrain-iso/tide-v2.png";
+import skyTileImg from "./assets/terrain-iso/sky-v2.png";
+import stoneTileImg from "./assets/terrain-iso/stone-v2.png";
+import rootTileImg from "./assets/terrain-iso/root-v2.png";
+import neutralTileImg from "./assets/terrain-iso/neutral-v2.png";
+import cursedTileImg from "./assets/terrain-iso/cursed-v2.png";
 
-type Section = "enemies" | "buildings" | "timers";
+const CURRENT_SPRITES: Record<string, Record<string, string>> = {
+  enemy: { fray: frayImg, unraveler: unravelerImg, hollow: hollowImg, tangle: tangleImg },
+  building: {
+    watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
+    "elemental-shrine": elementalShrineImg, "awakening-well": awakeningWellImg,
+    "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
+  },
+  terrain: {
+    tide: tideTileImg, sky: skyTileImg, stone: stoneTileImg,
+    root: rootTileImg, neutral: neutralTileImg, cursed: cursedTileImg,
+  },
+};
+
+type Section = "enemies" | "buildings" | "terrain" | "timers";
 
 interface UiSprite {
   id: number;
@@ -41,6 +72,7 @@ const DEFAULTS: Record<string, any> = {
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
 const BUILDINGS = ["watchtower", "dream-wheat", "elemental-shrine", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
@@ -97,9 +129,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "timers"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : "⏱️ Timers"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : "⏱️ Timers"}
           </button>
         ))}
       </div>
@@ -112,8 +144,17 @@ export default function UIWorkspace() {
             <div key={name} className="workspace-card">
               <h3>{name.charAt(0).toUpperCase() + name.slice(1)}</h3>
               <div className="sprite-row">
+                {CURRENT_SPRITES.enemy[name] && (
+                  <div className="sprite-current">
+                    <img src={CURRENT_SPRITES.enemy[name]} alt={name} className="sprite-thumb" />
+                    <small>Current</small>
+                  </div>
+                )}
                 {spritesFor("enemy", name).map(s => (
-                  <img key={s.id} src={s.url} alt={s.name} className="sprite-thumb" />
+                  <div key={s.id} className="sprite-uploaded">
+                    <img src={s.url} alt={s.name} className="sprite-thumb" />
+                    <small>Uploaded</small>
+                  </div>
                 ))}
                 <button
                   className="upload-btn"
@@ -138,8 +179,17 @@ export default function UIWorkspace() {
             <div key={name} className="workspace-card">
               <h3>{name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}</h3>
               <div className="sprite-row">
+                {CURRENT_SPRITES.building[name] && (
+                  <div className="sprite-current">
+                    <img src={CURRENT_SPRITES.building[name]} alt={name} className="sprite-thumb" />
+                    <small>Current</small>
+                  </div>
+                )}
                 {spritesFor("building", name).map(s => (
-                  <img key={s.id} src={s.url} alt={s.name} className="sprite-thumb" />
+                  <div key={s.id} className="sprite-uploaded">
+                    <img src={s.url} alt={s.name} className="sprite-thumb" />
+                    <small>Uploaded</small>
+                  </div>
                 ))}
                 <button
                   className="upload-btn"
@@ -172,6 +222,37 @@ export default function UIWorkspace() {
                   <input type="checkbox" checked={getVal(`building.${name}.enabled`)} onChange={e => setVal(`building.${name}.enabled`, e.target.checked)} />
                   Enabled
                 </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {section === "terrain" && (
+        <div className="workspace-grid">
+          {TERRAINS.map(name => (
+            <div key={name} className="workspace-card">
+              <h3>{name.charAt(0).toUpperCase() + name.slice(1)}</h3>
+              <div className="sprite-row">
+                {CURRENT_SPRITES.terrain[name] && (
+                  <div className="sprite-current">
+                    <img src={CURRENT_SPRITES.terrain[name]} alt={name} className="sprite-thumb" />
+                    <small>Current</small>
+                  </div>
+                )}
+                {spritesFor("terrain", name).map(s => (
+                  <div key={s.id} className="sprite-uploaded">
+                    <img src={s.url} alt={s.name} className="sprite-thumb" />
+                    <small>Uploaded</small>
+                  </div>
+                ))}
+                <button
+                  className="upload-btn"
+                  disabled={uploading === name}
+                  onClick={() => { setUploadTarget({ category: "terrain", name }); fileRef.current?.click(); }}
+                >
+                  {uploading === name ? "..." : "+ Sprite"}
+                </button>
               </div>
             </div>
           ))}
