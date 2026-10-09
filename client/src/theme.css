@@ -352,6 +352,31 @@ body.defeat-flash {
   background-repeat: no-repeat;
   animation: moon-drift 360s ease-in-out infinite;
 }
+.battle-fog {
+  position: absolute; inset: 0; z-index: 5;
+  pointer-events: none;
+  background: 
+    radial-gradient(ellipse 60% 40% at 20% 60%, rgba(120,120,140,0.25) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 35% at 70% 40%, rgba(100,100,120,0.2) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 50% 70%, rgba(140,140,160,0.15) 0%, transparent 70%);
+  animation: fog-roll 20s ease-in-out infinite;
+}
+.battle-fog::before {
+  content: ""; position: absolute; inset: -50%;
+  background: 
+    radial-gradient(ellipse 30% 20% at 30% 50%, rgba(160,160,180,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 25% 18% at 70% 60%, rgba(140,140,160,0.1) 0%, transparent 60%);
+  animation: fog-drift 35s linear infinite;
+}
+@keyframes fog-roll {
+  0%, 100% { transform: translateX(0) scale(1); opacity: 0.8; }
+  33% { transform: translateX(-2%) scale(1.05); opacity: 1; }
+  66% { transform: translateX(2%) scale(0.98); opacity: 0.9; }
+}
+@keyframes fog-drift {
+  0% { transform: translateX(-10%) rotate(0deg); }
+  100% { transform: translateX(10%) rotate(2deg); }
+}
 @keyframes moon-drift {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50% { transform: translate(3%, -2%) scale(1.08); }

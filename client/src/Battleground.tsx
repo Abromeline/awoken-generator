@@ -235,6 +235,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   return (
     <div className="battleground-overlay">
       <div className="battleground-bg" style={{ backgroundImage: `url(${battlegroundBg})` }} />
+      <div className="battle-fog" />
       <div className="battle-hud">
         <div className="energy-display">⚡ {energyLeft}/{maxEnergy}</div>
         <button className="abtn small" onClick={onClose}>✕ Retreat</button>
