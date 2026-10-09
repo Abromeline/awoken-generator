@@ -34,11 +34,15 @@ export default function FieldAwoken({ awoken, assets, x, y, width, height, showF
     .filter(l => {
       const cat = (l.category || "").toLowerCase().trim();
       const assetCat = assetCatMap.get(l.source_id) || "";
-      const combined = cat + " " + assetCat;
+      const name = (l.name || "").toLowerCase();
+      const combined = cat + " " + assetCat + " " + name;
+      // Block anything background-like by category OR name
       if (combined.includes("background")) return false;
-      if (cat === "bg" || assetCat === "bg") return false;
-      if (cat === "scene" || assetCat === "scene") return false;
-      if (cat === "scenery" || assetCat === "scenery") return false;
+      if (combined.includes("backdrop")) return false;
+      const words = combined.split(/[^a-z]+/);
+      if (words.includes("bg")) return false;
+      if (words.includes("scene")) return false;
+      if (words.includes("scenery")) return false;
       return true;
     })
     .sort((a, b) => {
