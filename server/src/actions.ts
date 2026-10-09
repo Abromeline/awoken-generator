@@ -1035,12 +1035,12 @@ export const handlers = {
       );
       if (border.length) {
         const victim = border[Math.floor(Math.random() * border.length)];
-        // The tile falls: Awoken on it disperse into time (4h re-coalescence).
+        // The tile falls: Awoken on it disperse into time (13m re-coalescence).
         // The land reverts to cursed, as it was before.
         const victims = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
           .from(schema.fieldPlacements)
           .where(eq(schema.fieldPlacements.tileId, victim.id));
-        const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
+        const dispersedUntil = new Date(Date.now() + 13 * 60 * 1000);
         for (const v of victims) {
           await db.update(schema.awakened)
             .set({ dispersedUntil })

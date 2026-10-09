@@ -320,11 +320,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return "neutral";
   };
 
-  // Helper: attunement time remaining in ms
+  // Helper: attunement time remaining in ms — 13 minutes. Energy sets the pace.
   const getAttuneRemaining = (tile: TerritoryTile, placement: FieldPlacement, awoken: Awakened): number | null => {
     // TODO: real element detection; for now show countdown on all fresh placements
     const placedAt = new Date(placement.placedAt).getTime();
-    const duration = tile.element === "neutral" ? 4 * 3600 * 1000 : 8 * 3600 * 1000;
+    const duration = 13 * 60 * 1000;
     const remaining = placedAt + duration - Date.now();
     return remaining > 0 ? remaining : 0;
   };
