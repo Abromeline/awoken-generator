@@ -391,6 +391,24 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
 
 
 // Energy helpers: server-authoritative energy per tender.
+async function grantBirthEnergy(ownerKey: string, power: number): Promise<number> {
+  // When an Awoken is born, recalculate max and grant the energy bonus immediately.
+  let bonus = 0;
+  if (power >= 10) bonus = 4;
+  else if (power >= 7) bonus = 3;
+  else if (power >= 4) bonus = 2;
+  else if (power >= 1) bonus = 1;
+  if (bonus > 0) {
+    const maxEnergy = await calculateMaxEnergy(ownerKey);
+    const current = await getEnergyFor(ownerKey);
+    const next = Math.min(current + bonus, maxEnergy);
+    await db.update(schema.tenderResources)
+      .set({ energy: next, updatedAt: new Date() })
+      .where(eq(schema.tenderResources.ownerKey, ownerKey));
+  }
+  return bonus;
+}
+
 async function calculateMaxEnergy(ownerKey: string): Promise<number> {
   // 10 base + power-scaled bonus per Awoken in hand, deployed, defending, or binding
   // 1-3pwr:+1, 4-6:+2, 7-9:+3, 10+:+4
@@ -554,6 +572,11 @@ export const handlers = {
     const rows = await db.insert(schema.awakened).values({ name: plan.name, imageBlobKey: blobKey, compositionJson: JSON.stringify(plan.canonicalLayers), collection, ownerName, ownerKey, identityKey: plan.identityKey, iteration: plan.previousCount, flavorText: plan.flavorText }).returning({ id: schema.awakened.id });
     const row = rows[0] as { id: number } | undefined;
     if (!row) { blobs.delete(blobKey); badRequest("This awakening could not be saved."); }
+    // Grant birth energy if this is a tender's Awoken
+    if (ownerKey && collection === "tender") {
+      const power = plan.canonicalLayers.reduce((sum, l) => sum + (l.power ?? 0), 0);
+      await grantBirthEnergy(ownerKey, power);
+    }
     return { id: (row as { id: number }).id, name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
   },
 
@@ -1686,7 +1709,10 @@ export const handlers = {
       fieldBorn: 1,
     }).returning({ id: schema.awakened.id });
     // Joins the hand, not the field.
-    return okResponse.parse({ ok: true, id: newborn.id });
+    // Recalculate max energy and grant the newborn's energy bonus immediately.
+    const newbornPower = layers.reduce((sum, l) => sum + (l.power ?? 0), 0);
+    const bonus = await grantBirthEnergy(ownerKey, newbornPower);
+    return okResponse.parse({ ok: true, id: newborn.id, energyBonus: bonus });
   },
 
   async getBirthStatus(args: unknown, ctx?: ActionContext) {
