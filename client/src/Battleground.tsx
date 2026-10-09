@@ -6,6 +6,8 @@ import { api, type Awakened } from "./api";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
+import frayImg from "./assets/adversaries/fray.png";
+import unravelerImg from "./assets/adversaries/unraveler.png";
 
 interface Defender {
   placementId: number;
@@ -116,25 +118,48 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
       setTimeout(() => {
         const defDead = def.hp - dmg <= 0;
         if (defDead) setLog(`${def.name} dissipates!`);
-        setBusy(false);
-        checkEnd();
+        // Enemy counterattack
+        setTimeout(() => {
+          const aliveEnemies = enemies.filter(e => e.hp > 0 && e.id !== def.id || (e.id === def.id && !defDead));
+          // Use current state via functional update
+          setEnemies(currentEnemies => {
+            const alive = currentEnemies.filter(e => e.hp > 0);
+            if (alive.length === 0) return currentEnemies;
+            const attacker = alive[Math.floor(Math.random() * alive.length)];
+            setFighters(currentFighters => {
+              const targets = currentFighters.filter(f => f.hp > 0);
+              if (targets.length === 0) return currentFighters;
+              const target = targets[Math.floor(Math.random() * targets.length)];
+              const edmg = Math.max(1, attacker.power - target.tough);
+              setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
+              return currentFighters.map(f =>
+                f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
+              );
+            });
+            return currentEnemies;
+          });
+          setBusy(false);
+        }, 800);
       }, 750);
     }, 975);
   };
 
-  const checkEnd = () => {
+  // Check for battle end whenever fighters or enemies change
+  useEffect(() => {
+    if (victory !== null) return; // Already resolved
+    if (fighters.length === 0 && enemies.length === 0) return; // Not initialized
     const awAlive = fighters.some(f => f.hp > 0);
     const enAlive = enemies.some(e => e.hp > 0);
     if (!awAlive || !enAlive) {
-      const win = enAlive === false;
+      const win = !enAlive;
       setVictory(win);
       setSimRunning(false);
       trackPlayer.stop();
-      // Return reinforcements to hand
       const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-      setTimeout(() => onBattleEnd({ victory: win, survivors }), 2000);
+      setLog(win ? "THE WAVE BREAKS!" : "THE LINE FALLS...");
+      setTimeout(() => onBattleEnd({ victory: win, survivors }), 2500);
     }
-  };
+  }, [fighters, enemies]);
 
   const playCard = (index: number) => {
     const card = deck[index];
@@ -171,7 +196,11 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
             style={{ left: `${f.x}%`, bottom: `${f.y}%`, width: `${f.w}%` }}
             onClick={() => setSelected(selected === f.id ? null : f.id)}
           >
-            {f.awoken && <FieldAwoken awoken={f.awoken} assets={assets} x={0} y={0} width={100} height={130} />}
+            {f.awoken && (
+              <svg viewBox="0 0 100 130" style={{ width: "100%", height: "auto", display: "block" }}>
+                <FieldAwoken awoken={f.awoken} assets={assets} x={0} y={0} width={100} height={130} />
+              </svg>
+            )}
             <div className="fighter-stats">{f.power}⚔ {f.tough}🛡</div>
             {f.field && <div className="field-badge">⚔</div>}
           </div>
@@ -188,7 +217,11 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               }
             }}
           >
-            <div className="enemy-sprite" data-enemy={e.img} />
+            <img
+              src={e.img === "fray" ? frayImg : unravelerImg}
+              alt={e.name}
+              style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
+            />
             <div className="fighter-stats">❤{e.hp}/{e.maxHp}</div>
           </div>
         ))}
