@@ -74,7 +74,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     for (let i = 0; i < wave.frayCount; i++) {
       en.push({
         id: `e-fray-${i}`, img: "fray",
-        x: 55 + i * 6, y: 30, w: 10,
+        x: 52 + i * 4.5, y: 30, w: 9,
         power: 2, tough: 0, hp: 3, maxHp: 3,
         name: "Fray", side: "en", field: false,
       });
@@ -82,7 +82,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     for (let i = 0; i < wave.unravelers; i++) {
       en.push({
         id: `e-unrav-${i}`, img: "unraveler",
-        x: 55 + (wave.frayCount * 6) + i * 7, y: 30, w: 12,
+        x: 52 + (wave.frayCount * 4.5) + i * 5, y: 30, w: 10,
         power: 4, tough: 0, hp: 6, maxHp: 6,
         name: "Unraveler", side: "en", field: false,
       });
