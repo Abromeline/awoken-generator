@@ -1305,7 +1305,7 @@ export const handlers = {
     return {
       defs: [
         { type: "watchtower", name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile. 1 damage to first enemy.", icon: "🗼" },
-        { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 480, desc: "Grows in 8h. Harvest for +4 energy.", icon: "🌾" },
+        { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 240, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
         { type: "elemental-shrine", name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
         { type: "awakening-well", name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
         { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
@@ -1341,7 +1341,7 @@ export const handlers = {
     if (!parsed.success) badRequest("Invalid request.");
     const defs: Record<string, { cost: number; buildMinutes: number }> = {
       "watchtower": { cost: 5, buildMinutes: 120 },
-      "dream-wheat": { cost: 2, buildMinutes: 480 },
+      "dream-wheat": { cost: 2, buildMinutes: 240 },
       "elemental-shrine": { cost: 8, buildMinutes: 240 },
       "awakening-well": { cost: 10, buildMinutes: 360 },
       "thorn-wall": { cost: 3, buildMinutes: 60 },
