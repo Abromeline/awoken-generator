@@ -1015,6 +1015,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             towerDamage={gameConfig?.buildings?.["watchtower"]?.damage ?? 3}
             thornDamage={gameConfig?.buildings?.["thorn-wall"]?.damage ?? 1}
             towerPowerBonus={gameConfig?.buildings?.["watchtower"]?.powerBonus ?? 2}
+            enemyConfig={gameConfig?.enemies}
             towerAuraTiles={(() => {
               const towers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
               const aura = new Set<number>();

@@ -31,6 +31,7 @@ interface BattlegroundProps {
   towerDamage?: number; // watchtower volley damage (from UI Workspace)
   thornDamage?: number; // thorn wall damage (from UI Workspace)
   towerPowerBonus?: number; // watchtower power aura (from UI Workspace)
+  enemyConfig?: Record<string, { power: number; hp: number }>;
   wave: WaveInfo;
   hand: Awakened[];  // For reinforcements
   assets: FieldAsset[];
@@ -53,7 +54,7 @@ interface Fighter {
   tileId?: number;  // For building effects (thorn wall)
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -95,19 +96,21 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       awoken: d.awoken,
     }});
     const en: Fighter[] = [];
+    const frayCfg = enemyConfig?.["fray"] ?? { power: 2, hp: 3 };
     for (let i = 0; i < wave.frayCount; i++) {
       en.push({
         id: `e-fray-${i}`, img: "fray",
         x: 52 + i * 4.5, y: 30, w: 9,
-        power: 2, tough: 0, hp: 3, maxHp: 3,
+        power: frayCfg.power, tough: 0, hp: frayCfg.hp, maxHp: frayCfg.hp,
         name: "Fray", side: "en", field: false,
       });
     }
+    const unravCfg = enemyConfig?.["unraveler"] ?? { power: 4, hp: 6 };
     for (let i = 0; i < wave.unravelers; i++) {
       en.push({
         id: `e-unrav-${i}`, img: "unraveler",
         x: 52 + (wave.frayCount * 4.5) + i * 5, y: 30, w: 10,
-        power: 4, tough: 0, hp: 6, maxHp: 6,
+        power: unravCfg.power, tough: 0, hp: unravCfg.hp, maxHp: unravCfg.hp,
         name: "Unraveler", side: "en", field: false,
       });
     }
