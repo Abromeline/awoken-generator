@@ -278,6 +278,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleDefend = async () => {
+    // Ensure we have wave data
+    if (!wave) {
+      try {
+        const w = await api.getWave();
+        setWave(w);
+      } catch (e) {
+        console.error("Failed to get wave", e);
+      }
+    }
     // Phase 1: Show minimap with the targeted territory
     try {
       const target = await api.getWaveTarget();
@@ -756,8 +765,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         );
       })()}
       <div className="territory-battle-trigger">
-        <button className="abtn battle-cta" onClick={handleDefend} disabled={!wave}>
-          ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "Loading..."}
+        <button className="abtn battle-cta" onClick={handleDefend}>
+          ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "⚔ Fight the Unraveling"}
         </button>
       </div>
       <div className="territory-hand">
