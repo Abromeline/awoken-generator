@@ -7,7 +7,7 @@ import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper } from "./whispers";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
-import BuildingMenu from "./BuildingMenu";
+import BuildingMenu, { buildingImage } from "./BuildingMenu";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain-3d/tide.png";
 import skyImg from "./assets/terrain-3d/sky.png";
@@ -482,8 +482,33 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
       const awoken = awokens[0] ?? null;
       const lift = t.cursed ? 0 : -5;
+      const tileBuildings = buildings.filter(b => b.tileId === t.id);
       return (
         <g key={`entity-${t.id}`} transform={`translate(0,${lift})`}>
+          {/* Buildings on this tile (max 2) */}
+          {tileBuildings.map((b, bi) => {
+            const bpx = tiltPoint(cx + (bi === 0 ? -s * 0.4 : s * 0.4), cy - s * 0.3);
+            const isBuilding = b.status === "building";
+            const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
+            const readyMin = Math.max(0, Math.ceil(readyMs / 60000));
+            return (
+              <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}>
+                <image
+                  href={buildingImage(b.buildingType)}
+                  x={bpx.x - s * 0.5} y={bpx.y - s * 0.5}
+                  width={s} height={s}
+                  preserveAspectRatio="xMidYMid meet"
+                  opacity={isBuilding ? 0.7 : 1}
+                  style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
+                />
+                {isBuilding && (
+                  <text x={bpx.x} y={bpx.y + s * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
+                    ⏱ {readyMin >= 60 ? `${Math.floor(readyMin/60)}h${readyMin%60}m` : `${readyMin}m`}
+                  </text>
+                )}
+              </g>
+            );
+          })}
           {awokens.length > 0 && (
             <g>
               {awokens.slice(0, 4).map((a, idx) => {

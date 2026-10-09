@@ -1307,7 +1307,7 @@ export const handlers = {
         { type: "watchtower", name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile. 1 damage to first enemy.", icon: "🗼" },
         { type: "dream-wheat", name: "Dream Wheat", cost: 2, buildMinutes: 480, desc: "Grows in 8h. Harvest for +4 energy.", icon: "🌾" },
         { type: "elemental-shrine", name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
-        { type: "stillwater-pool", name: "Stillwater Pool", cost: 10, buildMinutes: 360, desc: "+3 max energy. Max 2 per territory.", icon: "💧" },
+        { type: "awakening-well", name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
         { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
         { type: "binding-circle", name: "Binding Circle", cost: 6, buildMinutes: 180, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
       ]
@@ -1343,7 +1343,7 @@ export const handlers = {
       "watchtower": { cost: 5, buildMinutes: 120 },
       "dream-wheat": { cost: 2, buildMinutes: 480 },
       "elemental-shrine": { cost: 8, buildMinutes: 240 },
-      "stillwater-pool": { cost: 10, buildMinutes: 360 },
+      "awakening-well": { cost: 10, buildMinutes: 360 },
       "thorn-wall": { cost: 3, buildMinutes: 60 },
       "binding-circle": { cost: 6, buildMinutes: 180 },
     };
@@ -1368,6 +1368,13 @@ export const handlers = {
         eq(schema.territoryTiles.cursed, 0)
       )).limit(1);
     if (!tile.length) badRequest("Tile must be purified.");
+    // Max 2 buildings per hex
+    const existing = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.ownerKey, ownerKey),
+        eq(schema.territoryBuildings.tileId, parsed.data.tileId)
+      ));
+    if (existing.length >= 2) badRequest("Max 2 buildings per hex.");
     const energyRes = await this.getEnergy({}, ctx);
     if (energyRes.energy < def.cost) badRequest("Not enough energy.");
     await db.update(schema.tenderResources)

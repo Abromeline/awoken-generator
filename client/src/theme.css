@@ -528,6 +528,14 @@ body.defeat-flash {
   background: rgba(0,0,0,0.7); color: #ffcc88; font-size: 11px;
   padding: 2px 8px; border-radius: 10px; white-space: nowrap;
 }
+/* Building construction glow */
+.building-constructing image {
+  animation: build-pulse 2s ease-in-out infinite;
+}
+@keyframes build-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.9; }
+}
 /* Builder selection */
 .builder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
 .builder-card {

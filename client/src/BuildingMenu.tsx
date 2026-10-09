@@ -3,7 +3,7 @@ import { api } from "./api";
 import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
-import stillwaterPoolImg from "./assets/buildings/stillwater-pool.png";
+import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
 
@@ -11,7 +11,7 @@ const BUILDING_IMGS: Record<string, string> = {
   "watchtower": watchtowerImg,
   "dream-wheat": dreamWheatImg,
   "elemental-shrine": elementalShrineImg,
-  "stillwater-pool": stillwaterPoolImg,
+  "awakening-well": awakeningWellImg,
   "thorn-wall": thornWallImg,
   "binding-circle": bindingCircleImg,
 };
