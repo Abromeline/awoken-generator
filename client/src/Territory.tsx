@@ -387,12 +387,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     };
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
-    // Depth-sort: back tiles (smaller raw cy) drawn first so front tiles overlap correctly.
-    // Purified tiles get a 5px lift via translate, but draw order is by depth.
+    // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
+    // This ensures front tiles always overlap back tiles, regardless of lift.
     const sortedTiles = [...tiles].sort((a, b) => {
-      const pya = size * 1.5 * a.r;
-      const pyb = size * 1.5 * b.r;
-      return pya - pyb;
+      const cya = originY + size * 1.5 * a.r + pan.y;
+      const cyb = originY + size * 1.5 * b.r + pan.y;
+      const tya = tiltPoint(0, cya).y;
+      const tyb = tiltPoint(0, cyb).y;
+      return tya - tyb;
     });
     const elements = sortedTiles.map((t, i) => {
       // Pointy-top axial to pixel
@@ -421,9 +423,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return (
         <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
-          {/* Solid tile color — nebula shows through around the map */}
-          <polygon points={pts.join(" ")}
-            fill={t.cursed ? "rgba(40,15,15,0.85)" : t.q === 0 && t.r === 0 ? "rgba(80,60,20,0.9)" : "rgba(20,50,20,0.85)"}
+          <g clipPath={`url(#terr-${t.id})`}>
+            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tc.x - s * 1.2} y={tc.y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
+          </g>
+          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
             stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#5a2a2a") : "#b89b5e"}
             strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
             opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
