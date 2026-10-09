@@ -159,6 +159,15 @@
 .territory-map{position:absolute;inset:0;background:transparent;border:none;border-radius:0;overflow:hidden;}
 .territory-view{position:relative;min-height:100vh;overflow:hidden;}
 .nav-compass{position:fixed;bottom:20px;right:20px;z-index:50;width:120px;height:160px;pointer-events:none;}
+.hand-cards{
+  position:fixed;bottom:0;left:0;right:140px;z-index:40;
+  display:flex;gap:8px;overflow-x:auto;padding:10px 16px;
+  background:linear-gradient(0deg, rgba(0,0,0,0.9), transparent);
+  pointer-events:all;
+}
+.hand-cards:empty{display:none;}
+.territory-hud{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none;}
+.territory-hud > *{pointer-events:all;}
 .compass-btn{position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.7);
   border:1px solid #b89b5e;color:#ffd700;font-size:14px;cursor:pointer;pointer-events:all;
   display:flex;align-items:center;justify-content:center;}
