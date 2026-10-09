@@ -28,6 +28,9 @@ interface BattlegroundProps {
   thornWallTiles?: number[]; // tile IDs with active thorn walls
   watchtowerTiles?: number[]; // tile IDs with active watchtowers (first-strike)
   towerAuraTiles?: number[]; // tiles with +2 power from adjacent watchtowers
+  towerDamage?: number; // watchtower volley damage (from UI Workspace)
+  thornDamage?: number; // thorn wall damage (from UI Workspace)
+  towerPowerBonus?: number; // watchtower power aura (from UI Workspace)
   wave: WaveInfo;
   hand: Awakened[];  // For reinforcements
   assets: FieldAsset[];
@@ -50,7 +53,7 @@ interface Fighter {
   tileId?: number;  // For building effects (thorn wall)
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -77,7 +80,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       // Defense stance: +2 toughness, Attack stance: +2 power
       const stanceBonusPower = d.stance === "attack" ? 2 : 0;
       const stanceBonusTough = d.stance === "defense" ? 2 : 0;
-      const towerBonus = d.tileId && towerAuraTiles.includes(d.tileId) ? 2 : 0;
+      const towerBonus = d.tileId && towerAuraTiles.includes(d.tileId) ? towerPowerBonus : 0;
       const basePower = d.awoken.power + stanceBonusPower + towerBonus;
       const baseTough = d.awoken.toughness + stanceBonusTough;
       return {
@@ -137,10 +140,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
             if (alive.length === 0) break;
             const target = alive[Math.floor(Math.random() * alive.length)];
             const idx = updated.findIndex(e => e.id === target.id);
-            updated[idx] = { ...updated[idx], hp: Math.max(0, updated[idx].hp - 3) };
+            updated[idx] = { ...updated[idx], hp: Math.max(0, updated[idx].hp - towerDamage) };
             // Damage number animation
             const numId = `tower-${Date.now()}-${i}`;
-            setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: 3, crit: false }]);
+            setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
             setTimeout(() => setDmgNumbers(prev => prev.filter(n => n.id !== numId)), 1200);
           }
           return updated;
@@ -228,10 +231,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           // Thorn Wall: 1 damage to every attacker striking a walled tile
           const thornHit = target.tileId && thornWallTiles.includes(target.tileId);
           let logMsg = `${attacker.name} strikes back at ${target.name} for ${edmg}!`;
-          if (thornHit) logMsg += " Thorns bite back for 1!";
+          if (thornHit) logMsg += ` Thorns bite back for ${thornDamage}!`;
           setLog(logMsg);
           // Apply thorn damage to attacker
-          const retaliation = thornHit ? 1 : 0;
+          const retaliation = thornHit ? thornDamage : 0;
           if (retaliation > 0) {
             setEnemies(ens => ens.map(e =>
               e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - retaliation) } : e

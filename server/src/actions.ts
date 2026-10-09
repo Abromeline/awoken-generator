@@ -429,14 +429,22 @@ async function calculateMaxEnergy(ownerKey: string): Promise<number> {
       else if (p >= 1) max += 1;
     } catch {}
   }
-  // Dream Trees: +1 max energy each
+  // Dream Trees and Awakening Wells: configurable energy bonus each
+  const gameConfig = await loadGameConfig();
   const trees = await db.select().from(schema.territoryBuildings)
     .where(and(
       eq(schema.territoryBuildings.ownerKey, ownerKey),
       eq(schema.territoryBuildings.buildingType, "tree"),
       eq(schema.territoryBuildings.status, "active"),
     ));
-  max += trees.length;
+  max += trees.length * (gameConfig.buildings["tree"]?.energyBonus ?? 1);
+  const wells = await db.select().from(schema.territoryBuildings)
+    .where(and(
+      eq(schema.territoryBuildings.ownerKey, ownerKey),
+      eq(schema.territoryBuildings.buildingType, "awakening-well"),
+      eq(schema.territoryBuildings.status, "active"),
+    ));
+  max += wells.length * (gameConfig.buildings["awakening-well"]?.energyBonus ?? 3);
   return max;
 }
 
@@ -465,6 +473,50 @@ async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): 
   await db.update(schema.tenderResources)
     .set({ energy: next, updatedAt: new Date() })
     .where(eq(schema.tenderResources.ownerKey, ownerKey));
+}
+
+// Standalone game config loader (used by both handlers and internal functions)
+async function loadGameConfig() {
+  const rows = await db.select().from(schema.uiConfig);
+  const overrides: Record<string, any> = {};
+  for (const r of rows) {
+    try { overrides[r.key] = JSON.parse(r.value); } catch {}
+  }
+  const buildings: Record<string, any> = {};
+  for (const [type, def] of Object.entries(BUILDING_DEFS)) {
+    buildings[type] = {
+      ...def,
+      cost: overrides[`building.${type}.cost`] ?? def.cost,
+      buildMinutes: overrides[`building.${type}.buildMinutes`] ?? def.buildMinutes,
+      enabled: overrides[`building.${type}.enabled`] ?? true,
+    };
+    if (type === "watchtower") {
+      buildings[type].damage = overrides["building.watchtower.damage"] ?? 3;
+      buildings[type].powerBonus = overrides["building.watchtower.powerBonus"] ?? 2;
+    }
+    if (type === "thorn-wall") {
+      buildings[type].damage = overrides["building.thorn-wall.damage"] ?? 1;
+    }
+    if (type === "dream-wheat") {
+      buildings[type].harvestEnergy = overrides["building.dream-wheat.harvestEnergy"] ?? 4;
+    }
+    if (type === "awakening-well" || type === "tree") {
+      buildings[type].energyBonus = overrides[`building.${type}.energyBonus`] ?? (type === "tree" ? 1 : 3);
+    }
+  }
+  const enemies: Record<string, any> = {};
+  for (const name of ["fray", "unraveler", "hollow", "tangle"]) {
+    enemies[name] = {
+      power: overrides[`enemy.${name}.power`] ?? { fray: 2, unraveler: 4, hollow: 0, tangle: 3 }[name],
+      hp: overrides[`enemy.${name}.hp`] ?? { fray: 3, unraveler: 6, hollow: 5, tangle: 8 }[name],
+    };
+  }
+  const timers = {
+    energyRegenMinutes: overrides["timer.energyRegenMinutes"] ?? 4,
+    buildHelperDivisor: overrides["timer.buildHelperDivisor"] ?? 2,
+    wheatWellSynergy: overrides["timer.wheatWellSynergy"] ?? 0.75,
+  };
+  return { buildings, enemies, timers };
 }
 
 // Single source of truth for building definitions
@@ -1363,8 +1415,10 @@ export const handlers = {
       builderIds: z.array(z.number().int()).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid request.");
-    const def = BUILDING_DEFS[parsed.data.buildingType];
+    const gameConfig = await loadGameConfig();
+    const def = gameConfig.buildings[parsed.data.buildingType];
     if (!def) badRequest("Unknown building.");
+    if (!def.enabled) badRequest("Building disabled.");
     // Builders: manually selected Awoken from the tile (any stance -> building)
     // Each builder exponentially reduces build time: time / 2^builders
     const builderIds = parsed.data.builderIds || [];
@@ -1375,7 +1429,7 @@ export const handlers = {
       )) : [];
     const validHelpers = helpers.filter(h => builderIds.includes(h.awakenedId));
     const helperCount = validHelpers.length;
-    const timeDivisor = Math.pow(2, helperCount);
+    const timeDivisor = Math.pow(gameConfig.timers.buildHelperDivisor, helperCount);
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(
         eq(schema.territoryTiles.id, parsed.data.tileId),
@@ -1408,7 +1462,7 @@ export const handlers = {
           eq(schema.territoryBuildings.status, "active"),
         ));
       if (wells.some(w => nearbyIds.has(w.tileId))) {
-        synergyMultiplier = 0.75;
+        synergyMultiplier = gameConfig.timers.wheatWellSynergy;
       }
     }
     // Max 2 buildings per hex
@@ -1477,6 +1531,10 @@ export const handlers = {
     if (!parsed.success) badRequest("Invalid.");
     await db.delete(schema.uiSprites).where(eq(schema.uiSprites.id, parsed.data.id));
     return { ok: true };
+  },
+
+  async getGameConfig() {
+    return loadGameConfig();
   },
 
   async getUiConfig(args: unknown, ctx?: ActionContext) {

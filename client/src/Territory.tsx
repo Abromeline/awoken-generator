@@ -48,6 +48,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
   const [showBuildingMenu, setShowBuildingMenu] = useState(false);
   const [buildings, setBuildings] = useState<any[]>([]);
+  const [gameConfig, setGameConfig] = useState<any>(null);
   const [pendingTile, setPendingTile] = useState<number | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
@@ -179,9 +180,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-  // Load buildings
+  // Load buildings + game config
   useEffect(() => {
     api.getBuildings().then(r => setBuildings(r.buildings)).catch(() => {});
+    api.call("getGameConfig", {}).then(setGameConfig).catch(() => {});
   }, []);
 
   // Field Awoken whisper from time to time (only on field, never in hand)
@@ -1010,6 +1012,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             defenders={defs}
             thornWallTiles={buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active").map(b => b.tileId)}
             watchtowerTiles={buildings.filter(b => b.buildingType === "watchtower" && b.status === "active").map(b => b.tileId)}
+            towerDamage={gameConfig?.buildings?.["watchtower"]?.damage ?? 3}
+            thornDamage={gameConfig?.buildings?.["thorn-wall"]?.damage ?? 1}
+            towerPowerBonus={gameConfig?.buildings?.["watchtower"]?.powerBonus ?? 2}
             towerAuraTiles={(() => {
               const towers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
               const aura = new Set<number>();
