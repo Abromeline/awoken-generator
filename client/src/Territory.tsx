@@ -422,12 +422,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const a = Math.PI / 180 * (60 * k + 30);
         const vx = cx + s * Math.cos(a);
         const vy = cy + s * Math.sin(a);
-        // Apply perspective tilt to each vertex
-        const tp = tiltPoint(vx, vy);
-        pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
+        pts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
       }
-      // Project the center for Awoken positioning (but Awoken drawn upright)
-      const tc = tiltPoint(cx, cy);
       const tex = t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral");
       const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
@@ -438,7 +434,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
           <g clipPath={`url(#terr-${t.id})`}>
-            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tc.x - s * 1.2} y={tc.y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
+            <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={cx - s * 1.2} y={cy - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
           </g>
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
             stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#5a2a2a") : "#b89b5e"}
@@ -470,14 +466,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 ];
                 const ks = keystones[idx];
                 const ws = 15, hs = 20;
-                // Position on the tilted plane, but draw upright
-                const rawKx = cx + ks.dx * s * 2;
-                const rawKy = cy + ks.dy * s * 2;
-                const tk = tiltPoint(rawKx, rawKy);
-                const kx = tk.x, ky = tk.y;
-                // Scale by perspective (further = smaller), but don't skew
-                const awScale = tk.scale;
-                const aws = ws * awScale, ahs = hs * awScale;
+                const kx = cx + ks.dx * s * 2;
+                const ky = cy + ks.dy * s * 2;
+                const aws = ws, ahs = hs;
+                const awScale = 1;
                 const isWhispering = whisper?.awakenedId === a.id;
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
                 const driftDur = (6 + (a.id % 5)).toFixed(1);
@@ -490,6 +482,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       "--drift-dur": `${driftDur}s`,
                       "--drift-delay": `${driftDelay}s`,
                       cursor: "pointer",
+                      transform: `translate(${kx}px, ${ky}px) rotateX(-32deg) translate(${-kx}px, ${-ky}px)`,
+                      transformBox: "fill-box",
                     } as React.CSSProperties}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -738,7 +732,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}
         </div>
       </div>
-      <div className="territory-map">
+      <div className="territory-map" style={{
+        transform: "perspective(900px) rotateX(32deg)",
+        transformOrigin: "center 60%",
+        transformStyle: "preserve-3d",
+      }}>
         <svg viewBox="0 0 500 340" className="territory-svg">
           {renderGrid()}
         </svg>
