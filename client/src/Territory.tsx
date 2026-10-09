@@ -860,7 +860,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <p style={{ color: "#aaa" }}>Wave {wave.waveNumber} targets this territory:</p>
             <div className="target-minimap">
               {tiles.slice(0, 12).map(t => {
-                const isTarget = t.id === waveTarget.tile.id;
+                const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
                 const hasDefenders = waveTarget.defenderIds.length > 0;
                 return (
                   <div
@@ -895,7 +895,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           }
           return tiles.find(t => t.q === 0 && t.r === 0);
         })();
-        const targetTileId = waveTarget?.tile.id ?? fallbackTile?.id;
+        const targetTileId = waveTarget?.tile?.id ?? fallbackTile?.id;
         const defs = placements
           .filter(p => p.tileId === targetTileId)
           .map(p => {
