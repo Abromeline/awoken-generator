@@ -403,6 +403,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const originX = 250, originY = 170;
     // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
     // This ensures front tiles always overlap back tiles, regardless of lift.
+    // Build a set of cursed tile IDs adjacent to Awoken-occupied tiles (passive aura)
+    const occupiedKeys = new Set(
+      placements.map(p => {
+        const t = tiles.find(t => t.id === p.tileId);
+        return t ? `${t.q},${t.r}` : null;
+      }).filter(Boolean)
+    );
+    const auraTiles = new Set<number>();
+    for (const t of tiles) {
+      if (!t.cursed) continue;
+      const neighbors = [
+        `${t.q+1},${t.r}`, `${t.q-1},${t.r}`,
+        `${t.q},${t.r+1}`, `${t.q},${t.r-1}`,
+        `${t.q+1},${t.r-1}`, `${t.q-1},${t.r+1}`,
+      ];
+      if (neighbors.some(n => occupiedKeys.has(n))) {
+        auraTiles.add(t.id);
+      }
+    }
     const sortedTiles = [...tiles].sort((a, b) => {
       const cya = originY + size * 1.5 * a.r + pan.y;
       const cyb = originY + size * 1.5 * b.r + pan.y;
@@ -438,7 +457,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.2} y={tiltPoint(cx, cy).y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
           </g>
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
-            stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#5a2a2a") : "#b89b5e"}
+            stroke={t.cursed ? (auraTiles.has(t.id) ? "#88ff88" : (battlePool.length > 0 ? "#ff4444" : "#5a2a2a")) : "#b89b5e"}
+            style={{ filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined }}
             strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
             opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
             style={{
