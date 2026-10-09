@@ -154,16 +154,26 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   useEffect(() => {
     if (victory !== null) return; // Already resolved
     if (fighters.length === 0 && enemies.length === 0) return; // Not initialized
-    const awAlive = fighters.some(f => f.hp > 0);
-    const enAlive = enemies.some(e => e.hp > 0);
-    if (!awAlive || !enAlive) {
-      const win = !enAlive;
-      setVictory(win);
+    // Count alive — must have at least one enemy to exist for victory to be valid
+    const aliveFighters = fighters.filter(f => f.hp > 0).length;
+    const aliveEnemies = enemies.filter(e => e.hp > 0).length;
+    const totalEnemies = enemies.length;
+    // Only trigger if battle actually started (enemies were created) and now all dead
+    if (totalEnemies > 0 && aliveEnemies === 0 && aliveFighters > 0) {
+      // Victory!
+      setVictory(true);
       setSimRunning(false);
       trackPlayer.stop();
       const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-      setLog(win ? "THE WAVE BREAKS!" : "THE LINE FALLS...");
-      setTimeout(() => onBattleEnd({ victory: win, survivors }), 2500);
+      setLog("THE WAVE BREAKS!");
+      setTimeout(() => onBattleEnd({ victory: true, survivors }), 2500);
+    } else if (totalEnemies > 0 && aliveFighters === 0 && aliveEnemies > 0) {
+      // Defeat — all fighters dead but enemies remain
+      setVictory(false);
+      setSimRunning(false);
+      trackPlayer.stop();
+      setLog("THE LINE FALLS...");
+      setTimeout(() => onBattleEnd({ victory: false, survivors: [] }), 2500);
     }
   }, [fighters, enemies]);
 
