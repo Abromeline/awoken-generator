@@ -1013,6 +1013,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <Battleground
             defenders={defs}
             thornWallTiles={buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active").map(b => b.tileId)}
+            watchtowerTiles={buildings.filter(b => b.buildingType === "watchtower" && b.status === "active").map(b => b.tileId)}
             wave={wave}
             hand={hand}
             assets={assets}

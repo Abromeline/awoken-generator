@@ -26,6 +26,7 @@ interface WaveInfo {
 interface BattlegroundProps {
   defenders: Defender[];  // Field Awoken on the bastion
   thornWallTiles?: number[]; // tile IDs with active thorn walls
+  watchtowerTiles?: number[]; // tile IDs with active watchtowers
   wave: WaveInfo;
   hand: Awakened[];  // For reinforcements
   assets: FieldAsset[];
@@ -48,7 +49,8 @@ interface Fighter {
   tileId?: number;  // For building effects (thorn wall)
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+  const watchtowerFired = useRef<Set<number>>(new Set());
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -74,7 +76,8 @@ export default function Battleground({ defenders, thornWallTiles = [], wave, han
       // Defense stance: +2 toughness, Attack stance: +2 power
       const stanceBonusPower = d.stance === "attack" ? 2 : 0;
       const stanceBonusTough = d.stance === "defense" ? 2 : 0;
-      const basePower = d.awoken.power + stanceBonusPower;
+      const towerBonus = d.tileId && watchtowerTiles.includes(d.tileId) ? 2 : 0;
+      const basePower = d.awoken.power + stanceBonusPower + towerBonus;
       const baseTough = d.awoken.toughness + stanceBonusTough;
       return {
       id: `a-${d.awoken.id}`,
@@ -83,7 +86,7 @@ export default function Battleground({ defenders, thornWallTiles = [], wave, han
       x: 5 + i * 11, y: 30, w: 13,
       power: basePower, tough: baseTough,
       hp: baseTough, maxHp: baseTough,
-      name: d.awoken.name + (d.stance === "attack" ? " ⚔+2" : d.stance === "defense" ? " 🛡+2" : ""),
+      name: d.awoken.name + (d.stance === "attack" ? " ⚔+2" : d.stance === "defense" ? " 🛡+2" : "") + (towerBonus ? " 🗼+2" : ""),
       side: "aw", field: true,
       awoken: d.awoken,
     }});
@@ -199,15 +202,20 @@ export default function Battleground({ defenders, thornWallTiles = [], wave, han
           const edmg = Math.max(1, attacker.power - target.tough);
           // Thorn Wall: 1 damage to every attacker striking a walled tile
           const thornHit = target.tileId && thornWallTiles.includes(target.tileId);
-          if (thornHit) {
-            setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}! Thorns bite back for 1!`);
-          } else {
-            setLog(`${attacker.name} strikes back at ${target.name} for ${edmg}!`);
+          // Watchtower: 1 damage to the FIRST enemy to attack this tile (once per battle)
+          const watchHit = target.tileId && watchtowerTiles.includes(target.tileId) && !watchtowerFired.current.has(target.tileId);
+          let logMsg = `${attacker.name} strikes back at ${target.name} for ${edmg}!`;
+          if (thornHit) logMsg += " Thorns bite back for 1!";
+          if (watchHit) {
+            logMsg += " Watchtower fires for 1!";
+            watchtowerFired.current.add(target.tileId!);
           }
-          // Apply thorn damage to attacker
-          if (thornHit) {
+          setLog(logMsg);
+          // Apply thorn + watchtower damage to attacker
+          const retaliation = (thornHit ? 1 : 0) + (watchHit ? 1 : 0);
+          if (retaliation > 0) {
             setEnemies(ens => ens.map(e =>
-              e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - 1) } : e
+              e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - retaliation) } : e
             ));
           }
           return currentFighters.map(f =>

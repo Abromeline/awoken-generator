@@ -1335,6 +1335,17 @@ export const handlers = {
           .set({ status: "active" })
           .where(eq(schema.territoryBuildings.id, b.id));
         b.status = "active";
+        // Builders return to their previous stance
+        if (b.builderStances) {
+          try {
+            const memories = JSON.parse(b.builderStances) as { placementId: number; stance: string }[];
+            for (const m of memories) {
+              await db.update(schema.fieldPlacements)
+                .set({ stance: m.stance })
+                .where(eq(schema.fieldPlacements.id, m.placementId));
+            }
+          } catch {}
+        }
       }
     }
     return { buildings };
@@ -1420,8 +1431,10 @@ export const handlers = {
       .set({ energy: energyRes.energy - def.cost })
       .where(eq(schema.tenderResources.ownerKey, ownerKey));
     const readyAt = new Date(Date.now() + actualBuildMinutes * 60 * 1000);
-    // Builders enter build mode (can't fight/defend while building)
+    // Builders enter build mode - remember their previous stance
+    const stanceMemory: { placementId: number; stance: string }[] = [];
     for (const h of validHelpers) {
+      stanceMemory.push({ placementId: h.id, stance: h.stance });
       await db.update(schema.fieldPlacements)
         .set({ stance: "building" })
         .where(eq(schema.fieldPlacements.id, h.id));
@@ -1433,6 +1446,7 @@ export const handlers = {
       status: "building",
       readyAt,
       element: parsed.data.element || null,
+      builderStances: stanceMemory.length ? JSON.stringify(stanceMemory) : null,
     }).returning();
     return { ok: true, building };
   },

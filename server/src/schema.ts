@@ -222,6 +222,7 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   placedAt: integer("placed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   readyAt: integer("ready_at", { mode: "timestamp_ms" }),
   element: text("element"),
+  builderStances: text("builder_stances"),
 });
 
 // Battle tracks: rotating 8-bit music for battlegrounds.
