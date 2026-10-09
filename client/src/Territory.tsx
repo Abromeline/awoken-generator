@@ -686,7 +686,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {hand.length === 0 && <div className="hand-empty">All Awoken stand on the field.</div>}
         </div>
       </div>
-      <div className="territory-map">
+      <div className="territory-map" style={{
+        transform: "perspective(900px) rotateX(32deg)",
+        transformOrigin: "center 60%",
+      }}>
         <svg viewBox="0 0 500 340" className="territory-svg">
           {renderGrid()}
         </svg>

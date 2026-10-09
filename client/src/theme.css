@@ -156,7 +156,9 @@
 
 /* Territory view */
 .territory-view{padding:12px}
-.territory-map{position:relative;background:#050505 url('./assets/debris-dark.jpg') center/cover;border:2px solid #b89b5e;border-radius:6px;overflow:hidden}
+.territory-map{position:relative;background:transparent;border:none;border-radius:0;overflow:visible;margin:0 -20px;padding:20px 0;}
+.territory-map::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:5;
+  background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.7) 80%, #000 100%);}
 .territory-svg{display:block;width:100%;height:auto;overflow:visible}
 /* Remove the old pulse animation (now integrated into border) */
 .territory-nav{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px}
