@@ -528,7 +528,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       const remaining = getAttuneRemaining(t, placement, a);
                       if (remaining === null || remaining <= 0) return null;
                       const el = dominantElement(a);
-                      const elIcon = { Tide: "🌊", Sky: "🌪", Stone: "⛰", Root: "🌿", Fire: "🔥" }[el] || "✦";
+                      const elIcon = ({ tide: "🌊", sky: "🌪", stone: "⛰", root: "🌿", fire: "🔥" } as Record<string, string>)[(el || "").toLowerCase()] || "✦";
                       const akx = tk.x, aky = tk.y + ahs / 2 + 10;
                       return (
                         <g className="attunement-badge" opacity="0.9">
