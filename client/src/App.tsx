@@ -550,6 +550,8 @@ function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boo
 function TendersPanel() {
   const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
+  const [deckPopup, setDeckPopup] = useState<{ ownerKey: string; name: string; field: any[]; hand: any[]; waveNumber: number } | null>(null);
+  const [waveEdit, setWaveEdit] = useState<{ ownerKey: string; current: number } | null>(null);
   const doAdmin = async (fn: () => Promise<any>, label: string) => {
     try {
       await fn();
@@ -572,9 +574,30 @@ function TendersPanel() {
     {!tenders.length ? <p className="quiet">No Tender has claimed a code yet.</p> : (
       <ol>{tenders.map((t, i) => <li key={t.code}>
         <span className="rank">{i + 1}</span>
-        <div className="tender-who"><strong>{t.displayName}</strong><small>{t.code}</small></div>
+        <div className="tender-who">
+          <strong 
+            className="tender-name-link"
+            onClick={async () => {
+              try {
+                const deck = await api.adminGetTenderDeck({ ownerKey: t.ownerKey });
+                setDeckPopup({ ownerKey: t.ownerKey, name: t.displayName, field: deck.field, hand: deck.hand, waveNumber: deck.waveNumber });
+              } catch (e) {
+                setAdminMsg("Failed to load deck");
+              }
+            }}
+            title="View deck"
+          >{t.displayName}</strong>
+          <small>{t.code}</small>
+        </div>
         <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awoken" : "Awoken"}</span>
         <span className="energy-level" title="Energy">⚡{t.energy}</span>
+        <button 
+          className="wave-toggle" 
+          title="Set wave number"
+          onClick={() => setWaveEdit({ ownerKey: t.ownerKey, current: 1 })}
+        >
+          🌊
+        </button>
         <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
         <div className="tender-admin">
           <button className="abtn small" title="Refill energy to max" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey }), "Energy refilled to max")}>
@@ -586,6 +609,68 @@ function TendersPanel() {
         </div>
       </li>)}</ol>
     )}
+      {/* Wave editor popup */}
+      {waveEdit && (
+        <div className="admin-popup" onClick={() => setWaveEdit(null)}>
+          <div className="admin-popup-inner" onClick={e => e.stopPropagation()}>
+            <h3>Set Wave Number</h3>
+            <div className="wave-edit-row">
+              <button className="abtn" onClick={() => {
+                const n = Math.max(1, waveEdit.current - 1);
+                setWaveEdit({ ...waveEdit, current: n });
+              }}>−</button>
+              <span className="wave-edit-num">{waveEdit.current}</span>
+              <button className="abtn" onClick={() => {
+                setWaveEdit({ ...waveEdit, current: waveEdit.current + 1 });
+              }}>+</button>
+            </div>
+            <div className="wave-edit-actions">
+              <button className="abtn small" onClick={() => {
+                doAdmin(() => api.adminSetWave({ ownerKey: waveEdit.ownerKey, waveNumber: waveEdit.current }), `Wave set to ${waveEdit.current}`);
+                setWaveEdit(null);
+              }}>Set</button>
+              <button className="abtn small" onClick={() => {
+                doAdmin(() => api.adminSetWave({ ownerKey: waveEdit.ownerKey, waveNumber: 1 }), "Wave reset to 1");
+                setWaveEdit(null);
+              }}>Reset to 1</button>
+              <button className="abtn small" onClick={() => setWaveEdit(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Deck popup */}
+      {deckPopup && (
+        <div className="admin-popup deck-popup" onClick={() => setDeckPopup(null)}>
+          <div className="admin-popup-inner deck-popup-inner" onClick={e => e.stopPropagation()}>
+            <h3>{deckPopup.name}'s Deck <small>Wave {deckPopup.waveNumber}</small></h3>
+            <button className="admin-popup-close" onClick={() => setDeckPopup(null)}>✕</button>
+            <div className="deck-section">
+              <h4>⚔ On Field ({deckPopup.field.length})</h4>
+              <div className="deck-grid">
+                {deckPopup.field.map((a: any) => (
+                  <div key={a.id} className="deck-card">
+                    <span className="deck-card-name">{a.name}</span>
+                    <span className="deck-card-stats">{a.power}⚔ {a.toughness}🛡</span>
+                  </div>
+                ))}
+                {deckPopup.field.length === 0 && <p className="quiet">None on field</p>}
+              </div>
+            </div>
+            <div className="deck-section">
+              <h4>🂠 In Hand ({deckPopup.hand.length})</h4>
+              <div className="deck-grid">
+                {deckPopup.hand.map((a: any) => (
+                  <div key={a.id} className="deck-card">
+                    <span className="deck-card-name">{a.name}</span>
+                    <span className="deck-card-stats">{a.power}⚔ {a.toughness}🛡</span>
+                  </div>
+                ))}
+                {deckPopup.hand.length === 0 && <p className="quiet">Hand empty</p>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
   </section>;
 }
 

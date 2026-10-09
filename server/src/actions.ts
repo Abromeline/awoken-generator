@@ -1257,6 +1257,48 @@ export const handlers = {
     return { ok: true, energy: maxEnergy };
   },
 
+  // Admin: set wave number for a tender (or reset to 1)
+  async adminSetWave(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ 
+      ownerKey: z.string(),
+      waveNumber: z.number().int().min(1),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const targetKey = parsed.data.ownerKey;
+    await db.insert(schema.waveState)
+      .values({ ownerKey: targetKey, waveNumber: parsed.data.waveNumber, wavesDefeated: 0 })
+      .onConflictDoUpdate({ 
+        target: schema.waveState.ownerKey, 
+        set: { waveNumber: parsed.data.waveNumber, wavesDefeated: 0 } 
+      });
+    return { ok: true, waveNumber: parsed.data.waveNumber };
+  },
+
+  // Admin: get tender's deck (field + hand)
+  async adminGetTenderDeck(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const targetKey = parsed.data.ownerKey;
+    // Field placements
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, targetKey));
+    const fieldIds = new Set(placements.map(p => p.awakenedId));
+    // All Awoken
+    const allAwoken = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.ownerKey, targetKey));
+    const field = allAwoken.filter(a => fieldIds.has(a.id));
+    const hand = allAwoken.filter(a => !fieldIds.has(a.id));
+    // Get wave number
+    const waveState = await db.select().from(schema.waveState)
+      .where(eq(schema.waveState.ownerKey, targetKey)).limit(1);
+    return { 
+      ok: true, 
+      field, 
+      hand,
+      waveNumber: waveState.length ? waveState[0].waveNumber : 1,
+    };
+  },
+
   // Admin: clear all timers (dispersed, passive, etc.) for a tender.
   async adminClearTimers(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
