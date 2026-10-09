@@ -874,8 +874,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </div>
       )}
       {showBattleground && wave && (() => {
-        // Use waveTarget tile if available, else fall back to bastion (center)
-        const targetTileId = waveTarget?.tile.id ?? tiles.find(t => t.q === 0 && t.r === 0)?.id;
+        // Use waveTarget tile if available, else pick any non-bastion purified tile.
+        // Bastion (center) is the last resort — only if no other targets exist.
+        const fallbackTile = (() => {
+          const nonBastion = tiles.filter(t => !(t.q === 0 && t.r === 0) && !t.cursed);
+          if (nonBastion.length > 0) {
+            return nonBastion[Math.floor(Math.random() * nonBastion.length)];
+          }
+          return tiles.find(t => t.q === 0 && t.r === 0);
+        })();
+        const targetTileId = waveTarget?.tile.id ?? fallbackTile?.id;
         const defs = placements
           .filter(p => p.tileId === targetTileId)
           .map(p => {
