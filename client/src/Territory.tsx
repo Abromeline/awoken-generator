@@ -297,9 +297,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         setWave(w);
       }
     }
-    // Phase 1: Try to get the targeted territory
+    // Phase 1: Try to get the targeted territory (with 5s timeout)
     try {
-      const target = await api.getWaveTarget();
+      const targetPromise = api.getWaveTarget();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("getWaveTarget timeout")), 5000)
+      );
+      const target = await Promise.race([targetPromise, timeoutPromise]) as Awaited<ReturnType<typeof api.getWaveTarget>>;
       if (target.tile) {
         setWaveTarget(target);
         setShowTargetMap(true);
