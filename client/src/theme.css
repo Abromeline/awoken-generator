@@ -161,7 +161,7 @@
 .territory-view > .territory-map{flex:1;min-height:60vh;}
 .nav-compass{position:fixed;bottom:20px;right:20px;z-index:50;width:120px;height:160px;pointer-events:none;}
 /* hand-cards removed — now using bottom-dock */
-.territory-hud{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none;}
+.territory-hud{position:fixed;top:12px;left:0;right:0;z-index:50;pointer-events:none;padding:0 16px;box-sizing:border-box;}
 .territory-hud > *{pointer-events:all;}
 /* energy-meter removed — now using energy-orb */
 .compass-btn{position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.7);
@@ -583,6 +583,13 @@ body.defeat-flash {
   padding: 20px; z-index: 39;
   box-shadow: -4px 0 24px rgba(0,0,0,0.5);
 }
+.building-side-panel .building-menu { height: 100%; display: flex; flex-direction: column; }
+.building-side-panel .building-picker {
+  position: static; background: transparent; border: none;
+  padding: 0; min-width: 0; max-width: none; max-height: none;
+  overflow-y: visible; flex: 1;
+}
+.building-side-panel h2 { margin: 0 0 16px 0; color: #d4c9a8; font-size: 20px; }
 /* UI Workspace */
 .ui-workspace { padding: 20px; max-width: 1200px; margin: 0 auto; }
 .ui-workspace h2 { color: #b89b5e; }

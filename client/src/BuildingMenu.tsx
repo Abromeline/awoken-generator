@@ -82,6 +82,7 @@ export default function BuildingMenu({ onSelect, selected, energy, alwaysOpen = 
 
   const showPicker = alwaysOpen || open;
   return <div className="building-menu">
+    {alwaysOpen && <h2>🏰 Buildings</h2>}
     {!alwaysOpen && (
       <button className="abtn" onClick={load}>
         🏗️ {open ? "Close" : "Build"}
