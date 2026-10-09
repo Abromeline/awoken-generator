@@ -493,6 +493,7 @@ async function loadGameConfig() {
     if (type === "watchtower") {
       buildings[type].damage = overrides["building.watchtower.damage"] ?? 3;
       buildings[type].powerBonus = overrides["building.watchtower.powerBonus"] ?? 2;
+      buildings[type].upkeepPerHour = overrides["building.watchtower.upkeepPerHour"] ?? 3;
     }
     if (type === "thorn-wall") {
       buildings[type].damage = overrides["building.thorn-wall.damage"] ?? 1;
@@ -521,7 +522,7 @@ async function loadGameConfig() {
 
 // Single source of truth for building definitions
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string }> = {
-  "watchtower": { name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start.", icon: "🗼" },
+  "watchtower": { name: "Watchtower", cost: 5, buildMinutes: 120, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 3⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 240, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 8, buildMinutes: 240, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "awakening-well": { name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
@@ -1384,12 +1385,17 @@ export const handlers = {
     const buildings = await db.select().from(schema.territoryBuildings)
       .where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const now = Date.now();
+    const gameConfig = await loadGameConfig();
+    const upkeepCost = gameConfig.buildings["watchtower"]?.upkeepPerHour ?? 3;
+    const upkeepMs = 60 * 60 * 1000;
     for (const b of buildings) {
+      // Building completed -> active
       if (b.status === "building" && b.readyAt && new Date(b.readyAt).getTime() <= now) {
         await db.update(schema.territoryBuildings)
-          .set({ status: "active" })
+          .set({ status: "active", lastUpkeepAt: new Date() })
           .where(eq(schema.territoryBuildings.id, b.id));
         b.status = "active";
+        b.lastUpkeepAt = new Date();
         // Builders return to their previous stance
         if (b.builderStances) {
           try {
@@ -1400,6 +1406,30 @@ export const handlers = {
                 .where(eq(schema.fieldPlacements.id, m.placementId));
             }
           } catch {}
+        }
+      }
+      // Watchtower upkeep: 3 energy/hour or goes dormant
+      if (b.buildingType === "watchtower" && (b.status === "active" || b.status === "dormant")) {
+        const lastUpkeep = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
+        if (now - lastUpkeep >= upkeepMs) {
+          const res = await db.select().from(schema.tenderResources)
+            .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+          const energy = res.length ? res[0].energy : 0;
+          if (energy >= upkeepCost) {
+            await db.update(schema.tenderResources)
+              .set({ energy: energy - upkeepCost })
+              .where(eq(schema.tenderResources.ownerKey, ownerKey));
+            await db.update(schema.territoryBuildings)
+              .set({ status: "active", lastUpkeepAt: new Date() })
+              .where(eq(schema.territoryBuildings.id, b.id));
+            b.status = "active";
+            b.lastUpkeepAt = new Date();
+          } else if (b.status === "active") {
+            await db.update(schema.territoryBuildings)
+              .set({ status: "dormant" })
+              .where(eq(schema.territoryBuildings.id, b.id));
+            b.status = "dormant";
+          }
         }
       }
     }

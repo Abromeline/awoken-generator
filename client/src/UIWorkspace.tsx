@@ -19,7 +19,7 @@ const DEFAULTS: Record<string, any> = {
   "enemy.tangle.power": 3, "enemy.tangle.hp": 8,
   // Buildings
   "building.watchtower.cost": 5, "building.watchtower.buildMinutes": 120,
-  "building.watchtower.damage": 3, "building.watchtower.powerBonus": 2,
+  "building.watchtower.damage": 3, "building.watchtower.powerBonus": 2, "building.watchtower.upkeepPerHour": 3,
   "building.watchtower.enabled": true,
   "building.dream-wheat.cost": 2, "building.dream-wheat.buildMinutes": 240,
   "building.dream-wheat.harvestEnergy": 4, "building.dream-wheat.enabled": true,
@@ -156,6 +156,7 @@ export default function UIWorkspace() {
                   <>
                     <label>Volley dmg <input type="number" value={getVal("building.watchtower.damage")} onChange={e => setVal("building.watchtower.damage", +e.target.value)} /></label>
                     <label>Power bonus <input type="number" value={getVal("building.watchtower.powerBonus")} onChange={e => setVal("building.watchtower.powerBonus", +e.target.value)} /></label>
+                    <label>Upkeep ⚡/hr <input type="number" value={getVal("building.watchtower.upkeepPerHour")} onChange={e => setVal("building.watchtower.upkeepPerHour", +e.target.value)} /></label>
                   </>
                 )}
                 {name === "thorn-wall" && (

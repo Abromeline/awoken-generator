@@ -492,6 +492,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {tileBuildings.map((b, bi) => {
             const bpx = tiltPoint(cx + (bi === 0 ? -s * 0.4 : s * 0.4), cy - s * 0.3);
             const isBuilding = b.status === "building";
+            const isDormant = b.status === "dormant";
             const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
             const readyMin = Math.max(0, Math.ceil(readyMs / 60000));
             return (
@@ -517,7 +518,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                   x={bpx.x - s * 0.5} y={bpx.y - s * 0.5}
                   width={s} height={s}
                   preserveAspectRatio="xMidYMid meet"
-                  opacity={isBuilding ? 0.7 : 1}
+                  opacity={isBuilding ? 0.7 : isDormant ? 0.4 : 1}
                   style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
                 />
                 {isBuilding && (
