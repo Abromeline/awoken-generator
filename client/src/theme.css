@@ -126,9 +126,9 @@
 .tc-watermark{position:absolute;bottom:26px;right:8px;z-index:1;font-size:60px;color:rgba(0,0,0,.07);font-family:var(--display);pointer-events:none}
 @media(min-width:760px){.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
 .tc-stories{text-align:center;font-size:10px;color:#b89b5e;letter-spacing:.2em;padding:2px 0 6px;position:relative;z-index:2}
-.deck-button{display:flex;align-items:center;gap:8px;background:none;border:1px solid var(--line);border-radius:8px;padding:4px 10px 4px 4px;cursor:pointer;color:inherit}
-.deck-button img{width:36px;height:36px;object-fit:cover;border-radius:6px}
-.deck-button span{font-size:13px}
+.deck-button{display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:none;cursor:pointer;color:inherit;padding:8px}
+.deck-button img{width:108px;height:108px;object-fit:contain}
+.deck-button span{font-size:14px;font-weight:600;letter-spacing:0.05em}
 .decks-view{max-width:900px;margin:0 auto;padding:16px}
 .decks-view header{margin-bottom:16px}
 .deck-create{display:flex;gap:8px;margin-bottom:20px}
