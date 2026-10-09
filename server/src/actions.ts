@@ -1360,7 +1360,6 @@ export const handlers = {
     const validHelpers = helpers.filter(h => builderIds.includes(h.awakenedId));
     const helperCount = validHelpers.length;
     const timeDivisor = Math.pow(2, helperCount);
-    const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes / timeDivisor));
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(
         eq(schema.territoryTiles.id, parsed.data.tileId),
@@ -1368,6 +1367,30 @@ export const handlers = {
         eq(schema.territoryTiles.cursed, 0)
       )).limit(1);
     if (!tile.length) badRequest("Tile must be purified.");
+    // Dream Wheat synergy: 25% faster if Awakening Well on same or adjacent hex
+    let synergyMultiplier = 1;
+    if (parsed.data.buildingType === "dream-wheat") {
+      const tileData = tile[0];
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+      const checkTiles = [{ q: tileData.q, r: tileData.r }];
+      for (const [dq, dr] of dirs) {
+        checkTiles.push({ q: tileData.q + dq, r: tileData.r + dr });
+      }
+      const nearbyTiles = await db.select().from(schema.territoryTiles)
+        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const nearbyIds = new Set(
+        nearbyTiles.filter(t => checkTiles.some(ct => ct.q === t.q && ct.r === t.r)).map(t => t.id)
+      );
+      const wells = await db.select().from(schema.territoryBuildings)
+        .where(and(
+          eq(schema.territoryBuildings.ownerKey, ownerKey),
+          eq(schema.territoryBuildings.buildingType, "awakening-well"),
+          eq(schema.territoryBuildings.status, "active"),
+        ));
+      if (wells.some(w => nearbyIds.has(w.tileId))) {
+        synergyMultiplier = 0.75;
+      }
+    }
     // Max 2 buildings per hex
     const existing = await db.select().from(schema.territoryBuildings)
       .where(and(
@@ -1375,6 +1398,7 @@ export const handlers = {
         eq(schema.territoryBuildings.tileId, parsed.data.tileId)
       ));
     if (existing.length >= 2) badRequest("Max 2 buildings per hex.");
+    const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes * synergyMultiplier / timeDivisor));
     const energyRes = await this.getEnergy({}, ctx);
     if (energyRes.energy < def.cost) badRequest("Not enough energy.");
     await db.update(schema.tenderResources)
