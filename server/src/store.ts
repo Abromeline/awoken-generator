@@ -177,6 +177,38 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );`);
+// Territory buildings
+sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tile_id INTEGER NOT NULL,
+  building_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'building',
+  placed_at INTEGER NOT NULL,
+  ready_at INTEGER,
+  element TEXT,
+  builder_stances TEXT,
+  last_harvest_at INTEGER,
+  last_upkeep_at INTEGER
+);`);
+// UI Workspace
+sqlite.exec(`CREATE TABLE IF NOT EXISTS ui_sprites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,
+  name TEXT NOT NULL,
+  blob_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS ui_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);`);
+// Additive migrations for existing tables
+try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN last_seen_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN builder_stances TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_harvest_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_upkeep_at INTEGER`); } catch {}
 
 // Seed the 4 extended battle tracks (with sorrowful violin). Replaces short versions.
 const trackCount = sqlite.prepare(`SELECT COUNT(*) as n FROM battle_tracks`).get() as { n: number };
