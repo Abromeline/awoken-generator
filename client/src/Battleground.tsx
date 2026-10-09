@@ -239,6 +239,11 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
               </svg>
             )}
             <div className="fighter-stats">{f.power}⚔ {f.tough}🛡</div>
+            {f.awoken && (
+              <div className="debug-layers" style={{fontSize: "8px", color: "#888", maxWidth: "100px", overflow: "hidden"}}>
+                {f.awoken.layers.map((l: any) => l.name).join(", ")}
+              </div>
+            )}
             <div className="thermometer">
               <div className="thermo-fill" style={{ height: `${(f.hp / f.maxHp) * 100}%` }} />
               <div className="thermo-bulb" />
