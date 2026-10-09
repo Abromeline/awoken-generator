@@ -434,15 +434,31 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
                     )}
-                    {isWhispering && (
-                      <g className="whisper-bubble" opacity="0.85">
-                        <text x={kx} y={ky - hs / 2 - 12}
-                          textAnchor="middle" fontSize="10" fontStyle="italic"
-                          fill="#e8d5a8" className="whisper-text">
-                          {whisper.text.length > 60 ? whisper.text.slice(0, 60) + "…" : whisper.text}
-                        </text>
-                      </g>
-                    )}
+                    {isWhispering && (() => {
+                      const words = whisper.text.split(" ");
+                      const lines: string[] = [];
+                      let line = "";
+                      for (const w of words) {
+                        if ((line + " " + w).trim().length > 32) {
+                          lines.push(line.trim());
+                          line = w;
+                        } else {
+                          line = (line + " " + w).trim();
+                        }
+                      }
+                      if (line) lines.push(line.trim());
+                      return (
+                        <g className="whisper-bubble" opacity="0.9">
+                          {lines.map((ln, i) => (
+                            <text key={i} x={kx} y={ky - hs / 2 - 12 - (lines.length - 1 - i) * 9}
+                              textAnchor="middle" fontSize="7.5" fontStyle="italic"
+                              fill="#e8d5a8" className="whisper-text">
+                              {ln}
+                            </text>
+                          ))}
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
