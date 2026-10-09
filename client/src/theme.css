@@ -187,8 +187,7 @@
   background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.7) 80%, #000 100%);}
 .territory-svg{display:block;width:100%;height:auto;overflow:visible}
 /* Remove the old pulse animation (now integrated into border) */
-.territory-nav{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px}
-.territory-nav button{width:32px;height:32px;border-radius:50%;background:#1a1a1a;border:2px solid #b89b5e;color:#b89b5e;font-size:14px;cursor:pointer}
+/* territory-nav removed — now using nav-compass */
 .territory-hand{margin-top:12px}
 .hand-label{text-align:center;font-size:11px;color:#888;margin-bottom:8px;font-style:italic}
 /* .hand-cards fixed positioning defined above (line 162) takes precedence */
@@ -279,7 +278,7 @@
 .whisper-text{font-family:Georgia,serif;text-shadow:0 1px 3px #000}
 @keyframes whisper-fade{0%{opacity:0}10%{opacity:0.85}80%{opacity:0.85}100%{opacity:0}}
 
-.territory-nav{z-index:10}
+
 .territory-nav button{pointer-events:auto}
 
 /* Battle pool — staged Awoken above the hand */

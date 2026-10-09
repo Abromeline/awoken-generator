@@ -390,9 +390,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       scale,
     };
   };
-  const tiltPoint = (x: number, y: number) => {
-    return projectTilted(x, y, 500, 340);
-  };
+  const tiltPoint = (x: number, y: number) => projectTilted(x, y, 500, 340);
 
   // Render hex grid with mathematical perspective tilt.
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
@@ -444,7 +442,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const tp = tiltPoint(vx, vy);
         pts.push(`${tp.x.toFixed(1)},${tp.y.toFixed(1)}`);
       }
-      const tex = t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral");
+
       const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
       const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
