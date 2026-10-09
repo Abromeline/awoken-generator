@@ -636,6 +636,24 @@ body.defeat-flash {
   50%{opacity:0.6;}
 }
 .battle-fighter{position:relative;}
+.battle-fighter.attacking{
+  animation:attack-lunge 0.6s ease-in-out !important;
+}
+@keyframes attack-lunge{
+  0%{transform:translateX(0) scale(1);}
+  30%{transform:translateX(30px) scale(1.1);}
+  60%{transform:translateX(-10px) scale(0.95);}
+  100%{transform:translateX(0) scale(1);}
+}
+.battle-fighter.enemy.attacking{
+  animation:enemy-lunge 0.6s ease-in-out !important;
+}
+@keyframes enemy-lunge{
+  0%{transform:translateX(0) scale(1);}
+  30%{transform:translateX(-30px) scale(1.1);}
+  60%{transform:translateX(10px) scale(0.95);}
+  100%{transform:translateX(0) scale(1);}
+}
 
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}

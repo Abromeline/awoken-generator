@@ -54,6 +54,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
   const [deck, setDeck] = useState(hand.slice(0, 6));
   const [turnOrder, setTurnOrder] = useState<string[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
+  const [attacking, setAttacking] = useState<string | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [victory, setVictory] = useState<boolean | null>(null);
@@ -111,6 +112,8 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     if (busy) return;
     setBusy(true);
     setSelected(null);
+    setAttacking(atk.id);
+    setTimeout(() => setAttacking(null), 600);
     const dmg = Math.max(1, atk.power - def.tough);
     setLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
     // Apply damage
@@ -233,7 +236,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         {fighters.filter(f => f.hp > 0).map(f => (
           <div
             key={f.id}
-            className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""}`}
+            className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""} ${attacking === f.id ? "attacking" : ""}`}
             style={{ left: `${f.x}%`, bottom: `${f.y}%`, width: `${f.w}%` }}
             onClick={() => setSelected(selected === f.id ? null : f.id)}
           >
@@ -253,7 +256,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         {enemies.filter(e => e.hp > 0).map(e => (
           <div
             key={e.id}
-            className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""}`}
+            className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${attacking === e.id ? "attacking" : ""}`}
             style={{ left: `${e.x}%`, bottom: `${e.y}%`, width: `${e.w}%` }}
             onClick={() => {
               if (selected && !busy) {
