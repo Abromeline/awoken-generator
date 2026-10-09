@@ -168,6 +168,11 @@
 .hand-cards:empty{display:none;}
 .territory-hud{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none;}
 .territory-hud > *{pointer-events:all;}
+.energy-meter{
+  position:fixed !important;bottom:90px !important;left:16px !important;top:auto !important;
+  z-index:41;background:rgba(0,0,0,0.8);border:1px solid #b89b5e;border-radius:8px;
+  padding:8px 12px;
+}
 .compass-btn{position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.7);
   border:1px solid #b89b5e;color:#ffd700;font-size:14px;cursor:pointer;pointer-events:all;
   display:flex;align-items:center;justify-content:center;}
