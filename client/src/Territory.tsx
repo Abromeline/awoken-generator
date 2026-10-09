@@ -96,6 +96,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   useEffect(() => {
     refreshEnergy();
+    const onFocus = () => refreshEnergy();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
     if (tiles.length) {
       api.getWave().then(w => {
         setWave(w);

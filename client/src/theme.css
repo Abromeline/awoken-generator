@@ -331,6 +331,11 @@ body.defeat-flash {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  animation: moon-drift 360s ease-in-out infinite;
+}
+@keyframes moon-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(3%, -2%) scale(1.08); }
 }
 .battle-hud {
   position: absolute; top: 12px; left: 12px; right: 12px; z-index: 10;
