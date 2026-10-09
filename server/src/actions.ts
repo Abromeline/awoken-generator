@@ -1399,23 +1399,15 @@ export const handlers = {
     const currentWave = state.length ? state[0].waveNumber : 1;
     if (parsed.data.waveNumber !== currentWave) badRequest("Wave mismatch.");
 
-    // Validate: survivors must be Awoken on the bastion
-    const center = await db.select().from(schema.territoryTiles)
-      .where(and(
-        eq(schema.territoryTiles.ownerKey, ownerKey),
-        eq(schema.territoryTiles.q, 0),
-        eq(schema.territoryTiles.r, 0)
-      )).limit(1);
-    if (!center.length) badRequest("No bastion.");
-
-    const defenders = await db.select().from(schema.fieldPlacements)
-      .where(and(
-        eq(schema.fieldPlacements.ownerKey, ownerKey),
-        eq(schema.fieldPlacements.tileId, center[0].id)
-      ));
-    const defenderIds = new Set(defenders.map(d => d.awakenedId));
-    for (const id of parsed.data.survivorIds) {
-      if (!defenderIds.has(id)) badRequest("Invalid survivor.");
+    // Validate: survivors must be Awoken owned by the tender and placed on the field
+    // (The battle defends the wave's target tile, not necessarily the bastion)
+    if (parsed.data.survivorIds.length > 0) {
+      const placements = await db.select().from(schema.fieldPlacements)
+        .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+      const placedIds = new Set(placements.map(p => p.awakenedId));
+      for (const id of parsed.data.survivorIds) {
+        if (!placedIds.has(id)) badRequest("Invalid survivor.");
+      }
     }
 
     // Spend the reported energy
