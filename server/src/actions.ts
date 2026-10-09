@@ -608,15 +608,22 @@ export const handlers = {
       .groupBy(schema.awakened.ownerKey);
     const countByKey = new Map<string, number>();
     for (const row of counts) if (row.ownerKey) countByKey.set(row.ownerKey, row.count);
+    const energyRows = await db.select().from(schema.tenderResources);
+    const energyByKey = new Map<string, number>();
+    for (const row of energyRows) energyByKey.set(row.ownerKey, row.energy);
     const tenders = tenderRows
-      .map((t) => ({
-        code: t.code,
-        tenderName: t.tenderName,
-        displayName: t.tenderName ?? t.code,
-        createdAt: t.createdAt.toISOString(),
-        awokenCount: countByKey.get(tenderOwnerKey(t.id)) ?? 0,
-        ownerKey: tenderOwnerKey(t.id),
-      }))
+      .map((t) => {
+        const ownerKey = tenderOwnerKey(t.id);
+        return {
+          code: t.code,
+          tenderName: t.tenderName,
+          displayName: t.tenderName ?? t.code,
+          createdAt: t.createdAt.toISOString(),
+          awokenCount: countByKey.get(ownerKey) ?? 0,
+          ownerKey,
+          energy: energyByKey.get(ownerKey) ?? 5,
+        };
+      })
       .sort((a, b) => b.awokenCount - a.awokenCount || a.createdAt.localeCompare(b.createdAt));
     return { tenders };
   },

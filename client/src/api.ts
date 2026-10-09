@@ -93,6 +93,7 @@ export interface TenderLeaderboardEntry {
   createdAt: string;
   awokenCount: number;
   ownerKey: string;
+  energy: number;
 }
 
 export interface StripeConfig {

@@ -98,7 +98,8 @@
 .tender-leaderboard{max-width:720px;margin:0 auto;padding:26px 18px}
 .tender-leaderboard h1{margin:8px 0 6px}
 .tender-leaderboard ol{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:8px}
-.tender-leaderboard li{display:grid;grid-template-columns:34px 1fr auto auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border);background:var(--surface)}
+.tender-leaderboard li{display:grid;grid-template-columns:34px 1fr auto auto auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border);background:var(--surface)}
+.tender-leaderboard .energy-level{font-family:monospace;font-size:13px;color:#88ccff;background:rgba(0,0,0,0.4);padding:4px 10px;border-radius:6px;border:1px solid #224466}
 .tender-leaderboard .rank{font-family:var(--display);font-size:18px;color:var(--dim)}
 .tender-leaderboard .tender-who{display:grid;gap:2px}
 .tender-leaderboard .tender-who strong{font-family:var(--display);font-size:15px}

@@ -570,6 +570,7 @@ function TendersPanel() {
         <span className="rank">{i + 1}</span>
         <div className="tender-who"><strong>{t.displayName}</strong><small>{t.code}</small></div>
         <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awoken" : "Awoken"}</span>
+        <span className="energy-level" title="Energy">⚡{t.energy}</span>
         <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
         <div className="tender-admin">
           <button className="abtn small" title="Refill energy" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey, energy: 50 }), "Energy refilled")}>
