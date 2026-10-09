@@ -284,7 +284,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setWaveTarget(target);
       setShowTargetMap(true);
     } catch (e) {
-      console.error("Failed to get wave target", e);
+      console.error("Failed to get wave target, opening battleground directly", e);
+      // Fallback: open battleground without target phase
+      setShowBattleground(true);
     }
   };
 
@@ -676,9 +678,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             {wave.frayCount} Fray{wave.unravelers > 0 && ` + ${wave.unravelers} Unraveler${wave.unravelers > 1 ? "s" : ""}`}
             {" "}· Power {wave.totalPower}
           </div>
-          <button className="abtn wave-defend" onClick={handleDefend}>
-            🛡 Defend the Bastion
-          </button>
+
           {waveResult && (
             <div className={`wave-result ${waveResult.victory ? "victory" : "defeat"}`}>
               {waveResult.victory
