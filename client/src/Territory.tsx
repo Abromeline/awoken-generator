@@ -784,7 +784,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         )}
         {/* Hand moved to bottom dock */}
       </div>
-      <div className="territory-map">
+      <div className="territory-map" onClick={() => {
+        // Clicking empty map dismisses the stance box
+        setSelectedAwoken(null);
+        setAttackTargeting(false);
+        setMoveTargeting(false);
+      }}>
         <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}>
           {renderGrid()}
         </svg>

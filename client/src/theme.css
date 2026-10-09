@@ -538,6 +538,11 @@ body.defeat-flash {
   padding:12px 16px 12px 16px;
   background:linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 70%, transparent 100%);
   pointer-events:none;
+  transform:translateY(50%);
+  transition:transform 0.3s ease;
+}
+.bottom-dock:hover{
+  transform:translateY(0);
 }
 .bottom-dock > *{pointer-events:all;}
 .energy-orb{
