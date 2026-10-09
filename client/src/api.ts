@@ -54,6 +54,7 @@ export interface TerritoryTile {
   cursed: number;
   spark: number;
   building: string | null;
+  lastPassiveAt?: string | null;
 }
 
 export interface FieldPlacement {
