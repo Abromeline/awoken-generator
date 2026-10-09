@@ -563,7 +563,10 @@ function TendersPanel() {
   if (query.error || !query.data) return <p className="notice error" role="status">{mutationError(query.error)}</p>;
   const tenders = query.data.tenders;
   return <section className="tender-leaderboard">
-    <header><p className="eyebrow">The Tenders</p><h1>Those who tend.</h1><p className="quiet">Only you see this. Tenders never see each other's counts.</p></header>
+    <header><p className="eyebrow">The Tenders</p><h1>Those who tend.</h1><p className="quiet">Only you see this. Tenders never see each other's counts.</p>
+    <button className="abtn small" onClick={() => doAdmin(() => api.adminRefillAllEnergy(), "All refilled to max")} style={{ marginTop: 8 }}>
+      ⚡ Refill All to Max
+    </button></header>
     {adminMsg && <p className="notice">{adminMsg}</p>}
     {!tenders.length ? <p className="quiet">No Tender has claimed a code yet.</p> : (
       <ol>{tenders.map((t, i) => <li key={t.code}>

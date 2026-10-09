@@ -260,6 +260,7 @@ export const api = {
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
+  adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
   adminClearTimers: (args: { ownerKey: string }) => post<{ ok: true }>("adminClearTimers", args),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
   getBattleTrack: (args: { id: number }) => post<{ id: number; name: string; trackData: string }>("getBattleTrack", args),

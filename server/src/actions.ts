@@ -1194,6 +1194,25 @@ export const handlers = {
   },
 
   // Admin: set a tender's energy.
+  async adminRefillAllEnergy(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    // One-time: set all tenders to their calculated max energy
+    const tenders = await db.select().from(schema.tenders);
+    let count = 0;
+    for (const t of tenders) {
+      const ownerKey = tenderOwnerKey(t.id);
+      const maxEnergy = await calculateMaxEnergy(ownerKey);
+      await db.insert(schema.tenderResources)
+        .values({ ownerKey, energy: maxEnergy, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: schema.tenderResources.ownerKey,
+          set: { energy: maxEnergy, updatedAt: new Date() }
+        });
+      count++;
+    }
+    return { ok: true, refilled: count };
+  },
+
   async adminSetEnergy(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
     const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
