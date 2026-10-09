@@ -179,7 +179,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     const card = deck[index];
     const isNewborn = card.name.toLowerCase().includes("newborn") || card.field_born === 1;
     const cost = isNewborn ? 0 : 2 + Math.floor((card.power - 1) / 3);
-    if (energyLeft < cost || busy) return;
+    if (energyLeft < cost) return;
     if (isNewborn) {
       // Birth ritual: the dot sparkles and expands into the Awoken
       setBirthing(card.id);
