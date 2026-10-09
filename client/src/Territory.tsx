@@ -47,6 +47,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
   const [energy, setEnergy] = useState(10);
   const refreshEnergy = async () => {
     try {
@@ -378,7 +379,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
-    const size = 17;
+    const size = 17 * zoom;
     const viewW = 500, viewH = 340;
     const tiltPoint = (x: number, y: number) => {
       const p = projectTilted(x, y, viewW, viewH);
@@ -386,7 +387,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     };
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
-    const elements = tiles.map((t, i) => {
+    // Depth-sort: back tiles (smaller raw cy) drawn first so front tiles overlap correctly.
+    // Purified tiles get a 5px lift via translate, but draw order is by depth.
+    const sortedTiles = [...tiles].sort((a, b) => {
+      const pya = size * 1.5 * a.r;
+      const pyb = size * 1.5 * b.r;
+      return pya - pyb;
+    });
+    const elements = sortedTiles.map((t, i) => {
       // Pointy-top axial to pixel
       const px = size * Math.sqrt(3) * (t.q + t.r / 2);
       const py = size * 1.5 * t.r;
@@ -413,11 +421,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return (
         <g key={t.id} transform={`translate(0,${lift})`}>
           <polygon points={pts.join(" ")} fill="#000" opacity="0.4" transform="translate(0,6)" />
-          <g clipPath={`url(#terr-${t.id})`}>
-            <image href={TERRAIN[tex]} x={tc.x - s * 1.2} y={tc.y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
-          </g>
-          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
-            stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#4a2a2a") : "#b89b5e"}
+          {/* Solid tile color — nebula shows through around the map */}
+          <polygon points={pts.join(" ")}
+            fill={t.cursed ? "rgba(40,15,15,0.85)" : t.q === 0 && t.r === 0 ? "rgba(80,60,20,0.9)" : "rgba(20,50,20,0.85)"}
+            stroke={t.cursed ? (battlePool.length > 0 ? "#ff4444" : "#5a2a2a") : "#b89b5e"}
             strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
             opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
             style={{
@@ -729,6 +736,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <button onClick={() => setPan(p => ({ ...p, y: p.y - 40 }))} aria-label="Pan down">▼</button>
           <button onClick={() => setPan(p => ({ ...p, x: p.x + 40 }))} aria-label="Pan left">◀</button>
           <button onClick={() => setPan(p => ({ ...p, x: p.x - 40 }))} aria-label="Pan right">▶</button>
+          <button onClick={() => setZoom(z => Math.min(z + 0.2, 3))} aria-label="Zoom in">＋</button>
+          <button onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
         </div>
       </div>
       {showBattleground && wave && (() => {
