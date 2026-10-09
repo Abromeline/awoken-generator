@@ -161,10 +161,35 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
     }
   }, [fighters, enemies]);
 
+  const [birthing, setBirthing] = useState<number | null>(null);
+
   const playCard = (index: number) => {
     const card = deck[index];
-    const cost = 2 + Math.floor((card.power - 1) / 3);
+    const isNewborn = card.name.toLowerCase().includes("newborn") || card.field_born === 1;
+    const cost = isNewborn ? 0 : 2 + Math.floor((card.power - 1) / 3);
     if (energyLeft < cost || busy) return;
+    if (isNewborn) {
+      // Birth ritual: the dot sparkles and expands into the Awoken
+      setBirthing(card.id);
+      setLog("Something stirs in the card...");
+      setTimeout(() => {
+        setEnergyLeft(e => e - cost);
+        const newFighter: Fighter = {
+          id: `a-birth-${Date.now()}`,
+          awokenId: card.id,
+          x: 5 + Math.random() * 15, y: 18 + Math.random() * 12, w: 13,
+          power: card.power, tough: card.toughness,
+          hp: card.toughness, maxHp: card.toughness,
+          name: card.name, side: "aw", field: false,
+          awoken: card,
+        };
+        setFighters(prev => [...prev, newFighter]);
+        setDeck(prev => prev.filter((_, i) => i !== index));
+        setBirthing(null);
+        setLog(`${card.name} is born!`);
+      }, 1500);
+      return;
+    }
     setEnergyLeft(e => e - cost);
     const newFighter: Fighter = {
       id: `a-reinf-${Date.now()}`,
@@ -228,12 +253,29 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
       </div>
       <div className="battle-deck">
         {deck.map((card, i) => {
-          const cost = 2 + Math.floor((card.power - 1) / 3);
+          const isNewborn = card.name.toLowerCase().includes("newborn") || card.field_born === 1;
+          const cost = isNewborn ? 0 : 2 + Math.floor((card.power - 1) / 3);
+          const isBirthing = birthing === card.id;
           return (
-            <div key={card.id} className="deck-card-mini" onClick={() => playCard(i)} style={{ opacity: energyLeft >= cost ? 1 : 0.4 }}>
-              <div className="mini-cost">⚡{cost}</div>
-              <div className="mini-name">{card.name}</div>
-              <div className="mini-stats">{card.power}⚔ {card.toughness}🛡</div>
+            <div
+              key={card.id}
+              className={`deck-card-mini ${isNewborn ? "newborn" : ""} ${isBirthing ? "birthing" : ""}`}
+              onClick={() => playCard(i)}
+              style={{ opacity: energyLeft >= cost ? 1 : 0.4 }}
+            >
+              {!isNewborn && <div className="mini-cost">⚡{cost}</div>}
+              {isNewborn ? (
+                <>
+                  <div className="newborn-dot" />
+                  <div className="mini-name" style={{ color: "#ffd700" }}>✦ Newborn</div>
+                  <div className="mini-stats" style={{ fontSize: 8 }}>tap to birth</div>
+                </>
+              ) : (
+                <>
+                  <div className="mini-name">{card.name}</div>
+                  <div className="mini-stats">{card.power}⚔ {card.toughness}🛡</div>
+                </>
+              )}
             </div>
           );
         })}

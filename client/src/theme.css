@@ -397,6 +397,33 @@ body.defeat-flash {
   color: #ccc; font-size: 9px;
 }
 .deck-card-mini:hover { transform: translateY(-4px); }
+.deck-card-mini.newborn {
+  border-color: #ffd700;
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.5);
+  animation: newborn-shimmer 2s ease-in-out infinite;
+}
+@keyframes newborn-shimmer {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 215, 0, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(255, 215, 0, 0.7); }
+}
+.newborn-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #ffd700 50%, transparent 100%);
+  margin: 8px auto;
+  animation: dot-sparkle 1.2s ease-in-out infinite;
+}
+@keyframes dot-sparkle {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.4); opacity: 1; }
+}
+.deck-card-mini.birthing {
+  animation: birth-burst 1.5s ease-out;
+}
+@keyframes birth-burst {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); box-shadow: 0 0 30px #ffd700; }
+  100% { transform: scale(1); }
+}
 .mini-cost {
   position: absolute; top: 4px; right: 4px;
   background: rgba(0,0,0,0.8); color: #88ccff;
