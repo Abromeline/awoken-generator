@@ -57,6 +57,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
+  const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
@@ -223,6 +224,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding") => {
+    setStanceMinimized(true); // collapse bubble so tiles behind are clickable
     try {
       await api.setStance({ awakenedId, stance, maxEnergy });
       await refreshEnergy();
@@ -555,6 +557,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       setSelectedAwoken(isSelected ? null : a.id);
                       setAttackTargeting(false);
                       setMoveTargeting(false);
+                      setStanceMinimized(false);
                     }}>
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14 * awScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
@@ -725,10 +728,30 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const tp = tiltPoint(cx, cy);
         // Render as HTML overlay positioned over the Awoken
         return (
-          <div className="stance-picker-field" style={{
-            left: `${(tp.x / 500) * 100}%`,
-            top: `${(tp.y / 340) * 100}%`,
-          }}>
+          <div 
+            className={`stance-picker-field ${stanceMinimized ? "minimized" : ""}`} 
+            style={{
+              left: `${(tp.x / 500) * 100}%`,
+              top: `${(tp.y / 340) * 100}%`,
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setSelectedAwoken(null);
+              setAttackTargeting(false);
+              setMoveTargeting(false);
+              setStanceMinimized(false);
+            }}
+          >
+            {stanceMinimized && (
+              <button 
+                className="stance-minimized-badge"
+                onClick={() => setStanceMinimized(false)}
+                title="Expand stance options"
+              >
+                {placement.stance === "attack" ? "⚔" : placement.stance === "defense" ? "🛡" : placement.stance === "binding" ? "✦" : "○"}
+              </button>
+            )}
+            {!stanceMinimized && (<>
             <div className="stance-picker-name">{awoken.name}</div>
             <div className="stance-buttons">
               <button
@@ -780,9 +803,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 ➤ Move ({moveCost(awoken.power)}⚡)
               </button>
             )}
-            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); }}>
+            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setStanceMinimized(false); }}>
               ✕
             </button>
+            </>)}
           </div>
         );
       })()}
