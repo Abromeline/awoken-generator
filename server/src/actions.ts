@@ -1567,8 +1567,42 @@ export const handlers = {
     const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
     const toughness = corruptionToughness(tile[0].q, tile[0].r);
     if (power < toughness) {
-      return z.object({ ok: z.literal(true), purified: z.literal(false), need: z.number(), have: z.number() })
-        .parse({ ok: true, purified: false, need: toughness, have: power });
+      // Siege: reduce the remaining purification time by power * 4 hours.
+      // The Awoken's assault weakens the corruption even without breaking it.
+      const hoursReduced = power * 4;
+      const currentLast = tile[0].lastPassiveAt ? tile[0].lastPassiveAt.getTime() : tile[0].createdAt.getTime();
+      const newLast = new Date(currentLast - hoursReduced * 60 * 60 * 1000);
+      await db.update(schema.territoryTiles)
+        .set({ lastPassiveAt: newLast })
+        .where(eq(schema.territoryTiles.id, tile[0].id));
+      // Check if the siege broke through (timer expired)
+      const now = Date.now();
+      if (now - newLast.getTime() >= 48 * 60 * 60 * 1000) {
+        // Purify!
+        const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+        for (const layer of layers) {
+          const el = elementForPieceName(layer.name);
+          if (el !== "fire") elementCounts[el] += 1;
+        }
+        let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+        let maxCount = 0; let tie = false;
+        for (const [el, count] of Object.entries(elementCounts)) {
+          if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+          else if (count === maxCount && count > 0) { tie = true; }
+        }
+        if (tie) element = "neutral";
+        await db.update(schema.territoryTiles)
+          .set({ cursed: 0, element })
+          .where(eq(schema.territoryTiles.id, tile[0].id));
+        await db.update(schema.fieldPlacements)
+          .set({ tileId: tile[0].id })
+          .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
+        return z.object({ ok: z.literal(true), purified: z.literal(true), siegeBreakthrough: z.literal(true) })
+          .parse({ ok: true, purified: true, siegeBreakthrough: true });
+      }
+      const remainingHours = Math.ceil((48 * 60 * 60 * 1000 - (now - newLast.getTime())) / (60 * 60 * 1000));
+      return z.object({ ok: z.literal(true), purified: z.literal(false), need: z.number(), have: z.number(), hoursReduced: z.number(), remainingHours: z.number() })
+        .parse({ ok: true, purified: false, need: toughness, have: power, hoursReduced, remainingHours });
     }
     // Victory: purify the tile, move the attacker onto it.
     const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };

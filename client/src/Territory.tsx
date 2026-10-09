@@ -454,6 +454,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <g clipPath={`url(#terr-${t.id})`}>
             <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]} x={tiltPoint(cx, cy).x - s * 1.2} y={tiltPoint(cx, cy).y - s * 1.2} width={s * 2.4} height={s * 2.4} preserveAspectRatio="xMidYMid slice" />
           </g>
+          {/* Siege timer on cursed tiles */}
+          {t.cursed && t.lastPassiveAt && (() => {
+            const last = new Date(t.lastPassiveAt).getTime();
+            const elapsed = Date.now() - last;
+            const remaining = 48 * 60 * 60 * 1000 - elapsed;
+            if (remaining <= 0) return null;
+            const hours = Math.floor(remaining / (60 * 60 * 1000));
+            const tp = tiltPoint(cx, cy);
+            return (
+              <text x={tp.x} y={tp.y + 8} textAnchor="middle" fontSize={7}
+                fill={auraTiles.has(t.id) ? "#88ff88" : "#888"} opacity="0.9">
+                {hours}h
+              </text>
+            );
+          })()}
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
             stroke={t.cursed ? (auraTiles.has(t.id) ? "#88ff88" : (battlePool.length > 0 ? "#ff4444" : "#5a2a2a")) : "#b89b5e"}
             strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
