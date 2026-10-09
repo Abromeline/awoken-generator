@@ -373,16 +373,35 @@ body.defeat-flash {
 .battle-field {
   position: absolute; inset: 80px 0 120px 0;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5%;
+}
+.battle-row {
+  display: flex;
+  align-items: center;
+}
+.battle-row .battle-fighter {
+  position: relative;
+  width: 80px;
+  margin-left: -25px;
+}
+.battle-row .battle-fighter:first-child {
+  margin-left: 0;
+}
+.defenders-row { justify-content: flex-start; }
+.enemies-row { justify-content: flex-end; }
+.battle-fighter {
+  position: relative; cursor: pointer;
+  transition: opacity 1.2s;
+  animation: float-breathe 4.5s ease-in-out infinite;
 }
 @media (max-height: 700px) {
   .battle-field { inset: 70px 0 100px 0; }
   .battle-fighter { width: 12% !important; }
 }
-.battle-fighter {
-  position: absolute; cursor: pointer;
-  transition: left 0.9s, bottom 0.9s, opacity 1.2s;
-  animation: float-breathe 4.5s ease-in-out infinite;
-}
+
 .battle-fighter.selected {
   filter: drop-shadow(0 0 14px #ffd700);
 }

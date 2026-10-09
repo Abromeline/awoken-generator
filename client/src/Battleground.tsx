@@ -226,11 +226,11 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
       </div>
       <div className="battle-log">{log}</div>
       <div className="battle-field">
+        <div className="battle-row defenders-row">
         {fighters.filter(f => f.hp > 0).map(f => (
           <div
             key={f.id}
             className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""} ${attacking === f.id ? "attacking" : ""}`}
-            style={{ left: `${f.x}%`, bottom: `${f.y}%`, width: `${f.w}%` }}
             onClick={() => setSelected(selected === f.id ? null : f.id)}
           >
             {f.awoken && (
@@ -246,11 +246,12 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
             {f.field && <div className="field-badge">⚔</div>}
           </div>
         ))}
+        </div>
+        <div className="battle-row enemies-row">
         {enemies.filter(e => e.hp > 0).map(e => (
           <div
             key={e.id}
             className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${attacking === e.id ? "attacking" : ""}`}
-            style={{ left: `${e.x}%`, bottom: `${e.y}%`, width: `${e.w}%` }}
             onClick={() => {
               if (selected) {
                 const atk = fighters.find(f => f.id === selected);
@@ -270,6 +271,7 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
             </div>
           </div>
         ))}
+        </div>
       </div>
       <div className="battle-deck">
         {deck.map((card, i) => {
