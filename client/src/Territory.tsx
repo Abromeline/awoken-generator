@@ -678,8 +678,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         const placement = placements.find(p => p.awakenedId === selectedAwoken);
         const awoken = tenderItems.find(a => a.id === selectedAwoken);
         if (!placement || !awoken) return null;
+        // Position the picker over the Awoken in the field
+        const tile = tiles.find(t => t.id === placement.tileId);
+        if (!tile) return null;
+        const size = 17 * zoom;
+        const px = size * Math.sqrt(3) * (tile.q + tile.r / 2);
+        const py = size * 1.5 * tile.r;
+        const cx = 250 + px + pan.x;
+        const cy = 170 + py + pan.y;
+        const tp = tiltPoint(cx, cy);
+        // Render as HTML overlay positioned over the Awoken
         return (
-          <div className="stance-picker">
+          <div className="stance-picker-field" style={{
+            left: `${(tp.x / 500) * 100}%`,
+            top: `${(tp.y / 340) * 100}%`,
+          }}>
             <div className="stance-picker-name">{awoken.name}</div>
             <div className="stance-buttons">
               <button

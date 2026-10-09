@@ -503,6 +503,30 @@ body.defeat-flash {
   50% { transform: scale(1.15); }
 }
 
+.stance-picker-field {
+  position: absolute; z-index: 60;
+  transform: translate(-50%, -120%);
+  background: rgba(10,10,20,0.95); border: 1px solid #b89b5e;
+  border-radius: 8px; padding: 10px 12px;
+  pointer-events: all;
+  min-width: 180px;
+}
+.stance-picker-field .stance-picker-name {
+  color: #ffd700; font-family: Georgia, serif; font-size: 13px;
+  margin-bottom: 8px; text-align: center;
+}
+.stance-picker-field .stance-buttons {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.stance-picker-field .stance-btn {
+  background: rgba(30,30,50,0.9); border: 1px solid #666;
+  color: #ddd; padding: 6px 10px; border-radius: 4px;
+  font-size: 12px; cursor: pointer; text-align: left;
+}
+.stance-picker-field .stance-btn:hover { background: rgba(50,50,80,0.9); }
+.stance-picker-field .stance-btn.active { border-color: #ffd700; color: #ffd700; }
+.stance-picker-field .stance-btn.dissipate { border-color: #8a4a4a; color: #faa; }
+
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}
 .binding-prompt-title{font-size:16px;font-weight:bold;color:#88bbff;margin-bottom:6px}
