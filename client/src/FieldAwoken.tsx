@@ -23,8 +23,12 @@ export default function FieldAwoken({ awoken, assets, x, y, width, height, showF
   }, [assets]);
 
   // LAW: filter out background. Always. No exceptions.
+  // Backgrounds are locked to card art ONLY. Never on the field.
   const layers = awoken.layers
-    .filter(l => l.category !== "background")
+    .filter(l => {
+      const cat = (l.category || "").toLowerCase();
+      return cat !== "background" && !cat.includes("background");
+    })
     .sort((a, b) => {
       const order = ["body", "arms", "aura", "head"];
       return order.indexOf(a.category) - order.indexOf(b.category);

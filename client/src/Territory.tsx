@@ -12,7 +12,7 @@ import skyImg from "./assets/terrain/sky.jpg";
 import stoneImg from "./assets/terrain/stone.jpg";
 import rootImg from "./assets/terrain/root.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
-import nebulaBg from "./assets/battleground-bg.jpg";
+
 import cursedImg from "./assets/terrain/cursed.jpg";
 
 const TERRAIN: Record<string, string> = {
@@ -577,13 +577,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   return (
-    <div className="territory-view" style={{ position: "relative" }}>
-      <div style={{
-        position: "absolute", inset: 0,
-        backgroundImage: `url(${nebulaBg})`,
-        backgroundSize: "cover", backgroundPosition: "center",
-        opacity: 0.4, pointerEvents: "none", zIndex: 0,
-      }} />
+    <div className="territory-view">
       <div className="territory-hud">
         <div className="energy-meter">
           <span className="energy-label">Energy</span>
