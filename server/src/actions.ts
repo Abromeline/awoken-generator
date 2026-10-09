@@ -1369,7 +1369,11 @@ export const handlers = {
       // Fallback to bastion
       target = tiles.find(t => t.q === 0 && t.r === 0);
     }
-    if (!target) badRequest("No territory to defend.");
+    if (!target) {
+      // No territory to defend — return null instead of throwing.
+      // Client will handle this gracefully.
+      return { tile: null, defenderIds: [] };
+    }
     // Get Awoken on the target hex
     const placements = await db.select().from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, target.id));

@@ -62,7 +62,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBindingPrompt, setShowBindingPrompt] = useState(false);
   const [showBattleground, setShowBattleground] = useState(false);
-  const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number }; defenderIds: number[] } | null>(null);
+  const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
   // Hand = Awoken not on field
@@ -284,23 +284,35 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
   const handleDefend = async () => {
-    // Ensure we have wave data
-    if (!wave) {
+    // Always ensure wave data — create a default if fetch fails
+    let w = wave;
+    if (!w) {
       try {
-        const w = await api.getWave();
+        w = await api.getWave();
         setWave(w);
       } catch (e) {
-        console.error("Failed to get wave", e);
+        console.error("Failed to get wave, using default", e);
+        // Default wave: wave 1, 7 Fray
+        w = { waveNumber: 1, wavesDefeated: 0, frayCount: 7, unravelers: 0, totalPower: 7 };
+        setWave(w);
       }
     }
-    // Phase 1: Show minimap with the targeted territory
+    // Phase 1: Try to get the targeted territory
     try {
       const target = await api.getWaveTarget();
-      setWaveTarget(target);
-      setShowTargetMap(true);
+      if (target.tile) {
+        setWaveTarget(target);
+        setShowTargetMap(true);
+      } else {
+        // No territory — open battleground directly with client fallback
+        console.warn("No target tile, using client fallback");
+        setWaveTarget(null);
+        setShowBattleground(true);
+      }
     } catch (e) {
       console.error("Failed to get wave target, opening battleground directly", e);
-      // Fallback: open battleground without target phase
+      // Fallback: open battleground — client will pick a target tile
+      setWaveTarget(null);
       setShowBattleground(true);
     }
   };
