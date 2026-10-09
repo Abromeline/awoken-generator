@@ -160,10 +160,10 @@
 .territory-view{position:relative;min-height:100vh;overflow:hidden;}
 .nav-compass{position:fixed;bottom:20px;right:20px;z-index:50;width:120px;height:160px;pointer-events:none;}
 .hand-cards{
-  position:fixed;bottom:0;left:0;right:140px;z-index:40;
-  display:flex;gap:8px;overflow-x:auto;padding:10px 16px;
+  position:fixed !important;bottom:0 !important;left:0 !important;right:140px !important;z-index:40 !important;
+  display:flex !important;gap:8px;overflow-x:auto;padding:10px 16px;
   background:linear-gradient(0deg, rgba(0,0,0,0.9), transparent);
-  pointer-events:all;
+  pointer-events:all;flex-wrap:nowrap !important;justify-content:flex-start !important;
 }
 .hand-cards:empty{display:none;}
 .territory-hud{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none;}
@@ -191,7 +191,7 @@
 .territory-nav button{width:32px;height:32px;border-radius:50%;background:#1a1a1a;border:2px solid #b89b5e;color:#b89b5e;font-size:14px;cursor:pointer}
 .territory-hand{margin-top:12px}
 .hand-label{text-align:center;font-size:11px;color:#888;margin-bottom:8px;font-style:italic}
-.hand-cards{display:flex;gap:8px;overflow-x:auto;padding:4px;justify-content:center;flex-wrap:wrap}
+/* .hand-cards fixed positioning defined above (line 162) takes precedence */
 .hand-card{width:84px;background:#161616;border:2px solid #444;border-radius:6px;padding:4px;cursor:pointer;text-align:center;position:relative}
 .hcorner{position:absolute;width:18px;height:18px;pointer-events:none;z-index:2}
 .hcorner.tl{top:1px;left:1px}.hcorner.tr{top:1px;right:1px;transform:scaleX(-1)}
