@@ -1322,6 +1322,28 @@ export const handlers = {
 
   // Resolve an interactive battleground battle. Client reports the outcome,
   // server validates plausibility and applies territory changes.
+  async dissipateAwoken(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    // Verify ownership and field placement
+    const placement = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
+        eq(schema.fieldPlacements.ownerKey, ownerKey)
+      )).limit(1);
+    if (!placement.length) badRequest("Awoken not on field.");
+    // Remove from field
+    await db.delete(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
+    // 8h re-coalescence (double the 4h for voluntary dissipation)
+    const dispersedUntil = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    await db.update(schema.awakened)
+      .set({ dispersedUntil })
+      .where(eq(schema.awakened.id, parsed.data.awakenedId));
+    return { ok: true };
+  },
+
   async getWaveTarget(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // The wave targets a random border tile (purified, non-center, non-binding)

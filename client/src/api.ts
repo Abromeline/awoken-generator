@@ -271,6 +271,7 @@ export const api = {
   resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; energySpent: number }) =>
     post<{ ok: true }>("resolveBattle", args),
   getWaveTarget: () => post<{ tile: { id: number; q: number; r: number; element: string }; defenderIds: number[] }>("getWaveTarget", {}),
+  dissipateAwoken: (args: { awakenedId: number }) => post<{ ok: true }>("dissipateAwoken", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   passivePurify: (args: { tileId: number }) => post<{
     ok: boolean;

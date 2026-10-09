@@ -482,8 +482,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       "--drift-dur": `${driftDur}s`,
                       "--drift-delay": `${driftDelay}s`,
                       cursor: "pointer",
-                      transform: `translate(${kx}px, ${ky}px) rotateX(-32deg) translate(${-kx}px, ${-ky}px)`,
-                      transformBox: "fill-box",
                     } as React.CSSProperties}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -664,6 +662,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 title="Channel power into the land. +3 to own tile, +1 to neighbors. Costs 2 energy.">
                 ✦ Binding
               </button>
+              <button
+                className="stance-btn dissipate"
+                onClick={async () => {
+                  if (confirm("Dissipate this Awoken? It will enter 8h re-coalescence.")) {
+                    try {
+                      await api.dissipateAwoken({ awakenedId: selectedAwoken });
+                      setSelectedAwoken(null);
+                      onUpdate();
+                    } catch (e) {
+                      console.error("Dissipate failed", e);
+                    }
+                  }
+                }}
+                title="Voluntarily dissipate. 8h re-coalescence (double the 4h).">
+                🌫 Dissipate
+              </button>
             </div>
             {attackTargeting && placement.stance === "attack" && (
               <div className="attack-hint">Tap an adjacent cursed tile to attack (1 energy)</div>
@@ -737,7 +751,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         transformOrigin: "center 60%",
         transformStyle: "preserve-3d",
       }}>
-        <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}>
+        <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%", transformStyle: "preserve-3d" }}>
           {renderGrid()}
         </svg>
       </div>
