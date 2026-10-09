@@ -6,8 +6,8 @@ import { api, type Awakened } from "./api";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
-import frayImg from "./assets/adversaries/fray.png";
-import unravelerImg from "./assets/adversaries/unraveler.png";
+import frayImg from "./assets/enemies/fray.png";
+import unravelerImg from "./assets/enemies/unraveler.png";
 
 interface Defender {
   placementId: number;

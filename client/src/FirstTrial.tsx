@@ -3,7 +3,7 @@ import type { Awakened } from "./api";
 import FieldAwoken from "./FieldAwoken";
 import cursedImg from "./assets/terrain/cursed.jpg";
 import neutralImg from "./assets/terrain/neutral.jpg";
-import unravelerImg from "./assets/adversaries/unraveler.png";
+import unravelerImg from "./assets/enemies/unraveler.png";
 import { Corner, elementForPiece, type Element } from "./App";
 
 interface Props {
