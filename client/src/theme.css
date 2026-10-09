@@ -593,6 +593,14 @@ body.defeat-flash {
 .dock-card-stats{font-size:10px;color:#888;font-family:monospace;}
 .dock-empty{color:#666;font-style:italic;font-size:12px;padding:20px;}
 
+.territory-battle-trigger{
+  position:relative;z-index:60;pointer-events:all;
+  text-align:center;margin:12px 0;
+}
+.territory-battle-trigger .abtn{
+  position:relative;z-index:61;
+}
+
 /* Binding prompt */
 .binding-prompt{background:rgba(10,20,30,0.95);border:1px solid #66aaff;border-radius:8px;padding:14px 18px;margin:0 0 10px;text-align:center}
 .binding-prompt-title{font-size:16px;font-weight:bold;color:#88bbff;margin-bottom:6px}
