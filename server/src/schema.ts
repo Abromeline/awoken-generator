@@ -38,6 +38,7 @@ export const awakened = sqliteTable("awakened", {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+  dispersedUntil: integer("dispersed_until", { mode: "timestamp_ms" }),
 });
 
 // Stories Tenders tell about their Awoken. Sharing to the Confluence is

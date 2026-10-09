@@ -137,6 +137,10 @@ if (!awakenedCols.some((col) => col.name === "story_count")) {
 if (!awakenedCols.some((col) => col.name === "field_born")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN field_born INTEGER NOT NULL DEFAULT 0`);
 }
+// Dispersed Awoken: vanished into time for 4h re-coalescence, then return to hand.
+if (!awakenedCols.some((col) => col.name === "dispersed_until")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN dispersed_until INTEGER`);
+}
 // 48h passive purification timer on territory tiles.
 const tileCols = sqlite.prepare(`PRAGMA table_info(territory_tiles)`).all() as { name: string }[];
 if (!tileCols.some((col) => col.name === "last_passive_at")) {
