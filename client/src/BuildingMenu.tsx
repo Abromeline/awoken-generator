@@ -8,6 +8,7 @@ import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
 import wheatHalfImg from "./assets/buildings/wheat-half.png";
 import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
+import treeImg from "./assets/buildings/tree.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
 
@@ -16,6 +17,7 @@ const BUILDING_IMGS: Record<string, string> = {
   "dream-wheat": dreamWheatImg,
   "elemental-shrine": elementalShrineImg,
   "awakening-well": awakeningWellImg,
+  "tree": treeImg,
   "thorn-wall": thornWallImg,
   "binding-circle": bindingCircleImg,
 };

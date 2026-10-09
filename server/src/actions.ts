@@ -413,6 +413,7 @@ async function calculateMaxEnergy(ownerKey: string): Promise<number> {
   // 10 base + power-scaled bonus per Awoken in hand, deployed, defending, or binding
   // 1-3pwr:+1, 4-6:+2, 7-9:+3, 10+:+4
   // Defending/binding only raise the cap, not the refresh rate.
+  // Each active Dream Tree: +1 max energy.
   const awoken = await db.select().from(schema.awakened)
     .where(eq(schema.awakened.ownerKey, ownerKey));
   let max = 10;
@@ -428,6 +429,14 @@ async function calculateMaxEnergy(ownerKey: string): Promise<number> {
       else if (p >= 1) max += 1;
     } catch {}
   }
+  // Dream Trees: +1 max energy each
+  const trees = await db.select().from(schema.territoryBuildings)
+    .where(and(
+      eq(schema.territoryBuildings.ownerKey, ownerKey),
+      eq(schema.territoryBuildings.buildingType, "tree"),
+      eq(schema.territoryBuildings.status, "active"),
+    ));
+  max += trees.length;
   return max;
 }
 
@@ -1310,6 +1319,7 @@ export const handlers = {
         { type: "awakening-well", name: "Awakening Well", cost: 10, buildMinutes: 360, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
         { type: "thorn-wall", name: "Thorn Wall", cost: 3, buildMinutes: 60, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
         { type: "binding-circle", name: "Binding Circle", cost: 6, buildMinutes: 180, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
+        { type: "tree", name: "Dream Tree", cost: 4, buildMinutes: 240, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
       ]
     };
   },
@@ -1346,6 +1356,7 @@ export const handlers = {
       "awakening-well": { cost: 10, buildMinutes: 360 },
       "thorn-wall": { cost: 3, buildMinutes: 60 },
       "binding-circle": { cost: 6, buildMinutes: 180 },
+      "tree": { cost: 4, buildMinutes: 240 },
     };
     const def = defs[parsed.data.buildingType];
     if (!def) badRequest("Unknown building.");
@@ -1367,6 +1378,10 @@ export const handlers = {
         eq(schema.territoryTiles.cursed, 0)
       )).limit(1);
     if (!tile.length) badRequest("Tile must be purified.");
+    // Trees cannot grow on sky or water (tide) hexes
+    if (parsed.data.buildingType === "tree" && (tile[0].element === "sky" || tile[0].element === "tide")) {
+      badRequest("Trees cannot grow on sky or water.");
+    }
     // Dream Wheat synergy: 25% faster if Awakening Well on same or adjacent hex
     let synergyMultiplier = 1;
     if (parsed.data.buildingType === "dream-wheat") {
