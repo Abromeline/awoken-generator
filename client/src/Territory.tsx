@@ -946,9 +946,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           .filter(p => p.tileId === targetTileId)
           .map(p => {
             const aw = tenderItems.find(a => a.id === p.awakenedId);
-            return aw ? { placementId: p.id, awoken: aw } : null;
+            return aw ? { placementId: p.id, awoken: aw, stance: p.stance } : null;
           })
-          .filter(Boolean) as { placementId: number; awoken: Awakened }[];
+          .filter(Boolean) as { placementId: number; awoken: Awakened; stance: string }[];
         return (
           <Battleground
             defenders={defs}

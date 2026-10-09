@@ -1006,10 +1006,10 @@ export const handlers = {
       state = [row];
     }
     const wave = state[0].waveNumber;
-    // First wave is 7. Each wave gets harder: +2 power per wave.
+    // First wave is 5. Waves build 3x slower: +2 power every 3 waves.
     // Composition: Unravelers (power 4) every 3rd wave, Fray (power 1) make up the rest.
     const unravelers = Math.floor(wave / 3);
-    const totalPower = 7 + (wave - 1) * 2 + unravelers * 4;
+    const totalPower = 5 + Math.floor((wave - 1) / 3) * 2 + unravelers * 4;
     const frayCount = totalPower - unravelers * 4;
     return {
       waveNumber: wave,
@@ -1416,9 +1416,12 @@ export const handlers = {
     }
 
     if (parsed.data.victory) {
-      // Purify one adjacent cursed tile
+      const wavesDefeated = (state[0]?.wavesDefeated ?? 0) + 1;
+      // Territory reward only every 3 waves
+      const grantTerritory = wavesDefeated % 3 === 0;
+      // Purify one adjacent cursed tile (every 3rd victory)
       const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-      for (const [dq, dr] of dirs) {
+      if (grantTerritory) for (const [dq, dr] of dirs) {
         const target = await db.select().from(schema.territoryTiles)
           .where(and(
             eq(schema.territoryTiles.ownerKey, ownerKey),
@@ -1434,10 +1437,11 @@ export const handlers = {
           break;
         }
       }
+      }
       await db.update(schema.waveState)
         .set({
           waveNumber: currentWave + 1,
-          wavesDefeated: (state[0]?.wavesDefeated ?? 0) + 1,
+          wavesDefeated,
           lastWaveAt: new Date(),
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));

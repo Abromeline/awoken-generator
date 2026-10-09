@@ -12,6 +12,7 @@ import unravelerImg from "./assets/adversaries/unraveler.png";
 interface Defender {
   placementId: number;
   awoken: Awakened;
+  stance?: string; // field stance, locked in battle
 }
 
 interface WaveInfo {
@@ -65,15 +66,23 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
 
   // Initialize fighters from defenders + wave
   useEffect(() => {
-    const aw: Fighter[] = defenders.map((d, i) => ({
+    const aw: Fighter[] = defenders.map((d, i) => {
+      // Stance bonus (locked from field, cannot change in battle):
+      // Defense stance: +2 toughness, Attack stance: +2 power
+      const stanceBonusPower = d.stance === "attack" ? 2 : 0;
+      const stanceBonusTough = d.stance === "defense" ? 2 : 0;
+      const basePower = d.awoken.power + stanceBonusPower;
+      const baseTough = d.awoken.toughness + stanceBonusTough;
+      return {
       id: `a-${d.awoken.id}`,
       awokenId: d.awoken.id,
       x: 5 + i * 11, y: 30, w: 13,
-      power: d.awoken.power, tough: d.awoken.toughness,
-      hp: d.awoken.toughness, maxHp: d.awoken.toughness,
-      name: d.awoken.name, side: "aw", field: true,
+      power: basePower, tough: baseTough,
+      hp: baseTough, maxHp: baseTough,
+      name: d.awoken.name + (d.stance === "attack" ? " ⚔+2" : d.stance === "defense" ? " 🛡+2" : ""),
+      side: "aw", field: true,
       awoken: d.awoken,
-    }));
+    }});
     const en: Fighter[] = [];
     for (let i = 0; i < wave.frayCount; i++) {
       en.push({
@@ -90,6 +99,21 @@ export default function Battleground({ defenders, wave, hand, assets, energy, ma
         power: 4, tough: 0, hp: 6, maxHp: 6,
         name: "Unraveler", side: "en", field: false,
       });
+    }
+    // Binding Awoken heals: total power split among wounded defenders
+    const binders = defenders.filter(d => d.stance === "binding");
+    if (binders.length > 0) {
+      const totalHeal = binders.reduce((sum, d) => sum + d.awoken.power, 0);
+      const wounded = aw.filter(f => f.hp < f.maxHp);
+      if (wounded.length > 0 && totalHeal > 0) {
+        const healEach = Math.floor(totalHeal / wounded.length);
+        const remainder = totalHeal % wounded.length;
+        wounded.forEach((w, idx) => {
+          const heal = healEach + (idx < remainder ? 1 : 0);
+          w.hp = Math.min(w.maxHp, w.hp + heal);
+        });
+        setLog(`✦ Binding light mends the wounded (+${totalHeal} total)`);
+      }
     }
     setFighters(aw);
     setEnemies(en);
