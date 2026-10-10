@@ -676,7 +676,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={t.id} transform={`translate(0,${lift})`}>
           {/* Isometric tile: 1920x1280 PNG, hex face ~1345px wide. Scale to hex radius s. */}
           <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]}
-            x={cx - s * 1.6} y={cy - s * 0.997} width={s * 3.2} height={s * 2.133}
+            x={cx - s * 1.524} y={cy - s * 0.786} width={s * 3.048} height={s * 2.032}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
           {/* Siege timer on cursed tiles */}
