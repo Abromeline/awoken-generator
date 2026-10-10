@@ -882,6 +882,48 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    
+    // Process attunement: Awoken present for 13+ minutes attune neutral tiles to their dominant element
+    const now = Date.now();
+    const ATTUNE_MS = 13 * 60 * 1000;
+    for (const p of placements) {
+      const placedAt = new Date(p.placedAt).getTime();
+      if (now - placedAt < ATTUNE_MS) continue;
+      
+      const tile = tiles.find(t => t.id === p.tileId);
+      if (!tile || tile.cursed || tile.element !== "neutral") continue;
+      
+      // Get Awoken's dominant element from composition
+      const aw = await db.select().from(schema.awakened)
+        .where(eq(schema.awakened.id, p.awakenedId)).limit(1);
+      if (!aw.length) continue;
+      
+      try {
+        const comp = JSON.parse(aw[0].compositionJson || "[]");
+        const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
+        for (const layer of comp) {
+          const name = (layer.name || "").toLowerCase();
+          let el = "root";
+          if (/fire|ember|flame|ash|inferno/.test(name)) el = "fire";
+          else if (/tide|water|current|pool|pond|rain|moonwater/.test(name)) el = "tide";
+          else if (/mountain|monolith|stone|rock|crystal/.test(name)) el = "stone";
+          else if (/sky|bird|moon|star|lantern|upward|weather|bell/.test(name)) el = "sky";
+          counts[el]++;
+        }
+        let best = "root", max = -1;
+        for (const [el, n] of Object.entries(counts)) {
+          if (n > max) { max = n; best = el; }
+        }
+        // Attune the tile
+        await db.update(schema.territoryTiles)
+          .set({ element: best as any })
+          .where(eq(schema.territoryTiles.id, tile.id));
+        tile.element = best as any;
+      } catch (e) {
+        // Skip on parse error
+      }
+    }
+    
     return { tiles, placements };
   },
 
