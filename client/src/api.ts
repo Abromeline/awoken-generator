@@ -194,7 +194,7 @@ const WORKSHOP_TOKEN_KEY = "awoken-workshop-token";
 
 export function workshopToken(): string | null {
   try {
-    return window.sessionStorage.getItem(WORKSHOP_TOKEN_KEY);
+    return window.localStorage.getItem(WORKSHOP_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -202,17 +202,17 @@ export function workshopToken(): string | null {
 
 export function clearWorkshopToken(): void {
   try {
-    window.sessionStorage.removeItem(WORKSHOP_TOKEN_KEY);
+    window.localStorage.removeItem(WORKSHOP_TOKEN_KEY);
   } catch {
-    /* the tab keeps no secrets */
+    /* the device keeps no secrets */
   }
 }
 
 export function storeWorkshopToken(token: string): void {
   try {
-    window.sessionStorage.setItem(WORKSHOP_TOKEN_KEY, token);
+    window.localStorage.setItem(WORKSHOP_TOKEN_KEY, token);
   } catch {
-    /* the tab keeps no secrets */
+    /* the device keeps no secrets */
   }
 }
 
