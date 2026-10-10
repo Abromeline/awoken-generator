@@ -657,8 +657,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 style={{ cursor: b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
-                  x={bpx.x - s * 0.5} y={bpx.y - s * 0.5}
-                  width={s} height={s}
+                  x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
+                  y={bpx.y - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
+                  width={s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 2 : 1)}
+                  height={s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 2 : 1)}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={isBuilding ? 0.7 : isDormant ? 0.4 : 1}
                   style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
