@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
 import FirstTrial from "./FirstTrial";
@@ -55,6 +55,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [energy, setEnergy] = useState(10);
   const refreshEnergy = async () => {
@@ -916,7 +917,24 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         setAttackTargeting(false);
         setMoveTargeting(false);
       }}>
-        <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}>
+        <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
+          onContextMenu={(e) => e.preventDefault()}
+          onMouseDown={(e) => {
+            if (e.button === 2) { // Right click
+              dragRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+            }
+          }}
+          onMouseMove={(e) => {
+            if (dragRef.current) {
+              const dx = e.clientX - dragRef.current.x;
+              const dy = e.clientY - dragRef.current.y;
+              setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
+            }
+          }}
+          onMouseUp={(e) => {
+            if (e.button === 2) dragRef.current = null;
+          }}
+          onMouseLeave={() => { dragRef.current = null; }}>
           {renderGrid()}
         </svg>
       </div>
