@@ -700,10 +700,18 @@ function TracksPanel() {
           </button>
           <button className="abtn small" onClick={() => {
             api.getBattleTrack({ id: t.id }).then(({ trackData }) => {
-              import("./trackPlayer").then(({ trackPlayer }) => {
-                trackPlayer.play(JSON.parse(trackData));
-                setTimeout(() => trackPlayer.stop(), 10000);
-              });
+              // Audio files (data URLs) play directly; 8-bit JSON uses the track player
+              if (trackData.startsWith("data:audio")) {
+                const audio = new Audio(trackData);
+                audio.volume = 0.5;
+                audio.play().catch(() => {});
+                setTimeout(() => { audio.pause(); audio.src = ""; }, 15000);
+              } else {
+                import("./trackPlayer").then(({ trackPlayer }) => {
+                  trackPlayer.play(JSON.parse(trackData));
+                  setTimeout(() => trackPlayer.stop(), 10000);
+                });
+              }
             });
           }}>▶</button>
           <button className="abtn small danger" onClick={() => {
@@ -720,7 +728,8 @@ function AddTrackForm({ onAdded }: { onAdded: () => void }) {
   const [name, setName] = useState("");
   const [json, setJson] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
-  const submit = async () => {
+  const [uploading, setUploading] = useState(false);
+  const submitJson = async () => {
     try {
       JSON.parse(json); // validate
       await api.addBattleTrack({ name, trackData: json });
@@ -729,12 +738,37 @@ function AddTrackForm({ onAdded }: { onAdded: () => void }) {
       setTimeout(() => setMsg(null), 2500);
     } catch (e) { setMsg("Invalid JSON or failed: " + (e as Error).message); }
   };
+  const uploadFile = async (file: File) => {
+    if (!name) { setMsg("Enter a track name first."); return; }
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await api.addBattleTrack({ name, trackData: dataUrl });
+      setName(""); setMsg("Audio track added!");
+      onAdded();
+      setTimeout(() => setMsg(null), 2500);
+    } catch (e) { setMsg("Upload failed: " + (e as Error).message); }
+    setUploading(false);
+  };
   return <div style={{ marginTop: 20, padding: 16, border: "1px solid #444", borderRadius: 8 }}>
     <h3>Add Battle Track</h3>
-    <p className="quiet">Paste track JSON with bpm, lead, bass, and drums fields.</p>
+    <p className="quiet">Upload an audio file (MP3, WAV, OGG) or paste 8-bit track JSON.</p>
     <input value={name} onChange={e => setName(e.target.value)} placeholder="Track name" style={{ width: "100%", marginBottom: 8, padding: 8 }} />
-    <textarea value={json} onChange={e => setJson(e.target.value)} placeholder='{"bpm": 140, "lead": [[440, 0.5]], ...}' rows={6} style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
-    <button className="abtn" onClick={submit} disabled={!name || !json} style={{ marginTop: 8 }}>Add Track</button>
+    <div style={{ marginBottom: 12 }}>
+      <input type="file" accept="audio/*" onChange={e => {
+        const f = e.target.files?.[0];
+        if (f) uploadFile(f);
+      }} disabled={uploading} style={{ width: "100%" }} />
+      {uploading && <p className="quiet">Uploading...</p>}
+    </div>
+    <p className="quiet" style={{ margin: "12px 0 4px" }}>— or paste 8-bit JSON —</p>
+    <textarea value={json} onChange={e => setJson(e.target.value)} placeholder='{"bpm": 140, "lead": [[440, 0.5]], ...}' rows={4} style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
+    <button className="abtn" onClick={submitJson} disabled={!name || !json} style={{ marginTop: 8 }}>Add 8-bit Track</button>
     {msg && <p className="notice">{msg}</p>}
   </div>;
 }
