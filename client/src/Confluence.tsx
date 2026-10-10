@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { api, Awakened } from "./api";
-import TwinBirth from "./TwinBirth";
 import ConfluenceBattle from "./ConfluenceBattle";
 
 export default function Confluence({
@@ -14,7 +13,6 @@ export default function Confluence({
   const [code, setCode] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState("");
   const [committed, setCommitted] = useState<number[]>([]);
-  const [twin, setTwin] = useState<any>(null);
   const [msg, setMsg] = useState("");
   const [showBattle, setShowBattle] = useState(false);
 
@@ -50,28 +48,8 @@ export default function Confluence({
     }
   };
 
-  // Simplified: the host resolves the battle after both have committed.
-  // In a full implementation, this would be a shared battleground.
-  const resolveBattle = async (victory: boolean) => {
-    if (!sessionId) return;
-    try {
-      const res = await api.resolveConfluence({ sessionId, victory });
-      if (res.twin) {
-        setTwin({ ...res.twin, sessionId });
-      } else {
-        setMsg(victory ? "Victory! XP granted." : "Defeat. XP granted for standing together.");
-      }
-    } catch (e: any) {
-      setMsg(e.message || "Couldn't resolve.");
-    }
-  };
-
   if (showBattle && sessionId) {
     return <ConfluenceBattle sessionId={sessionId} onClose={onClose} />;
-  }
-
-  if (twin) {
-    return <TwinBirth twin={twin} sessionId={twin.sessionId} onClaimed={onClose} />;
   }
 
   return (
