@@ -1380,3 +1380,11 @@ body.defeat-flash {
 .music-track-info strong{display:block;color:#e8e0d0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .music-track-info small{color:#888;font-size:11px}
 .music-track-actions{display:flex;gap:6px}
+
+.music-controls{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.music-skip-btn{
+  width:32px;height:32px;border-radius:50%;border:1px solid #666;
+  background:#1a1a1a;color:#aaa;font-size:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.music-skip-btn:hover{background:rgba(184,155,94,0.15);color:#b89b5e;border-color:#b89b5e}

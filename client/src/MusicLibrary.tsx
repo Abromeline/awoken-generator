@@ -18,7 +18,19 @@ export default function MusicLibrary() {
 
   const stopPlaying = () => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
+    // Stop 8-bit tracks too
+    import("./trackPlayer").then(({ trackPlayer }) => trackPlayer.stop()).catch(() => {});
     setPlayingId(null);
+  };
+
+  const skipTrack = async (direction: 1 | -1) => {
+    const tracks = query.data?.tracks ?? [];
+    if (!tracks.length) return;
+    const currentIdx = tracks.findIndex(t => t.id === playingId);
+    const nextIdx = currentIdx === -1
+      ? (direction === 1 ? 0 : tracks.length - 1)
+      : (currentIdx + direction + tracks.length) % tracks.length;
+    await playTrack(tracks[nextIdx].id);
   };
 
   const playTrack = async (id: number) => {
@@ -107,13 +119,29 @@ export default function MusicLibrary() {
         <ol className="music-track-list">
           {tracks.map(t => (
             <li key={t.id} className={`music-track ${playingId === t.id ? "playing" : ""}`}>
-              <button
-                className="music-play-btn"
-                onClick={() => playTrack(t.id)}
-                title={playingId === t.id ? "Stop" : "Play"}
-              >
-                {playingId === t.id ? "⏸" : "▶"}
-              </button>
+              <div className="music-controls">
+                <button
+                  className="music-skip-btn"
+                  onClick={() => skipTrack(-1)}
+                  title="Previous track"
+                >
+                  ⏮
+                </button>
+                <button
+                  className="music-play-btn"
+                  onClick={() => playTrack(t.id)}
+                  title={playingId === t.id ? "Stop" : "Play"}
+                >
+                  {playingId === t.id ? "⏸" : "▶"}
+                </button>
+                <button
+                  className="music-skip-btn"
+                  onClick={() => skipTrack(1)}
+                  title="Next track"
+                >
+                  ⏭
+                </button>
+              </div>
               <div className="music-track-info">
                 <strong>{t.name}</strong>
                 <small>{t.enabled ? "✓ in battle rotation" : "○ disabled"}</small>
