@@ -151,6 +151,17 @@ const placementCols = sqlite.prepare(`PRAGMA table_info(field_placements)`).all(
 if (!placementCols.some((col) => col.name === "stance")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN stance TEXT NOT NULL DEFAULT 'defense'`);
 }
+// Curse HP for territory tiles.
+if (!tileCols.some((col) => col.name === "curse_hp")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_hp INTEGER`);
+}
+if (!tileCols.some((col) => col.name === "curse_max_hp")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_max_hp INTEGER`);
+}
+// Binding upkeep tracking.
+if (!placementCols.some((col) => col.name === "last_binding_charge_at")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN last_binding_charge_at INTEGER`);
+}
 // 4-hour birth cycle: tracks last free birth per Tender
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,

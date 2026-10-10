@@ -864,6 +864,43 @@ body.defeat-flash {
   color: #ffd700; font-family: Georgia, serif; font-size: 32px;
   letter-spacing: 0.15em; text-shadow: 0 4px 20px #000;
 }
+/* Full victory screen: Unraveling Complete */
+.victory-screen {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(10, 8, 4, 0.92);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; padding: 24px;
+}
+.victory-screen h1 {
+  color: #ffd700; font-family: Georgia, serif; font-size: 28px;
+  letter-spacing: 0.2em; margin: 0; text-shadow: 0 2px 12px rgba(255,215,0,0.4);
+}
+.spinning-hex {
+  width: 120px; height: 120px;
+  animation: spinHex 4s linear infinite;
+  filter: drop-shadow(0 0 20px rgba(255,215,0,0.6));
+}
+@keyframes spinHex {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.victory-territory-pick {
+  color: #ccaa66; font-size: 14px; text-align: center; max-width: 400px;
+}
+.victory-buttons {
+  display: flex; gap: 16px; margin-top: 8px;
+}
+.victory-buttons .abtn {
+  font-size: 16px; padding: 12px 28px; min-width: 160px;
+}
+.victory-buttons .raise-binding {
+  background: linear-gradient(135deg, #2a2a1a, #4a4a2a);
+  border: 2px solid #ffd700; color: #ffeebb;
+}
+.victory-buttons .continue-wave {
+  background: linear-gradient(135deg, #1a2a3a, #2a4a5a);
+  border: 2px solid #66aaff; color: #cceeff;
+}
 
 .territory-battle-trigger {
   display: flex; justify-content: center; margin: 12px 0;

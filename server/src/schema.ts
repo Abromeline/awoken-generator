@@ -174,6 +174,9 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   lastPassiveAt: integer("last_passive_at", { mode: "timestamp_ms" }),
   // XYZ grid: terrain height level. 0 = base. Future terraforming mechanic.
   height: integer("height").notNull().default(0),
+  // Curse HP: attacks dwindle this; at 0 the tile becomes neutral.
+  curseHp: integer("curse_hp"),
+  curseMaxHp: integer("curse_max_hp"),
 });
 
 // Field placements: which Awoken stands on which tile.
@@ -191,6 +194,8 @@ export const fieldPlacements = sqliteTable("field_placements", {
     .$defaultFn(() => new Date()),
   // Stance: attack | defense | binding. Defense is the default — holding ground.
   stance: text("stance").notNull().default("defense"),
+  // Binding upkeep: last time the hourly 3-energy charge was applied.
+  lastBindingChargeAt: integer("last_binding_charge_at", { mode: "timestamp_ms" }),
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.

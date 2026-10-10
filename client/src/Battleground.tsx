@@ -60,7 +60,7 @@ interface BattlegroundProps {
   assets: FieldAsset[];
   energy: number;
   maxEnergy: number;
-  onBattleEnd: (result: { victory: boolean; survivors: number[] }) => void;
+  onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean }) => void;
   onClose: () => void;
 }
 
@@ -107,6 +107,8 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [simRunning, setSimRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [victory, setVictory] = useState<boolean | null>(null);
+  const [showVictoryScreen, setShowVictoryScreen] = useState(false);
+  const [pickedTerritory, setPickedTerritory] = useState<number | null>(null);
 
   // Initialize fighters from defenders + wave
   useEffect(() => {
@@ -296,13 +298,12 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     const totalEnemies = enemies.length;
     // Only trigger if battle actually started (enemies were created) and now all dead
     if (totalEnemies > 0 && aliveEnemies === 0 && aliveFighters > 0) {
-      // Victory!
+      // Victory! Show the victory screen.
       setVictory(true);
       setSimRunning(false);
       trackPlayer.stop();
-      const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
       setLog("THE WAVE BREAKS!");
-      setTimeout(() => onBattleEnd({ victory: true, survivors }), 2500);
+      setTimeout(() => setShowVictoryScreen(true), 1500);
     } else if (totalEnemies > 0 && aliveFighters === 0 && aliveEnemies > 0) {
       // Defeat — all fighters dead but enemies remain
       setVictory(false);
@@ -462,9 +463,39 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           );
         })}
       </div>
-      {victory !== null && (
+      {victory !== null && !showVictoryScreen && (
         <div className="victory-overlay">
           <div className="victory-text">{victory ? "THE WAVE BREAKS" : "THE LINE FALLS"}</div>
+        </div>
+      )}
+      {showVictoryScreen && victory && (
+        <div className="victory-screen">
+          <svg className="spinning-hex" viewBox="0 0 100 100">
+            <polygon points="50,5 93,27 93,73 50,95 7,73 7,27"
+              fill="none" stroke="#ffd700" strokeWidth="4" />
+            <polygon points="50,20 80,37 80,63 50,80 20,63 20,37"
+              fill="rgba(255,215,0,0.2)" stroke="#ffedaa" strokeWidth="2" />
+          </svg>
+          <h1>UNRAVELING COMPLETE</h1>
+          <div className="victory-territory-pick">
+            The wave breaks. Choose one new territory to claim as your bonus.
+            {pickedTerritory !== null ? " ✓ Chosen" : ""}
+          </div>
+          {/* Minimal territory picker - simplified for now */}
+          <div className="victory-buttons">
+            <button className="abtn raise-binding" onClick={() => {
+              const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
+              onBattleEnd({ victory: true, survivors, raiseBinding: true } as any);
+            }}>
+              ✦ Raise Binding
+            </button>
+            <button className="abtn continue-wave" onClick={() => {
+              const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
+              onBattleEnd({ victory: true, survivors, continueWave: true } as any);
+            }}>
+              Continue →
+            </button>
+          </div>
         </div>
       )}
     </div>

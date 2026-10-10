@@ -382,8 +382,12 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
     const nq = q + dq, nr = r + dr;
     if (seen.has(`${nq},${nr}`)) continue;
     const el = elements[Math.floor(Math.random() * elements.length)];
+    // Curse HP scales with ring distance from center: ring 1 = 6, +2 per ring
+    const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
+    const hp = 4 + ring * 2;
     await db.insert(schema.territoryTiles).values({
       ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
+      curseHp: hp, curseMaxHp: hp,
     });
     seen.add(`${nq},${nr}`);
   }
@@ -522,13 +526,13 @@ async function loadGameConfig() {
 
 // Single source of truth for building definitions
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string }> = {
-  "watchtower": { name: "Watchtower", cost: 5, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 3⚡/hour upkeep.", icon: "🗼" },
+  "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 3⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
-  "elemental-shrine": { name: "Elemental Shrine", cost: 8, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
-  "awakening-well": { name: "Awakening Well", cost: 10, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
-  "thorn-wall": { name: "Thorn Wall", cost: 3, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
-  "binding-circle": { name: "Binding Circle", cost: 6, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
-  "tree": { name: "Dream Tree", cost: 4, buildMinutes: 15, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
+  "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
+  "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
+  "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
+  "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
+  "tree": { name: "Dream Tree", cost: 2, buildMinutes: 15, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
 };
 
 export const handlers = {
@@ -878,13 +882,46 @@ export const handlers = {
     };
   },
 
+  async grantEnergy(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ amount: z.number().int().min(1).max(10) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid amount.");
+    const energyRes = await this.getEnergy({}, ctx);
+    await gainEnergy(ownerKey, parsed.data.amount, energyRes.maxEnergy);
+    return { ok: true };
+  },
+
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     
-    // Process attunement: Awoken present for 13+ minutes attune neutral tiles to their dominant element
+    // Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
     const now = Date.now();
+    const BINDING_PER_HOUR = 3;
+    for (const p of placements) {
+      if (p.stance !== "binding") continue;
+      const lastCharge = p.lastBindingChargeAt ? new Date(p.lastBindingChargeAt).getTime() : new Date(p.placedAt).getTime();
+      const hoursElapsed = (now - lastCharge) / (60 * 60 * 1000);
+      if (hoursElapsed >= 1) {
+        const hoursToCharge = Math.floor(hoursElapsed);
+        const cost = hoursToCharge * BINDING_PER_HOUR;
+        if (await spendEnergy(ownerKey, cost)) {
+          await db.update(schema.fieldPlacements)
+            .set({ lastBindingChargeAt: new Date() })
+            .where(eq(schema.fieldPlacements.id, p.id));
+          p.lastBindingChargeAt = new Date() as any;
+        } else {
+          // Can't pay — binding drops
+          await db.update(schema.fieldPlacements)
+            .set({ stance: "defense", lastBindingChargeAt: null })
+            .where(eq(schema.fieldPlacements.id, p.id));
+          p.stance = "defense";
+        }
+      }
+    }
+    
+    // Process attunement: Awoken present for 13+ minutes attune neutral tiles to their dominant element
     const ATTUNE_MS = 13 * 60 * 1000;
     for (const p of placements) {
       const placedAt = new Date(p.placedAt).getTime();
@@ -1906,11 +1943,9 @@ export const handlers = {
       maxEnergy: z.number().int().min(1),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid stance.");
-    // Binding costs 2 energy to enter. Defense generates 1.
-    if (parsed.data.stance === "binding") {
-      if (!(await spendEnergy(ownerKey, 2))) {
-        badRequest("Not enough energy (need 2 for binding).");
-      }
+    // All stances cost 1 energy to enter.
+    if (!(await spendEnergy(ownerKey, 1))) {
+      badRequest("Not enough energy (need 1).");
     }
     // Verify the Awoken is on the field and owned by the Tender.
     const placement = await db.select().from(schema.fieldPlacements)
@@ -1920,11 +1955,11 @@ export const handlers = {
       )).limit(1);
     if (!placement.length) badRequest("That Awoken is not on your field.");
     await db.update(schema.fieldPlacements)
-      .set({ stance: parsed.data.stance })
+      .set({
+        stance: parsed.data.stance,
+        lastBindingChargeAt: parsed.data.stance === "binding" ? new Date() : null,
+      })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
-    if (parsed.data.stance === "defense") {
-      await gainEnergy(ownerKey, 1, parsed.data.maxEnergy);
-    }
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
@@ -1978,20 +2013,22 @@ export const handlers = {
     }
     const layers = parseLayers(attacker.compositionJson, assetStats);
     const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
-    const toughness = corruptionToughness(tile[0].q, tile[0].r);
-    if (power < toughness) {
-      // Siege: reduce the remaining purification time by power * 4 hours.
-      // The Awoken's assault weakens the corruption even without breaking it.
-      const hoursReduced = power * 4;
-      const currentLast = tile[0].lastPassiveAt ? tile[0].lastPassiveAt.getTime() : tile[0].createdAt.getTime();
-      const newLast = new Date(currentLast - hoursReduced * 60 * 60 * 1000);
+    // HP system: each attack dwindles the curse HP by the attacker's power.
+    // Initialize HP if missing (legacy tiles).
+    const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
+    const maxHp = tile[0].curseMaxHp ?? (4 + ring * 2);
+    const currentHp = tile[0].curseHp ?? maxHp;
+    const newHp = Math.max(0, currentHp - power);
+    if (newHp > 0) {
+      // Curse holds — record the reduced HP.
       await db.update(schema.territoryTiles)
-        .set({ lastPassiveAt: newLast })
+        .set({ curseHp: newHp, curseMaxHp: maxHp })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      // Check if the siege broke through (timer expired)
-      const now = Date.now();
-      if (now - newLast.getTime() >= 48 * 60 * 60 * 1000) {
-        // Purify!
+      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number() })
+        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power });
+    }
+    // HP reached 0 — the curse breaks! Purify to neutral.
+    {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const layer of layers) {
           const el = elementForPieceName(layer.name);
@@ -2005,23 +2042,19 @@ export const handlers = {
         }
         if (tie) element = "neutral";
         await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element })
+          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null })
           .where(eq(schema.territoryTiles.id, tile[0].id));
         await db.update(schema.fieldPlacements)
           .set({ tileId: tile[0].id })
           .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
-        return z.object({ ok: z.literal(true), purified: z.literal(true), siegeBreakthrough: z.literal(true) })
-          .parse({ ok: true, purified: true, siegeBreakthrough: true });
-      }
-      const remainingHours = Math.ceil((48 * 60 * 60 * 1000 - (now - newLast.getTime())) / (60 * 60 * 1000));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), need: z.number(), have: z.number(), hoursReduced: z.number(), remainingHours: z.number() })
-        .parse({ ok: true, purified: false, need: toughness, have: power, hoursReduced, remainingHours });
+        return z.object({ ok: z.literal(true), purified: z.literal(true) })
+          .parse({ ok: true, purified: true });
     }
     // Victory: purify the tile, move the attacker onto it.
     const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
     for (const layer of layers) {
       const el = elementForPieceName(layer.name);
-      if (el !== "fire") elementCounts[el] += 1;
+      if (el !== "fire") elementCounts[el as "tide" | "sky" | "stone" | "root"] += 1;
     }
     let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
     let maxCount = 0; let tie = false;

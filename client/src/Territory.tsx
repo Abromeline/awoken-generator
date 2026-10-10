@@ -476,16 +476,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     setSimUnits([]);
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[] }) => {
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean }) => {
     setShowBattleground(false);
     if (!wave) return;
     try {
-      // Calculate energy spent (simplified: track during battle)
       await api.resolveBattle({
         victory: result.victory,
         waveNumber: wave.waveNumber,
         survivorIds: result.survivors,
-        energySpent: 0, // TODO: track actual spend
+        energySpent: 0,
       });
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
@@ -495,6 +494,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       await refreshEnergy();
       if (result.victory) {
         api.birthNewbornToHand({ tileId: 0, liberatorNames: [] }).catch(() => {});
+        if (result.raiseBinding) {
+          // Raise Binding: save wave difficulty, return to tender view
+          // (wave state already saved by resolveBattle)
+          onUpdate();
+          return;
+        }
+        if (result.continueWave) {
+          // Continue: +6 energy, 2 fresh cards, next harder wave
+          try {
+            await api.grantEnergy({ amount: 6 });
+            await refreshEnergy();
+          } catch (e) { console.error("Energy gain failed", e); }
+          // Refresh hand with 2 new cards (via onUpdate)
+          onUpdate();
+          return;
+        }
       }
       onUpdate();
     } catch (e) {
@@ -827,17 +842,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             x={cx - s * 1.289} y={cy - s * 0.687} width={s * 2.41} height={s * 1.608}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
-          {/* Siege timer on cursed tiles */}
-          {t.cursed && t.lastPassiveAt && (() => {
-            const last = new Date(t.lastPassiveAt).getTime();
-            const elapsed = Date.now() - last;
-            const remaining = 48 * 60 * 60 * 1000 - elapsed;
-            if (remaining <= 0) return null;
-            const hours = Math.floor(remaining / (60 * 60 * 1000));
+          {/* Curse HP on cursed tiles */}
+          {t.cursed && (() => {
+            const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+            const maxHp = (t as any).curseMaxHp ?? (4 + ring * 2);
+            const hp = (t as any).curseHp ?? maxHp;
             return (
-              <text x={cx} y={cy + 8} textAnchor="middle" fontSize={7}
-                fill={auraTiles.has(t.id) ? "#88ff88" : "#888"} opacity="0.9">
-                {hours}h
+              <text x={cx} y={cy + 8} textAnchor="middle" fontSize={8}
+                fill="#ff6666" opacity="0.95" fontWeight="bold">
+                ♥ {hp}
               </text>
             );
           })()}

@@ -56,6 +56,8 @@ export interface TerritoryTile {
   building: string | null;
   lastPassiveAt?: string | null;
   height?: number;
+  curseHp?: number | null;
+  curseMaxHp?: number | null;
 }
 
 export interface FieldPlacement {
@@ -260,6 +262,7 @@ export const api = {
     victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
   }>("defendWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
+  grantEnergy: (args: { amount: number }) => post<{ ok: boolean }>("grantEnergy", args),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
