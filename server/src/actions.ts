@@ -2667,32 +2667,11 @@ export const handlers = {
         await db.update(schema.fieldPlacements)
           .set({ tileId: tile[0].id })
           .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
+        // Reveal new cursed land at the frontier.
+        await expandFrontier(ownerKey, tile[0].q, tile[0].r);
         return z.object({ ok: z.literal(true), purified: z.literal(true) })
           .parse({ ok: true, purified: true });
     }
-    // Victory: purify the tile, move the attacker onto it.
-    const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-    for (const layer of layers) {
-      const el = elementForPieceName(layer.name);
-      if (el !== "fire") elementCounts[el as "tide" | "sky" | "stone" | "root"] += 1;
-    }
-    let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
-    let maxCount = 0; let tie = false;
-    for (const [el, count] of Object.entries(elementCounts)) {
-      if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
-      else if (count === maxCount && count > 0) { tie = true; }
-    }
-    if (tie) element = "neutral";
-    await db.update(schema.territoryTiles)
-      .set({ cursed: 0, element })
-      .where(eq(schema.territoryTiles.id, tile[0].id));
-    // Move the attacker onto the purified tile.
-    await db.update(schema.fieldPlacements)
-      .set({ tileId: tile[0].id, lastMovedAt: new Date() })
-      .where(eq(schema.fieldPlacements.id, placement[0].id));
-    await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-    // A newborn joins the hand for the victory.
-    return z.object({ ok: z.literal(true), purified: z.literal(true) }).parse({ ok: true, purified: true });
   },
 
   async claimFirstTile(args: unknown, ctx?: ActionContext) {
