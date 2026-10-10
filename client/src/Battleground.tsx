@@ -84,16 +84,40 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState("The Unraveling comes...");
-  const [battleTrack, setBattleTrack] = useState(() => BATTLE_TRACKS[Math.floor(Math.random() * BATTLE_TRACKS.length)]);
+  const [battleTrack, setBattleTrack] = useState<{ name: string; url: string } | null>(null);
   const battleAudio = useRef<HTMLAudioElement | null>(null);
 
-  // Battle music: random track, stops when battle ends
+  // Battle music: random enabled track from the workshop library, stops when battle ends
   useEffect(() => {
-    battleAudio.current = new Audio(battleTrack.url);
-    battleAudio.current.volume = 0.35;
-    battleAudio.current.loop = true;
-    battleAudio.current.play().catch(() => {});
-    return () => { battleAudio.current?.pause(); battleAudio.current = null; };
+    let cancelled = false;
+    api.getRandomBattleTrack().then(res => {
+      if (cancelled) return;
+      if (res.track) {
+        // trackData is a data URL or blob URL from the workshop upload
+        const track = { name: res.track.name, url: res.track.trackData };
+        setBattleTrack(track);
+        battleAudio.current = new Audio(track.url);
+      } else {
+        // Fallback to local tracks if workshop library is empty
+        const fallback = BATTLE_TRACKS[Math.floor(Math.random() * BATTLE_TRACKS.length)];
+        setBattleTrack(fallback);
+        battleAudio.current = new Audio(fallback.url);
+      }
+      if (battleAudio.current) {
+        battleAudio.current.volume = 0.35;
+        battleAudio.current.loop = true;
+        battleAudio.current.play().catch(() => {});
+      }
+    }).catch(() => {
+      // Offline fallback
+      const fallback = BATTLE_TRACKS[Math.floor(Math.random() * BATTLE_TRACKS.length)];
+      setBattleTrack(fallback);
+      battleAudio.current = new Audio(fallback.url);
+      battleAudio.current.volume = 0.35;
+      battleAudio.current.loop = true;
+      battleAudio.current.play().catch(() => {});
+    });
+    return () => { cancelled = true; battleAudio.current?.pause(); battleAudio.current = null; };
   }, []);
 
   const [energyLeft, setEnergyLeft] = useState(energy);

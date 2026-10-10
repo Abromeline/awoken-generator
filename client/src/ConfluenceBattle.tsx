@@ -31,6 +31,20 @@ export default function ConfluenceBattle({
   const [round, setRound] = useState(0);
   const [twin, setTwin] = useState<any>(null);
   const battleRef = useRef<{ fighters: Fighter[]; enemies: Enemy[] } | null>(null);
+  const battleAudio = useRef<HTMLAudioElement | null>(null);
+
+  // Battle music from the workshop library
+  useEffect(() => {
+    let cancelled = false;
+    api.getRandomBattleTrack().then(res => {
+      if (cancelled || !res.track) return;
+      battleAudio.current = new Audio(res.track.trackData);
+      battleAudio.current.volume = 0.35;
+      battleAudio.current.loop = true;
+      battleAudio.current.play().catch(() => {});
+    }).catch(() => {});
+    return () => { cancelled = true; battleAudio.current?.pause(); battleAudio.current = null; };
+  }, []);
 
   useEffect(() => {
     api.getConfluenceRoster({ sessionId }).then(data => {
