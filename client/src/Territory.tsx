@@ -677,7 +677,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {/* Isometric tile: 1920x1280 PNG, hex face ~1345px wide. Scale to hex radius s. */}
           <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]}
             x={cx - s * 1.425} y={cy - s * 0.743} width={s * 2.85} height={s * 1.90}
-            preserveAspectRatio="xMidYMid meet" />
+            preserveAspectRatio="xMidYMid meet"
+            style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(100,255,100,0.8)) brightness(1.15)" } : undefined} />
           {/* Siege timer on cursed tiles */}
           {t.cursed && t.lastPassiveAt && (() => {
             const last = new Date(t.lastPassiveAt).getTime();
@@ -693,9 +694,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             );
           })()}
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
-            stroke={t.cursed && battlePool.length > 0 ? "#ff4444" : auraTiles.has(t.id) ? "#88ff88" : "transparent"}
+            stroke={t.cursed && battlePool.length > 0 ? "#ff4444" : "transparent"}
             strokeWidth={2}
-            opacity={t.cursed && battlePool.length > 0 ? 0.9 : auraTiles.has(t.id) ? 0.9 : 0}
+            opacity={t.cursed && battlePool.length > 0 ? 0.9 : 0}
             style={{
               cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
               filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
