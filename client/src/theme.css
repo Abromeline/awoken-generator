@@ -1479,3 +1479,5 @@ body.defeat-flash {
   background:#1a1a1a;border:1px solid #444;color:#888;
 }
 .page-toggle.on{background:#b89b5e;border-color:#b89b5e;color:#111}
+
+.dock-row{display:flex;align-items:flex-end;gap:12px;width:100%;justify-content:center}

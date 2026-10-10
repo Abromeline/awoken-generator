@@ -1312,6 +1312,8 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
       </div>
       {/* Bottom dock: energy orb + hand */}
       <div className="bottom-dock">
+        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
+        <div className="dock-row">
         <EnergyTimer />
         {battlePool.length > 0 && (
           <div className="battle-pool">
@@ -1333,7 +1335,6 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
             </div>
           </div>
         )}
-        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
         <div className="dock-hand">
           {hand.map((a, i) => {
             const el = dominantElement(a);
@@ -1365,6 +1366,7 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
             );
           })}
           {hand.length === 0 && <div className="dock-empty">All Awoken stand on the field.</div>}
+        </div>
         </div>
       </div>
       <div className="nav-compass">
