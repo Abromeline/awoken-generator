@@ -5,7 +5,7 @@
 // -> the curated naming/flavor pools in naming.ts.
 
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
@@ -1531,10 +1531,38 @@ export const handlers = {
     let layers: any[];
     try { layers = JSON.parse(awakened.compositionJson); }
     catch { layers = []; }
-    if (layers.some((l: any) => l.category === "aspect")) {
-      badRequest("This Awoken already bears an aspect.");
+    const existing = layers.find((l: any) => l.category === "aspect");
+    if (existing) {
+      // Upgrade path: elements must match
+      const existingEl = existing.aspectElement || elementForPieceName(existing.name || "");
+      if (existingEl !== element) {
+        badRequest(`Cannot combine ${element} with ${existingEl}. Aspects must match.`);
+      }
+      const currentLevel = existing.aspectLevel ?? 1;
+      if (currentLevel >= 3) badRequest("Aspect is already at max level.");
+      const newLevel = currentLevel + 1;
+      const roman = ["", "I", "II", "III"][newLevel];
+      // Find the level-specific artwork (e.g. "Tide II")
+      const elementName = existingEl.charAt(0).toUpperCase() + existingEl.slice(1);
+      const levelAsset = await db.select().from(schema.layerAssets)
+        .where(and(
+          eq(schema.layerAssets.category, "aspect"),
+          like(schema.layerAssets.name, `${elementName} ${roman}`)
+        )).limit(1);
+      if (levelAsset.length) {
+        existing.name = levelAsset[0].name;
+        existing.imageBlobKey = levelAsset[0].imageBlobKey;
+        existing.source_id = `db:${levelAsset[0].id}`;
+      }
+      existing.aspectLevel = newLevel;
+      await db.update(schema.awakened)
+        .set({ compositionJson: JSON.stringify(layers) })
+        .where(eq(schema.awakened.id, parsed.data.awakenedId));
+      await db.delete(schema.aspectInventory)
+        .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
+      return { ok: true as const, element, newLevel, upgraded: true as const };
     }
-    // Add the aspect to the composition (renders behind body)
+    // New aspect: add to composition (renders behind body)
     layers.push({
       source_id: `aspect-inv:${aspect.id}`,
       name: aspect.name,
@@ -1552,7 +1580,7 @@ export const handlers = {
     // Consume the inventory aspect
     await db.delete(schema.aspectInventory)
       .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
-    return { ok: true as const, element };
+    return { ok: true as const, element, newLevel: 1, upgraded: false as const };
   },
 
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
