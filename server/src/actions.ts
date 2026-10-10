@@ -800,6 +800,13 @@ export const handlers = {
     return { ok: true as const, rarity };
   },
 
+  async updateLayerAssetRarity(args: unknown) {
+    const parsed = z.object({ id: z.number().int().positive(), rarity: raritySchema }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid rarity.");
+    await db.update(schema.layerAssets).set({ rarity: parsed.data.rarity }).where(eq(schema.layerAssets.id, parsed.data.id));
+    return { ok: true as const };
+  },
+
   async renameLayerAsset(args: unknown) {
     const parsed = z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(60) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid name.");

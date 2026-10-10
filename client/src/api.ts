@@ -282,6 +282,7 @@ export const api = {
   getReferralCode: () => post<{ code: string }>("getReferralCode", {}),
   getRandomBattleTrack: () => post<{ track: { id: number; name: string; trackData: string } | null }>("getRandomBattleTrack", {}),
   assignRandomAspects: () => post<{ ok: boolean; assigned: number; total: number }>("assignRandomAspects", {}),
+  updateLayerAssetRarity: (value: { id: number; rarity: string }) => post<{ ok: boolean }>("updateLayerAssetRarity", value),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
   joinConfluence: (args: { code: string }) => post<{ sessionId: number; ok: boolean }>("joinConfluence", args),
