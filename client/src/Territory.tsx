@@ -887,24 +887,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           </div>
         )}
       </div>
-      {showBindingPrompt && (
-        <div className="binding-prompt">
-          <div className="binding-prompt-title">✦ The Binding awaits</div>
-          <div className="binding-prompt-text">
-            You hold three territories. Set an Awoken to <b>Binding stance</b> — 
-            while they hold a tile, the waves cannot take it.
-          </div>
-          <button className="abtn" onClick={() => {
-            localStorage.setItem("bindingPromptSeen", "1");
-            setShowBindingPrompt(false);
-          }}>
-            I understand
-          </button>
-        </div>
-      )}
+
       {wave && (
         <div className="wave-panel">
-          <div className="wave-title">🌊 Wave {wave.waveNumber} approaches</div>
           <div className="wave-comp">
             {wave.frayCount} Fray{wave.unravelers > 0 && ` + ${wave.unravelers} Unraveler${wave.unravelers > 1 ? "s" : ""}`}
             {" "}· Power {wave.totalPower}
