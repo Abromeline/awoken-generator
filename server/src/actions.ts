@@ -2682,46 +2682,11 @@ export const handlers = {
       liberatorNames: z.array(z.string()),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid birth request.");
-    // Pick one random layer per category from the pool.
-    const assetRows = await db.select().from(schema.layerAssets);
-    const byCategory: Record<string, typeof assetRows> = {};
-    for (const r of assetRows) {
-      if (!byCategory[r.category]) byCategory[r.category] = [];
-      byCategory[r.category].push(r);
-    }
-    const pick = (cat: string) => {
-      const pool = byCategory[cat] ?? [];
-      if (!pool.length) return null;
-      return pool[Math.floor(Math.random() * pool.length)];
-    };
-    const body = pick("body"), arms = pick("arms"), head = pick("head"), aura = pick("aura");
-    if (!body || !arms || !head) badRequest("The pool is not ready for births.");
-    const layers = [body, arms, head, ...(aura ? [aura] : [])].map(l => ({
-      source_id: l.id, name: l.name, category: l.category,
-      rarity: l.rarity ?? "common", power: l.power ?? null, toughness: l.toughness ?? null,
-    }));
-    const story = `Liberated by ${parsed.data.liberatorNames.join(", ")}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
-    // Placeholder image: simple SVG with the newborn's mark. The card renders
-    // from layers via FieldAwoken; this is just so image_url isn't empty.
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="92"><rect width="72" height="92" fill="#1a1a1a"/><text x="36" y="50" text-anchor="middle" fill="#b89b5e" font-size="10">✦</text></svg>`;
-    const blobKey = `newborn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    blobs.put(blobKey, Buffer.from(svg), "image/svg+xml");
-    const [newborn] = await db.insert(schema.awakened).values({
-      name: "Newborn of the Purified Land",
-      imageBlobKey: blobKey,
-      compositionJson: JSON.stringify(layers),
-      collection: "tender",
-      ownerName: ownerKey,
-      ownerKey,
-      identityKey: `newborn-${Date.now()}`,
-      flavorText: story,
-      fieldBorn: 1,
-    }).returning({ id: schema.awakened.id });
-    // Joins the hand, not the field.
-    // Recalculate max energy and grant the newborn's energy bonus immediately.
-    const newbornPower = layers.reduce((sum, l) => sum + (l.power ?? 0), 0);
-    const bonus = await grantBirthEnergy(ownerKey, newbornPower);
-    return okResponse.parse({ ok: true, id: newborn.id, energyBonus: bonus });
+    // Newborns no longer pop directly into the hand. Instead, the tender gains
+    // a wake credit — the newborn is fully born through the Wake One ritual.
+    const { grantCredits } = await import("./credits.js");
+    const balance = await grantCredits(ownerKey, 1, "newborn");
+    return okResponse.parse({ ok: true, wakeCredits: balance });
   },
 
   async getBirthStatus(args: unknown, ctx?: ActionContext) {
