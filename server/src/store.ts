@@ -157,6 +157,19 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_roster (
   owner_key TEXT NOT NULL,
   awakened_id INTEGER NOT NULL
 );`);
+// Champion and legends tables.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_champions (
+  owner_key TEXT PRIMARY KEY,
+  awakened_id INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_legends (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  awakened_id INTEGER NOT NULL,
+  owner_key TEXT NOT NULL,
+  deed TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);`);
 // Experience system.
 if (!awakenedCols.some((col) => col.name === "experience")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN experience INTEGER NOT NULL DEFAULT 0`);

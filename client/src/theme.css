@@ -1166,3 +1166,39 @@ body.defeat-flash {
 
 /* Pinned hand */
 .territory-hand{position:sticky;bottom:0;background:rgba(5,5,5,0.95);backdrop-filter:blur(4px);border-top:1px solid #b89b5e;padding:8px;z-index:20}
+
+/* Legends panel: left side of terrain */
+.legends-panel{
+  position:absolute;left:12px;top:80px;width:200px;z-index:20;
+  background:rgba(10,10,10,0.85);border:2px solid #b89b5e;border-radius:8px;
+  padding:12px;max-height:60vh;overflow-y:auto;
+}
+.legends-panel h3{font-size:14px;color:#e8d5a8;margin:0 0 10px;letter-spacing:1px}
+.champion-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #333}
+.champion-card{cursor:pointer;text-align:center}
+.champion-card img{width:100px;height:128px;object-fit:contain;border-radius:4px}
+.champion-name{font-size:13px;color:#ffeebb;font-weight:bold;margin-top:6px}
+.champion-stats{font-size:11px;color:#b89b5e;margin-top:2px}
+.champion-story{font-size:11px;color:#aaa;font-style:italic;margin-top:6px;line-height:1.4}
+.champion-change{font-size:10px;color:#666;margin-top:4px}
+.hall-of-legends .legend-entry{
+  display:flex;justify-content:space-between;font-size:11px;
+  padding:4px 0;border-bottom:1px solid #222;
+}
+.legend-name{color:#e8e0d0}
+.legend-deed{color:#b89b5e}
+.legends-empty{font-size:11px;color:#666;font-style:italic}
+.champion-picker-overlay{
+  position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.8);
+  display:flex;align-items:center;justify-content:center;
+}
+.champion-picker{
+  background:#121212;border:2px solid #b89b5e;border-radius:8px;
+  padding:20px;max-width:500px;max-height:70vh;overflow-y:auto;
+}
+.champion-picker h3{color:#e8d5a8;margin:0 0 12px}
+.champion-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.champion-option{background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:8px;cursor:pointer;color:#e8e0d0}
+.champion-option:hover{border-color:#b89b5e}
+.champion-option img{width:60px;height:76px;object-fit:contain}
+.champion-option-stats{font-size:10px;color:#b89b5e}

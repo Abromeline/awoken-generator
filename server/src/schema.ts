@@ -48,6 +48,22 @@ export const awakened = sqliteTable("awakened", {
   bonusToughness: integer("bonus_toughness").notNull().default(0),
 });
 
+// Tender champion: their favorite Awoken, displayed in the Hall of Legends.
+export const tenderChampions = sqliteTable("tender_champions", {
+  ownerKey: text("owner_key").primaryKey(),
+  awakenedId: integer("awakened_id").notNull(),
+});
+
+// Hall of Legends: notable deeds by Awoken.
+export const awokenLegends = sqliteTable("awoken_legends", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  awakenedId: integer("awakened_id").notNull(),
+  ownerKey: text("owner_key").notNull(),
+  deed: text("deed", { enum: ["wave_survived", "curse_broken", "battle_won", "level_10", "level_20", "level_30"] }).notNull(),
+  count: integer("count").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // Confluence encounters: two Tenders pool Awoken from hand against a shared wave.
 // No territory gained — only experience.
 export const confluenceSessions = sqliteTable("confluence_sessions", {

@@ -477,6 +477,24 @@ async function spendEnergy(ownerKey: string, amount: number): Promise<boolean> {
   return true;
 }
 
+// Record a deed for the Hall of Legends
+async function recordDeed(ownerKey: string, awakenedId: number, deed: string) {
+  const existing = await db.select().from(schema.awokenLegends)
+    .where(and(
+      eq(schema.awokenLegends.awakenedId, awakenedId),
+      eq(schema.awokenLegends.deed, deed as any)
+    )).limit(1);
+  if (existing.length) {
+    await db.update(schema.awokenLegends)
+      .set({ count: existing[0].count + 1 })
+      .where(eq(schema.awokenLegends.id, existing[0].id));
+  } else {
+    await db.insert(schema.awokenLegends).values({
+      awakenedId, ownerKey, deed: deed as any, count: 1,
+    });
+  }
+}
+
 // Experience: level = floor(sqrt(xp / 100)). Every 10 levels grants 1 stat point.
 function levelForXp(xp: number): number {
   return Math.floor(Math.sqrt(Math.max(0, xp) / 100));
@@ -499,6 +517,11 @@ async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp:
       statPoints: (rows[0].statPoints ?? 0) + statPointsGained,
     })
     .where(eq(schema.awakened.id, awakenedId));
+  // Level milestone deeds
+  const ownerKey = rows[0].ownerKey ?? "";
+  if (newLevel >= 10 && oldLevel < 10) await recordDeed(ownerKey, awakenedId, "level_10");
+  if (newLevel >= 20 && oldLevel < 20) await recordDeed(ownerKey, awakenedId, "level_20");
+  if (newLevel >= 30 && oldLevel < 30) await recordDeed(ownerKey, awakenedId, "level_30");
   return { leveledUp: newLevel > oldLevel, newLevel, statPointsGained };
 }
 
@@ -1058,6 +1081,87 @@ export const handlers = {
       .set({ status: "done" })
       .where(eq(schema.confluenceSessions.id, parsed.data.sessionId));
     return { ok: true, xpGain, participants: roster.length };
+  },
+
+  // Resolve a wave pull from mystery purification
+  async resolveWavePull(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int().positive(),
+      victory: z.boolean(),
+      survivorIds: z.array(z.number().int().positive()),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const tiles = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.cursed, 1)
+      )).limit(1);
+    if (!tiles.length) badRequest("No such cursed tile.");
+    if (parsed.data.victory) {
+      // Purify!
+      await db.update(schema.territoryTiles)
+        .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null })
+        .where(eq(schema.territoryTiles.id, parsed.data.tileId));
+      await expandFrontier(ownerKey, tiles[0].q, tiles[0].r);
+      // Survivors gain XP
+      for (const id of parsed.data.survivorIds) {
+        await grantXp(id, 60);
+      }
+    } else {
+      // Wave lost — curse HP restores to half
+      const maxHp = tiles[0].curseMaxHp ?? 10;
+      await db.update(schema.territoryTiles)
+        .set({ curseHp: Math.ceil(maxHp / 2) })
+        .where(eq(schema.territoryTiles.id, parsed.data.tileId));
+    }
+    return { ok: true, purified: parsed.data.victory };
+  },
+
+  async setChampion(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const owned = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    if (!owned.length) badRequest("That Awoken is not yours.");
+    await db.insert(schema.tenderChampions)
+      .values({ ownerKey, awakenedId: parsed.data.awakenedId })
+      .onConflictDoUpdate({ target: schema.tenderChampions.ownerKey, set: { awakenedId: parsed.data.awakenedId } });
+    return { ok: true };
+  },
+
+  async getLegends(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const champion = await db.select().from(schema.tenderChampions)
+      .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+    let championAwoken = null;
+    if (champion.length) {
+      const rows = await db.select().from(schema.awakened)
+        .where(eq(schema.awakened.id, champion[0].awakenedId)).limit(1);
+      if (rows.length) {
+        const assetRows = await db.select().from(schema.layerAssets);
+        const assetStats = new Map();
+        for (const r of assetRows) assetStats.set(r.id, { name: r.name, power: r.power, toughness: r.toughness });
+        const layers = parseLayers(rows[0].compositionJson, assetStats as any);
+        championAwoken = toAwakenedPayload(rows[0] as any, layers, rows[0].identityKey, new Map());
+      }
+    }
+    const legends = await db.select().from(schema.awokenLegends)
+      .where(eq(schema.awokenLegends.ownerKey, ownerKey))
+      .orderBy(desc(schema.awokenLegends.count)).limit(20);
+    // Get Awoken names for legends
+    const legendsWithNames = [];
+    for (const l of legends) {
+      const a = await db.select({ name: schema.awakened.name }).from(schema.awakened)
+        .where(eq(schema.awakened.id, l.awakenedId)).limit(1);
+      legendsWithNames.push({ ...l, awokenName: a[0]?.name ?? "Unknown" });
+    }
+    return { champion: championAwoken, legends: legendsWithNames };
   },
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
@@ -2041,6 +2145,8 @@ export const handlers = {
       const xpGain = 50 + currentWave * 10;
       for (const id of parsed.data.survivorIds) {
         await grantXp(id, xpGain);
+        await recordDeed(ownerKey, id, "wave_survived");
+        await recordDeed(ownerKey, id, "battle_won");
       }
       const wavesDefeated = (state[0]?.wavesDefeated ?? 0) + 1;
       // Territory reward only every 3 waves — tender chooses from eligible tiles
@@ -2196,7 +2302,19 @@ export const handlers = {
       return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number() })
         .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power });
     }
-    // HP reached 0 — the curse breaks! Purify to neutral.
+    // HP reached 0 — the curse breaks!
+    // 35% chance: pulled into one wave of the Unraveling instead of instant purify.
+    if (Math.random() < 0.35) {
+      // Don't purify yet — the wave must be beaten first.
+      // Keep HP at 0 to mark it as "breaking".
+      await db.update(schema.territoryTiles)
+        .set({ curseHp: 0 })
+        .where(eq(schema.territoryTiles.id, tile[0].id));
+      return z.object({ ok: z.literal(true), purified: z.literal(false), wavePull: z.literal(true), tileId: z.number() })
+        .parse({ ok: true, purified: false, wavePull: true, tileId: tile[0].id });
+    }
+    // Purify to neutral.
+    await recordDeed(ownerKey, parsed.data.awakenedId, "curse_broken");
     {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const layer of layers) {

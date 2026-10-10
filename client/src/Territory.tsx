@@ -89,6 +89,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [showBattleground, setShowBattleground] = useState(false);
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
+  const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
+  const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
@@ -126,6 +128,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   }, []);
 
   useEffect(() => {
+    api.getLegends().then(setLegends).catch(() => {});
     refreshEnergy();
     const onFocus = () => refreshEnergy();
     window.addEventListener("focus", onFocus);
@@ -934,8 +937,79 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     );
   };
 
+  const deedLabel = (deed: string) => {
+    switch (deed) {
+      case "wave_survived": return "Waves survived";
+      case "curse_broken": return "Curses broken";
+      case "battle_won": return "Battles won";
+      case "level_10": return "Reached level 10";
+      case "level_20": return "Reached level 20";
+      case "level_30": return "Reached level 30";
+      default: return deed;
+    }
+  };
+
   return (
     <div className="territory-view">
+      {/* Left panel: Champion + Hall of Legends */}
+      <div className="legends-panel">
+        <div className="champion-section">
+          <h3>🏆 Champion</h3>
+          {legends.champion ? (
+            <div className="champion-card" onClick={() => setShowChampionPicker(true)}>
+              <img src={legends.champion.image_url} alt={legends.champion.name} />
+              <div className="champion-name">{legends.champion.name}</div>
+              <div className="champion-stats">
+                {legends.champion.power}⚔ {legends.champion.toughness}🛡 · Lv {legends.champion.level ?? 0}
+              </div>
+              {legends.champion.flavor_text && (
+                <div className="champion-story">"{legends.champion.flavor_text}"</div>
+              )}
+              <div className="champion-change">tap to change</div>
+            </div>
+          ) : (
+            <button className="abtn small" onClick={() => setShowChampionPicker(true)}>
+              Choose your champion
+            </button>
+          )}
+        </div>
+        <div className="hall-of-legends">
+          <h3>📜 Hall of Legends</h3>
+          {legends.legends.length === 0 ? (
+            <div className="legends-empty">No legends yet. Battle on.</div>
+          ) : (
+            legends.legends.map(l => (
+              <div key={l.id} className="legend-entry">
+                <span className="legend-name">{l.awokenName}</span>
+                <span className="legend-deed">{deedLabel(l.deed)} ×{l.count}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      {showChampionPicker && (
+        <div className="champion-picker-overlay" onClick={() => setShowChampionPicker(false)}>
+          <div className="champion-picker" onClick={e => e.stopPropagation()}>
+            <h3>Choose your champion</h3>
+            <div className="champion-grid">
+              {tenderItems.map(a => (
+                <button key={a.id} className="champion-option"
+                  onClick={async () => {
+                    await api.setChampion({ awakenedId: a.id });
+                    const updated = await api.getLegends();
+                    setLegends(updated);
+                    setShowChampionPicker(false);
+                  }}>
+                  <img src={a.image_url} alt={a.name} />
+                  <div>{a.name}</div>
+                  <div className="champion-option-stats">{a.power}/{a.toughness} · Lv {a.level ?? 0}</div>
+                </button>
+              ))}
+            </div>
+            <button className="abtn small" onClick={() => setShowChampionPicker(false)}>Close</button>
+          </div>
+        </div>
+      )}
       <div className="territory-hud">
         {birthStatus?.ready ? (
           <button className="abtn birth-ready" onClick={handleTimedBirth}>
