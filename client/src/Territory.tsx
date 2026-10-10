@@ -361,7 +361,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   // === WAVE SIMULATION (preview only) ===
   const simTilePos = (t: any) => {
-    const size = 17 * zoom;
+    const size = 24 * zoom;
     const HEIGHT_PX = 22 * zoom;
     const originX = 250, originY = 170;
     const k = size / 796;
@@ -576,7 +576,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
-    const size = 17 * zoom;
+    const size = 24 * zoom;
     // XYZ grid: height in pixels per terrain level (for future terraforming)
     const HEIGHT_PX = 22 * zoom;
     // Center the (0,0) tile in the viewBox
@@ -926,7 +926,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         // Position the picker over the Awoken in the field
         const tile = tiles.find(t => t.id === placement.tileId);
         if (!tile) return null;
-        const size = 17 * zoom;
+        const size = 24 * zoom;
         const HEIGHT_PX = 22 * zoom;
         const k = size / 796;
         const px = tile.q * 1292 * k + tile.r * 13 * k;
