@@ -43,7 +43,7 @@ for (const name of actionNames) {
     try {
       if (WORKSHOP_ACTIONS.has(name)) requireWorkshop(req);
       const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
-      const handler = handlers[name] as (args: unknown, ctx?: ActionContext) => Promise<unknown>;
+      const handler = (handlers[name] as (args: unknown, ctx?: ActionContext) => Promise<unknown>).bind(handlers);
       const result = await handler(req.body ?? {}, { visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]), tender });
       res.json(result);
     } catch (error) {
