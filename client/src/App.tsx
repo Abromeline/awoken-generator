@@ -25,7 +25,7 @@ import auraDisc from "./assets/auras/haze-12.png";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace";
+type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -313,6 +313,122 @@ function AspectAssignButton() {
       </button>
       {msg && <p className="notice" style={{ marginTop: 8 }}>{msg}</p>}
     </div>
+  );
+}
+
+/** Glyph library: SVG symbols organized by category. */
+function GlyphPanel() {
+  const [category, setCategory] = useState<"element" | "magic" | "hex" | "buff">("element");
+  const [editing, setEditing] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [svgData, setSvgData] = useState("");
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["glyphs", category],
+    queryFn: () => api.listGlyphs({ category }),
+  });
+
+  const save = useMutation({
+    mutationFn: (v: { id?: number; category: string; name: string; svgData: string }) => api.saveGlyph(v),
+    onSuccess: () => {
+      setEditing(null); setName(""); setSvgData("");
+      queryClient.invalidateQueries({ queryKey: ["glyphs"] });
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteGlyph({ id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["glyphs"] }),
+  });
+
+  const startEdit = (g: { id: number; name: string; svgData: string }) => {
+    setEditing(g.id); setName(g.name); setSvgData(g.svgData);
+  };
+  const startNew = () => {
+    setEditing(-1); setName(""); setSvgData('<svg viewBox="0 0 60 24"></svg>');
+  };
+
+  const categories = [
+    { id: "element" as const, label: "Elements", icon: "≋" },
+    { id: "magic" as const, label: "Magic", icon: "✦" },
+    { id: "hex" as const, label: "Hexes", icon: "⬡" },
+    { id: "buff" as const, label: "Buffs", icon: "▲" },
+  ];
+
+  return (
+    <section className="pool">
+      <header className="pool-header">
+        <div><p className="eyebrow">Glyph Library</p><h1>Symbols of power.</h1></div>
+        <p>Hand-drawn SVG glyphs used throughout the game. Elements, magic, hexes, buffs — each with its own voice.</p>
+      </header>
+
+      <nav className="glyph-cats">
+        {categories.map(cat => (
+          <button
+            key={cat.id}
+            className={category === cat.id ? "active" : ""}
+            onClick={() => { setCategory(cat.id); setEditing(null); }}
+          >
+            <span className="glyph-cat-icon">{cat.icon}</span> {cat.label}
+          </button>
+        ))}
+      </nav>
+
+      {isLoading ? <p className="quiet">Loading glyphs…</p> : (
+        <div className="glyph-grid">
+          {(data?.glyphs ?? []).map(g => (
+            <article key={g.id} className="glyph-tile">
+              <div className="glyph-preview" dangerouslySetInnerHTML={{ __html: g.svgData }} />
+              <div className="glyph-name">{g.name}</div>
+              <div className="glyph-actions">
+                <button className="abtn small" onClick={() => startEdit(g)}>Edit</button>
+                <button className="abtn small danger" onClick={() => { if (confirm(`Delete "${g.name}"?`)) remove.mutate(g.id); }}>Delete</button>
+              </div>
+            </article>
+          ))}
+          {(data?.glyphs ?? []).length === 0 && (
+            <p className="quiet">No glyphs here yet. Add the first.</p>
+          )}
+        </div>
+      )}
+
+      <button className="abtn" onClick={startNew} style={{ marginTop: 16 }}>+ New Glyph</button>
+
+      {editing !== null && (
+        <div className="glyph-editor">
+          <h3>{editing === -1 ? "New Glyph" : "Edit Glyph"}</h3>
+          <label>Name<input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Tide" /></label>
+          <label>SVG
+            <textarea
+              value={svgData}
+              onChange={e => setSvgData(e.target.value)}
+              rows={8}
+              placeholder='<svg viewBox="0 0 60 24">...</svg>'
+              style={{ fontFamily: "monospace", fontSize: 12 }}
+            />
+          </label>
+          {svgData && (
+            <div>
+              <p className="quiet">Preview:</p>
+              <div className="glyph-preview large" dangerouslySetInnerHTML={{ __html: svgData }} />
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              className="abtn"
+              disabled={!name.trim() || !svgData.trim() || save.isPending}
+              onClick={() => save.mutate({
+                id: editing === -1 ? undefined : editing,
+                category, name: name.trim(), svgData: svgData.trim(),
+              })}
+            >
+              {save.isPending ? "Saving…" : "Save"}
+            </button>
+            <button className="abtn small" onClick={() => setEditing(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -818,13 +934,14 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }];
   return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>    {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} />{wFocused?.collection === "workshop" && <section className="newborn-reveal"><CreatureCard item={wFocused} newborn allowDelete /></section>}</>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
     {workshopView === "tenders" && <TendersPanel />}
     {workshopView === "tracks" && <MusicLibrary />}
+    {workshopView === "glyphs" && <GlyphPanel />}
     {workshopView === "ui-workspace" && <UIWorkspace />}
   </main></div></>;
 }

@@ -310,6 +310,31 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_attunement (
   points INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner_key, element)
 );`);
+// Glyph library
+sqlite.exec(`CREATE TABLE IF NOT EXISTS glyphs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,
+  name TEXT NOT NULL,
+  svg_data TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+// Seed the 4 canonical element glyphs
+{
+  const existing = sqlite.prepare(`SELECT COUNT(*) as n FROM glyphs WHERE category = 'element'`).get() as { n: number };
+  if (existing.n === 0) {
+    const now = Date.now();
+    const glyphs: [string, string, string][] = [
+      ["tide", "Tide", `<svg viewBox="0 0 60 24"><path d="M2,12 Q10,4 18,12 T34,12 T50,12" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.9"/><path d="M2,17 Q10,9 18,17 T34,17 T50,17" fill="none" stroke="currentColor" stroke-width="1" opacity="0.5"/><path d="M50,12 L60,12" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="50" cy="12" r="2" fill="currentColor" opacity="0.8"/></svg>`],
+      ["sky", "Sky", `<svg viewBox="0 0 60 24"><path d="M28,12 m-8,0 a8,8 0 1,1 8,8 a6,6 0 1,0 -6,-6 a4,4 0 1,1 4,4" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.9"/><path d="M36,12 Q44,12 50,12 L60,12" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="36" cy="12" r="1.5" fill="currentColor" opacity="0.8"/></svg>`],
+      ["stone", "Stone", `<svg viewBox="0 0 60 24"><path d="M6,18 L18,4 L26,12" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.9"/><path d="M18,4 L18,14 M12,11 L24,11" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><path d="M26,12 Q36,12 44,12 L60,12" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M26,12 L32,18" fill="none" stroke="currentColor" stroke-width="1" opacity="0.4"/></svg>`],
+      ["root", "Root", `<svg viewBox="0 0 60 24"><path d="M10,18 Q10,6 22,6 Q34,6 34,14" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.9"/><path d="M34,14 Q38,14 42,14 L60,14" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M22,6 Q26,2 30,4" fill="none" stroke="currentColor" stroke-width="1" opacity="0.6"/><ellipse cx="30" cy="4" rx="3" ry="1.5" fill="currentColor" opacity="0.35" transform="rotate(-25 30 4)"/><path d="M14,14 Q18,12 20,14" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.4"/></svg>`],
+    ];
+    const stmt = sqlite.prepare(`INSERT INTO glyphs (category, name, svg_data, created_at) VALUES ('element', ?, ?, ?)`);
+    for (const [name, label, svg] of glyphs) {
+      stmt.run(label, svg, now);
+    }
+  }
+}
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

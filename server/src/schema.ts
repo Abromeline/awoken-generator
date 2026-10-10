@@ -250,6 +250,15 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
   points: integer("points").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
+// Glyph library: SVG symbols for elements, magic, hexes, buffs. Used throughout the game.
+export const glyphs = sqliteTable("glyphs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  category: text("category", { enum: ["element", "magic", "hex", "buff"] }).notNull(),
+  name: text("name").notNull(),
+  svgData: text("svg_data").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+});
+
 export const territoryTiles = sqliteTable("territory_tiles", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerKey: text("owner_key").notNull(),

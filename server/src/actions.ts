@@ -1414,6 +1414,41 @@ export const handlers = {
     return { ok: true as const, newLevel: currentLevel + 1, element: equippedEl };
   },
 
+  async listGlyphs(args: unknown) {
+    const parsed = z.object({ category: z.enum(["element", "magic", "hex", "buff"]) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid category.");
+    const rows = await db.select().from(schema.glyphs)
+      .where(eq(schema.glyphs.category, parsed.data.category))
+      .orderBy(asc(schema.glyphs.name));
+    return { glyphs: rows };
+  },
+
+  async saveGlyph(args: unknown) {
+    const parsed = z.object({
+      id: z.number().int().positive().optional(),
+      category: z.enum(["element", "magic", "hex", "buff"]),
+      name: z.string().trim().min(1).max(60),
+      svgData: z.string().trim().min(1).max(10000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid glyph.");
+    if (parsed.data.id) {
+      await db.update(schema.glyphs)
+        .set({ name: parsed.data.name, svgData: parsed.data.svgData, category: parsed.data.category })
+        .where(eq(schema.glyphs.id, parsed.data.id));
+      return { ok: true as const, id: parsed.data.id };
+    }
+    const result = await db.insert(schema.glyphs)
+      .values({ category: parsed.data.category, name: parsed.data.name, svgData: parsed.data.svgData });
+    return { ok: true as const, id: Number(result.lastInsertRowid) };
+  },
+
+  async deleteGlyph(args: unknown) {
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid id.");
+    await db.delete(schema.glyphs).where(eq(schema.glyphs.id, parsed.data.id));
+    return { ok: true as const };
+  },
+
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const rows = await db.select().from(schema.aspectAttunement)
