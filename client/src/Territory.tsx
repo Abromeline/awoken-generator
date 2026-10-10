@@ -87,6 +87,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBindingPrompt, setShowBindingPrompt] = useState(false);
   const [showBattleground, setShowBattleground] = useState(false);
+  const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
+  const battleResolvedRef = useRef(false);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
@@ -476,16 +478,54 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     setSimUnits([]);
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean }) => {
-    setShowBattleground(false);
+  // Called when victory is detected — resolve the battle early to get bonus tiles
+  // for the victory screen picker.
+  const handleVictoryDetected = async () => {
     if (!wave) return;
     try {
-      await api.resolveBattle({
-        victory: result.victory,
+      const battleRes = await api.resolveBattle({
+        victory: true,
         waveNumber: wave.waveNumber,
-        survivorIds: result.survivors,
+        survivorIds: [],
         energySpent: 0,
       });
+      if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
+        setBonusTiles(battleRes.bonusEligible);
+      }
+      const w = await api.getWave();
+      setWave(w);
+      await refreshEnergy();
+      battleResolvedRef.current = true;
+    } catch (e) {
+      console.error("Victory resolve failed", e);
+    }
+  };
+
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => {
+    setShowBattleground(false);
+    const wasResolved = battleResolvedRef.current;
+    battleResolvedRef.current = false; // reset for next battle
+    if (!wave) return;
+    try {
+      // Skip resolve if already done in handleVictoryDetected
+      if (!wasResolved) {
+        const battleRes = await api.resolveBattle({
+          victory: result.victory,
+          waveNumber: wave.waveNumber,
+          survivorIds: result.survivors,
+          energySpent: 0,
+        });
+        if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
+          setBonusTiles(battleRes.bonusEligible);
+        }
+      }
+      // Claim the picked bonus tile if one was chosen
+      if (result.bonusTileId) {
+        try {
+          await api.claimBonusTile({ tileId: result.bonusTileId });
+        } catch (e) { console.error("Bonus tile claim failed", e); }
+        setBonusTiles([]);
+      }
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
@@ -1244,6 +1284,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             maxEnergy={maxEnergy}
             onBattleEnd={handleBattleEnd}
             onClose={() => setShowBattleground(false)}
+            bonusTiles={bonusTiles}
+            onVictoryDetected={handleVictoryDetected}
           />
         );
       })()}

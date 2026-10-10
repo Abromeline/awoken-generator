@@ -891,6 +891,34 @@ export const handlers = {
     return { ok: true };
   },
 
+  async claimBonusTile(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ tileId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid tile.");
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.cursed, 1)
+      )).limit(1);
+    if (!tile.length) badRequest("That tile is not available.");
+    // Must be adjacent to purified territory
+    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    const neighbors = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.cursed, 0)
+      ));
+    const purified = new Set(neighbors.map(t => `${t.q},${t.r}`));
+    const adjacent = dirs.some(([dq, dr]) => purified.has(`${tile[0].q + dq},${tile[0].r + dr}`));
+    if (!adjacent) badRequest("Must be adjacent to your territory.");
+    await db.update(schema.territoryTiles)
+      .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null })
+      .where(eq(schema.territoryTiles.id, tile[0].id));
+    await expandFrontier(ownerKey, tile[0].q, tile[0].r);
+    return { ok: true };
+  },
+
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -1866,26 +1894,21 @@ export const handlers = {
       await spendEnergy(ownerKey, parsed.data.energySpent);
     }
 
+    let bonusEligible: { id: number; q: number; r: number }[] = [];
     if (parsed.data.victory) {
       const wavesDefeated = (state[0]?.wavesDefeated ?? 0) + 1;
-      // Territory reward only every 3 waves
+      // Territory reward only every 3 waves — tender chooses from eligible tiles
       const grantTerritory = wavesDefeated % 3 === 0;
-      // Purify one adjacent cursed tile (every 3rd victory)
-      const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-      if (grantTerritory) for (const [dq, dr] of dirs) {
-        const target = await db.select().from(schema.territoryTiles)
-          .where(and(
-            eq(schema.territoryTiles.ownerKey, ownerKey),
-            eq(schema.territoryTiles.q, dq),
-            eq(schema.territoryTiles.r, dr),
-            eq(schema.territoryTiles.cursed, 1)
-          )).limit(1);
-        if (target.length) {
-          await db.update(schema.territoryTiles)
-            .set({ cursed: 0, element: "neutral" })
-            .where(eq(schema.territoryTiles.id, target[0].id));
-          await expandFrontier(ownerKey, dq, dr);
-          break;
+      if (grantTerritory) {
+        // Eligible: cursed tiles adjacent to purified territory
+        const allTiles = await db.select().from(schema.territoryTiles)
+          .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+        const purified = new Set(allTiles.filter(t => !t.cursed).map(t => `${t.q},${t.r}`));
+        const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+        for (const t of allTiles) {
+          if (!t.cursed) continue;
+          const adjacent = dirs.some(([dq, dr]) => purified.has(`${t.q + dq},${t.r + dr}`));
+          if (adjacent) bonusEligible.push({ id: t.id, q: t.q, r: t.r });
         }
       }
       await db.update(schema.waveState)
@@ -1932,7 +1955,7 @@ export const handlers = {
         .where(eq(schema.waveState.ownerKey, ownerKey));
     }
 
-    return { ok: true };
+    return { ok: true, bonusEligible };
   },
 
   async setStance(args: unknown, ctx?: ActionContext) {

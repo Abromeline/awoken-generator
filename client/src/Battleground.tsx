@@ -60,8 +60,10 @@ interface BattlegroundProps {
   assets: FieldAsset[];
   energy: number;
   maxEnergy: number;
-  onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean }) => void;
+  onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => void;
   onClose: () => void;
+  bonusTiles?: { id: number; q: number; r: number }[];
+  onVictoryDetected?: () => Promise<void>;
 }
 
 interface Fighter {
@@ -77,7 +79,7 @@ interface Fighter {
   tileId?: number;  // For building effects (thorn wall)
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -303,7 +305,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setSimRunning(false);
       trackPlayer.stop();
       setLog("THE WAVE BREAKS!");
-      setTimeout(() => setShowVictoryScreen(true), 1500);
+      setTimeout(async () => {
+        if (onVictoryDetected) await onVictoryDetected();
+        setShowVictoryScreen(true);
+      }, 1500);
     } else if (totalEnemies > 0 && aliveFighters === 0 && aliveEnemies > 0) {
       // Defeat — all fighters dead but enemies remain
       setVictory(false);
@@ -477,21 +482,54 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               fill="rgba(255,215,0,0.2)" stroke="#ffedaa" strokeWidth="2" />
           </svg>
           <h1>UNRAVELING COMPLETE</h1>
-          <div className="victory-territory-pick">
-            The wave breaks. Choose one new territory to claim as your bonus.
-            {pickedTerritory !== null ? " ✓ Chosen" : ""}
-          </div>
-          {/* Minimal territory picker - simplified for now */}
+          {bonusTiles.length > 0 && (
+            <div className="victory-territory-pick">
+              <p>Choose one new territory to claim:</p>
+              <div className="bonus-minimap" style={{ position: "relative", width: "260px", height: "180px", margin: "0 auto" }}>
+                {(() => {
+                  const qs = bonusTiles.map(t => t.q);
+                  const rs = bonusTiles.map(t => t.r);
+                  const centerQ = (Math.min(...qs) + Math.max(...qs)) / 2;
+                  const centerR = (Math.min(...rs) + Math.max(...rs)) / 2;
+                  const scale = 20;
+                  return bonusTiles.map(t => {
+                    const k = scale / 796;
+                    const px = (t.q - centerQ) * 1292 * k + (t.r - centerR) * 13 * k;
+                    const py = (t.q - centerQ) * 475 * k + (t.r - centerR) * 946 * k;
+                    const isPicked = pickedTerritory === t.id;
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => setPickedTerritory(t.id)}
+                        title={`Tile (${t.q},${t.r})`}
+                        style={{
+                          position: "absolute",
+                          left: `calc(50% + ${px}px)`,
+                          top: `calc(50% + ${py}px)`,
+                          transform: "translate(-50%,-50%)",
+                          width: "28px", height: "28px",
+                          background: isPicked ? "#ffd700" : "#3a2a1a",
+                          border: `2px solid ${isPicked ? "#fff" : "#8a6a3a"}`,
+                          clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+                          cursor: "pointer",
+                        }}
+                      />
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
           <div className="victory-buttons">
             <button className="abtn raise-binding" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, raiseBinding: true } as any);
+              onBattleEnd({ victory: true, survivors, raiseBinding: true, bonusTileId: pickedTerritory ?? undefined });
             }}>
               ✦ Raise Binding
             </button>
             <button className="abtn continue-wave" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, continueWave: true } as any);
+              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined });
             }}>
               Continue →
             </button>

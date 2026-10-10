@@ -280,7 +280,9 @@ export const api = {
   toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
   deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
   resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; energySpent: number }) =>
-    post<{ ok: true }>("resolveBattle", args),
+    post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[] }>("resolveBattle", args),
+  claimBonusTile: (args: { tileId: number }) =>
+    post<{ ok: boolean }>("claimBonusTile", args),
   getWaveTarget: () => post<{ tile: { id: number; q: number; r: number; element: string } | null; defenderIds: number[] }>("getWaveTarget", {}),
   dissipateAwoken: (args: { awakenedId: number }) => post<{ ok: true }>("dissipateAwoken", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
