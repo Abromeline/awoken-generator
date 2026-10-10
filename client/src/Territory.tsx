@@ -101,6 +101,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const battleResolvedRef = useRef(false);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
+  const [showAspects, setShowAspects] = useState(false);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
   const [showFriends, setShowFriends] = useState(false);
@@ -950,8 +951,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-/** Top-left UI: aspect attunement with hand-drawn element glyphs flowing into meters. */
-function AspectAttunement() {
+/** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
+function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  if (!visible) return null;
   const { data } = useQuery({
     queryKey: ["aspectAttunement"],
     queryFn: () => api.getAspectAttunement(),
@@ -1003,6 +1005,7 @@ function AspectAttunement() {
 
   return (
     <div className="aspect-attunement celestial">
+      <button className="aspect-close" onClick={onClose} title="Close">✕</button>
       <div className="celestial-title">Aspect Attunement</div>
       {elements.map(el => {
         const points = data.levels[el.id] ?? 0;
@@ -1031,7 +1034,19 @@ function AspectAttunement() {
 
   return (
     <div className="territory-view">
-      <AspectAttunement />
+      <AspectAttunement visible={showAspects} onClose={() => setShowAspects(false)} />
+      <button
+        className="aspect-fab"
+        onClick={() => setShowAspects(!showAspects)}
+        title="Aspect Attunement"
+      >
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <path d="M16,4 C16,4 10,10 10,16 C10,22 14,26 16,28 C18,26 22,22 22,16 C22,10 16,4 16,4 Z"
+            fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+          <path d="M16,8 C13,12 13,18 16,24" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.6"/>
+          <circle cx="16" cy="16" r="2.5" fill="#e8d5a0" opacity="0.9"/>
+        </svg>
+      </button>
       {/* Left panel: Champion + Hall of Legends */}
       <div className="legends-panel">
         <div className="champion-section">
