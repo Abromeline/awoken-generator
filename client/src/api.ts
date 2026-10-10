@@ -289,6 +289,7 @@ export const api = {
   saveGlyph: (value: { id?: number; category: string; name: string; svgData: string }) => post<{ ok: boolean; id: number }>("saveGlyph", value),
   deleteGlyph: (value: { id: number }) => post<{ ok: boolean }>("deleteGlyph", value),
   cleanDeckCards: (value: { dryRun: boolean; awakenedIds?: number[]; imagelessOnly?: boolean }) => post<{ ok: boolean; removed: number; found: number; cards: { deckId: number; awakenedId: number; name: string }[] }>("cleanDeckCards", value),
+  applyAspect: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; element: string }>("applyAspect", value),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
   joinConfluence: (args: { code: string }) => post<{ sessionId: number; ok: boolean }>("joinConfluence", args),

@@ -1493,6 +1493,68 @@ export const handlers = {
     return { ok: true as const, removed: parsed.data.dryRun ? 0 : targets.length, found: targets.length, cards: targets.map(t => ({ deckId: t.deckId, awakenedId: t.awakenedId, name: t.name })) };
   },
 
+  async applyAspect(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      inventoryAspectId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    // Get the inventory aspect with its asset details
+    const inv = await db.select({
+      id: schema.aspectInventory.id,
+      name: schema.layerAssets.name,
+      imageBlobKey: schema.layerAssets.imageBlobKey,
+    }).from(schema.aspectInventory)
+      .innerJoin(schema.layerAssets, eq(schema.aspectInventory.aspectAssetId, schema.layerAssets.id))
+      .where(and(
+        eq(schema.aspectInventory.id, parsed.data.inventoryAspectId),
+        eq(schema.aspectInventory.ownerKey, ownerKey)
+      )).limit(1);
+    const aspect = inv[0];
+    if (!aspect) badRequest("Aspect not found.");
+    // Infer element from name
+    const element = /fire|ember|flame|ash|inferno/i.test(aspect.name) ? "fire"
+      : /tide|water|ocean|sea|river|rain/i.test(aspect.name) ? "tide"
+      : /sky|wind|storm|cloud|air/i.test(aspect.name) ? "sky"
+      : /stone|rock|mountain|earth|crystal/i.test(aspect.name) ? "stone"
+      : "root";
+    // Get the Awoken
+    const aw = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    const awakened = aw[0];
+    if (!awakened) badRequest("Awoken not found.");
+    // Check if already has an aspect
+    let layers: any[];
+    try { layers = JSON.parse(awakened.compositionJson); }
+    catch { layers = []; }
+    if (layers.some((l: any) => l.category === "aspect")) {
+      badRequest("This Awoken already bears an aspect.");
+    }
+    // Add the aspect to the composition (renders behind body)
+    layers.push({
+      source_id: `aspect-inv:${aspect.id}`,
+      name: aspect.name,
+      category: "aspect",
+      rarity: "common",
+      power: null,
+      toughness: null,
+      aspectLevel: 1,
+      aspectElement: element,
+      imageBlobKey: aspect.imageBlobKey,
+    });
+    await db.update(schema.awakened)
+      .set({ compositionJson: JSON.stringify(layers) })
+      .where(eq(schema.awakened.id, parsed.data.awakenedId));
+    // Consume the inventory aspect
+    await db.delete(schema.aspectInventory)
+      .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
+    return { ok: true as const, element };
+  },
+
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const rows = await db.select().from(schema.aspectAttunement)
