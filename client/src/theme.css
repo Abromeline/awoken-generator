@@ -199,13 +199,20 @@
 .packet{background:#121212;border:3px double #b89b5e;border-radius:8px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;padding:24px;position:relative}
 .packet-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .packet-page{font-size:11px;color:#ccc;letter-spacing:1px}
+.packet-dots{display:flex;gap:8px;align-items:center}
+.packet-dot{width:8px;height:8px;border-radius:50%;background:#444;cursor:pointer;transition:background 0.2s}
+.packet-dot.active{background:#b89b5e;transform:scale(1.3)}
+.packet-dot.done{background:#6a5a3a}
 .packet-close{background:none;border:none;color:#ccc;font-size:18px;cursor:pointer}
-.packet-title{font-size:20px;color:#e8e0d0;margin:0 0 16px;letter-spacing:1px}
-.packet-body p{font-size:14px;color:#bbb;line-height:1.6;margin:0 0 12px}
+.packet-title{font-size:22px;color:#f0e8d8;margin:0 0 16px;letter-spacing:1px}
+.packet-body p{font-size:16px;color:#e2e2e2;line-height:1.7;margin:0 0 14px}
 .packet-nav{display:flex;justify-content:space-between;margin-top:20px}
 .packet-nav button{background:#1a1a1a;color:#e8e0d0;border:1px solid #b89b5e;border-radius:4px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:Georgia,serif}
 .packet-nav button:disabled{opacity:0.3;cursor:default}
 .packet-nav button.packet-done{background:#b89b5e;color:#111;font-weight:bold}
+.packet-nav{align-items:center}
+.packet-skip-link{background:none!important;border:none!important;color:#888!important;font-size:12px!important;padding:4px 8px!important;cursor:pointer;text-decoration:underline}
+.packet-skip-link:hover{color:#b89b5e!important}
 
 /* First Trial */
 .first-trial{padding:12px}
