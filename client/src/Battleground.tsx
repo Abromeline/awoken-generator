@@ -6,6 +6,29 @@ import { api, type Awakened } from "./api";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
+import goliathUrl from "./assets/music/goliath.mp3";
+import balefireUrl from "./assets/music/balefire.mp3";
+import forgeUrl from "./assets/music/song-of-the-forge.mp3";
+import sentinelUrl from "./assets/music/sentinel.mp3";
+import uprisingUrl from "./assets/music/uprising.mp3";
+import wildsUrl from "./assets/music/into-the-wilds.mp3";
+import legacyUrl from "./assets/music/legacy.mp3";
+import skyUrl from "./assets/music/born-of-the-sky.mp3";
+import vanguardUrl from "./assets/music/vanguard.mp3";
+import phoenixUrl from "./assets/music/phoenix.mp3";
+
+const BATTLE_TRACKS = [
+  { name: "Goliath", url: goliathUrl },
+  { name: "Balefire", url: balefireUrl },
+  { name: "Song of the Forge", url: forgeUrl },
+  { name: "Sentinel", url: sentinelUrl },
+  { name: "Uprising", url: uprisingUrl },
+  { name: "Into the Wilds", url: wildsUrl },
+  { name: "Legacy", url: legacyUrl },
+  { name: "Born of the Sky", url: skyUrl },
+  { name: "Vanguard", url: vanguardUrl },
+  { name: "Phoenix", url: phoenixUrl },
+];
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 
@@ -59,6 +82,17 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState("The Unraveling comes...");
+  const [battleTrack, setBattleTrack] = useState(() => BATTLE_TRACKS[Math.floor(Math.random() * BATTLE_TRACKS.length)]);
+  const battleAudio = useRef<HTMLAudioElement | null>(null);
+
+  // Battle music: random track, stops when battle ends
+  useEffect(() => {
+    battleAudio.current = new Audio(battleTrack.url);
+    battleAudio.current.volume = 0.35;
+    battleAudio.current.loop = true;
+    battleAudio.current.play().catch(() => {});
+    return () => { battleAudio.current?.pause(); battleAudio.current = null; };
+  }, []);
 
   const [energyLeft, setEnergyLeft] = useState(energy);
   const [deck, setDeck] = useState(hand.slice(0, 6));
