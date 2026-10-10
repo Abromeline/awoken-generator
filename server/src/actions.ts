@@ -378,7 +378,7 @@ async function bindingBonuses(ownerKey: string): Promise<Map<number, number>> {
 
 /** Expand the frontier: when a tile is purified, cursed wilds push outward.
  *  Any missing neighbor of (q,r) becomes a new cursed tile. */
-async function expandFrontier(ownerKey: string, q: number, r: number) {
+async function expandFrontier(ownerKey: string, q: number, r: number, depth: number = 2) {
   const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
   const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
   const existing = await db.select({ q: schema.territoryTiles.q, r: schema.territoryTiles.r })
@@ -386,21 +386,53 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
     .where(eq(schema.territoryTiles.ownerKey, ownerKey));
   const seen = new Set(existing.map(t => `${t.q},${t.r}`));
   const now = new Date();
-  for (const [dq, dr] of dirs) {
-    const nq = q + dq, nr = r + dr;
-    if (seen.has(`${nq},${nr}`)) continue;
-    const el = elements[Math.floor(Math.random() * elements.length)];
-    // Curse HP scales with ring distance from center: ring 1 = 10, +6 per ring
-    const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
-    let hp = 4 + ring * 6;
-    // Thickening mood: +50% curse HP
-    const mood = await getWorldMood();
-    if (mood.mood === "thickening") hp = Math.ceil(hp * 1.5);
-    await db.insert(schema.territoryTiles).values({
-      ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
-      curseHp: hp, curseMaxHp: hp,
-    });
-    seen.add(`${nq},${nr}`);
+  const mood = await getWorldMood();
+  // Expand outward in rings up to depth — ensures a buffer of cursed land
+  let frontier = [[q, r]];
+  for (let d = 0; d < depth; d++) {
+    const next: number[][] = [];
+    for (const [cq, cr] of frontier) {
+      for (const [dq, dr] of dirs) {
+        const nq = cq + dq, nr = cr + dr;
+        const key = `${nq},${nr}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const el = elements[Math.floor(Math.random() * elements.length)];
+        const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
+        let hp = 4 + ring * 6;
+        if (mood.mood === "thickening") hp = Math.ceil(hp * 1.5);
+        await db.insert(schema.territoryTiles).values({
+          ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
+          curseHp: hp, curseMaxHp: hp,
+        });
+        next.push([nq, nr]);
+      }
+    }
+    frontier = next;
+    if (!frontier.length) break;
+  }
+}
+
+// Self-healing: ensure at least 2 rings of cursed tiles beyond the purified frontier.
+// Called on getTerritory so a stuck map fixes itself on next load.
+async function ensureFrontierBuffer(ownerKey: string) {
+  const tiles = await db.select().from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  if (!tiles.length) return;
+  const purified = tiles.filter(t => !t.cursed);
+  if (!purified.length) return;
+  // Find purified tiles at the edge (adjacent to non-existent tiles)
+  const tileSet = new Set(tiles.map(t => `${t.q},${t.r}`));
+  const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  for (const t of purified) {
+    let isEdge = false;
+    for (const [dq, dr] of dirs) {
+      if (!tileSet.has(`${t.q + dq},${t.r + dr}`)) { isEdge = true; break; }
+    }
+    if (isEdge) {
+      await expandFrontier(ownerKey, t.q, t.r, 2);
+      return; // One edge tile is enough — expandFrontier covers 2 rings
+    }
   }
 }
 
@@ -1535,6 +1567,8 @@ export const handlers = {
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
+    await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     
