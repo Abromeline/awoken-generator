@@ -840,7 +840,7 @@ export const handlers = {
   },
 
   async saveAwoken(args: unknown, ctx?: ActionContext) {
-    const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(5), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
+    const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(6), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid awakening.");
     const { layers, imageBase64, collection } = parsed.data;
     // Tender wakes cost one credit; the workshop (Nigel's own hand) is free.

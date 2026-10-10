@@ -27,7 +27,7 @@ export const FREE_WAKE_MS = 4 * 60 * 60 * 1000;
 type Slot = "welcome" | "free";
 const slotSchema = z.enum(["welcome", "free"]);
 const generationInput = z.object({
-  layers: z.array(layerRefShape).min(1).max(5),
+  layers: z.array(layerRefShape).min(1).max(6),
   imageBase64: z.string().min(100).max(16_000_000),
 });
 
