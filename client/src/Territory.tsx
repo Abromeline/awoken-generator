@@ -678,7 +678,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]}
             x={cx - s * 1.425} y={cy - s * 0.743} width={s * 2.85} height={s * 1.90}
             preserveAspectRatio="xMidYMid meet"
-            style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(100,255,100,0.8)) brightness(1.15)" } : undefined} />
+            style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
           {/* Siege timer on cursed tiles */}
           {t.cursed && t.lastPassiveAt && (() => {
             const last = new Date(t.lastPassiveAt).getTime();
