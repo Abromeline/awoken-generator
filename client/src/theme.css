@@ -1472,3 +1472,10 @@ body.defeat-flash {
   background:none;border:none;color:#888;font-size:14px;cursor:pointer;padding:4px;
 }
 .aspect-close:hover{color:#d4af6a}
+
+.track-pages{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.page-toggle{
+  padding:4px 10px;font-size:11px;border-radius:12px;cursor:pointer;
+  background:#1a1a1a;border:1px solid #444;color:#888;
+}
+.page-toggle.on{background:#b89b5e;border-color:#b89b5e;color:#111}

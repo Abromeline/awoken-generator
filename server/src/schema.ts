@@ -359,6 +359,7 @@ export const battleTracks = sqliteTable("battle_tracks", {
   name: text("name").notNull(),
   trackData: text("track_data").notNull(),
   enabled: integer("enabled").notNull().default(1),
+  pages: text("pages").notNull().default('["territory"]'),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

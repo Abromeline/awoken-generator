@@ -2700,7 +2700,19 @@ export const handlers = {
   // Battle tracks: workshop management (Nigel only).
   async listBattleTracks() {
     const tracks = await db.select().from(schema.battleTracks).orderBy(asc(schema.battleTracks.id));
-    return { tracks: tracks.map(t => ({ id: t.id, name: t.name, enabled: !!t.enabled })) };
+    return { tracks: tracks.map(t => ({ id: t.id, name: t.name, enabled: !!t.enabled, pages: JSON.parse(t.pages || '["territory"]') })) };
+  },
+
+  async updateTrackPages(args: unknown) {
+    const parsed = z.object({
+      id: z.number().int().positive(),
+      pages: z.array(z.enum(["territory", "tender", "workshop", "battle"])),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid pages.");
+    await db.update(schema.battleTracks)
+      .set({ pages: JSON.stringify(parsed.data.pages) })
+      .where(eq(schema.battleTracks.id, parsed.data.id));
+    return { ok: true as const };
   },
 
   async getBattleTrack(args: unknown) {

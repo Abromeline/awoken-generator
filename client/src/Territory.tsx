@@ -61,10 +61,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [trackIdx, setTrackIdx] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [libraryTracks, setLibraryTracks] = useState<{ name: string; url: string }[]>([]);
-  // Load all enabled tracks from the music library for ambient playback
+  // Load enabled tracks for the territory page and auto-start music
   useEffect(() => {
     api.listBattleTracks().then(({ tracks }) => {
-      Promise.all(tracks.filter(t => t.enabled).map(async t => {
+      const forTerritory = tracks.filter(t => t.enabled && (t.pages || ["territory"]).includes("territory"));
+      Promise.all(forTerritory.map(async t => {
         const { trackData } = await api.getBattleTrack({ id: t.id });
         if (trackData.startsWith("data:audio") || trackData.startsWith("/music/")) {
           return { name: t.name, url: trackData };
@@ -72,7 +73,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         return null;
       })).then(results => {
         const valid = results.filter(Boolean) as { name: string; url: string }[];
-        if (valid.length) setLibraryTracks(valid);
+        if (valid.length) {
+          setLibraryTracks(valid);
+          // Auto-start music
+          setMusicOn(true);
+          setTrackIdx(0);
+        }
       });
     }).catch(() => {});
   }, []);

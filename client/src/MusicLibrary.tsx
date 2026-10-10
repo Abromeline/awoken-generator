@@ -145,6 +145,27 @@ export default function MusicLibrary() {
               <div className="music-track-info">
                 <strong>{t.name}</strong>
                 <small>{t.enabled ? "✓ in battle rotation" : "○ disabled"}</small>
+                <div className="track-pages">
+                  {(["territory", "tender", "workshop", "battle"] as const).map(page => {
+                    const active = (t.pages || ["territory"]).includes(page);
+                    return (
+                      <button
+                        key={page}
+                        className={`page-toggle ${active ? "on" : ""}`}
+                        title={`Play on ${page}`}
+                        onClick={() => {
+                          const current = t.pages || ["territory"];
+                          const next = active
+                            ? current.filter(p => p !== page)
+                            : [...current, page];
+                          doAction(() => api.updateTrackPages({ id: t.id, pages: next }), `Pages updated`);
+                        }}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="music-track-actions">
                 <button

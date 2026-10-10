@@ -258,6 +258,10 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_resources (
   updated_at INTEGER NOT NULL
 );`);
 // Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
+// Migration: add pages column to battle_tracks
+try {
+  sqlite.exec(`ALTER TABLE battle_tracks ADD COLUMN pages TEXT NOT NULL DEFAULT '["territory"]'`);
+} catch {}
 sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
