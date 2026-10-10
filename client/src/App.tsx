@@ -75,9 +75,9 @@ function isFireAspect(asset: LayerAsset): boolean {
 
 function pickLayerSet(assets: LayerAsset[], choices?: Record<Category, string>): LayerAsset[] {
   return categories.flatMap((category) => {
+    // Awoken are not born with aspects — those are earned later through binding
+    if (category.id === "aspect") return [];
     let options = assets.filter((asset) => asset.category === category.id);
-    // TEMP DISABLED: Exclude Fire aspects from normal wakes
-    // options = options.filter((asset) => !isFireAspect(asset));
     if (!options.length) return [];
     const fixed = choices?.[category.id] ? options.find((asset) => asset.sourceId === choices[category.id]) : undefined;
     const picked = fixed ?? chooseWeighted(options);
