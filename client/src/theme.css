@@ -1275,3 +1275,11 @@ body.defeat-flash {
   flex:1;background:#1a1a1a;border:1px solid #444;color:#e8e0d0;
   padding:10px;border-radius:6px;font-size:14px;
 }
+
+.referral-box{background:#1a1a1a;border:1px solid #b89b5e;border-radius:6px;padding:12px}
+.referral-text{font-size:12px;color:#aaa;line-height:1.5;margin-bottom:10px}
+.referral-link-row{display:flex;gap:8px}
+.referral-link-row input{
+  flex:1;background:#0a0a0a;border:1px solid #444;color:#b89b5e;
+  padding:8px;border-radius:4px;font-size:12px;font-family:monospace;
+}

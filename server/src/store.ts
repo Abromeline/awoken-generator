@@ -170,6 +170,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_legends (
   count INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );`);
+// Referral codes.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS referral_codes (
+  code TEXT PRIMARY KEY,
+  inviter_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
 // Friendships and messages.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS friendships (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

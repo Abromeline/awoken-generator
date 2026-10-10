@@ -7,7 +7,7 @@
 // soft browser visitor — which closes the clear-storage farming loop.
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "./store.js";
 import { suggestTenderName } from "./naming.js";
@@ -142,9 +142,9 @@ function badRequest(message: string): never {
  * account so nothing is stranded — and so an already-welcomed browser does
  * not grant itself a second 20.
  */
-export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null } }> {
+export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean }> {
   const parsed = z
-    .object({ password: z.string().min(8).max(128) })
+    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional() })
     .safeParse(args);
   if (!parsed.success) badRequest("A password of at least 8 characters.");
   // The key is given, never chosen — it is the account's immutable lock.
@@ -190,9 +190,49 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
     await grantCredits(ownerKey, CREDITS_PER_PACK, "welcome");
   }
 
-  const token = await createSession(tender.id);
   const fresh = await db.select().from(schema.tenders).where(eq(schema.tenders.id, tender.id)).limit(1);
-  return { token, tender: publicTender(fresh[0] ?? tender) };
+  // Referral: if a refCode was provided, birth a twin of the inviter's champion (or random Awoken)
+  let twinBirthed = false;
+  if (parsed.data.refCode) {
+    const refRows = await db.select().from(schema.referralCodes)
+      .where(eq(schema.referralCodes.code, parsed.data.refCode.toUpperCase())).limit(1);
+    if (refRows.length) {
+      const inviterKey = refRows[0].inviterKey;
+      // Prefer the inviter's champion, else a random Awoken
+      let source = null;
+      const champRows = await db.select().from(schema.tenderChampions)
+        .where(eq(schema.tenderChampions.ownerKey, inviterKey)).limit(1);
+      if (champRows.length) {
+        const a = await db.select().from(schema.awakened)
+          .where(eq(schema.awakened.id, champRows[0].awakenedId)).limit(1);
+        if (a.length) source = a[0];
+      }
+      if (!source) {
+        const owned = await db.select().from(schema.awakened)
+          .where(and(eq(schema.awakened.ownerKey, inviterKey), eq(schema.awakened.collection, "tender")))
+          .limit(1);
+        if (owned.length) source = owned[0];
+      }
+      if (source) {
+        // Twin: same identityKey → duplicate empowerment bonus applies to both
+        await db.insert(schema.awakened).values({
+          name: "Twin of " + source.name,
+          imageBlobKey: source.imageBlobKey,
+          compositionJson: source.compositionJson,
+          collection: "tender",
+          ownerName: publicTender(fresh[0] ?? tender).tenderName ?? "Tender",
+          ownerKey,
+          identityKey: source.identityKey,
+          iteration: source.iteration,
+          flavorText: "Born of fellowship — a twin woken when a friend arrived.",
+        });
+        twinBirthed = true;
+      }
+    }
+  }
+
+  const token = await createSession(tender.id);
+  return { token, tender: publicTender(fresh[0] ?? tender), twinBirthed };
 }
 
 /** Log in with Tender name + password, or secret key + password as fallback. */

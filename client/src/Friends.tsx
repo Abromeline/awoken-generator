@@ -25,6 +25,7 @@ export default function Friends({ onClose }: { onClose: () => void }) {
   const [inviteInput, setInviteInput] = useState("");
   const [inviteMode, setInviteMode] = useState<"name" | "code">("name");
   const [inviteMsg, setInviteMsg] = useState("");
+  const [referralCode, setReferralCode] = useState<string | null>(null);
   const [activeChat, setActiveChat] = useState<Friend | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -38,7 +39,7 @@ export default function Friends({ onClose }: { onClose: () => void }) {
     } catch {}
   };
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); api.getReferralCode().then(r => setReferralCode(r.code)).catch(() => {}); }, []);
 
   useEffect(() => {
     if (!activeChat) return;
@@ -153,6 +154,23 @@ export default function Friends({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
+
+        {referralCode && (
+          <div className="friends-section">
+            <h4>Invite a new Tender</h4>
+            <div className="referral-box">
+              <div className="referral-text">Share this link — when they join, a twin of your champion is born into their deck (and both twins grow stronger).</div>
+              <div className="referral-link-row">
+                <input readOnly value={`${window.location.origin}?ref=${referralCode}`} onClick={e => (e.target as HTMLInputElement).select()} />
+                <button className="abtn small" onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}?ref=${referralCode}`);
+                  setInviteMsg("Link copied!");
+                  setTimeout(() => setInviteMsg(""), 2000);
+                }}>Copy</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="friends-section">
           <h4>Add a friend</h4>

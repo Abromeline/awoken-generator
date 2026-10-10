@@ -168,6 +168,14 @@ export const friendMessages = sqliteTable("friend_messages", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// Referral codes: invite a brand new player with a shareable link.
+// Accepting births a twin Awoken (with duplicate empowerment bonus).
+export const referralCodes = sqliteTable("referral_codes", {
+  code: text("code").primaryKey(),
+  inviterKey: text("inviter_key").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // DB-backed sessions so logins survive restarts. Token lives in the
 // Tender's localStorage, sent as X-Tender-Token.
 export const tenderSessions = sqliteTable("tender_sessions", {

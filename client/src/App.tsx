@@ -462,7 +462,8 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
     mutationFn: () => {
       if (password.length < 8) throw new Error("Give your key a password of at least 8 characters.");
       if (password !== confirm) throw new Error("The two passwords do not match.");
-      return api.claimTender({ password });
+      const refCode = new URLSearchParams(window.location.search).get("ref") ?? undefined;
+      return api.claimTender({ password, refCode });
     },
     onSuccess: (data) => onDone(data.token),
     onError: (e) => setError(e instanceof Error ? e.message : "The key could not be claimed."),

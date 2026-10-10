@@ -1218,6 +1218,17 @@ export const handlers = {
     return await getWorldMood();
   },
 
+  // Get or create your referral link code
+  async getReferralCode(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const existing = await db.select().from(schema.referralCodes)
+      .where(eq(schema.referralCodes.inviterKey, ownerKey)).limit(1);
+    if (existing.length) return { code: existing[0].code };
+    const code = "AWK-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+    await db.insert(schema.referralCodes).values({ code, inviterKey: ownerKey });
+    return { code };
+  },
+
   // Send a friend request by tender name or invite code
   async sendFriendRequest(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
