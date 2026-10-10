@@ -1449,6 +1449,50 @@ export const handlers = {
     return { ok: true as const };
   },
 
+  async cleanDeckCards(args: unknown) {
+    const parsed = z.object({
+      dryRun: z.boolean().default(true),
+      awakenedIds: z.array(z.number().int().positive()).optional(),
+      imagelessOnly: z.boolean().default(false),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    // Find deck_cards to remove
+    let cards;
+    if (parsed.data.awakenedIds?.length) {
+      // Specific cards
+      cards = await db.select({
+        deckId: schema.deckCards.deckId,
+        awakenedId: schema.deckCards.awakenedId,
+        imageBlobKey: schema.awakened.imageBlobKey,
+        name: schema.awakened.name,
+      }).from(schema.deckCards)
+        .innerJoin(schema.awakened, eq(schema.deckCards.awakenedId, schema.awakened.id))
+        .where(inArray(schema.deckCards.awakenedId, parsed.data.awakenedIds));
+    } else {
+      // All cards, optionally filtered to imageless only
+      cards = await db.select({
+        deckId: schema.deckCards.deckId,
+        awakenedId: schema.deckCards.awakenedId,
+        imageBlobKey: schema.awakened.imageBlobKey,
+        name: schema.awakened.name,
+      }).from(schema.deckCards)
+        .innerJoin(schema.awakened, eq(schema.deckCards.awakenedId, schema.awakened.id));
+    }
+    const targets = parsed.data.imagelessOnly
+      ? cards.filter(c => !c.imageBlobKey || c.imageBlobKey.trim() === "")
+      : cards;
+    if (!parsed.data.dryRun) {
+      for (const t of targets) {
+        await db.delete(schema.deckCards)
+          .where(and(
+            eq(schema.deckCards.deckId, t.deckId),
+            eq(schema.deckCards.awakenedId, t.awakenedId)
+          ));
+      }
+    }
+    return { ok: true as const, removed: parsed.data.dryRun ? 0 : targets.length, found: targets.length, cards: targets.map(t => ({ deckId: t.deckId, awakenedId: t.awakenedId, name: t.name })) };
+  },
+
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const rows = await db.select().from(schema.aspectAttunement)

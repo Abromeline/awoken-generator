@@ -114,7 +114,10 @@ async function removePending(pending: Pending): Promise<void> {
  *  no credit — the welcome and the free wakes are gifts. */
 async function holdAwakening(ownerKey: string, ownerName: string, slot: Slot, layers: unknown, imageBase64: unknown, respinsUsed: number) {
   const parsed = generationInput.safeParse({ layers, imageBase64 });
-  if (!parsed.success) badRequest("That awakening could not be gathered.");
+  if (!parsed.success) {
+    const details = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
+    badRequest(`That awakening could not be gathered. [${details}]`);
+  }
   const plan = await planAwakening(parsed.data.layers);
   const bytes = Buffer.from(parsed.data.imageBase64, "base64");
   const blobKey = `awakened/${Date.now()}-${randomUUID()}.png`;
@@ -185,7 +188,10 @@ export async function seedWelcome(ownerKey: string, ownerName: string, body: unk
   if (existing) return waitingPayload(existing);
   if (visitor.welcomeWakesGranted !== 1) badRequest("No welcome is waiting for this visitor.");
   const parsed = generationInput.safeParse(body);
-  if (!parsed.success) badRequest("That awakening could not be gathered.");
+  if (!parsed.success) {
+    const details = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
+    badRequest(`That awakening could not be gathered. [${details}]`);
+  }
   const awakened = await holdAwakening(ownerKey, ownerName, "welcome", parsed.data.layers, parsed.data.imageBase64, 0);
   return { awakened, respinsUsed: 0, respinsRemaining: 1 };
 }
@@ -227,7 +233,10 @@ export async function reconstituteWelcome(ownerKey: string, ownerName: string, b
  *  is released back into the matter when the new one arrives. */
 export async function claimFreeWake(ownerKey: string, ownerName: string, body: unknown) {
   const parsed = generationInput.safeParse(body);
-  if (!parsed.success) badRequest("That awakening could not be gathered.");
+  if (!parsed.success) {
+    const details = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
+    badRequest(`That awakening could not be gathered. [${details}]`);
+  }
   const { visitor } = await ensureVisitor(ownerKey);
   const free = freeWakeState(visitor.lastFreeWakeAt, Date.now());
   if (!free.available) {

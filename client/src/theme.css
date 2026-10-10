@@ -1349,7 +1349,7 @@ body.defeat-flash {
 .cb-result.defeat{background:rgba(100,30,30,0.15);border:2px solid #6a2a2a;color:#ffaaaa}
 
 .champion-fab{
-  position:fixed;left:16px;top:50%;transform:translateY(-50%);
+  position:fixed;left:16px;top:calc(50% + 30px);transform:translateY(-50%);
   width:56px;height:56px;border-radius:50%;
   background:rgba(20,20,35,0.9);border:2px solid #b89b5e;
   font-size:28px;cursor:pointer;z-index:41;
@@ -1458,7 +1458,7 @@ body.defeat-flash {
 }
 
 .aspect-fab{
-  position:fixed;left:16px;top:calc(50% - 70px);
+  position:fixed;left:16px;top:calc(50% - 40px);
   width:56px;height:56px;border-radius:50%;
   background:rgba(20,20,35,0.9);border:2px solid #b89b5e;
   cursor:pointer;z-index:41;
