@@ -36,7 +36,7 @@ function ownerNameFor(ctx?: ActionContext): string {
   return ctx?.tender?.tenderName ?? "Tender";
 }
 
-const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "head"]);
+const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "aspect", "head"]);
 const raritySchema = z.enum(["common", "uncommon", "rare", "mythic"]);
 const collectionSchema = z.enum(["tender", "workshop"]);
 const statSchema = z.number().int().min(1).max(3);
@@ -1355,6 +1355,33 @@ export const handlers = {
 
   async getMood(_args: unknown) {
     return await getWorldMood();
+  },
+
+  // Assign a random aspect to every Awoken missing one (workshop only).
+  // Run once after uploading aspect pieces.
+  async assignRandomAspects(_args: unknown, ctx?: ActionContext) {
+    // TODO: verify workshop password (same as other workshop actions)
+    const assetRows = await db.select().from(schema.layerAssets)
+      .where(eq(schema.layerAssets.category, "aspect"));
+    if (!assetRows.length) badRequest("No aspect pieces in the pool yet.");
+    const all = await db.select().from(schema.awakened);
+    let assigned = 0;
+    for (const a of all) {
+      let layers: any[];
+      try { layers = JSON.parse(a.compositionJson); }
+      catch { continue; }
+      if (layers.some((l: any) => l.category === "aspect")) continue;
+      const pick = assetRows[Math.floor(Math.random() * assetRows.length)];
+      layers.push({
+        source_id: pick.id, name: pick.name, category: "aspect",
+        rarity: pick.rarity ?? "common", power: pick.power ?? null, toughness: pick.toughness ?? null,
+      });
+      await db.update(schema.awakened)
+        .set({ compositionJson: JSON.stringify(layers) })
+        .where(eq(schema.awakened.id, a.id));
+      assigned++;
+    }
+    return { ok: true, assigned, total: all.length };
   },
 
   // Get the full roster for a confluence battle (both players' committed Awoken)

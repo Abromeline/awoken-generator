@@ -4,7 +4,7 @@ export const layerAssets = sqliteTable("layer_assets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   category: text("category", {
-    enum: ["background", "legs", "arms", "body", "aura", "accessory", "head"],
+    enum: ["background", "legs", "arms", "body", "aura", "aspect", "accessory", "head"],
   }).notNull(),
   rarity: text("rarity", {
     enum: ["common", "uncommon", "rare", "mythic"],

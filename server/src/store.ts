@@ -185,36 +185,7 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_twins (
   flavor_text TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );`);
-// Seed the built-in music library. Idempotent: only adds tracks not already present.
-{
-  const existing = new Set(
-    (sqlite.prepare(`SELECT name FROM battle_tracks`).all() as { name: string }[]).map(r => r.name)
-  );
-  const seedTracks: [string, string][] = [
-    ["Aurora", "/music/aurora.mp3"],
-    ["Balefire", "/music/balefire.mp3"],
-    ["Born of the Sky", "/music/born-of-the-sky.mp3"],
-    ["Goliath", "/music/goliath.mp3"],
-    ["Hymn to the Dawn", "/music/hymn-to-the-dawn.mp3"],
-    ["Into the Wilds", "/music/into-the-wilds.mp3"],
-    ["Legacy", "/music/legacy.mp3"],
-    ["Phoenix", "/music/phoenix.mp3"],
-    ["Reverie", "/music/reverie.mp3"],
-    ["Sentinel", "/music/sentinel.mp3"],
-    ["Song of the Forge", "/music/song-of-the-forge.mp3"],
-    ["Uprising", "/music/uprising.mp3"],
-    ["Vanguard", "/music/vanguard.mp3"],
-    ["Call to Adventure (FF-style)", "/music/ff-call-to-adventure.mp3"],
-    ["At Launch (FF-style)", "/music/ff-at-launch.mp3"],
-    ["Alchemists Tower (FF-style)", "/music/ff-alchemists-tower.mp3"],
-    ["Five Armies (FF-style)", "/music/ff-five-armies.mp3"],
-    ["Crusade (FF-style)", "/music/ff-crusade.mp3"],
-  ];
-  const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled) VALUES (?, ?, 1)`);
-  for (const [name, url] of seedTracks) {
-    if (!existing.has(name)) stmt.run(name, url);
-  }
-}
+
 // Friendships and messages.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS friendships (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -291,6 +262,36 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );`);
+// Seed the built-in music library. Idempotent: only adds tracks not already present.
+{
+  const existing = new Set(
+    (sqlite.prepare(`SELECT name FROM battle_tracks`).all() as { name: string }[]).map(r => r.name)
+  );
+  const seedTracks: [string, string][] = [
+    ["Aurora", "/music/aurora.mp3"],
+    ["Balefire", "/music/balefire.mp3"],
+    ["Born of the Sky", "/music/born-of-the-sky.mp3"],
+    ["Goliath", "/music/goliath.mp3"],
+    ["Hymn to the Dawn", "/music/hymn-to-the-dawn.mp3"],
+    ["Into the Wilds", "/music/into-the-wilds.mp3"],
+    ["Legacy", "/music/legacy.mp3"],
+    ["Phoenix", "/music/phoenix.mp3"],
+    ["Reverie", "/music/reverie.mp3"],
+    ["Sentinel", "/music/sentinel.mp3"],
+    ["Song of the Forge", "/music/song-of-the-forge.mp3"],
+    ["Uprising", "/music/uprising.mp3"],
+    ["Vanguard", "/music/vanguard.mp3"],
+    ["Call to Adventure (FF-style)", "/music/ff-call-to-adventure.mp3"],
+    ["At Launch (FF-style)", "/music/ff-at-launch.mp3"],
+    ["Alchemists Tower (FF-style)", "/music/ff-alchemists-tower.mp3"],
+    ["Five Armies (FF-style)", "/music/ff-five-armies.mp3"],
+    ["Crusade (FF-style)", "/music/ff-crusade.mp3"],
+  ];
+  const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled) VALUES (?, ?, 1)`);
+  for (const [name, url] of seedTracks) {
+    if (!existing.has(name)) stmt.run(name, url);
+  }
+}
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

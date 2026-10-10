@@ -2,7 +2,7 @@
 // Method names and request/response shapes match the original action module
 // one-to-one, so the UI code is untouched apart from imports.
 
-export type Category = "background" | "arms" | "body" | "aura" | "head";
+export type Category = "background" | "arms" | "body" | "aura" | "aspect" | "head";
 export type Rarity = "common" | "uncommon" | "rare" | "mythic";
 export type Collection = "tender" | "workshop";
 
@@ -281,6 +281,7 @@ export const api = {
   getMessages: (args: { friendKey: string }) => post<{ messages: { id: number; text: string; mine: boolean; createdAt: string }[] }>("getMessages", args),
   getReferralCode: () => post<{ code: string }>("getReferralCode", {}),
   getRandomBattleTrack: () => post<{ track: { id: number; name: string; trackData: string } | null }>("getRandomBattleTrack", {}),
+  assignRandomAspects: () => post<{ ok: boolean; assigned: number; total: number }>("assignRandomAspects", {}),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean }[] }>("listBattleTracks", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
   joinConfluence: (args: { code: string }) => post<{ sessionId: number; ok: boolean }>("joinConfluence", args),

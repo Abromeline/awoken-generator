@@ -39,7 +39,7 @@ export default function FieldAwoken({ awoken, assets, x, y, width, height, showF
       return true;
     })
     .sort((a, b) => {
-      const order = ["body", "arms", "head"];
+      const order = ["body", "arms", "aspect", "head"];
       return order.indexOf(a.category) - order.indexOf(b.category);
     });
 

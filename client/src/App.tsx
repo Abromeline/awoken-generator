@@ -35,6 +35,7 @@ const categories: { id: Category; label: string; note: string }[] = [
   { id: "body", label: "Body", note: "the held matter" },
   { id: "arms", label: "Arms", note: "reach and gesture" },
   { id: "aura", label: "Aura", note: "the binding force" },
+  { id: "aspect", label: "Aspect", note: "elemental manifestation" },
   { id: "head", label: "Head", note: "the final waking layer" },
 ];
 const statCategories: Category[] = ["arms", "body", "head"];
@@ -110,7 +111,7 @@ async function preparePng(file: File) {
   } finally { URL.revokeObjectURL(url); }
 }
 /** Back-to-front draw order, per the artist: background, body, arms, aura, head. */
-const LAYER_ORDER: Category[] = ["background", "body", "arms", "aura", "head"];
+const LAYER_ORDER: Category[] = ["background", "body", "arms", "aura", "aspect", "head"];
 async function compose(layers: LayerAsset[], target?: HTMLCanvasElement | null) {
   const canvas = target ?? document.createElement("canvas"); canvas.width = TEMPLATE_WIDTH; canvas.height = TEMPLATE_HEIGHT;
   const context = canvas.getContext("2d"); if (!context) throw new Error("This device could not prepare the awakening canvas.");
@@ -229,7 +230,7 @@ function CreatureCard({ item, allowDelete = false, newborn = false }: { item: Aw
 }
 
 function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", head: "" });
+  const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
   const [composition, setComposition] = useState<LayerAsset[]>([]); const [notice, setNotice] = useState("The scattered matter waits.");
   const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); onSaved(data.id); } });
   const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => setNotice(mutationError(error)) });
@@ -253,7 +254,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits }:
       <button className="wake-button" type="button" onClick={onWakeButton} disabled={save.isPending || checkout.isPending}><span>{save.isPending ? "Waking…" : vesselEmpty ? "Gather wakes" : "Wake One"}</span><small>{vesselEmpty && credits ? `${credits.packPriceLabel} for ${credits.creditsPerPack} wakes` : manual ? "chosen or weighted" : "let chance gather the form"}</small></button>
       {credits !== null && <p className="credit-line"><span>{credits.balance > 0 ? `${credits.balance} ${credits.balance === 1 ? "wake" : "wakes"} remaining` : "The vessel is empty."}</span><button type="button" className="credit-more" onClick={() => checkout.mutate()} disabled={checkout.isPending}>{checkout.isPending ? "Opening…" : "Get more wakes"}</button></p>}
       <p className={`notice ${save.error ? "error" : ""}`} role="status">{save.error ? mutationError(save.error) : notice}</p></div>
-      {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → body → arms → aura → head</p></aside>}
+      {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → body → arms → aura → aspect → head</p></aside>}
     </div>
   </section>;
 }
@@ -276,6 +277,37 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
     <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header><div className="collection-grid trading">{visible.map((item) => <TradingCard key={item.id} item={item} />)}</div></section>;
 }
 
+function AspectAssignButton() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  return (
+    <div style={{ margin: "16px 0", padding: 12, border: "1px solid #444", borderRadius: 8 }}>
+      <p className="quiet" style={{ marginBottom: 8 }}>
+        Give every Awoken without an aspect a random one from the pool.
+      </p>
+      <button
+        className="abtn small"
+        disabled={working}
+        onClick={async () => {
+          if (!confirm("Assign random aspects to all Awoken missing one?")) return;
+          setWorking(true);
+          try {
+            const res = await api.assignRandomAspects();
+            setMsg(`Assigned ${res.assigned} of ${res.total} Awoken.`);
+          } catch (e) {
+            setMsg("Failed: " + (e as Error).message);
+          }
+          setWorking(false);
+          setTimeout(() => setMsg(null), 4000);
+        }}
+      >
+        {working ? "Assigning…" : "✨ Assign random aspects"}
+      </button>
+      {msg && <p className="notice" style={{ marginTop: 8 }}>{msg}</p>}
+    </div>
+  );
+}
+
 function PoolPanel({ assets }: { assets: LayerAsset[] }) {
   const queryClient = useQueryClient(); const inputRef = useRef<HTMLInputElement>(null); const [category, setCategory] = useState<Category>("body"); const [batch, setBatch] = useState<BatchFile[]>([]); const [uploading, setUploading] = useState(false); const [editing, setEditing] = useState<number | null>(null); const [pieceName, setPieceName] = useState("");
   const remove = useMutation({ mutationFn: (id: number) => api.deleteLayerAsset({ id }), onSuccess: () => invalidateStudios(queryClient) });
@@ -295,6 +327,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
   }
   const pendingCount = batch.filter((item) => item.status === "ready" || item.status === "error").length;
   return <section className="pool"><header className="pool-header"><div><p className="eyebrow">The Layer Pool</p><h1>The matter before it binds.</h1></div><p>Choose a stack of transparent PNGs and mark its layer once. Names arrive in the Awoken voice; every name remains yours to change.</p></header>
+    <AspectAssignButton />
     <section className="batch-uploader"><div className="uploader-top"><div><p className="eyebrow">Primordial intake</p><h2>One offering. Many pieces.</h2></div><label className="file-button"><input ref={inputRef} type="file" accept="image/png,.png" multiple onChange={chooseFiles} disabled={uploading} />Choose PNGs</label></div>
       <fieldset><legend>File every piece as</legend><div className="category-picks">{categories.map((item) => <label className={category === item.id ? "selected" : ""} key={item.id}><input type="radio" name="category" checked={category === item.id} onChange={() => setCategory(item.id)} /><strong>{item.label}</strong><small>{item.note}</small></label>)}</div></fieldset>
       {batch.length > 0 && <div className="batch-list">{batch.map((item) => <article className={item.status} key={item.id}><img src={item.previewUrl} alt="Selected transparent PNG" /><div><strong>{item.file.name}</strong><span>{item.note}</span></div></article>)}</div>}
