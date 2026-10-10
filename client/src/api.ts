@@ -49,6 +49,9 @@ export interface Awakened {
   stat_points?: number;
   bonus_power?: number;
   bonus_toughness?: number;
+  xp_current?: number;
+  xp_next?: number;
+  xp_progress?: number;
 }
 
 export interface TerritoryTile {
@@ -271,6 +274,12 @@ export const api = {
   assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
   setChampion: (args: { awakenedId: number }) => post<{ ok: boolean }>("setChampion", args),
   getLegends: () => post<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>("getLegends", {}),
+  sendFriendRequest: (args: { tenderName?: string; inviteCode?: string }) => post<{ ok: boolean; tenderName: string }>("sendFriendRequest", args),
+  acceptFriendRequest: (args: { requestId: number }) => post<{ ok: boolean }>("acceptFriendRequest", args),
+  declineFriendRequest: (args: { requestId: number }) => post<{ ok: boolean }>("declineFriendRequest", args),
+  listFriends: () => post<{ friends: { ownerKey: string; tenderName: string; unread: number }[]; pending: { id: number; tenderName: string }[] }>("listFriends", {}),
+  sendMessage: (args: { friendKey: string; text: string }) => post<{ ok: boolean }>("sendMessage", args),
+  getMessages: (args: { friendKey: string }) => post<{ messages: { id: number; text: string; mine: boolean; createdAt: string }[] }>("getMessages", args),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),

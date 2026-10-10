@@ -149,6 +149,25 @@ export const tenders = sqliteTable("tenders", {
     .$defaultFn(() => new Date()),
 });
 
+// Friendships between Tenders.
+export const friendships = sqliteTable("friendships", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  requesterKey: text("requester_key").notNull(),
+  addresseeKey: text("addressee_key").notNull(),
+  status: text("status", { enum: ["pending", "accepted", "declined"] }).notNull().default("pending"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// Messages between friends only.
+export const friendMessages = sqliteTable("friend_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  senderKey: text("sender_key").notNull(),
+  receiverKey: text("receiver_key").notNull(),
+  text: text("text").notNull(),
+  readAt: integer("read_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // DB-backed sessions so logins survive restarts. Token lives in the
 // Tender's localStorage, sent as X-Tender-Token.
 export const tenderSessions = sqliteTable("tender_sessions", {

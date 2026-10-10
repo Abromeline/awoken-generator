@@ -170,6 +170,22 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_legends (
   count INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );`);
+// Friendships and messages.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS friendships (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  requester_key TEXT NOT NULL,
+  addressee_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS friend_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_key TEXT NOT NULL,
+  receiver_key TEXT NOT NULL,
+  text TEXT NOT NULL,
+  read_at INTEGER,
+  created_at INTEGER NOT NULL
+);`);
 // Experience system.
 if (!awakenedCols.some((col) => col.name === "experience")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN experience INTEGER NOT NULL DEFAULT 0`);

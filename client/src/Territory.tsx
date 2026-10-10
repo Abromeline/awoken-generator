@@ -8,6 +8,7 @@ import hymnUrl from "./assets/music/hymn-to-the-dawn.mp3";
 import reverieUrl from "./assets/music/reverie.mp3";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
+import Friends from "./Friends";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage } from "./BuildingMenu";
@@ -93,6 +94,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
+  const [showFriends, setShowFriends] = useState(false);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
@@ -1044,6 +1046,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
         </div>
       )}
+      {showFriends && <Friends onClose={() => setShowFriends(false)} />}
+      <button className="friends-btn" onClick={() => setShowFriends(true)} title="Friends">
+        🤝
+      </button>
       <div className="territory-hud">
         {birthStatus?.ready ? (
           <button className="abtn birth-ready" onClick={handleTimedBirth}>
@@ -1254,12 +1260,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const el = dominantElement(a);
             const level = a.level ?? 0;
             const xp = a.experience ?? 0;
-            // XP progress to next level
-            const currentLevelXp = Math.pow(level, 2) * 100;
-            const nextLevelXp = Math.pow(level + 1, 2) * 100;
-            const progress = nextLevelXp > currentLevelXp
-              ? Math.min(1, (xp - currentLevelXp) / (nextLevelXp - currentLevelXp))
-              : 0;
+            const progress = a.xp_progress ?? 0;
             return (
             <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""}`}
               onClick={() => toggleBattlePool(i)}>

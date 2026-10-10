@@ -156,7 +156,8 @@ export function toAwakenedPayload(
   const collection = collectionSchema.safeParse(row.collection);
   const storyCount = row.storyCount ?? 0;
   const xp = row.experience ?? 0;
-  const level = levelForXp(xp);
+  const xpInfo = xpProgress(xp);
+  const level = xpInfo.level;
   const bonusPower = row.bonusPower ?? 0;
   const bonusToughness = row.bonusToughness ?? 0;
   return {
@@ -168,6 +169,7 @@ export function toAwakenedPayload(
     owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
     experience: xp, level, stat_points: row.statPoints ?? 0,
     bonus_power: bonusPower, bonus_toughness: bonusToughness,
+    xp_current: xpInfo.current, xp_next: xpInfo.next, xp_progress: xpInfo.progress,
   };
 }
 
@@ -528,9 +530,24 @@ async function getWorldMood(): Promise<{ mood: WorldMood; description: string; e
   return data;
 }
 
-// Experience: level = floor(sqrt(xp / 100)). Every 10 levels grants 1 stat point.
+// Experience, exponential: XP to go from level n to n+1 = floor(100 * 1.5^n).
+// Total XP for level L = sum over n=0..L-1 of 100 * 1.5^n.
+function xpForLevel(level: number): number {
+  if (level <= 0) return 0;
+  // Geometric series: 100 * (1.5^level - 1) / (1.5 - 1)
+  return Math.floor(100 * (Math.pow(1.5, level) - 1) / 0.5);
+}
 function levelForXp(xp: number): number {
-  return Math.floor(Math.sqrt(Math.max(0, xp) / 100));
+  let level = 0;
+  xp = Math.max(0, xp);
+  while (xpForLevel(level + 1) <= xp) level++;
+  return level;
+}
+function xpProgress(xp: number): { level: number; current: number; next: number; progress: number } {
+  const level = levelForXp(xp);
+  const current = xpForLevel(level);
+  const next = xpForLevel(level + 1);
+  return { level, current, next, progress: next > current ? Math.min(1, (xp - current) / (next - current)) : 1 };
 }
 
 async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp: boolean; newLevel: number; statPointsGained: number }> {
@@ -1199,6 +1216,163 @@ export const handlers = {
 
   async getMood(_args: unknown) {
     return await getWorldMood();
+  },
+
+  // Send a friend request by tender name or invite code
+  async sendFriendRequest(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tenderName: z.string().min(1).max(50).optional(),
+      inviteCode: z.string().min(1).max(50).optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    if (!parsed.data.tenderName && !parsed.data.inviteCode) badRequest("Provide a tender name or invite code.");
+
+    let target: { id: number; tenderName: string | null } | null = null;
+    if (parsed.data.tenderName) {
+      const rows = await db.select().from(schema.tenders)
+        .where(eq(schema.tenders.tenderName, parsed.data.tenderName)).limit(1);
+      if (rows.length) target = rows[0];
+    } else if (parsed.data.inviteCode) {
+      const rows = await db.select().from(schema.tenders)
+        .where(eq(schema.tenders.code, parsed.data.inviteCode)).limit(1);
+      if (rows.length) target = rows[0];
+    }
+    if (!target) badRequest("No Tender found with that name or code.");
+    const targetKey = tenderOwnerKey(target.id);
+    if (targetKey === ownerKey) badRequest("That's you.");
+
+    // Already friends or pending?
+    const existing = await db.select().from(schema.friendships)
+      .where(or(
+        and(eq(schema.friendships.requesterKey, ownerKey), eq(schema.friendships.addresseeKey, targetKey)),
+        and(eq(schema.friendships.requesterKey, targetKey), eq(schema.friendships.addresseeKey, ownerKey))
+      )).limit(1);
+    if (existing.length) badRequest(existing[0].status === "accepted" ? "Already friends." : "Request already pending.");
+
+    await db.insert(schema.friendships).values({
+      requesterKey: ownerKey, addresseeKey: targetKey, status: "pending",
+    });
+    return { ok: true, tenderName: target.tenderName ?? "Nameless" };
+  },
+
+  async acceptFriendRequest(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ requestId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const rows = await db.select().from(schema.friendships)
+      .where(and(
+        eq(schema.friendships.id, parsed.data.requestId),
+        eq(schema.friendships.addresseeKey, ownerKey),
+        eq(schema.friendships.status, "pending")
+      )).limit(1);
+    if (!rows.length) badRequest("No such request.");
+    await db.update(schema.friendships).set({ status: "accepted" })
+      .where(eq(schema.friendships.id, parsed.data.requestId));
+    return { ok: true };
+  },
+
+  async declineFriendRequest(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ requestId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await db.update(schema.friendships).set({ status: "declined" })
+      .where(and(
+        eq(schema.friendships.id, parsed.data.requestId),
+        eq(schema.friendships.addresseeKey, ownerKey),
+        eq(schema.friendships.status, "pending")
+      ));
+    return { ok: true };
+  },
+
+  async listFriends(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const rows = await db.select().from(schema.friendships)
+      .where(or(
+        and(eq(schema.friendships.requesterKey, ownerKey), eq(schema.friendships.status, "accepted")),
+        and(eq(schema.friendships.addresseeKey, ownerKey), eq(schema.friendships.status, "accepted"))
+      ));
+    const friends = [];
+    for (const r of rows) {
+      const friendKey = r.requesterKey === ownerKey ? r.addresseeKey : r.requesterKey;
+      // ownerKey is tender:{id} — extract id
+      const match = friendKey.match(/^tender:(\d+)$/);
+      let name = "Nameless";
+      if (match) {
+        const t = await db.select().from(schema.tenders).where(eq(schema.tenders.id, parseInt(match[1]))).limit(1);
+        if (t.length) name = t[0].tenderName ?? "Nameless";
+      }
+      // Unread count
+      const unread = await db.select({ count: sql`count(*)` }).from(schema.friendMessages)
+        .where(and(
+          eq(schema.friendMessages.senderKey, friendKey),
+          eq(schema.friendMessages.receiverKey, ownerKey),
+          isNull(schema.friendMessages.readAt)
+        ));
+      friends.push({ ownerKey: friendKey, tenderName: name, unread: Number(unread[0]?.count ?? 0) });
+    }
+    const pending = await db.select().from(schema.friendships)
+      .where(and(eq(schema.friendships.addresseeKey, ownerKey), eq(schema.friendships.status, "pending")));
+    const pendingWithNames = [];
+    for (const p of pending) {
+      const match = p.requesterKey.match(/^tender:(\d+)$/);
+      let name = "Nameless";
+      if (match) {
+        const t = await db.select().from(schema.tenders).where(eq(schema.tenders.id, parseInt(match[1]))).limit(1);
+        if (t.length) name = t[0].tenderName ?? "Nameless";
+      }
+      pendingWithNames.push({ id: p.id, tenderName: name });
+    }
+    return { friends, pending: pendingWithNames };
+  },
+
+  // Send a message to a friend
+  async sendMessage(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      friendKey: z.string().min(1),
+      text: z.string().min(1).max(2000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid message.");
+    // Must be friends
+    const f = await db.select().from(schema.friendships)
+      .where(and(
+        or(
+          and(eq(schema.friendships.requesterKey, ownerKey), eq(schema.friendships.addresseeKey, parsed.data.friendKey)),
+          and(eq(schema.friendships.requesterKey, parsed.data.friendKey), eq(schema.friendships.addresseeKey, ownerKey))
+        ),
+        eq(schema.friendships.status, "accepted")
+      )).limit(1);
+    if (!f.length) badRequest("You can only message friends.");
+    await db.insert(schema.friendMessages).values({
+      senderKey: ownerKey, receiverKey: parsed.data.friendKey, text: parsed.data.text.trim(),
+    });
+    return { ok: true };
+  },
+
+  // Get conversation with a friend
+  async getMessages(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ friendKey: z.string().min(1) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const messages = await db.select().from(schema.friendMessages)
+      .where(or(
+        and(eq(schema.friendMessages.senderKey, ownerKey), eq(schema.friendMessages.receiverKey, parsed.data.friendKey)),
+        and(eq(schema.friendMessages.senderKey, parsed.data.friendKey), eq(schema.friendMessages.receiverKey, ownerKey))
+      ))
+      .orderBy(asc(schema.friendMessages.createdAt)).limit(100);
+    // Mark received as read
+    await db.update(schema.friendMessages)
+      .set({ readAt: new Date() })
+      .where(and(
+        eq(schema.friendMessages.senderKey, parsed.data.friendKey),
+        eq(schema.friendMessages.receiverKey, ownerKey),
+        isNull(schema.friendMessages.readAt)
+      ));
+    return { messages: messages.map(m => ({
+      id: m.id, text: m.text, mine: m.senderKey === ownerKey,
+      createdAt: m.createdAt.toISOString(),
+    })) };
   },
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
