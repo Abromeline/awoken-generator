@@ -287,9 +287,10 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
     ["Five Armies (FF-style)", "/music/ff-five-armies.mp3"],
     ["Crusade (FF-style)", "/music/ff-crusade.mp3"],
   ];
-  const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled) VALUES (?, ?, 1)`);
+  const now = Date.now();
+  const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled, created_at) VALUES (?, ?, 1, ?)`);
   for (const [name, url] of seedTracks) {
-    if (!existing.has(name)) stmt.run(name, url);
+    if (!existing.has(name)) stmt.run(name, url, now);
   }
 }
 // Territory buildings
