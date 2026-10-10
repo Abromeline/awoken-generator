@@ -44,6 +44,11 @@ export interface Awakened {
   owner_name: string;
   flavor_text: string;
   created_at: string;
+  experience?: number;
+  level?: number;
+  stat_points?: number;
+  bonus_power?: number;
+  bonus_toughness?: number;
 }
 
 export interface TerritoryTile {
@@ -263,6 +268,7 @@ export const api = {
   }>("defendWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
   grantEnergy: (args: { amount: number }) => post<{ ok: boolean }>("grantEnergy", args),
+  assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),

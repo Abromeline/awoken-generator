@@ -155,12 +155,19 @@ export function toAwakenedPayload(
   const iteration = occurrenceIndex < 0 ? row.iteration : occurrenceIndex;
   const collection = collectionSchema.safeParse(row.collection);
   const storyCount = row.storyCount ?? 0;
+  const xp = row.experience ?? 0;
+  const level = levelForXp(xp);
+  const bonusPower = row.bonusPower ?? 0;
+  const bonusToughness = row.bonusToughness ?? 0;
   return {
     id: row.id, name: row.name, image_url: blobUrl(row.imageBlobKey), layers,
     base_power: basePower, base_toughness: baseToughness,
-    power: basePower + empowerment + storyCount, toughness: baseToughness + empowerment + storyCount,
+    power: basePower + empowerment + storyCount + bonusPower,
+    toughness: baseToughness + empowerment + storyCount + bonusToughness,
     empowerment, story_count: storyCount, field_born: row.fieldBorn ?? 0, iteration, collection: collection.success ? collection.data : ("workshop" as const),
     owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
+    experience: xp, level, stat_points: row.statPoints ?? 0,
+    bonus_power: bonusPower, bonus_toughness: bonusToughness,
   };
 }
 
@@ -468,6 +475,31 @@ async function spendEnergy(ownerKey: string, amount: number): Promise<boolean> {
     .set({ energy: current - amount, updatedAt: new Date() })
     .where(eq(schema.tenderResources.ownerKey, ownerKey));
   return true;
+}
+
+// Experience: level = floor(sqrt(xp / 100)). Every 10 levels grants 1 stat point.
+function levelForXp(xp: number): number {
+  return Math.floor(Math.sqrt(Math.max(0, xp) / 100));
+}
+
+async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp: boolean; newLevel: number; statPointsGained: number }> {
+  const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)).limit(1);
+  if (!rows.length) return { leveledUp: false, newLevel: 0, statPointsGained: 0 };
+  const oldXp = rows[0].experience ?? 0;
+  const oldLevel = levelForXp(oldXp);
+  const newXp = oldXp + amount;
+  const newLevel = levelForXp(newXp);
+  // Stat points: 1 per 10 levels crossed
+  const oldTens = Math.floor(oldLevel / 10);
+  const newTens = Math.floor(newLevel / 10);
+  const statPointsGained = newTens - oldTens;
+  await db.update(schema.awakened)
+    .set({
+      experience: newXp,
+      statPoints: (rows[0].statPoints ?? 0) + statPointsGained,
+    })
+    .where(eq(schema.awakened.id, awakenedId));
+  return { leveledUp: newLevel > oldLevel, newLevel, statPointsGained };
 }
 
 async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): Promise<void> {
@@ -915,6 +947,29 @@ export const handlers = {
       .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null })
       .where(eq(schema.territoryTiles.id, tile[0].id));
     await expandFrontier(ownerKey, tile[0].q, tile[0].r);
+    return { ok: true };
+  },
+
+  async assignStatPoint(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      stat: z.enum(["power", "toughness"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const rows = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    if (!rows.length) badRequest("That Awoken is not yours.");
+    if ((rows[0].statPoints ?? 0) < 1) badRequest("No stat points available.");
+    const update = parsed.data.stat === "power"
+      ? { bonusPower: (rows[0].bonusPower ?? 0) + 1 }
+      : { bonusToughness: (rows[0].bonusToughness ?? 0) + 1 };
+    await db.update(schema.awakened)
+      .set({ ...update, statPoints: (rows[0].statPoints ?? 1) - 1 })
+      .where(eq(schema.awakened.id, parsed.data.awakenedId));
     return { ok: true };
   },
 
@@ -1895,6 +1950,11 @@ export const handlers = {
 
     let bonusEligible: { id: number; q: number; r: number }[] = [];
     if (parsed.data.victory) {
+      // Survivors gain XP: 50 + 10 per wave number
+      const xpGain = 50 + currentWave * 10;
+      for (const id of parsed.data.survivorIds) {
+        await grantXp(id, xpGain);
+      }
       const wavesDefeated = (state[0]?.wavesDefeated ?? 0) + 1;
       // Territory reward only every 3 waves — tender chooses from eligible tiles
       const grantTerritory = wavesDefeated % 3 === 0;

@@ -1144,6 +1144,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <div className="dock-hand">
           {hand.map((a, i) => {
             const el = dominantElement(a);
+            const level = a.level ?? 0;
+            const xp = a.experience ?? 0;
+            // XP progress to next level
+            const currentLevelXp = Math.pow(level, 2) * 100;
+            const nextLevelXp = Math.pow(level + 1, 2) * 100;
+            const progress = nextLevelXp > currentLevelXp
+              ? Math.min(1, (xp - currentLevelXp) / (nextLevelXp - currentLevelXp))
+              : 0;
             return (
             <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""}`}
               onClick={() => toggleBattlePool(i)}>
@@ -1152,6 +1160,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               <img src={a.image_url} alt={a.name} />
               <div className="dock-card-name">{a.name}</div>
               <div className="dock-card-stats">{a.power}/{a.toughness}</div>
+              <div className="dock-xp" title={`Level ${level} — ${xp} XP`}>
+                <div className="dock-xp-bar" style={{ width: `${progress * 100}%` }} />
+                <span className="dock-xp-text">Lv {level}</span>
+              </div>
+              {(a.stat_points ?? 0) > 0 && (
+                <div className="dock-stat-points" onClick={(e) => {
+                  e.stopPropagation();
+                  const stat = window.confirm("Add to Power? (Cancel = Toughness)") ? "power" : "toughness";
+                  api.assignStatPoint({ awakenedId: a.id, stat }).then(() => onUpdate()).catch(console.error);
+                }}>
+                  +{a.stat_points} point!
+                </div>
+              )}
             </button>
             );
           })}

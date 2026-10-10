@@ -39,6 +39,13 @@ export const awakened = sqliteTable("awakened", {
     .notNull()
     .$defaultFn(() => new Date()),
   dispersedUntil: integer("dispersed_until", { mode: "timestamp_ms" }),
+  // Experience: XP from battles, level = floor(sqrt(xp/100)), stat point every 10 levels
+  experience: integer("experience").notNull().default(0),
+  // Unassigned stat points earned from levels
+  statPoints: integer("stat_points").notNull().default(0),
+  // Bonus stats from assigned points
+  bonusPower: integer("bonus_power").notNull().default(0),
+  bonusToughness: integer("bonus_toughness").notNull().default(0),
 });
 
 // Stories Tenders tell about their Awoken. Sharing to the Confluence is

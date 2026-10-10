@@ -141,6 +141,19 @@ if (!awakenedCols.some((col) => col.name === "field_born")) {
 if (!awakenedCols.some((col) => col.name === "dispersed_until")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN dispersed_until INTEGER`);
 }
+// Experience system.
+if (!awakenedCols.some((col) => col.name === "experience")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN experience INTEGER NOT NULL DEFAULT 0`);
+}
+if (!awakenedCols.some((col) => col.name === "stat_points")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN stat_points INTEGER NOT NULL DEFAULT 0`);
+}
+if (!awakenedCols.some((col) => col.name === "bonus_power")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN bonus_power INTEGER NOT NULL DEFAULT 0`);
+}
+if (!awakenedCols.some((col) => col.name === "bonus_toughness")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN bonus_toughness INTEGER NOT NULL DEFAULT 0`);
+}
 // 48h passive purification timer on territory tiles.
 const tileCols = sqlite.prepare(`PRAGMA table_info(territory_tiles)`).all() as { name: string }[];
 if (!tileCols.some((col) => col.name === "last_passive_at")) {
