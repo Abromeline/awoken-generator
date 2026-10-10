@@ -382,6 +382,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     setSimUnits(units);
     setSimActive(true);
     
+    // Get tower/defender info
+    const watchtowers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
+    const thornWalls = buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active");
+    
+    // Track which units have been hit by volley (once per tower)
+    const volleyHit = new Set<string>();
+    
     // Animation loop: move toward center, apply defenses
     const timer = setInterval(() => {
       setSimUnits(prev => {
@@ -390,25 +397,60 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           setSimActive(false);
           return prev;
         }
-        // Find center tile
         const center = tiles.find(t => t.q === 0 && t.r === 0) || purified[0];
         const { cx: ccx, cy: ccy } = simTilePos(center);
         
         return prev.map(u => {
-          // Move toward center
           const dx = ccx - u.x;
           const dy = ccy - u.y;
           const dist = Math.sqrt(dx*dx + dy*dy);
-          if (dist < 5) return u; // Reached center
-          const speed = 2;
+          if (dist < 5) return u;
+          const speed = 1.5;
           const nx = u.x + (dx/dist) * speed;
           const ny = u.y + (dy/dist) * speed;
+          let hp = u.hp;
           
-          // Check tower volley: if on/adjacent to watchtower tile
-          // (Simplified: apply 3 damage once when entering tower range)
-          // TODO: full tower/defender logic
+          // Find current tile (closest tile to unit position)
+          let closestTile = null;
+          let closestDist = Infinity;
+          for (const t of tiles) {
+            const { cx, cy } = simTilePos(t);
+            const d = Math.sqrt((nx-cx)**2 + (ny-cy)**2);
+            if (d < closestDist) { closestDist = d; closestTile = t; }
+          }
           
-          return { ...u, x: nx, y: ny };
+          if (closestTile) {
+            // Watchtower volley: 3 damage once per tower when in range (own + adjacent)
+            for (const wt of watchtowers) {
+              const wtTile = tiles.find(t => t.id === wt.tileId);
+              if (!wtTile) continue;
+              const dq = Math.abs(wtTile.q - closestTile.q);
+              const dr = Math.abs(wtTile.r - closestTile.r);
+              const inRange = (dq <= 1 && dr <= 1);
+              const key = `${wt.id}-${u.id}`;
+              if (inRange && !volleyHit.has(key)) {
+                volleyHit.add(key);
+                hp -= 3;
+              }
+            }
+            // Thorn Wall: 1 damage when entering tile
+            const wall = thornWalls.find(w => w.tileId === closestTile.id);
+            if (wall && u.tileId !== closestTile.id) {
+              hp -= 1;
+            }
+            // Defenders: Awoken on tile deal power as damage
+            const defenders = placements.filter(p => p.tileId === closestTile.id && p.stance === "defense");
+            for (const d of defenders) {
+              const aw = tenderItems.find(a => a.id === d.awakenedId);
+              if (aw) {
+                // Simplified: power = sum of piece powers (approx from awoken data)
+                const power = (aw.power || 3);
+                hp -= power * 0.1; // Small chip damage per tick
+              }
+            }
+          }
+          
+          return { ...u, x: nx, y: ny, hp, tileId: closestTile?.id ?? u.tileId };
         }).filter(u => u.hp > 0);
       });
     }, 50);
