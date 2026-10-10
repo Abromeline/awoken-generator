@@ -52,3 +52,75 @@ export const WHISPERS: string[] = [
 export function randomWhisper(): string {
   return WHISPERS[Math.floor(Math.random() * WHISPERS.length)];
 }
+
+// Return reports: practical observations when the Tender returns.
+// These check actual game state — buildings, curses, defenses.
+export interface ReturnReport {
+  condition: "no_buildings" | "has_watchtower" | "curse_near" | "no_defense" | "forest_dream";
+  texts: string[];
+}
+
+export const RETURN_REPORTS: ReturnReport[] = [
+  {
+    condition: "no_buildings",
+    texts: [
+      "While you were away, I walked the empty field. We have no walls, no towers — nothing between us and the dark. Could we build something?",
+      "The land is bare, Tender. No watchtower scans the horizon. I feel... exposed.",
+      "I dreamed of stone and timber. We need buildings — the curse will not wait for us to be ready.",
+    ],
+  },
+  {
+    condition: "has_watchtower",
+    texts: [
+      "A watchtower rose while you were gone. I watched its light sweep the wilds. We are safer now.",
+      "The new tower hums at night. I like its song — it sounds like vigilance.",
+    ],
+  },
+  {
+    condition: "curse_near",
+    texts: [
+      "The curse presses close, Tender. I can feel it at the edges. We need defenses to keep it at bay.",
+      "Dark tiles creep nearer. If we had walls, I would sleep easier. As it is, I stand watch.",
+    ],
+  },
+  {
+    condition: "no_defense",
+    texts: [
+      "We have no thorn walls, no towers that fight. If the Unraveling comes in force, it is only us.",
+      "I am strong, but I am one. Defenses would let me rest between waves.",
+    ],
+  },
+  {
+    condition: "forest_dream",
+    texts: [
+      "If we start the forest now, it will be here sooner, right? I dreamed of trees — tall ones, with roots like promises.",
+      "Plant trees, Tender. I want to stand in shade someday. The land remembers every seed.",
+      "A forest takes years. But years pass whether we plant or not. Let us plant.",
+    ],
+  },
+];
+
+export function pickReturnReport(
+  hasBuildings: boolean,
+  hasWatchtower: boolean,
+  curseNear: boolean,
+  hasDefense: boolean
+): string | null {
+  const candidates: string[] = [];
+  if (!hasBuildings) {
+    candidates.push(...(RETURN_REPORTS.find(r => r.condition === "no_buildings")?.texts ?? []));
+  }
+  if (hasWatchtower) {
+    candidates.push(...(RETURN_REPORTS.find(r => r.condition === "has_watchtower")?.texts ?? []));
+  }
+  if (curseNear) {
+    candidates.push(...(RETURN_REPORTS.find(r => r.condition === "curse_near")?.texts ?? []));
+  }
+  if (!hasDefense) {
+    candidates.push(...(RETURN_REPORTS.find(r => r.condition === "no_defense")?.texts ?? []));
+  }
+  // Forest dream is always a possibility
+  candidates.push(...(RETURN_REPORTS.find(r => r.condition === "forest_dream")?.texts ?? []));
+  if (!candidates.length) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}

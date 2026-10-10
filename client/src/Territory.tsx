@@ -7,7 +7,7 @@ import auroraUrl from "./assets/music/aurora.mp3";
 import hymnUrl from "./assets/music/hymn-to-the-dawn.mp3";
 import reverieUrl from "./assets/music/reverie.mp3";
 import { Corner, elementForPiece, type Element } from "./App";
-import { randomWhisper } from "./whispers";
+import { randomWhisper, pickReturnReport } from "./whispers";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage } from "./BuildingMenu";
@@ -91,6 +91,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const battleResolvedRef = useRef(false);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
+  const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
@@ -129,6 +130,23 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   useEffect(() => {
     api.getLegends().then(setLegends).catch(() => {});
+    // Return report: an Awoken speaks of buildings and needs
+    api.getTerritory().then(t => {
+      const fieldAwoken = t.placements.map((p: any) => p.awakenedId);
+      if (!fieldAwoken.length) return;
+      const buildings = t.buildings ?? [];
+      const hasBuildings = buildings.length > 0;
+      const hasWatchtower = buildings.some((b: any) => b.type === "watchtower");
+      const hasDefense = buildings.some((b: any) => b.type === "thorn_wall" || b.type === "watchtower");
+      const curseNear = t.tiles.some((tile: any) => tile.cursed);
+      const text = pickReturnReport(hasBuildings, hasWatchtower, curseNear, hasDefense);
+      if (text) {
+        const speaker = fieldAwoken[Math.floor(Math.random() * fieldAwoken.length)];
+        setReturnReport({ awakenedId: speaker, text });
+        // Clear after 12 seconds
+        setTimeout(() => setReturnReport(null), 12000);
+      }
+    }).catch(() => {});
     refreshEnergy();
     const onFocus = () => refreshEnergy();
     window.addEventListener("focus", onFocus);
@@ -1007,6 +1025,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               ))}
             </div>
             <button className="abtn small" onClick={() => setShowChampionPicker(false)}>Close</button>
+          </div>
+        </div>
+      )}
+      {returnReport && (
+        <div className="return-report-overlay" onClick={() => setReturnReport(null)}>
+          <div className="return-report" onClick={e => e.stopPropagation()}>
+            <div className="return-report-label">Upon your return, an Awoken speaks:</div>
+            <div className="return-report-text">"{returnReport.text}"</div>
+            <button className="abtn small" onClick={() => setReturnReport(null)}>Tend on</button>
           </div>
         </div>
       )}

@@ -1234,7 +1234,8 @@ export const handlers = {
       }
     }
     
-    return { tiles, placements };
+    const buildings = await db.select().from(schema.territoryBuildings).where(eq(schema.territoryBuildings.ownerKey, ownerKey));
+    return { tiles, placements, buildings };
   },
 
   async deployAwoken(args: unknown, ctx?: ActionContext) {
