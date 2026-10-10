@@ -574,9 +574,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       setMoveTargeting(false);
                       setStanceMinimized(false);
                     }}>
-                    {/* Visibility disc behind Awoken */}
-                    <ellipse cx={kx} cy={ky} rx={aws * 0.42} ry={ahs * 0.38}
-                      fill="rgba(0,0,0,0.45)" />
+                    {/* Light aura glow behind Awoken */}
+                    <ellipse cx={kx} cy={ky} rx={aws * 0.48} ry={ahs * 0.44}
+                      fill="rgba(255,240,200,0.28)"
+                      style={{ filter: "blur(6px)" }} />
+                    <ellipse cx={kx} cy={ky} rx={aws * 0.38} ry={ahs * 0.34}
+                      fill="rgba(255,250,230,0.22)"
+                      style={{ filter: "blur(4px)" }} />
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14 * awScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
                     )}
