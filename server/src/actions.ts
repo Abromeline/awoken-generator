@@ -382,9 +382,9 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
     const nq = q + dq, nr = r + dr;
     if (seen.has(`${nq},${nr}`)) continue;
     const el = elements[Math.floor(Math.random() * elements.length)];
-    // Curse HP scales with ring distance from center: ring 1 = 6, +2 per ring
+    // Curse HP scales with ring distance from center: ring 1 = 10, +6 per ring
     const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
-    const hp = 4 + ring * 2;
+    const hp = 4 + ring * 6;
     await db.insert(schema.territoryTiles).values({
       ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
       curseHp: hp, curseMaxHp: hp,
@@ -2016,7 +2016,7 @@ export const handlers = {
     // HP system: each attack dwindles the curse HP by the attacker's power.
     // Initialize HP if missing (legacy tiles).
     const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
-    const maxHp = tile[0].curseMaxHp ?? (4 + ring * 2);
+    const maxHp = tile[0].curseMaxHp ?? (4 + ring * 6);
     const currentHp = tile[0].curseHp ?? maxHp;
     const newHp = Math.max(0, currentHp - power);
     if (newHp > 0) {

@@ -845,7 +845,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {/* Curse HP on cursed tiles */}
           {t.cursed && (() => {
             const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
-            const maxHp = (t as any).curseMaxHp ?? (4 + ring * 2);
+            const maxHp = (t as any).curseMaxHp ?? (4 + ring * 6);
             const hp = (t as any).curseHp ?? maxHp;
             return (
               <text x={cx} y={cy + 8} textAnchor="middle" fontSize={8}
