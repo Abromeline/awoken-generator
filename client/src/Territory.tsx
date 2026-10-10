@@ -3,9 +3,6 @@ import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./a
 import EnergyTimer from "./EnergyTimer";
 import FirstTrial from "./FirstTrial";
 import FieldAwoken from "./FieldAwoken";
-import auroraUrl from "./assets/music/aurora.mp3";
-import hymnUrl from "./assets/music/hymn-to-the-dawn.mp3";
-import reverieUrl from "./assets/music/reverie.mp3";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
@@ -62,11 +59,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [musicOn, setMusicOn] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const TRACKS = [
-    { name: "Aurora", url: auroraUrl },
-    { name: "Hymn to the Dawn", url: hymnUrl },
-    { name: "Reverie", url: reverieUrl },
-  ];
+  const [libraryTracks, setLibraryTracks] = useState<{ name: string; url: string }[]>([]);
+  // Load all enabled tracks from the music library for ambient playback
+  useEffect(() => {
+    api.listBattleTracks().then(({ tracks }) => {
+      Promise.all(tracks.filter(t => t.enabled).map(async t => {
+        const { trackData } = await api.getBattleTrack({ id: t.id });
+        if (trackData.startsWith("data:audio") || trackData.startsWith("/music/")) {
+          return { name: t.name, url: trackData };
+        }
+        return null;
+      })).then(results => {
+        const valid = results.filter(Boolean) as { name: string; url: string }[];
+        if (valid.length) setLibraryTracks(valid);
+      });
+    }).catch(() => {});
+  }, []);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [energy, setEnergy] = useState(10);
@@ -1267,15 +1275,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <button className="compass-btn zoom-in" onClick={() => setZoom(z => Math.min(z + 0.2, 3))} aria-label="Zoom in">＋</button>
         <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
         <button className="compass-btn" onClick={() => {
+          const tracks = libraryTracks.length ? libraryTracks : [{ name: "Aurora", url: "/music/aurora.mp3" }];
           if (!audioRef.current) {
-            audioRef.current = new Audio(TRACKS[trackIdx].url);
+            audioRef.current = new Audio(tracks[trackIdx % tracks.length].url);
             audioRef.current.loop = false;
             audioRef.current.volume = 0.4;
             audioRef.current.onended = () => {
-              const next = (trackIdx + 1) % TRACKS.length;
+              const next = (trackIdx + 1) % tracks.length;
               setTrackIdx(next);
               if (audioRef.current) {
-                audioRef.current.src = TRACKS[next].url;
+                audioRef.current.src = tracks[next].url;
                 audioRef.current.play();
               }
             };
@@ -1286,7 +1295,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             audioRef.current.play();
           }
           setMusicOn(!musicOn);
-        }} aria-label="Toggle music" title={TRACKS[trackIdx].name}>
+        }} aria-label="Toggle music" title={(libraryTracks[trackIdx]?.name) ?? "Music"}>
           {musicOn ? "🎶" : "🎵"}
         </button>
       </div>

@@ -32,7 +32,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "music";
+type Section = "enemies" | "buildings" | "terrain" | "timers";
 
 interface UiSprite {
   id: number;
@@ -129,9 +129,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "music"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : "🎵 Music"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : "⏱️ Timers"}
           </button>
         ))}
       </div>
@@ -273,47 +273,6 @@ export default function UIWorkspace() {
           </div>
         </div>
       )}
-
-      {section === "music" && (
-        <div className="workspace-grid">
-          <div className="workspace-card wide">
-            <h3>🎵 Music Library</h3>
-            <p className="quiet">Toggle where each track plays. All by Scott Buckley (CC-BY 4.0).</p>
-            <div className="stat-rows">
-              {MUSIC_TRACKS.map(t => (
-                <div key={t.id} className="music-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0", borderBottom: "1px solid #333" }}>
-                  <span style={{ flex: 1 }}>{t.name}</span>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={getVal(`music.${t.id}.terrain`) ?? t.defaultTerrain}
-                      onChange={e => setVal(`music.${t.id}.terrain`, e.target.checked)} /> 🗺️ Terrain
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={getVal(`music.${t.id}.battle`) ?? t.defaultBattle}
-                      onChange={e => setVal(`music.${t.id}.battle`, e.target.checked)} /> ⚔️ Battle
-                  </label>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
-
-// Music track definitions
-const MUSIC_TRACKS = [
-  { id: "aurora", name: "Aurora", defaultTerrain: true, defaultBattle: false },
-  { id: "hymn-to-the-dawn", name: "Hymn to the Dawn", defaultTerrain: true, defaultBattle: false },
-  { id: "reverie", name: "Reverie", defaultTerrain: true, defaultBattle: false },
-  { id: "goliath", name: "Goliath", defaultTerrain: false, defaultBattle: true },
-  { id: "balefire", name: "Balefire", defaultTerrain: false, defaultBattle: true },
-  { id: "song-of-the-forge", name: "Song of the Forge", defaultTerrain: false, defaultBattle: true },
-  { id: "sentinel", name: "Sentinel", defaultTerrain: false, defaultBattle: true },
-  { id: "uprising", name: "Uprising", defaultTerrain: false, defaultBattle: true },
-  { id: "into-the-wilds", name: "Into the Wilds", defaultTerrain: false, defaultBattle: true },
-  { id: "legacy", name: "Legacy", defaultTerrain: false, defaultBattle: true },
-  { id: "born-of-the-sky", name: "Born of the Sky", defaultTerrain: false, defaultBattle: true },
-  { id: "vanguard", name: "Vanguard", defaultTerrain: false, defaultBattle: true },
-  { id: "phoenix", name: "Phoenix", defaultTerrain: false, defaultBattle: true },
-];
