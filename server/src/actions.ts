@@ -39,7 +39,7 @@ function ownerNameFor(ctx?: ActionContext): string {
 const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "aspect", "head"]);
 const raritySchema = z.enum(["common", "uncommon", "rare", "mythic"]);
 const collectionSchema = z.enum(["tender", "workshop"]);
-const statSchema = z.number().int().min(1).max(3);
+const statSchema = z.number().int().min(0).max(3);
 const statCategories = new Set<z.infer<typeof layerCategorySchema>>(["arms", "body", "head"]);
 const okResponse = z.object({ ok: z.literal(true) });
 const purifyResponse = z.object({

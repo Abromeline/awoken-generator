@@ -42,7 +42,7 @@ const statCategories: Category[] = ["arms", "body", "head"];
 const rarityLabel: Record<Rarity, string> = { common: "Common", uncommon: "Uncommon", rare: "Rare", mythic: "Mythic" };
 const rarityWeight: Record<Rarity, number> = { common: 8, uncommon: 4, rare: 2, mythic: 1 };
 const rarityScore: Record<Rarity, number> = { common: 1, uncommon: 2, rare: 3, mythic: 4 };
-const statValues = [1, 2, 3] as const;
+const statValues = [0, 1, 2, 3] as const;
 const starters: LayerAsset[] = [
   ["whisper", "Whisper Aura", auraWhisper], ["soft", "Soft Aura", auraSoft], ["halo-ring", "Halo Ring", auraHaloRing],
   ["wide", "Wide Aura", auraWide], ["tall", "Tall Aura", auraTall], ["twin", "Twin Aura", auraTwin],
