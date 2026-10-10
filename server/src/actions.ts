@@ -1325,6 +1325,46 @@ export const handlers = {
     return await getWorldMood();
   },
 
+  // Get the full roster for a confluence battle (both players' committed Awoken)
+  async getConfluenceRoster(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ sessionId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const sessions = await db.select().from(schema.confluenceSessions)
+      .where(eq(schema.confluenceSessions.id, parsed.data.sessionId)).limit(1);
+    if (!sessions.length) badRequest("No such confluence.");
+    const s = sessions[0];
+    if (s.hostKey !== ownerKey && s.guestKey !== ownerKey) badRequest("Not your confluence.");
+    const roster = await db.select().from(schema.confluenceRoster)
+      .where(eq(schema.confluenceRoster.sessionId, parsed.data.sessionId));
+
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const r of assetRows) {
+      const rar = raritySchema.safeParse(r.rarity);
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness });
+    }
+
+    const fighters = [];
+    for (const r of roster) {
+      const a = await db.select().from(schema.awakened)
+        .where(eq(schema.awakened.id, r.awakenedId)).limit(1);
+      if (!a.length) continue;
+      const layers = parseLayers(a[0].compositionJson, assetStats);
+      const identity = a[0].identityKey === "legacy" ? identityFor(layers) : a[0].identityKey;
+      // Build idsByIdentity for empowerment
+      const allRows = await db.select({ id: schema.awakened.id, identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson }).from(schema.awakened);
+      const idsByIdentity = new Map<string, number[]>();
+      for (const other of allRows) {
+        const oid = other.identityKey === "legacy" ? identityFor(parseLayers(other.compositionJson, assetStats)) : other.identityKey;
+        idsByIdentity.set(oid, [...(idsByIdentity.get(oid) ?? []), other.id]);
+      }
+      const payload = toAwakenedPayload(a[0] as any, layers, identity, idsByIdentity);
+      fighters.push({ ...payload, ownerKey: r.ownerKey });
+    }
+    return { fighters, wavePower: s.wavePower, status: s.status };
+  },
+
   // Get or create your referral link code
   async getReferralCode(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

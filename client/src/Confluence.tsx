@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, Awakened } from "./api";
 import TwinBirth from "./TwinBirth";
+import ConfluenceBattle from "./ConfluenceBattle";
 
 export default function Confluence({
   hand,
@@ -15,6 +16,7 @@ export default function Confluence({
   const [committed, setCommitted] = useState<number[]>([]);
   const [twin, setTwin] = useState<any>(null);
   const [msg, setMsg] = useState("");
+  const [showBattle, setShowBattle] = useState(false);
 
   const create = async () => {
     try {
@@ -63,6 +65,10 @@ export default function Confluence({
       setMsg(e.message || "Couldn't resolve.");
     }
   };
+
+  if (showBattle && sessionId) {
+    return <ConfluenceBattle sessionId={sessionId} onClose={onClose} />;
+  }
 
   if (twin) {
     return <TwinBirth twin={twin} sessionId={twin.sessionId} onClaimed={onClose} />;
@@ -130,14 +136,13 @@ export default function Confluence({
             </div>
             {committed.length > 0 && (
               <div className="friends-section">
-                <h4>Resolve the battle</h4>
+                <h4>To battle</h4>
                 <div className="referral-text">
-                  (Shared battleground coming soon — for now, declare the outcome.)
+                  Both tenders' committed Awoken fight as one against the Unraveling.
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className="abtn small" onClick={() => resolveBattle(true)}>Victory</button>
-                  <button className="abtn small" onClick={() => resolveBattle(false)}>Defeat</button>
-                </div>
+                <button className="abtn" onClick={() => setShowBattle(true)}>
+                  ⚔ Begin the shared battle
+                </button>
               </div>
             )}
           </>

@@ -1311,3 +1311,39 @@ body.defeat-flash {
 .twin-claimed{font-size:16px;color:#b89b5e;letter-spacing:1px}
 
 .confluence-btn{width:100%;margin-bottom:16px;padding:10px;font-size:14px}
+
+.confluence-battle-overlay{
+  position:fixed;inset:0;z-index:150;overflow-y:auto;
+}
+.confluence-battle{
+  position:relative;z-index:2;max-width:700px;margin:0 auto;
+  padding:20px;min-height:100vh;
+}
+.cb-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.cb-header h2{color:#f0e8d8;margin:0;flex:1}
+.cb-round{color:#b89b5e;font-size:14px}
+.cb-loading{text-align:center;color:#aaa;font-size:16px;padding:40px}
+.cb-sides{display:flex;gap:16px;margin-bottom:16px}
+.cb-fighters,.cb-enemies{flex:1;background:rgba(10,10,10,0.8);border-radius:8px;padding:12px}
+.cb-fighters h3,.cb-enemies h3{font-size:13px;color:#b89b5e;margin:0 0 10px}
+.cb-vs{font-size:32px;align-self:center;color:#b89b5e}
+.cb-fighter{display:flex;gap:10px;margin-bottom:10px;padding:8px;background:#1a1a1a;border-radius:6px}
+.cb-fighter.fallen{opacity:0.3}
+.cb-fighter img{width:48px;height:62px;object-fit:contain}
+.cb-fighter-info{flex:1}
+.cb-fighter-name{font-size:13px;color:#e8e0d0;font-weight:bold}
+.cb-hp-bar{height:8px;background:#333;border-radius:4px;margin:4px 0;overflow:hidden}
+.cb-hp-fill{height:100%;background:linear-gradient(90deg,#4a9a4a,#6f6);transition:width 0.5s}
+.cb-hp-bar.enemy .cb-hp-fill{background:linear-gradient(90deg,#9a4a4a,#f66)}
+.cb-stats{font-size:11px;color:#888}
+.cb-enemy{margin-bottom:8px;padding:8px;background:#1a0a0a;border-radius:6px}
+.cb-enemy.fallen{opacity:0.3}
+.cb-enemy-name{font-size:13px;color:#ffaaaa;font-weight:bold}
+.cb-log{
+  background:rgba(10,10,10,0.8);border:1px solid #333;border-radius:6px;
+  padding:12px;font-size:12px;color:#aaa;min-height:80px;max-height:120px;overflow-y:auto;
+  margin-bottom:16px;line-height:1.6;
+}
+.cb-result{text-align:center;font-size:18px;padding:20px;border-radius:8px}
+.cb-result.victory{background:rgba(184,155,94,0.15);border:2px solid #b89b5e;color:#ffeebb}
+.cb-result.defeat{background:rgba(100,30,30,0.15);border:2px solid #6a2a2a;color:#ffaaaa}
