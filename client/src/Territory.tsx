@@ -563,21 +563,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     style={{
                       "--drift-dur": `${driftDur}s`,
                       "--drift-delay": `${driftDelay}s`,
-                      cursor: "pointer",
+                      cursor: selectedBuilding ? "pointer" : "pointer",
+                      pointerEvents: selectedBuilding ? "none" : "auto",
                     } as React.CSSProperties}
                     onClick={(e) => {
+                      if (selectedBuilding) return; // Let tile handle it in build mode
                       e.stopPropagation();
                       setSelectedAwoken(isSelected ? null : a.id);
                       setAttackTargeting(false);
                       setMoveTargeting(false);
                       setStanceMinimized(false);
                     }}>
+                    {/* Visibility disc behind Awoken */}
+                    <ellipse cx={kx} cy={ky} rx={aws * 0.42} ry={ahs * 0.38}
+                      fill="rgba(0,0,0,0.45)" />
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14 * awScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
                     )}
+                    <g style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))" }}>
                     <FieldAwoken awoken={a} assets={assets}
                       x={kx - aws / 2} y={ky - ahs / 2}
                       width={aws} height={ahs} />
+                    </g>
                     {placement && placement.stance !== "defense" && (
                       <text x={kx} y={ky - ahs / 2 - 4} textAnchor="middle" fontSize={7}
                         fill={placement.stance === "attack" ? "#ff6666" : "#66aaff"}>
