@@ -364,8 +364,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const size = 17 * zoom;
     const HEIGHT_PX = 22 * zoom;
     const originX = 250, originY = 170;
-    const px = size * 1.5 * t.q;
-    const py = size * Math.sqrt(3) * (t.r + t.q / 2);
+    const k = size / 796;
+    const px = t.q * 1292 * k + t.r * 13 * k;
+    const py = t.q * 475 * k + t.r * 946 * k;
     return { cx: originX + px + pan.x, cy: originY + py + pan.y - (t.height || 0) * HEIGHT_PX };
   };
   const startSim = () => {
@@ -580,10 +581,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const HEIGHT_PX = 22 * zoom;
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
-    // Flat-top axial to pixel (XYZ: z lifts tile up on screen)
+    // Isometric tiling vectors (measured from tile art, source px: E=(1292,475), SE=(13,946))
+    // Scaled by s/796 where 796 = hex half-width in source px
     const tilePos = (t: any) => {
-      const px = size * 1.5 * t.q;
-      const py = size * Math.sqrt(3) * (t.r + t.q / 2);
+      const k = size / 796;
+      const px = t.q * 1292 * k + t.r * 13 * k;
+      const py = t.q * 475 * k + t.r * 946 * k;
       const cx = originX + px + pan.x;
       const cy = originY + py + pan.y - (t.height || 0) * HEIGHT_PX;
       return { cx, cy };
@@ -925,8 +928,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (!tile) return null;
         const size = 17 * zoom;
         const HEIGHT_PX = 22 * zoom;
-        const px = size * 1.5 * tile.q;
-        const py = size * Math.sqrt(3) * (tile.r + tile.q / 2) - (tile.height || 0) * HEIGHT_PX;
+        const k = size / 796;
+        const px = tile.q * 1292 * k + tile.r * 13 * k;
+        const py = tile.q * 475 * k + tile.r * 946 * k - (tile.height || 0) * HEIGHT_PX;
         const cx = 250 + px + pan.x;
         const cy = 170 + py + pan.y;
         // Render as HTML overlay positioned over the Awoken
@@ -1157,9 +1161,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const scale = 22; // hex size
                 return tiles.map(t => {
                   const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
-                  // Hex positioning (flat-top, same math as main map, scaled down)
-                  const px = scale * 1.5 * (t.q - centerQ);
-                  const py = scale * Math.sqrt(3) * ((t.r - centerR) + (t.q - centerQ) / 2);
+                  // Hex positioning (isometric vectors, same as main map, scaled down)
+                  const k = scale / 796;
+                  const px = (t.q - centerQ) * 1292 * k + (t.r - centerR) * 13 * k;
+                  const py = (t.q - centerQ) * 475 * k + (t.r - centerR) * 946 * k;
                   return (
                     <div
                       key={t.id}
