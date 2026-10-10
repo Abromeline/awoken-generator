@@ -69,6 +69,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
+  // Wave simulation (preview only, no DB changes)
+  const [simActive, setSimActive] = useState(false);
+  const [simUnits, setSimUnits] = useState<Array<{ id: number; type: string; tileId: number; hp: number; maxHp: number; power: number; x: number; y: number; targetX: number; targetY: number }>>([]);
+  const simRef = useRef<{ units: typeof simUnits; timer: any } | null>(null);
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBindingPrompt, setShowBindingPrompt] = useState(false);
   const [showBattleground, setShowBattleground] = useState(false);
@@ -342,6 +346,80 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     // Phase 2: Open the battleground with the target's defenders
     setShowTargetMap(false);
     setShowBattleground(true);
+  };
+
+  // === WAVE SIMULATION (preview only) ===
+  const simTilePos = (t: any) => {
+    const size = 17 * zoom;
+    const HEIGHT_PX = 22 * zoom;
+    const originX = 250, originY = 170;
+    const px = size * 1.5 * t.q;
+    const py = size * Math.sqrt(3) * (t.r + t.q / 2);
+    return { cx: originX + px + pan.x, cy: originY + py + pan.y - (t.height || 0) * HEIGHT_PX };
+  };
+  const startSim = () => {
+    if (!wave || !tiles.length) return;
+    // Find cursed perimeter tiles (cursed tiles adjacent to purified)
+    const cursed = tiles.filter(t => t.cursed);
+    const purified = tiles.filter(t => !t.cursed);
+    if (!cursed.length || !purified.length) return;
+    
+    // Spawn unravelers on random cursed tiles
+    const units: typeof simUnits = [];
+    let id = 0;
+    // Fray: power 1-2, hp 3. Unraveler: power 4, hp 6.
+    for (let i = 0; i < wave.frayCount; i++) {
+      const tile = cursed[Math.floor(Math.random() * cursed.length)];
+      const { cx, cy } = simTilePos(tile);
+      units.push({ id: id++, type: "fray", tileId: tile.id, hp: 3, maxHp: 3, power: 2, x: cx, y: cy, targetX: cx, targetY: cy });
+    }
+    for (let i = 0; i < wave.unravelers; i++) {
+      const tile = cursed[Math.floor(Math.random() * cursed.length)];
+      const { cx, cy } = simTilePos(tile);
+      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: 6, maxHp: 6, power: 4, x: cx, y: cy, targetX: cx, targetY: cy });
+    }
+    
+    setSimUnits(units);
+    setSimActive(true);
+    
+    // Animation loop: move toward center, apply defenses
+    const timer = setInterval(() => {
+      setSimUnits(prev => {
+        if (!prev.length) {
+          clearInterval(timer);
+          setSimActive(false);
+          return prev;
+        }
+        // Find center tile
+        const center = tiles.find(t => t.q === 0 && t.r === 0) || purified[0];
+        const { cx: ccx, cy: ccy } = simTilePos(center);
+        
+        return prev.map(u => {
+          // Move toward center
+          const dx = ccx - u.x;
+          const dy = ccy - u.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 5) return u; // Reached center
+          const speed = 2;
+          const nx = u.x + (dx/dist) * speed;
+          const ny = u.y + (dy/dist) * speed;
+          
+          // Check tower volley: if on/adjacent to watchtower tile
+          // (Simplified: apply 3 damage once when entering tower range)
+          // TODO: full tower/defender logic
+          
+          return { ...u, x: nx, y: ny };
+        }).filter(u => u.hp > 0);
+      });
+    }, 50);
+    
+    simRef.current = { units, timer };
+  };
+  
+  const stopSim = () => {
+    if (simRef.current?.timer) clearInterval(simRef.current.timer);
+    setSimActive(false);
+    setSimUnits([]);
   };
 
   const handleBattleEnd = async (result: { victory: boolean; survivors: number[] }) => {
@@ -886,6 +964,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <button className="abtn battle-cta" onClick={handleDefend}>
           ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "⚔ Fight the Unraveling"}
         </button>
+        {!simActive && wave && (
+          <button className="abtn small" onClick={startSim} style={{ marginLeft: 8 }}>
+            👁 Simulate Wave {wave.waveNumber}
+          </button>
+        )}
+        {simActive && (
+          <button className="abtn small" onClick={stopSim} style={{ marginLeft: 8 }}>
+            ⏹ Stop Sim
+          </button>
+        )}
       </div>
       <div className="territory-hand">
         <div className="hand-label">Tap cards to ready them for battle — then tap a hex to send them</div>
@@ -936,6 +1024,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           }}
           onMouseLeave={() => { dragRef.current = null; }}>
           {renderGrid()}
+          {/* Simulation units */}
+          {simUnits.map(u => (
+            <g key={`sim-${u.id}`} transform={`translate(${u.x},${u.y})`}>
+              <circle r={8} fill={u.type === "unraveler" ? "#1a0a2a" : "#2a1a0a"} stroke="#ff4444" strokeWidth={1.5} opacity={0.9} />
+              <text textAnchor="middle" dy={3} fontSize={8}>{u.type === "unraveler" ? "🌀" : "💥"}</text>
+              {/* HP bar */}
+              <rect x={-10} y={-14} width={20} height={3} fill="#333" />
+              <rect x={-10} y={-14} width={20 * (u.hp / u.maxHp)} height={3} fill={u.hp / u.maxHp > 0.5 ? "#4f4" : "#f44"} />
+            </g>
+          ))}
         </svg>
       </div>
       {/* Bottom dock: energy orb + hand */}
