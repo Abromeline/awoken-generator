@@ -773,6 +773,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     <ellipse cx={kx} cy={ky} rx={aws * 0.38} ry={ahs * 0.34}
                       fill="rgba(255,250,230,0.22)"
                       style={{ filter: "blur(4px)" }} />
+                    {isWhispering && (
+                      <ellipse cx={kx} cy={ky} rx={aws * 0.6} ry={ahs * 0.55}
+                        fill="rgba(255,235,180,0.35)"
+                        style={{ filter: "blur(8px)" }} />
+                    )}
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14 * awScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
                     )}
@@ -1229,7 +1234,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <button className="abtn battle-cta" onClick={handleTargetConfirmed}>
               ⚔ Defend
             </button>
-            <button className="abtn small" onClick={() => setShowTargetMap(false)} style={{ marginLeft: 8 }}>
+            <button className="abtn small" onClick={() => setShowTargetMap(false)} style={{ marginLeft: 8, color: "#ffeebb", borderColor: "#b89b5e" }}>
               Retreat
             </button>
           </div>
