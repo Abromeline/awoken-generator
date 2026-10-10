@@ -390,7 +390,10 @@ async function expandFrontier(ownerKey: string, q: number, r: number) {
     const el = elements[Math.floor(Math.random() * elements.length)];
     // Curse HP scales with ring distance from center: ring 1 = 10, +6 per ring
     const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
-    const hp = 4 + ring * 6;
+    let hp = 4 + ring * 6;
+    // Thickening mood: +50% curse HP
+    const mood = await getWorldMood();
+    if (mood.mood === "thickening") hp = Math.ceil(hp * 1.5);
     await db.insert(schema.territoryTiles).values({
       ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
       curseHp: hp, curseMaxHp: hp,
@@ -493,6 +496,36 @@ async function recordDeed(ownerKey: string, awakenedId: number, deed: string) {
       awakenedId, ownerKey, deed: deed as any, count: 1,
     });
   }
+}
+
+// Unraveling moods: week-long world states that shift the strategic landscape.
+export type WorldMood = "thickening" | "thinning" | "quiet" | "storm";
+const MOODS: WorldMood[] = ["thickening", "thinning", "quiet", "storm"];
+const MOOD_DESCRIPTIONS: Record<WorldMood, string> = {
+  thickening: "The dark grows dense. Cursed tiles hold +50% HP.",
+  thinning: "The veil is thin. Attunement completes twice as fast.",
+  quiet: "A hush falls. Fewer waves, but the Awoken dream vividly.",
+  storm: "The Unraveling rages. Waves strike with +50% power.",
+};
+
+async function getWorldMood(): Promise<{ mood: WorldMood; description: string; endsAt: string }> {
+  const rows = await db.select().from(schema.settings).where(eq(schema.settings.key, "world_mood")).limit(1);
+  const now = Date.now();
+  if (rows.length) {
+    const data = JSON.parse(rows[0].value);
+    if (new Date(data.endsAt).getTime() > now) {
+      return data;
+    }
+  }
+  // Rotate to next mood
+  const lastMood = rows.length ? JSON.parse(rows[0].value).mood : "quiet";
+  const nextIdx = (MOODS.indexOf(lastMood) + 1) % MOODS.length;
+  const mood = MOODS[nextIdx];
+  const endsAt = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const data = { mood, description: MOOD_DESCRIPTIONS[mood], endsAt };
+  await db.insert(schema.settings).values({ key: "world_mood", value: JSON.stringify(data) })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value: JSON.stringify(data) } });
+  return data;
 }
 
 // Experience: level = floor(sqrt(xp / 100)). Every 10 levels grants 1 stat point.
@@ -1164,6 +1197,10 @@ export const handlers = {
     return { champion: championAwoken, legends: legendsWithNames };
   },
 
+  async getMood(_args: unknown) {
+    return await getWorldMood();
+  },
+
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -1235,7 +1272,8 @@ export const handlers = {
     }
     
     const buildings = await db.select().from(schema.territoryBuildings).where(eq(schema.territoryBuildings.ownerKey, ownerKey));
-    return { tiles, placements, buildings };
+    const mood = await getWorldMood();
+    return { tiles, placements, buildings, mood };
   },
 
   async deployAwoken(args: unknown, ctx?: ActionContext) {

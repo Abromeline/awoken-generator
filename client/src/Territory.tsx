@@ -92,6 +92,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
+  const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
@@ -132,6 +133,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     api.getLegends().then(setLegends).catch(() => {});
     // Return report: an Awoken speaks of buildings and needs
     api.getTerritory().then(t => {
+      if (t.mood) setMood(t.mood);
       const fieldAwoken = t.placements.map((p: any) => p.awakenedId);
       if (!fieldAwoken.length) return;
       const buildings = t.buildings ?? [];
@@ -1035,6 +1037,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <div className="return-report-text">"{returnReport.text}"</div>
             <button className="abtn small" onClick={() => setReturnReport(null)}>Tend on</button>
           </div>
+        </div>
+      )}
+      {mood && (
+        <div className="world-mood" title={mood.description}>
+          🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
         </div>
       )}
       <div className="territory-hud">

@@ -1213,3 +1213,10 @@ body.defeat-flash {
 }
 .return-report-label{font-size:12px;color:#b89b5e;letter-spacing:1px;margin-bottom:12px}
 .return-report-text{font-size:16px;color:#e8e0d0;font-style:italic;line-height:1.6;margin-bottom:16px}
+
+.world-mood{
+  position:absolute;top:12px;right:12px;z-index:20;
+  background:rgba(20,16,32,0.9);border:1px solid #6a5a8a;border-radius:6px;
+  padding:6px 12px;font-size:12px;color:#c9b8e8;letter-spacing:0.5px;
+  cursor:help;
+}
