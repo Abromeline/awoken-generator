@@ -49,6 +49,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [buildings, setBuildings] = useState<any[]>([]);
   const [gameConfig, setGameConfig] = useState<any>(null);
   const [pendingTile, setPendingTile] = useState<number | null>(null);
+  const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
@@ -1105,9 +1106,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 <span>⏱ {baseMinutes >= 60 ? `${baseMinutes/60}h` : `${baseMinutes}m`} → <strong>{actualMinutes >= 60 ? `${(actualMinutes/60).toFixed(1)}h` : `${actualMinutes}m`}</strong></span>
                 <span>🂠 {helperCount} helper{helperCount === 1 ? "" : "s"}</span>
               </div>
+              {buildError && <p className="notice error">{buildError}</p>}
               <div className="wave-edit-actions">
                 <button className="abtn" onClick={async () => {
                   try {
+                    setBuildError(null);
                     await api.placeBuilding({
                       tileId: pendingTile,
                       buildingType: selectedBuilding.type,
@@ -1120,7 +1123,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     setBuildings(r.buildings);
                     onUpdate();
                   } catch (e) {
-                    console.error("Place failed", e);
+                    setBuildError((e as Error).message || "Build failed");
                   }
                 }}>Begin Build</button>
                 <button className="abtn small" onClick={() => { setPendingTile(null); setSelectedBuilders([]); }}>Cancel</button>
