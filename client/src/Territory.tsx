@@ -551,7 +551,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const ws = 15, hs = 20;
                 const kx = cx + ks.dx * s * 2;
                 const ky = cy + ks.dy * s * 2;
-                const awScale = 1;
+                const awScale = 0.8 + zoom * 0.5; // Grows with zoom for visibility
                 const aws = ws * awScale, ahs = hs * awScale;
                 const isWhispering = whisper?.awakenedId === a.id;
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
