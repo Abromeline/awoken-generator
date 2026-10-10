@@ -255,12 +255,12 @@ export const api = {
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string } }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
-  deployBattle: (args: { awakenedIds: number[]; tileId: number; energyCost: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
+  deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
   setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),
   attackTile: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true; purified: boolean; need?: number; have?: number }>("attackTile", args),
-  moveAwoken: (args: { awakenedId: number; tileId: number; energyCost: number }) =>
+  moveAwoken: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true }>("moveAwoken", args),
   getWave: () => post<{
     waveNumber: number; wavesDefeated: number;
@@ -270,7 +270,6 @@ export const api = {
     victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
   }>("defendWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
-  grantEnergy: (args: { amount: number }) => post<{ ok: boolean }>("grantEnergy", args),
   assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
   setChampion: (args: { awakenedId: number }) => post<{ ok: boolean }>("setChampion", args),
   getLegends: () => post<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>("getLegends", {}),
@@ -281,6 +280,7 @@ export const api = {
   sendMessage: (args: { friendKey: string; text: string }) => post<{ ok: boolean }>("sendMessage", args),
   getMessages: (args: { friendKey: string }) => post<{ messages: { id: number; text: string; mine: boolean; createdAt: string }[] }>("getMessages", args),
   getReferralCode: () => post<{ code: string }>("getReferralCode", {}),
+  resolveWavePull: (args: { tileId: number; victory: boolean; survivorIds: number[] }) => post<{ ok: boolean; purified: boolean }>("resolveWavePull", args),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
@@ -297,7 +297,7 @@ export const api = {
   addBattleTrack: (args: { name: string; trackData: string }) => post<{ id: number }>("addBattleTrack", args),
   toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
   deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
-  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; energySpent: number }) =>
+  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean }) =>
     post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[] }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),

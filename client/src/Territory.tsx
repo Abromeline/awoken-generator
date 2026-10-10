@@ -95,6 +95,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
   const [showFriends, setShowFriends] = useState(false);
+  const [wavePullTile, setWavePullTile] = useState<number | null>(null);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   const [showTargetMap, setShowTargetMap] = useState(false);
 
@@ -170,37 +171,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return () => window.removeEventListener("focus", onFocus);
   }, [tiles.length]);
 
-  // Passive purification: the Awoken's power stirs adjacent cursed tiles.
-  // Check on load and every 5 minutes — the server enforces the 48h rest.
-  useEffect(() => {
-    const checkPassive = async () => {
-      if (!tiles.length) return;
-      const cursed = tiles.filter(t => t.cursed);
-      let changed = false;
-      for (const tile of cursed) {
-        try {
-          const result = await api.passivePurify({ tileId: tile.id });
-          if (result.ok && result.purified) {
-            changed = true;
-            // A newborn joins the hand for each passive purification
-            api.birthNewbornToHand({ tileId: tile.id, liberatorNames: [] }).catch(() => {});
-          }
-        } catch {
-          // Not ready, too weak, or already purified — silent
-        }
-      }
-      if (changed) {
-        const refreshed = await api.getTerritory();
-        setTiles(refreshed.tiles);
-        setPlacements(refreshed.placements);
-        onUpdate();
-      }
-    };
-    checkPassive();
-    const timer = setInterval(checkPassive, 5 * 60 * 1000);
-    return () => clearInterval(timer);
-  }, [tiles.length]);
-
   const handleTimedBirth = async () => {
     try {
       const birthLayers = pickBirthLayers(assets.map(a => ({
@@ -260,7 +230,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (energy < totalCost) return;
     const fighterIds = fighters.map(a => a.id);
     try {
-      const result = await api.deployBattle({ awakenedIds: fighterIds, tileId, energyCost: totalCost });
+      const result = await api.deployBattle({ awakenedIds: fighterIds, tileId });
       await refreshEnergy();
       const after = await api.getTerritory();
       setTiles(after.tiles);
@@ -302,12 +272,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (selectedAwoken === null) return;
     if (energy < 1) return; // Attacks cost 1 energy
     try {
-      const result = await api.attackTile({ awakenedId: selectedAwoken, tileId });
+      const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
-      if (result.purified) {
+      if (result.wavePull) {
+        // Pulled into the Unraveling! Open a wave battle for this tile.
+        setWavePullTile(result.tileId);
+        setShowBattleground(true);
+      } else if (result.purified) {
         api.birthNewbornToHand({ tileId, liberatorNames: [] }).catch(() => {});
       }
       setSelectedAwoken(null);
@@ -329,7 +303,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const cost = moveCost(awoken.power);
     if (energy < cost) return;
     try {
-      await api.moveAwoken({ awakenedId: selectedAwoken, tileId, energyCost: cost });
+      await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
       await refreshEnergy();
       const refreshed = await api.getTerritory();
       setPlacements(refreshed.placements);
@@ -506,43 +480,42 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Called when victory is detected — resolve the battle early to get bonus tiles
   // for the victory screen picker.
   const handleVictoryDetected = async () => {
-    if (!wave) return;
-    try {
-      const battleRes = await api.resolveBattle({
-        victory: true,
-        waveNumber: wave.waveNumber,
-        survivorIds: [],
-        energySpent: 0,
-      });
-      if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
-        setBonusTiles(battleRes.bonusEligible);
-      }
-      const w = await api.getWave();
-      setWave(w);
-      await refreshEnergy();
-      battleResolvedRef.current = true;
-    } catch (e) {
-      console.error("Victory resolve failed", e);
-    }
+    // Victory detected mid-battle — the real resolve with survivor IDs happens in handleBattleEnd.
+    if (battleResolvedRef.current) return;
+    battleResolvedRef.current = true;
   };
 
   const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => {
     setShowBattleground(false);
-    const wasResolved = battleResolvedRef.current;
     battleResolvedRef.current = false; // reset for next battle
+    // Wave-pull battle (from mystery purification): resolve separately
+    if (wavePullTile !== null) {
+      const tileId = wavePullTile;
+      setWavePullTile(null);
+      try {
+        const res = await api.resolveWavePull({ tileId, victory: result.victory, survivorIds: result.survivors });
+        if (res.purified) {
+          api.birthNewbornToHand({ tileId, liberatorNames: [] }).catch(() => {});
+        }
+        const refreshed = await api.getTerritory();
+        setTiles(refreshed.tiles);
+        setPlacements(refreshed.placements);
+        await refreshEnergy();
+        onUpdate();
+      } catch (e) { console.error("Wave-pull resolve failed", e); }
+      return;
+    }
     if (!wave) return;
     try {
-      // Skip resolve if already done in handleVictoryDetected
-      if (!wasResolved) {
-        const battleRes = await api.resolveBattle({
-          victory: result.victory,
-          waveNumber: wave.waveNumber,
-          survivorIds: result.survivors,
-          energySpent: 0,
-        });
-        if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
-          setBonusTiles(battleRes.bonusEligible);
-        }
+      // Always resolve with the real survivor list so XP and deeds are granted
+      const battleRes = await api.resolveBattle({
+        victory: result.victory,
+        waveNumber: wave.waveNumber,
+        survivorIds: result.survivors,
+        continueWave: result.continueWave,
+      });
+      if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
+        setBonusTiles(battleRes.bonusEligible);
       }
       // Claim the picked bonus tile if one was chosen
       if (result.bonusTileId) {
@@ -566,11 +539,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           return;
         }
         if (result.continueWave) {
-          // Continue: +6 energy, 2 fresh cards, next harder wave
-          try {
-            await api.grantEnergy({ amount: 6 });
-            await refreshEnergy();
-          } catch (e) { console.error("Energy gain failed", e); }
+          // Continue: +6 energy (granted server-side in resolveBattle), 2 fresh cards, next harder wave
+          await refreshEnergy();
           // Refresh hand with 2 new cards (via onUpdate)
           onUpdate();
           return;

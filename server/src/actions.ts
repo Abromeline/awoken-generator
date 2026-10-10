@@ -530,6 +530,14 @@ async function getWorldMood(): Promise<{ mood: WorldMood; description: string; e
   return data;
 }
 
+// Single source of truth for wave power. Wave 1 = 7, +2 per wave, +4 per Unraveler (every 3rd wave).
+function wavePowerFor(wave: number): { totalPower: number; unravelers: number; frayCount: number } {
+  const unravelers = Math.floor(wave / 3);
+  const totalPower = 7 + (wave - 1) * 2 + unravelers * 4;
+  const frayCount = totalPower - unravelers * 4;
+  return { totalPower, unravelers, frayCount };
+}
+
 // Experience, exponential: XP to go from level n to n+1 = floor(100 * 1.5^n).
 // Total XP for level L = sum over n=0..L-1 of 100 * 1.5^n.
 function xpForLevel(level: number): number {
@@ -984,15 +992,6 @@ export const handlers = {
       deck: { id: deck.id, name: deck.name, faceCardId: deck.faceCardId ?? null },
       cardIds,
     };
-  },
-
-  async grantEnergy(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ amount: z.number().int().min(1).max(10) }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid amount.");
-    const energyRes = await this.getEnergy({}, ctx);
-    await gainEnergy(ownerKey, parsed.data.amount, energyRes.maxEnergy);
-    return { ok: true };
   },
 
   async claimBonusTile(args: unknown, ctx?: ActionContext) {
@@ -1476,6 +1475,7 @@ export const handlers = {
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
     if (!tile.length) badRequest("That tile is not yours.");
+    if (tile[0].cursed) badRequest("Cursed tiles must be broken by attacks first.");
     if (tile[0].cursed) badRequest("Cannot deploy on cursed land.");
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
@@ -1497,13 +1497,8 @@ export const handlers = {
     const parsed = z.object({
       awakenedIds: z.array(z.number().int().positive()).min(1).max(4),
       tileId: z.number().int().positive(),
-      energyCost: z.number().int().min(0),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle deployment.");
-    // Server-authoritative energy check.
-    if (!(await spendEnergy(ownerKey, parsed.data.energyCost))) {
-      badRequest("Not enough energy.");
-    }
     if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
       badRequest("Each Awoken fights once.");
     }
@@ -1529,72 +1524,26 @@ export const handlers = {
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
     if (occupied.length + fighters.length > 4) badRequest("Tile holds at most 4 Awoken.");
+    // Server-authoritative deploy cost: 2 + floor((power - 1) / 3) per fighter
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const r of assetRows) {
+      const rar = raritySchema.safeParse(r.rarity);
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness });
+    }
+    let totalCost = 0;
+    for (const f of fighters) {
+      const layers = parseLayers(f.compositionJson, assetStats);
+      const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
+      totalCost += 2 + Math.floor((power - 1) / 3);
+    }
+    if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
     for (const f of fighters) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
       });
     }
-    let purified = false;
-    if (tile[0].cursed) {
-      const assetRows = await db.select().from(schema.layerAssets);
-      const assetStats = new Map<number, AssetStats>();
-      for (const assetRow of assetRows) {
-        const rarity = raritySchema.safeParse(assetRow.rarity);
-        if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
-      }
-      const allOnTile = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
-        .from(schema.fieldPlacements)
-        .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-      let totalPower = 0;
-      const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-      const weight = corruptionToughness(tile[0].q, tile[0].r);
-      for (const p of allOnTile) {
-        const a = owned.find(o => o.id === p.awakenedId);
-        if (!a) continue;
-        const layers = parseLayers(a.compositionJson, assetStats);
-        totalPower += layers.reduce((s, l) => s + (l.power ?? 0), 0);
-        for (const layer of layers) {
-          const el = elementForPieceName(layer.name);
-          if (el !== "fire") elementCounts[el] += 1;
-        }
-      }
-      // Binding stance: binders channel +3 to their tile, +1 to neighbors.
-      // (Defense does not aid purification — it holds purified land.)
-      const bindBonus = await bindingBonuses(ownerKey);
-      totalPower += bindBonus.get(tile[0].id) ?? 0;
-      if (totalPower >= weight) {
-        let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
-        let maxCount = 0; let tie = false;
-        for (const [el, count] of Object.entries(elementCounts)) {
-          if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
-          else if (count === maxCount && count > 0) { tie = true; }
-        }
-        if (tie) element = "neutral";
-        await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element })
-          .where(eq(schema.territoryTiles.id, tile[0].id));
-        const now = new Date();
-        const neighborCoords = [
-          [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
-          [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
-          [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
-        ];
-        for (const [nq, nr] of neighborCoords) {
-          await db.update(schema.territoryTiles)
-            .set({ lastPassiveAt: now })
-            .where(and(
-              eq(schema.territoryTiles.ownerKey, ownerKey),
-              eq(schema.territoryTiles.q, nq),
-              eq(schema.territoryTiles.r, nr),
-              eq(schema.territoryTiles.cursed, 1),
-            ));
-        }
-        purified = true;
-        // The frontier pushes outward — new wilds to purify.
-        await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-      }
-    }
-    return z.object({ ok: z.literal(true), purified: z.boolean() }).parse({ ok: true, purified });
+    return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
 
@@ -1604,13 +1553,10 @@ export const handlers = {
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       tileId: z.number().int().positive(),
-      energyCost: z.number().int().min(1).max(4),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid move.");
-    if (!(await spendEnergy(ownerKey, parsed.data.energyCost))) {
-      badRequest("Not enough energy.");
-    }
     // The Awoken must be on the field.
+    // Server-authoritative move cost: 1 + floor((power - 1) / 3), computed after validation.
     const placement = await db.select().from(schema.fieldPlacements)
       .where(and(
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
@@ -1638,7 +1584,21 @@ export const handlers = {
       .from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
     if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
-    // No timer — movement costs energy instead. Client enforces the cost.
+    // Server-authoritative move cost: 1 + floor((power - 1) / 3)
+    const awokenRows = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (awokenRows.length) {
+      const assetRows = await db.select().from(schema.layerAssets);
+      const assetStats = new Map<number, AssetStats>();
+      for (const r of assetRows) {
+        const rar = raritySchema.safeParse(r.rarity);
+        if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness });
+      }
+      const layers = parseLayers(awokenRows[0].compositionJson, assetStats);
+      const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
+      const cost = 1 + Math.floor((power - 1) / 3);
+      if (!(await spendEnergy(ownerKey, cost))) badRequest("Not enough energy.");
+    }
     await db.update(schema.fieldPlacements)
       .set({ tileId: tile[0].id, lastMovedAt: new Date() })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
@@ -1655,11 +1615,7 @@ export const handlers = {
       state = [row];
     }
     const wave = state[0].waveNumber;
-    // First wave is 5. Waves build 3x slower: +2 power every 3 waves.
-    // Composition: Unravelers (power 4) every 3rd wave, Fray (power 1) make up the rest.
-    const unravelers = Math.floor(wave / 3);
-    const totalPower = 5 + Math.floor((wave - 1) / 3) * 2 + unravelers * 4;
-    const frayCount = totalPower - unravelers * 4;
+    const { totalPower, unravelers, frayCount } = wavePowerFor(wave);
     return {
       waveNumber: wave,
       wavesDefeated: state[0].wavesDefeated,
@@ -1677,8 +1633,7 @@ export const handlers = {
       state = [row];
     }
     const wave = state[0].waveNumber;
-    const unravelers = Math.floor(wave / 3);
-    const wavePower = 7 + (wave - 1) * 2 + unravelers * 4;
+    const { totalPower: wavePower } = wavePowerFor(wave);
 
     // Defense: Awoken on the bastion (center tile) in defense stance.
     // The center is the last bastion — it never falls.
@@ -2337,7 +2292,7 @@ export const handlers = {
       victory: z.boolean(),
       waveNumber: z.number().int().positive(),
       survivorIds: z.array(z.number().int().positive()),
-      energySpent: z.number().int().min(0),
+      continueWave: z.boolean().optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle result.");
 
@@ -2358,13 +2313,19 @@ export const handlers = {
       }
     }
 
-    // Spend the reported energy
-    if (parsed.data.energySpent > 0) {
-      await spendEnergy(ownerKey, parsed.data.energySpent);
-    }
-
     let bonusEligible: { id: number; q: number; r: number }[] = [];
     if (parsed.data.victory) {
+      // Continue reward: +6 energy, server-side, one-time per victory
+      if (parsed.data.continueWave) {
+        const energyRes = await db.select().from(schema.tenderResources)
+          .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+        if (energyRes.length) {
+          const maxEnergy = await calculateMaxEnergy(ownerKey);
+          await db.update(schema.tenderResources)
+            .set({ energy: Math.min(energyRes[0].energy + 6, maxEnergy), updatedAt: new Date() })
+            .where(eq(schema.tenderResources.ownerKey, ownerKey));
+        }
+      }
       // Survivors gain XP: 50 + 10 per wave number
       const xpGain = 50 + currentWave * 10;
       for (const id of parsed.data.survivorIds) {
@@ -2717,7 +2678,7 @@ export const handlers = {
   async birthNewbornToHand(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
-      tileId: z.number().int().positive(),
+      tileId: z.number().int().positive().optional(),
       liberatorNames: z.array(z.string()),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid birth request.");
@@ -2900,87 +2861,6 @@ export const handlers = {
    * 30% chance per attempt. The land grows because it is tended, not because
    * time passes.
    */
-  async passivePurify(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      tileId: z.number().int().positive(),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid purification attempt.");
-    const tile = await db.select().from(schema.territoryTiles)
-      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
-    if (!tile.length) badRequest("That tile is not yours.");
-    if (!tile[0].cursed) badRequest("The dark has already broken there.");
-    // 48-hour timer: the tile must rest between attempts.
-    const now = Date.now();
-    const lastAttempt = tile[0].lastPassiveAt ? tile[0].lastPassiveAt.getTime() : tile[0].createdAt.getTime();
-    const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
-    if (now - lastAttempt < FORTY_EIGHT_HOURS) {
-      const hoursLeft = Math.ceil((FORTY_EIGHT_HOURS - (now - lastAttempt)) / (60 * 60 * 1000));
-      return purifyResponse.parse({ ok: false, reason: "resting", hoursLeft });
-    }
-    // Record the attempt now — the timer resets whether or not it succeeds.
-    await db.update(schema.territoryTiles)
-      .set({ lastPassiveAt: new Date(now) })
-      .where(eq(schema.territoryTiles.id, tile[0].id));
-    const weight = corruptionToughness(tile[0].q, tile[0].r);
-    // Field power: sum of power of Awoken on adjacent purified tiles.
-    const neighbors = [
-      [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
-      [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
-      [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
-    ];
-    const placements = await db.select().from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
-    const owned = await db.select().from(schema.awakened)
-      .where(
-        and(
-          eq(schema.awakened.collection, "tender"),
-          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
-        )
-      );
-    // Power comes from layers, same formula the trial uses.
-    const assetRows = await db.select().from(schema.layerAssets);
-    const assetStats = new Map<number, AssetStats>();
-    for (const assetRow of assetRows) {
-      const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
-    }
-    const powerById = new Map<number, number>();
-    for (const a of owned) {
-      const layers = parseLayers(a.compositionJson, assetStats);
-      powerById.set(a.id, layers.reduce((s, l) => s + (l.power ?? 0), 0));
-    }
-    let nearbyPower = 0;
-    const neighborTiles = await db.select().from(schema.territoryTiles)
-      .where(eq(schema.territoryTiles.ownerKey, ownerKey));
-    const neighborIds = new Set(
-      neighborTiles
-        .filter(t => !t.cursed && neighbors.some(([q, r]) => t.q === q && t.r === r))
-        .map(t => t.id)
-    );
-    // Also count Awoken standing on the tile itself (defenders).
-    neighborIds.add(tile[0].id);
-    for (const p of placements) {
-      if (neighborIds.has(p.tileId)) nearbyPower += powerById.get(p.awakenedId) ?? 0;
-    }
-    // Binding stance: binders channel power into the land.
-    // (Defense does not aid purification — it holds purified land.)
-    const bindBonus = await bindingBonuses(ownerKey);
-    nearbyPower += bindBonus.get(tile[0].id) ?? 0;
-    if (nearbyPower < weight) {
-      return purifyResponse.parse({ ok: false, reason: "too-weak", need: weight, have: nearbyPower });
-    }
-    // 30% chance — the land decides in its own time.
-    if (Math.random() >= 0.30) {
-      return purifyResponse.parse({ ok: false, reason: "not-yet", need: weight, have: nearbyPower });
-    }
-    // The dark breaks. The tile takes the element of its liberators.
-    await db.update(schema.territoryTiles)
-      .set({ cursed: 0 })
-      .where(eq(schema.territoryTiles.id, tile[0].id));
-    await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-    return purifyResponse.parse({ ok: true, purified: true });
-  },
 };
 
 /** A deck the caller owns — or a refusal. Decks are never shared. */

@@ -37,6 +37,12 @@ const WORKSHOP_ACTIONS = new Set([
   "deleteAwoken",
   "getWorkshopStudio",
   "listTenders",
+  "adminResetTender",
+  "adminRefillAllEnergy",
+  "adminSetEnergy",
+  "adminSetWave",
+  "adminGetTenderDeck",
+  "adminClearTimers",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
