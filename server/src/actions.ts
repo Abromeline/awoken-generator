@@ -595,7 +595,7 @@ async function conceiveConfluenceTwin(hostKey: string, guestKey: string, session
     flavorText,
   }).onConflictDoNothing();
 
-  return { name, imageBlobKey: blobKey, compositionJson: JSON.stringify(layers), flavorText };
+  return { name, image_url: blobUrl(blobKey), compositionJson: JSON.stringify(layers), flavorText };
 }
 
 async function getConceivedTwin(sessionId: number) {
@@ -1185,6 +1185,7 @@ export const handlers = {
     if (!sessions.length) badRequest("No such confluence.");
     const s = sessions[0];
     if (s.hostKey !== ownerKey && s.guestKey !== ownerKey) badRequest("Not your confluence.");
+    if (s.status === "done") badRequest("This confluence is already resolved.");
     const roster = await db.select().from(schema.confluenceRoster)
       .where(eq(schema.confluenceRoster.sessionId, parsed.data.sessionId));
     // XP for all participants: 30 base + 5 per wave power, win or lose (more on win)

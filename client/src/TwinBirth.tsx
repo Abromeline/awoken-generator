@@ -3,7 +3,7 @@ import { api } from "./api";
 
 interface Twin {
   name: string;
-  imageBlobKey: string;
+  image_url: string;
   compositionJson: string;
   flavorText: string;
 }
@@ -32,8 +32,7 @@ export default function TwinBirth({
     }
   };
 
-  // Image URL from blob key — construct like other images
-  const imageUrl = `/api/blob/${twin.imageBlobKey}`;
+  const imageUrl = twin.image_url;
 
   return (
     <div className="twin-birth-overlay">
