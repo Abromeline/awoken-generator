@@ -693,9 +693,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             );
           })()}
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
-            stroke={t.cursed ? (auraTiles.has(t.id) ? "#88ff88" : (battlePool.length > 0 ? "#ff4444" : "#5a2a2a")) : "#b89b5e"}
-            strokeWidth={t.cursed && battlePool.length > 0 ? 2 : 1}
-            opacity={t.cursed ? (battlePool.length > 0 ? 0.9 : 0.35) : 0.7}
+            stroke={t.cursed && battlePool.length > 0 ? "#ff4444" : auraTiles.has(t.id) ? "#88ff88" : "transparent"}
+            strokeWidth={2}
+            opacity={t.cursed && battlePool.length > 0 ? 0.9 : auraTiles.has(t.id) ? 0.9 : 0}
             style={{
               cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
               filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
