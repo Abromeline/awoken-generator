@@ -1311,10 +1311,12 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
         </svg>
       </div>
       {/* Bottom dock: energy orb + hand */}
+      <div className="energy-orb-fixed">
+        <EnergyTimer />
+      </div>
       <div className="bottom-dock">
         <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
         <div className="dock-row">
-        <EnergyTimer />
         {battlePool.length > 0 && (
           <div className="battle-pool">
             <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
