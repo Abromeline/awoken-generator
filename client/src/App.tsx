@@ -111,7 +111,7 @@ async function preparePng(file: File) {
   } finally { URL.revokeObjectURL(url); }
 }
 /** Back-to-front draw order, per the artist: background, body, arms, aura, head. */
-const LAYER_ORDER: Category[] = ["background", "body", "arms", "aura", "aspect", "head"];
+const LAYER_ORDER: Category[] = ["background", "aspect", "body", "arms", "aura", "head"];
 async function compose(layers: LayerAsset[], target?: HTMLCanvasElement | null) {
   const canvas = target ?? document.createElement("canvas"); canvas.width = TEMPLATE_WIDTH; canvas.height = TEMPLATE_HEIGHT;
   const context = canvas.getContext("2d"); if (!context) throw new Error("This device could not prepare the awakening canvas.");
@@ -254,7 +254,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits }:
       <button className="wake-button" type="button" onClick={onWakeButton} disabled={save.isPending || checkout.isPending}><span>{save.isPending ? "Waking…" : vesselEmpty ? "Gather wakes" : "Wake One"}</span><small>{vesselEmpty && credits ? `${credits.packPriceLabel} for ${credits.creditsPerPack} wakes` : manual ? "chosen or weighted" : "let chance gather the form"}</small></button>
       {credits !== null && <p className="credit-line"><span>{credits.balance > 0 ? `${credits.balance} ${credits.balance === 1 ? "wake" : "wakes"} remaining` : "The vessel is empty."}</span><button type="button" className="credit-more" onClick={() => checkout.mutate()} disabled={checkout.isPending}>{checkout.isPending ? "Opening…" : "Get more wakes"}</button></p>}
       <p className={`notice ${save.error ? "error" : ""}`} role="status">{save.error ? mutationError(save.error) : notice}</p></div>
-      {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → body → arms → aura → aspect → head</p></aside>}
+      {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → aspect → body → arms → aura → head</p></aside>}
     </div>
   </section>;
 }
