@@ -204,11 +204,6 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_twins (
     ["Song of the Forge", "/music/song-of-the-forge.mp3"],
     ["Uprising", "/music/uprising.mp3"],
     ["Vanguard", "/music/vanguard.mp3"],
-    ["Call to Adventure (FF-style)", "/music/ff-call-to-adventure.mp3"],
-    ["At Launch (FF-style)", "/music/ff-at-launch.mp3"],
-    ["Alchemists Tower (FF-style)", "/music/ff-alchemists-tower.mp3"],
-    ["Five Armies (FF-style)", "/music/ff-five-armies.mp3"],
-    ["Crusade (FF-style)", "/music/ff-crusade.mp3"],
   ];
   const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled) VALUES (?, ?, 1)`);
   for (const [name, url] of seedTracks) {

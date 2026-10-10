@@ -1171,7 +1171,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         )}
       </div>
       <div className="territory-hand">
-        <div className="hand-label">Tap cards to ready them for battle — then tap a hex to send them</div>
+        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
         {battlePool.length > 0 && (
           <div className="battle-pool">
             <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
