@@ -6,28 +6,19 @@ import { api, type Awakened } from "./api";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
-import goliathUrl from "./assets/music/goliath.mp3";
-import balefireUrl from "./assets/music/balefire.mp3";
-import forgeUrl from "./assets/music/song-of-the-forge.mp3";
-import sentinelUrl from "./assets/music/sentinel.mp3";
-import uprisingUrl from "./assets/music/uprising.mp3";
-import wildsUrl from "./assets/music/into-the-wilds.mp3";
-import legacyUrl from "./assets/music/legacy.mp3";
-import skyUrl from "./assets/music/born-of-the-sky.mp3";
-import vanguardUrl from "./assets/music/vanguard.mp3";
-import phoenixUrl from "./assets/music/phoenix.mp3";
 
+// Fallback tracks served by the server (not bundled by Vite)
 const BATTLE_TRACKS = [
-  { name: "Goliath", url: goliathUrl },
-  { name: "Balefire", url: balefireUrl },
-  { name: "Song of the Forge", url: forgeUrl },
-  { name: "Sentinel", url: sentinelUrl },
-  { name: "Uprising", url: uprisingUrl },
-  { name: "Into the Wilds", url: wildsUrl },
-  { name: "Legacy", url: legacyUrl },
-  { name: "Born of the Sky", url: skyUrl },
-  { name: "Vanguard", url: vanguardUrl },
-  { name: "Phoenix", url: phoenixUrl },
+  { name: "Goliath", url: "/music/goliath.mp3" },
+  { name: "Balefire", url: "/music/balefire.mp3" },
+  { name: "Song of the Forge", url: "/music/song-of-the-forge.mp3" },
+  { name: "Sentinel", url: "/music/sentinel.mp3" },
+  { name: "Uprising", url: "/music/uprising.mp3" },
+  { name: "Into the Wilds", url: "/music/into-the-wilds.mp3" },
+  { name: "Legacy", url: "/music/legacy.mp3" },
+  { name: "Born of the Sky", url: "/music/born-of-the-sky.mp3" },
+  { name: "Vanguard", url: "/music/vanguard.mp3" },
+  { name: "Phoenix", url: "/music/phoenix.mp3" },
 ];
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
