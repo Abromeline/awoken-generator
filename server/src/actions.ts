@@ -266,9 +266,8 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
       ? awakenedRows.filter(
           (row) =>
             row.collection === "tender" &&
-            // Legacy shared rows (no owner) stay visible to everyone; new
-            // rows belong to the Tender who woked them.
-            (row.ownerKey === null || row.ownerKey === ownerKey)
+            // Strict ownership: only the Tender's own Awoken.
+            row.ownerKey === ownerKey
         )
       : awakenedRows
   ).map((row) => {
