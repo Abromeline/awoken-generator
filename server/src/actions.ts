@@ -973,6 +973,93 @@ export const handlers = {
     return { ok: true };
   },
 
+  // Confluence: create a session and get a join code
+  async createConfluence(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const [session] = await db.insert(schema.confluenceSessions).values({
+      code, hostKey: ownerKey, status: "waiting", wavePower: 10,
+    }).returning({ id: schema.confluenceSessions.id });
+    return { code, sessionId: session.id };
+  },
+
+  // Join a confluence with a code
+  async joinConfluence(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ code: z.string().min(4).max(8) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid code.");
+    const sessions = await db.select().from(schema.confluenceSessions)
+      .where(eq(schema.confluenceSessions.code, parsed.data.code.toUpperCase())).limit(1);
+    if (!sessions.length) badRequest("No confluence with that code.");
+    const s = sessions[0];
+    if (s.status !== "waiting") badRequest("That confluence already started.");
+    if (s.hostKey === ownerKey) badRequest("That's your own confluence.");
+    await db.update(schema.confluenceSessions)
+      .set({ guestKey: ownerKey, status: "ready" })
+      .where(eq(schema.confluenceSessions.id, s.id));
+    return { sessionId: s.id, ok: true };
+  },
+
+  // Commit an Awoken from hand to the confluence roster
+  async commitToConfluence(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      sessionId: z.number().int().positive(),
+      awakenedId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const sessions = await db.select().from(schema.confluenceSessions)
+      .where(eq(schema.confluenceSessions.id, parsed.data.sessionId)).limit(1);
+    if (!sessions.length) badRequest("No such confluence.");
+    const s = sessions[0];
+    if (s.hostKey !== ownerKey && s.guestKey !== ownerKey) badRequest("Not your confluence.");
+    if (s.status !== "ready" && s.status !== "waiting") badRequest("Confluence already in battle.");
+    // Must be in hand (not placed on field)
+    const placed = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
+        eq(schema.fieldPlacements.ownerKey, ownerKey)
+      )).limit(1);
+    if (placed.length) badRequest("Only Awoken from hand can join a confluence.");
+    // Verify ownership
+    const owned = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    if (!owned.length) badRequest("That Awoken is not yours.");
+    await db.insert(schema.confluenceRoster).values({
+      sessionId: parsed.data.sessionId, ownerKey, awakenedId: parsed.data.awakenedId,
+    });
+    return { ok: true };
+  },
+
+  // Resolve a confluence battle: all roster Awoken gain XP, no territory
+  async resolveConfluence(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      sessionId: z.number().int().positive(),
+      victory: z.boolean(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const sessions = await db.select().from(schema.confluenceSessions)
+      .where(eq(schema.confluenceSessions.id, parsed.data.sessionId)).limit(1);
+    if (!sessions.length) badRequest("No such confluence.");
+    const s = sessions[0];
+    if (s.hostKey !== ownerKey && s.guestKey !== ownerKey) badRequest("Not your confluence.");
+    const roster = await db.select().from(schema.confluenceRoster)
+      .where(eq(schema.confluenceRoster.sessionId, parsed.data.sessionId));
+    // XP for all participants: 30 base + 5 per wave power, win or lose (more on win)
+    const xpGain = parsed.data.victory ? 40 + s.wavePower * 2 : 20 + s.wavePower;
+    for (const r of roster) {
+      await grantXp(r.awakenedId, xpGain);
+    }
+    await db.update(schema.confluenceSessions)
+      .set({ status: "done" })
+      .where(eq(schema.confluenceSessions.id, parsed.data.sessionId));
+    return { ok: true, xpGain, participants: roster.length };
+  },
+
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));

@@ -141,6 +141,22 @@ if (!awakenedCols.some((col) => col.name === "field_born")) {
 if (!awakenedCols.some((col) => col.name === "dispersed_until")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN dispersed_until INTEGER`);
 }
+// Confluence sessions.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  host_key TEXT NOT NULL,
+  guest_key TEXT,
+  status TEXT NOT NULL DEFAULT 'waiting',
+  wave_power INTEGER NOT NULL DEFAULT 10,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_roster (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL
+);`);
 // Experience system.
 if (!awakenedCols.some((col) => col.name === "experience")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN experience INTEGER NOT NULL DEFAULT 0`);

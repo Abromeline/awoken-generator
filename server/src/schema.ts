@@ -48,6 +48,26 @@ export const awakened = sqliteTable("awakened", {
   bonusToughness: integer("bonus_toughness").notNull().default(0),
 });
 
+// Confluence encounters: two Tenders pool Awoken from hand against a shared wave.
+// No territory gained — only experience.
+export const confluenceSessions = sqliteTable("confluence_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code").notNull().unique(),
+  hostKey: text("host_key").notNull(),
+  guestKey: text("guest_key"),
+  status: text("status", { enum: ["waiting", "ready", "battle", "done"] }).notNull().default("waiting"),
+  wavePower: integer("wave_power").notNull().default(10),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// Awoken committed to a confluence (from hand only)
+export const confluenceRoster = sqliteTable("confluence_roster", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: integer("session_id").notNull(),
+  ownerKey: text("owner_key").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+});
+
 // Stories Tenders tell about their Awoken. Sharing to the Confluence is
 // what grants the power-up: each story is +1/+1, max 3 per Awoken.
 export const awokenStories = sqliteTable("awoken_stories", {
