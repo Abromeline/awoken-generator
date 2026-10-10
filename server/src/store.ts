@@ -308,6 +308,26 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_inventory (
   created_at INTEGER NOT NULL
 );`);
 // Aspect attunement: binding Awoken channel elements here. Fills → aspect born.
+// Migration: aspect_attunement points -> REAL, add updated_at
+try {
+  const cols = sqlite.prepare(`PRAGMA table_info(aspect_attunement)`).all() as { name: string; type: string }[];
+  const hasUpdatedAt = cols.some(col => col.name === "updated_at");
+  const pointsCol = cols.find(col => col.name === "points");
+  if (cols.length > 0 && (!hasUpdatedAt || pointsCol?.type === "INTEGER")) {
+    sqlite.exec(`ALTER TABLE aspect_attunement RENAME TO aspect_attunement_old`);
+    sqlite.exec(`CREATE TABLE aspect_attunement (
+      owner_key TEXT NOT NULL,
+      element TEXT NOT NULL,
+      points REAL NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (owner_key, element)
+    )`);
+    const now = Date.now();
+    sqlite.exec(`INSERT INTO aspect_attunement (owner_key, element, points, updated_at)
+      SELECT owner_key, element, CAST(points AS REAL), ${now} FROM aspect_attunement_old`);
+    sqlite.exec(`DROP TABLE aspect_attunement_old`);
+  }
+} catch {}
 sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_attunement (
   owner_key TEXT NOT NULL,
   element TEXT NOT NULL,

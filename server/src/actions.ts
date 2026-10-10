@@ -1585,11 +1585,111 @@ export const handlers = {
 
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    const now = Date.now();
+    const THRESHOLD = 10;
+    const POINTS_PER_HOUR = 1;
+
+    // Get all Binding Awoken with their compositions
+    const binders = await db.select({
+      awakenedId: schema.fieldPlacements.awakenedId,
+      compositionJson: schema.awakened.compositionJson,
+    }).from(schema.fieldPlacements)
+      .innerJoin(schema.awakened, eq(schema.fieldPlacements.awakenedId, schema.awakened.id))
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        eq(schema.fieldPlacements.stance, "binding")
+      ));
+
+    // Load current attunement
     const rows = await db.select().from(schema.aspectAttunement)
       .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
-    const levels: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    const attunement = new Map<string, { points: number; updatedAt: Date }>();
     for (const r of rows) {
-      if (r.element in levels) levels[r.element] = r.points;
+      attunement.set(r.element, { points: r.points, updatedAt: r.updatedAt });
+    }
+    // Ensure all 4 elements exist
+    for (const el of ["tide", "sky", "stone", "root"]) {
+      if (!attunement.has(el)) {
+        attunement.set(el, { points: 0, updatedAt: new Date(now) });
+        await db.insert(schema.aspectAttunement)
+          .values({ ownerKey, element: el as any, points: 0, updatedAt: new Date(now) })
+          .onConflictDoNothing();
+      }
+    }
+
+    // Calculate elapsed time and accumulate points
+    // Use the oldest updatedAt as the checkpoint (conservative)
+    let oldestUpdate = now;
+    for (const [, v] of attunement) {
+      const t = v.updatedAt.getTime();
+      if (t < oldestUpdate) oldestUpdate = t;
+    }
+    const hoursElapsed = Math.max(0, (now - oldestUpdate) / (1000 * 60 * 60));
+    // Cap at 24h to prevent huge jumps after long absence
+    const cappedHours = Math.min(hoursElapsed, 24);
+
+    if (cappedHours > 0 && binders.length > 0) {
+      // For each binder, split 1 point/hour across its unique elements
+      const gains = new Map<string, number>();
+      for (const b of binders) {
+        let layers: any[];
+        try { layers = JSON.parse(b.compositionJson || "[]"); }
+        catch { continue; }
+        const elements = new Set<string>();
+        for (const l of layers) {
+          if (l.category === "aspect") continue; // Don't count equipped aspects
+          const el = elementForPieceName(l.name || "");
+          if (el !== "fire") elements.add(el);
+        }
+        if (elements.size === 0) continue;
+        const perElement = (POINTS_PER_HOUR * cappedHours) / elements.size;
+        for (const el of elements) {
+          gains.set(el, (gains.get(el) || 0) + perElement);
+        }
+      }
+      // Apply gains and check for threshold
+      for (const [el, gain] of gains) {
+        const current = attunement.get(el)!;
+        let newPoints = current.points + gain;
+        // Spawn aspect if threshold reached
+        while (newPoints >= THRESHOLD) {
+          newPoints -= THRESHOLD;
+          // Find a level I aspect of this element to award
+          const elementName = el.charAt(0).toUpperCase() + el.slice(1);
+          const asset = await db.select().from(schema.layerAssets)
+            .where(and(
+              eq(schema.layerAssets.category, "aspect"),
+              like(schema.layerAssets.name, `${elementName} I`)
+            )).limit(1);
+          if (asset.length) {
+            await db.insert(schema.aspectInventory)
+              .values({ ownerKey, aspectAssetId: asset[0].id });
+          }
+        }
+        attunement.set(el, { points: newPoints, updatedAt: new Date(now) });
+        await db.update(schema.aspectAttunement)
+          .set({ points: newPoints, updatedAt: new Date(now) })
+          .where(and(
+            eq(schema.aspectAttunement.ownerKey, ownerKey),
+            eq(schema.aspectAttunement.element, el as any)
+          ));
+      }
+      // Update timestamps for elements with no gains
+      for (const [el, v] of attunement) {
+        if (!gains.has(el)) {
+          await db.update(schema.aspectAttunement)
+            .set({ updatedAt: new Date(now) })
+            .where(and(
+              eq(schema.aspectAttunement.ownerKey, ownerKey),
+              eq(schema.aspectAttunement.element, el as any)
+            ));
+        }
+      }
+    }
+
+    const levels: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    for (const [el, v] of attunement) {
+      if (el in levels) levels[el] = Math.floor(v.points * 10) / 10; // Round to 1 decimal
     }
     const invRows = await db.select().from(schema.aspectInventory)
       .where(eq(schema.aspectInventory.ownerKey, ownerKey));

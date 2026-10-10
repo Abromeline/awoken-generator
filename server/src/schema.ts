@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const layerAssets = sqliteTable("layer_assets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -247,7 +247,8 @@ export const aspectInventory = sqliteTable("aspect_inventory", {
 export const aspectAttunement = sqliteTable("aspect_attunement", {
   ownerKey: text("owner_key").notNull(),
   element: text("element", { enum: ["tide", "sky", "stone", "root", "fire"] }).notNull(),
-  points: integer("points").notNull().default(0),
+  points: real("points").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
 // Glyph library: SVG symbols for elements, magic, hexes, buffs. Used throughout the game.
