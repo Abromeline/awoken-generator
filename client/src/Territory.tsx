@@ -959,11 +959,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               )}
               <div className="champion-change">tap to change</div>
             </div>
-          ) : (
-            <button className="abtn small" onClick={() => setShowChampionPicker(true)}>
-              Choose your champion
-            </button>
-          )}
+          ) : null}
         </div>
         <div className="hall-of-legends">
           <h3>📜 Hall of Legends</h3>
@@ -1017,6 +1013,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </div>
       )}
       {showFriends && <Friends onClose={() => setShowFriends(false)} hand={hand} />}
+      {!legends.champion && (
+        <button className="champion-fab" onClick={() => setShowChampionPicker(true)} title="Choose your champion">
+          🏆
+        </button>
+      )}
       <button className="friends-btn" onClick={() => setShowFriends(true)} title="Friends">
         🤝
       </button>

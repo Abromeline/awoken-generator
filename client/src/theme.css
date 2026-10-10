@@ -579,7 +579,7 @@ body.defeat-flash {
 }
 /* Castle toggle + right-side building panel */
 .castle-toggle {
-  position: fixed; right: 16px; top: 16px;
+  position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
   width: 56px; height: 56px; border-radius: 50%;
   background: rgba(20,20,35,0.9); border: 2px solid #b89b5e;
   font-size: 28px; cursor: pointer; z-index: 41;
@@ -1347,3 +1347,13 @@ body.defeat-flash {
 .cb-result{text-align:center;font-size:18px;padding:20px;border-radius:8px}
 .cb-result.victory{background:rgba(184,155,94,0.15);border:2px solid #b89b5e;color:#ffeebb}
 .cb-result.defeat{background:rgba(100,30,30,0.15);border:2px solid #6a2a2a;color:#ffaaaa}
+
+.champion-fab{
+  position:fixed;left:16px;top:50%;transform:translateY(-50%);
+  width:56px;height:56px;border-radius:50%;
+  background:rgba(20,20,35,0.9);border:2px solid #b89b5e;
+  font-size:28px;cursor:pointer;z-index:41;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.2s;
+}
+.champion-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(255,215,0,0.4)}
