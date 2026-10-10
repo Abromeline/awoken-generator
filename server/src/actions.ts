@@ -5,7 +5,7 @@
 // -> the curated naming/flavor pools in naming.ts.
 
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
@@ -1364,6 +1364,82 @@ export const handlers = {
     return await getWorldMood();
   },
 
+  async combineAspects(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      inventoryAspectId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+
+    // Get the Awoken and its equipped aspect
+    const aw = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    if (!aw.length) badRequest("Awoken not found.");
+    let layers: any[];
+    try { layers = JSON.parse(aw[0].compositionJson || "[]"); }
+    catch { badRequest("Invalid composition."); layers = []; }
+    const equipped = layers.find((l: any) => l.category === "aspect");
+    if (!equipped) badRequest("This Awoken has no aspect equipped.");
+    const currentLevel = equipped.aspectLevel ?? 1;
+    if (currentLevel >= 3) badRequest("Aspect is already at max level.");
+
+    // Get the inventory aspect
+    const inv = await db.select().from(schema.aspectInventory)
+      .where(and(
+        eq(schema.aspectInventory.id, parsed.data.inventoryAspectId),
+        eq(schema.aspectInventory.ownerKey, ownerKey)
+      )).limit(1);
+    if (!inv.length) badRequest("Aspect not found in inventory.");
+    const donorAsset = await db.select().from(schema.layerAssets)
+      .where(eq(schema.layerAssets.id, inv[0].aspectAssetId)).limit(1);
+    if (!donorAsset.length) badRequest("Aspect asset not found.");
+
+    // Elements must match — no mixing
+    const equippedEl = elementForPieceName(equipped.name || "");
+    const donorEl = elementForPieceName(donorAsset[0].name);
+    if (equippedEl !== donorEl) badRequest(`Cannot combine ${donorEl} with ${equippedEl}. Aspects must match.`);
+
+    // Level up the equipped aspect, consume the donor
+    equipped.aspectLevel = currentLevel + 1;
+    await db.update(schema.awakened)
+      .set({ compositionJson: JSON.stringify(layers) })
+      .where(eq(schema.awakened.id, parsed.data.awakenedId));
+    await db.delete(schema.aspectInventory)
+      .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
+
+    return { ok: true as const, newLevel: currentLevel + 1, element: equippedEl };
+  },
+
+  async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const rows = await db.select().from(schema.aspectAttunement)
+      .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
+    const levels: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    for (const r of rows) {
+      if (r.element in levels) levels[r.element] = r.points;
+    }
+    const invRows = await db.select().from(schema.aspectInventory)
+      .where(eq(schema.aspectInventory.ownerKey, ownerKey));
+    const inventory = [];
+    for (const inv of invRows) {
+      const asset = await db.select().from(schema.layerAssets)
+        .where(eq(schema.layerAssets.id, inv.aspectAssetId)).limit(1);
+      if (asset.length) {
+        inventory.push({
+          id: inv.id,
+          name: asset[0].name,
+          element: elementForPieceName(asset[0].name),
+          imageUrl: `/blobs/${asset[0].imageBlobKey}`,
+        });
+      }
+    }
+    return { levels, threshold: 10, inventoryCount: inventory.length, inventory };
+  },
+
   // Assign a random aspect to every Awoken missing one (workshop only).
   // Run once after uploading aspect pieces.
   async assignRandomAspects(_args: unknown, ctx?: ActionContext) {
@@ -1631,6 +1707,75 @@ export const handlers = {
       }
     }
     
+    // Aspect attunement: binding Awoken channel elements into the pool.
+    // 10 points of an element → an aspect of that element is born.
+    const ASPECT_THRESHOLD = 10;
+    const binders = placements.filter(p => p.stance === "binding");
+    if (binders.length) {
+      const awakenedIds = [...new Set(binders.map(p => p.awakenedId))];
+      const aws = await db.select().from(schema.awakened)
+        .where(inArray(schema.awakened.id, awakenedIds));
+      const awMap = new Map(aws.map(a => [a.id, a]));
+      for (const p of binders) {
+        const aw = awMap.get(p.awakenedId);
+        if (!aw) continue;
+        try {
+          const comp = JSON.parse(aw.compositionJson || "[]");
+          const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+          for (const layer of comp) {
+            const el = elementForPieceName(layer.name || "");
+            if (el !== "fire" && el in counts) counts[el] += 1;
+          }
+          // Each binding Awoken contributes 1 point to their dominant element per getTerritory tick
+          let domEl = "neutral"; let maxC = 0;
+          for (const [el, n] of Object.entries(counts)) {
+            if (n > maxC) { maxC = n; domEl = el; }
+          }
+          if (domEl === "neutral" || maxC === 0) continue;
+          // Upsert attunement points
+          const existing = await db.select().from(schema.aspectAttunement)
+            .where(and(
+              eq(schema.aspectAttunement.ownerKey, ownerKey),
+              eq(schema.aspectAttunement.element, domEl as any)
+            )).limit(1);
+          const newPoints = (existing[0]?.points ?? 0) + 1;
+          if (existing.length) {
+            await db.update(schema.aspectAttunement)
+              .set({ points: newPoints })
+              .where(and(
+                eq(schema.aspectAttunement.ownerKey, ownerKey),
+                eq(schema.aspectAttunement.element, domEl as any)
+              ));
+          } else {
+            await db.insert(schema.aspectAttunement)
+              .values({ ownerKey, element: domEl as any, points: 1 });
+          }
+          // Threshold reached → birth an aspect
+          if (newPoints >= ASPECT_THRESHOLD) {
+            const pool = await db.select().from(schema.layerAssets)
+              .where(eq(schema.layerAssets.category, "aspect"));
+            // Filter to matching element, exclude Fire (wildfire only)
+            const matches = pool.filter(a => {
+              const el = elementForPieceName(a.name);
+              return el === domEl && el !== "fire";
+            });
+            if (matches.length) {
+              const pick = matches[Math.floor(Math.random() * matches.length)];
+              await db.insert(schema.aspectInventory)
+                .values({ ownerKey, aspectAssetId: pick.id, createdAt: new Date() });
+              // Reset attunement for this element
+              await db.update(schema.aspectAttunement)
+                .set({ points: 0 })
+                .where(and(
+                  eq(schema.aspectAttunement.ownerKey, ownerKey),
+                  eq(schema.aspectAttunement.element, domEl as any)
+                ));
+            }
+          }
+        } catch { /* skip malformed composition */ }
+      }
+    }
+
     // Process attunement: Awoken present for 13+ minutes attune neutral tiles to their dominant element
     const ATTUNE_MS = 13 * 60 * 1000;
     for (const p of placements) {
@@ -2729,16 +2874,19 @@ export const handlers = {
           else if (count === maxCount && count > 0) { tie = true; }
         }
         if (tie) element = "neutral";
+        // Wildfire spark: 5% chance the purified land smolders with Fire.
+        // The next Awoken born from this tile gets a random Fire aspect.
+        const sparked = Math.random() < 0.05;
         await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null })
+          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0 })
           .where(eq(schema.territoryTiles.id, tile[0].id));
         await db.update(schema.fieldPlacements)
           .set({ tileId: tile[0].id })
           .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
         // Reveal new cursed land at the frontier.
         await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-        return z.object({ ok: z.literal(true), purified: z.literal(true) })
-          .parse({ ok: true, purified: true });
+        return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean() })
+          .parse({ ok: true, purified: true, sparked });
     }
   },
 

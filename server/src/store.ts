@@ -220,6 +220,9 @@ const tileCols = sqlite.prepare(`PRAGMA table_info(territory_tiles)`).all() as {
 if (!tileCols.some((col) => col.name === "last_passive_at")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN last_passive_at INTEGER`);
 }
+if (!tileCols.some((col) => col.name === "spark")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN spark INTEGER NOT NULL DEFAULT 0`);
+}
 // Stance for field placements: attack | defense | binding.
 const placementCols = sqlite.prepare(`PRAGMA table_info(field_placements)`).all() as { name: string }[];
 if (!placementCols.some((col) => col.name === "stance")) {
@@ -293,6 +296,20 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
     if (!existing.has(name)) stmt.run(name, url, now);
   }
 }
+// Aspect inventory: earned aspects waiting to be equipped at level 3
+sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_inventory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  aspect_asset_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+// Aspect attunement: binding Awoken channel elements here. Fills → aspect born.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_attunement (
+  owner_key TEXT NOT NULL,
+  element TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (owner_key, element)
+);`);
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

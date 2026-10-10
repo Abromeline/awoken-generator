@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const layerAssets = sqliteTable("layer_assets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -235,6 +235,21 @@ export const deckCards = sqliteTable("deck_cards", {
 // Territory: the Tender's land. Each tile has axial coords (q, r),
 // an element, and may be cursed (Unraveling-held) or sparked (fire-touched).
 // Tiles belong to one Tender; the deck IS the territory.
+// Aspects earned through binding attunement. Consumed when equipped at level 3.
+export const aspectInventory = sqliteTable("aspect_inventory", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  aspectAssetId: integer("aspect_asset_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+});
+
+// Per-element attunement pool from binding Awoken. Fills → aspect is born.
+export const aspectAttunement = sqliteTable("aspect_attunement", {
+  ownerKey: text("owner_key").notNull(),
+  element: text("element", { enum: ["tide", "sky", "stone", "root", "fire"] }).notNull(),
+  points: integer("points").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
+
 export const territoryTiles = sqliteTable("territory_tiles", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerKey: text("owner_key").notNull(),

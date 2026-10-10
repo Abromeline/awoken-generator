@@ -1388,3 +1388,45 @@ body.defeat-flash {
   display:flex;align-items:center;justify-content:center;
 }
 .music-skip-btn:hover{background:rgba(184,155,94,0.15);color:#b89b5e;border-color:#b89b5e}
+
+.aspect-attunement.celestial{
+  position:fixed;top:12px;left:12px;z-index:50;
+  background:rgba(10,10,10,0.82);border-radius:12px;
+  padding:14px 16px;min-width:220px;backdrop-filter:blur(6px);
+  border:1px solid rgba(212,175,106,0.25);
+}
+.celestial-title{
+  font-size:10px;letter-spacing:5px;text-transform:uppercase;color:#888;
+  margin-bottom:16px;text-align:center;
+}
+.celestial-row{
+  display:flex;align-items:center;margin-bottom:14px;padding-bottom:10px;
+  border-bottom:1px solid rgba(255,255,255,0.06);
+}
+.celestial-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.glyph-svg{flex-shrink:0;filter:drop-shadow(0 0 4px rgba(212,175,106,0.5))}
+.celestial-track{flex:1;height:2px;background:rgba(255,255,255,0.1);position:relative;margin-left:-1px}
+.celestial-progress{
+  position:absolute;left:0;top:0;height:100%;
+  background:#d4af6a;box-shadow:0 0 6px rgba(212,175,106,0.8);
+}
+.celestial-progress::after{
+  content:"";position:absolute;right:-3px;top:50%;transform:translateY(-50%);
+  width:8px;height:8px;border-radius:50%;background:#e8d5a0;
+  box-shadow:0 0 8px rgba(232,213,160,1);
+}
+.celestial-orb{
+  width:30px;height:30px;border-radius:50%;flex-shrink:0;cursor:pointer;margin-left:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700;color:#fff;
+  background:radial-gradient(circle at 35% 35%, #f0e0b0, #b89b5e 55%, #5a4a20);
+  border:1px solid rgba(232,213,160,0.6);
+  box-shadow:0 0 10px rgba(212,175,106,0.6), 0 0 20px rgba(212,175,106,0.25);
+  text-shadow:0 1px 2px rgba(0,0,0,0.7);
+  transition:transform 0.2s;
+}
+.celestial-orb:hover{transform:scale(1.12)}
+.aspect-inventory-list{margin-top:8px;max-height:120px;overflow-y:auto;display:grid;gap:4px}
+.aspect-inventory-item{display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 6px;background:rgba(184,155,94,0.1);border-radius:4px}
+.aspect-inv-element{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#b89b5e;min-width:40px}
+.aspect-inv-name{color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

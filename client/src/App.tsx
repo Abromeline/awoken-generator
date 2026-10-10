@@ -67,9 +67,17 @@ function chooseWeighted(options: LayerAsset[]) {
   return options[options.length - 1];
 }
 /** Gather one piece per layer, weighted by rarity (or fixed choices in the workshop). */
+/** Fire aspects are map-exclusive: only from wildfire sparks, never from wakes. */
+function isFireAspect(asset: LayerAsset): boolean {
+  if (asset.category !== "aspect") return false;
+  return /fire|ember|flame|ash|inferno/i.test(asset.name);
+}
+
 function pickLayerSet(assets: LayerAsset[], choices?: Record<Category, string>): LayerAsset[] {
   return categories.flatMap((category) => {
-    const options = assets.filter((asset) => asset.category === category.id);
+    let options = assets.filter((asset) => asset.category === category.id);
+    // Exclude Fire aspects from normal wakes
+    options = options.filter((asset) => !isFireAspect(asset));
     if (!options.length) return [];
     const fixed = choices?.[category.id] ? options.find((asset) => asset.sourceId === choices[category.id]) : undefined;
     const picked = fixed ?? chooseWeighted(options);

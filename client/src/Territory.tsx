@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
 import FirstTrial from "./FirstTrial";
@@ -949,8 +950,88 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
+/** Top-left UI: aspect attunement with hand-drawn element glyphs flowing into meters. */
+function AspectAttunement() {
+  const { data } = useQuery({
+    queryKey: ["aspectAttunement"],
+    queryFn: () => api.getAspectAttunement(),
+    refetchInterval: 30000,
+  });
+  if (!data) return null;
+
+  const glyphs: Record<string, React.ReactElement> = {
+    tide: (
+      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
+        <path d="M2,12 Q10,4 18,12 T34,12 T50,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M2,17 Q10,9 18,17 T34,17 T50,17" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.5"/>
+        <path d="M50,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+        <circle cx="50" cy="12" r="2" fill="#e8d5a0" opacity="0.8"/>
+      </svg>
+    ),
+    sky: (
+      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
+        <path d="M28,12 m-8,0 a8,8 0 1,1 8,8 a6,6 0 1,0 -6,-6 a4,4 0 1,1 4,4" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M36,12 Q44,12 50,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+        <circle cx="36" cy="12" r="1.5" fill="#e8d5a0" opacity="0.8"/>
+      </svg>
+    ),
+    stone: (
+      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
+        <path d="M6,18 L18,4 L26,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M18,4 L18,14 M12,11 L24,11" fill="none" stroke="#d4af6a" strokeWidth="0.8" opacity="0.5"/>
+        <path d="M26,12 Q36,12 44,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+        <path d="M26,12 L32,18" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.4"/>
+      </svg>
+    ),
+    root: (
+      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
+        <path d="M10,18 Q10,6 22,6 Q34,6 34,14" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M34,14 Q38,14 42,14 L60,14" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+        <path d="M22,6 Q26,2 30,4" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.6"/>
+        <ellipse cx="30" cy="4" rx="3" ry="1.5" fill="#d4af6a" opacity="0.35" transform="rotate(-25 30 4)"/>
+        <path d="M14,14 Q18,12 20,14" fill="none" stroke="#d4af6a" strokeWidth="0.8" opacity="0.4"/>
+      </svg>
+    ),
+  };
+
+  const elements = [
+    { id: "tide", label: "Tide" },
+    { id: "sky", label: "Sky" },
+    { id: "stone", label: "Stone" },
+    { id: "root", label: "Root" },
+  ];
+
+  return (
+    <div className="aspect-attunement celestial">
+      <div className="celestial-title">Aspect Attunement</div>
+      {elements.map(el => {
+        const points = data.levels[el.id] ?? 0;
+        const pct = Math.min(100, (points / data.threshold) * 100);
+        return (
+          <div key={el.id} className="celestial-row" title={`${el.label}: ${points}/${data.threshold}`}>
+            {glyphs[el.id]}
+            <div className="celestial-track"><div className="celestial-progress" style={{ width: `${pct}%` }} /></div>
+            <div className="celestial-orb" title={`${points} ${el.label} aspects saved`}>{points}</div>
+          </div>
+        );
+      })}
+      {data.inventory && data.inventory.length > 0 && (
+        <div className="aspect-inventory-list">
+          {data.inventory.map((item: any) => (
+            <div key={item.id} className="aspect-inventory-item" title={item.name}>
+              <span className="aspect-inv-element">{item.element}</span>
+              <span className="aspect-inv-name">{item.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
   return (
     <div className="territory-view">
+      <AspectAttunement />
       {/* Left panel: Champion + Hall of Legends */}
       <div className="legends-panel">
         <div className="champion-section">
