@@ -161,6 +161,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, dataDir: DATA_DIR }))
 // Static client bundle (built by `npm run build:client` into client/dist).
 const clientDist = resolve(process.cwd(), "client", "dist");
 if (existsSync(join(clientDist, "index.html"))) {
+  app.use("/music", express.static("server/public/music", { maxAge: "7d" }));
   app.use(express.static(clientDist, { maxAge: "1d", index: false }));
   app.get("*", (_req, res) => res.sendFile(join(clientDist, "index.html")));
 } else {

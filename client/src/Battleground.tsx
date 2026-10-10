@@ -93,8 +93,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     api.getRandomBattleTrack().then(res => {
       if (cancelled) return;
       if (res.track) {
-        // trackData is a data URL or blob URL from the workshop upload
-        const track = { name: res.track.name, url: res.track.trackData };
+        // trackData is a data URL, /music/ path, or 8-bit JSON
+        const td = res.track.trackData;
+        const url = (td.startsWith("data:audio") || td.startsWith("/music/")) ? td : BATTLE_TRACKS[Math.floor(Math.random() * BATTLE_TRACKS.length)].url;
+        const track = { name: res.track.name, url };
         setBattleTrack(track);
         battleAudio.current = new Audio(track.url);
       } else {

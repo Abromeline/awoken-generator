@@ -185,6 +185,27 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_twins (
   flavor_text TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );`);
+// Seed the built-in music library (13 tracks) if not already present.
+const existingTracks = sqlite.prepare(`SELECT COUNT(*) as n FROM battle_tracks`).get() as { n: number };
+if (existingTracks.n === 0) {
+  const seedTracks: [string, string][] = [
+    ["Aurora", "/music/aurora.mp3"],
+    ["Balefire", "/music/balefire.mp3"],
+    ["Born of the Sky", "/music/born-of-the-sky.mp3"],
+    ["Goliath", "/music/goliath.mp3"],
+    ["Hymn to the Dawn", "/music/hymn-to-the-dawn.mp3"],
+    ["Into the Wilds", "/music/into-the-wilds.mp3"],
+    ["Legacy", "/music/legacy.mp3"],
+    ["Phoenix", "/music/phoenix.mp3"],
+    ["Reverie", "/music/reverie.mp3"],
+    ["Sentinel", "/music/sentinel.mp3"],
+    ["Song of the Forge", "/music/song-of-the-forge.mp3"],
+    ["Uprising", "/music/uprising.mp3"],
+    ["Vanguard", "/music/vanguard.mp3"],
+  ];
+  const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled) VALUES (?, ?, 1)`);
+  for (const [name, url] of seedTracks) stmt.run(name, url);
+}
 // Friendships and messages.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS friendships (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

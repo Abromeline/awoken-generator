@@ -26,7 +26,7 @@ export default function MusicLibrary() {
     stopPlaying();
     try {
       const { trackData } = await api.getBattleTrack({ id });
-      if (trackData.startsWith("data:audio")) {
+      if (trackData.startsWith("data:audio") || trackData.startsWith("/music/")) {
         const audio = new Audio(trackData);
         audio.volume = 0.7;
         audioRef.current = audio;

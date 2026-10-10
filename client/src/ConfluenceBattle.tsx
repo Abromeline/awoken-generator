@@ -38,7 +38,9 @@ export default function ConfluenceBattle({
     let cancelled = false;
     api.getRandomBattleTrack().then(res => {
       if (cancelled || !res.track) return;
-      battleAudio.current = new Audio(res.track.trackData);
+      const td = res.track.trackData;
+      if (!td.startsWith("data:audio") && !td.startsWith("/music/")) return;
+      battleAudio.current = new Audio(td);
       battleAudio.current.volume = 0.35;
       battleAudio.current.loop = true;
       battleAudio.current.play().catch(() => {});
