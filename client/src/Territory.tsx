@@ -1266,30 +1266,7 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
           </button>
         )}
       </div>
-      <div className="territory-hand">
-        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
-        {battlePool.length > 0 && (
-          <div className="battle-pool">
-            <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
-            <div className="battle-pool-cards">
-              {battlePool.map(i => {
-                const a = hand[i];
-                if (!a) return null;
-                const el = dominantElement(a);
-                return (
-                  <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(i)} title="Remove">
-                    <Corner element={el} className="hcorner tl" />
-                    <Corner element={el} className="hcorner br" />
-                    <img src={a.image_url} alt={a.name} />
-                    <div className="battle-pool-card-name">{a.name}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {/* Hand moved to bottom dock */}
-      </div>
+
       <div className="territory-map" onClick={() => {
         // Clicking empty map dismisses the stance box
         setSelectedAwoken(null);
@@ -1330,6 +1307,27 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
       {/* Bottom dock: energy orb + hand */}
       <div className="bottom-dock">
         <EnergyTimer />
+        {battlePool.length > 0 && (
+          <div className="battle-pool">
+            <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
+            <div className="battle-pool-cards">
+              {battlePool.map(i => {
+                const a = hand[i];
+                if (!a) return null;
+                const el = dominantElement(a);
+                return (
+                  <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(i)} title="Remove">
+                    <Corner element={el} className="hcorner tl" />
+                    <Corner element={el} className="hcorner br" />
+                    <img src={a.image_url} alt={a.name} />
+                    <div className="battle-pool-card-name">{a.name}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
         <div className="dock-hand">
           {hand.map((a, i) => {
             const el = dominantElement(a);

@@ -1000,7 +1000,7 @@ body.defeat-flash {
 
 /* Bottom dock: energy orb + hand */
 .bottom-dock{
-  position:absolute;bottom:0;left:0;right:0;z-index:45;
+  position:absolute;bottom:0;left:0;right:0;z-index:85;
   display:flex;align-items:flex-end;gap:12px;
   padding:12px 16px 12px 16px;
   background:linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 70%, transparent 100%);
