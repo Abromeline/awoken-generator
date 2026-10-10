@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { api } from "./api";
+import { api, Awakened } from "./api";
+import Confluence from "./Confluence";
 
 interface Friend {
   ownerKey: string;
@@ -19,7 +20,8 @@ interface Message {
   createdAt: string;
 }
 
-export default function Friends({ onClose }: { onClose: () => void }) {
+export default function Friends({ onClose, hand }: { onClose: () => void; hand?: Awakened[] }) {
+  const [showConfluence, setShowConfluence] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [pending, setPending] = useState<PendingRequest[]>([]);
   const [inviteInput, setInviteInput] = useState("");
@@ -120,6 +122,10 @@ export default function Friends({ onClose }: { onClose: () => void }) {
           <h3>🤝 Friends</h3>
           <button className="packet-close" onClick={onClose}>✕</button>
         </div>
+        <button className="abtn small confluence-btn" onClick={() => setShowConfluence(true)}>
+          🌀 Confluence — battle together
+        </button>
+        {showConfluence && <Confluence hand={hand ?? []} onClose={() => setShowConfluence(false)} />}
 
         {pending.length > 0 && (
           <div className="friends-section">

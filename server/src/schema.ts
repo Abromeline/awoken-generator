@@ -84,6 +84,16 @@ export const confluenceRoster = sqliteTable("confluence_roster", {
   awakenedId: integer("awakened_id").notNull(),
 });
 
+// Conceived victory twins: generated on confluence victory, claimed via birth popup.
+export const confluenceTwins = sqliteTable("confluence_twins", {
+  sessionId: integer("session_id").primaryKey(),
+  name: text("name").notNull(),
+  imageBlobKey: text("image_blob_key").notNull(),
+  compositionJson: text("composition_json").notNull(),
+  flavorText: text("flavor_text").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // Stories Tenders tell about their Awoken. Sharing to the Confluence is
 // what grants the power-up: each story is +1/+1, max 3 per Awoken.
 export const awokenStories = sqliteTable("awoken_stories", {

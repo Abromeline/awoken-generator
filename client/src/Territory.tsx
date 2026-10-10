@@ -1016,7 +1016,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
         </div>
       )}
-      {showFriends && <Friends onClose={() => setShowFriends(false)} />}
+      {showFriends && <Friends onClose={() => setShowFriends(false)} hand={hand} />}
       <button className="friends-btn" onClick={() => setShowFriends(true)} title="Friends">
         🤝
       </button>

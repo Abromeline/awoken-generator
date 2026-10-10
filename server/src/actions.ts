@@ -538,6 +538,72 @@ function wavePowerFor(wave: number): { totalPower: number; unravelers: number; f
   return { totalPower, unravelers, frayCount };
 }
 
+// Conceive a victory twin from both tenders' champions.
+// Body/arm/head drawn randomly per slot from the two champions' pieces (VICTORY BIRTH).
+async function conceiveConfluenceTwin(hostKey: string, guestKey: string, sessionId: number) {
+  const champions: any[] = [];
+  for (const key of [hostKey, guestKey]) {
+    const champRows = await db.select().from(schema.tenderChampions)
+      .where(eq(schema.tenderChampions.ownerKey, key)).limit(1);
+    if (champRows.length) {
+      const a = await db.select().from(schema.awakened)
+        .where(eq(schema.awakened.id, champRows[0].awakenedId)).limit(1);
+      if (a.length) champions.push(a[0]);
+    }
+  }
+  // Fallback: random Awoken from each tender if no champion
+  if (champions.length < 2) {
+    for (const key of [hostKey, guestKey]) {
+      if (champions.some(ch => ch.ownerKey === key)) continue;
+      const owned = await db.select().from(schema.awakened)
+        .where(and(eq(schema.awakened.ownerKey, key), eq(schema.awakened.collection, "tender")))
+        .limit(1);
+      if (owned.length) champions.push(owned[0]);
+    }
+  }
+  if (champions.length < 2) return null;
+
+  // Draw one piece per slot from the two champions
+  const pickFrom = (cat: string) => {
+    const options = [];
+    for (const ch of champions) {
+      try {
+        const layers = JSON.parse(ch.compositionJson);
+        const piece = layers.find((l: any) => l.category === cat);
+        if (piece) options.push(piece);
+      } catch {}
+    }
+    return options[Math.floor(Math.random() * options.length)];
+  };
+  const body = pickFrom("body"), arms = pickFrom("arms"), head = pickFrom("head");
+  if (!body || !arms || !head) return null;
+
+  const layers = [body, arms, head];
+  // Generate a simple composite image (placeholder — real art comes from the pieces)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="194"><rect width="150" height="194" fill="#1a1a1a"/><text x="75" y="100" text-anchor="middle" fill="#b89b5e" font-size="24">✦</text></svg>`;
+  const blobKey = `twin-${sessionId}-${Date.now()}`;
+  const { blobs } = await import("./store.js");
+  blobs.put(blobKey, Buffer.from(svg), "image/svg+xml");
+
+  const name = `Twin of ${champions[0].name} & ${champions[1].name}`;
+  const flavorText = "Born of confluence — when two tenders stood together, I was conceived in victory.";
+  await db.insert(schema.confluenceTwins).values({
+    sessionId,
+    name,
+    imageBlobKey: blobKey,
+    compositionJson: JSON.stringify(layers),
+    flavorText,
+  }).onConflictDoNothing();
+
+  return { name, imageBlobKey: blobKey, compositionJson: JSON.stringify(layers), flavorText };
+}
+
+async function getConceivedTwin(sessionId: number) {
+  const rows = await db.select().from(schema.confluenceTwins)
+    .where(eq(schema.confluenceTwins.sessionId, sessionId)).limit(1);
+  return rows[0] ?? null;
+}
+
 // Experience, exponential: XP to go from level n to n+1 = floor(100 * 1.5^n).
 // Total XP for level L = sum over n=0..L-1 of 100 * 1.5^n.
 function xpForLevel(level: number): number {
@@ -1126,10 +1192,51 @@ export const handlers = {
     for (const r of roster) {
       await grantXp(r.awakenedId, xpGain);
     }
+    let twin = null;
+    if (parsed.data.victory) {
+      // Conceive the victory twin: body/arm/head drawn randomly per slot from both champions' pieces.
+      // The twin is NOT added to decks yet — each tender claims it via the birth popup.
+      twin = await conceiveConfluenceTwin(s.hostKey, s.guestKey!, parsed.data.sessionId);
+    }
     await db.update(schema.confluenceSessions)
       .set({ status: "done" })
       .where(eq(schema.confluenceSessions.id, parsed.data.sessionId));
-    return { ok: true, xpGain, participants: roster.length };
+    return { ok: true, xpGain, participants: roster.length, twin };
+  },
+
+  // Claim the confluence twin into your deck (from the birth popup)
+  async claimConfluenceTwin(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ sessionId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const sessions = await db.select().from(schema.confluenceSessions)
+      .where(eq(schema.confluenceSessions.id, parsed.data.sessionId)).limit(1);
+    if (!sessions.length) badRequest("No such confluence.");
+    const s = sessions[0];
+    if (s.hostKey !== ownerKey && s.guestKey !== ownerKey) badRequest("Not your confluence.");
+    if (s.status !== "done") badRequest("The confluence isn't resolved yet.");
+    // Check if already claimed
+    const existing = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.ownerKey, ownerKey),
+        eq(schema.awakened.identityKey, `confluence-twin-${parsed.data.sessionId}`)
+      )).limit(1);
+    if (existing.length) badRequest("Twin already in your deck.");
+    // Get the conceived twin data
+    const twinData = await getConceivedTwin(parsed.data.sessionId);
+    if (!twinData) badRequest("No twin was conceived.");
+    const [twin] = await db.insert(schema.awakened).values({
+      name: twinData.name,
+      imageBlobKey: twinData.imageBlobKey,
+      compositionJson: twinData.compositionJson,
+      collection: "tender",
+      ownerName: ownerKey,
+      ownerKey,
+      identityKey: `confluence-twin-${parsed.data.sessionId}`,
+      flavorText: twinData.flavorText,
+      fieldBorn: 0,
+    }).returning({ id: schema.awakened.id });
+    return { ok: true, id: twin.id };
   },
 
   // Resolve a wave pull from mystery purification

@@ -176,6 +176,15 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS referral_codes (
   inviter_key TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );`);
+// Conceived confluence twins.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_twins (
+  session_id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  image_blob_key TEXT NOT NULL,
+  composition_json TEXT NOT NULL,
+  flavor_text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
 // Friendships and messages.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS friendships (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
