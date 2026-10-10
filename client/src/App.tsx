@@ -9,6 +9,7 @@ import WelcomePacket, { AcornButton } from "./WelcomePacket";
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import UIWorkspace from "./UIWorkspace";
 import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type WaitingAwoken, type WelcomeStatus } from "./api";
+import MusicLibrary from "./MusicLibrary";
 import auraWhisper from "./assets/auras/haze-01.png";
 import auraSoft from "./assets/auras/haze-02.png";
 import auraHaloRing from "./assets/auras/haze-03.png";
@@ -676,104 +677,6 @@ function TendersPanel() {
   </section>;
 }
 
-/** Battle tracks: Nigel curates the rotating 8-bit music. Workshop only. */
-function TracksPanel() {
-  const query = useQuery({ queryKey: ["battleTracks"], queryFn: () => api.listBattleTracks() });
-  const [msg, setMsg] = useState<string | null>(null);
-  const doAction = async (fn: () => Promise<any>, label: string) => {
-    try { await fn(); setMsg(label); query.refetch(); setTimeout(() => setMsg(null), 2500); }
-    catch (e) { setMsg("Failed: " + (e as Error).message); }
-  };
-  if (query.isPending) return <p className="quiet">Loading tracks…</p>;
-  if (query.error) return <p className="notice error">{mutationError(query.error)}</p>;
-  const tracks = query.data?.tracks ?? [];
-  return <section className="tender-leaderboard">
-    <header><p className="eyebrow">Battle Tracks</p><h1>Music of the Unraveling.</h1>
-    <p className="quiet">A random enabled track plays when a battleground starts. Add your own 8-bit compositions.</p></header>
-    {msg && <p className="notice">{msg}</p>}
-    {!tracks.length ? <p className="quiet">No tracks yet. Add one below.</p> : (
-      <ol>{tracks.map(t => <li key={t.id}>
-        <div className="tender-who"><strong>{t.name}</strong><small>{t.enabled ? "✓ enabled" : "○ disabled"}</small></div>
-        <div className="tender-admin">
-          <button className="abtn small" onClick={() => doAction(() => api.toggleBattleTrack({ id: t.id, enabled: !t.enabled }), t.enabled ? "Disabled" : "Enabled")}>
-            {t.enabled ? "○" : "✓"}
-          </button>
-          <button className="abtn small" onClick={() => {
-            api.getBattleTrack({ id: t.id }).then(({ trackData }) => {
-              // Audio files (data URLs) play directly; 8-bit JSON uses the track player
-              if (trackData.startsWith("data:audio")) {
-                const audio = new Audio(trackData);
-                audio.volume = 0.5;
-                audio.play().catch(() => {});
-                setTimeout(() => { audio.pause(); audio.src = ""; }, 15000);
-              } else {
-                import("./trackPlayer").then(({ trackPlayer }) => {
-                  trackPlayer.play(JSON.parse(trackData));
-                  setTimeout(() => trackPlayer.stop(), 10000);
-                });
-              }
-            });
-          }}>▶</button>
-          <button className="abtn small danger" onClick={() => {
-            if (confirm(`Delete "${t.name}"?`)) doAction(() => api.deleteBattleTrack({ id: t.id }), "Deleted");
-          }}>✕</button>
-        </div>
-      </li>)}</ol>
-    )}
-    <AddTrackForm onAdded={() => query.refetch()} />
-  </section>;
-}
-
-function AddTrackForm({ onAdded }: { onAdded: () => void }) {
-  const [name, setName] = useState("");
-  const [json, setJson] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const submitJson = async () => {
-    try {
-      JSON.parse(json); // validate
-      await api.addBattleTrack({ name, trackData: json });
-      setName(""); setJson(""); setMsg("Track added!");
-      onAdded();
-      setTimeout(() => setMsg(null), 2500);
-    } catch (e) { setMsg("Invalid JSON or failed: " + (e as Error).message); }
-  };
-  const uploadFile = async (file: File) => {
-    if (!name) { setMsg("Enter a track name first."); return; }
-    setUploading(true);
-    try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      await api.addBattleTrack({ name, trackData: dataUrl });
-      setName(""); setMsg("Audio track added!");
-      onAdded();
-      setTimeout(() => setMsg(null), 2500);
-    } catch (e) { setMsg("Upload failed: " + (e as Error).message); }
-    setUploading(false);
-  };
-  return <div style={{ marginTop: 20, padding: 16, border: "1px solid #444", borderRadius: 8 }}>
-    <h3>Add Battle Track</h3>
-    <p className="quiet">Upload an audio file (MP3, WAV, OGG) or paste 8-bit track JSON.</p>
-    <input value={name} onChange={e => setName(e.target.value)} placeholder="Track name" style={{ width: "100%", marginBottom: 8, padding: 8 }} />
-    <div style={{ marginBottom: 12 }}>
-      <input type="file" accept="audio/*" onChange={e => {
-        const f = e.target.files?.[0];
-        if (f) uploadFile(f);
-      }} disabled={uploading} style={{ width: "100%" }} />
-      {uploading && <p className="quiet">Uploading...</p>}
-    </div>
-    <p className="quiet" style={{ margin: "12px 0 4px" }}>— or paste 8-bit JSON —</p>
-    <textarea value={json} onChange={e => setJson(e.target.value)} placeholder='{"bpm": 140, "lead": [[440, 0.5]], ...}' rows={4} style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
-    <button className="abtn" onClick={submitJson} disabled={!name || !json} style={{ marginTop: 8 }}>Add 8-bit Track</button>
-    {msg && <p className="notice">{msg}</p>}
-  </div>;
-}
-
-
 /** Layered cosmic background: interstellar debris over black, slowly rotating and breathing. Edges never cross the screen. */
 function CosmicBackground() {
   return (
@@ -873,7 +776,7 @@ export function App() {
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
     {workshopView === "tenders" && <TendersPanel />}
-    {workshopView === "tracks" && <TracksPanel />}
+    {workshopView === "tracks" && <MusicLibrary />}
     {workshopView === "ui-workspace" && <UIWorkspace />}
   </main></div></>;
 }
