@@ -448,11 +448,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const HEIGHT_PX = 22 * zoom;
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
-    // Pointy-top axial to pixel (XYZ: z lifts tile up on screen)
-    // Tiles are pointy-top (apex at top), matching the PNG art orientation
+    // Flat-top axial to pixel (XYZ: z lifts tile up on screen)
     const tilePos = (t: any) => {
-      const px = size * Math.sqrt(3) * (t.q + t.r / 2);
-      const py = size * 1.5 * t.r;
+      const px = size * 1.5 * t.q;
+      const py = size * Math.sqrt(3) * (t.r + t.q / 2);
       const cx = originX + px + pan.x;
       const cy = originY + py + pan.y - (t.height || 0) * HEIGHT_PX;
       return { cx, cy };
@@ -659,10 +658,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       // Flat-top XYZ: tilePos handles axial->pixel + height lift
       const { cx, cy } = tilePos(t);
       const s = size;
-      // Pointy-top hexagon points for click hit area
+      // Flat-top hexagon points for click hit area
       const pts: string[] = [];
       for (let k = 0; k < 6; k++) {
-        const a = Math.PI / 180 * (60 * k + 30);
+        const a = Math.PI / 180 * (60 * k);
         const vx = cx + s * Math.cos(a);
         const vy = cy + s * Math.sin(a);
         pts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
@@ -677,7 +676,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={t.id} transform={`translate(0,${lift})`}>
           {/* Isometric tile: 1920x1280 PNG, hex face ~1345px wide. Scale to hex radius s. */}
           <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]}
-            x={cx - s * 1.425} y={cy - s * 0.743} width={s * 2.85} height={s * 1.90}
+            x={cx - s * 1.43} y={cy - s * 0.74} width={s * 2.86} height={s * 1.90}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
           {/* Siege timer on cursed tiles */}
@@ -783,8 +782,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (!tile) return null;
         const size = 17 * zoom;
         const HEIGHT_PX = 22 * zoom;
-        const px = size * Math.sqrt(3) * (tile.q + tile.r / 2);
-        const py = size * 1.5 * tile.r - (tile.height || 0) * HEIGHT_PX;
+        const px = size * 1.5 * tile.q;
+        const py = size * Math.sqrt(3) * (tile.r + tile.q / 2) - (tile.height || 0) * HEIGHT_PX;
         const cx = 250 + px + pan.x;
         const cy = 170 + py + pan.y;
         // Render as HTML overlay positioned over the Awoken
@@ -955,9 +954,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const scale = 22; // hex size
                 return tiles.map(t => {
                   const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
-                  // Hex positioning (pointy-top, same math as main map, scaled down)
-                  const px = scale * Math.sqrt(3) * ((t.q - centerQ) + (t.r - centerR) / 2);
-                  const py = scale * 1.5 * (t.r - centerR);
+                  // Hex positioning (flat-top, same math as main map, scaled down)
+                  const px = scale * 1.5 * (t.q - centerQ);
+                  const py = scale * Math.sqrt(3) * ((t.r - centerR) + (t.q - centerQ) / 2);
                   return (
                     <div
                       key={t.id}
