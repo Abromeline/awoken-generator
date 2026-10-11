@@ -1838,3 +1838,9 @@ body.defeat-flash {
 .tender-rank:hover .rank-nearby{display:block}
 .rank-row{display:flex;gap:8px;justify-content:space-between;padding:2px 0;font-size:11px}
 .rank-row.me{font-weight:bold;color:#d4af6a}
+
+.tender-gate h1 { color: #e8d5a0; }
+.given-code { color: #e8d5a0; }
+
+.tender-gate label { color: #111; }
+.tender-gate input { color: #111; }
