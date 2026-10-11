@@ -50,7 +50,7 @@ import auraDisc from "./assets/auras/haze-12.png";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs";
+type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -700,6 +700,57 @@ function LoreSection() {
   </section>;
 }
 
+/** Workshop: customize text colors across the app. */
+function TextColors() {
+  const [colors, setColors] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("awoken-text-colors") || "{}");
+    } catch { return {}; }
+  });
+  const defaults: Record<string, string> = {
+    "--text": "#11110f",
+    "--dim": "#625f57",
+    "heading": "#e8d5a0",
+    "gold": "#d4af6a",
+  };
+  const setColor = (key: string, value: string) => {
+    const next = { ...colors, [key]: value };
+    setColors(next);
+    localStorage.setItem("awoken-text-colors", JSON.stringify(next));
+    // Apply immediately
+    if (key.startsWith("--")) {
+      document.documentElement.style.setProperty(key, value);
+    }
+  };
+  const reset = () => {
+    setColors({});
+    localStorage.removeItem("awoken-text-colors");
+    for (const k of Object.keys(defaults)) {
+      if (k.startsWith("--")) document.documentElement.style.removeProperty(k);
+    }
+  };
+  // Apply on mount
+  useEffect(() => {
+    for (const [k, v] of Object.entries(colors)) {
+      if (k.startsWith("--")) document.documentElement.style.setProperty(k, v);
+    }
+  }, []);
+  return (
+    <section className="text-colors-panel">
+      <h2>Text Colors</h2>
+      <p className="quiet">Change text colors across the app. Saved in this browser.</p>
+      {Object.entries(defaults).map(([key, def]) => (
+        <div key={key} className="color-row">
+          <label>{key}</label>
+          <input type="color" value={colors[key] || def} onChange={(e) => setColor(key, e.target.value)} />
+          <span className="color-value">{colors[key] || def}</span>
+        </div>
+      ))}
+      <button className="abtn small" onClick={reset}>Reset to defaults</button>
+    </section>
+  );
+}
+
 function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlock: (token: string) => void; note?: string }) {  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const unlock = useMutation({
@@ -1073,7 +1124,7 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }];
   return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>    {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} /></>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
