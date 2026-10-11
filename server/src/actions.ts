@@ -3946,6 +3946,20 @@ export const handlers = {
     }
   },
 
+  async setTenderPassword(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    // Extract tender ID from ownerKey (format: "tender-<id>")
+    const tenderId = parseInt(ownerKey.replace("tender-", ""), 10);
+    if (!tenderId) badRequest("Invalid tender.");
+    const parsed = z.object({ password: z.string().min(8).max(128) }).safeParse(args);
+    if (!parsed.success) badRequest("Password must be at least 8 characters.");
+    const { hashPassword } = await import("./tenders.js");
+    await db.update(schema.tenders)
+      .set({ passwordHash: hashPassword(parsed.data.password) })
+      .where(eq(schema.tenders.id, tenderId));
+    return { ok: true };
+  },
+
   async getTenderRank(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // Count Awoken per tender (tender collection only)

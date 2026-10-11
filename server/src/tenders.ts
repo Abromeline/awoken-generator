@@ -25,7 +25,7 @@ export function tenderOwnerKey(tenderId: number): string {
 // Passwords (scrypt, stdlib only)
 // ---------------------------------------------------------------------------
 
-function hashPassword(password: string): string {
+export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(password, salt, 32).toString("hex");
   return `scrypt$${salt}$${hash}`;

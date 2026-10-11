@@ -789,12 +789,22 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
 function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boolean }) {
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [custom, setCustom] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     api.suggestTenderName().then((r) => setSuggestion(r.name)).catch(() => setSuggestion(null));
   }, []);
   const setName = useMutation({
-    mutationFn: (name: string) => api.setTenderName({ name }),
+    mutationFn: async (name: string) => {
+      await api.setTenderName({ name });
+      // Set password if provided (for returning tenders completing their account)
+      if (password && password.length >= 8 && password === confirm) {
+        await api.setTenderPassword({ password });
+      } else if (password || confirm) {
+        throw new Error("Password must be at least 8 characters and match.");
+      }
+    },
     onSuccess: () => onDone(),
     onError: (e) => setError(e instanceof Error ? e.message : "The name did not take."),
   });
@@ -815,6 +825,12 @@ function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boo
     </div>
     <form onSubmit={(event) => { event.preventDefault(); setError(null); if (custom.trim()) setName.mutate(custom.trim()); }}>
       <label>Or name yourself<input value={custom} onChange={(e) => setCustom(e.target.value)} maxLength={40} placeholder="Your Tender name…" /></label>
+      {!isRename && (
+        <>
+          <label>Set a password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder="At least 8 characters" /></label>
+          <label>Again<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></label>
+        </>
+      )}
       <button disabled={!custom.trim() || setName.isPending}>Choose</button>
     </form>
     {error && <p className="notice error" role="status">{error}</p>}
