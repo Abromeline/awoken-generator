@@ -22,6 +22,7 @@ export interface Asset {
   rarity: Rarity;
   power: number | null;
   toughness: number | null;
+  element?: string | null;
   image_url: string;
   mime_type: string;
   created_at: string;

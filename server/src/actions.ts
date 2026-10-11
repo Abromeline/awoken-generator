@@ -271,7 +271,7 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
   });
   const assetStats = new Map<number, AssetStats>(supportedAssetRows.map((row) => [row.id, { name: row.name, rarity: row.rarity, power: row.power, toughness: row.toughness }]));
   const assets = supportedAssetRows.map((row) => ({
-    id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness,
+    id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null,
     image_url: blobUrl(row.imageBlobKey), mime_type: row.mimeType, created_at: row.createdAt.toISOString(),
   }));
   const parsedRows = (

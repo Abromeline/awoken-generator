@@ -85,7 +85,7 @@ function invalidateStudios(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["workshopStudio"] });
 }
 function toLayerAssets(serverAssets: Asset[]): LayerAsset[] {
-  return [...starters, ...serverAssets.map((asset) => ({ sourceId: `db:${asset.id}`, serverId: asset.id, name: asset.name, category: asset.category, rarity: asset.rarity, power: asset.power, toughness: asset.toughness, imageUrl: asset.image_url, mimeType: asset.mime_type, isStarter: false }))];
+  return [...starters, ...serverAssets.map((asset) => ({ sourceId: `db:${asset.id}`, serverId: asset.id, name: asset.name, category: asset.category, rarity: asset.rarity, power: asset.power, toughness: asset.toughness, element: asset.element ?? null, imageUrl: asset.image_url, mimeType: asset.mime_type, isStarter: false }))];
 }
 function chooseWeighted(options: LayerAsset[], lucky = false) {
   const weights = lucky ? firstbornWeight : rarityWeight;
