@@ -1410,6 +1410,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               </g>
             );
           })()}
+          {/* Burning tile: Fire III art */}
+          {t.spark === 2 && fireAspectImg && (
+            <image href={fireAspectImg} x={cx - 40} y={cy - 50} width={80} height={80}
+              preserveAspectRatio="xMidYMid meet" opacity="0.7" pointerEvents="none" />
+          )}
           {/* Spark: fire aspect waiting to be claimed */}
           {t.spark === 1 && (
             <g onClick={(e) => { e.stopPropagation(); handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
@@ -1875,6 +1880,33 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 title="Channel power into the land. +3 to own tile, +1 to neighbors. Costs 2 energy.">
                 ✦ Binding
               </button>
+              {(() => {
+                // Check if this Awoken has Fire III aspect
+                const layers = awoken.layers || [];
+                const aspect = layers.find((l: any) => l.category === "aspect");
+                const isFireIII = aspect && 
+                  (/fire/i.test(aspect.name || "") || aspect.aspectElement === "fire") && 
+                  (aspect.aspectLevel === 3 || /III/.test(aspect.name || ""));
+                if (!isFireIII) return null;
+                return (
+                  <button
+                    className="stance-btn ignite"
+                    onClick={async () => {
+                      try {
+                        const result = await api.igniteWildfire({ awakenedId: selectedAwoken, tileId: placement.tileId });
+                        alert(`Wildfire ignited! ${result.ignitedTileIds.length} tiles burning.`);
+                        const refreshed = await api.getTerritory();
+                        setTiles(refreshed.tiles);
+                        onUpdate();
+                      } catch (e) {
+                        alert((e as Error).message || "Ignition failed");
+                      }
+                    }}
+                    title="Ignite wildfire (13 energy). Requires Fire III aspect.">
+                    🔥 Ignite (13⚡)
+                  </button>
+                );
+              })()}
               <button
                 className="stance-btn dissipate"
                 onClick={async () => {

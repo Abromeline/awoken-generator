@@ -1816,3 +1816,6 @@ body.defeat-flash {
 .spark-animation .spark-text{color:#ff6600;font-size:24px;font-weight:bold;margin-top:12px;text-shadow:0 0 20px #ff6600}
 @keyframes spark-center{0%{transform:scale(0.5);opacity:0}50%{transform:scale(1.2);opacity:1}100%{transform:scale(1);opacity:1}}
 @keyframes spark-fly{0%{transform:scale(1);opacity:1}100%{transform:translate(40vw,-40vh) scale(0.3);opacity:0}}
+
+.stance-btn.ignite{background:linear-gradient(135deg,#ff6600,#ff3300);color:white;font-weight:bold}
+.stance-btn.ignite:hover{background:linear-gradient(135deg,#ff7722,#ff4422)}
