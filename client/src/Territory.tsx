@@ -1043,7 +1043,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     });
     // Entity layer: Awoken + buildings render ABOVE all terrain (Option A)
     // XYZ: entities sit on the tile top face, lifted by terrain height
-    const entityElements = sortedTiles.map((t) => {
+    const buildingElements = sortedTiles.map((t) => {
       const { cx, cy } = tilePos(t);
       const s = size;
       // Two building slots per hex: offset left/right on the tile top face
@@ -1074,6 +1074,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}
                 onClick={async (e) => {
                   e.stopPropagation();
+                  if (pendingTile !== null) return; // Non-clickable in build mode
                   if (b.buildingType !== "dream-wheat" || b.status !== "active") return;
                   const readyAt = b.readyAt ? new Date(b.readyAt).getTime() : Date.now();
                   const lastHarvest = b.lastHarvestAt ? new Date(b.lastHarvestAt).getTime() : readyAt;
@@ -1087,7 +1088,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } catch (err) { console.error("Harvest failed", err); }
                   }
                 }}
-                style={{ cursor: b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
+                style={{ cursor: pendingTile !== null ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
@@ -1106,7 +1107,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               </g>
             );
           })}
-          {awokens.length > 0 && (
+        </g>
+      );
+    });
+
+    // Awoken layer: renders ABOVE all buildings
+    const awokenElements = sortedTiles.map((t) => {
+      const { cx, cy } = tilePos(t);
+      const s = size;
+      const tilePlacements = placements.filter(p => p.tileId === t.id);
+      const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
+      const awoken = awokens[0] ?? null;
+      const lift = t.cursed ? 0 : -5;
+      if (!awokens.length) return null;
+      return (
+        <g key={`awoken-${t.id}`} transform={`translate(0,${lift})`}>
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
                 // 4 keystone points: middle-front (default), front-left, front-right, back-center
@@ -1235,7 +1250,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 );
               })()}
             </g>
-          )}
         </g>
       );
     });
@@ -1307,7 +1321,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return (
       <>
         {elements}
-        {entityElements}
+        {buildingElements}
+        {awokenElements}
       </>
     );
   };
