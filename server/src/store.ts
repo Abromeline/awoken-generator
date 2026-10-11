@@ -228,6 +228,11 @@ if (!awakenedCols.some((col) => col.name === "bonus_power")) {
 if (!awakenedCols.some((col) => col.name === "bonus_toughness")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN bonus_toughness INTEGER NOT NULL DEFAULT 0`);
 }
+// Element override on layer assets (workshop).
+const assetCols = sqlite.prepare(`PRAGMA table_info(layer_assets)`).all() as { name: string }[];
+if (!assetCols.some((col) => col.name === "element")) {
+  sqlite.exec(`ALTER TABLE layer_assets ADD COLUMN element TEXT`);
+}
 // 48h passive purification timer on territory tiles.
 const tileCols = sqlite.prepare(`PRAGMA table_info(territory_tiles)`).all() as { name: string }[];
 if (!tileCols.some((col) => col.name === "last_passive_at")) {
