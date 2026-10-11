@@ -98,8 +98,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
   // Wave simulation (preview only, no DB changes)
   const [simActive, setSimActive] = useState(false);
+  const [battleActive, setBattleActive] = useState(false);
+  const [battleWave, setBattleWave] = useState(0);
+  const [battleUnits, setBattleUnits] = useState<typeof simUnits>([]);
+  const [betweenWaves, setBetweenWaves] = useState(false);
   const [simUnits, setSimUnits] = useState<Array<{ id: number; type: string; tileId: number; hp: number; maxHp: number; power: number; x: number; y: number; targetX: number; targetY: number }>>([]);
   const simRef = useRef<{ units: typeof simUnits; timer: any } | null>(null);
+  const battleRef = useRef<{ timer: any } | null>(null);
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBindingPrompt, setShowBindingPrompt] = useState(false);
   const [showBattleground, setShowBattleground] = useState(false);
@@ -491,6 +496,153 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (simRef.current?.timer) clearInterval(simRef.current.timer);
     setSimActive(false);
     setSimUnits([]);
+  };
+
+  /** Start the 3-wave territory battle. */
+  const startBattle = () => {
+    if (!wave || !tiles.length || battleActive) return;
+    setBattleActive(true);
+    setBattleWave(1);
+    spawnBattleWave(1);
+  };
+
+  /** Spawn a battle wave with scaling difficulty. */
+  const spawnBattleWave = (waveNum: number) => {
+    const cursed = tiles.filter(t => t.cursed);
+    const purified = tiles.filter(t => !t.cursed);
+    if (!cursed.length || !purified.length) return;
+
+    const units: typeof simUnits = [];
+    let id = Date.now();
+    // Wave scaling: more enemies each wave
+    const frayCount = wave!.frayCount + (waveNum - 1) * 2;
+    const unravelerCount = wave!.unravelers + (waveNum - 1);
+
+    for (let i = 0; i < frayCount; i++) {
+      const tile = cursed[Math.floor(Math.random() * cursed.length)];
+      const { cx, cy } = simTilePos(tile);
+      units.push({ id: id++, type: "fray", tileId: tile.id, hp: 3, maxHp: 3, power: 2, x: cx, y: cy, targetX: cx, targetY: cy });
+    }
+    for (let i = 0; i < unravelerCount; i++) {
+      const tile = cursed[Math.floor(Math.random() * cursed.length)];
+      const { cx, cy } = simTilePos(tile);
+      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: 6 + waveNum * 2, maxHp: 6 + waveNum * 2, power: 4, x: cx, y: cy, targetX: cx, targetY: cy });
+    }
+
+    setBattleUnits(units);
+    setBetweenWaves(false);
+    runBattleLoop(units);
+  };
+
+  /** Main battle loop: enemies move, defenders attack. */
+  const runBattleLoop = (initialUnits: typeof simUnits) => {
+    const watchtowers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
+    const thornWalls = buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active");
+    const volleyHit = new Set<string>();
+    const purified = tiles.filter(t => !t.cursed);
+
+    const timer = setInterval(() => {
+      setBattleUnits(prev => {
+        if (!prev.length) {
+          clearInterval(timer);
+          onWaveCleared();
+          return prev;
+        }
+        const center = tiles.find(t => t.q === 0 && t.r === 0) || purified[0];
+        const { cx: ccx, cy: ccy } = simTilePos(center);
+
+        // Check if any unit reached the center (territory falls)
+        const breached = prev.some(u => {
+          const dx = ccx - u.x; const dy = ccy - u.y;
+          return Math.sqrt(dx*dx + dy*dy) < 10;
+        });
+        if (breached) {
+          clearInterval(timer);
+          onBattleLost();
+          return prev;
+        }
+
+        return prev.map(u => {
+          const dx = ccx - u.x; const dy = ccy - u.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 5) return u;
+          const speed = 1.2;
+          const nx = u.x + (dx/dist) * speed;
+          const ny = u.y + (dy/dist) * speed;
+          let hp = u.hp;
+
+          let closestTile = null; let closestDist = Infinity;
+          for (const t of tiles) {
+            const { cx, cy } = simTilePos(t);
+            const d = Math.sqrt((nx-cx)**2 + (ny-cy)**2);
+            if (d < closestDist) { closestDist = d; closestTile = t; }
+          }
+
+          if (closestTile) {
+            // Watchtower volley
+            for (const wt of watchtowers) {
+              const wtTile = tiles.find(t => t.id === wt.tileId);
+              if (!wtTile) continue;
+              const dq = Math.abs(wtTile.q - closestTile.q);
+              const dr = Math.abs(wtTile.r - closestTile.r);
+              if (dq <= 1 && dr <= 1) {
+                const key = `${wt.id}-${u.id}`;
+                if (!volleyHit.has(key)) { volleyHit.add(key); hp -= 3; }
+              }
+            }
+            // Thorn wall
+            const wall = thornWalls.find(w => w.tileId === closestTile.id);
+            if (wall && u.tileId !== closestTile.id) hp -= 1;
+            // Attack AND Defense Awoken fight
+            const fighters = placements.filter(p =>
+              p.tileId === closestTile.id && (p.stance === "attack" || p.stance === "defense")
+            );
+            for (const f of fighters) {
+              const aw = tenderItems.find(a => a.id === f.awakenedId);
+              if (aw) hp -= (aw.power || 3) * 0.15;
+            }
+          }
+          return { ...u, x: nx, y: ny, hp, tileId: closestTile?.id ?? u.tileId };
+        }).filter(u => u.hp > 0);
+      });
+    }, 50);
+
+    battleRef.current = { timer };
+  };
+
+  /** Called when a wave is cleared. */
+  const onWaveCleared = () => {
+    if (battleWave >= 3) {
+      // All waves cleared — boss stage
+      setBattleActive(false);
+      setBattleUnits([]);
+      // Trigger boss fight (existing battlefield)
+      handleDefend();
+    } else {
+      // Between waves: binding heal pulse
+      setBetweenWaves(true);
+      doBindingHeal();
+      setTimeout(() => {
+        setBattleWave(w => w + 1);
+        spawnBattleWave(battleWave + 1);
+      }, 3000);
+    }
+  };
+
+  /** Binding Awoken heal damaged fighters between waves. */
+  const doBindingHeal = () => {
+    const binders = placements.filter(p => p.stance === "binding");
+    if (!binders.length) return;
+    // Heal pulse: visual effect + restore (simplified — just a visual for now)
+    console.log(`[battle] ${binders.length} binders channel healing`);
+    // TODO: track Awoken HP and restore
+  };
+
+  /** Called when enemies breach the center. */
+  const onBattleLost = () => {
+    setBattleActive(false);
+    // TODO: determine which tiles fall
+    console.log("[battle] Territory breached!");
   };
 
   // Called when victory is detected — resolve the battle early to get bonus tiles
@@ -1261,10 +1413,20 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
         <button className="abtn battle-cta" onClick={handleDefend}>
           ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "⚔ Fight the Unraveling"}
         </button>
-        {!simActive && wave && (
+        {!simActive && !battleActive && wave && (
           <button className="abtn small" onClick={startSim} style={{ marginLeft: 8 }}>
             👁 Simulate Wave {wave.waveNumber}
           </button>
+        )}
+        {!battleActive && !betweenWaves && wave && (
+          <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
+            ⚔ Start Battle — 3 Waves
+          </button>
+        )}
+        {battleActive && (
+          <span style={{ marginLeft: 12, color: "#ff6666", fontWeight: "bold" }}>
+            Wave {battleWave}/3 {betweenWaves && "— Binding heal pulse..."}
+          </span>
         )}
         {simActive && (
           <button className="abtn small" onClick={stopSim} style={{ marginLeft: 8 }}>
@@ -1299,6 +1461,14 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
           onMouseLeave={() => { dragRef.current = null; }}>
           {renderGrid()}
           {/* Simulation units */}
+          {battleUnits.map(u => (
+            <g key={`battle-${u.id}`} transform={`translate(${u.x},${u.y})`}>
+              <circle r="8" fill={u.type === "fray" ? "#3a1a1a" : "#1a0a0a"} stroke="#ff4444" strokeWidth="1.5" />
+              <text y="4" textAnchor="middle" fontSize="10" fill="#ff6666">{u.type === "fray" ? "◊" : "⬢"}</text>
+              <rect x="-10" y="-14" width="20" height="3" fill="#333" />
+              <rect x="-10" y="-14" width={20 * (u.hp / u.maxHp)} height="3" fill="#ff4444" />
+            </g>
+          ))}
           {simUnits.map(u => (
             <g key={`sim-${u.id}`} transform={`translate(${u.x},${u.y})`}>
               <circle r={8} fill={u.type === "unraveler" ? "#1a0a2a" : "#2a1a0a"} stroke="#ff4444" strokeWidth={1.5} opacity={0.9} />
