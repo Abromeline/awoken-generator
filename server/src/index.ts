@@ -43,6 +43,9 @@ const WORKSHOP_ACTIONS = new Set([
   "adminSetWave",
   "adminGetTenderDeck",
   "adminClearTimers",
+  "setUiConfig",
+  "uploadUiSprite",
+  "deleteUiSprite",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
