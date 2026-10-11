@@ -1132,7 +1132,8 @@ body.defeat-flash {
 .binding-prompt-text{font-size:14px;color:#ccddff;margin-bottom:10px}
 
 .tender-admin{display:flex;gap:6px;margin-top:6px}
-.abtn.small{font-size:12px;padding:4px 10px}
+.abtn{font-size:14px;padding:12px 20px;min-height:44px;border:1px solid var(--border);background:var(--surface);border-radius:8px;cursor:pointer}
+.abtn.small{font-size:12px;padding:4px 10px;min-height:32px}
 .abtn.small.danger{background:#3a1a1a;border-color:#6a2a2a}
 .abtn.small.danger:hover{background:#4a2222}
 
@@ -1347,16 +1348,6 @@ body.defeat-flash {
 .cb-result{text-align:center;font-size:18px;padding:20px;border-radius:8px}
 .cb-result.victory{background:rgba(184,155,94,0.15);border:2px solid #b89b5e;color:#ffeebb}
 .cb-result.defeat{background:rgba(100,30,30,0.15);border:2px solid #6a2a2a;color:#ffaaaa}
-
-.champion-fab{
-  position:fixed;left:16px;top:calc(50% + 70px);transform:translateY(-50%);
-  width:56px;height:56px;border-radius:50%;
-  background:rgba(20,20,35,0.9);border:2px solid #b89b5e;
-  font-size:28px;cursor:pointer;z-index:41;
-  display:flex;align-items:center;justify-content:center;
-  transition:all 0.2s;
-}
-.champion-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(255,215,0,0.4)}
 
 .music-library{max-width:640px;margin:0 auto;padding:20px}
 .music-library header{margin-bottom:20px}
@@ -1590,3 +1581,188 @@ body.defeat-flash {
 .stat-new{color:#4ade80;font-weight:bold;font-size:24px}
 .celebration-tap-hint{margin-top:20px;color:#888;font-size:14px;animation:blink 1.5s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
+
+/* ============ MOBILE LEGIBILITY PASS (max-width: 768px) ============
+   Testers report mobile is hard to read and hard to navigate.
+   This block sets a readable floor for tiny text, enlarges tap
+   targets to 44px, and fixes contrast/overlap on small screens. */
+@media (max-width: 768px) {
+
+  /* ---- Font floor: 8-9px micro-labels -> 12px ---- */
+  .owner-line,
+  .iteration-mark,
+  .total-stats span,
+  .arithmetic span,
+  .card-foot,
+  .rename-form label,
+  .litany header small,
+  .litany-row span,
+  .batch-uploader legend,
+  .batch-list strong,
+  .batch-list span,
+  .category-picks small,
+  .trait-copy>span,
+  .trait-copy form button,
+  .remove-piece,
+  .starter-mark,
+  .tc-iteration,
+  .mini-name,
+  .waiting-respin small,
+  .dock-xp-text,
+  .dock-card-name,
+  .energy-orb-timer,
+  .energy-empty-badge,
+  .aspect-inv-element,
+  .workshop-nav button,
+  .workshop-nav small {
+    font-size: 12px !important;
+  }
+
+  /* ---- Font floor: 10-11px captions -> 13px ---- */
+  .eyebrow,
+  .notice,
+  .stack-order,
+  .release-button,
+  .wake-button small,
+  .tender-tools button,
+  .workshop-header button,
+  .file-button,
+  .empowerment span,
+  .rename-form button,
+  .pool-group>header span,
+  .credit-line,
+  .credit-more,
+  .deck-toolbar label,
+  .deck-count,
+  .tc-pieces,
+  .tc-stories,
+  .tc-pip,
+  .face-badge,
+  .hand-label,
+  .hand-card-stats,
+  .dock-card-stats,
+  .dock-stat-points,
+  .packet-page,
+  .energy-label,
+  .fighter-stats,
+  .battle-pool-card-name,
+  .cosmic-pool-card-name,
+  .battle-log,
+  .sprite-current small,
+  .sprite-uploaded small,
+  .stat-rows small,
+  .builder-stance,
+  .deck-card-stats,
+  .champion-stats,
+  .champion-story,
+  .champion-change,
+  .champion-option-stats,
+  .legends-empty,
+  .cb-stats,
+  .music-track-info small,
+  .aspect-inventory-item,
+  .element-tag,
+  .celestial-title,
+  .code-actions button,
+  .tender-gate label,
+  .tender-naming label,
+  .code-line>label,
+  .workshop-lock label,
+  .workshop-back,
+  .tender-leaderboard .tender-who small,
+  .tender-leaderboard time,
+  .quiet-link.tiny {
+    font-size: 13px !important;
+  }
+
+  /* ---- Tap targets: minimum 44px ---- */
+  .celestial-orb {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 16px !important;
+  }
+  .workshop-nav button {
+    min-height: 60px !important;
+    padding: 10px 4px !important;
+  }
+  .abtn.small,
+  .aspect-apply-option,
+  .champion-option {
+    min-height: 44px !important;
+    padding: 10px 14px !important;
+  }
+  .tender-tools button {
+    min-height: 44px !important;
+    padding: 10px 4px !important;
+  }
+  .dock-card {
+    width: 76px !important;
+    padding: 6px !important;
+  }
+  .aspect-fab,
+  .champion-fab,
+  .legends-fab {
+    width: 56px !important;
+    height: 56px !important;
+  }
+
+  /* ---- Contrast: dim greys -> lighter on dark ---- */
+  .quiet,
+  .champion-change,
+  .legends-empty,
+  .dock-empty,
+  .builder-stance,
+  .deck-card-stats,
+  .cb-stats {
+    color: #aaa !important;
+  }
+  .celestial-title {
+    color: #bbb !important;
+  }
+  .dock-card-stats {
+    color: #bbb !important;
+  }
+
+  /* ---- Layout: prevent overlap on small screens ---- */
+  .aspect-attunement.celestial {
+    min-width: 200px !important;
+    max-width: 240px !important;
+    top: 8px !important;
+    left: 8px !important;
+  }
+  .champion-tab {
+    width: calc(100vw - 40px) !important;
+    max-width: 320px !important;
+    right: 8px !important;
+  }
+  .applying-aspect-banner {
+    font-size: 14px !important;
+    padding: 12px 16px !important;
+    max-width: calc(100vw - 32px) !important;
+    text-align: center !important;
+  }
+  .tutorial-card {
+    padding: 20px !important;
+    margin: 0 8px !important;
+  }
+  .celebration-card-art {
+    width: min(300px, 80vw) !important;
+    height: auto !important;
+    aspect-ratio: 300/380 !important;
+  }
+
+  /* ---- Line height for readability ---- */
+  .champion-story,
+  .tutorial-card p,
+  .notice,
+  .quiet {
+    line-height: 1.6 !important;
+  }
+
+  /* ---- Prevent text overflow on tiny screens ---- */
+  .canvas-whisper {
+    white-space: normal !important;
+    max-width: 90vw !important;
+    font-size: 12px !important;
+  }
+}
