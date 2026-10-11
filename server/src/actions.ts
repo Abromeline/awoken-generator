@@ -2264,6 +2264,8 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);
+    // Wildfire burn: ignited tiles take 5 fire damage per round to their HP
+    await this.wildfireBurnTick(ownerKey);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -3900,6 +3902,29 @@ export const handlers = {
         eq(schema.territoryTiles.spark, 2),
       ));
     return { ok: true, remaining: remaining.length };
+  },
+
+  async wildfireBurnTick(ownerKey: string) {
+    // Find burning tiles (spark=2, not yet cursed)
+    const burning = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.spark, 2),
+        eq(schema.territoryTiles.cursed, 0),
+      ));
+    for (const tile of burning) {
+      const newHp = Math.max(0, (tile.hp ?? 10) - 5);
+      if (newHp === 0) {
+        // Tile falls: becomes cursed, fire ends
+        await db.update(schema.territoryTiles)
+          .set({ hp: 10, cursed: 1, spark: 0, curseHp: null, curseMaxHp: null })
+          .where(eq(schema.territoryTiles.id, tile.id));
+      } else {
+        await db.update(schema.territoryTiles)
+          .set({ hp: newHp })
+          .where(eq(schema.territoryTiles.id, tile.id));
+      }
+    }
   },
 
   async getBirthStatus(args: unknown, ctx?: ActionContext) {
