@@ -283,6 +283,7 @@ export const api = {
   getRandomBattleTrack: () => post<{ track: { id: number; name: string; trackData: string } | null }>("getRandomBattleTrack", {}),
   assignRandomAspects: () => post<{ ok: boolean; assigned: number; total: number }>("assignRandomAspects", {}),
   updateLayerAssetRarity: (value: { id: number; rarity: string }) => post<{ ok: boolean }>("updateLayerAssetRarity", value),
+  updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
   getAspectAttunement: () => post<{ levels: Record<string, number>; threshold: number; inventoryCount: number; inventory: { id: number; name: string; element: string; imageUrl: string }[] }>("getAspectAttunement", {}),
   combineAspects: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; newLevel: number; element: string }>("combineAspects", value),
   listGlyphs: (value: { category: string }) => post<{ glyphs: { id: number; category: string; name: string; svgData: string }[] }>("listGlyphs", value),
