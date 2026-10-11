@@ -3756,20 +3756,27 @@ export const handlers = {
     await db.update(schema.territoryTiles)
       .set({ spark: 0 })
       .where(eq(schema.territoryTiles.id, tile[0].id));
-    // Grant a random Fire aspect (level I)
-    const fireAspects = await db.select().from(schema.layerAssets)
+    // Grant 1 point to fire attunement (max level 3)
+    const rows = await db.select().from(schema.aspectAttunement)
       .where(and(
-        eq(schema.layerAssets.category, "aspect"),
-        eq(schema.layerAssets.element, "fire"),
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, "fire"),
       ));
-    if (!fireAspects.length) badRequest("No fire aspects in the pool yet.");
-    const aspect = fireAspects[Math.floor(Math.random() * fireAspects.length)];
-    // Add to inventory
-    await db.insert(schema.aspectInventory).values({
-      ownerKey,
-      aspectAssetId: aspect.id,
-    });
-    return { ok: true, aspect: { id: aspect.id, name: aspect.name, element: "fire" } };
+    let points = 0;
+    if (rows.length) {
+      points = Math.min(3, rows[0].points + 1);
+      await db.update(schema.aspectAttunement)
+        .set({ points, updatedAt: new Date() })
+        .where(and(
+          eq(schema.aspectAttunement.ownerKey, ownerKey),
+          eq(schema.aspectAttunement.element, "fire"),
+        ));
+    } else {
+      points = 1;
+      await db.insert(schema.aspectAttunement)
+        .values({ ownerKey, element: "fire" as any, points: 1, updatedAt: new Date() });
+    }
+    return { ok: true, fireLevel: points };
   },
 
   async getBirthStatus(args: unknown, ctx?: ActionContext) {

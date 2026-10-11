@@ -59,6 +59,9 @@ function dominantElement(a: Awakened): Element {
 }
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
+  const fireAspectImg = assets.find(a => a.category === "aspect" && (a as any).element === "fire" && /II/.test(a.name))?.imageUrl
+    ?? assets.find(a => a.category === "aspect" && (a as any).element === "fire")?.imageUrl
+    ?? null;
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
   const [showBuildingMenu, setShowBuildingMenu] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
@@ -1410,10 +1413,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {/* Spark: fire aspect waiting to be claimed */}
           {t.spark === 1 && (
             <g onClick={(e) => { e.stopPropagation(); handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
-              <text x={cx} y={cy - 10} textAnchor="middle" fontSize={24}
-                fill="#ff6600" opacity="0.95">
-                🔥
-              </text>
+              {fireAspectImg ? (
+                <image href={fireAspectImg} x={cx - 30} y={cy - 40} width={60} height={60}
+                  preserveAspectRatio="xMidYMid meet" opacity="0.95" />
+              ) : (
+                <text x={cx} y={cy - 10} textAnchor="middle" fontSize={24} fill="#ff6600" opacity="0.95">🔥</text>
+              )}
               <text x={cx} y={cy + 25} textAnchor="middle" fontSize={8}
                 fill="#ffaa00" opacity="0.9" fontWeight="bold">
                 SPARK — tap to claim
