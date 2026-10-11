@@ -340,6 +340,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
+      // Apply thorns damage to attacker
+      if (result.thornsDamage > 0) {
+        setAwokenHp(prev => {
+          const next = new Map(prev);
+          const current = next.get(selectedAwoken) ?? 3;
+          next.set(selectedAwoken, Math.max(0, current - result.thornsDamage));
+          return next;
+        });
+      }
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);

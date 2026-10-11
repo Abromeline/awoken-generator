@@ -3507,18 +3507,16 @@ export const handlers = {
     const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
     const maxHp = tile[0].curseMaxHp ?? (4 + ring * 6);
     const currentHp = tile[0].curseHp ?? maxHp;
-    // Exponential thorns: 2^(ring-1). The curse fights back.
+    // Exponential thorns: 2^(ring-1). The curse fights back, dealing thorns damage to the attacker.
     const thorns = Math.pow(2, Math.max(0, ring - 1));
-    // Thorns reduce the attacker's effective power
-    const effectivePower = Math.max(1, power - thorns);
-    const newHp = Math.max(0, currentHp - effectivePower);
+    const newHp = Math.max(0, currentHp - power);
     if (newHp > 0) {
       // Curse holds — record the reduced HP.
       await db.update(schema.territoryTiles)
         .set({ curseHp: newHp, curseMaxHp: maxHp })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number() })
-        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: effectivePower, thorns });
+      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number(), thornsDamage: z.number() })
+        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, thorns, thornsDamage: thorns });
     }
     // HP reached 0 — the curse breaks!
     // 35% chance: pulled into one wave of the Unraveling instead of instant purify.
