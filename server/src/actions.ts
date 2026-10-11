@@ -752,7 +752,7 @@ async function loadGameConfig() {
   const enemies: Record<string, any> = {};
   for (const name of ["fray", "unraveler", "hollow", "tangle"]) {
     enemies[name] = {
-      power: overrides[`enemy.${name}.power`] ?? { fray: 2, unraveler: 4, hollow: 0, tangle: 3 }[name],
+      power: overrides[`enemy.${name}.power`] ?? { fray: 1, unraveler: 4, hollow: 0, tangle: 3 }[name],
       hp: overrides[`enemy.${name}.hp`] ?? { fray: 3, unraveler: 6, hollow: 5, tangle: 8 }[name],
     };
   }
