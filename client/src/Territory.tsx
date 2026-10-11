@@ -119,6 +119,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
+  const [applyingToChampion, setApplyingToChampion] = useState(false); // if true, orb tap applies directly to champion
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
@@ -152,6 +153,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const battleResolvedRef = useRef(false);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
+  const [showChampionTab, setShowChampionTab] = useState(false);
   const [showLegends, setShowLegends] = useState(false);
   const [showAspects, setShowAspects] = useState(false);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
@@ -1489,12 +1491,77 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
 
   return (
     <div className="territory-view">
-      <AspectAttunement visible={showAspects} onClose={() => setShowAspects(false)} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={(aspect) => { setApplyingAspect(aspect); setShowAspects(false); }} />
+      {showChampionTab && (
+        <div className="champion-tab">
+          <button className="aspect-close" onClick={() => setShowChampionTab(false)} title="Close">✕</button>
+          <div className="celestial-title">Champion</div>
+          {legends.champion ? (
+            <div className="champion-tab-card">
+              <img src={legends.champion.image_url} alt={legends.champion.name} />
+              <div className="champion-name">{legends.champion.name}</div>
+              <div className="champion-stats">
+                {legends.champion.power}⚔ {legends.champion.toughness}🛡 · Lv {legends.champion.level ?? 0}
+              </div>
+              <button
+                className="abtn small"
+                onClick={() => {
+                  setShowChampionTab(false);
+                  setApplyingToChampion(true);
+                  setShowAspects(true);
+                }}
+                title="Open attunement to apply an aspect to your champion"
+              >
+                Add Aspect
+              </button>
+              <button
+                className="abtn small"
+                onClick={() => {
+                  setShowChampionTab(false);
+                  setShowChampionPicker(true);
+                }}
+              >
+                Change Champion
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p className="quiet">No champion chosen yet.</p>
+              <button className="abtn small" onClick={() => { setShowChampionTab(false); setShowChampionPicker(true); }}>
+                Choose Champion
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToChampion(false); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={async (aspect) => {
+        setShowAspects(false);
+        if (applyingToChampion && legends.champion) {
+          try {
+            await api.call("applyAspect", { awakenedId: legends.champion.id, inventoryAspectId: aspect.id });
+            onUpdate();
+          } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to apply");
+          }
+          setApplyingToChampion(false);
+        } else {
+          setApplyingAspect(aspect);
+        }
+      }} />
       {applyingAspect && (
         <div className="applying-aspect-banner" onClick={() => setApplyingAspect(null)}>
           Tap an Awoken to apply {applyingAspect.name} — tap here to cancel
         </div>
       )}
+      <button
+        className="champion-fab"
+        onClick={() => setShowChampionTab(!showChampionTab)}
+        title="Champion"
+      >
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <path d="M16,2 L20,12 L30,12 L22,18 L25,28 L16,22 L7,28 L10,18 L2,12 L12,12 Z"
+            fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+        </svg>
+      </button>
       <button
         className="aspect-fab"
         onClick={() => setShowAspects(!showAspects)}
