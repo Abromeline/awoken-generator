@@ -144,14 +144,20 @@ function badRequest(message: string): never {
  */
 export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean }> {
   const parsed = z
-    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional() })
+    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional() })
     .safeParse(args);
-  if (!parsed.success) badRequest("A password of at least 8 characters.");
+  if (!parsed.success) badRequest("A name and password of at least 8 characters.");
   // The key is given, never chosen — it is the account's immutable lock.
   const code = await suggestTenderCode();
+  const tenderName = parsed.data.tenderName || null;
+  // Check name uniqueness if provided
+  if (tenderName) {
+    const taken = await db.select({ id: schema.tenders.id }).from(schema.tenders).where(eq(schema.tenders.tenderName, tenderName)).limit(1);
+    if (taken[0]) badRequest("That name is already held by another Tender — choose another.");
+  }
   const tenderRows = await db
     .insert(schema.tenders)
-    .values({ code, passwordHash: hashPassword(parsed.data.password), tenderName: null, createdAt: new Date() })
+    .values({ code, passwordHash: hashPassword(parsed.data.password), tenderName, createdAt: new Date() })
     .returning();
   const tender = tenderRows[0];
   if (!tender) badRequest("The Tender could not be gathered.");

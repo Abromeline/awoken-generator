@@ -728,6 +728,7 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
   const [suggestedCode, setSuggestedCode] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [tenderName, setTenderName] = useState("");
   const [loginIdentity, setLoginIdentity] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -738,10 +739,11 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
 
   const claim = useMutation({
     mutationFn: () => {
-      if (password.length < 8) throw new Error("Give your key a password of at least 8 characters.");
+      if (!tenderName.trim()) throw new Error("Choose a name for the Awoken to call you.");
+      if (password.length < 8) throw new Error("Give your account a password of at least 8 characters.");
       if (password !== confirm) throw new Error("The two passwords do not match.");
       const refCode = new URLSearchParams(window.location.search).get("ref") ?? undefined;
-      return api.claimTender({ password, refCode });
+      return api.claimTender({ password, refCode, tenderName: tenderName.trim() });
     },
     onSuccess: (data) => onDone(data.token),
     onError: (e) => setError(e instanceof Error ? e.message : "The key could not be claimed."),
@@ -766,21 +768,14 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
     </div>
     {mode === "claim" ? (
       <form onSubmit={(event) => { event.preventDefault(); setError(null); claim.mutate(); }}>
-        <div className="code-line">
-          <label>Your secret key</label>
-          <p className="given-code">{suggestedCode ?? "Gathering…"}</p>
-          <div className="code-actions">
-            <button type="button" onClick={reroll}>Another</button>
-          </div>
-          <p className="quiet">Given once, never changed. Keep it somewhere safe — it is how you prove the account is yours.</p>
-        </div>
+        <label>Choose a tender name<input value={tenderName} onChange={(e) => setTenderName(e.target.value)} autoComplete="username" placeholder="What shall the Awoken call you?" /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></label>
         <label>Again<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></label>
         <button disabled={claim.isPending}>{claim.isPending ? "Binding…" : "Begin"}</button>
       </form>
     ) : (
       <form onSubmit={(event) => { event.preventDefault(); setError(null); login.mutate(); }}>
-        <label>Tender name or secret key<input value={loginIdentity} onChange={(e) => setLoginIdentity(e.target.value)} autoComplete="username" /></label>
+        <label>Tender name<input value={loginIdentity} onChange={(e) => setLoginIdentity(e.target.value)} autoComplete="username" /></label>
         <label>Password<input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} autoComplete="current-password" /></label>
         <button disabled={login.isPending}>{login.isPending ? "Returning…" : "Return"}</button>
       </form>

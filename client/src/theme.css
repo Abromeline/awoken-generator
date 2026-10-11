@@ -1825,7 +1825,8 @@ body.defeat-flash {
   .hand-label, .hand-empty, .packet-page, .packet-close, .energy-label,
   .energy-orb-timer, .building-info small, .stat-rows label, .builder-stance,
   .deck-card-stats, .dock-card-stats, .champion-story, .quiet,
-  .battle-log-old, .stance-btn, .packet-skip-link {
+  .battle-log-old, .stance-btn, .packet-skip-link,
+  .tutorial-lore, .tutorial-card p {
     color: #e8d5a0 !important;
   }
 }
