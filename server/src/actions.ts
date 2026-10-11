@@ -1631,6 +1631,68 @@ export const handlers = {
     return { ok: true as const, spawned: false as const };
   },
 
+  /** Persist battle damage to a tile. Returns new HP, and whether it fell. */
+  async damageTileHp(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int().positive(),
+      damage: z.number().int().min(1).max(20),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid damage.");
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey)
+      )).limit(1);
+    if (!tile.length) badRequest("Tile not found.");
+    const newHp = Math.max(0, (tile[0].hp ?? 10) - parsed.data.damage);
+    await db.update(schema.territoryTiles)
+      .set({ hp: newHp })
+      .where(eq(schema.territoryTiles.id, parsed.data.tileId));
+    // If HP hit 0, curse the tile
+    let cursed = false;
+    if (newHp === 0 && !tile[0].cursed) {
+      await db.update(schema.territoryTiles)
+        .set({ cursed: 1 })
+        .where(eq(schema.territoryTiles.id, parsed.data.tileId));
+      cursed = true;
+    }
+    return { ok: true as const, hp: newHp, cursed };
+  },
+
+  /** Persist battle damage to an Awoken placement. */
+  async damageAwokenHp(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      damage: z.number().int().min(1).max(20),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid damage.");
+    const placement = await db.select().from(schema.fieldPlacements)
+      .where(and(
+        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
+        eq(schema.fieldPlacements.ownerKey, ownerKey)
+      )).limit(1);
+    if (!placement.length) badRequest("Placement not found.");
+    // Get max HP from composition
+    const aw = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    let maxHp = 6;
+    if (aw.length) {
+      try {
+        const layers = JSON.parse(aw[0].compositionJson || "[]");
+        maxHp = layers.reduce((s: number, l: any) => s + (l.power || 0), 0) +
+                layers.reduce((s: number, l: any) => s + (l.toughness || 0), 0) || 6;
+      } catch {}
+    }
+    const currentHp = placement[0].hp ?? maxHp;
+    const newHp = Math.max(0, currentHp - parsed.data.damage);
+    await db.update(schema.fieldPlacements)
+      .set({ hp: newHp })
+      .where(eq(schema.fieldPlacements.id, placement[0].id));
+    return { ok: true as const, hp: newHp, maxHp };
+  },
+
   /** Hourly binding heal: binding Awoken heal wounded fighters outside battle. */
   async bindingHealTick(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

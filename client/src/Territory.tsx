@@ -716,29 +716,39 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     setTimeout(() => endTurn(), battleSpeed * 1000);
   };
 
-  /** Damage a tile (10 HP, visible when <10). */
-  const damageTile = (tileId: number, dmg: number) => {
-    setTileHp(prev => {
-      const next = new Map(prev);
-      const current = next.get(tileId) ?? 10;
-      const newHp = Math.max(0, current - dmg);
-      next.set(tileId, newHp);
-      if (newHp === 0) {
-        // Tile falls: becomes cursed
-        setTimeout(() => curseTile(tileId), 100);
+  /** Damage a tile (10 HP, visible when <10). Syncs to server. */
+  const damageTile = async (tileId: number, dmg: number) => {
+    try {
+      const { hp, cursed } = await api.damageTileHp({ tileId, damage: Math.round(dmg) });
+      setTileHp(prev => new Map(prev).set(tileId, hp));
+      if (cursed) {
+        // Tile fell — refresh territory
+        onUpdate();
       }
-      return next;
-    });
+    } catch (e) {
+      console.error("Tile damage sync failed", e);
+      // Fallback to local
+      setTileHp(prev => {
+        const next = new Map(prev);
+        next.set(tileId, Math.max(0, (next.get(tileId) ?? 10) - dmg));
+        return next;
+      });
+    }
   };
 
-  /** Damage an Awoken (defends tile first). */
-  const damageAwoken = (awakenedId: number, dmg: number) => {
-    setAwokenHp(prev => {
-      const next = new Map(prev);
-      const current = next.get(awakenedId) ?? 6;
-      next.set(awakenedId, Math.max(0, current - dmg));
-      return next;
-    });
+  /** Damage an Awoken (defends tile first). Syncs to server. */
+  const damageAwoken = async (awakenedId: number, dmg: number) => {
+    try {
+      const { hp } = await api.damageAwokenHp({ awakenedId, damage: Math.round(dmg) });
+      setAwokenHp(prev => new Map(prev).set(awakenedId, hp));
+    } catch (e) {
+      console.error("Awoken damage sync failed", e);
+      setAwokenHp(prev => {
+        const next = new Map(prev);
+        next.set(awakenedId, Math.max(0, (next.get(awakenedId) ?? 6) - dmg));
+        return next;
+      });
+    }
   };
 
   /** Curse a tile that hit 0 HP. */
@@ -1616,11 +1626,7 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
             </button>
           </span>
         )}
-        {!simActive && !battleActive && wave && (
-          <button className="abtn small" onClick={startSim} style={{ marginLeft: 8 }}>
-            👁 Simulate Wave {wave.waveNumber}
-          </button>
-        )}
+
         {!battleActive && wavesCleared < 3 && wave && (
           <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
             ⚔ Face the Next Wave ({wavesCleared + 1}/3)
