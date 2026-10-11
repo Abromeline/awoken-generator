@@ -118,6 +118,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     } catch {}
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
+  const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
@@ -1194,10 +1195,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       cursor: selectedBuilding ? "pointer" : "pointer",
                       pointerEvents: selectedBuilding ? "none" : "auto",
                     } as React.CSSProperties}
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (moveTargeting || attackTargeting) return; // Only tiles selectable in move/attack mode
                       e.stopPropagation();
+                      if (applyingAspect) {
+                        try {
+                          await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                          setApplyingAspect(null);
+                          onUpdate();
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "Failed to apply");
+                        }
+                        return;
+                      }
                       setSelectedAwoken(isSelected ? null : a.id);
                       setAttackTargeting(false);
                       setMoveTargeting(false);
@@ -1393,8 +1404,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
-function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void }) {
-  const [applyingAspect, setApplyingAspect] = useState<any>(null);
+function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void }) {
   if (!visible) return null;
   const { data } = useQuery({
     queryKey: ["aspectAttunement"],
@@ -1459,11 +1469,11 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }
             <div className="celestial-track"><div className="celestial-progress" style={{ width: `${pct}%` }} /></div>
             <button
               className="celestial-orb"
-              title={`${aspectCount} ${el.label} aspects ready — tap to apply`}
+              title={`${aspectCount} ${el.label} aspects ready — tap, then tap an Awoken`}
               onClick={() => {
                 const aspects = (data.inventory || []).filter((i: any) => i.element === el.id);
                 if (aspects.length > 0) {
-                  setApplyingAspect(aspects[0]);
+                  onApplyAspect(aspects[0]);
                 }
               }}
               disabled={aspectCount === 0}
@@ -1473,59 +1483,18 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }
           </div>
         );
       })}
-      {data.inventory && data.inventory.length > 0 && (
-        <div className="aspect-inventory-list">
-          {data.inventory.map((item: any) => (
-            <div key={item.id} className="aspect-inventory-item" title={item.name}>
-              <span className="aspect-inv-element">{item.element}</span>
-              <span className="aspect-inv-name">{item.name}</span>
-              <button
-                className="abtn small"
-                onClick={() => setApplyingAspect(item)}
-                title="Apply to an Awoken"
-              >
-                Apply
-              </button>
-            </div>
-          ))}
-          {applyingAspect && (
-            <div className="aspect-apply-modal">
-              <h4>Apply {applyingAspect.name} to...</h4>
-              <p className="quiet">Choose an Awoken (must match element or be empty)</p>
-              <div className="aspect-apply-list">
-                {tenderItems.map(a => {
-                  const onField = placedIds.has(a.id);
-                  return (
-                  <button
-                    key={a.id}
-                    className="aspect-apply-option"
-                    onClick={async () => {
-                      try {
-                        await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
-                        setApplyingAspect(null);
-                        onUpdate();
-                      } catch (e) {
-                        alert(e instanceof Error ? e.message : "Failed to apply");
-                      }
-                    }}
-                  >
-                    {a.name} (⚔{a.power} 🛡{a.toughness}){onField ? " [field]" : ""}
-                  </button>
-                  );
-                })}
-              </div>
-              <button className="abtn small" onClick={() => setApplyingAspect(null)}>Cancel</button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
   return (
     <div className="territory-view">
-      <AspectAttunement visible={showAspects} onClose={() => setShowAspects(false)} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} />
+      <AspectAttunement visible={showAspects} onClose={() => setShowAspects(false)} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={(aspect) => { setApplyingAspect(aspect); setShowAspects(false); }} />
+      {applyingAspect && (
+        <div className="applying-aspect-banner" onClick={() => setApplyingAspect(null)}>
+          Tap an Awoken to apply {applyingAspect.name} — tap here to cancel
+        </div>
+      )}
       <button
         className="aspect-fab"
         onClick={() => setShowAspects(!showAspects)}
@@ -1894,8 +1863,20 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }
             const xp = a.experience ?? 0;
             const progress = a.xp_progress ?? 0;
             return (
-            <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""}`}
-              onClick={() => toggleBattlePool(i)}>
+            <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""} ${applyingAspect ? "apply-target" : ""}`}
+              onClick={async () => {
+                if (applyingAspect) {
+                  try {
+                    await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                    setApplyingAspect(null);
+                    onUpdate();
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : "Failed to apply");
+                  }
+                  return;
+                }
+                toggleBattlePool(i);
+              }}>
               <Corner element={el} className="hcorner tl" />
               <Corner element={el} className="hcorner br" />
               <img src={a.image_url} alt={a.name} />
