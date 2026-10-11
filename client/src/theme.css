@@ -1576,8 +1576,8 @@ body.defeat-flash {
 .celebration-aspect-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:12px;opacity:0;animation:aspect-settle 1.2s ease-in forwards;mix-blend-mode:screen;pointer-events:none}
 @keyframes aspect-settle{
   0%{opacity:0;transform:scale(1.3);z-index:10}
-  40%{opacity:0.9;transform:scale(1.1);z-index:10}
-  100%{opacity:0.5;transform:scale(1);z-index:1}
+  40%{opacity:1;transform:scale(1.1);z-index:10}
+  100%{opacity:1;transform:scale(1);z-index:1}
 }
 .celebration-card.golden-glow .celebration-card-art{animation:golden-pulse 2s ease-in-out infinite;box-shadow:0 0 60px #ffd700,0 0 120px #ffd700}
 @keyframes golden-pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.3)}}
