@@ -9,6 +9,11 @@ import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
 import wheatHalfImg from "./assets/buildings/wheat-half.png";
 import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
+// Wheat stage overrides from UI workspace uploads (set at runtime)
+const wheatStageOverrides: Record<string, string> = {};
+export function setWheatStageOverride(stage: string, url: string) {
+  wheatStageOverrides[stage] = url;
+}
 import treeImg from "./assets/buildings/tree.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
@@ -34,7 +39,7 @@ export function wheatStageImage(building: any): string {
     return buildingImage(building.buildingType);
   }
   if (building.status === "building") {
-    return wheatPlantedImg; // still constructing
+    return wheatStageOverrides["wheat-planted"] || wheatPlantedImg; // still constructing
   }
   // Calculate growth progress from readyAt (when construction finished)
   // Wheat regrows every 4h after harvest
@@ -44,10 +49,10 @@ export function wheatStageImage(building: any): string {
   const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime() : readyAt;
   const elapsed = now - lastHarvest;
   const progress = Math.min(1, elapsed / growMs);
-  if (progress >= 1) return wheatHarvestImg;
-  if (progress >= 0.66) return wheatFullImg;
-  if (progress >= 0.33) return wheatHalfImg;
-  return wheatPlantedImg;
+  if (progress >= 1) return wheatStageOverrides["wheat-harvest"] || wheatHarvestImg;
+  if (progress >= 0.66) return wheatStageOverrides["wheat-full"] || wheatFullImg;
+  if (progress >= 0.33) return wheatStageOverrides["wheat-half"] || wheatHalfImg;
+  return wheatStageOverrides["wheat-planted"] || wheatPlantedImg;
 }
 
 interface BuildingDef {

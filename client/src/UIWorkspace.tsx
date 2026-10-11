@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { setWheatStageOverride } from "./BuildingMenu";
 import { api } from "./api";
 // Current default sprites (bundled with the app)
 import frayImg from "./assets/enemies/fray.png";
@@ -7,6 +8,10 @@ import hollowImg from "./assets/enemies/hollow.png";
 import tangleImg from "./assets/enemies/tangle.png";
 import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
+import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
+import wheatHalfImg from "./assets/buildings/wheat-half.png";
+import wheatFullImg from "./assets/buildings/wheat-full.png";
+import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
@@ -24,6 +29,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   enemy: { fray: frayImg, unraveler: unravelerImg, hollow: hollowImg, tangle: tangleImg },
   building: {
     watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
+    "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-full": wheatFullImg, "wheat-harvest": wheatHarvestImg,
     "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
   },
@@ -72,7 +78,7 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "elemental-shrine", "attunement-shrine", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "elemental-shrine", "attunement-shrine", "awakening-well", "thorn-wall", "binding-circle", "tree"];
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
 const AWAKENING_LABELS: Record<string, string> = {
@@ -91,7 +97,15 @@ export default function UIWorkspace() {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.call("listUiSprites", {}).then((r: any) => setSprites(r.sprites)).catch(() => {});
+    api.call("listUiSprites", {}).then((r: any) => {
+      setSprites(r.sprites);
+      // Apply wheat stage overrides
+      for (const s of r.sprites || []) {
+        if (s.category === "building" && s.name.startsWith("wheat-")) {
+          setWheatStageOverride(s.name, s.url);
+        }
+      }
+    }).catch(() => {});
     api.call("getUiConfig", {}).then((r: any) => setConfig({ ...DEFAULTS, ...r.config })).catch(() => setConfig(DEFAULTS));
   }, []);
 
