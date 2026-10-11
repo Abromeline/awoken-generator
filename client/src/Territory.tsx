@@ -1333,11 +1333,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       // The tile PNGs are drawn in tilted perspective (wider than tall),
       // so the outline uses the same squash instead of a regular hex.
       const pts: string[] = [];
-      const hexR = s * 0.8435; // hex radius matching 1345px face in 1920px art
+      const hexR = s * 0.88; // hex radius - slightly larger to match art edges
       const squash = 0.82; // vertical squash from perspective tilt
+      const xOff = s * 0.02; // nudge right to close left gap
       for (let k = 0; k < 6; k++) {
         const a = Math.PI / 180 * (60 * k);
-        const vx = cx + hexR * Math.cos(a);
+        const vx = cx + xOff + hexR * Math.cos(a);
         const vy = cy + hexR * Math.sin(a) * squash;
         pts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
       }
