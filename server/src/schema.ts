@@ -270,6 +270,7 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   }).notNull().default("neutral"),
   cursed: integer("cursed").notNull().default(1),
   spark: integer("spark").notNull().default(0),
+  hp: integer("hp").notNull().default(10),
   building: text("building"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
@@ -301,6 +302,7 @@ export const fieldPlacements = sqliteTable("field_placements", {
   stance: text("stance").notNull().default("defense"),
   // Binding upkeep: last time the hourly 3-energy charge was applied.
   lastBindingChargeAt: integer("last_binding_charge_at", { mode: "timestamp_ms" }),
+  hp: integer("hp"),
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.

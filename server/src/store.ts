@@ -123,6 +123,19 @@ mkdirSync(DATA_DIR, { recursive: true });
 mkdirSync(BLOBS_DIR, { recursive: true });
 
 export const sqlite = new Database(join(DATA_DIR, "app.db"));
+
+// Migration: add hp column to territory_tiles
+try {
+  sqlite.exec("ALTER TABLE territory_tiles ADD COLUMN hp INTEGER NOT NULL DEFAULT 10");
+} catch {
+  // Column already exists
+}
+// Migration: add hp column to field_placements
+try {
+  sqlite.exec("ALTER TABLE field_placements ADD COLUMN hp INTEGER");
+} catch {
+  // Column already exists
+}
 sqlite.exec(DDL);
 
 // Lightweight migration: awakened.owner_key for per-Tender decks.

@@ -1631,6 +1631,85 @@ export const handlers = {
     return { ok: true as const, spawned: false as const };
   },
 
+  /** Hourly binding heal: binding Awoken heal wounded fighters outside battle. */
+  async bindingHealTick(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const now = Date.now();
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    // Get binding Awoken
+    const binders = await db.select({
+      awakenedId: schema.fieldPlacements.awakenedId,
+      tileId: schema.fieldPlacements.tileId,
+      compositionJson: schema.awakened.compositionJson,
+    }).from(schema.fieldPlacements)
+      .innerJoin(schema.awakened, eq(schema.fieldPlacements.awakenedId, schema.awakened.id))
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        eq(schema.fieldPlacements.stance, "binding")
+      ));
+    if (!binders.length) return { ok: true as const, healed: 0 };
+
+    // Get all fighter placements with HP
+    const fighters = await db.select({
+      id: schema.fieldPlacements.id,
+      awakenedId: schema.fieldPlacements.awakenedId,
+      tileId: schema.fieldPlacements.tileId,
+      hp: schema.fieldPlacements.hp,
+      compositionJson: schema.awakened.compositionJson,
+    }).from(schema.fieldPlacements)
+      .innerJoin(schema.awakened, eq(schema.fieldPlacements.awakenedId, schema.awakened.id))
+      .where(and(
+        eq(schema.fieldPlacements.ownerKey, ownerKey),
+        or(eq(schema.fieldPlacements.stance, "attack"), eq(schema.fieldPlacements.stance, "defense"))
+      ));
+
+    // Get tiles for distance calc
+    const tiles = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tileById = new Map(tiles.map(t => [t.id, t]));
+    const hexDist = (a: any, b: any) =>
+      (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+
+    const calcStats = (json: string) => {
+      try {
+        const layers = JSON.parse(json || "[]");
+        const power = layers.reduce((s: number, l: any) => s + (l.power || 0), 0) || 3;
+        const toughness = layers.reduce((s: number, l: any) => s + (l.toughness || 0), 0) || 3;
+        return { power, toughness };
+      } catch { return { power: 3, toughness: 3 }; }
+    };
+
+    let healed = 0;
+    for (const b of binders) {
+      const bTile = tileById.get(b.tileId);
+      if (!bTile) continue;
+      const { power } = calcStats(b.compositionJson);
+      // Find wounded in hex + adjacent
+      const wounded = fighters.filter(f => {
+        const fTile = tileById.get(f.tileId);
+        if (!fTile) return false;
+        if (hexDist(bTile, fTile) > 1) return false;
+        const { power: pw, toughness: tg } = calcStats(f.compositionJson);
+        const maxHp = pw + tg;
+        const curHp = f.hp ?? maxHp;
+        return curHp < maxHp;
+      });
+      if (!wounded.length) continue;
+      const healPer = power / wounded.length;
+      for (const w of wounded) {
+        const { power: pw, toughness: tg } = calcStats(w.compositionJson);
+        const maxHp = pw + tg;
+        const newHp = Math.min(maxHp, (w.hp ?? maxHp) + healPer);
+        await db.update(schema.fieldPlacements)
+          .set({ hp: Math.round(newHp) })
+          .where(eq(schema.fieldPlacements.id, w.id));
+        healed++;
+      }
+    }
+    return { ok: true as const, healed };
+  },
+
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const now = Date.now();
