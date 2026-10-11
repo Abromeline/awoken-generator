@@ -363,7 +363,7 @@ export const api = {
   getWorkshopStudio: () => post<Studio>("getWorkshopStudio", {}),
   // Self-serve Tender accounts: secret code + password.
   suggestTenderCode: () => post<{ code: string }>("suggestTenderCode", {}),
-  claimTender: (args: { password: string; refCode?: string }) =>
+  claimTender: (args: { password: string; refCode?: string; tenderName?: string }) =>
     post<{ token: string; tender: TenderInfo }>("claimTender", args),
   loginTender: (args: { identity: string; password: string }) =>
     post<{ token: string; tender: TenderInfo }>("loginTender", args),
