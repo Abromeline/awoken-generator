@@ -324,7 +324,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       awoken: d.awoken,
     }});
     const en: Fighter[] = [];
-    const frayCfg = enemyConfig?.["fray"] ?? { power: 2, hp: 3 };
+    const frayCfg = enemyConfig?.["fray"] ?? { power: 1, hp: 3 };
     for (let i = 0; i < wave.frayCount; i++) {
       en.push({
         id: `e-fray-${i}`, img: "fray",
