@@ -105,6 +105,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [turnPhase, setTurnPhase] = useState<"towers" | "initiative" | "enemies" | null>(null);
   const [turnNumber, setTurnNumber] = useState(0);
   const [wavesCleared, setWavesCleared] = useState(0);
+  const [tileHp, setTileHp] = useState<Map<number, number>>(new Map());
+  const [awokenHp, setAwokenHp] = useState<Map<number, number>>(new Map());
+  const [battlePaused, setBattlePaused] = useState(false);
+  const [battleSpeed, setBattleSpeed] = useState(1.3);
   const [simUnits, setSimUnits] = useState<Array<{ id: number; type: string; tileId: number; hp: number; maxHp: number; power: number; x: number; y: number; targetX: number; targetY: number }>>([]);
   const simRef = useRef<{ units: typeof simUnits; timer: any } | null>(null);
   const battleRef = useRef<{ timer: any } | null>(null);
@@ -563,12 +567,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return updated;
     });
     setTurnPhase("initiative");
-    setTimeout(() => doInitiativePhase(), 800);
+    setTimeout(() => doInitiativePhase(), battleSpeed * 1000);
   };
 
   /** Phase 2: Awoken and enemies act in initiative order (lower toughness = faster). */
   const doInitiativePhase = () => {
-    // Get fighters: attack/defense Awoken
+    if (battlePaused) { setTimeout(() => doInitiativePhase(), 500); return; }
+
     const fighters = placements
       .filter(p => p.stance === "attack" || p.stance === "defense")
       .map(p => {
@@ -578,8 +583,18 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       })
       .filter(Boolean) as any[];
 
+    // Initialize Awoken HP if not set (HP = power + toughness)
+    setAwokenHp(prev => {
+      const next = new Map(prev);
+      for (const f of fighters) {
+        if (!next.has(f.awakenedId)) {
+          next.set(f.awakenedId, (f.aw.power || 3) + (f.aw.toughness || 3));
+        }
+      }
+      return next;
+    });
+
     setBattleUnits(prev => {
-      // Build initiative order: fighters + enemies sorted by toughness (asc)
       const combatants: any[] = [
         ...fighters.map(f => ({ ...f, toughness: f.initiative })),
         ...prev.map(u => ({ ...u, toughness: u.type === "fray" ? 1 : 3, isAwoken: false })),
@@ -587,63 +602,149 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
       let updated = [...prev];
       const purified = tiles.filter(t => !t.cursed);
+      const towers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
 
       for (const c of combatants) {
         if (c.isAwoken) {
-          // Awoken: fire at range with -1 per hex penalty, or melee
+          // Awoken: fire at range with -1 per hex penalty
           let best: typeof updated[0] | null = null;
           let bestDmg = 0;
           for (const u of updated) {
             const uTile = tiles.find(t => t.id === u.tileId);
             if (!uTile) continue;
             const d = hexDist(c.tile, uTile);
-            const dmg = Math.max(1, (c.aw.power || 3) - d); // -1 per hex, min 1
+            const dmg = Math.max(1, (c.aw.power || 3) - d);
             if (dmg > bestDmg) { bestDmg = dmg; best = u; }
           }
           if (best) {
             updated = updated.map(u => u.id === best!.id ? { ...u, hp: u.hp - bestDmg } : u).filter(u => u.hp > 0);
           }
         } else {
-          // Enemy: move 1 hex toward nearest purified, or attack
+          // Enemy targeting: check for corruptible hex in reach first
           const uTile = tiles.find(t => t.id === c.tileId);
           if (!uTile) continue;
-          // Find nearest purified tile
-          let nearest = null; let nearestDist = Infinity;
+
+          // Find corruptible hexes (purified, no defenders/towers) within 2 hexes
+          let targetHex = null;
           for (const p of purified) {
             const d = hexDist(uTile, p);
-            if (d < nearestDist) { nearestDist = d; nearest = p; }
+            if (d <= 2) {
+              const hasDefenders = placements.some(pl =>
+                pl.tileId === p.id && (pl.stance === "attack" || pl.stance === "defense")
+              );
+              const hasTower = towers.some(t => {
+                const tt = tiles.find(ti => ti.id === t.tileId);
+                return tt && hexDist(tt, p) <= 1;
+              });
+              if (!hasDefenders && !hasTower) { targetHex = p; break; }
+            }
           }
-          if (nearest && nearestDist > 1) {
-            // Move 1 hex closer (simplified: move toward target)
-            const dq = Math.sign(nearest.q - uTile.q);
-            const dr = Math.sign(nearest.r - uTile.r);
-            // Find adjacent tile in that direction
+
+          if (targetHex) {
+            // Move toward corruptible hex (away from defenders)
+            const dq = Math.sign(targetHex.q - uTile.q);
+            const dr = Math.sign(targetHex.r - uTile.r);
             const next = tiles.find(t =>
-              Math.abs(t.q - (uTile.q + dq)) + Math.abs(t.r - (uTile.r + dr)) <= 1
+              Math.abs(t.q - (uTile.q + dq)) <= 1 && Math.abs(t.r - (uTile.r + dr)) <= 1 &&
+              t.id !== uTile.id
             );
             if (next) {
               const { cx, cy } = simTilePos(next);
               updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id } : u);
+              // If reached the hex, attack purification
+              if (next.id === targetHex.id) {
+                damageTile(next.id, c.power || 2);
+              }
             }
-          } else if (nearest && nearestDist <= 1) {
-            // Adjacent to purified: check for defenders
-            const defenders = placements.filter(p =>
-              p.tileId === nearest.id && (p.stance === "attack" || p.stance === "defense")
-            );
-            if (defenders.length === 0) {
-              // No defenders: attack purification (re-curse)
-              // TODO: implement re-cursing
-              console.log(`[battle] Enemy attacks purification on tile ${nearest.id}`);
+          } else {
+            // No corruptible hex: prioritize attacking Awoken/towers
+            let bestTarget: any = null;
+            let bestDist = Infinity;
+            // Find nearest fighter
+            for (const f of fighters) {
+              const d = hexDist(uTile, f.tile);
+              if (d < bestDist) { bestDist = d; bestTarget = { type: "awoken", ...f }; }
             }
-            // Else: defenders will handle it in their turn
+            // Find nearest tower
+            for (const t of towers) {
+              const tt = tiles.find(ti => ti.id === t.tileId);
+              if (!tt) continue;
+              const d = hexDist(uTile, tt);
+              if (d < bestDist) { bestDist = d; bestTarget = { type: "tower", tile: tt }; }
+            }
+
+            if (bestTarget && bestDist <= 1) {
+              // Attack!
+              if (bestTarget.type === "awoken") {
+                damageAwoken(bestTarget.awakenedId, c.power || 2);
+              }
+              // Towers don't have HP yet — skip
+            } else if (bestTarget) {
+              // Move toward target
+              const dq = Math.sign(bestTarget.tile.q - uTile.q);
+              const dr = Math.sign(bestTarget.tile.r - uTile.r);
+              const next = tiles.find(t =>
+                Math.abs(t.q - (uTile.q + dq)) <= 1 && Math.abs(t.r - (uTile.r + dr)) <= 1 &&
+                t.id !== uTile.id
+              );
+              if (next) {
+                const { cx, cy } = simTilePos(next);
+                updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id } : u);
+              }
+            } else {
+              // No targets: move toward center
+              const center = tiles.find(t => t.q === 0 && t.r === 0) || purified[0];
+              if (center) {
+                const dq = Math.sign(center.q - uTile.q);
+                const dr = Math.sign(center.r - uTile.r);
+                const next = tiles.find(t =>
+                  Math.abs(t.q - (uTile.q + dq)) <= 1 && Math.abs(t.r - (uTile.r + dr)) <= 1 &&
+                  t.id !== uTile.id
+                );
+                if (next) {
+                  const { cx, cy } = simTilePos(next);
+                  updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id } : u);
+                }
+              }
+            }
           }
         }
       }
       return updated;
     });
 
-    // Check end of turn
-    setTimeout(() => endTurn(), 800);
+    setTimeout(() => endTurn(), battleSpeed * 1000);
+  };
+
+  /** Damage a tile (10 HP, visible when <10). */
+  const damageTile = (tileId: number, dmg: number) => {
+    setTileHp(prev => {
+      const next = new Map(prev);
+      const current = next.get(tileId) ?? 10;
+      const newHp = Math.max(0, current - dmg);
+      next.set(tileId, newHp);
+      if (newHp === 0) {
+        // Tile falls: becomes cursed
+        setTimeout(() => curseTile(tileId), 100);
+      }
+      return next;
+    });
+  };
+
+  /** Damage an Awoken (defends tile first). */
+  const damageAwoken = (awakenedId: number, dmg: number) => {
+    setAwokenHp(prev => {
+      const next = new Map(prev);
+      const current = next.get(awakenedId) ?? 6;
+      next.set(awakenedId, Math.max(0, current - dmg));
+      return next;
+    });
+  };
+
+  /** Curse a tile that hit 0 HP. */
+  const curseTile = (tileId: number) => {
+    // TODO: call server to curse the tile
+    console.log(`[battle] Tile ${tileId} falls to curse!`);
   };
 
   /** End of turn: check win/loss, or next turn. */
@@ -657,7 +758,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       // Next turn
       setTurnNumber(t => t + 1);
       setTurnPhase("towers");
-      setTimeout(() => doTowerPhase(), 800);
+      setTimeout(() => doTowerPhase(), battleSpeed * 1000);
       return prev;
     });
   };
@@ -677,11 +778,41 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     doBindingHeal();
   };
 
-  /** Binding Awoken heal damaged fighters between waves. */
+  /** Binding Awoken heal: total power divided by wounded Awoken in hex + adjacent. */
   const doBindingHeal = () => {
     const binders = placements.filter(p => p.stance === "binding");
     if (!binders.length) return;
-    console.log(`[battle] ${binders.length} binders channel healing between waves`);
+    setAwokenHp(prev => {
+      const next = new Map(prev);
+      for (const b of binders) {
+        const bAw = tenderItems.find(a => a.id === b.awakenedId);
+        const bTile = tiles.find(t => t.id === b.tileId);
+        if (!bAw || !bTile) continue;
+        const power = bAw.power || 3;
+        // Find wounded Awoken in hex + adjacent
+        const wounded: number[] = [];
+        for (const p of placements) {
+          if (p.stance !== "attack" && p.stance !== "defense") continue;
+          const pTile = tiles.find(t => t.id === p.tileId);
+          if (!pTile) continue;
+          if (hexDist(bTile, pTile) <= 1) {
+            const hp = next.get(p.awakenedId) ?? 6;
+            const maxHp = (tenderItems.find(a => a.id === p.awakenedId)?.power || 3) +
+                          (tenderItems.find(a => a.id === p.awakenedId)?.toughness || 3);
+            if (hp < maxHp) wounded.push(p.awakenedId);
+          }
+        }
+        if (wounded.length > 0) {
+          const healPer = power / wounded.length;
+          for (const id of wounded) {
+            const aw = tenderItems.find(a => a.id === id);
+            const maxHp = (aw?.power || 3) + (aw?.toughness || 3);
+            next.set(id, Math.min(maxHp, (next.get(id) ?? 0) + healPer));
+          }
+        }
+      }
+      return next;
+    });
   };
 
   /** Called when enemies breach the center. */
@@ -894,8 +1025,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const awoken = awokens[0] ?? null;
       const lift = t.cursed ? 0 : -5;
       const tileBuildings = buildings.filter(b => b.tileId === t.id);
+      const hp = tileHp.get(t.id);
+      const showHp = hp !== undefined && hp < 10;
       return (
         <g key={`entity-${t.id}`} transform={`translate(0,${lift})`}>
+          {showHp && (
+            <g transform={`translate(${cx},${cy - s * 0.7})`}>
+              <rect x="-18" y="-8" width="36" height="14" rx="3" fill="rgba(0,0,0,0.7)" stroke="#ff4444" strokeWidth="1" />
+              <text y="3" textAnchor="middle" fontSize="10" fill="#ff6666" fontWeight="bold">♥ {hp}/10</text>
+            </g>
+          )}
           {/* Buildings on this tile (max 2) */}
           {tileBuildings.map((b, bi) => {
             const bpx = { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 };
@@ -1458,9 +1597,25 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
         );
       })()}
       <div className="territory-battle-trigger">
-        <button className="abtn battle-cta" onClick={handleDefend}>
-          ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "⚔ Fight the Unraveling"}
-        </button>
+        {wavesCleared >= 3 ? (
+          <button className="abtn battle-cta" onClick={handleDefend} style={{ borderColor: "#ffd700" }}>
+            👑 Boss Fight — Wave {wave?.waveNumber}
+          </button>
+        ) : (
+          <button className="abtn battle-cta" onClick={handleDefend} style={{ opacity: 0.5 }}>
+            ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "⚔ Fight the Unraveling"} (clear 3 waves first)
+          </button>
+        )}
+        {battleActive && (
+          <span style={{ marginLeft: 8 }}>
+            <button className="abtn small" onClick={() => setBattlePaused(p => !p)} title={battlePaused ? "Resume" : "Pause"}>
+              {battlePaused ? "▶" : "⏸"}
+            </button>
+            <button className="abtn small" onClick={() => setBattleSpeed(s => s === 1.3 ? 0.6 : s === 0.6 ? 2.5 : 1.3)} title="Battle speed" style={{ marginLeft: 4 }}>
+              {battleSpeed === 0.6 ? "2x" : battleSpeed === 2.5 ? "0.5x" : "1x"}
+            </button>
+          </span>
+        )}
         {!simActive && !battleActive && wave && (
           <button className="abtn small" onClick={startSim} style={{ marginLeft: 8 }}>
             👁 Simulate Wave {wave.waveNumber}
