@@ -1491,3 +1491,9 @@ body.defeat-flash {
 .aspect-reward-list{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
 .aspect-reward{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(212,175,106,0.1);border-radius:8px;border:1px solid rgba(212,175,106,0.2)}
 .aspect-reward span{color:#e8d5a0;font-size:13px;text-transform:capitalize}
+
+.wake-ready-overlay{position:absolute;inset:0;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.wake-ready-overlay img{width:70%;height:auto;filter:drop-shadow(0 0 20px rgba(120,255,120,0.4));animation:gentle-pulse 3s ease-in-out infinite}
+.wake-ready-overlay span{font-family:var(--display);font-size:18px;color:var(--text);background:rgba(0,0,0,0.6);padding:8px 20px;border-radius:20px;color:#e8f5e8}
+@keyframes gentle-pulse{0%,100%{transform:scale(1);opacity:0.9}50%{transform:scale(1.03);opacity:1}}
+.canvas-frame{position:relative}
