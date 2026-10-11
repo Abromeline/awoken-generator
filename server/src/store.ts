@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS credit_ledger (
   reference TEXT,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS site_colors (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY NOT NULL,
   value TEXT NOT NULL

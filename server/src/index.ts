@@ -47,6 +47,7 @@ const WORKSHOP_ACTIONS = new Set([
   "setUiConfig",
   "uploadUiSprite",
   "deleteUiSprite",
+  "setSiteColor",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
