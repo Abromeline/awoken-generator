@@ -307,6 +307,12 @@ export const fieldPlacements = sqliteTable("field_placements", {
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.
+export const siteColors = sqliteTable("site_colors", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const waveState = sqliteTable("wave_state", {
   ownerKey: text("owner_key").primaryKey(),
   waveNumber: integer("wave_number").notNull().default(1),

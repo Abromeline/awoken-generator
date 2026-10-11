@@ -701,77 +701,101 @@ function LoreSection() {
 }
 
 /** Workshop: customize text colors across the app. */
+/** Apply site colors from server to the document. */
+export function applySiteColors(colors: Record<string, string>) {
+  const isMobile = window.innerWidth <= 768;
+  const device = isMobile ? "mobile" : "desktop";
+  // Apply CSS variables
+  for (const [k, v] of Object.entries(colors)) {
+    const [dev, key] = k.split(":", 2);
+    if (dev !== device) continue;
+    // Map keys to CSS
+    if (key === "text") document.documentElement.style.setProperty("--text", v);
+    else if (key === "dim") document.documentElement.style.setProperty("--dim", v);
+    else if (key === "heading") {
+      document.querySelectorAll("h1, h2, h3").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
+    else if (key === "gold") {
+      document.querySelectorAll(".gold, .rank-badge").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
+    else if (key === "pricing") {
+      // $5 pricing text
+      document.querySelectorAll(".pricing-text").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
+    else if (key === "lore") {
+      document.querySelectorAll(".lore-text, .tutorial-lore").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
+    else if (key === "input-text") {
+      document.querySelectorAll("input, textarea").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
+    else if (key === "input-label") {
+      document.querySelectorAll("label").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
+  }
+}
+
 function TextColors() {
-  const [colors, setColors] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("awoken-text-colors") || "{}");
-    } catch { return {}; }
+  const { data, refetch } = useQuery({
+    queryKey: ["siteColors"],
+    queryFn: () => api.getSiteColors(),
   });
+  const colors = data?.colors || {};
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
-  const defaults: Record<string, string> = {
-    "--text": "#11110f",
-    "--dim": "#625f57",
-    "heading": "#e8d5a0",
-    "gold": "#d4af6a",
+  // Color options: key -> { label, cssVar, default }
+  const options = [
+    { key: "text", label: "Main text", css: "--text", default: "#11110f" },
+    { key: "dim", label: "Muted text", css: "--dim", default: "#625f57" },
+    { key: "heading", label: "Headings", css: null, default: "#e8d5a0" },
+    { key: "gold", label: "Gold accents", css: null, default: "#d4af6a" },
+    { key: "pricing", label: "$5 pricing text", css: null, default: "#e8d5a0" },
+    { key: "lore", label: "Story/lore text", css: null, default: "#e8d5a0" },
+    { key: "input-text", label: "Input box text", css: null, default: "#111111" },
+    { key: "input-label", label: "Input labels", css: null, default: "#b8b8b8" },
+  ];
+  const setColor = async (key: string, value: string) => {
+    const fullKey = `${device}:${key}`;
+    await api.setSiteColor({ key: fullKey, value });
+    refetch();
+    applySiteColors({ ...colors, [fullKey]: value });
   };
-  const keyFor = (k: string) => `${device}:${k}`;
-  const setColor = (key: string, value: string) => {
-    const fullKey = keyFor(key);
-    const next = { ...colors, [fullKey]: value };
-    setColors(next);
-    localStorage.setItem("awoken-text-colors", JSON.stringify(next));
-    applyColors(next);
-  };
-  const applyColors = (all: Record<string, string>) => {
-    // Apply desktop colors as base
-    for (const [k, v] of Object.entries(all)) {
-      const [dev, varName] = k.split(":", 2);
-      if (dev === "desktop" && varName.startsWith("--")) {
-        document.documentElement.style.setProperty(varName, v);
-      }
+  const reset = async () => {
+    // Reset by clearing all (server keeps them, but we override with defaults)
+    for (const opt of options) {
+      await api.setSiteColor({ key: `${device}:${opt.key}`, value: opt.default });
     }
-    // Mobile overrides via a style tag
-    let style = document.getElementById("awoken-mobile-colors");
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "awoken-mobile-colors";
-      document.head.appendChild(style);
-    }
-    const mobileVars = Object.entries(all)
-      .filter(([k]) => k.startsWith("mobile:"))
-      .map(([k, v]) => {
-        const varName = k.split(":", 2)[1];
-        return varName.startsWith("--") ? `${varName}:${v};` : "";
-      })
-      .filter(Boolean)
-      .join("");
-    style.textContent = mobileVars ? `@media (max-width: 768px) { :root { ${mobileVars} } }` : "";
+    refetch();
   };
-  const reset = () => {
-    setColors({});
-    localStorage.removeItem("awoken-text-colors");
-    for (const k of Object.keys(defaults)) {
-      if (k.startsWith("--")) document.documentElement.style.removeProperty(k);
-    }
-    const style = document.getElementById("awoken-mobile-colors");
-    if (style) style.textContent = "";
-  };
-  useEffect(() => { applyColors(colors); }, []);
   return (
     <section className="text-colors-panel">
       <h2>Text Colors</h2>
-      <p className="quiet">Change text colors. Saved in this browser, per device type.</p>
+      <p className="quiet">Changes apply to the live site immediately.</p>
       <div className="device-toggle">
         <button className={device === "desktop" ? "active" : ""} onClick={() => setDevice("desktop")}>Desktop</button>
         <button className={device === "mobile" ? "active" : ""} onClick={() => setDevice("mobile")}>Mobile</button>
       </div>
-      {Object.entries(defaults).map(([key, def]) => (
-        <div key={key} className="color-row">
-          <label>{key}</label>
-          <input type="color" value={colors[keyFor(key)] || def} onChange={(e) => setColor(key, e.target.value)} />
-          <span className="color-value">{colors[keyFor(key)] || def}</span>
-        </div>
-      ))}
+      {options.map(opt => {
+        const fullKey = `${device}:${opt.key}`;
+        const val = colors[fullKey] || opt.default;
+        return (
+          <div key={opt.key} className="color-row">
+            <label>{opt.label}</label>
+            <input type="color" value={val} onChange={(e) => setColor(opt.key, e.target.value)} />
+            <span className="color-value">{val}</span>
+          </div>
+        );
+      })}
       <button className="abtn small" onClick={reset}>Reset to defaults</button>
     </section>
   );
@@ -1053,6 +1077,12 @@ function CosmicBackground() {
 
 export function App() {
   const queryClient = useQueryClient();
+  // Load and apply site colors on startup
+  useEffect(() => {
+    api.getSiteColors().then(r => {
+      if (r.ok) applySiteColors(r.colors);
+    }).catch(() => {});
+  }, []);
   const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null); const [showPacket, setShowPacket] = useState(false); const [showTenderDeck, setShowTenderDeck] = useState(false); const [birthRevealId, setBirthRevealId] = useState<number | null>(null);
   const [wtoken, setWtoken] = useState<string | null>(() => storedWorkshopToken());
   const [tenderTokenState, setTenderTokenState] = useState<string | null>(() => storedTenderToken());

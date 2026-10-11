@@ -3946,6 +3946,23 @@ export const handlers = {
     }
   },
 
+  async getSiteColors(args: unknown, ctx?: ActionContext) {
+    const rows = await db.select().from(schema.siteColors);
+    const colors: Record<string, string> = {};
+    for (const r of rows) colors[r.key] = r.value;
+    return { ok: true, colors };
+  },
+
+  async setSiteColor(args: unknown, ctx?: ActionContext) {
+    // Gated by requireWorkshop in index.ts
+    const parsed = z.object({ key: z.string().min(1).max(64), value: z.string().min(1).max(32) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid color.");
+    await db.insert(schema.siteColors)
+      .values({ key: parsed.data.key, value: parsed.data.value, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: schema.siteColors.key, set: { value: parsed.data.value, updatedAt: new Date() } });
+    return { ok: true };
+  },
+
   async setTenderPassword(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // Extract tender ID from ownerKey (format: "tender-<id>")
