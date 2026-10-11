@@ -76,9 +76,10 @@ function VictoryAspects({ bossLevel }: { bossLevel: number }) {
   const [claimed, setClaimed] = useState(false);
 
   useEffect(() => {
-    // Generate 10 random aspect points split between elements
+    // Generate aspect points scaled by boss level (5 + 2 per level, split randomly)
     const elements = ["tide", "sky", "stone", "root"];
-    const pts = Array.from({ length: 10 }, () => ({
+    const count = 5 + (bossLevel * 2);
+    const pts = Array.from({ length: count }, () => ({
       element: elements[Math.floor(Math.random() * elements.length)],
     }));
     setAspects(pts);

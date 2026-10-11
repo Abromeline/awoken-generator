@@ -1693,11 +1693,19 @@ export const handlers = {
     return { ok: true as const, hp: newHp, maxHp };
   },
 
-  /** Hourly binding heal: binding Awoken heal wounded fighters outside battle. */
+  /** Hourly binding heal: binding Awoken heal wounded fighters outside battle. Once per hour max. */
   async bindingHealTick(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const now = Date.now();
     const ONE_HOUR = 60 * 60 * 1000;
+
+    // Check last heal time (stored in aspect_attunement updatedAt as a proxy, or use a dedicated check)
+    // Simple: check if any fighter was healed in the last hour by looking at a marker
+    // For now, use a simple in-memory throttle per owner (resets on server restart, acceptable)
+    const lastHeal = (global as any).__lastBindingHeal?.[ownerKey] || 0;
+    if (now - lastHeal < ONE_HOUR) {
+      return { ok: true as const, healed: 0, throttled: true };
+    }
 
     // Get binding Awoken
     const binders = await db.select({
@@ -1769,6 +1777,10 @@ export const handlers = {
         healed++;
       }
     }
+    if (healed > 0) {
+      if (!(global as any).__lastBindingHeal) (global as any).__lastBindingHeal = {};
+      (global as any).__lastBindingHeal[ownerKey] = now;
+    }
     return { ok: true as const, healed };
   },
 
@@ -1816,6 +1828,19 @@ export const handlers = {
     const hoursElapsed = Math.max(0, (now - oldestUpdate) / (1000 * 60 * 60));
     // Cap at 24h to prevent huge jumps after long absence
     const cappedHours = Math.min(hoursElapsed, 24);
+
+    // Always advance the checkpoint (no retroactive attunement)
+    // If no binders, just update timestamps without adding points
+    if (binders.length === 0) {
+      for (const [el] of attunement) {
+        await db.update(schema.aspectAttunement)
+          .set({ updatedAt: new Date(now) })
+          .where(and(
+            eq(schema.aspectAttunement.ownerKey, ownerKey),
+            eq(schema.aspectAttunement.element, el as any)
+          ));
+      }
+    }
 
     if (cappedHours > 0 && binders.length > 0) {
       // For each binder, split 1 point/hour across its unique elements
