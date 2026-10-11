@@ -10,6 +10,7 @@ import Friends from "./Friends";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
+import AspectCelebration from "./AspectCelebration";
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -120,6 +121,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
+  const [celebration, setCelebration] = useState<any | null>(null);
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
@@ -1203,9 +1205,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       e.stopPropagation();
                       if (applyingAspect) {
                         try {
-                          await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                          const awoken = tenderItems.find(x => x.id === a.id);
+                          const oldP = awoken?.power ?? 0, oldT = awoken?.toughness ?? 0;
+                          const result: any = await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
                           setApplyingAspect(null);
-                          onUpdate();
+                          await onUpdate();
+                          // Fetch updated Awoken for celebration
+                          const updated = tenderItems.find(x => x.id === a.id);
+                          setCelebration({
+                            awoken: updated || awoken,
+                            aspect: applyingAspect,
+                            element: result.element,
+                            newLevel: result.newLevel,
+                            oldPower: oldP, oldToughness: oldT,
+                            newPower: (updated?.power ?? oldP), newToughness: (updated?.toughness ?? oldT),
+                          });
                         } catch (err) {
                           alert(err instanceof Error ? err.message : "Failed to apply");
                         }
@@ -1562,8 +1576,18 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         setShowAspects(false);
         if (applyingToTarget) {
           try {
-            await api.call("applyAspect", { awakenedId: applyingToTarget, inventoryAspectId: aspect.id });
-            onUpdate();
+            const awoken = tenderItems.find(x => x.id === applyingToTarget);
+            const oldP = awoken?.power ?? 0, oldT = awoken?.toughness ?? 0;
+            const result: any = await api.call("applyAspect", { awakenedId: applyingToTarget, inventoryAspectId: aspect.id });
+            await onUpdate();
+            setCelebration({
+              awoken: awoken,
+              aspect: aspect,
+              element: result.element,
+              newLevel: result.newLevel,
+              oldPower: oldP, oldToughness: oldT,
+              newPower: oldP + 1, newToughness: oldT + 1,
+            });
           } catch (err) {
             alert(err instanceof Error ? err.message : "Failed to apply");
           }
@@ -1572,6 +1596,19 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           setApplyingAspect(aspect);
         }
       }} />
+      {celebration && (
+        <AspectCelebration
+          awoken={celebration.awoken}
+          aspect={celebration.aspect}
+          element={celebration.element}
+          newLevel={celebration.newLevel}
+          oldPower={celebration.oldPower}
+          oldToughness={celebration.oldToughness}
+          newPower={celebration.newPower}
+          newToughness={celebration.newToughness}
+          onDone={() => setCelebration(null)}
+        />
+      )}
       {applyingAspect && (
         <div className="applying-aspect-banner" onClick={() => setApplyingAspect(null)}>
           Tap an Awoken to apply {applyingAspect.name} — tap here to cancel
@@ -1959,9 +1996,18 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               onClick={async () => {
                 if (applyingAspect) {
                   try {
-                    await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                    const oldP = a.power ?? 0, oldT = a.toughness ?? 0;
+                    const result: any = await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
                     setApplyingAspect(null);
-                    onUpdate();
+                    await onUpdate();
+                    setCelebration({
+                      awoken: a,
+                      aspect: applyingAspect,
+                      element: result.element,
+                      newLevel: result.newLevel,
+                      oldPower: oldP, oldToughness: oldT,
+                      newPower: oldP + 1, newToughness: oldT + 1,
+                    });
                   } catch (err) {
                     alert(err instanceof Error ? err.message : "Failed to apply");
                   }
