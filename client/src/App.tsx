@@ -491,6 +491,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
   const stats = useMutation({ mutationFn: (value: { id: number; power: number; toughness: number }) => api.updateLayerAssetStats(value), onSuccess: () => invalidateStudios(queryClient) });
   const rename = useMutation({ mutationFn: ({ id, name }: { id: number; name: string }) => api.renameLayerAsset({ id, name }), onSuccess: () => { setEditing(null); invalidateStudios(queryClient); } });
   const setRarity = useMutation({ mutationFn: (value: { id: number; rarity: string }) => api.updateLayerAssetRarity(value), onSuccess: () => invalidateStudios(queryClient) });
+  const setElement = useMutation({ mutationFn: (value: { id: number; element: string | null }) => api.updateLayerAssetElement(value), onSuccess: () => invalidateStudios(queryClient) });
   async function chooseFiles(event: ChangeEvent<HTMLInputElement>) {
     batch.forEach((item) => URL.revokeObjectURL(item.previewUrl)); const picked = Array.from(event.target.files ?? []);
     const pending = picked.map((file) => ({ id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file), status: "checking" as const, note: "Checking file…" })); setBatch(pending);
@@ -522,8 +523,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
         {asset.serverId && (
           <label className="element-picker"><small>Element</small>
             <select aria-label={`Element for ${asset.name}`} value={(asset as any).element || ""} onChange={(e) => {
-              const val = e.target.value || null;
-              fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "updateLayerAssetElement", id: asset.serverId, element: val }) }).then(() => window.location.reload());
+              setElement.mutate({ id: asset.serverId ?? 0, element: e.target.value || null });
             }}>
               <option value="">Auto (from name)</option>
               <option value="tide">🌊 Tide</option>
