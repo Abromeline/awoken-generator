@@ -321,7 +321,7 @@ export const api = {
   addBattleTrack: (args: { name: string; trackData: string }) => post<{ id: number }>("addBattleTrack", args),
   toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
   deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
-  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean }) =>
+  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean; targetTileId?: number }) =>
     post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[] }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),
