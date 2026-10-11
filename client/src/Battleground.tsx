@@ -34,7 +34,11 @@ interface WaveInfo {
   waveNumber: number;
   frayCount: number;
   unravelers: number;
+  hollows?: number;
+  tangles?: number;
   totalPower: number;
+  isBoss?: boolean;
+  bossLevel?: number;
 }
 
 interface BattlegroundProps {
@@ -237,6 +241,24 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         x: 52 + (wave.frayCount * 4.5) + i * 5, y: 30, w: 10,
         power: unravCfg.power, tough: 0, hp: unravCfg.hp, maxHp: unravCfg.hp,
         name: "Unraveler", side: "en", field: false,
+      });
+    }
+    const hollowCfg = enemyConfig?.["hollow"] ?? { power: 0, hp: 5 };
+    for (let i = 0; i < (wave.hollows || 0); i++) {
+      en.push({
+        id: `e-hollow-${i}`, img: "hollow",
+        x: 52 + (wave.frayCount * 4.5) + (wave.unravelers * 5) + i * 5, y: 30, w: 10,
+        power: hollowCfg.power, tough: 0, hp: hollowCfg.hp, maxHp: hollowCfg.hp,
+        name: "Hollow", side: "en", field: false,
+      });
+    }
+    const tangleCfg = enemyConfig?.["tangle"] ?? { power: 3, hp: 8 };
+    for (let i = 0; i < (wave.tangles || 0); i++) {
+      en.push({
+        id: `e-tangle-${i}`, img: "tangle",
+        x: 52 + (wave.frayCount * 4.5) + (wave.unravelers * 5) + ((wave.hollows || 0) * 5) + i * 5, y: 30, w: 10,
+        power: tangleCfg.power, tough: 0, hp: tangleCfg.hp, maxHp: tangleCfg.hp,
+        name: "Tangle", side: "en", field: false,
       });
     }
     // Binding Awoken heals: total power split among wounded defenders

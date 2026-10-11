@@ -110,7 +110,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
-  const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number } | null>(null);
+  const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
   // Wave simulation (preview only, no DB changes)
   const [simActive, setSimActive] = useState(false);
   const [battleActive, setBattleActive] = useState(false);
@@ -120,6 +120,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [turnPhase, setTurnPhase] = useState<"towers" | "initiative" | "enemies" | null>(null);
   const [turnNumber, setTurnNumber] = useState(0);
   const [wavesCleared, setWavesCleared] = useState(0);
+  const [bossLevel, setBossLevel] = useState(1);
+  const [isBossFight, setIsBossFight] = useState(false);
   const [tileHp, setTileHp] = useState<Map<number, number>>(new Map());
   const [awokenHp, setAwokenHp] = useState<Map<number, number>>(new Map());
   const [battlePaused, setBattlePaused] = useState(false);
@@ -364,9 +366,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-  const handleDefend = async () => {
+  const handleDefend = async (isBoss = false, bossLvl = 1) => {
     // Always ensure wave data — create a default if fetch fails
     let w = wave;
+    if (isBoss) {
+      try {
+        const bw: any = await api.call("getBossWave", { bossLevel: bossLvl });
+        w = {
+          waveNumber: bw.waveNumber,
+          wavesDefeated: 0,
+          frayCount: bw.frayCount,
+          unravelers: bw.unravelers,
+          totalPower: bw.totalPower,
+          hollows: bw.hollows,
+          tangles: bw.tangles,
+          isBoss: true,
+          bossLevel: bossLvl,
+        };
+        setWave(w);
+      } catch (e) {
+        console.error("Boss wave fetch failed", e);
+      }
+    }
     if (!w) {
       try {
         w = await api.getWave();
@@ -878,7 +899,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => {
     setShowBattleground(false);
+    setIsBossFight(false);
     battleResolvedRef.current = false; // reset for next battle
+    // Track boss victories
+    if (result.victory && isBossFight) {
+      const beaten = parseInt(localStorage.getItem("awoken-bosses-beaten") || "0") + 1;
+      localStorage.setItem("awoken-bosses-beaten", String(beaten));
+    }
     // Wave-pull battle (from mystery purification): resolve separately
     if (wavePullTile !== null) {
       const tileId = wavePullTile;
@@ -1654,7 +1681,13 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
       })()}
       <div className="territory-battle-trigger">
         {wavesCleared >= 3 && (
-          <button className="abtn battle-cta" onClick={handleDefend} style={{ borderColor: "#ffd700" }}>
+          <button className="abtn battle-cta" onClick={() => {
+            setIsBossFight(true);
+            // Boss level = how many bosses beaten + 1
+            const bl = (parseInt(localStorage.getItem("awoken-bosses-beaten") || "0") + 1);
+            setBossLevel(bl);
+            handleDefend(true, bl);
+          }} style={{ borderColor: "#ffd700" }}>
             👑 BOSS FIGHT
           </button>
         )}

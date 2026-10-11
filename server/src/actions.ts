@@ -570,6 +570,18 @@ function wavePowerFor(wave: number): { totalPower: number; unravelers: number; f
   return { totalPower, unravelers, frayCount };
 }
 
+// Boss scaling: significantly harder than regular waves.
+// Boss N = equivalent to wave (5 + N*3) in power, with full enemy variety.
+function bossPowerFor(bossLevel: number): { totalPower: number; frayCount: number; unravelers: number; hollows: number; tangles: number } {
+  const effectiveWave = 5 + bossLevel * 3;
+  const unravelers = Math.floor(effectiveWave / 3);
+  const hollows = Math.floor(bossLevel / 2); // Hollows from boss 2
+  const tangles = Math.floor((bossLevel + 1) / 3); // Tangles from boss 2
+  const totalPower = 7 + (effectiveWave - 1) * 2 + unravelers * 4 + hollows * 3 + tangles * 3;
+  const frayCount = Math.max(0, totalPower - unravelers * 4 - hollows * 3 - tangles * 3);
+  return { totalPower, frayCount, unravelers, hollows, tangles };
+}
+
 // Conceive a victory twin from both tenders' champions.
 // Body/arm/head drawn randomly per slot from the two champions' pieces (VICTORY BIRTH).
 async function conceiveConfluenceTwin(hostKey: string, guestKey: string, sessionId: number) {
@@ -2503,6 +2515,21 @@ export const handlers = {
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
+
+  async getBossWave(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({
+      bossLevel: z.number().int().min(1).max(99),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid boss level.");
+    const { totalPower, frayCount, unravelers, hollows, tangles } = bossPowerFor(parsed.data.bossLevel);
+    return {
+      waveNumber: 900 + parsed.data.bossLevel, // Boss waves are 901+
+      wavesDefeated: 0,
+      frayCount, unravelers, hollows, tangles, totalPower,
+      isBoss: true,
+      bossLevel: parsed.data.bossLevel,
+    };
+  },
 
   async getWave(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
