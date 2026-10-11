@@ -3779,6 +3779,113 @@ export const handlers = {
     return { ok: true, fireLevel: points };
   },
 
+  async igniteWildfire(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid ignition.");
+    // Costs 13 energy
+    if (!(await spendEnergy(ownerKey, 13))) {
+      badRequest("Not enough energy (need 13).");
+    }
+    // Awoken must have Fire III aspect (level 3 fire)
+    const aw = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    if (!aw.length) badRequest("Awoken not found.");
+    let layers: any[];
+    try { layers = JSON.parse(aw[0].compositionJson); }
+    catch { layers = []; }
+    const aspect = layers.find((l: any) => l.category === "aspect");
+    if (!aspect) badRequest("This Awoken has no aspect.");
+    const el = aspect.aspectElement || elementForPieceName(aspect.name || "", (aspect as any).element);
+    if (el !== "fire") badRequest("Only a Fire Awoken can ignite wildfire.");
+    if ((aspect.aspectLevel ?? 1) < 3) badRequest("Requires Fire III (level 3).");
+    // Must be on a border tile (adjacent to cursed)
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.cursed, 0)
+      )).limit(1);
+    if (!tile.length) badRequest("Must be on purified land.");
+    // Find adjacent cursed tiles
+    const allTiles = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tileById = new Map(allTiles.map(t => [t.id, t]));
+    const center = tile[0];
+    const hexDist = (a: any, b: any) =>
+      (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+    const ignited = allTiles.filter(t => t.cursed && hexDist(center, t) === 1);
+    if (!ignited.length) badRequest("No cursed tiles adjacent to ignite.");
+    // Mark them as ignited (wildfire)
+    for (const t of ignited) {
+      await db.update(schema.territoryTiles)
+        .set({ spark: 2 }) // 2 = wildfire ignited
+        .where(eq(schema.territoryTiles.id, t.id));
+    }
+    return { ok: true, ignitedTileIds: ignited.map(t => t.id) };
+  },
+
+  async getWildfireWave(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    // Find ignited tiles (spark=2)
+    const ignited = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.spark, 2),
+      ));
+    if (!ignited.length) badRequest("No wildfire burning.");
+    // One wave per ignited tile: enraged Unravelers (power 6, hp 8)
+    // For now, return the first ignited tile's wave
+    const tile = ignited[0];
+    const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+    const unravelerCount = 2 + Math.floor(ring / 2);
+    return {
+      ok: true,
+      tileId: tile.id,
+      enemies: Array(unravelerCount).fill(null).map((_, i) => ({
+        id: `wildfire-${tile.id}-${i}`,
+        name: `Enraged Unraveler`,
+        power: 6,
+        hp: 8,
+        maxHp: 8,
+      })),
+      remainingTiles: ignited.length,
+    };
+  },
+
+  async resolveWildfireWave(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int().positive(),
+      victory: z.boolean(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid wave resolution.");
+    if (parsed.data.victory) {
+      // Purify the tile
+      await db.update(schema.territoryTiles)
+        .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null })
+        .where(and(
+          eq(schema.territoryTiles.id, parsed.data.tileId),
+          eq(schema.territoryTiles.ownerKey, ownerKey),
+        ));
+    } else {
+      // Lost: tile stays ignited, can retry
+    }
+    // Check if more ignited tiles remain
+    const remaining = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.spark, 2),
+      ));
+    return { ok: true, remaining: remaining.length };
+  },
+
   async getBirthStatus(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;
