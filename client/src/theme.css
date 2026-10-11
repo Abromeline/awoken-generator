@@ -1840,7 +1840,3 @@ body.defeat-flash {
 .rank-row.me{font-weight:bold;color:#d4af6a}
 
 .tender-gate h1 { color: #e8d5a0; }
-.given-code { color: #e8d5a0; }
-
-.tender-gate input { color: #111; }
-.tender-gate input::placeholder { color: #666; }
