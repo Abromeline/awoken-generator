@@ -1485,3 +1485,9 @@ body.defeat-flash {
 .page-toggle.on{background:#b89b5e;border-color:#b89b5e;color:#111}
 
 .dock-row{display:flex;align-items:flex-end;gap:12px;width:100%;justify-content:center}
+
+.victory-aspects{margin:20px 0;padding:16px;background:rgba(0,0,0,0.5);border-radius:10px;border:1px solid rgba(212,175,106,0.3)}
+.victory-aspects h3{color:#d4af6a;margin:0 0 12px 0;font-size:16px;letter-spacing:2px}
+.aspect-reward-list{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
+.aspect-reward{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(212,175,106,0.1);border-radius:8px;border:1px solid rgba(212,175,106,0.2)}
+.aspect-reward span{color:#e8d5a0;font-size:13px;text-transform:capitalize}

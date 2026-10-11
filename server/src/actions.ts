@@ -1583,6 +1583,54 @@ export const handlers = {
     return { ok: true as const, element, newLevel: 1, upgraded: false as const };
   },
 
+  async grantAspectPoint(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      element: z.enum(["tide", "sky", "stone", "root"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid element.");
+    // Add 1 point to attunement (may trigger aspect spawn if threshold hit)
+    const row = await db.select().from(schema.aspectAttunement)
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, parsed.data.element)
+      )).limit(1);
+    const current = row[0]?.points ?? 0;
+    const newPoints = current + 1;
+    if (row[0]) {
+      await db.update(schema.aspectAttunement)
+        .set({ points: newPoints, updatedAt: new Date() })
+        .where(and(
+          eq(schema.aspectAttunement.ownerKey, ownerKey),
+          eq(schema.aspectAttunement.element, parsed.data.element)
+        ));
+    } else {
+      await db.insert(schema.aspectAttunement)
+        .values({ ownerKey, element: parsed.data.element, points: newPoints, updatedAt: new Date() });
+    }
+    // Check threshold (10) — spawn aspect if reached
+    if (newPoints >= 10) {
+      const elementName = parsed.data.element.charAt(0).toUpperCase() + parsed.data.element.slice(1);
+      const asset = await db.select().from(schema.layerAssets)
+        .where(and(
+          eq(schema.layerAssets.category, "aspect"),
+          like(schema.layerAssets.name, `${elementName} I`)
+        )).limit(1);
+      if (asset.length) {
+        await db.insert(schema.aspectInventory)
+          .values({ ownerKey, aspectAssetId: asset[0].id });
+        await db.update(schema.aspectAttunement)
+          .set({ points: newPoints - 10 })
+          .where(and(
+            eq(schema.aspectAttunement.ownerKey, ownerKey),
+            eq(schema.aspectAttunement.element, parsed.data.element)
+          ));
+        return { ok: true as const, spawned: true as const };
+      }
+    }
+    return { ok: true as const, spawned: false as const };
+  },
+
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const now = Date.now();

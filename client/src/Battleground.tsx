@@ -70,6 +70,75 @@ interface Fighter {
   tileId?: number;  // For building effects (thorn wall)
 }
 
+/** Victory aspect rewards: 1 random aspect point per boss level, shown with element glyphs. */
+function VictoryAspects({ bossLevel }: { bossLevel: number }) {
+  const [aspects, setAspects] = useState<{ element: string }[]>([]);
+  const [claimed, setClaimed] = useState(false);
+
+  useEffect(() => {
+    // Generate 1 random aspect point per boss level
+    const elements = ["tide", "sky", "stone", "root"];
+    const pts = Array.from({ length: bossLevel }, () => ({
+      element: elements[Math.floor(Math.random() * elements.length)],
+    }));
+    setAspects(pts);
+  }, [bossLevel]);
+
+  const glyphs: Record<string, React.ReactElement> = {
+    tide: (
+      <svg viewBox="0 0 60 24" width="40" height="16">
+        <path d="M2,12 Q10,4 18,12 T34,12 T50,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M50,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+      </svg>
+    ),
+    sky: (
+      <svg viewBox="0 0 60 24" width="40" height="16">
+        <path d="M28,12 m-8,0 a8,8 0 1,1 8,8 a6,6 0 1,0 -6,-6 a4,4 0 1,1 4,4" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M36,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+      </svg>
+    ),
+    stone: (
+      <svg viewBox="0 0 60 24" width="40" height="16">
+        <path d="M6,18 L18,4 L26,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M26,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+      </svg>
+    ),
+    root: (
+      <svg viewBox="0 0 60 24" width="40" height="16">
+        <path d="M10,18 Q10,6 22,6 Q34,6 34,14" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M34,14 L60,14" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+      </svg>
+    ),
+  };
+
+  const claim = async () => {
+    // Award aspect points via API
+    for (const a of aspects) {
+      await api.grantAspectPoint({ element: a.element });
+    }
+    setClaimed(true);
+  };
+
+  if (!aspects.length) return null;
+  return (
+    <div className="victory-aspects">
+      <h3>Aspect Rewards</h3>
+      <div className="aspect-reward-list">
+        {aspects.map((a, i) => (
+          <div key={i} className="aspect-reward">
+            {glyphs[a.element]}
+            <span>+1 {a.element}</span>
+          </div>
+        ))}
+      </div>
+      {!claimed && (
+        <button className="abtn small" onClick={claim}>Claim Aspects</button>
+      )}
+      {claimed && <p className="quiet">✓ Aspects claimed</p>}
+    </div>
+  );
+}
+
 export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
@@ -499,6 +568,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               fill="rgba(255,215,0,0.2)" stroke="#ffedaa" strokeWidth="2" />
           </svg>
           <h1>UNRAVELING COMPLETE</h1>
+          <VictoryAspects bossLevel={wave.waveNumber} />
           {bonusTiles.length > 0 && (
             <div className="victory-territory-pick">
               <p>Choose one new territory to claim:</p>
