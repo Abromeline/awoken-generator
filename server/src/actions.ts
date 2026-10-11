@@ -3867,7 +3867,7 @@ export const handlers = {
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid wave resolution.");
     if (parsed.data.victory) {
-      // Purify the tile
+      // Victory: tile purifies, fire ends here
       await db.update(schema.territoryTiles)
         .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null })
         .where(and(
@@ -3875,7 +3875,23 @@ export const handlers = {
           eq(schema.territoryTiles.ownerKey, ownerKey),
         ));
     } else {
-      // Lost: tile stays ignited, can retry
+      // Defeat: Unravelers push into territory, igniting adjacent purified tiles
+      const allTiles = await db.select().from(schema.territoryTiles)
+        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const tileById = new Map(allTiles.map(t => [t.id, t]));
+      const lostTile = tileById.get(parsed.data.tileId);
+      if (lostTile) {
+        const hexDist = (a: any, b: any) =>
+          (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+        // Ignite adjacent purified tiles (fire spreads)
+        const adjacent = allTiles.filter(t => !t.cursed && t.spark !== 2 && hexDist(lostTile, t) === 1);
+        for (const t of adjacent) {
+          await db.update(schema.territoryTiles)
+            .set({ spark: 2, cursed: 1 }) // Fire curses the land
+            .where(eq(schema.territoryTiles.id, t.id));
+        }
+        // The lost tile stays ignited
+      }
     }
     // Check if more ignited tiles remain
     const remaining = await db.select().from(schema.territoryTiles)
