@@ -1533,3 +1533,9 @@ body.defeat-flash {
 .element-tag.stone{border-color:#8b7355}
 .element-tag.root{border-color:#6b8e23}
 .element-tag.fire{border-color:#ff4444}
+
+.aspect-apply-modal{margin-top:16px;padding:16px;background:rgba(0,0,0,0.5);border:1px solid #b89b5e;border-radius:8px}
+.aspect-apply-modal h4{margin:0 0 8px;color:#e8d5a8}
+.aspect-apply-list{display:flex;flex-direction:column;gap:6px;margin:12px 0;max-height:200px;overflow-y:auto}
+.aspect-apply-option{padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid #444;border-radius:6px;color:#fff;cursor:pointer;text-align:left}
+.aspect-apply-option:hover{border-color:#b89b5e;background:rgba(255,255,255,0.1)}

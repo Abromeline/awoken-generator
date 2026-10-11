@@ -1384,7 +1384,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
-function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void }) {
+  const [applyingAspect, setApplyingAspect] = useState<any>(null);
   if (!visible) return null;
   const { data } = useQuery({
     queryKey: ["aspectAttunement"],
@@ -1456,8 +1457,41 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
             <div key={item.id} className="aspect-inventory-item" title={item.name}>
               <span className="aspect-inv-element">{item.element}</span>
               <span className="aspect-inv-name">{item.name}</span>
+              <button
+                className="abtn small"
+                onClick={() => setApplyingAspect(item)}
+                title="Apply to an Awoken"
+              >
+                Apply
+              </button>
             </div>
           ))}
+          {applyingAspect && (
+            <div className="aspect-apply-modal">
+              <h4>Apply {applyingAspect.name} to...</h4>
+              <p className="quiet">Choose an Awoken (must match element or be empty)</p>
+              <div className="aspect-apply-list">
+                {tenderItems.filter(a => !placedIds.has(a.id)).map(a => (
+                  <button
+                    key={a.id}
+                    className="aspect-apply-option"
+                    onClick={async () => {
+                      try {
+                        await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                        setApplyingAspect(null);
+                        onUpdate();
+                      } catch (e) {
+                        alert(e instanceof Error ? e.message : "Failed to apply");
+                      }
+                    }}
+                  >
+                    {a.name} (⚔{a.power} 🛡{a.toughness})
+                  </button>
+                ))}
+              </div>
+              <button className="abtn small" onClick={() => setApplyingAspect(null)}>Cancel</button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1466,7 +1500,7 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
 
   return (
     <div className="territory-view">
-      <AspectAttunement visible={showAspects} onClose={() => setShowAspects(false)} />
+      <AspectAttunement visible={showAspects} onClose={() => setShowAspects(false)} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} />
       <button
         className="aspect-fab"
         onClick={() => setShowAspects(!showAspects)}
