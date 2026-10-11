@@ -1894,3 +1894,6 @@ body.defeat-flash {
   z-index: 1000;
 }
 .tutorial-help-btn:hover { background: #2a2a2a; }
+
+.tutorial-card p, .tutorial-card h2, .tutorial-card li { color: #222 !important; }
+.tutorial-lore { color: #444 !important; }
