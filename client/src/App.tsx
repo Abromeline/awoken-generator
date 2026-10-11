@@ -9,6 +9,28 @@ import WelcomePacket, { AcornButton } from "./WelcomePacket";
 import wakeSlotBg from "./assets/wake-slot.png";
 import wakeReadyBg from "./assets/wake-ready.png";
 import gatherWakesBg from "./assets/gather-wakes.png";
+
+/** Load uploaded awakening sprites from UI Workspace (overrides bundled). */
+function useAwakeningSprites() {
+  const [sprites, setSprites] = useState<Record<string, string>>({});
+  useEffect(() => {
+    api.call("listUiSprites", {}).then((r: any) => {
+      const map: Record<string, string> = {};
+      for (const s of (r.sprites || [])) {
+        if (s.category === "awakening") {
+          // Use the most recent upload for each name
+          map[s.name] = s.url;
+        }
+      }
+      setSprites(map);
+    }).catch(() => {});
+  }, []);
+  return {
+    wakeSlot: sprites["wake-slot"] || wakeSlotBg,
+    wakeReady: sprites["wake-ready"] || wakeReadyBg,
+    gatherWakes: sprites["gather-wakes"] || gatherWakesBg,
+  };
+}
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import UIWorkspace from "./UIWorkspace";
 import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type WaitingAwoken, type WelcomeStatus } from "./api";
@@ -241,6 +263,7 @@ function CreatureCard({ item, allowDelete = false, newborn = false }: { item: Aw
 }
 
 function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean }) {
+  const awakening = useAwakeningSprites();
   const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
   const [composition, setComposition] = useState<LayerAsset[]>([]); const [notice, setNotice] = useState("The scattered matter waits.");
   const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); onSaved(data.id); } });
@@ -261,11 +284,11 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   }
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
-    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${wakeSlotBg})`, backgroundSize: "cover", backgroundPosition: "center" }}><canvas ref={canvasRef} width={750} height={971} aria-label="Awoken awakening canvas" />{freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={async () => { try { const layers = pickLayerSet(assets); await api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) }); onSaved(0); } catch (e) { setNotice(mutationError(e)); } }} aria-label="A free wake is ready — tap to wake"><img src={wakeReadyBg} alt="" /><span>Tap to wake</span></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER"}</span></div>
+    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }}><canvas ref={canvasRef} width={750} height={971} aria-label="Awoken awakening canvas" />{freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={async () => { try { const layers = pickLayerSet(assets); await api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) }); onSaved(0); } catch (e) { setNotice(mutationError(e)); } }} aria-label="A free wake is ready — tap to wake"><img src={awakening.wakeReady} alt="" /><span>Tap to wake</span></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER"}</span></div>
       {vesselEmpty ? (
         <div className="gather-wakes-row">
           <button className="gather-wakes-btn" type="button" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Gather wakes">
-            <img src={gatherWakesBg} alt="" />
+            <img src={awakening.gatherWakes} alt="" />
           </button>
           {credits && <span className="gather-wakes-price">{credits.packPriceLabel} for {credits.creditsPerPack} wakes</span>}
         </div>

@@ -32,7 +32,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening";
 
 interface UiSprite {
   id: number;
@@ -73,6 +73,12 @@ const DEFAULTS: Record<string, any> = {
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
 const BUILDINGS = ["watchtower", "dream-wheat", "elemental-shrine", "awakening-well", "thorn-wall", "binding-circle", "tree"];
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
+const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
+const AWAKENING_LABELS: Record<string, string> = {
+  "wake-slot": "Wake Slot Background",
+  "wake-ready": "Free Wake Crystal",
+  "gather-wakes": "Gather Wakes Button",
+};
 
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
@@ -129,9 +135,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : "⏱️ Timers"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : "✨ Awakening"}
           </button>
         ))}
       </div>
@@ -271,6 +277,36 @@ export default function UIWorkspace() {
                 <small>Multiplier (0.75 = 25% faster)</small></label>
             </div>
           </div>
+        </div>
+      )}
+
+      {section === "awakening" && (
+        <div className="workspace-grid">
+          {AWAKENING.map(name => (
+            <div key={name} className="workspace-card">
+              <h3>{AWAKENING_LABELS[name]}</h3>
+              <div className="sprite-row">
+                {spritesFor("awakening", name).map(s => (
+                  <div key={s.id} className="sprite-uploaded">
+                    <img src={s.url} alt={s.name} className="sprite-thumb" />
+                    <small>Uploaded</small>
+                  </div>
+                ))}
+                <button
+                  className="upload-btn"
+                  disabled={uploading === name}
+                  onClick={() => { setUploadTarget({ category: "awakening", name }); fileRef.current?.click(); }}
+                >
+                  {uploading === name ? "..." : "+ PNG"}
+                </button>
+              </div>
+              <p className="quiet" style={{ fontSize: 11, marginTop: 8 }}>
+                {name === "wake-slot" && "Background behind the wake canvas. Transparent PNG recommended."}
+                {name === "wake-ready" && "Crystal overlay when free wake is ready. Must have transparency."}
+                {name === "gather-wakes" && "Button image when vessel is empty. Must have transparency."}
+              </p>
+            </div>
+          ))}
         </div>
       )}
     </div>
