@@ -1686,7 +1686,7 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
             {!attackTargeting && !moveTargeting && (
               <button
                 className="stance-btn"
-                onClick={() => setMoveTargeting(true)}
+                onClick={() => { setMoveTargeting(true); setStanceMinimized(true); }}
                 title={`Move to an adjacent tile. Costs ${moveCost(awoken.power)} energy.`}>
                 ➤ Move ({moveCost(awoken.power)}⚡)
               </button>
