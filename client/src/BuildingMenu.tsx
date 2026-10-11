@@ -14,6 +14,15 @@ const wheatStageOverrides: Record<string, string> = {};
 export function setWheatStageOverride(stage: string, url: string) {
   wheatStageOverrides[stage] = url;
 }
+
+// Enemy sprite overrides from UI workspace uploads (set at runtime)
+const enemyOverrides: Record<string, string> = {};
+export function setEnemyOverride(type: string, url: string) {
+  enemyOverrides[type] = url;
+}
+export function enemyImage(type: string): string {
+  return enemyOverrides[type] || "";
+}
 import treeImg from "./assets/buildings/tree.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { setWheatStageOverride } from "./BuildingMenu";
+import { setWheatStageOverride, setEnemyOverride } from "./BuildingMenu";
 import { api } from "./api";
 // Current default sprites (bundled with the app)
 import frayImg from "./assets/enemies/fray.png";
@@ -103,6 +103,9 @@ export default function UIWorkspace() {
       for (const s of r.sprites || []) {
         if (s.category === "building" && s.name.startsWith("wheat-")) {
           setWheatStageOverride(s.name, s.url);
+        }
+        if (s.category === "enemy") {
+          setEnemyOverride(s.name, s.url);
         }
       }
     }).catch(() => {});

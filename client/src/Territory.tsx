@@ -9,7 +9,18 @@ import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
-import BuildingMenu, { buildingImage, wheatStageImage } from "./BuildingMenu";
+import BuildingMenu, { buildingImage, wheatStageImage, enemyImage } from "./BuildingMenu";
+import frayImg from "./assets/enemies/fray.png";
+import unravelerImg from "./assets/enemies/unraveler.png";
+import hollowImg from "./assets/enemies/hollow.png";
+import tangleImg from "./assets/enemies/tangle.png";
+
+const ENEMY_IMGS: Record<string, string> = {
+  fray: frayImg,
+  unraveler: unravelerImg,
+  hollow: hollowImg,
+  tangle: tangleImg,
+};
 import Tutorial, { tutorialComplete } from "./Tutorial";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain-iso/tide-v2.png";
@@ -1750,14 +1761,20 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
           onMouseLeave={() => { dragRef.current = null; }}>
           {renderGrid()}
           {/* Simulation units */}
-          {battleUnits.map(u => (
+          {battleUnits.map(u => {
+            const imgSrc = enemyImage(u.type) || ENEMY_IMGS[u.type] || "";
+            return (
             <g key={`battle-${u.id}`} transform={`translate(${u.x},${u.y})`}>
-              <circle r="8" fill={u.type === "fray" ? "#3a1a1a" : "#1a0a0a"} stroke="#ff4444" strokeWidth="1.5" />
-              <text y="4" textAnchor="middle" fontSize="10" fill="#ff6666">{u.type === "fray" ? "◊" : "⬢"}</text>
+              {imgSrc ? (
+                <image href={imgSrc} x="-12" y="-12" width="24" height="24" />
+              ) : (
+                <circle r="8" fill="#3a1a1a" stroke="#ff4444" strokeWidth="1.5" />
+              )}
               <rect x="-10" y="-14" width="20" height="3" fill="#333" />
               <rect x="-10" y="-14" width={20 * (u.hp / u.maxHp)} height="3" fill="#ff4444" />
             </g>
-          ))}
+            );
+          })}
           {simUnits.map(u => (
             <g key={`sim-${u.id}`} transform={`translate(${u.x},${u.y})`}>
               <circle r={8} fill={u.type === "unraveler" ? "#1a0a2a" : "#2a1a0a"} stroke="#ff4444" strokeWidth={1.5} opacity={0.9} />
