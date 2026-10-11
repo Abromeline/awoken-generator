@@ -733,7 +733,7 @@ async function loadGameConfig() {
     if (type === "watchtower") {
       buildings[type].damage = overrides["building.watchtower.damage"] ?? 3;
       buildings[type].powerBonus = overrides["building.watchtower.powerBonus"] ?? 2;
-      buildings[type].upkeepPerHour = overrides["building.watchtower.upkeepPerHour"] ?? 3;
+      buildings[type].upkeepPerHour = overrides["building.watchtower.upkeepPerHour"] ?? 2;
     }
     if (type === "thorn-wall") {
       buildings[type].damage = overrides["building.thorn-wall.damage"] ?? 1;
@@ -762,7 +762,7 @@ async function loadGameConfig() {
 
 // Single source of truth for building definitions
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number }> = {
-  "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 3⚡/hour upkeep.", icon: "🗼" },
+  "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
@@ -2924,7 +2924,7 @@ export const handlers = {
       .where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const now = Date.now();
     const gameConfig = await loadGameConfig();
-    const upkeepCost = gameConfig.buildings["watchtower"]?.upkeepPerHour ?? 3;
+    const upkeepCost = gameConfig.buildings["watchtower"]?.upkeepPerHour ?? 2;
     const upkeepMs = 60 * 60 * 1000;
     for (const b of buildings) {
       // Building completed -> active
@@ -2946,7 +2946,7 @@ export const handlers = {
           } catch {}
         }
       }
-      // Watchtower upkeep: 3 energy/hour or goes dormant
+      // Watchtower upkeep: 2 energy/hour or goes dormant
       if (b.buildingType === "watchtower" && (b.status === "active" || b.status === "dormant")) {
         const lastUpkeep = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
         if (now - lastUpkeep >= upkeepMs) {
