@@ -285,6 +285,7 @@ export const api = {
   assignRandomAspects: () => post<{ ok: boolean; assigned: number; total: number }>("assignRandomAspects", {}),
   updateLayerAssetRarity: (value: { id: number; rarity: string }) => post<{ ok: boolean }>("updateLayerAssetRarity", value),
   updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
+  claimSpark: (value: { tileId: number }) => post<{ ok: boolean; aspect: { id: number; name: string; element: string } }>("claimSpark", value),
   getAspectAttunement: () => post<{ levels: Record<string, number>; threshold: number; inventoryCount: number; inventory: { id: number; name: string; element: string; imageUrl: string }[] }>("getAspectAttunement", {}),
   combineAspects: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; newLevel: number; element: string }>("combineAspects", value),
   listGlyphs: (value: { category: string }) => post<{ glyphs: { id: number; category: string; name: string; svgData: string }[] }>("listGlyphs", value),

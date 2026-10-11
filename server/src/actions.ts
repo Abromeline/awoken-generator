@@ -3738,6 +3738,40 @@ export const handlers = {
     return okResponse.parse({ ok: true, wakeCredits: balance });
   },
 
+  async claimSpark(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid spark claim.");
+    // Tile must be sparked and owned
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.id, parsed.data.tileId),
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.spark, 1),
+      )).limit(1);
+    if (!tile.length) badRequest("No spark here.");
+    // Clear the spark
+    await db.update(schema.territoryTiles)
+      .set({ spark: 0 })
+      .where(eq(schema.territoryTiles.id, tile[0].id));
+    // Grant a random Fire aspect (level I)
+    const fireAspects = await db.select().from(schema.layerAssets)
+      .where(and(
+        eq(schema.layerAssets.category, "aspect"),
+        eq(schema.layerAssets.element, "fire"),
+      ));
+    if (!fireAspects.length) badRequest("No fire aspects in the pool yet.");
+    const aspect = fireAspects[Math.floor(Math.random() * fireAspects.length)];
+    // Add to inventory
+    await db.insert(schema.aspectInventory).values({
+      ownerKey,
+      aspectAssetId: aspect.id,
+    });
+    return { ok: true, aspect: { id: aspect.id, name: aspect.name, element: "fire" } };
+  },
+
   async getBirthStatus(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;

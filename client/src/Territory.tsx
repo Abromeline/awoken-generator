@@ -72,6 +72,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
+  const [sparkAnimation, setSparkAnimation] = useState<{ phase: "center" | "fly" } | null>(null);
+  const [fireFound, setFireFound] = useState(() => localStorage.getItem("awoken-fire-found") === "1");
+
+  const handleSparkClick = async (tileId: number) => {
+    try {
+      const result = await api.claimSpark({ tileId });
+      // Show animation: glyph center screen, then flies to attunement
+      setSparkAnimation({ phase: "center" });
+      setTimeout(() => setSparkAnimation({ phase: "fly" }), 1500);
+      setTimeout(() => {
+        setSparkAnimation(null);
+        setFireFound(true);
+        localStorage.setItem("awoken-fire-found", "1");
+      }, 3000);
+      // Refresh tiles
+      const refreshed = await api.getTerritory();
+      setTiles(refreshed.tiles);
+      onUpdate();
+    } catch (e) {
+      console.error("Spark claim failed", e);
+    }
+  };
 
   // Check tutorial objectives
   useEffect(() => {
@@ -1385,6 +1407,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               </g>
             );
           })()}
+          {/* Spark: fire aspect waiting to be claimed */}
+          {t.spark === 1 && (
+            <g onClick={(e) => { e.stopPropagation(); handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
+              <text x={cx} y={cy - 10} textAnchor="middle" fontSize={24}
+                fill="#ff6600" opacity="0.95">
+                🔥
+              </text>
+              <text x={cx} y={cy + 25} textAnchor="middle" fontSize={8}
+                fill="#ffaa00" opacity="0.9" fontWeight="bold">
+                SPARK — tap to claim
+              </text>
+            </g>
+          )}
           {t.element && t.element !== "neutral" && (
             <polygon points={pts.join(" ")} fill={
               t.element === "tide" ? "rgba(74,144,217,0.15)" :
@@ -1485,6 +1520,14 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         <path d="M14,14 Q18,12 20,14" fill="none" stroke="#d4af6a" strokeWidth="0.8" opacity="0.4"/>
       </svg>
     ),
+    fire: (
+      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
+        <path d="M14,20 Q10,14 14,8 Q16,4 14,2 Q20,4 22,10 Q24,6 22,2 Q28,6 26,12 Q25,16 28,18 L60,18" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
+        <path d="M18,20 Q16,16 18,12 Q20,14 19,17" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.6"/>
+        <path d="M28,18 L60,18" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
+        <circle cx="22" cy="14" r="1.5" fill="#d4af6a" opacity="0.5"/>
+      </svg>
+    ),
   };
 
   const elements = [
@@ -1493,6 +1536,11 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
     { id: "stone", label: "Stone" },
     { id: "root", label: "Root" },
   ];
+  // Fire appears only after discovering the first spark
+  const showFire = typeof window !== "undefined" && localStorage.getItem("awoken-fire-found") === "1";
+  if (showFire) {
+    elements.push({ id: "fire", label: "Fire" });
+  }
 
   return (
     <div className="aspect-attunement celestial">
@@ -2289,6 +2337,17 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           </div>
         );
       })()}
+      {/* Spark claim animation */}
+      {sparkAnimation && (
+        <div className={`spark-animation ${sparkAnimation.phase}`}>
+          <svg className="glyph-svg large" viewBox="0 0 60 24" width="120" height="48">
+            <path d="M14,20 Q10,14 14,8 Q16,4 14,2 Q20,4 22,10 Q24,6 22,2 Q28,6 26,12 Q25,16 28,18 L60,18" fill="none" stroke="#ff6600" strokeWidth="2" opacity="0.95"/>
+            <path d="M18,20 Q16,16 18,12 Q20,14 19,17" fill="none" stroke="#ff6600" strokeWidth="1.2" opacity="0.7"/>
+            <circle cx="22" cy="14" r="2" fill="#ff6600" opacity="0.6"/>
+          </svg>
+          <div className="spark-text">Fire found!</div>
+        </div>
+      )}
     </div>
   );
 }
