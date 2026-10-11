@@ -1849,4 +1849,5 @@ body.defeat-flash {
 .color-row input[type="color"]{width:48px;height:32px;border:none;cursor:pointer}
 .color-value{font-family:monospace;font-size:12px;color:var(--dim)}
 
-
+.tender-gate h1 { color: #b8b8b8; }
+.tender-gate .eyebrow { color: #b8b8b8; }
