@@ -66,6 +66,7 @@ const categories: { id: Category; label: string; note: string }[] = [
 const statCategories: Category[] = ["arms", "body", "head"];
 const rarityLabel: Record<Rarity, string> = { common: "Common", uncommon: "Uncommon", rare: "Rare", mythic: "Mythic" };
 const rarityWeight: Record<Rarity, number> = { common: 8, uncommon: 4, rare: 2, mythic: 1 };
+const firstbornWeight: Record<Rarity, number> = { common: 2, uncommon: 4, rare: 6, mythic: 4 };
 const rarityScore: Record<Rarity, number> = { common: 1, uncommon: 2, rare: 3, mythic: 4 };
 const statValues = [0, 1, 2, 3] as const;
 const starters: LayerAsset[] = [
@@ -86,9 +87,10 @@ function invalidateStudios(queryClient: QueryClient) {
 function toLayerAssets(serverAssets: Asset[]): LayerAsset[] {
   return [...starters, ...serverAssets.map((asset) => ({ sourceId: `db:${asset.id}`, serverId: asset.id, name: asset.name, category: asset.category, rarity: asset.rarity, power: asset.power, toughness: asset.toughness, imageUrl: asset.image_url, mimeType: asset.mime_type, isStarter: false }))];
 }
-function chooseWeighted(options: LayerAsset[]) {
-  const total = options.reduce((sum, item) => sum + rarityWeight[item.rarity], 0); let cursor = Math.random() * total;
-  for (const item of options) { cursor -= rarityWeight[item.rarity]; if (cursor <= 0) return item; }
+function chooseWeighted(options: LayerAsset[], lucky = false) {
+  const weights = lucky ? firstbornWeight : rarityWeight;
+  const total = options.reduce((sum, item) => sum + weights[item.rarity], 0); let cursor = Math.random() * total;
+  for (const item of options) { cursor -= weights[item.rarity]; if (cursor <= 0) return item; }
   return options[options.length - 1];
 }
 /** Gather one piece per layer, weighted by rarity (or fixed choices in the workshop). */
@@ -98,14 +100,14 @@ function isFireAspect(asset: LayerAsset): boolean {
   return /fire|ember|flame|ash|inferno/i.test(asset.name);
 }
 
-function pickLayerSet(assets: LayerAsset[], choices?: Record<Category, string>): LayerAsset[] {
+function pickLayerSet(assets: LayerAsset[], choices?: Record<Category, string>, lucky = false): LayerAsset[] {
   return categories.flatMap((category) => {
     // Awoken are not born with aspects — those are earned later through binding
     if (category.id === "aspect") return [];
     let options = assets.filter((asset) => asset.category === category.id);
     if (!options.length) return [];
     const fixed = choices?.[category.id] ? options.find((asset) => asset.sourceId === choices[category.id]) : undefined;
-    const picked = fixed ?? chooseWeighted(options);
+    const picked = fixed ?? chooseWeighted(options, lucky);
     return picked ? [picked] : [];
   });
 }
@@ -279,7 +281,7 @@ function CreatureCard({ item, allowDelete = false, newborn = false }: { item: Aw
   </article>;
 }
 
-function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean }) {
+function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, isFirstAwoken }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; isFirstAwoken?: boolean }) {
   const awakening = useAwakeningSprites();
   const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
   const [composition, setComposition] = useState<LayerAsset[]>([]); const [notice, setNotice] = useState("The scattered matter waits.");
@@ -296,7 +298,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   function wakeOne() {
     const missing = statCategories.filter((category) => !assets.some((asset) => asset.category === category));
     if (missing.length) { setNotice(`The ${missing.join(", ")} pool must hold at least one piece before a form can wake.`); return; }
-    const next = pickLayerSet(assets, manual ? choices : undefined);
+    const next = pickLayerSet(assets, manual ? choices : undefined, isFirstAwoken);
     setComposition(next); setNotice("Matter gathers. The binding holds…"); save.mutate(next);
   }
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
@@ -988,7 +990,7 @@ export function App() {
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
       {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
-      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} /><LoreSection /></>}
+      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} isFirstAwoken={tenderItems.length === 0} /><LoreSection /></>}
     </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       {birthRevealId !== null && (() => {
         const newborn = tenderItems.find(i => i.id === birthRevealId);
