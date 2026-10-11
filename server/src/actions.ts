@@ -1875,6 +1875,7 @@ export const handlers = {
     }
 
     if (cappedHours > 0 && binders.length > 0) {
+      console.log(`[Attunement] ${binders.length} binders, ${cappedHours.toFixed(3)}h elapsed, owner=${ownerKey}`);
       // Find active attunement shrines and their tile positions
       const shrines = await db.select({
         tileId: schema.territoryBuildings.tileId,
@@ -1918,7 +1919,10 @@ export const handlers = {
           const el = elementForPieceName(l.name || "");
           if (el !== "fire") elements.add(el);
         }
-        if (elements.size === 0) continue;
+        if (elements.size === 0) {
+          console.log(`[Attunement] Binder ${b.awakenedId} has no elements (composition: ${(b.compositionJson || "").substring(0, 100)})`);
+          continue;
+        }
         const multiplier = isNearShrine(b.tileId) ? 2 : 1;
         const perElement = (POINTS_PER_HOUR * cappedHours * multiplier) / elements.size;
         for (const el of elements) {
