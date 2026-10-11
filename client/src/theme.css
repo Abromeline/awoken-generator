@@ -1554,3 +1554,8 @@ body.defeat-flash {
 .champion-tab-card{text-align:center}
 .champion-tab-card img{width:120px;height:120px;object-fit:cover;border-radius:8px;margin:8px auto;display:block}
 .champion-tab-card .abtn{margin:4px}
+
+.champion-field-list{max-height:200px;overflow-y:auto;margin-top:8px}
+.champion-field-item{display:flex;align-items:center;gap:8px;padding:6px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px}
+.champion-field-item img{width:40px;height:40px;object-fit:cover;border-radius:6px}
+.champion-field-info{flex:1;font-size:13px}

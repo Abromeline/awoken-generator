@@ -119,7 +119,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
-  const [applyingToChampion, setApplyingToChampion] = useState(false); // if true, orb tap applies directly to champion
+  const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
@@ -1494,11 +1494,11 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
       {showChampionTab && (
         <div className="champion-tab">
           <button className="aspect-close" onClick={() => setShowChampionTab(false)} title="Close">✕</button>
-          <div className="celestial-title">Champion</div>
+          <div className="celestial-title">Champion & Field</div>
           {legends.champion ? (
             <div className="champion-tab-card">
               <img src={legends.champion.image_url} alt={legends.champion.name} />
-              <div className="champion-name">{legends.champion.name}</div>
+              <div className="champion-name">⭐ {legends.champion.name}</div>
               <div className="champion-stats">
                 {legends.champion.power}⚔ {legends.champion.toughness}🛡 · Lv {legends.champion.level ?? 0}
               </div>
@@ -1506,10 +1506,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 className="abtn small"
                 onClick={() => {
                   setShowChampionTab(false);
-                  setApplyingToChampion(true);
+                  if (legends.champion) setApplyingToTarget(legends.champion.id);
                   setShowAspects(true);
                 }}
-                title="Open attunement to apply an aspect to your champion"
+                title="Apply an aspect to your champion"
               >
                 Add Aspect
               </button>
@@ -1520,7 +1520,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   setShowChampionPicker(true);
                 }}
               >
-                Change Champion
+                Change
               </button>
             </div>
           ) : (
@@ -1531,18 +1531,43 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               </button>
             </div>
           )}
+          <div className="celestial-title" style={{ marginTop: 12, fontSize: 14 }}>Field Awoken</div>
+          <div className="champion-field-list">
+            {tenderItems.filter(a => placedIds.has(a.id)).map(a => (
+              <div key={a.id} className="champion-field-item">
+                <img src={a.image_url} alt={a.name} />
+                <div className="champion-field-info">
+                  <div>{a.name}</div>
+                  <div className="quiet">{a.power}⚔ {a.toughness}🛡</div>
+                </div>
+                <button
+                  className="abtn small"
+                  onClick={() => {
+                    setShowChampionTab(false);
+                    setApplyingToTarget(a.id);
+                    setShowAspects(true);
+                  }}
+                >
+                  Aspect
+                </button>
+              </div>
+            ))}
+            {tenderItems.filter(a => placedIds.has(a.id)).length === 0 && (
+              <p className="quiet">No Awoken on the field.</p>
+            )}
+          </div>
         </div>
       )}
-      <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToChampion(false); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={async (aspect) => {
+      <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToTarget(null); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={async (aspect) => {
         setShowAspects(false);
-        if (applyingToChampion && legends.champion) {
+        if (applyingToTarget) {
           try {
-            await api.call("applyAspect", { awakenedId: legends.champion.id, inventoryAspectId: aspect.id });
+            await api.call("applyAspect", { awakenedId: applyingToTarget, inventoryAspectId: aspect.id });
             onUpdate();
           } catch (err) {
             alert(err instanceof Error ? err.message : "Failed to apply");
           }
-          setApplyingToChampion(false);
+          setApplyingToTarget(null);
         } else {
           setApplyingAspect(aspect);
         }
