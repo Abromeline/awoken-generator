@@ -1877,3 +1877,20 @@ body.defeat-flash {
     opacity: 1 !important;
   }
 }
+
+.tutorial-help-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  border: 2px solid #d4af6a;
+  color: #d4af6a;
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 1000;
+}
+.tutorial-help-btn:hover { background: #2a2a2a; }

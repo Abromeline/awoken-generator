@@ -67,6 +67,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [demoMode, setDemoMode] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [tutorialDone, setTutorialDone] = useState(() => localStorage.getItem("awoken-tutorial-done") === "1");
+  const [showTutorial, setShowTutorial] = useState(false);
   const [objectivesMet, setObjectivesMet] = useState(false);
   const [buildings, setBuildings] = useState<any[]>([]);
 
@@ -2297,6 +2298,18 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
       {!tutorialDone && !objectivesMet && (
         <Tutorial onComplete={() => setTutorialDone(true)} />
       )}
+      {showTutorial && (
+        <Tutorial onComplete={() => setShowTutorial(false)} />
+      )}
+      {/* Question mark to reopen tutorial */}
+      <button
+        className="tutorial-help-btn"
+        onClick={() => setShowTutorial(true)}
+        title="Show tutorial"
+        aria-label="Show tutorial"
+      >
+        ?
+      </button>
       {objectivesMet && !tutorialDone && (
         <div className="tutorial-complete-banner">
           <p>✦ Training complete — 7 tiles purified, shrine raised. The land is yours.</p>

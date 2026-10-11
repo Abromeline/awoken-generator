@@ -733,6 +733,11 @@ export function applySiteColors(colors: Record<string, string>) {
         (el as HTMLElement).style.color = v;
       });
     }
+    else if (key === "tutorial") {
+      document.querySelectorAll(".tutorial-card p, .tutorial-card h2, .tutorial-card li").forEach(el => {
+        (el as HTMLElement).style.color = v;
+      });
+    }
     else if (key === "input-text") {
       document.querySelectorAll("input, textarea").forEach(el => {
         (el as HTMLElement).style.color = v;
@@ -761,6 +766,7 @@ function TextColors() {
     { key: "gold", label: "Gold accents", css: null, default: "#d4af6a" },
     { key: "pricing", label: "$5 pricing text", css: null, default: "#e8d5a0" },
     { key: "lore", label: "Story/lore text", css: null, default: "#e8d5a0" },
+    { key: "tutorial", label: "Tutorial text", css: null, default: "#11110f" },
     { key: "input-text", label: "Input box text", css: null, default: "#111111" },
     { key: "input-label", label: "Input labels", css: null, default: "#b8b8b8" },
   ];
