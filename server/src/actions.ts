@@ -3905,14 +3905,27 @@ export const handlers = {
   },
 
   async wildfireBurnTick(ownerKey: string) {
-    // Find burning tiles (spark=2, not yet cursed)
-    const burning = await db.select().from(schema.territoryTiles)
+    // Fire purifies burning cursed tiles
+    const burningCursed = await db.select().from(schema.territoryTiles)
+      .where(and(
+        eq(schema.territoryTiles.ownerKey, ownerKey),
+        eq(schema.territoryTiles.spark, 2),
+        eq(schema.territoryTiles.cursed, 1),
+      ));
+    for (const tile of burningCursed) {
+      // Fire purifies: curse burns away
+      await db.update(schema.territoryTiles)
+        .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10 })
+        .where(eq(schema.territoryTiles.id, tile.id));
+    }
+    // Fire damages burning purified tiles (enemy spread)
+    const burningPure = await db.select().from(schema.territoryTiles)
       .where(and(
         eq(schema.territoryTiles.ownerKey, ownerKey),
         eq(schema.territoryTiles.spark, 2),
         eq(schema.territoryTiles.cursed, 0),
       ));
-    for (const tile of burning) {
+    for (const tile of burningPure) {
       const newHp = Math.max(0, (tile.hp ?? 10) - 5);
       if (newHp === 0) {
         // Tile falls: becomes cursed, fire ends
