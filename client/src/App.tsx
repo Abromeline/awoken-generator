@@ -707,20 +707,45 @@ function TextColors() {
       return JSON.parse(localStorage.getItem("awoken-text-colors") || "{}");
     } catch { return {}; }
   });
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const defaults: Record<string, string> = {
     "--text": "#11110f",
     "--dim": "#625f57",
     "heading": "#e8d5a0",
     "gold": "#d4af6a",
   };
+  const keyFor = (k: string) => `${device}:${k}`;
   const setColor = (key: string, value: string) => {
-    const next = { ...colors, [key]: value };
+    const fullKey = keyFor(key);
+    const next = { ...colors, [fullKey]: value };
     setColors(next);
     localStorage.setItem("awoken-text-colors", JSON.stringify(next));
-    // Apply immediately
-    if (key.startsWith("--")) {
-      document.documentElement.style.setProperty(key, value);
+    applyColors(next);
+  };
+  const applyColors = (all: Record<string, string>) => {
+    // Apply desktop colors as base
+    for (const [k, v] of Object.entries(all)) {
+      const [dev, varName] = k.split(":", 2);
+      if (dev === "desktop" && varName.startsWith("--")) {
+        document.documentElement.style.setProperty(varName, v);
+      }
     }
+    // Mobile overrides via a style tag
+    let style = document.getElementById("awoken-mobile-colors");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "awoken-mobile-colors";
+      document.head.appendChild(style);
+    }
+    const mobileVars = Object.entries(all)
+      .filter(([k]) => k.startsWith("mobile:"))
+      .map(([k, v]) => {
+        const varName = k.split(":", 2)[1];
+        return varName.startsWith("--") ? `${varName}:${v};` : "";
+      })
+      .filter(Boolean)
+      .join("");
+    style.textContent = mobileVars ? `@media (max-width: 768px) { :root { ${mobileVars} } }` : "";
   };
   const reset = () => {
     setColors({});
@@ -728,22 +753,23 @@ function TextColors() {
     for (const k of Object.keys(defaults)) {
       if (k.startsWith("--")) document.documentElement.style.removeProperty(k);
     }
+    const style = document.getElementById("awoken-mobile-colors");
+    if (style) style.textContent = "";
   };
-  // Apply on mount
-  useEffect(() => {
-    for (const [k, v] of Object.entries(colors)) {
-      if (k.startsWith("--")) document.documentElement.style.setProperty(k, v);
-    }
-  }, []);
+  useEffect(() => { applyColors(colors); }, []);
   return (
     <section className="text-colors-panel">
       <h2>Text Colors</h2>
-      <p className="quiet">Change text colors across the app. Saved in this browser.</p>
+      <p className="quiet">Change text colors. Saved in this browser, per device type.</p>
+      <div className="device-toggle">
+        <button className={device === "desktop" ? "active" : ""} onClick={() => setDevice("desktop")}>Desktop</button>
+        <button className={device === "mobile" ? "active" : ""} onClick={() => setDevice("mobile")}>Mobile</button>
+      </div>
       {Object.entries(defaults).map(([key, def]) => (
         <div key={key} className="color-row">
           <label>{key}</label>
-          <input type="color" value={colors[key] || def} onChange={(e) => setColor(key, e.target.value)} />
-          <span className="color-value">{colors[key] || def}</span>
+          <input type="color" value={colors[keyFor(key)] || def} onChange={(e) => setColor(key, e.target.value)} />
+          <span className="color-value">{colors[keyFor(key)] || def}</span>
         </div>
       ))}
       <button className="abtn small" onClick={reset}>Reset to defaults</button>
