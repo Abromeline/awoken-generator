@@ -1158,6 +1158,7 @@ export function App() {
     {workshopView === "tenders" && <TendersPanel />}
     {workshopView === "tracks" && <MusicLibrary />}
     {workshopView === "glyphs" && <GlyphPanel />}
+    {workshopView === "text-colors" && <TextColors />}
     {workshopView === "ui-workspace" && <UIWorkspace />}
   </main></div></>;
 }
