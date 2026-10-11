@@ -1819,3 +1819,13 @@ body.defeat-flash {
 
 .stance-btn.ignite{background:linear-gradient(135deg,#ff6600,#ff3300);color:white;font-weight:bold}
 .stance-btn.ignite:hover{background:linear-gradient(135deg,#ff7722,#ff4422)}
+
+@media (max-width: 768px) {
+  /* Light beige text for readability on mobile */
+  .hand-label, .hand-empty, .packet-page, .packet-close, .energy-label,
+  .energy-orb-timer, .building-info small, .stat-rows label, .builder-stance,
+  .deck-card-stats, .dock-card-stats, .champion-story, .quiet,
+  .battle-log-old, .stance-btn, .packet-skip-link {
+    color: #e8d5a0 !important;
+  }
+}
