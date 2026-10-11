@@ -72,6 +72,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const [gameConfig, setGameConfig] = useState<any>(null);
   const [pendingTile, setPendingTile] = useState<number | null>(null);
+  // Safety: clear pendingTile if selectedBuilding is lost
+  useEffect(() => {
+    if (pendingTile !== null && !selectedBuilding) {
+      setPendingTile(null);
+      setSelectedBuilders([]);
+    }
+  }, [pendingTile, selectedBuilding]);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
