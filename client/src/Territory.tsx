@@ -1443,11 +1443,24 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }
       {elements.map(el => {
         const points = data.levels[el.id] ?? 0;
         const pct = Math.min(100, (points / data.threshold) * 100);
+        const aspectCount = (data.inventory || []).filter((i: any) => i.element === el.id).length;
         return (
-          <div key={el.id} className="celestial-row" title={`${el.label}: ${points}/${data.threshold}`}>
+          <div key={el.id} className="celestial-row" title={`${el.label}: ${points.toFixed(1)}/${data.threshold}`}>
             {glyphs[el.id]}
             <div className="celestial-track"><div className="celestial-progress" style={{ width: `${pct}%` }} /></div>
-            <div className="celestial-orb" title={`${points} ${el.label} aspects saved`}>{points}</div>
+            <button
+              className="celestial-orb"
+              title={`${aspectCount} ${el.label} aspects ready — tap to apply`}
+              onClick={() => {
+                const aspects = (data.inventory || []).filter((i: any) => i.element === el.id);
+                if (aspects.length > 0) {
+                  setApplyingAspect(aspects[0]);
+                }
+              }}
+              disabled={aspectCount === 0}
+            >
+              {aspectCount}
+            </button>
           </div>
         );
       })}
@@ -1471,7 +1484,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }
               <h4>Apply {applyingAspect.name} to...</h4>
               <p className="quiet">Choose an Awoken (must match element or be empty)</p>
               <div className="aspect-apply-list">
-                {tenderItems.filter(a => !placedIds.has(a.id)).map(a => (
+                {tenderItems.map(a => {
+                  const onField = placedIds.has(a.id);
+                  return (
                   <button
                     key={a.id}
                     className="aspect-apply-option"
@@ -1485,9 +1500,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate }
                       }
                     }}
                   >
-                    {a.name} (⚔{a.power} 🛡{a.toughness})
+                    {a.name} (⚔{a.power} 🛡{a.toughness}){onField ? " [field]" : ""}
                   </button>
-                ))}
+                  );
+                })}
               </div>
               <button className="abtn small" onClick={() => setApplyingAspect(null)}>Cancel</button>
             </div>
