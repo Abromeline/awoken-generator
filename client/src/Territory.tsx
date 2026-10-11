@@ -1641,6 +1641,13 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
               <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
               <span title="Experience">✦ {awoken.experience ?? 0} XP</span>
             </div>
+            <div className="stance-picker-elements">
+              {[...new Set((awoken.layers || []).filter(l => l.category !== "aspect").map(l => elementForPiece(l.name || "")))].map(el => (
+                <span key={el} className={`element-tag ${el}`} title={`Attunes ${el}`}>
+                  {el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥"} {el}
+                </span>
+              ))}
+            </div>
             <div className="stance-buttons">
               <button
                 className={`stance-btn ${placement.stance === "attack" ? "active" : ""}`}

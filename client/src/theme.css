@@ -1525,3 +1525,11 @@ body.defeat-flash {
 
 .stance-picker-stats{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 10px;padding:6px 10px;background:rgba(0,0,0,0.3);border-radius:6px;font-size:12px}
 .stance-picker-stats span{white-space:nowrap}
+
+.stance-picker-elements{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.element-tag{font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);text-transform:capitalize}
+.element-tag.tide{border-color:#4a90d9}
+.element-tag.sky{border-color:#87ceeb}
+.element-tag.stone{border-color:#8b7355}
+.element-tag.root{border-color:#6b8e23}
+.element-tag.fire{border-color:#ff4444}
