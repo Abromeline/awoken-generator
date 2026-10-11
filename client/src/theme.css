@@ -1766,3 +1766,27 @@ body.defeat-flash {
     font-size: 12px !important;
   }
 }
+
+/* ---- Siege battle: projectiles, wind-up, towers ---- */
+.projectile-layer{position:absolute;inset:0;pointer-events:none;z-index:60;overflow:visible}
+.projectile{position:absolute;font-size:30px;line-height:1;transform:translate(-50%,-50%);animation:proj-fly linear forwards;filter:drop-shadow(0 0 8px currentColor);will-change:transform}
+@keyframes proj-fly{
+  from{transform:translate(-50%,-50%) translate(0,0) scale(0.7);opacity:0.9}
+  20%{transform:translate(-50%,-50%) translate(calc(var(--tx) * 0.2),calc(var(--ty) * 0.2)) scale(1.15);opacity:1}
+  85%{opacity:1}
+  to{transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(1);opacity:0.9}
+}
+.projectile.arc{animation-name:proj-arc}
+@keyframes proj-arc{
+  0%{transform:translate(-50%,-50%) translate(0,0) scale(0.8);opacity:0.9}
+  50%{transform:translate(-50%,-50%) translate(var(--mx),var(--my)) scale(1.25);opacity:1}
+  85%{opacity:1}
+  100%{transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(1);opacity:0.9}
+}
+.battle-fighter.wind-up{animation:wind-up-pulse 0.5s ease-in-out infinite !important;filter:brightness(1.4) drop-shadow(0 0 14px rgba(255,215,0,0.85))}
+@keyframes wind-up-pulse{
+  0%,100%{transform:scale(1)}
+  50%{transform:scale(1.12)}
+}
+.battle-towers{position:absolute;top:1%;left:3%;display:flex;gap:10px;z-index:5}
+.battle-tower{font-size:36px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.6));animation:awoken-bob 3s ease-in-out infinite}

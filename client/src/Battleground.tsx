@@ -1,6 +1,7 @@
 // Battleground: interactive wave defense overlay.
 // Option A: client plays the battle, server validates the result.
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
+import { elementForPiece, type Element } from "./App";
 import FieldAwoken from "./FieldAwoken";
 import { api, type Awakened } from "./api";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
@@ -72,6 +73,41 @@ interface Fighter {
   field: boolean;  // True if field defender, false if reinforcement
   awoken?: Awakened;  // For FieldAwoken rendering
   tileId?: number;  // For building effects (thorn wall)
+}
+
+/** A visible projectile flying across the battlefield. */
+interface Projectile {
+  id: string;
+  fx: number; fy: number;  // start (px, relative to .battle-field)
+  tx: number; ty: number;  // target (px)
+  glyph: string; color: string;
+  arc?: boolean;           // tower arrows fly an arc
+  duration: number;        // ms of flight
+}
+
+/** Element-flavored attack visuals for Awoken strikes. */
+const ELEMENT_SHOT: Record<string, { glyph: string; color: string }> = {
+  tide: { glyph: "\u{1F4A7}", color: "#4e8a9b" },
+  sky: { glyph: "\u{1F300}", color: "#7ba7c4" },
+  stone: { glyph: "\u{1FAA8}", color: "#8a7f70" },
+  root: { glyph: "\u{1F33F}", color: "#6a8a4e" },
+  fire: { glyph: "\u{1F525}", color: "#b8542e" },
+};
+const ENEMY_SHOT = { glyph: "\u25C9", color: "#8a3a8a" };
+
+/** Dominant element of an Awoken for its projectile flavor. */
+function dominantElementOf(aw?: Awakened): Element {
+  const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
+  for (const layer of aw?.layers ?? []) {
+    const el = elementForPiece(layer.name);
+    counts[el] = (counts[el] ?? 0) + 1;
+  }
+  let best: Element = "root";
+  let max = -1;
+  for (const k of Object.keys(counts) as Element[]) {
+    if (counts[k] > max) { max = counts[k]; best = k; }
+  }
+  return best;
 }
 
 /** Victory aspect rewards: 1 random aspect point per boss level, shown with element glyphs. */
@@ -152,6 +188,61 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [battleTrack, setBattleTrack] = useState<{ name: string; url: string } | null>(null);
   const battleAudio = useRef<HTMLAudioElement | null>(null);
 
+  // ---- Siege presentation: refs, timeout tracking, projectile helpers ----
+  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const fighterRefs = useRef(new Map<string, HTMLDivElement>());
+  const towerRefs = useRef(new Map<number, HTMLDivElement>());
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const fightersRef = useRef<Fighter[]>([]);
+  const enemiesRef = useRef<Fighter[]>([]);
+  const busyRef = useRef(false);
+
+  const later = (ms: number, fn: () => void) => {
+    const id = setTimeout(() => {
+      timeoutsRef.current = timeoutsRef.current.filter(t => t !== id);
+      fn();
+    }, ms);
+    timeoutsRef.current.push(id);
+    return id;
+  };
+
+  const setBusyBoth = (v: boolean) => { busyRef.current = v; setBusy(v); };
+
+  const fighterCenter = (id: string) => {
+    const el = fighterRefs.current.get(id);
+    const field = fieldRef.current;
+    if (!el || !field) return null;
+    const r = el.getBoundingClientRect();
+    const fr = field.getBoundingClientRect();
+    return { x: r.left - fr.left + r.width / 2, y: r.top - fr.top + r.height * 0.4 };
+  };
+
+  const towerCenter = (tileId: number) => {
+    const el = towerRefs.current.get(tileId);
+    const field = fieldRef.current;
+    if (!el || !field) return null;
+    const r = el.getBoundingClientRect();
+    const fr = field.getBoundingClientRect();
+    return { x: r.left - fr.left + r.width / 2, y: r.top - fr.top + r.height / 2 };
+  };
+
+  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; arc?: boolean; duration: number; onImpact?: () => void }) => {
+    const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setProjectiles(prev => [...prev, { ...p, id }]);
+    later(p.duration, () => {
+      setProjectiles(prev => prev.filter(x => x.id !== id));
+      p.onImpact?.();
+    });
+  };
+
+  // Keep latest snapshots for mid-sequence targeting; clear timeouts on unmount.
+  useEffect(() => { fightersRef.current = fighters; }, [fighters]);
+  useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
+  useEffect(() => () => {
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
+  }, []);
+
   // Battle music: random enabled track from the workshop library, stops when battle ends
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +285,9 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [attacking, setAttacking] = useState<string | null>(null);
   const [towerVolley, setTowerVolley] = useState(false);
   const [hitFlash, setHitFlash] = useState<string | null>(null);
+  const [projectiles, setProjectiles] = useState<Projectile[]>([]);
+  const [windUp, setWindUp] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [dmgNumbers, setDmgNumbers] = useState<{id: string, fighterId: string, dmg: number, crit: boolean}[]>([]);
   const [critFlash, setCritFlash] = useState(false);
   const [autoBattle, setAutoBattle] = useState(false);
@@ -278,29 +372,39 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     }
     setFighters(aw);
     setEnemies(en);
+    fightersRef.current = aw;
+    enemiesRef.current = en;
 
-    // Watchtower opening volley: each tower fires 3 damage at a random enemy
+    // Watchtower opening volley: towers loose visible arrows, staggered, arcing onto random enemies
     if (watchtowerTiles.length > 0 && en.length > 0) {
       setTowerVolley(true);
-      setTimeout(() => {
-        setEnemies(current => {
-          const updated = [...current];
-          for (let i = 0; i < watchtowerTiles.length; i++) {
-            const alive = updated.filter(e => e.hp > 0);
-            if (alive.length === 0) break;
-            const target = alive[Math.floor(Math.random() * alive.length)];
-            const idx = updated.findIndex(e => e.id === target.id);
-            updated[idx] = { ...updated[idx], hp: Math.max(0, updated[idx].hp - towerDamage) };
-            // Damage number animation
-            const numId = `tower-${Date.now()}-${i}`;
-            setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
-            setTimeout(() => setDmgNumbers(prev => prev.filter(n => n.id !== numId)), 1200);
-          }
-          return updated;
+      setLog(`🗼 Watchtowers loose their volley!`);
+      const staggerMs = 200;
+      const flightMs = 750;
+      watchtowerTiles.forEach((tileId, i) => {
+        later(1000 + i * staggerMs, () => {
+          const from = towerCenter(tileId);
+          const alive = enemiesRef.current.filter(e => e.hp > 0);
+          if (!from || alive.length === 0) return;
+          const target = alive[Math.floor(Math.random() * alive.length)];
+          const to = fighterCenter(target.id);
+          if (!to) return;
+          spawnProjectile({
+            fx: from.x, fy: from.y, tx: to.x, ty: to.y,
+            glyph: "\u27B9", color: "#ffd700", arc: true, duration: flightMs,
+            onImpact: () => {
+              setHitFlash(target.id);
+              later(400, () => setHitFlash(null));
+              const numId = `tower-${Date.now()}-${i}`;
+              setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
+              later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
+              setEnemies(prev => prev.map(e => e.id === target.id ? { ...e, hp: Math.max(0, e.hp - towerDamage) } : e));
+              setLog(`🗼 Tower arrow strikes ${target.name} for ${towerDamage}!`);
+            },
+          });
         });
-        setLog(`🗼 Watchtower volley! ${watchtowerTiles.length} tower${watchtowerTiles.length > 1 ? "s" : ""} fire!`);
-        setTimeout(() => setTowerVolley(false), 1500);
-      }, 800);
+      });
+      later(1000 + watchtowerTiles.length * staggerMs + flightMs + 500, () => setTowerVolley(false));
     }
 
     // Random battle track
@@ -321,82 +425,132 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     setTurnIndex(0);
   };
 
-  // Auto-battle: automatically attack until battle ends or toggled off
+  // Auto-battle: chain attacks with siege pacing until victory or defeat
   useEffect(() => {
-    if (!autoBattle) return;
+    if (!autoBattle || busy) return;
     const livingFighters = fighters.filter(f => f.hp > 0);
     const livingEnemies = enemies.filter(e => e.hp > 0);
     if (livingFighters.length === 0 || livingEnemies.length === 0) {
       setAutoBattle(false);
       return;
     }
-    const timer = setTimeout(() => {
-      const atk = livingFighters[0];
-      const def = livingEnemies[0];
-      doAttack(atk, def);
-    }, 1200);
+    const timer = later(900, () => {
+      if (busyRef.current) return;
+      const lf = fightersRef.current.filter(f => f.hp > 0);
+      const le = enemiesRef.current.filter(e => e.hp > 0);
+      if (lf.length > 0 && le.length > 0) doAttack(lf[0], le[0]);
+    });
     return () => clearTimeout(timer);
-  }, [autoBattle, fighters, enemies]);
+  }, [autoBattle, busy, fighters, enemies]);
 
-  const doAttack = (atk: Fighter, def: Fighter) => {
-    setSelected(null);
-    setAttacking(atk.id);
-    setTimeout(() => setAttacking(null), 600);
-    // Flash the target
-    setHitFlash(def.id);
-    setTimeout(() => setHitFlash(null), 400);
+  // ---- Siege exchange: wind-up -> projectile flight -> impact -> counterattack ----
+  const WINDUP_MS = 500;
+  const FLIGHT_MS = 450;
+  const IMPACT_PAUSE_MS = 300;
+  const COUNTER_WINDUP_MS = 450;
+  const COUNTER_FLIGHT_MS = 400;
+  const SETTLE_MS = 350;
+
+  const applyStrike = (atk: Fighter, def: Fighter) => {
     const dmg = Math.max(1, atk.power - def.tough);
     const isCrit = dmg >= atk.power * 1.5;
     setLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
-    // Floating damage number
-    const numId = `dmg-${Date.now()}-${Math.random()}`;
-    setDmgNumbers(prev => [...prev, {id: numId, fighterId: def.id, dmg, crit: isCrit}]);
-    setTimeout(() => setDmgNumbers(prev => prev.filter(n => n.id !== numId)), 1200);
+    setHitFlash(def.id);
+    later(400, () => setHitFlash(null));
+    const numId = `dmg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setDmgNumbers(prev => [...prev, { id: numId, fighterId: def.id, dmg, crit: isCrit }]);
+    later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
     if (isCrit) {
       setCritFlash(true);
-      setTimeout(() => setCritFlash(false), 500);
+      later(500, () => setCritFlash(false));
     }
-    // Apply damage
     if (def.side === "en") {
       setEnemies(prev => prev.map(e => e.id === def.id ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
     } else {
       setFighters(prev => prev.map(f => f.id === def.id ? { ...f, hp: Math.max(0, f.hp - dmg) } : f));
     }
-    // Counterattack after delay (only if defender was enemy and survives are left)
-    setTimeout(() => {
-      setEnemies(currentEnemies => {
-        const alive = currentEnemies.filter(e => e.hp > 0);
-        if (alive.length === 0) {
-          return currentEnemies;
-        }
-        // Random alive enemy counterattacks a random alive fighter
-        const attacker = alive[Math.floor(Math.random() * alive.length)];
-        setFighters(currentFighters => {
-          const targets = currentFighters.filter(f => f.hp > 0);
-          if (targets.length === 0) {
-              return currentFighters;
-          }
-          const target = targets[Math.floor(Math.random() * targets.length)];
-          const edmg = Math.max(1, attacker.power - target.tough);
-          // Thorn Wall: 1 damage to every attacker striking a walled tile
-          const thornHit = target.tileId && thornWallTiles.includes(target.tileId);
-          let logMsg = `${attacker.name} strikes back at ${target.name} for ${edmg}!`;
-          if (thornHit) logMsg += ` Thorns bite back for ${thornDamage}!`;
-          setLog(logMsg);
-          // Apply thorn damage to attacker
-          const retaliation = thornHit ? thornDamage : 0;
-          if (retaliation > 0) {
-            setEnemies(ens => ens.map(e =>
-              e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - retaliation) } : e
-            ));
-          }
-          return currentFighters.map(f =>
-            f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
-          );
-        });
-        return currentEnemies;
+  };
+
+  const applyEnemyStrike = (attacker: Fighter, target: Fighter) => {
+    const edmg = Math.max(1, attacker.power - target.tough);
+    const thornHit = target.tileId != null && thornWallTiles.includes(target.tileId);
+    let logMsg = `${attacker.name} strikes back at ${target.name} for ${edmg}!`;
+    if (thornHit) logMsg += ` Thorns bite back for ${thornDamage}!`;
+    setLog(logMsg);
+    setHitFlash(target.id);
+    later(400, () => setHitFlash(null));
+    const numId = `edmg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: edmg, crit: false }]);
+    later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
+    if (thornHit) {
+      setEnemies(ens => ens.map(e =>
+        e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - thornDamage) } : e
+      ));
+      const tNumId = `thorn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      setDmgNumbers(prev => [...prev, { id: tNumId, fighterId: attacker.id, dmg: thornDamage, crit: false }]);
+      later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== tNumId)));
+    }
+    setFighters(prev => prev.map(f =>
+      f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
+    ));
+  };
+
+  const scheduleCounter = () => {
+    const aliveEnemies = enemiesRef.current.filter(e => e.hp > 0);
+    const aliveFighters = fightersRef.current.filter(f => f.hp > 0);
+    if (aliveEnemies.length === 0 || aliveFighters.length === 0) {
+      setBusyBoth(false);
+      return;
+    }
+    const attacker = aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)];
+    const target = aliveFighters[Math.floor(Math.random() * aliveFighters.length)];
+    setWindUp(attacker.id);
+    later(COUNTER_WINDUP_MS, () => {
+      setWindUp(null);
+      setAttacking(attacker.id);
+      later(350, () => setAttacking(null));
+      const from = fighterCenter(attacker.id);
+      const to = fighterCenter(target.id);
+      const finish = () => {
+        applyEnemyStrike(attacker, target);
+        later(SETTLE_MS, () => setBusyBoth(false));
+      };
+      if (!from || !to) { finish(); return; }
+      spawnProjectile({
+        fx: from.x, fy: from.y, tx: to.x, ty: to.y,
+        glyph: ENEMY_SHOT.glyph, color: ENEMY_SHOT.color,
+        duration: COUNTER_FLIGHT_MS, onImpact: finish,
       });
-    }, 900);
+    });
+  };
+
+  const doAttack = (atk: Fighter, def: Fighter) => {
+    if (busyRef.current) return;
+    setBusyBoth(true);
+    setSelected(null);
+    // Wind-up: attacker glows and gathers power
+    setWindUp(atk.id);
+    setLog(`${atk.name} gathers power...`);
+    later(WINDUP_MS, () => {
+      setWindUp(null);
+      setAttacking(atk.id);
+      later(350, () => setAttacking(null));
+      const from = fighterCenter(atk.id);
+      const to = fighterCenter(def.id);
+      const shot = atk.side === "aw"
+        ? (ELEMENT_SHOT[dominantElementOf(atk.awoken)] ?? { glyph: "\u2726", color: "#ffd700" })
+        : ENEMY_SHOT;
+      const impact = () => {
+        applyStrike(atk, def);
+        later(IMPACT_PAUSE_MS, () => scheduleCounter());
+      };
+      if (!from || !to) { impact(); return; }
+      spawnProjectile({
+        fx: from.x, fy: from.y, tx: to.x, ty: to.y,
+        glyph: shot.glyph, color: shot.color,
+        duration: FLIGHT_MS, onImpact: impact,
+      });
+    });
   };
 
   // Check for battle end whenever fighters or enemies change
@@ -494,12 +648,43 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         <button className="abtn small" onClick={onClose}>✕ Retreat</button>
       </div>
       <div className="battle-log">{log}</div>
-      <div className={`battle-field ${critFlash ? "crit-flash" : ""}`}>
+      <div ref={fieldRef} className={`battle-field ${critFlash ? "crit-flash" : ""}`}>
+        {watchtowerTiles.length > 0 && (
+          <div className="battle-towers">
+            {watchtowerTiles.map(t => (
+              <div
+                key={t}
+                className="battle-tower"
+                title="Watchtower"
+                ref={(el) => { if (el) towerRefs.current.set(t, el); else towerRefs.current.delete(t); }}
+              >🗼</div>
+            ))}
+          </div>
+        )}
+        <div className="projectile-layer">
+          {projectiles.map(p => (
+            <div
+              key={p.id}
+              className={`projectile${p.arc ? " arc" : ""}`}
+              style={{
+                left: p.fx,
+                top: p.fy,
+                color: p.color,
+                animationDuration: `${p.duration}ms`,
+                "--tx": `${p.tx - p.fx}px`,
+                "--ty": `${p.ty - p.fy}px`,
+                "--mx": `${(p.tx - p.fx) / 2}px`,
+                "--my": `${(p.ty - p.fy) / 2 - 70}px`,
+              } as CSSProperties}
+            >{p.glyph}</div>
+          ))}
+        </div>
         <div className="battle-row defenders-row">
         {fighters.filter(f => f.hp > 0).map(f => (
           <div
             key={f.id}
-            className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""} ${f.hp < f.maxHp * 0.5 && f.hp >= f.maxHp * 0.25 ? "wounded" : ""} ${f.hp < f.maxHp * 0.25 ? "bloodied" : ""} ${attacking === f.id ? "attacking" : ""} ${hitFlash === f.id ? "hit-flash" : ""}`}
+            ref={(el) => { if (el) fighterRefs.current.set(f.id, el); else fighterRefs.current.delete(f.id); }}
+            className={`battle-fighter ${selected === f.id ? "selected" : ""} ${f.hp < f.maxHp * 0.25 ? "critical" : ""} ${f.hp < f.maxHp * 0.5 && f.hp >= f.maxHp * 0.25 ? "wounded" : ""} ${f.hp < f.maxHp * 0.25 ? "bloodied" : ""} ${attacking === f.id ? "attacking" : ""} ${hitFlash === f.id ? "hit-flash" : ""} ${windUp === f.id ? "wind-up" : ""}`}
             onClick={() => setSelected(selected === f.id ? null : f.id)}
           >
             {f.awoken && (
@@ -523,12 +708,12 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         {enemies.filter(e => e.hp > 0).map(e => (
           <div
             key={e.id}
-            className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${e.hp < e.maxHp * 0.5 && e.hp >= e.maxHp * 0.25 ? "wounded" : ""} ${e.hp < e.maxHp * 0.25 ? "bloodied" : ""} ${attacking === e.id ? "attacking" : ""} ${hitFlash === e.id ? "hit-flash" : ""}`}
+            ref={(el) => { if (el) fighterRefs.current.set(e.id, el); else fighterRefs.current.delete(e.id); }}
+            className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${e.hp < e.maxHp * 0.5 && e.hp >= e.maxHp * 0.25 ? "wounded" : ""} ${e.hp < e.maxHp * 0.25 ? "bloodied" : ""} ${attacking === e.id ? "attacking" : ""} ${hitFlash === e.id ? "hit-flash" : ""} ${windUp === e.id ? "wind-up" : ""}`}
             onClick={() => {
-              if (selected) {
-                const atk = fighters.find(f => f.id === selected);
-                if (atk) doAttack(atk, e);
-              }
+              if (busy || !selected) return;
+              const atk = fighters.find(f => f.id === selected);
+              if (atk) doAttack(atk, e);
             }}
           >
             <img
