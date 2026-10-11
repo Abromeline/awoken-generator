@@ -1522,3 +1522,6 @@ body.defeat-flash {
 .tc-delete{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(255,68,68,0.9);color:#fff;border:none;font-size:16px;line-height:1;cursor:pointer;z-index:10}
 .tc-delete:hover{background:#ff2222}
 .trading-card{position:relative}
+
+.stance-picker-stats{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 10px;padding:6px 10px;background:rgba(0,0,0,0.3);border-radius:6px;font-size:12px}
+.stance-picker-stats span{white-space:nowrap}

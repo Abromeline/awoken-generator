@@ -1634,6 +1634,13 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
             )}
             {!stanceMinimized && (<>
             <div className="stance-picker-name">{awoken.name}</div>
+            <div className="stance-picker-stats">
+              <span title="Power">⚔ {awoken.power}</span>
+              <span title="Toughness">🛡 {awoken.toughness}</span>
+              <span title="Health">❤ {awokenHp.get(awoken.id) ?? (awoken.power + awoken.toughness)}/{awoken.power + awoken.toughness}</span>
+              <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
+              <span title="Experience">✦ {awoken.experience ?? 0} XP</span>
+            </div>
             <div className="stance-buttons">
               <button
                 className={`stance-btn ${placement.stance === "attack" ? "active" : ""}`}
