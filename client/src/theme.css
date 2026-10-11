@@ -1172,11 +1172,7 @@ body.defeat-flash {
 .territory-hand{position:sticky;bottom:0;background:rgba(5,5,5,0.95);backdrop-filter:blur(4px);border-top:1px solid #b89b5e;padding:8px;z-index:20}
 
 /* Legends panel: left side of terrain */
-.legends-panel{
-  position:absolute;left:12px;top:80px;width:200px;z-index:20;
-  background:rgba(10,10,10,0.85);border:2px solid #b89b5e;border-radius:8px;
-  padding:12px;max-height:60vh;overflow-y:auto;
-}
+.legends-panel{position:absolute;left:12px;top:80px;width:200px;z-index:20;background:rgba(10,10,10,0.85);border:2px solid #b89b5e;border-radius:8px;padding:12px;max-height:60vh;overflow-y:auto}
 .legends-panel h3{font-size:14px;color:#e8d5a8;margin:0 0 10px;letter-spacing:1px}
 .champion-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #333}
 .champion-card{cursor:pointer;text-align:center}
@@ -1513,3 +1509,7 @@ body.defeat-flash {
 .tutorial-nav{display:flex;gap:12px;align-items:center;margin-top:24px}
 .tutorial-complete-banner{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(20,40,20,0.95);border:1px solid #7fff7f;border-radius:10px;padding:16px 24px;z-index:200;display:flex;gap:16px;align-items:center}
 .tutorial-complete-banner p{margin:0;color:#e8f5e8}
+
+.legends-fab{position:absolute;left:12px;top:80px;z-index:20;width:44px;height:44px;border-radius:50%;background:rgba(10,10,10,0.85);border:2px solid #b89b5e;font-size:20px;cursor:pointer}
+.legends-panel .panel-close{position:absolute;top:8px;right:8px;background:none;border:none;color:#e8d5a8;font-size:18px;cursor:pointer;padding:4px 8px}
+.legends-panel{position:absolute;left:12px;top:80px;width:200px;z-index:20;background:rgba(10,10,10,0.85);border:2px solid #b89b5e;border-radius:8px;padding:12px;max-height:60vh;overflow-y:auto}

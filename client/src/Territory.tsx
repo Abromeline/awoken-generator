@@ -138,6 +138,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const battleResolvedRef = useRef(false);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
+  const [showLegends, setShowLegends] = useState(false);
   const [showAspects, setShowAspects] = useState(false);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
@@ -1439,8 +1440,15 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
           <circle cx="16" cy="16" r="2.5" fill="#e8d5a0" opacity="0.9"/>
         </svg>
       </button>
-      {/* Left panel: Champion + Hall of Legends */}
+      {/* Left panel: Champion + Hall of Legends (collapsable) */}
+      {!showLegends && (
+        <button className="legends-fab" onClick={() => setShowLegends(true)} title="Champions & Legends">
+          🏆
+        </button>
+      )}
+      {showLegends && (
       <div className="legends-panel">
+        <button className="panel-close" onClick={() => setShowLegends(false)} title="Collapse">−</button>
         <div className="champion-section">
           <h3>🏆 Champion</h3>
           {legends.champion ? (
@@ -1471,6 +1479,7 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
           )}
         </div>
       </div>
+      )}
       {showChampionPicker && (
         <div className="champion-picker-overlay" onClick={() => setShowChampionPicker(false)}>
           <div className="champion-picker" onClick={e => e.stopPropagation()}>
@@ -1644,13 +1653,9 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
         );
       })()}
       <div className="territory-battle-trigger">
-        {wavesCleared >= 3 ? (
+        {wavesCleared >= 3 && (
           <button className="abtn battle-cta" onClick={handleDefend} style={{ borderColor: "#ffd700" }}>
-            👑 Boss Fight — Wave {wave?.waveNumber}
-          </button>
-        ) : (
-          <button className="abtn battle-cta" onClick={handleDefend} style={{ opacity: 0.5 }}>
-            ⚔ {wave ? `Fight the Unraveling — Wave ${wave.waveNumber}` : "⚔ Fight the Unraveling"} (clear 3 waves first)
+            👑 BOSS FIGHT
           </button>
         )}
         {battleActive && (
