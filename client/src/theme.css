@@ -1851,3 +1851,11 @@ body.defeat-flash {
 
 .tender-gate h1 { color: #b8b8b8; }
 .tender-gate .eyebrow { color: #b8b8b8; }
+
+@media (max-width: 768px) {
+  /* Move acorn button out of the way on mobile */
+  .acorn-btn { bottom: 80px; left: 16px; width: 44px; height: 44px; font-size: 22px; }
+  /* Make terrain map button smaller */
+  .deck-button { font-size: 12px; padding: 6px 10px; }
+  .deck-button img { width: 20px; height: 20px; }
+}
