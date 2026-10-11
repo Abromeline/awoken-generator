@@ -1650,22 +1650,6 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
       {showLegends && (
       <div className="legends-panel">
         <button className="panel-close" onClick={() => setShowLegends(false)} title="Collapse">−</button>
-        <div className="champion-section">
-          <h3>🏆 Champion</h3>
-          {legends.champion ? (
-            <div className="champion-card" onClick={() => setShowChampionPicker(true)}>
-              <img src={legends.champion.image_url} alt={legends.champion.name} />
-              <div className="champion-name">{legends.champion.name}</div>
-              <div className="champion-stats">
-                {legends.champion.power}⚔ {legends.champion.toughness}🛡 · Lv {legends.champion.level ?? 0}
-              </div>
-              {legends.champion.flavor_text && (
-                <div className="champion-story">"{legends.champion.flavor_text}"</div>
-              )}
-              <div className="champion-change">tap to change</div>
-            </div>
-          ) : null}
-        </div>
         <div className="hall-of-legends">
           <h3>📜 Hall of Legends</h3>
           {legends.legends.length === 0 ? (
