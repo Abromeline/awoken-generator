@@ -920,7 +920,7 @@ function CosmicBackground() {
 
 export function App() {
   const queryClient = useQueryClient();
-  const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null); const [showPacket, setShowPacket] = useState(false); const [showTenderDeck, setShowTenderDeck] = useState(false);
+  const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null); const [showPacket, setShowPacket] = useState(false); const [showTenderDeck, setShowTenderDeck] = useState(false); const [birthRevealId, setBirthRevealId] = useState<number | null>(null);
   const [wtoken, setWtoken] = useState<string | null>(() => storedWorkshopToken());
   const [tenderTokenState, setTenderTokenState] = useState<string | null>(() => storedTenderToken());
   const [showGate, setShowGate] = useState(false);
@@ -966,6 +966,7 @@ export function App() {
   const needsNaming = !!tender && !tender.tenderName && tenderItems.length > 0;
   function saved(id: number) {
     setFocusId(id);
+    setBirthRevealId(id);
     if (face === "workshop") void workshopQuery.refetch();
     else { void query.refetch(); void welcomeQuery.refetch(); }
   }
@@ -988,7 +989,20 @@ export function App() {
       {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
       {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} /><LoreSection /></>}
-    </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}</div></>;  }
+    </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
+      {birthRevealId !== null && (() => {
+        const newborn = tenderItems.find(i => i.id === birthRevealId);
+        if (!newborn) return null;
+        return (
+          <div className="birth-reveal-overlay" onClick={() => setBirthRevealId(null)}>
+            <div className="birth-reveal" onClick={e => e.stopPropagation()}>
+              <CreatureCard item={newborn} newborn />
+              <button className="abtn" onClick={() => setBirthRevealId(null)}>Behold</button>
+            </div>
+          </div>
+        );
+      })()}
+      </div></>;  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;
   if (lockQuery.data?.locked && !wtoken) {
     return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><WorkshopUnlock onBack={() => setFace("tender")} onUnlock={(token) => setWtoken(token)} /></div></>;

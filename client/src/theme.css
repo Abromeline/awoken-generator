@@ -1802,3 +1802,7 @@ body.defeat-flash {
 @keyframes enemy-lunge{0%{transform:translateX(0)}30%{transform:translateX(-30px) scale(1.1)}100%{transform:translateX(0)}}
 
 .manual-hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(212,175,106,0.95);color:#1a1a1a;font-weight:bold;padding:8px 16px;border-radius:20px;z-index:100;font-size:14px;animation:blink 2s infinite}
+
+.birth-reveal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.birth-reveal{max-width:400px;width:100%;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;align-items:center}
+.birth-reveal .creature-card{width:100%}
