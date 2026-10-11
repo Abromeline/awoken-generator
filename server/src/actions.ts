@@ -2073,6 +2073,8 @@ export const handlers = {
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    // Hourly binding heal: check if anything is wounded, heal if so
+    await this.bindingHealTick({}, ctx);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));

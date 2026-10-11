@@ -1886,11 +1886,13 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
           />
         );
       })()}
-      {/* Castle button - toggles building menu */}
+      {/* Castle button - toggles building menu (disabled during battle) */}
       <button
         className={`castle-toggle ${showBuildingMenu ? "open" : ""}`}
-        onClick={() => setShowBuildingMenu(v => !v)}
-        title="Buildings"
+        onClick={() => { if (!battleActive) setShowBuildingMenu(v => !v); }}
+        title={battleActive ? "Cannot build during battle" : "Buildings"}
+        disabled={battleActive}
+        style={battleActive ? { opacity: 0.4, cursor: "not-allowed" } : {}}
       >
         🏰
       </button>
