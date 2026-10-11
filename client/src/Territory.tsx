@@ -577,15 +577,18 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             if (wall && u.tileId !== closestTile.id) {
               hp -= 1;
             }
-            // Defenders: Awoken on tile deal power as damage
-            const defenders = placements.filter(p => p.tileId === closestTile.id && p.stance === "defense");
-            for (const d of defenders) {
-              const aw = tenderItems.find(a => a.id === d.awakenedId);
-              if (aw) {
-                // Simplified: power = sum of piece powers (approx from awoken data)
-                const power = (aw.power || 3);
-                hp -= power * 0.1; // Small chip damage per tick
+            // Defenders: Awoken on tile deal full power as damage per tick
+            // Enemies are stopped (don't advance) while defenders are present
+            const defenders = placements.filter(p => p.tileId === closestTile.id && (p.stance === "defense" || p.stance === "attack"));
+            if (defenders.length > 0) {
+              for (const d of defenders) {
+                const aw = tenderItems.find(a => a.id === d.awakenedId);
+                if (aw) {
+                  hp -= (aw.power || 3) * 0.5; // Meaningful damage per tick
+                }
               }
+              // Don't move while defenders hold the tile
+              return { ...u, x: u.x, y: u.y, hp, tileId: closestTile?.id ?? u.tileId };
             }
           }
           
