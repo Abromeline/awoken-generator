@@ -88,6 +88,7 @@ export default function UIWorkspace() {
   const [uploading, setUploading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadTarget, setUploadTarget] = useState<{ category: string; name: string } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     api.call("listUiSprites", {}).then((r: any) => setSprites(r.sprites)).catch(() => {});
@@ -121,6 +122,7 @@ export default function UIWorkspace() {
       setSprites(r.sprites);
     } catch (err) {
       console.error("Upload failed", err);
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
     }
     setUploading(null);
     setUploadTarget(null);
@@ -282,6 +284,13 @@ export default function UIWorkspace() {
       )}
 
       {section === "awakening" && (
+        <div>
+          {uploadError && (
+            <p className="notice error" style={{ marginBottom: 12 }}>
+              Upload failed: {uploadError}
+              <button className="abtn small" onClick={() => setUploadError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+            </p>
+          )}
         <div className="workspace-grid">
           {AWAKENING.map(name => (
             <div key={name} className="workspace-card">
@@ -308,6 +317,7 @@ export default function UIWorkspace() {
               </p>
             </div>
           ))}
+        </div>
         </div>
       )}
     </div>
