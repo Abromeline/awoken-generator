@@ -3733,8 +3733,10 @@ export const handlers = {
     const blobKey = `timed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
     blobs.put(blobKey, Buffer.from(base64Data, "base64"), "image/png");
+    const [latest] = await db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1);
+    const nextNumber = (latest?.id ?? 0) + 1;
     const [newborn] = await db.insert(schema.awakened).values({
-      name: "Child of Time",
+      name: `Awoken ${String(nextNumber).padStart(3, "0")}`,
       imageBlobKey: blobKey,
       compositionJson: JSON.stringify(parsed.layers),
       collection: "tender",
