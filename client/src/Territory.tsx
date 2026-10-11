@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
-import FirstTrial from "./FirstTrial";
+
 import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
@@ -10,6 +10,7 @@ import Friends from "./Friends";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage } from "./BuildingMenu";
+import Tutorial, { tutorialComplete } from "./Tutorial";
 import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain-iso/tide-v2.png";
 import skyImg from "./assets/terrain-iso/sky-v2.png";
@@ -49,12 +50,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
   const [showBuildingMenu, setShowBuildingMenu] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [tutorialDone, setTutorialDone] = useState(() => localStorage.getItem("awoken-tutorial-done") === "1");
+  const [objectivesMet, setObjectivesMet] = useState(false);
   const [buildings, setBuildings] = useState<any[]>([]);
+
   const [gameConfig, setGameConfig] = useState<any>(null);
   const [pendingTile, setPendingTile] = useState<number | null>(null);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
+
+  // Check tutorial objectives
+  useEffect(() => {
+    if (!tutorialDone && !objectivesMet && tiles.length > 0) {
+      if (tutorialComplete(tiles, buildings)) {
+        setObjectivesMet(true);
+      }
+    }
+  }, [tiles, buildings, tutorialDone, objectivesMet]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -977,9 +991,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const m = Math.floor((ms % 3600000) / 60000);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
-    if (!tiles.length) {
-      return <FirstTrial hand={hand} assets={assets} onVictory={handleFirstVictory} />;
-    }
+    // Tutorial handles the empty state now (no separate FirstTrial)
     // Simple grid layout for now; parallax via row scaling
   // Project a point from the tilted map plane to screen coordinates.
   // The map container has: perspective(900px) rotateX(32deg), origin at center 60%.
@@ -1950,6 +1962,18 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
       </button>
 
       {/* Right-side building panel */}
+      {!tutorialDone && !objectivesMet && (
+        <Tutorial onComplete={() => setTutorialDone(true)} />
+      )}
+      {objectivesMet && !tutorialDone && (
+        <div className="tutorial-complete-banner">
+          <p>✦ Training complete — 7 tiles purified, shrine raised. The land is yours.</p>
+          <button className="abtn small" onClick={() => {
+            localStorage.setItem("awoken-tutorial-done", "1");
+            setTutorialDone(true);
+          }}>Begin →</button>
+        </div>
+      )}
       {showBuildingMenu && (
         <div className="building-side-panel">
           <button

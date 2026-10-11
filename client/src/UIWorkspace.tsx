@@ -8,6 +8,7 @@ import tangleImg from "./assets/enemies/tangle.png";
 import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
+import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
@@ -23,7 +24,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   enemy: { fray: frayImg, unraveler: unravelerImg, hollow: hollowImg, tangle: tangleImg },
   building: {
     watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
-    "elemental-shrine": elementalShrineImg, "awakening-well": awakeningWellImg,
+    "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
   },
   terrain: {
@@ -71,7 +72,7 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "elemental-shrine", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const BUILDINGS = ["watchtower", "dream-wheat", "elemental-shrine", "attunement-shrine", "awakening-well", "thorn-wall", "binding-circle", "tree"];
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
 const AWAKENING_LABELS: Record<string, string> = {

@@ -739,6 +739,7 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 3⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
+  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },

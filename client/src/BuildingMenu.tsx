@@ -3,6 +3,7 @@ import { api } from "./api";
 import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
+import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
 import wheatHalfImg from "./assets/buildings/wheat-half.png";
@@ -20,6 +21,7 @@ const BUILDING_IMGS: Record<string, string> = {
   "tree": treeImg,
   "thorn-wall": thornWallImg,
   "binding-circle": bindingCircleImg,
+  "attunement-shrine": attunementShrineImg,
 };
 
 export function buildingImage(type: string): string {
