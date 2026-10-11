@@ -317,6 +317,25 @@ export default function UIWorkspace() {
 
       {section === "awakening" && (
         <div>
+          <div className="workspace-card" style={{ marginBottom: 16, borderColor: "#ff4444" }}>
+            <h3>⚠️ Danger Zone</h3>
+            <p className="quiet">Delete all newborn cards (identityKey starts with "newborn-") from all decks. This cannot be undone.</p>
+            <button
+              className="abtn small"
+              style={{ borderColor: "#ff4444", color: "#ff6666" }}
+              onClick={async () => {
+                if (!confirm("Delete ALL newborn cards from ALL decks? This cannot be undone.")) return;
+                try {
+                  const r: any = await api.call("deleteAllNewborns", {});
+                  alert(`Deleted ${r.deleted} newborn cards.`);
+                } catch (e) {
+                  alert("Failed: " + (e instanceof Error ? e.message : "unknown"));
+                }
+              }}
+            >
+              Delete All Newborns
+            </button>
+          </div>
           {uploadError && (
             <p className="notice error" style={{ marginBottom: 12 }}>
               Upload failed: {uploadError}

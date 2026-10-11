@@ -3594,6 +3594,14 @@ export const handlers = {
    * record, joins the hand. No client-side image composition — the card renders
    * from layers. Cannot hang the purification flow.
    */
+  async deleteAllNewborns(args: unknown, ctx?: ActionContext) {
+    const { like } = await import("drizzle-orm");
+    const deleted = await db.delete(schema.awakened)
+      .where(like(schema.awakened.identityKey, "newborn-%"))
+      .returning({ id: schema.awakened.id });
+    return { ok: true, deleted: deleted.length };
+  },
+
   async birthNewbornToHand(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
