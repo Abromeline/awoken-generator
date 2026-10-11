@@ -185,6 +185,11 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState("The Unraveling comes...");
+  const [logHistory, setLogHistory] = useState<string[]>(["The Unraveling comes..."]);
+  const addLog = (msg: string) => {
+    setLog(msg);
+    setLogHistory(prev => [...prev.slice(-49), msg]);
+  };
   const [battleTrack, setBattleTrack] = useState<{ name: string; url: string } | null>(null);
   const battleAudio = useRef<HTMLAudioElement | null>(null);
 
@@ -367,7 +372,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const heal = healEach + (idx < remainder ? 1 : 0);
           w.hp = Math.min(w.maxHp, w.hp + heal);
         });
-        setLog(`✦ Binding light mends the wounded (+${totalHeal} total)`);
+        addLog(`✦ Binding light mends the wounded (+${totalHeal} total)`);
       }
     }
     setFighters(aw);
@@ -378,7 +383,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     // Watchtower opening volley: towers loose visible arrows, staggered, arcing onto random enemies
     if (watchtowerTiles.length > 0 && en.length > 0) {
       setTowerVolley(true);
-      setLog(`🗼 Watchtowers loose their volley!`);
+      addLog(`🗼 Watchtowers loose their volley!`);
       const staggerMs = 200;
       const flightMs = 750;
       watchtowerTiles.forEach((tileId, i) => {
@@ -399,7 +404,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
               later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
               setEnemies(prev => prev.map(e => e.id === target.id ? { ...e, hp: Math.max(0, e.hp - towerDamage) } : e));
-              setLog(`🗼 Tower arrow strikes ${target.name} for ${towerDamage}!`);
+              addLog(`🗼 Tower arrow strikes ${target.name} for ${towerDamage}!`);
             },
           });
         });
@@ -454,7 +459,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const applyStrike = (atk: Fighter, def: Fighter) => {
     const dmg = Math.max(1, atk.power - def.tough);
     const isCrit = dmg >= atk.power * 1.5;
-    setLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
+    addLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
     setHitFlash(def.id);
     later(400, () => setHitFlash(null));
     const numId = `dmg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -463,6 +468,14 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     if (isCrit) {
       setCritFlash(true);
       later(500, () => setCritFlash(false));
+    }
+    const newHp = Math.max(0, def.hp - dmg);
+    if (newHp === 0 && def.hp > 0) {
+      if (def.side === "en") {
+        addLog(`💀 ${def.name} unravels into nothing.`);
+      } else {
+        addLog(`🌙 ${def.name} retreats to rest.`);
+      }
     }
     if (def.side === "en") {
       setEnemies(prev => prev.map(e => e.id === def.id ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
@@ -530,7 +543,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     setSelected(null);
     // Wind-up: attacker glows and gathers power
     setWindUp(atk.id);
-    setLog(`${atk.name} gathers power...`);
+    addLog(`${atk.name} gathers power...`);
     later(WINDUP_MS, () => {
       setWindUp(null);
       setAttacking(atk.id);
@@ -567,7 +580,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setVictory(true);
       setSimRunning(false);
       trackPlayer.stop();
-      setLog("THE WAVE BREAKS!");
+      addLog("THE WAVE BREAKS!");
       setTimeout(async () => {
         if (onVictoryDetected) await onVictoryDetected();
         setShowVictoryScreen(true);
@@ -577,7 +590,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setVictory(false);
       setSimRunning(false);
       trackPlayer.stop();
-      setLog("THE LINE FALLS...");
+      addLog("THE LINE FALLS...");
       setTimeout(() => onBattleEnd({ victory: false, survivors: [] }), 2500);
     }
   }, [fighters, enemies]);
@@ -592,7 +605,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     if (isNewborn) {
       // Birth ritual: the dot sparkles and expands into the Awoken
       setBirthing(card.id);
-      setLog("Something stirs in the card...");
+      addLog("Something stirs in the card...");
       setTimeout(() => {
         setEnergyLeft(e => e - cost);
         const newFighter: Fighter = {
@@ -607,7 +620,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         setFighters(prev => [...prev, newFighter]);
         setDeck(prev => prev.filter((_, i) => i !== index));
         setBirthing(null);
-        setLog(`${card.name} is born!`);
+        addLog(`${card.name} is born!`);
       }, 1500);
       return;
     }
@@ -623,7 +636,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     };
     setFighters(prev => [...prev, newFighter]);
     setDeck(prev => prev.filter((_, i) => i !== index));
-    setLog(`${card.name} reinforces! (returns to hand after)`);
+    addLog(`${card.name} reinforces! (returns to hand after)`);
   };
 
   return (
@@ -647,7 +660,14 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         </button>
         <button className="abtn small" onClick={onClose}>✕ Retreat</button>
       </div>
-      <div className="battle-log">{log}</div>
+      <div className="battle-log">
+        <div className="battle-log-current">{log}</div>
+        <div className="battle-log-history">
+          {logHistory.slice(-8, -1).reverse().map((msg: string, i: number) => (
+            <div key={i} className="battle-log-old" style={{ opacity: 0.9 - i * 0.1 }}>{msg}</div>
+          ))}
+        </div>
+      </div>
       <div ref={fieldRef} className={`battle-field ${critFlash ? "crit-flash" : ""}`}>
         {watchtowerTiles.length > 0 && (
           <div className="battle-towers">

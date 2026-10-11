@@ -1790,3 +1790,8 @@ body.defeat-flash {
 }
 .battle-towers{position:absolute;top:1%;left:3%;display:flex;gap:10px;z-index:5}
 .battle-tower{font-size:36px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.6));animation:awoken-bob 3s ease-in-out infinite}
+
+.battle-log{max-height:140px;overflow:hidden;display:flex;flex-direction:column;align-items:center}
+.battle-log-current{font-weight:bold;font-size:16px;margin-bottom:4px}
+.battle-log-history{display:flex;flex-direction:column;align-items:center;gap:2px}
+.battle-log-old{font-size:12px;color:#ccc}
