@@ -1075,7 +1075,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}
                 onClick={async (e) => {
                   e.stopPropagation();
-                  if (pendingTile !== null) return; // Non-clickable in build mode
+                  if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
                   if (demoMode) {
                     if (confirm(`Demolish this ${b.buildingType}?`)) {
                       try {
@@ -1100,7 +1100,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } catch (err) { console.error("Harvest failed", err); }
                   }
                 }}
-                style={{ cursor: demoMode ? "pointer" : pendingTile !== null ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
+                style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
@@ -1165,6 +1165,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } as React.CSSProperties}
                     onClick={(e) => {
                       if (selectedBuilding) return; // Let tile handle it in build mode
+                      if (moveTargeting || attackTargeting) return; // Only tiles selectable in move/attack mode
                       e.stopPropagation();
                       setSelectedAwoken(isSelected ? null : a.id);
                       setAttackTargeting(false);
