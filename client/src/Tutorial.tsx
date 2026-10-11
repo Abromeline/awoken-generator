@@ -94,6 +94,15 @@ const STEPS: Step[] = [
     ],
   },
   {
+    title: "Champions",
+    body: [
+      "Every Awoken dreams of one day being a champion — shaping the world merely with their presence.",
+      "A well-attuned champion can turn the tide of the curse. Their element flows into the land around them.",
+      "Raise many, not one. Each champion is a beacon. Together, they are a dawn.",
+    ],
+    lore: "Which element will you choose? Tide, Sky, Stone, Root — each shapes the world differently. Pick well.",
+  },
+  {
     title: "Expand",
     body: [
       "Purify 7 tiles and build 1 Attunement Shrine to complete your training.",
