@@ -3946,6 +3946,39 @@ export const handlers = {
     }
   },
 
+  async getTenderRank(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    // Count Awoken per tender (tender collection only)
+    const counts = await db.select({
+      ownerKey: schema.awakened.ownerKey,
+      ownerName: schema.awakened.ownerName,
+      count: sql<number>`COUNT(*)`,
+    }).from(schema.awakened)
+      .where(eq(schema.awakened.collection, "tender"))
+      .groupBy(schema.awakened.ownerKey, schema.awakened.ownerName)
+      .orderBy(sql`COUNT(*) DESC`);
+    // Find current tender's rank
+    const myIndex = counts.findIndex(c => c.ownerKey === ownerKey);
+    const myRank = myIndex >= 0 ? myIndex + 1 : counts.length + 1;
+    const myCount = myIndex >= 0 ? counts[myIndex].count : 0;
+    // Get 2 above and 2 below
+    const start = Math.max(0, myIndex - 2);
+    const end = Math.min(counts.length, myIndex + 3);
+    const nearby = counts.slice(start, end).map((c, i) => ({
+      rank: start + i + 1,
+      name: c.ownerName || "Nameless",
+      count: c.count,
+      isMe: c.ownerKey === ownerKey,
+    }));
+    return {
+      ok: true,
+      myRank,
+      myCount,
+      totalTenders: counts.length,
+      nearby,
+    };
+  },
+
   async getBirthStatus(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;

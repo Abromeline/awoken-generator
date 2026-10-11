@@ -1829,3 +1829,11 @@ body.defeat-flash {
     color: #e8d5a0 !important;
   }
 }
+
+.tender-rank{display:inline-flex;align-items:center;gap:8px;margin-left:12px;font-size:12px}
+.rank-badge{background:#d4af6a;color:#1a1a1a;font-weight:bold;padding:2px 8px;border-radius:12px}
+.rank-count{color:#e8d5a0}
+.rank-nearby{position:absolute;top:100%;left:0;background:#1a1a1a;border:1px solid #d4af6a;border-radius:8px;padding:8px;display:none;min-width:180px;z-index:100}
+.tender-rank:hover .rank-nearby{display:block}
+.rank-row{display:flex;gap:8px;justify-content:space-between;padding:2px 0;font-size:11px}
+.rank-row.me{font-weight:bold;color:#d4af6a}

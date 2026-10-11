@@ -281,6 +281,30 @@ function CreatureCard({ item, allowDelete = false, newborn = false }: { item: Aw
   </article>;
 }
 
+function TenderRank() {
+  const { data } = useQuery({
+    queryKey: ["tenderRank"],
+    queryFn: () => api.getTenderRank(),
+    refetchInterval: 60000,
+  });
+  if (!data || !data.ok) return null;
+  return (
+    <div className="tender-rank">
+      <span className="rank-badge">#{data.myRank}</span>
+      <span className="rank-count">{data.myCount} Awoken</span>
+      <div className="rank-nearby">
+        {data.nearby.map(n => (
+          <div key={n.rank} className={`rank-row ${n.isMe ? "me" : ""}`}>
+            <span>#{n.rank}</span>
+            <span>{n.name}</span>
+            <span>{n.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, isFirstAwoken }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; isFirstAwoken?: boolean }) {
   const awakening = useAwakeningSprites();
   const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
@@ -1005,7 +1029,7 @@ export function App() {
       return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div></>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
-    return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
+    return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button><TenderRank /></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
       {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}

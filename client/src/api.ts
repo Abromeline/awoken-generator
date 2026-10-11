@@ -286,6 +286,7 @@ export const api = {
   updateLayerAssetRarity: (value: { id: number; rarity: string }) => post<{ ok: boolean }>("updateLayerAssetRarity", value),
   updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
   claimSpark: (value: { tileId: number }) => post<{ ok: boolean; fireLevel: number }>("claimSpark", value),
+  getTenderRank: () => post<{ ok: boolean; myRank: number; myCount: number; totalTenders: number; nearby: { rank: number; name: string; count: number; isMe: boolean }[] }>("getTenderRank", {}),
   igniteWildfire: (value: { awakenedId: number; tileId: number }) => post<{ ok: boolean; ignitedTileIds: number[] }>("igniteWildfire", value),
   getAspectAttunement: () => post<{ levels: Record<string, number>; threshold: number; inventoryCount: number; inventory: { id: number; name: string; element: string; imageUrl: string }[] }>("getAspectAttunement", {}),
   combineAspects: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; newLevel: number; element: string }>("combineAspects", value),
