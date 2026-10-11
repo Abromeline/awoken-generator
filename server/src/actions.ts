@@ -1812,6 +1812,7 @@ export const handlers = {
     // Get all Binding Awoken with their compositions
     const binders = await db.select({
       awakenedId: schema.fieldPlacements.awakenedId,
+      tileId: schema.fieldPlacements.tileId,
       compositionJson: schema.awakened.compositionJson,
     }).from(schema.fieldPlacements)
       .innerJoin(schema.awakened, eq(schema.fieldPlacements.awakenedId, schema.awakened.id))
@@ -1862,7 +1863,38 @@ export const handlers = {
     }
 
     if (cappedHours > 0 && binders.length > 0) {
+      // Find active attunement shrines and their tile positions
+      const shrines = await db.select({
+        tileId: schema.territoryBuildings.tileId,
+      }).from(schema.territoryBuildings)
+        .where(and(
+          eq(schema.territoryBuildings.ownerKey, ownerKey),
+          eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
+          eq(schema.territoryBuildings.status, "active")
+        ));
+      const shrineTileIds = new Set(shrines.map(s => s.tileId));
+      // Get tile coordinates for adjacency check
+      const allTiles = await db.select({
+        id: schema.territoryTiles.id,
+        q: schema.territoryTiles.q,
+        r: schema.territoryTiles.r,
+      }).from(schema.territoryTiles)
+        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const tileById = new Map(allTiles.map(t => [t.id, t]));
+      const hexDist = (a: any, b: any) =>
+        (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+      const isNearShrine = (binderTileId: number): boolean => {
+        const bTile = tileById.get(binderTileId);
+        if (!bTile) return false;
+        for (const sid of shrineTileIds) {
+          const sTile = tileById.get(sid);
+          if (sTile && hexDist(bTile, sTile) <= 1) return true;
+        }
+        return false;
+      };
+
       // For each binder, split 1 point/hour across its unique elements
+      // (doubled if adjacent to an attunement shrine)
       const gains = new Map<string, number>();
       for (const b of binders) {
         let layers: any[];
@@ -1875,7 +1907,8 @@ export const handlers = {
           if (el !== "fire") elements.add(el);
         }
         if (elements.size === 0) continue;
-        const perElement = (POINTS_PER_HOUR * cappedHours) / elements.size;
+        const multiplier = isNearShrine(b.tileId) ? 2 : 1;
+        const perElement = (POINTS_PER_HOUR * cappedHours * multiplier) / elements.size;
         for (const el of elements) {
           gains.set(el, (gains.get(el) || 0) + perElement);
         }

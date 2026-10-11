@@ -950,27 +950,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     });
   };
 
-  const handleFirstVictory = async (teamIds: number[]) => {
-    try {
-      await api.claimFirstTile({ teamIds });
-      const { tiles, placements } = await api.getTerritory();
-      setTiles(tiles); setPlacements(placements);
-      // Newborn joins the hand — server-side, fire-and-forget. Cannot hang the ritual.
-      const center = tiles.find(t => t.q === 0 && t.r === 0);
-      if (center && teamIds.length > 0) {
-        const team = tenderItems.filter(a => teamIds.includes(a.id));
-        const liberatorNames = team.map(t => t.name);
-        api.birthNewbornToHand({ tileId: center.id, liberatorNames }).catch(e =>
-          console.error("[Birth] Newborn failed — ritual complete", e)
-        );
-      }
-      onUpdate();
-    } catch (e) {
-      console.error("[Birth] Claim failed", e);
-      throw e;
-    }
-  };
-
   // Helper: get dominant element from Awoken layers (simplified)
   const getDominantElement = (awoken: Awakened): string => {
     // TODO: detect from piece names; default to neutral for now
