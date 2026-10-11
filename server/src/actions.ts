@@ -2996,6 +2996,28 @@ export const handlers = {
         eq(schema.fieldPlacements.tileId, parsed.data.tileId),
       )) : [];
     const validHelpers = helpers.filter(h => builderIds.includes(h.awakenedId));
+    // Block Awoken already building elsewhere
+    if (validHelpers.length) {
+      const activeBuilds = await db.select().from(schema.territoryBuildings)
+        .where(and(
+          eq(schema.territoryBuildings.ownerKey, ownerKey),
+          eq(schema.territoryBuildings.status, "building"),
+        ));
+      const busyPlacementIds = new Set<number>();
+      for (const b of activeBuilds) {
+        if (b.builderStances) {
+          try {
+            const memories = JSON.parse(b.builderStances) as { placementId: number; stance: string }[];
+            for (const m of memories) busyPlacementIds.add(m.placementId);
+          } catch {}
+        }
+      }
+      const busy = validHelpers.filter(h => busyPlacementIds.has(h.id));
+      if (busy.length) {
+        const names = busy.map(h => h.awakenedId).join(", ");
+        badRequest(`Awoken ${names} already assisting another build.`);
+      }
+    }
     const helperCount = validHelpers.length;
     const timeDivisor = Math.pow(gameConfig.timers.buildHelperDivisor, helperCount);
     const tile = await db.select().from(schema.territoryTiles)
