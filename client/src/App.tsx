@@ -211,7 +211,9 @@ function creatureRarity(power: number): string {
   return "Mythic";
 }
 
-export function TradingCard({ item }: { item: Awoken }) {
+export function TradingCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
+  const queryClient = useQueryClient();
+  const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const roman = toRoman(item.id);
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
   const elements = litany.map((layer) => elementForPiece(layer.name));
@@ -234,6 +236,21 @@ export function TradingCard({ item }: { item: Awoken }) {
     <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>
     <div className="tc-stories" title={`${stories} of 3 stories shared`}>{"●".repeat(stories)}{"○".repeat(3 - stories)}</div>
     <div className="tc-watermark" aria-hidden="true">{roman}</div>
+    {allowDelete && (
+      <button
+        className="tc-delete"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (confirm(`Delete "${item.name}"? This cannot be undone.`)) {
+            remove.mutate();
+          }
+        }}
+        disabled={remove.isPending}
+        title="Delete this Awoken"
+      >
+        ×
+      </button>
+    )}
   </article>;
 }
 
@@ -317,7 +334,7 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
   }, [items, sort, filter]);
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
   return <section className="collection"><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
-    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header><div className="collection-grid trading">{visible.map((item) => <TradingCard key={item.id} item={item} />)}</div></section>;
+    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header><div className="collection-grid trading">{visible.map((item) => <TradingCard key={item.id} item={item} allowDelete={allowDelete} />)}</div></section>;
 }
 
 function AspectAssignButton() {

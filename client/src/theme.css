@@ -1518,3 +1518,7 @@ body.defeat-flash {
 .tutorial-enemy{display:flex;gap:12px;align-items:center}
 .tutorial-enemy img{width:48px;height:48px;object-fit:contain;flex-shrink:0}
 .tutorial-enemy p{margin:0;line-height:1.5}
+
+.tc-delete{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(255,68,68,0.9);color:#fff;border:none;font-size:16px;line-height:1;cursor:pointer;z-index:10}
+.tc-delete:hover{background:#ff2222}
+.trading-card{position:relative}
