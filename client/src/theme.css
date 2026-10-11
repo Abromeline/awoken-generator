@@ -1860,12 +1860,13 @@ body.defeat-flash {
   .deck-button img { width: 20px; height: 20px; }
 }
 
-/* Terrain button above acorn */
+/* Terrain button above acorn - locked to acorn on desktop and mobile */
 .deck-button {
-  position: fixed;
-  bottom: 200px;
-  left: 90px;
-  z-index: 1000;
+  position: fixed !important;
+  bottom: 200px !important;
+  left: 90px !important;
+  top: auto !important;
+  z-index: 1000 !important;
 }
 @media (max-width: 768px) {
   .deck-button {
