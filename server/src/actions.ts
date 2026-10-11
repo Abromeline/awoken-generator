@@ -2988,7 +2988,7 @@ export const handlers = {
   // UI Workspace APIs
   async uploadUiSprite(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({
-      category: z.enum(["enemy", "building", "timer", "ui"]),
+      category: z.enum(["enemy", "building", "terrain", "timer", "ui", "awakening"]),
       name: z.string().min(1).max(100),
       imageBase64: z.string().min(100).max(16_000_000),
     }).safeParse(args);
