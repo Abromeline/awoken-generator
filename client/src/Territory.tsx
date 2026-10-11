@@ -109,6 +109,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [awokenHp, setAwokenHp] = useState<Map<number, number>>(new Map());
   const [battlePaused, setBattlePaused] = useState(false);
   const [battleSpeed, setBattleSpeed] = useState(1.3);
+  // Cached tile positions for battle performance (tileId -> {cx, cy, q, r})
+  const tilePosCache = useRef<Map<number, { cx: number; cy: number; q: number; r: number }>>(new Map());
+  // Cached tile objects by ID (avoids tiles.find in hot loops)
+  const tileByIdCache = useRef<Map<number, any>>(new Map());
   const [simUnits, setSimUnits] = useState<Array<{ id: number; type: string; tileId: number; hp: number; maxHp: number; power: number; x: number; y: number; targetX: number; targetY: number }>>([]);
   const simRef = useRef<{ units: typeof simUnits; timer: any } | null>(null);
   const battleRef = useRef<{ timer: any } | null>(null);
@@ -519,10 +523,23 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
   };
 
+  /** Get cached tile position (fast). */
+  const getTilePos = (tileId: number) => tilePosCache.current.get(tileId);
+  /** Get cached tile object (fast, avoids tiles.find). */
+  const getTile = (tileId: number) => tileByIdCache.current.get(tileId);
+
   /** Spawn a battle wave on cursed tiles. */
   const spawnBattleWave = (waveNum: number) => {
     const cursed = tiles.filter(t => t.cursed);
     if (!cursed.length) return;
+    // Cache all tile positions and objects once (performance)
+    tilePosCache.current.clear();
+    tileByIdCache.current.clear();
+    for (const t of tiles) {
+      const { cx, cy } = simTilePos(t);
+      tilePosCache.current.set(t.id, { cx, cy, q: t.q, r: t.r });
+      tileByIdCache.current.set(t.id, t);
+    }
     const units: typeof simUnits = [];
     let id = Date.now();
     const frayCount = wave!.frayCount + (waveNum - 1) * 2;
@@ -549,13 +566,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     setBattleUnits(prev => {
       let updated = [...prev];
       for (const wt of watchtowers) {
-        const wtTile = tiles.find(t => t.id === wt.tileId);
+        const wtTile = getTile(wt.tileId);
         if (!wtTile) continue;
         // Find closest enemy within range 3
         let best: typeof updated[0] | null = null;
         let bestDist = 4;
         for (const u of updated) {
-          const uTile = tiles.find(t => t.id === u.tileId);
+          const uTile = getTile(u.tileId);
           if (!uTile) continue;
           const d = hexDist(wtTile, uTile);
           if (d <= 3 && d < bestDist) { bestDist = d; best = u; }
@@ -610,7 +627,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           let best: typeof updated[0] | null = null;
           let bestDmg = 0;
           for (const u of updated) {
-            const uTile = tiles.find(t => t.id === u.tileId);
+            const uTile = getTile(u.tileId);
             if (!uTile) continue;
             const d = hexDist(c.tile, uTile);
             // Exponential falloff: damage = power * 0.65^distance (min 1)
@@ -622,7 +639,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           }
         } else {
           // Enemy targeting: check for corruptible hex in reach first
-          const uTile = tiles.find(t => t.id === c.tileId);
+          const uTile = getTile(c.tileId);
           if (!uTile) continue;
 
           // Find corruptible hexes (purified, no defenders/towers) within 2 hexes
