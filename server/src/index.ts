@@ -31,6 +31,7 @@ const actionNames = Object.keys(handlers) as ActionName[];
 const WORKSHOP_ACTIONS = new Set([
   "uploadLayerAsset",
   "updateLayerAssetStats",
+  "updateLayerAssetElement",
   "renameLayerAsset",
   "deleteLayerAsset",
   "moveLayerAsset",

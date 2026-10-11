@@ -518,7 +518,23 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
               {(["common", "uncommon", "rare", "mythic"] as const).map(r => <option key={r} value={r}>{rarityLabel[r]}</option>)}
             </select>
           </label>
-        ) : <span>{rarityLabel[asset.rarity]}</span>}{asset.serverId && (asset.category === "aspect" || (asset.power !== null && asset.toughness !== null)) && <div className="stat-editor"><label><small>Power</small><select aria-label={`Power for ${asset.name}`} value={asset.power ?? 1} onChange={(event) => stats.mutate({ id: asset.serverId ?? 0, power: Number(event.target.value), toughness: asset.toughness ?? 1 })}>{statValues.map((value) => <option key={value}>{value}</option>)}</select></label><i>/</i><label><small>Toughness</small><select aria-label={`Toughness for ${asset.name}`} value={asset.toughness ?? 1} onChange={(event) => stats.mutate({ id: asset.serverId ?? 0, power: asset.power ?? 1, toughness: Number(event.target.value) })}>{statValues.map((value) => <option key={value}>{value}</option>)}</select></label></div>}
+        ) : <span>{rarityLabel[asset.rarity]}</span>}
+        {asset.serverId && (
+          <label className="element-picker"><small>Element</small>
+            <select aria-label={`Element for ${asset.name}`} value={(asset as any).element || ""} onChange={(e) => {
+              const val = e.target.value || null;
+              fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "updateLayerAssetElement", id: asset.serverId, element: val }) }).then(() => window.location.reload());
+            }}>
+              <option value="">Auto (from name)</option>
+              <option value="tide">🌊 Tide</option>
+              <option value="sky">🌀 Sky</option>
+              <option value="stone">🪨 Stone</option>
+              <option value="root">🌿 Root</option>
+              <option value="fire">🔥 Fire</option>
+            </select>
+          </label>
+        )}
+        {asset.serverId && (asset.category === "aspect" || (asset.power !== null && asset.toughness !== null)) && <div className="stat-editor"><label><small>Power</small><select aria-label={`Power for ${asset.name}`} value={asset.power ?? 1} onChange={(event) => stats.mutate({ id: asset.serverId ?? 0, power: Number(event.target.value), toughness: asset.toughness ?? 1 })}>{statValues.map((value) => <option key={value}>{value}</option>)}</select></label><i>/</i><label><small>Toughness</small><select aria-label={`Toughness for ${asset.name}`} value={asset.toughness ?? 1} onChange={(event) => stats.mutate({ id: asset.serverId ?? 0, power: asset.power ?? 1, toughness: Number(event.target.value) })}>{statValues.map((value) => <option key={value}>{value}</option>)}</select></label></div>}
         {asset.serverId && <button className="remove-piece" onClick={() => remove.mutate(asset.serverId ?? 0)}>Remove</button>}{asset.isStarter && <small className="starter-mark">aura study</small>}
         {asset.serverId && <label className="move-piece"><small>Move to</small><select aria-label={`Move ${asset.name} to another pool`} value="" onChange={(event) => { if (event.target.value) move.mutate({ id: asset.serverId ?? 0, category: event.target.value }); event.target.value = ""; }}><option value="">Another pool…</option>{categories.filter((item) => item.id !== asset.category).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       </div></article>)}</div>}</section>; })}</div>

@@ -11,6 +11,7 @@ export const layerAssets = sqliteTable("layer_assets", {
   }).notNull(),
   power: integer("power"),
   toughness: integer("toughness"),
+  element: text("element"),
   imageBlobKey: text("image_blob_key").notNull(),
   mimeType: text("mime_type").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" })

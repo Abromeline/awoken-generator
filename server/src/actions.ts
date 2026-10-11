@@ -52,7 +52,7 @@ const purifyResponse = z.object({
 });
 
 type Rarity = z.infer<typeof raritySchema>;
-type AssetStats = { name: string; rarity: Rarity; power: number | null; toughness: number | null };
+type AssetStats = { name: string; rarity: Rarity; power: number | null; toughness: number | null; element?: string | null };
 
 function rarityFromStats(power: number, toughness: number): Rarity {
   const total = power + toughness;
@@ -113,7 +113,7 @@ function parseLayers(value: string, assetStats: Map<number, AssetStats>): z.infe
       if (!result.success) return [];
       const id = parseDbId(result.data.source_id);
       const current = id === null ? undefined : assetStats.get(id);
-      return [{ ...result.data, name: current?.name ?? result.data.name, rarity: current?.rarity ?? result.data.rarity, power: current?.power ?? result.data.power ?? null, toughness: current?.toughness ?? result.data.toughness ?? null }];
+      return [{ ...result.data, name: current?.name ?? result.data.name, rarity: current?.rarity ?? result.data.rarity, power: current?.power ?? result.data.power ?? null, toughness: current?.toughness ?? result.data.toughness ?? null, element: (current as any)?.element ?? (result.data as any).element ?? null }];
     });
   } catch { return []; }
 }
@@ -125,7 +125,11 @@ function identityFor(layers: z.infer<typeof layerRefShape>[]) {
 /** Mirror of the client's element keyword read (App.tsx): a piece's element
  *  from its name. The server keeps its own copy so it never trusts the
  *  client's claim about what a team is. */
-function elementForPieceName(name: string): "tide" | "sky" | "stone" | "root" | "fire" {
+function elementForPieceName(name: string, dbElement?: string | null): "tide" | "sky" | "stone" | "root" | "fire" {
+  // DB element takes precedence over name guessing
+  if (dbElement && ["tide", "sky", "stone", "root", "fire"].includes(dbElement)) {
+    return dbElement as "tide" | "sky" | "stone" | "root" | "fire";
+  }
   const n = name.toLowerCase();
   if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
   if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
@@ -184,7 +188,7 @@ export async function awakenedPayloadById(id: number) {
   const assetStats = new Map<number, AssetStats>();
   for (const assetRow of assetRows) {
     const rarity = raritySchema.safeParse(assetRow.rarity);
-    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
   }
   const layers = parseLayers(row.compositionJson, assetStats);
   const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
@@ -213,7 +217,7 @@ export interface AwakeningPlan {
 export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Promise<AwakeningPlan> {
   const [latest, currentAssets, existing] = await Promise.all([
     db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1),
-    db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness }).from(schema.layerAssets),
+    db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness, element: schema.layerAssets.element }).from(schema.layerAssets),
     db.select({ identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
   ]);
   const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
@@ -829,6 +833,16 @@ export const handlers = {
     return { ok: true as const, rarity };
   },
 
+  async updateLayerAssetElement(args: unknown) {
+    const parsed = z.object({
+      id: z.number().int().positive(),
+      element: z.enum(["tide", "sky", "stone", "root", "fire"]).nullable(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid element update.");
+    await db.update(schema.layerAssets).set({ element: parsed.data.element }).where(eq(schema.layerAssets.id, parsed.data.id));
+    return { ok: true };
+  },
+
   async updateLayerAssetRarity(args: unknown) {
     const parsed = z.object({ id: z.number().int().positive(), rarity: raritySchema }).safeParse(args);
     if (!parsed.success) badRequest("Invalid rarity.");
@@ -855,7 +869,7 @@ export const handlers = {
   async moveLayerAsset(args: unknown) {
     const parsed = z.object({ id: z.number().int().positive(), category: layerCategorySchema }).safeParse(args);
     if (!parsed.success) badRequest("Invalid move.");
-    const rows = await db.select({ category: schema.layerAssets.category, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness }).from(schema.layerAssets).where(eq(schema.layerAssets.id, parsed.data.id)).limit(1);
+    const rows = await db.select({ category: schema.layerAssets.category, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness, element: schema.layerAssets.element }).from(schema.layerAssets).where(eq(schema.layerAssets.id, parsed.data.id)).limit(1);
     const row = rows[0]; if (!row) badRequest("That piece is gone.");
     if (row.category === parsed.data.category) badRequest("It already rests in that pool.");
     // Stat-bearing pools (arms/body/head) carry power/toughness; background
@@ -1939,7 +1953,7 @@ export const handlers = {
         const elements = new Set<string>();
         for (const l of layers) {
           if (l.category === "aspect") continue; // Don't count equipped aspects
-          const el = elementForPieceName(l.name || "");
+          const el = elementForPieceName(l.name || "", (l as any).element);
           if (el !== "fire") elements.add(el);
         }
         if (elements.size === 0) continue;
@@ -2003,7 +2017,7 @@ export const handlers = {
         inventory.push({
           id: inv.id,
           name: asset[0].name,
-          element: elementForPieceName(asset[0].name),
+          element: elementForPieceName(asset[0].name, (asset[0] as any).element),
           imageUrl: `/blobs/${asset[0].imageBlobKey}`,
         });
       }
@@ -2298,7 +2312,7 @@ export const handlers = {
         const counts: Record<string, number> = {};
         for (const l of layers) {
           if (l.category === "aspect") continue;
-          const el = elementForPieceName(l.name || "");
+          const el = elementForPieceName(l.name || "", (l as any).element);
           if (el === "fire") continue;
           counts[el] = (counts[el] || 0) + 1;
         }
@@ -2354,7 +2368,7 @@ export const handlers = {
           const comp = JSON.parse(aw.compositionJson || "[]");
           const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
           for (const layer of comp) {
-            const el = elementForPieceName(layer.name || "");
+            const el = elementForPieceName(layer.name || "", (layer as any).element);
             if (el !== "fire" && el in counts) counts[el] += 1;
           }
           // Each binding Awoken contributes 1 point to their dominant element per getTerritory tick
@@ -2668,7 +2682,7 @@ export const handlers = {
     const assetStats = new Map<number, AssetStats>();
     for (const assetRow of assetRows) {
       const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
     }
 
     let defensePower = 0;
@@ -3520,7 +3534,7 @@ export const handlers = {
     const assetStats = new Map<number, AssetStats>();
     for (const assetRow of assetRows) {
       const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
     }
     const layers = parseLayers(attacker.compositionJson, assetStats);
     const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
@@ -3556,7 +3570,7 @@ export const handlers = {
     {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const layer of layers) {
-          const el = elementForPieceName(layer.name);
+          const el = elementForPieceName(layer.name, (layer as any).element);
           if (el !== "fire") elementCounts[el] += 1;
         }
         let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
@@ -3610,7 +3624,7 @@ export const handlers = {
     const assetStats = new Map<number, AssetStats>();
     for (const assetRow of assetRows) {
       const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
     }
     const allRows = await db.select().from(schema.awakened);
     const idsByIdentity = new Map<string, number[]>();
@@ -3629,7 +3643,7 @@ export const handlers = {
       // its name with the same keyword rules the client uses. Fire is never
       // inherited here — it only ever sparks on wild land.
       for (const layer of layers) {
-        const el = elementForPieceName(layer.name);
+        const el = elementForPieceName(layer.name, (layer as any).element);
         if (el !== "fire") elementCounts[el] += 1;
       }
     }
@@ -3809,12 +3823,12 @@ export const handlers = {
     const assetStats = new Map<number, AssetStats>();
     for (const assetRow of assetRows) {
       const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness });
+      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
     }
     const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
     for (const a of attackers) {
       for (const layer of parseLayers(a.compositionJson, assetStats)) {
-        const el = elementForPieceName(layer.name);
+        const el = elementForPieceName(layer.name, (layer as any).element);
         if (el !== "fire") elementCounts[el] += 1;
       }
     }
