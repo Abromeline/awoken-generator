@@ -1869,7 +1869,10 @@ body.defeat-flash {
 }
 @media (max-width: 768px) {
   .deck-button {
-    bottom: 140px;
-    left: 16px;
+    bottom: 140px !important;
+    left: 16px !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 }
