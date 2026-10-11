@@ -492,6 +492,13 @@ async function calculateMaxEnergy(ownerKey: string): Promise<number> {
       eq(schema.territoryBuildings.status, "active"),
     ));
   max += wells.length * (gameConfig.buildings["awakening-well"]?.energyBonus ?? 3);
+  const skywells = await db.select().from(schema.territoryBuildings)
+    .where(and(
+      eq(schema.territoryBuildings.ownerKey, ownerKey),
+      eq(schema.territoryBuildings.buildingType, "skywell"),
+      eq(schema.territoryBuildings.status, "active"),
+    ));
+  max += skywells.length * (gameConfig.buildings["skywell"]?.energyBonus ?? 3);
   return max;
 }
 
@@ -752,6 +759,7 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
+  "skywell": { name: "Skywell", cost: 5, buildMinutes: 25, desc: "Draws power from sky and water. +3 max energy. Only on tide/sky tiles.", icon: "🌊" },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
@@ -2289,12 +2297,25 @@ export const handlers = {
         const chance = isChampion ? 0.15 : 0.05;
         if (Math.random() < chance) {
           const tile = tileById.get(p.tileId);
-          if (tile && tile.element !== domEl) {
-            await db.update(schema.territoryTiles)
-              .set({ element: domEl as any })
-              .where(eq(schema.territoryTiles.id, tile.id));
-            tile.element = domEl as any;
+          if (!tile) continue;
+          let newElement: "tide" | "sky" | "stone" | "root" | "fire" | "neutral" = tile.element as "tide" | "sky" | "stone" | "root" | "fire" | "neutral";
+          if (tile.element === domEl) continue; // Already attuned
+          if (tile.element === "neutral") {
+            // Neutral → shift toward Awoken's element
+            newElement = domEl as "tide" | "sky" | "stone" | "root" | "fire" | "neutral";
+          } else {
+            // Different element → decay toward neutral first, then shift
+            // 50% chance to go neutral, otherwise stay (gradual tug-of-war)
+            if (Math.random() < 0.5) {
+              newElement = "neutral";
+            } else {
+              continue; // Hold current element this tick
+            }
           }
+          await db.update(schema.territoryTiles)
+            .set({ element: newElement as any })
+            .where(eq(schema.territoryTiles.id, tile.id));
+          tile.element = newElement as any;
         }
       }
     } catch (e) {
@@ -2971,6 +2992,10 @@ export const handlers = {
     // Trees cannot grow on sky or water (tide) hexes
     if (parsed.data.buildingType === "tree" && (tile[0].element === "sky" || tile[0].element === "tide")) {
       badRequest("Trees cannot grow on sky or water.");
+    }
+    // Skywell can ONLY be built on water (tide) or sky hexes
+    if (parsed.data.buildingType === "skywell" && tile[0].element !== "sky" && tile[0].element !== "tide") {
+      badRequest("Skywell can only be built on water or sky.");
     }
     // Dream Wheat synergy: 25% faster if Awakening Well on same or adjacent hex
     let synergyMultiplier = 1;
