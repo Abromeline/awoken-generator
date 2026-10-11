@@ -1585,13 +1585,17 @@ export const handlers = {
       }
       existing.aspectLevel = newLevel;
       await db.update(schema.awakened)
-        .set({ compositionJson: JSON.stringify(layers) })
+        .set({
+          compositionJson: JSON.stringify(layers),
+          bonusPower: (awakened.bonusPower ?? 0) + 1,
+          bonusToughness: (awakened.bonusToughness ?? 0) + 1,
+        })
         .where(eq(schema.awakened.id, parsed.data.awakenedId));
       await db.delete(schema.aspectInventory)
         .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
       return { ok: true as const, element, newLevel, upgraded: true as const };
     }
-    // New aspect: add to composition (renders behind body)
+    // New aspect: add to composition (renders behind body), +1/+1
     layers.push({
       source_id: `aspect-inv:${aspect.id}`,
       name: aspect.name,
@@ -1604,7 +1608,11 @@ export const handlers = {
       imageBlobKey: aspect.imageBlobKey,
     });
     await db.update(schema.awakened)
-      .set({ compositionJson: JSON.stringify(layers) })
+      .set({
+        compositionJson: JSON.stringify(layers),
+        bonusPower: (awakened.bonusPower ?? 0) + 1,
+        bonusToughness: (awakened.bonusToughness ?? 0) + 1,
+      })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
     // Consume the inventory aspect
     await db.delete(schema.aspectInventory)
