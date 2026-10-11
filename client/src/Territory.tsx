@@ -9,7 +9,7 @@ import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
-import BuildingMenu, { buildingImage, wheatStageImage, enemyImage } from "./BuildingMenu";
+import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -1133,7 +1133,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 }}
                 style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
                 <image
-                  href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
+                  href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : b.buildingType === "dream-weed" ? dreamWeedStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
                   y={bpx.y - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
                   width={s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 2 : 1)}

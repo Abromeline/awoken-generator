@@ -761,13 +761,13 @@ async function loadGameConfig() {
 }
 
 // Single source of truth for building definitions
-export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string }> = {
+export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number }> = {
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 3⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
-  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy-providing seaweed. +3 max energy. Only in water.", icon: "🌊" },
-  "sky-bloom": { name: "Sky Bloom", cost: 5, buildMinutes: 25, desc: "Floating bloom that drinks the sky. +3 max energy. Only on sky.", icon: "☁️" },
+  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +6 energy every 6h. Only in water.", icon: "🌊", harvestEnergy: 6, growHours: 6 },
+  "sky-bloom": { name: "Sky Bloom", cost: 5, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +8 energy every 8h. Only on sky.", icon: "☁️", harvestEnergy: 8, growHours: 8 },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
@@ -3130,17 +3130,19 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ buildingId: z.number().int() }).safeParse(args);
     if (!parsed.success) badRequest("Invalid.");
+    const HARVESTABLE = ["dream-wheat", "dream-weed", "sky-bloom"];
     const [building] = await db.select().from(schema.territoryBuildings)
       .where(and(
         eq(schema.territoryBuildings.id, parsed.data.buildingId),
         eq(schema.territoryBuildings.ownerKey, ownerKey),
-        eq(schema.territoryBuildings.buildingType, "dream-wheat"),
         eq(schema.territoryBuildings.status, "active"),
       )).limit(1);
-    if (!building) badRequest("Wheat not found.");
+    if (!building || !HARVESTABLE.includes(building.buildingType)) badRequest("Not harvestable.");
     const gameConfig = await loadGameConfig();
-    const harvestEnergy = gameConfig.buildings["dream-wheat"]?.harvestEnergy ?? 4;
-    const growMs = 4 * 60 * 60 * 1000;
+    const def: any = gameConfig.buildings[building.buildingType] || {};
+    const harvestEnergy = def.harvestEnergy ?? 4;
+    const growHours = def.growHours ?? 4;
+    const growMs = growHours * 60 * 60 * 1000;
     const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime()
       : building.readyAt ? new Date(building.readyAt).getTime() : Date.now();
     if (Date.now() - lastHarvest < growMs) badRequest("Not ready yet.");

@@ -5,6 +5,8 @@ import dreamWheatImg from "./assets/buildings/dream-wheat.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import dreamWeedImg from "./assets/buildings/dream-weed.png";
+import dreamWeedHalfImg from "./assets/buildings/dream-weed-half.png";
+import dreamWeedPlantedImg from "./assets/buildings/dream-weed-planted.png";
 import skyBloomImg from "./assets/buildings/sky-bloom.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
@@ -12,6 +14,10 @@ import wheatHalfImg from "./assets/buildings/wheat-half.png";
 import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
 // Wheat stage overrides from UI workspace uploads (set at runtime)
+const dreamWeedStageOverrides: Record<string, string> = {};
+export function setDreamWeedStageOverride(stage: string, url: string) {
+  dreamWeedStageOverrides[stage] = url;
+}
 const wheatStageOverrides: Record<string, string> = {};
 export function setWheatStageOverride(stage: string, url: string) {
   wheatStageOverrides[stage] = url;
@@ -47,6 +53,21 @@ export function buildingImage(type: string): string {
 }
 
 // Wheat growth stages: 0=planted, 1=half, 2=full, 3=harvest-ready
+export function dreamWeedStageImage(building: any): string {
+  if (building.status === "building") {
+    return dreamWeedStageOverrides["dream-weed-planted"] || dreamWeedPlantedImg;
+  }
+  const readyAt = building.readyAt ? new Date(building.readyAt).getTime() : Date.now();
+  const now = Date.now();
+  const growMs = 6 * 60 * 60 * 1000; // 6 hours
+  const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime() : readyAt;
+  const elapsed = now - lastHarvest;
+  const progress = Math.min(1, elapsed / growMs);
+  if (progress >= 1) return dreamWeedStageOverrides["dream-weed"] || dreamWeedImg;
+  if (progress >= 0.5) return dreamWeedStageOverrides["dream-weed-half"] || dreamWeedHalfImg;
+  return dreamWeedStageOverrides["dream-weed-planted"] || dreamWeedPlantedImg;
+}
+
 export function wheatStageImage(building: any): string {
   if (building.buildingType !== "dream-wheat") {
     return buildingImage(building.buildingType);

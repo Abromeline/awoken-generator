@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { setWheatStageOverride, setEnemyOverride } from "./BuildingMenu";
+import { setWheatStageOverride, setDreamWeedStageOverride, setEnemyOverride } from "./BuildingMenu";
 import { api } from "./api";
 // Current default sprites (bundled with the app)
 import frayImg from "./assets/enemies/fray.png";
@@ -15,6 +15,8 @@ import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import dreamWeedImg from "./assets/buildings/dream-weed.png";
+import dreamWeedHalfImg from "./assets/buildings/dream-weed-half.png";
+import dreamWeedPlantedImg from "./assets/buildings/dream-weed-planted.png";
 import skyBloomImg from "./assets/buildings/sky-bloom.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
@@ -32,7 +34,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   building: {
     watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
     "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-full": wheatFullImg, "wheat-harvest": wheatHarvestImg,
-    "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
+    "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "dream-weed-half": dreamWeedHalfImg, "dream-weed-planted": dreamWeedPlantedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
   },
   terrain: {
@@ -80,7 +82,7 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "elemental-shrine", "attunement-shrine", "dream-weed", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "elemental-shrine", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree"];
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
 const AWAKENING_LABELS: Record<string, string> = {
@@ -105,6 +107,9 @@ export default function UIWorkspace() {
       for (const s of r.sprites || []) {
         if (s.category === "building" && s.name.startsWith("wheat-")) {
           setWheatStageOverride(s.name, s.url);
+        }
+        if (s.category === "building" && s.name.startsWith("dream-weed")) {
+          setDreamWeedStageOverride(s.name, s.url);
         }
         if (s.category === "enemy") {
           setEnemyOverride(s.name, s.url);
