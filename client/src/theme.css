@@ -1840,6 +1840,7 @@ body.defeat-flash {
 .rank-row.me{font-weight:bold;color:#d4af6a}
 
 .tender-gate h1 { color: #e8d5a0; }
+.tender-gate label { color: #b8b8b8; }
 
 .text-colors-panel{max-width:600px;margin:0 auto;padding:24px}
 .text-colors-panel h2{margin-bottom:8px}
