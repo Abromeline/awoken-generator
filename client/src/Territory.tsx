@@ -959,7 +959,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const w = await api.getWave();
       setWave(w);
       await refreshEnergy();
-      if (result.victory) {
+      if (result.victory && isBossFight) {
+        // Newborns only from boss fights — adds to wake count
         api.birthNewbornToHand({ tileId: 0, liberatorNames: [] }).catch(() => {});
         if (result.raiseBinding) {
           // Raise Binding: save wave difficulty, return to tender view
