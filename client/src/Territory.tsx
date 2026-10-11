@@ -1329,12 +1329,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       // Flat-top XYZ: tilePos handles axial->pixel + height lift
       const { cx, cy } = tilePos(t);
       const s = size;
-      // Flat-top hexagon points for click hit area
+      // Perspective-squashed hexagon matching the tile artwork.
+      // The tile PNGs are drawn in tilted perspective (wider than tall),
+      // so the outline uses the same squash instead of a regular hex.
       const pts: string[] = [];
+      const hexR = s * 0.8435; // hex radius matching 1345px face in 1920px art
+      const squash = 0.82; // vertical squash from perspective tilt
       for (let k = 0; k < 6; k++) {
         const a = Math.PI / 180 * (60 * k);
-        const vx = cx + s * Math.cos(a);
-        const vy = cy + s * Math.sin(a);
+        const vx = cx + hexR * Math.cos(a);
+        const vy = cy + hexR * Math.sin(a) * squash;
         pts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
       }
 
