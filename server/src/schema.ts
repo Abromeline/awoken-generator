@@ -271,6 +271,7 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   cursed: integer("cursed").notNull().default(1),
   spark: integer("spark").notNull().default(0),
   hp: integer("hp").notNull().default(10),
+  thorns: integer("thorns").notNull().default(0),
   building: text("building"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()

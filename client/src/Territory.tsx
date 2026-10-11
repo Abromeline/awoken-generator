@@ -653,12 +653,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       })
       .filter(Boolean) as any[];
 
-    // Initialize Awoken HP if not set (HP = power + toughness)
+    // Initialize Awoken HP if not set (HP = toughness)
     setAwokenHp(prev => {
       const next = new Map(prev);
       for (const f of fighters) {
         if (!next.has(f.awakenedId)) {
-          next.set(f.awakenedId, (f.aw.power || 3) + (f.aw.toughness || 3));
+          next.set(f.awakenedId, (f.aw.toughness || 3));
         }
       }
       return next;
@@ -887,7 +887,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           const healPer = power / wounded.length;
           for (const id of wounded) {
             const aw = tenderItems.find(a => a.id === id);
-            const maxHp = (aw?.power || 3) + (aw?.toughness || 3);
+            const maxHp = (aw?.toughness || 3);
             next.set(id, Math.min(maxHp, (next.get(id) ?? 0) + healPer));
           }
         }
@@ -1360,11 +1360,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
             const maxHp = (t as any).curseMaxHp ?? (4 + ring * 6);
             const hp = (t as any).curseHp ?? maxHp;
+            const thorns = Math.pow(2, Math.max(0, ring - 1));
             return (
+              <g>
               <text x={cx} y={cy + 8} textAnchor="middle" fontSize={8}
                 fill="#ff6666" opacity="0.95" fontWeight="bold">
                 ♥ {hp}
               </text>
+              {thorns > 1 && (
+                <text x={cx} y={cy + 18} textAnchor="middle" fontSize={7}
+                  fill="#ffaa00" opacity="0.9" fontWeight="bold">
+                  🌵 {thorns}
+                </text>
+              )}
+              </g>
             );
           })()}
           {t.element && t.element !== "neutral" && (
@@ -1774,7 +1783,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             <div className="stance-picker-stats">
               <span title="Power">⚔ {awoken.power}</span>
               <span title="Toughness">🛡 {awoken.toughness}</span>
-              <span title="Health">❤ {awokenHp.get(awoken.id) ?? (awoken.power + awoken.toughness)}/{awoken.power + awoken.toughness}</span>
+              <span title="Health">❤ {awokenHp.get(awoken.id) ?? awoken.toughness}/{awoken.toughness}</span>
               <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
               <span title="Experience">✦ {awoken.experience ?? 0} XP</span>
             </div>
