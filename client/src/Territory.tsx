@@ -613,7 +613,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const uTile = tiles.find(t => t.id === u.tileId);
             if (!uTile) continue;
             const d = hexDist(c.tile, uTile);
-            const dmg = Math.max(1, (c.aw.power || 3) - d);
+            // Exponential falloff: damage = power * 0.65^distance (min 1)
+            const dmg = Math.max(1, Math.round((c.aw.power || 3) * Math.pow(0.65, d)));
             if (dmg > bestDmg) { bestDmg = dmg; best = u; }
           }
           if (best) {
