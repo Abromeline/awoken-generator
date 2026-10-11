@@ -1885,8 +1885,8 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 const layers = awoken.layers || [];
                 const aspect = layers.find((l: any) => l.category === "aspect");
                 const isFireIII = aspect && 
-                  (/fire/i.test(aspect.name || "") || aspect.aspectElement === "fire") && 
-                  (aspect.aspectLevel === 3 || /III/.test(aspect.name || ""));
+                  (/fire/i.test(aspect.name || "") || (aspect as any).aspectElement === "fire") && 
+                  ((aspect as any).aspectLevel === 3 || /III/.test(aspect.name || ""));
                 if (!isFireIII) return null;
                 return (
                   <button
