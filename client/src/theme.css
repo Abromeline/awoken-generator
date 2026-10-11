@@ -1806,3 +1806,6 @@ body.defeat-flash {
 .birth-reveal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
 .birth-reveal{max-width:400px;width:100%;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;align-items:center}
 .birth-reveal .creature-card{width:100%}
+
+.element-summary{display:flex;gap:16px;flex-wrap:wrap;padding:12px;background:rgba(212,175,106,0.1);border-radius:8px;margin-bottom:16px;font-size:14px}
+.element-summary span{font-weight:bold}

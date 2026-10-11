@@ -513,7 +513,26 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
       {batch.length > 0 && <div className="batch-list">{batch.map((item) => <article className={item.status} key={item.id}><img src={item.previewUrl} alt="Selected transparent PNG" /><div><strong>{item.file.name}</strong><span>{item.note}</span></div></article>)}</div>}
       <button className="upload-button" onClick={() => void uploadBatch()} disabled={!pendingCount || uploading}>{uploading ? "Naming and filing…" : `Add ${pendingCount} to ${categories.find((item) => item.id === category)?.label ?? "pool"}`}</button>
     </section>
-    <div className="pool-ledger">{categories.map((layer) => { const items = assets.filter((asset) => asset.category === layer.id); return <section className="pool-group" key={layer.id}><header><h2>{layer.label}</h2><span>{items.length}</span></header>{!items.length ? <p className="quiet">Nothing rests here yet.</p> : <div className="trait-grid">{items.map((asset) => <article className="trait-tile" key={asset.sourceId}><img src={asset.imageUrl} alt={`${asset.name}, ${layer.label.toLowerCase()} layer`} /><div className="trait-copy">
+    <div className="pool-ledger">
+      {(() => {
+        const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0, auto: 0 };
+        for (const a of assets) {
+          const el = (a as any).element;
+          if (el && counts[el] !== undefined) counts[el]++;
+          else counts.auto++;
+        }
+        return (
+          <div className="element-summary">
+            <span>🌊 Tide: {counts.tide}</span>
+            <span>🌀 Sky: {counts.sky}</span>
+            <span>🪨 Stone: {counts.stone}</span>
+            <span>🌿 Root: {counts.root}</span>
+            <span>🔥 Fire: {counts.fire}</span>
+            <span>❓ Auto: {counts.auto}</span>
+          </div>
+        );
+      })()}
+      {categories.map((layer) => { const items = assets.filter((asset) => asset.category === layer.id); return <section className="pool-group" key={layer.id}><header><h2>{layer.label}</h2><span>{items.length}</span></header>{!items.length ? <p className="quiet">Nothing rests here yet.</p> : <div className="trait-grid">{items.map((asset) => <article className="trait-tile" key={asset.sourceId}><img src={asset.imageUrl} alt={`${asset.name}, ${layer.label.toLowerCase()} layer`} /><div className="trait-copy">
         {asset.serverId && editing === asset.serverId ? <form onSubmit={(event: FormEvent) => { event.preventDefault(); if (pieceName.trim()) rename.mutate({ id: asset.serverId ?? 0, name: pieceName }); }}><input aria-label={`New name for ${asset.name}`} value={pieceName} onChange={(event) => setPieceName(event.target.value)} autoFocus /><button>Keep</button></form> : <button className="piece-name" disabled={!asset.serverId} onClick={() => { if (asset.serverId) { setEditing(asset.serverId); setPieceName(asset.name); } }}>{asset.name}</button>}
         {asset.category === "aspect" && asset.serverId ? (
           <label className="rarity-picker"><small>Rarity</small>
