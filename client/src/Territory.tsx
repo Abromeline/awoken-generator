@@ -173,6 +173,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [awokenHp, setAwokenHp] = useState<Map<number, number>>(new Map());
   const [battlePaused, setBattlePaused] = useState(false);
   const [battleSpeed, setBattleSpeed] = useState(1.3);
+  const [battleManual, setBattleManual] = useState(false);
   // Cached tile positions for battle performance (tileId -> {cx, cy, q, r})
   const tilePosCache = useRef<Map<number, { cx: number; cy: number; q: number; r: number }>>(new Map());
   // Cached tile objects by ID (avoids tiles.find in hot loops)
@@ -828,7 +829,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return updated;
     });
 
-    setTimeout(() => endTurn(), battleSpeed * 1000);
+    if (!battleManual) {
+      setTimeout(() => endTurn(), battleSpeed * 1000);
+    }
   };
 
   /** Damage a tile (10 HP, visible when <10). Syncs to server. */
@@ -1973,6 +1976,14 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             <button className="abtn small" onClick={() => setBattlePaused(p => !p)} title={battlePaused ? "Resume" : "Pause"}>
               {battlePaused ? "▶" : "⏸"}
             </button>
+            <button className={`abtn small ${battleManual ? "active" : ""}`} onClick={() => setBattleManual(m => !m)} title={battleManual ? "Auto battle" : "Manual step-through"} style={{ marginLeft: 4 }}>
+              {battleManual ? "⏭ Manual" : "▶ Auto"}
+            </button>
+            {battleManual && (
+              <button className="abtn small" onClick={() => doInitiativePhase()} title="Next attack" style={{ marginLeft: 4 }}>
+                → Step
+              </button>
+            )}
             <button className="abtn small" onClick={() => setBattleSpeed(s => s === 1.3 ? 0.6 : s === 0.6 ? 2.5 : 1.3)} title="Battle speed" style={{ marginLeft: 4 }}>
               {battleSpeed === 0.6 ? "2x" : battleSpeed === 2.5 ? "0.5x" : "1x"}
             </button>
