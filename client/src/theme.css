@@ -1849,7 +1849,4 @@ body.defeat-flash {
 .color-row input[type="color"]{width:48px;height:32px;border:none;cursor:pointer}
 .color-value{font-family:monospace;font-size:12px;color:var(--dim)}
 
-@media (max-width: 768px) {
-  /* Brighten all text on mobile */
-  body { filter: brightness(1.3); }
-}
+
