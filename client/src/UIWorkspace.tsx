@@ -108,11 +108,26 @@ export default function UIWorkspace() {
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !uploadTarget) return;
+    if (!file) {
+      setUploadError("No file selected");
+      return;
+    }
+    if (!uploadTarget) {
+      setUploadError("Upload target not set — tap + PNG again");
+      return;
+    }
     setUploading(uploadTarget.name);
+    setUploadError(null);
     try {
       const buf = await file.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      // Chunked base64 to avoid stack overflow on large files
+      const bytes = new Uint8Array(buf);
+      let binary = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      const base64 = btoa(binary);
       await api.call("uploadUiSprite", {
         category: uploadTarget.category,
         name: uploadTarget.name,
