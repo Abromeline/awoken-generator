@@ -1513,3 +1513,8 @@ body.defeat-flash {
 .legends-fab{position:absolute;left:12px;top:80px;z-index:20;width:44px;height:44px;border-radius:50%;background:rgba(10,10,10,0.85);border:2px solid #b89b5e;font-size:20px;cursor:pointer}
 .legends-panel .panel-close{position:absolute;top:8px;right:8px;background:none;border:none;color:#e8d5a8;font-size:18px;cursor:pointer;padding:4px 8px}
 .legends-panel{position:absolute;left:12px;top:80px;width:200px;z-index:20;background:rgba(10,10,10,0.85);border:2px solid #b89b5e;border-radius:8px;padding:12px;max-height:60vh;overflow-y:auto}
+
+.tutorial-enemies{display:flex;flex-direction:column;gap:12px;margin:16px 0}
+.tutorial-enemy{display:flex;gap:12px;align-items:center}
+.tutorial-enemy img{width:48px;height:48px;object-fit:contain;flex-shrink:0}
+.tutorial-enemy p{margin:0;line-height:1.5}

@@ -1,9 +1,14 @@
 import { useState } from "react";
+import frayImg from "./assets/enemies/fray.png";
+import unravelerImg from "./assets/enemies/unraveler.png";
+import hollowImg from "./assets/enemies/hollow.png";
+import tangleImg from "./assets/enemies/tangle.png";
 
 interface Step {
   title: string;
   body: string[];
   lore?: string;
+  enemyImages?: string[];
 }
 
 const STEPS: Step[] = [
@@ -60,12 +65,13 @@ const STEPS: Step[] = [
   {
     title: "Enemies",
     body: [
-      "👹 FRAY: Small ink splatters. Weak alone, dangerous in groups.",
-      "🌀 UNRAVELER: Looming ink mass. Targets your strongest Awoken.",
-      "🕳️ HOLLOW: Pure void. Drains your energy instead of dealing damage.",
-      "🌿 TANGLE: Knotted thorns. Pins one Awoken for the wave.",
+      "FRAY: Small ink splatters. Weak alone, dangerous in groups.",
+      "UNRAVELER: Looming ink mass. Targets your strongest Awoken.",
+      "HOLLOW: Pure void. Drains your energy instead of dealing damage.",
+      "TANGLE: Knotted thorns. Pins one Awoken for the wave.",
     ],
     lore: "Adversaries have no elements, no synergy. They are entropy, falling apart. Your edge is fellowship.",
+    enemyImages: [frayImg, unravelerImg, hollowImg, tangleImg],
   },
   {
     title: "Tactics",
@@ -122,7 +128,18 @@ export default function Tutorial({ onComplete }: { onComplete: () => void }) {
       <div className="tutorial-card">
         <p className="eyebrow">Tutorial {step + 1}/{STEPS.length}</p>
         <h2>{s.title}</h2>
-        {s.body.map((p, i) => <p key={i}>{p}</p>)}
+        {s.enemyImages ? (
+          <div className="tutorial-enemies">
+            {s.enemyImages.map((img, i) => (
+              <div key={i} className="tutorial-enemy">
+                <img src={img} alt={s.body[i]?.split(":")[0] || "Enemy"} />
+                <p>{s.body[i]}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          s.body.map((p, i) => <p key={i}>{p}</p>)
+        )}
         {s.lore && <blockquote className="tutorial-lore">{s.lore}</blockquote>}
         <div className="tutorial-nav">
           {step > 0 && (
