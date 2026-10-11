@@ -1795,3 +1795,8 @@ body.defeat-flash {
 .battle-log-current{font-weight:bold;font-size:16px;margin-bottom:4px}
 .battle-log-history{display:flex;flex-direction:column;align-items:center;gap:2px}
 .battle-log-old{font-size:12px;color:#ccc}
+
+.battle-fighter.enemy.wind-up{animation:enemy-windup 0.8s ease-in-out;filter:drop-shadow(0 0 12px #ff00ff)}
+@keyframes enemy-windup{0%{transform:scale(1)}50%{transform:scale(1.15);filter:brightness(1.5) drop-shadow(0 0 20px #ff00ff)}100%{transform:scale(1)}}
+.battle-fighter.enemy.attacking{animation:enemy-lunge 0.6s ease-out}
+@keyframes enemy-lunge{0%{transform:translateX(0)}30%{transform:translateX(-30px) scale(1.1)}100%{transform:translateX(0)}}

@@ -449,12 +449,12 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   }, [autoBattle, busy, fighters, enemies]);
 
   // ---- Siege exchange: wind-up -> projectile flight -> impact -> counterattack ----
-  const WINDUP_MS = 500;
-  const FLIGHT_MS = 450;
-  const IMPACT_PAUSE_MS = 300;
-  const COUNTER_WINDUP_MS = 450;
-  const COUNTER_FLIGHT_MS = 400;
-  const SETTLE_MS = 350;
+  const WINDUP_MS = 600;
+  const FLIGHT_MS = 500;
+  const IMPACT_PAUSE_MS = 600;
+  const COUNTER_WINDUP_MS = 800;
+  const COUNTER_FLIGHT_MS = 600;
+  const SETTLE_MS = 500;
 
   const applyStrike = (atk: Fighter, def: Fighter) => {
     const dmg = Math.max(1, atk.power - def.tough);
