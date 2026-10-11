@@ -1693,6 +1693,24 @@ export const handlers = {
     return { ok: true as const, hp: newHp, maxHp };
   },
 
+  /** Demolish a building. */
+  async demolishBuilding(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      buildingId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid building.");
+    const b = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.id, parsed.data.buildingId),
+        eq(schema.territoryBuildings.ownerKey, ownerKey)
+      )).limit(1);
+    if (!b.length) badRequest("Building not found.");
+    await db.delete(schema.territoryBuildings)
+      .where(eq(schema.territoryBuildings.id, parsed.data.buildingId));
+    return { ok: true as const };
+  },
+
   /** Hourly binding heal: binding Awoken heal wounded fighters outside battle. Once per hour max. */
   async bindingHealTick(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

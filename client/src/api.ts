@@ -294,6 +294,7 @@ export const api = {
   grantAspectPoint: (value: { element: string }) => post<{ ok: boolean; spawned: boolean }>("grantAspectPoint", value),
   damageTileHp: (value: { tileId: number; damage: number }) => post<{ ok: boolean; hp: number; cursed: boolean }>("damageTileHp", value),
   damageAwokenHp: (value: { awakenedId: number; damage: number }) => post<{ ok: boolean; hp: number; maxHp: number }>("damageAwokenHp", value),
+  demolishBuilding: (value: { buildingId: number }) => post<{ ok: boolean }>("demolishBuilding", value),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean; pages: string[] }[] }>("listBattleTracks", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
   joinConfluence: (args: { code: string }) => post<{ sessionId: number; ok: boolean }>("joinConfluence", args),

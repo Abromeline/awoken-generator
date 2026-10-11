@@ -48,6 +48,7 @@ function dominantElement(a: Awakened): Element {
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
   const [showBuildingMenu, setShowBuildingMenu] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [buildings, setBuildings] = useState<any[]>([]);
   const [gameConfig, setGameConfig] = useState<any>(null);
   const [pendingTile, setPendingTile] = useState<number | null>(null);
@@ -1075,6 +1076,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 onClick={async (e) => {
                   e.stopPropagation();
                   if (pendingTile !== null) return; // Non-clickable in build mode
+                  if (demoMode) {
+                    if (confirm(`Demolish this ${b.buildingType}?`)) {
+                      try {
+                        await api.demolishBuilding({ buildingId: b.id });
+                        const rb = await api.getBuildings();
+                        setBuildings(rb.buildings);
+                        onUpdate();
+                      } catch (err) { console.error("Demolish failed", err); }
+                    }
+                    return;
+                  }
                   if (b.buildingType !== "dream-wheat" || b.status !== "active") return;
                   const readyAt = b.readyAt ? new Date(b.readyAt).getTime() : Date.now();
                   const lastHarvest = b.lastHarvestAt ? new Date(b.lastHarvestAt).getTime() : readyAt;
@@ -1088,7 +1100,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } catch (err) { console.error("Harvest failed", err); }
                   }
                 }}
-                style={{ cursor: pendingTile !== null ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
+                style={{ cursor: demoMode ? "pointer" : pendingTile !== null ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}
@@ -1939,6 +1951,14 @@ function AspectAttunement({ visible, onClose }: { visible: boolean; onClose: () 
       {/* Right-side building panel */}
       {showBuildingMenu && (
         <div className="building-side-panel">
+          <button
+            className={`abtn small demo-toggle ${demoMode ? "active" : ""}`}
+            onClick={() => setDemoMode(v => !v)}
+            style={demoMode ? { background: "#aa3333", borderColor: "#ff6666" } : {}}
+            title="Demolish mode: tap buildings to remove them"
+          >
+            {demoMode ? "🔨 Demolishing… (tap to exit)" : "🔨 Demolish"}
+          </button>
           <BuildingMenu
             onSelect={(b) => { setSelectedBuilding(b); }}
             selected={selectedBuilding}
