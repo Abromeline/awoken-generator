@@ -156,7 +156,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [showChampionTab, setShowChampionTab] = useState(false);
-  const [showLegends, setShowLegends] = useState(false);
+
   const [showAspects, setShowAspects] = useState(false);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
@@ -1550,6 +1550,19 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               </button>
             </div>
           )}
+          <div className="celestial-title" style={{ marginTop: 12, fontSize: 14 }}>📜 Hall of Legends</div>
+          <div className="champion-field-list" style={{ maxHeight: 120 }}>
+            {legends.legends.length === 0 ? (
+              <p className="quiet">No legends yet. Battle on.</p>
+            ) : (
+              legends.legends.map(l => (
+                <div key={l.id} className="legend-entry">
+                  <span className="legend-name">{l.awokenName}</span>
+                  <span className="legend-deed">{deedLabel(l.deed)} ×{l.count}</span>
+                </div>
+              ))
+            )}
+          </div>
           <div className="celestial-title" style={{ marginTop: 12, fontSize: 14 }}>Field Awoken</div>
           <div className="champion-field-list">
             {tenderItems.filter(a => placedIds.has(a.id)).map(a => (
@@ -1642,29 +1655,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         </svg>
       </button>
       {/* Left panel: Champion + Hall of Legends (collapsable) */}
-      {!showLegends && (
-        <button className="legends-fab" onClick={() => setShowLegends(true)} title="Champions & Legends">
-          🏆
-        </button>
-      )}
-      {showLegends && (
-      <div className="legends-panel">
-        <button className="panel-close" onClick={() => setShowLegends(false)} title="Collapse">−</button>
-        <div className="hall-of-legends">
-          <h3>📜 Hall of Legends</h3>
-          {legends.legends.length === 0 ? (
-            <div className="legends-empty">No legends yet. Battle on.</div>
-          ) : (
-            legends.legends.map(l => (
-              <div key={l.id} className="legend-entry">
-                <span className="legend-name">{l.awokenName}</span>
-                <span className="legend-deed">{deedLabel(l.deed)} ×{l.count}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-      )}
+
       {showChampionPicker && (
         <div className="champion-picker-overlay" onClick={() => setShowChampionPicker(false)}>
           <div className="champion-picker" onClick={e => e.stopPropagation()}>
