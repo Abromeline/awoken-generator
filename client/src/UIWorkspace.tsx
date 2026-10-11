@@ -14,7 +14,8 @@ import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
 import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
-import skywellImg from "./assets/buildings/skywell.png";
+import dreamWeedImg from "./assets/buildings/dream-weed.png";
+import skyBloomImg from "./assets/buildings/sky-bloom.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
@@ -31,7 +32,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   building: {
     watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
     "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-full": wheatFullImg, "wheat-harvest": wheatHarvestImg,
-    "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "skywell": skywellImg, "awakening-well": awakeningWellImg,
+    "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
   },
   terrain: {
@@ -79,7 +80,7 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "elemental-shrine", "attunement-shrine", "skywell", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "elemental-shrine", "attunement-shrine", "dream-weed", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree"];
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
 const AWAKENING_LABELS: Record<string, string> = {

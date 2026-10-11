@@ -495,10 +495,17 @@ async function calculateMaxEnergy(ownerKey: string): Promise<number> {
   const skywells = await db.select().from(schema.territoryBuildings)
     .where(and(
       eq(schema.territoryBuildings.ownerKey, ownerKey),
-      eq(schema.territoryBuildings.buildingType, "skywell"),
+      eq(schema.territoryBuildings.buildingType, "dream-weed"),
       eq(schema.territoryBuildings.status, "active"),
     ));
-  max += skywells.length * (gameConfig.buildings["skywell"]?.energyBonus ?? 3);
+  max += skywells.length * (gameConfig.buildings["dream-weed"]?.energyBonus ?? 3);
+  const skyBlooms = await db.select().from(schema.territoryBuildings)
+    .where(and(
+      eq(schema.territoryBuildings.ownerKey, ownerKey),
+      eq(schema.territoryBuildings.buildingType, "sky-bloom"),
+      eq(schema.territoryBuildings.status, "active"),
+    ));
+  max += skyBlooms.length * (gameConfig.buildings["sky-bloom"]?.energyBonus ?? 3);
   return max;
 }
 
@@ -759,7 +766,8 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
-  "skywell": { name: "Skywell", cost: 5, buildMinutes: 25, desc: "Draws power from sky and water. +3 max energy. Only on tide/sky tiles.", icon: "🌊" },
+  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy-providing seaweed. +3 max energy. Only in water.", icon: "🌊" },
+  "sky-bloom": { name: "Sky Bloom", cost: 5, buildMinutes: 25, desc: "Floating bloom that drinks the sky. +3 max energy. Only on sky.", icon: "☁️" },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
@@ -2993,9 +3001,13 @@ export const handlers = {
     if (parsed.data.buildingType === "tree" && (tile[0].element === "sky" || tile[0].element === "tide")) {
       badRequest("Trees cannot grow on sky or water.");
     }
-    // Skywell can ONLY be built on water (tide) or sky hexes
-    if (parsed.data.buildingType === "skywell" && tile[0].element !== "sky" && tile[0].element !== "tide") {
-      badRequest("Skywell can only be built on water or sky.");
+    // Dream Weed can ONLY be built on water (tide) hexes
+    if (parsed.data.buildingType === "dream-weed" && tile[0].element !== "tide") {
+      badRequest("Dream Weed only grows in water.");
+    }
+    // Sky Bloom can ONLY be built on sky hexes
+    if (parsed.data.buildingType === "sky-bloom" && tile[0].element !== "sky") {
+      badRequest("Sky Bloom only floats on sky.");
     }
     // Dream Wheat synergy: 25% faster if Awakening Well on same or adjacent hex
     let synergyMultiplier = 1;
