@@ -981,6 +981,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         waveNumber: wave.waveNumber,
         survivorIds: result.survivors,
         continueWave: result.continueWave,
+        targetTileId: waveTarget?.tile?.id,
       });
       if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
         setBonusTiles(battleRes.bonusEligible);

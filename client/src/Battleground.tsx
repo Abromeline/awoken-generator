@@ -43,7 +43,6 @@ interface WaveInfo {
 }
 
 interface BattlegroundProps {
-  isWildfire?: boolean; // If true, all combatants take 1 fire damage per round
   defenders: Defender[];  // Field Awoken on the bastion
   thornWallTiles?: number[]; // tile IDs with active thorn walls
   watchtowerTiles?: number[]; // tile IDs with active watchtowers (first-strike)
@@ -181,7 +180,7 @@ function VictoryAspects({ bossLevel }: { bossLevel: number }) {
   );
 }
 
-export default function Battleground({ isWildfire = false, defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -542,12 +541,7 @@ export default function Battleground({ isWildfire = false, defenders, thornWallT
     if (busyRef.current) return;
     setBusyBoth(true);
     setSelected(null);
-    // Wildfire: all combatants take 1 fire damage per round
-    if (isWildfire) {
-      addLog(`🔥 Wildfire burns all combatants for 1!`);
-      setFighters(prev => prev.map(f => ({ ...f, hp: Math.max(0, f.hp - 1) })));
-      setEnemies(prev => prev.map(e => ({ ...e, hp: Math.max(0, e.hp - 1) })));
-    }
+
     // Wind-up: attacker glows and gathers power
     setWindUp(atk.id);
     addLog(`${atk.name} gathers power...`);

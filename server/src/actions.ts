@@ -3330,10 +3330,14 @@ export const handlers = {
         eq(schema.fieldPlacements.stance, "binding")
       ));
     const protectedIds = new Set(binders.map(b => b.tileId));
+    // Wildfire: ignited tiles draw out enemies first
+    const ignited = tiles.filter(t => t.spark === 2);
     // Border = purified, not center, not protected by binding
     const border = tiles.filter(t => !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id));
     let target;
-    if (border.length > 0) {
+    if (ignited.length > 0) {
+      target = ignited[Math.floor(Math.random() * ignited.length)];
+    } else if (border.length > 0) {
       target = border[Math.floor(Math.random() * border.length)];
     } else {
       // Fallback to bastion
@@ -3360,6 +3364,7 @@ export const handlers = {
       waveNumber: z.number().int().positive(),
       survivorIds: z.array(z.number().int().positive()),
       continueWave: z.boolean().optional(),
+      targetTileId: z.number().int().positive().optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle result.");
 
@@ -3382,6 +3387,20 @@ export const handlers = {
 
     let bonusEligible: { id: number; q: number; r: number }[] = [];
     if (parsed.data.victory) {
+      // Wildfire: if the target was ignited, the fire purifies it
+      if (parsed.data.targetTileId) {
+        const target = await db.select().from(schema.territoryTiles)
+          .where(and(
+            eq(schema.territoryTiles.id, parsed.data.targetTileId),
+            eq(schema.territoryTiles.ownerKey, ownerKey),
+            eq(schema.territoryTiles.spark, 2),
+          )).limit(1);
+        if (target.length) {
+          await db.update(schema.territoryTiles)
+            .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10 })
+            .where(eq(schema.territoryTiles.id, target[0].id));
+        }
+      }
       // Continue reward: +6 energy, server-side, one-time per victory
       if (parsed.data.continueWave) {
         const energyRes = await db.select().from(schema.tenderResources)
@@ -3905,19 +3924,6 @@ export const handlers = {
   },
 
   async wildfireBurnTick(ownerKey: string) {
-    // Fire purifies burning cursed tiles
-    const burningCursed = await db.select().from(schema.territoryTiles)
-      .where(and(
-        eq(schema.territoryTiles.ownerKey, ownerKey),
-        eq(schema.territoryTiles.spark, 2),
-        eq(schema.territoryTiles.cursed, 1),
-      ));
-    for (const tile of burningCursed) {
-      // Fire purifies: curse burns away
-      await db.update(schema.territoryTiles)
-        .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10 })
-        .where(eq(schema.territoryTiles.id, tile.id));
-    }
     // Fire damages burning purified tiles (enemy spread)
     const burningPure = await db.select().from(schema.territoryTiles)
       .where(and(
