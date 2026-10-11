@@ -2256,6 +2256,51 @@ export const handlers = {
       }
     }
     
+    // Land attunement: Awoken slowly attune adjacent tiles to their dominant element.
+    // Champions attune 3x faster. Runs on getTerritory (every ~30s when map open).
+    try {
+      const championRows = await db.select().from(schema.tenderChampions)
+        .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+      const championId = championRows[0]?.awakenedId ?? -1;
+      const tileById = new Map(tiles.map(t => [t.id, t]));
+      for (const p of placements) {
+        const aw = await db.select().from(schema.awakened)
+          .where(eq(schema.awakened.id, p.awakenedId)).limit(1);
+        if (!aw.length) continue;
+        let layers: any[];
+        try { layers = JSON.parse(aw[0].compositionJson || "[]"); }
+        catch { continue; }
+        // Dominant element (excluding aspects)
+        const counts: Record<string, number> = {};
+        for (const l of layers) {
+          if (l.category === "aspect") continue;
+          const el = elementForPieceName(l.name || "");
+          if (el === "fire") continue;
+          counts[el] = (counts[el] || 0) + 1;
+        }
+        let domEl = "neutral";
+        let max = 0;
+        for (const [el, n] of Object.entries(counts)) {
+          if (n > max) { max = n; domEl = el; }
+        }
+        if (domEl === "neutral") continue;
+        const isChampion = p.awakenedId === championId;
+        // 5% chance per tick for normal, 15% for champion (~30s ticks)
+        const chance = isChampion ? 0.15 : 0.05;
+        if (Math.random() < chance) {
+          const tile = tileById.get(p.tileId);
+          if (tile && tile.element !== domEl) {
+            await db.update(schema.territoryTiles)
+              .set({ element: domEl as any })
+              .where(eq(schema.territoryTiles.id, tile.id));
+            tile.element = domEl as any;
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[LandAttune] failed", e);
+    }
+
     // Aspect attunement: binding Awoken channel elements into the pool.
     // 10 points of an element → an aspect of that element is born.
     const ASPECT_THRESHOLD = 10;

@@ -70,6 +70,11 @@ export default function EnergyTimer() {
           <span className="energy-orb-timer">{mins}:{secs.toString().padStart(2, "0")}</span>
         )}
       </div>
+      {energy === 0 && (
+        <div className="energy-empty-badge" title="Out of energy — binders have dropped to defense">
+          OUT OF ENERGY
+        </div>
+      )}
     </div>
   );
 }

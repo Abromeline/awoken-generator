@@ -1335,6 +1335,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               </text>
             );
           })()}
+          {t.element && t.element !== "neutral" && (
+            <polygon points={pts.join(" ")} fill={
+              t.element === "tide" ? "rgba(74,144,217,0.15)" :
+              t.element === "sky" ? "rgba(135,206,235,0.15)" :
+              t.element === "stone" ? "rgba(139,115,85,0.15)" :
+              t.element === "root" ? "rgba(107,142,35,0.15)" :
+              t.element === "fire" ? "rgba(255,68,68,0.15)" : "rgba(0,0,0,0)"
+            } pointerEvents="none" />
+          )}
           <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
             stroke={t.cursed && battlePool.length > 0 ? "#ff4444" : "transparent"}
             strokeWidth={2}
