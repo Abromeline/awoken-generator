@@ -3,7 +3,7 @@
 
 :root {
   color-scheme: light dark;
-  --bg:#f2f0e8; --surface:#e8e5dc; --surface-deep:#d9d5ca; --text:#11110f; --dim:#625f57; --border:#aaa69a;
+  --bg:#f2f0e8; --surface:#e8e5dc; --surface-deep:#d9d5ca; --text:#11110f; --dim:#b8b8b8; --border:#aaa69a;
   --accent:#846a3e; --accent-strong:#5f4928; --danger:#7a2d25; --radius:2px;
   --display:"Iowan Old Style","Palatino Linotype","Book Antiqua",Georgia,serif; --sans:"Avenir Next","Segoe UI",sans-serif;
   --space-surface:var(--surface); --space-surface-alt:var(--surface-deep); --space-muted:var(--dim); --space-border:var(--border); --space-accent:var(--accent);
@@ -216,7 +216,7 @@
 .packet-nav button:disabled{opacity:0.3;cursor:default}
 .packet-nav button.packet-done{background:#b89b5e;color:#111;font-weight:bold}
 .packet-nav{align-items:center}
-.packet-skip-link{background:none!important;border:none!important;color:#888!important;font-size:12px!important;padding:4px 8px!important;cursor:pointer;text-decoration:underline}
+.packet-skip-link{background:none!important;border:none!important;color:#b8b8b8!important;font-size:12px!important;padding:4px 8px!important;cursor:pointer;text-decoration:underline}
 .packet-skip-link:hover{color:#b89b5e!important}
 
 /* First Trial */
@@ -635,7 +635,7 @@ body.defeat-flash {
   width: 70px; background: rgba(0,0,0,0.3); border: 1px solid #444; color: #fff;
   padding: 6px 8px; border-radius: 6px; font-size: 13px;
 }
-.stat-rows small { font-size: 11px; color: #666; display: block; }
+.stat-rows small { font-size: 11px; color:#b8b8b8; display: block; }
 .stat-rows .toggle { justify-content: flex-start; gap: 8px; cursor: pointer; }
 .stat-rows .toggle input { width: auto; }
 /* Builder selection */
@@ -649,7 +649,7 @@ body.defeat-flash {
 .builder-card.selected { border-color: #ffd700; background: rgba(255,215,0,0.1); }
 .builder-card:disabled { opacity: 0.4; cursor: not-allowed; }
 .builder-name { font-weight: 600; font-size: 13px; }
-.builder-stance { font-size: 11px; color: #888; }
+.builder-stance { font-size: 11px; color:#b8b8b8; }
 .builder-check { position: absolute; top: 6px; right: 8px; color: #ffd700; font-weight: bold; }
 .builder-summary { display: flex; justify-content: space-between; margin: 12px 0; font-size: 14px; color: #ffcc88; }
 /* Admin popups (workshop) */
@@ -666,7 +666,7 @@ body.defeat-flash {
 .admin-popup-inner h3 { margin: 0 0 16px 0; }
 .admin-popup-close {
   position: absolute; top: 12px; right: 12px;
-  background: none; border: none; color: #888; font-size: 18px; cursor: pointer;
+  background: none; border: none; color:#b8b8b8; font-size: 18px; cursor: pointer;
 }
 .tender-name-link { cursor: pointer; color: #b89b5e; text-decoration: underline; }
 .tender-name-link:hover { color: #ddc38b; }
@@ -687,7 +687,7 @@ body.defeat-flash {
   padding: 8px; display: flex; flex-direction: column; gap: 4px;
 }
 .deck-card-name { font-size: 12px; font-weight: 600; }
-.deck-card-stats { font-size: 11px; color: #888; }
+.deck-card-stats { font-size: 11px; color:#b8b8b8; }
 /* Margin guides - Awoken in the page margins */
 .margin-guide {
   position: fixed; z-index: 40;
@@ -1057,12 +1057,12 @@ body.defeat-flash {
   padding:4px;cursor:pointer;text-align:center;position:relative;
   transition:transform 0.15s;
 }
-.dock-card:hover{transform:translateY(-4px);border-color:#888;}
+.dock-card:hover{transform:translateY(-4px);border-color:#b8b8b8;}
 .dock-card.in-pool{border-color:#ffd700;box-shadow:0 0 10px rgba(255,215,0,0.5);}
 .dock-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;display:block;}
 .dock-card-name{font-size:9px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-.dock-card-stats{font-size:10px;color:#888;font-family:monospace;}
-.dock-empty{color:#666;font-style:italic;font-size:12px;padding:20px;}
+.dock-card-stats{font-size:10px;color:#b8b8b8;font-family:monospace;}
+.dock-empty{color:#b8b8b8;font-style:italic;font-size:12px;padding:20px;}
 
 .territory-battle-trigger{
   position:relative;z-index:60;pointer-events:all;
@@ -1154,7 +1154,7 @@ body.defeat-flash {
 .stance-btn.active{background:#2a2418;border-color:#b89b5e;color:#ffd700}
 .stance-btn:hover{border-color:#b89b5e}
 .attack-hint{color:#ff8888;font-size:12px;font-style:italic}
-.stance-close{background:none;border:none;color:#888;font-size:16px;cursor:pointer;margin-left:auto}
+.stance-close{background:none;border:none;color:#b8b8b8;font-size:16px;cursor:pointer;margin-left:auto}
 
 /* Trial title */
 .trial-title{font-family:Papyrus,"Bradley Hand",cursive;font-size:28px;font-weight:bold;color:#b89b5e;text-align:center;margin:16px 0 8px;text-shadow:0 2px 4px #000;letter-spacing:1px}
@@ -1181,14 +1181,14 @@ body.defeat-flash {
 .champion-name{font-size:13px;color:#ffeebb;font-weight:bold;margin-top:6px}
 .champion-stats{font-size:11px;color:#b89b5e;margin-top:2px}
 .champion-story{font-size:11px;color:#aaa;font-style:italic;margin-top:6px;line-height:1.4}
-.champion-change{font-size:10px;color:#666;margin-top:4px}
+.champion-change{font-size:10px;color:#b8b8b8;margin-top:4px}
 .hall-of-legends .legend-entry{
   display:flex;justify-content:space-between;font-size:11px;
   padding:4px 0;border-bottom:1px solid #222;
 }
 .legend-name{color:#e8e0d0}
 .legend-deed{color:#b89b5e}
-.legends-empty{font-size:11px;color:#666;font-style:italic}
+.legends-empty{font-size:11px;color:#b8b8b8;font-style:italic}
 .champion-picker-overlay{
   position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.8);
   display:flex;align-items:center;justify-content:center;
@@ -1250,8 +1250,8 @@ body.defeat-flash {
   background:#c44;color:#fff;font-size:11px;font-weight:bold;
   border-radius:10px;padding:2px 8px;margin-left:8px;
 }
-.chat-arrow{color:#666;margin-left:auto}
-.friends-empty{font-size:12px;color:#666;font-style:italic}
+.chat-arrow{color:#b8b8b8;margin-left:auto}
+.friends-empty{font-size:12px;color:#b8b8b8;font-style:italic}
 .invite-tabs{display:flex;gap:8px;margin-bottom:8px}
 .invite-tabs button{
   background:#1a1a1a;border:1px solid #444;color:#aaa;
@@ -1302,7 +1302,7 @@ body.defeat-flash {
 .twin-birth-image{width:150px;height:194px;object-fit:contain;border-radius:8px;margin-bottom:16px}
 .twin-birth-name{font-size:18px;color:#ffeebb;font-weight:bold;margin-bottom:8px}
 .twin-birth-flavor{font-size:14px;color:#ccc;font-style:italic;line-height:1.5;margin-bottom:12px}
-.twin-birth-lore{font-size:12px;color:#888;line-height:1.6;margin-bottom:20px}
+.twin-birth-lore{font-size:12px;color:#b8b8b8;line-height:1.6;margin-bottom:20px}
 .abtn.twin-claim{
   background:#b89b5e;color:#111;font-size:16px;font-weight:bold;
   padding:12px 32px;border:none;border-radius:6px;cursor:pointer;
@@ -1336,7 +1336,7 @@ body.defeat-flash {
 .cb-hp-bar{height:8px;background:#333;border-radius:4px;margin:4px 0;overflow:hidden}
 .cb-hp-fill{height:100%;background:linear-gradient(90deg,#4a9a4a,#6f6);transition:width 0.5s}
 .cb-hp-bar.enemy .cb-hp-fill{background:linear-gradient(90deg,#9a4a4a,#f66)}
-.cb-stats{font-size:11px;color:#888}
+.cb-stats{font-size:11px;color:#b8b8b8}
 .cb-enemy{margin-bottom:8px;padding:8px;background:#1a0a0a;border-radius:6px}
 .cb-enemy.fallen{opacity:0.3}
 .cb-enemy-name{font-size:13px;color:#ffaaaa;font-weight:bold}
@@ -1369,7 +1369,7 @@ body.defeat-flash {
 .music-play-btn:hover{background:rgba(184,155,94,0.2)}
 .music-track-info{flex:1;min-width:0}
 .music-track-info strong{display:block;color:#e8e0d0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.music-track-info small{color:#888;font-size:11px}
+.music-track-info small{color:#b8b8b8;font-size:11px}
 .music-track-actions{display:flex;gap:6px}
 
 .music-controls{display:flex;align-items:center;gap:6px;flex-shrink:0}
@@ -1387,7 +1387,7 @@ body.defeat-flash {
   border:1px solid rgba(212,175,106,0.25);
 }
 .celestial-title{
-  font-size:10px;letter-spacing:5px;text-transform:uppercase;color:#888;
+  font-size:10px;letter-spacing:5px;text-transform:uppercase;color:#b8b8b8;
   margin-bottom:16px;text-align:center;
 }
 .celestial-row{
@@ -1460,14 +1460,14 @@ body.defeat-flash {
 .aspect-fab svg{filter:drop-shadow(0 0 4px rgba(212,175,106,0.5))}
 .aspect-close{
   position:absolute;top:8px;right:8px;
-  background:none;border:none;color:#888;font-size:14px;cursor:pointer;padding:4px;
+  background:none;border:none;color:#b8b8b8;font-size:14px;cursor:pointer;padding:4px;
 }
 .aspect-close:hover{color:#d4af6a}
 
 .track-pages{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .page-toggle{
   padding:4px 10px;font-size:11px;border-radius:12px;cursor:pointer;
-  background:#1a1a1a;border:1px solid #444;color:#888;
+  background:#1a1a1a;border:1px solid #444;color:#b8b8b8;
 }
 .page-toggle.on{background:#b89b5e;border-color:#b89b5e;color:#111}
 
@@ -1576,10 +1576,10 @@ body.defeat-flash {
 .celebration-name{font-size:28px;font-weight:bold;margin-bottom:8px}
 .celebration-aspect-level{font-size:22px;font-weight:bold;letter-spacing:4px;margin-bottom:12px}
 .celebration-stats{display:flex;align-items:center;justify-content:center;gap:16px;font-size:20px}
-.stat-old{color:#888;text-decoration:line-through}
+.stat-old{color:#b8b8b8;text-decoration:line-through}
 .stat-arrow{color:#d4af6a;font-size:24px}
 .stat-new{color:#4ade80;font-weight:bold;font-size:24px}
-.celebration-tap-hint{margin-top:20px;color:#888;font-size:14px;animation:blink 1.5s infinite}
+.celebration-tap-hint{margin-top:20px;color:#b8b8b8;font-size:14px;animation:blink 1.5s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
 
 /* ============ MOBILE LEGIBILITY PASS (max-width: 768px) ============
@@ -1839,7 +1839,7 @@ body.defeat-flash {
 .rank-row{display:flex;gap:8px;justify-content:space-between;padding:2px 0;font-size:11px}
 .rank-row.me{font-weight:bold;color:#d4af6a}
 
-.tender-gate h1 { color: #e8d5a0; }
+.tender-gate h1 { color: #b8b8b8; }
 .tender-gate label { color: #b8b8b8; }
 
 .text-colors-panel{max-width:600px;margin:0 auto;padding:24px}
