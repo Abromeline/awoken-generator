@@ -155,6 +155,7 @@ export const tenders = sqliteTable("tenders", {
   code: text("code").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   tenderName: text("tender_name"),
+  email: text("email"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -373,4 +374,18 @@ export const battleTracks = sqliteTable("battle_tracks", {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+});
+
+// Tender feedback: bug reports, questions, suggestions. Two-way —
+// Nigel replies from the workshop; tenders see replies on their screen.
+export const feedbackMessages = sqliteTable("feedback_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  tenderName: text("tender_name"),
+  category: text("category", { enum: ["bug", "question", "suggestion"] }).notNull(),
+  body: text("body").notNull(),
+  pinned: integer("pinned").notNull().default(0),
+  reply: text("reply"),
+  repliedAt: integer("replied_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });

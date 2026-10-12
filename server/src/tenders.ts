@@ -124,8 +124,8 @@ export function tenderTokenFromHeader(value: unknown): string | null {
   return /^[a-f0-9]{64}$/.test(token) ? token : null;
 }
 
-export function publicTender(tender: TenderRow): { code: string; tenderName: string | null } {
-  return { code: tender.code, tenderName: tender.tenderName };
+export function publicTender(tender: TenderRow): { code: string; tenderName: string | null; email: string | null } {
+  return { code: tender.code, tenderName: tender.tenderName, email: (tender as any).email ?? null };
 }
 
 // ---------------------------------------------------------------------------

@@ -57,6 +57,11 @@ const WORKSHOP_ACTIONS = new Set([
   "deleteBattleTrack",
   "updateTrackPages",
   "assignRandomAspects",
+  "adminResetTenderPassword",
+  "listFeedback",
+  "pinFeedback",
+  "replyFeedback",
+  "deleteFeedback",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {

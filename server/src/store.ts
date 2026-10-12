@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS site_colors (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feedback_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tender_name TEXT,
+  category TEXT NOT NULL,
+  body TEXT NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  reply TEXT,
+  replied_at INTEGER,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY NOT NULL,
   value TEXT NOT NULL
@@ -138,6 +149,12 @@ try {
 // Migration: add hp column to field_placements
 try {
   sqlite.exec("ALTER TABLE field_placements ADD COLUMN hp INTEGER");
+} catch {
+  // Column already exists
+}
+// Migration: optional email on tenders
+try {
+  sqlite.exec("ALTER TABLE tenders ADD COLUMN email TEXT");
 } catch {
   // Column already exists
 }

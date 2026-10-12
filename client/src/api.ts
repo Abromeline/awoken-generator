@@ -97,6 +97,7 @@ export interface Studio {
 export interface TenderInfo {
   code: string;
   tenderName: string | null;
+  email?: string | null;
 }
 
 export interface TenderLeaderboardEntry {
@@ -291,6 +292,13 @@ export const api = {
   getSiteColors: () => post<{ ok: boolean; colors: Record<string, string> }>("getSiteColors", {}),
   setSiteColor: (value: { key: string; value: string }) => post<{ ok: boolean }>("setSiteColor", value),
   adminResetTenderPassword: (value: { tenderName: string; newPassword: string }) => post<{ ok: boolean; tenderName: string | null }>("adminResetTenderPassword", value),
+  submitFeedback: (value: { category: string; body: string }) => post<{ ok: boolean; id: number }>("submitFeedback", value),
+  listMyFeedback: () => post<{ messages: any[] }>("listMyFeedback", {}),
+  listFeedback: () => post<{ messages: any[] }>("listFeedback", {}),
+  pinFeedback: (value: { id: number; pinned: boolean }) => post<{ ok: boolean }>("pinFeedback", value),
+  replyFeedback: (value: { id: number; reply: string }) => post<{ ok: boolean }>("replyFeedback", value),
+  deleteFeedback: (value: { id: number }) => post<{ ok: boolean }>("deleteFeedback", value),
+  setTenderEmail: (value: { email: string | null }) => post<{ ok: boolean }>("setTenderEmail", value),
   igniteWildfire: (value: { awakenedId: number; tileId: number }) => post<{ ok: boolean; ignitedTileIds: number[] }>("igniteWildfire", value),
   getAspectAttunement: () => post<{ levels: Record<string, number>; threshold: number; inventoryCount: number; inventory: { id: number; name: string; element: string; imageUrl: string }[]; rates?: Record<string, number> }>("getAspectAttunement", {}),
   combineAspects: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; newLevel: number; element: string }>("combineAspects", value),

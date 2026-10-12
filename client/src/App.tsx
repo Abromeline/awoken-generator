@@ -50,7 +50,7 @@ import auraDisc from "./assets/auras/haze-12.png";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors";
+type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors" | "feedback";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -897,8 +897,10 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
 
 /** The naming ritual: at the first creature entering the deck, the Tender
  *  is named — they take the given name or set their own. */
-function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boolean }) {
+function TenderNaming({ onDone, isRename, currentEmail }: { onDone: () => void; isRename?: boolean; currentEmail?: string | null }) {
   const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [email, setEmail] = useState(currentEmail ?? "");
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
   const [custom, setCustom] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -945,10 +947,109 @@ function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boo
       <button disabled={!custom.trim() || setName.isPending}>Choose</button>
     </form>
     {error && <p className="notice error" role="status">{error}</p>}
+    {isRename && (
+      <form onSubmit={async (event) => { event.preventDefault(); setEmailMsg(null); try { await api.setTenderEmail({ email: email.trim() || null }); setEmailMsg("Email saved."); } catch (e) { setEmailMsg((e as Error).message); } }}>
+        <label>Email (optional)<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} placeholder="Only so Nigel can reach you about your account" autoComplete="email" /></label>
+        <button type="submit">Save email</button>
+        {emailMsg && <p className="notice" role="status">{emailMsg}</p>}
+      </form>
+    )}
   </section>;
 }
 
 /** Nigel's private view of his Tenders, ranked by Awoken woken. Workshop only. */
+/** Tender feedback: bug reports, questions, suggestions. Two-way —
+ *  Nigel replies from the workshop; replies appear here. */
+function FeedbackWidget() {
+  const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<"bug" | "question" | "suggestion">("bug");
+  const [body, setBody] = useState("");
+  const [sent, setSent] = useState(false);
+  const queryClient = useQueryClient();
+  const mine = useQuery({ queryKey: ["myFeedback"], queryFn: () => api.listMyFeedback(), enabled: open });
+  const submit = useMutation({
+    mutationFn: () => api.submitFeedback({ category, body: body.trim() }),
+    onSuccess: () => { setBody(""); setSent(true); queryClient.invalidateQueries({ queryKey: ["myFeedback"] }); setTimeout(() => setSent(false), 3000); },
+  });
+  const catLabel: Record<string, string> = { bug: "🐞 Bug", question: "❓ Question", suggestion: "💡 Suggestion" };
+  return <>
+    <button
+      onClick={() => setOpen(v => !v)}
+      aria-label="Bug reports, questions and suggestions"
+      style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", writingMode: "vertical-rl", zIndex: 900, background: "rgba(20,16,10,0.85)", color: "#e8d5a0", border: "1px solid rgba(232,213,160,0.4)", borderRight: "none", borderRadius: "8px 0 0 8px", padding: "12px 5px", fontSize: 12, letterSpacing: 1, cursor: "pointer" }}
+    >
+      ✎ Report · Ask · Suggest
+    </button>
+    {open && <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "min(360px, 92vw)", zIndex: 950, background: "var(--bg, #14100a)", borderLeft: "1px solid rgba(232,213,160,0.35)", padding: 16, overflowY: "auto", boxShadow: "-8px 0 24px rgba(0,0,0,0.5)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>Speak to the workshop</h3>
+        <button className="quiet-link" onClick={() => setOpen(false)}>✕</button>
+      </div>
+      <p className="quiet" style={{ fontSize: 13 }}>Bug reports, questions, suggestions — Nigel reads these in the workshop and replies here.</p>
+      <div style={{ display: "flex", gap: 6, margin: "10px 0" }}>
+        {(["bug", "question", "suggestion"] as const).map(cat => (
+          <button key={cat} className={category === cat ? "abtn small" : "abtn small ghost"} onClick={() => setCategory(cat)}>{catLabel[cat]}</button>
+        ))}
+      </div>
+      <textarea value={body} onChange={e => setBody(e.target.value)} maxLength={2000} rows={5} placeholder="Tell it plainly…" style={{ width: "100%" }} />
+      <button className="abtn" disabled={!body.trim() || submit.isPending} onClick={() => submit.mutate()} style={{ marginTop: 8 }}>
+        {submit.isPending ? "Sending…" : "Send"}
+      </button>
+      {sent && <p className="notice">Sent. Thank you.</p>}
+      {submit.isError && <p className="notice error">{(submit.error as Error).message}</p>}
+      <h4 style={{ marginTop: 24 }}>Your messages</h4>
+      {mine.isPending ? <p className="quiet">Gathering…</p> : !(mine.data?.messages?.length) ? <p className="quiet">Nothing yet.</p> : (
+        <div>{mine.data.messages.map((m: any) => (
+          <article key={m.id} style={{ borderTop: "1px solid rgba(232,213,160,0.2)", padding: "10px 0" }}>
+            <small className="quiet">{catLabel[m.category] ?? m.category} · {new Date(m.createdAt).toLocaleDateString()}</small>
+            <p style={{ margin: "4px 0", whiteSpace: "pre-wrap" }}>{m.body}</p>
+            {m.reply ? <p style={{ margin: "6px 0 0", padding: "8px 10px", background: "rgba(232,213,160,0.08)", borderRadius: 6 }}><strong>Nigel:</strong> {m.reply}</p> : <small className="quiet">No reply yet.</small>}
+          </article>
+        ))}</div>
+      )}
+    </div>}
+  </>;
+}
+
+/** Workshop inbox for tender feedback: pin, reply, delete. */
+function FeedbackPanel() {
+  const queryClient = useQueryClient();
+  const query = useQuery({ queryKey: ["feedbackInbox"], queryFn: () => api.listFeedback() });
+  const [replyDraft, setReplyDraft] = useState<Record<number, string>>({});
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["feedbackInbox"] });
+  const pin = useMutation({ mutationFn: (v: { id: number; pinned: boolean }) => api.pinFeedback(v), onSuccess: refresh });
+  const reply = useMutation({ mutationFn: (v: { id: number; reply: string }) => api.replyFeedback(v), onSuccess: refresh });
+  const del = useMutation({ mutationFn: (v: { id: number }) => api.deleteFeedback(v), onSuccess: refresh });
+  const catLabel: Record<string, string> = { bug: "🐞 Bug", question: "❓ Question", suggestion: "💡 Suggestion" };
+  if (query.isPending) return <p className="quiet">Gathering messages…</p>;
+  if (query.error) return <p className="notice error">{(query.error as Error).message}</p>;
+  const messages = query.data?.messages ?? [];
+  return <section>
+    <header><p className="eyebrow">Feedback</p><h1>Word from the tenders.</h1><p className="quiet">Bug reports, questions and suggestions. Pinned first. Replies appear on the tender's screen.</p></header>
+    {!messages.length ? <p className="quiet">No messages yet.</p> : messages.map((m: any) => (
+      <article key={m.id} style={{ border: "1px solid rgba(232,213,160,0.25)", borderRadius: 8, padding: 12, marginBottom: 10, opacity: m.pinned ? 1 : 0.92 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <strong>{catLabel[m.category] ?? m.category} — {m.tenderName ?? "A tender"}</strong>
+          <small className="quiet">{new Date(m.createdAt).toLocaleString()}</small>
+        </div>
+        <p style={{ whiteSpace: "pre-wrap", margin: "8px 0" }}>{m.body}</p>
+        {m.reply && <p style={{ padding: "8px 10px", background: "rgba(232,213,160,0.08)", borderRadius: 6 }}><strong>Your reply:</strong> {m.reply}</p>}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            value={replyDraft[m.id] ?? ""}
+            onChange={e => setReplyDraft(d => ({ ...d, [m.id]: e.target.value }))}
+            placeholder={m.reply ? "Replace reply…" : "Write a reply…"}
+            style={{ flex: "1 1 200px" }}
+          />
+          <button className="abtn small" disabled={!(replyDraft[m.id] ?? "").trim()} onClick={() => reply.mutate({ id: m.id, reply: (replyDraft[m.id] ?? "").trim() })}>Reply</button>
+          <button className="abtn small" onClick={() => pin.mutate({ id: m.id, pinned: !m.pinned })}>{m.pinned ? "📌 Unpin" : "Pin"}</button>
+          <button className="abtn small" onClick={() => { if (confirm("Delete this message?")) del.mutate({ id: m.id }); }}>Delete</button>
+        </div>
+      </article>
+    ))}
+  </section>;
+}
+
 function TendersPanel() {
   const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
@@ -1170,7 +1271,8 @@ export function App() {
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
     return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button><TenderRank /></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
-      {renaming && tender ? <TenderNaming isRename onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
+      {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
+      {tender ? <FeedbackWidget /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
       {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} isFirstAwoken={tenderItems.length === 0} /><LoreSection /></>}
     </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
@@ -1201,12 +1303,13 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }, { id: "feedback", label: "Feedback" }];
   return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>    {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} /></>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
     {workshopView === "tenders" && <TendersPanel />}
+    {workshopView === "feedback" && <FeedbackPanel />}
     {workshopView === "tracks" && <MusicLibrary />}
     {workshopView === "glyphs" && <GlyphPanel />}
     {workshopView === "text-colors" && <TextColors />}

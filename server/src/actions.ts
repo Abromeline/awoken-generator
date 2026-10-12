@@ -4025,6 +4025,76 @@ export const handlers = {
     return { ok: true };
   },
 
+  // --- Tender feedback (bug reports, questions, suggestions) ---
+  async submitFeedback(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      category: z.enum(["bug", "question", "suggestion"]),
+      body: z.string().trim().min(1).max(2000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Pick a kind and write a message (up to 2000 characters).");
+    // Tender name rides along for display in the workshop.
+    let tenderName: string | null = null;
+    const m = ownerKey.match(/^tender:(\d+)$/);
+    if (m) {
+      const t = await db.select({ tenderName: schema.tenders.tenderName })
+        .from(schema.tenders)
+        .where(eq(schema.tenders.id, Number(m[1]))).limit(1);
+      tenderName = t[0]?.tenderName ?? null;
+    }
+    const [row] = await db.insert(schema.feedbackMessages).values({
+      ownerKey,
+      tenderName,
+      category: parsed.data.category,
+      body: parsed.data.body,
+    }).returning();
+    return { ok: true, id: row.id };
+  },
+
+  async listMyFeedback(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const rows = await db.select().from(schema.feedbackMessages)
+      .where(eq(schema.feedbackMessages.ownerKey, ownerKey))
+      .orderBy(desc(schema.feedbackMessages.createdAt));
+    return { messages: rows };
+  },
+
+  async listFeedback(_args: unknown, ctx?: ActionContext) {
+    // Workshop only (gated in index.ts)
+    const rows = await db.select().from(schema.feedbackMessages)
+      .orderBy(desc(schema.feedbackMessages.pinned), desc(schema.feedbackMessages.createdAt));
+    return { messages: rows };
+  },
+
+  async pinFeedback(args: unknown, ctx?: ActionContext) {
+    // Workshop only
+    const parsed = z.object({ id: z.number().int(), pinned: z.boolean() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    await db.update(schema.feedbackMessages)
+      .set({ pinned: parsed.data.pinned ? 1 : 0 })
+      .where(eq(schema.feedbackMessages.id, parsed.data.id));
+    return { ok: true };
+  },
+
+  async replyFeedback(args: unknown, ctx?: ActionContext) {
+    // Workshop only
+    const parsed = z.object({ id: z.number().int(), reply: z.string().trim().min(1).max(2000) }).safeParse(args);
+    if (!parsed.success) badRequest("Write a reply first.");
+    await db.update(schema.feedbackMessages)
+      .set({ reply: parsed.data.reply, repliedAt: new Date() })
+      .where(eq(schema.feedbackMessages.id, parsed.data.id));
+    return { ok: true };
+  },
+
+  async deleteFeedback(args: unknown, ctx?: ActionContext) {
+    // Workshop only
+    const parsed = z.object({ id: z.number().int() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    await db.delete(schema.feedbackMessages)
+      .where(eq(schema.feedbackMessages.id, parsed.data.id));
+    return { ok: true };
+  },
+
   async adminResetTenderPassword(args: unknown, ctx?: ActionContext) {
     // Workshop only (gated by requireWorkshop in index.ts)
     const parsed = z.object({
@@ -4040,6 +4110,19 @@ export const handlers = {
       .set({ passwordHash: hashPassword(parsed.data.newPassword) })
       .where(eq(schema.tenders.id, rows[0].id));
     return { ok: true, tenderName: rows[0].tenderName };
+  },
+
+  async setTenderEmail(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      email: z.string().trim().email().max(200).nullable().or(z.literal("")),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("That email doesn't look right.");
+    const email = parsed.data.email ? parsed.data.email : null;
+    await db.update(schema.tenders)
+      .set({ email } as any)
+      .where(eq(schema.tenders.id, ctx!.tender!.id));
+    return { ok: true, email };
   },
 
   async setTenderPassword(args: unknown, ctx?: ActionContext) {
