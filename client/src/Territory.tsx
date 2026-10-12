@@ -1953,6 +1953,29 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 🌫 Dissipate
               </button>
             </div>
+            <div className="feed-energy-row" style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, opacity: 0.85 }}>Feed energy → XP (×2):</span>
+              {[1, 5, 10].map(amt => (
+                <button
+                  key={amt}
+                  className="stance-btn"
+                  disabled={energy < amt}
+                  title={`Give ${amt} energy, ${awoken.name} gains ${amt * 2} XP`}
+                  onClick={async () => {
+                    try {
+                      const r = await api.feedEnergy({ awakenedId: selectedAwoken, energy: amt });
+                      setEnergy(e => Math.max(0, e - amt));
+                      onUpdate();
+                      alert(r.leveledUp ? `${awoken.name} fed ${amt}⚡ → +${r.xpGain} XP. Level ${r.newLevel}!${r.statPointsGained ? ` +${r.statPointsGained} stat point${r.statPointsGained > 1 ? "s" : ""}.` : ""}` : `${awoken.name} fed ${amt}⚡ → +${r.xpGain} XP.`);
+                    } catch (e) {
+                      alert((e as Error).message || "Feeding failed");
+                    }
+                  }}
+                >
+                  {amt}⚡ → {amt * 2} XP
+                </button>
+              ))}
+            </div>
             {attackTargeting && placement.stance === "attack" && (
               <div className="attack-hint">Tap an adjacent cursed tile to attack (1 energy)</div>
             )}

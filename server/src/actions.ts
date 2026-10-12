@@ -773,11 +773,11 @@ async function loadGameConfig() {
 }
 
 // Single source of truth for building definitions
-export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number }> = {
+export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number; upkeepPerHour?: number }> = {
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
-  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
+  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awoken. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops.", icon: "🛕" },
   "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
   "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +10 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 10, growHours: 8 },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
@@ -3015,6 +3015,31 @@ export const handlers = {
           } catch {}
         }
       }
+      // Attunement shrine upkeep: 3 energy/hour or goes dormant (doubling stops)
+      if (b.buildingType === "attunement-shrine" && (b.status === "active" || b.status === "dormant")) {
+        const shrineUpkeep = gameConfig.buildings["attunement-shrine"]?.upkeepPerHour ?? 3;
+        const lastUpkeepS = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
+        if (now - lastUpkeepS >= upkeepMs) {
+          const res = await db.select().from(schema.tenderResources)
+            .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+          const energy = res.length ? res[0].energy : 0;
+          if (energy >= shrineUpkeep) {
+            await db.update(schema.tenderResources)
+              .set({ energy: energy - shrineUpkeep })
+              .where(eq(schema.tenderResources.ownerKey, ownerKey));
+            await db.update(schema.territoryBuildings)
+              .set({ status: "active", lastUpkeepAt: new Date() })
+              .where(eq(schema.territoryBuildings.id, b.id));
+            b.status = "active";
+            b.lastUpkeepAt = new Date();
+          } else if (b.status === "active") {
+            await db.update(schema.territoryBuildings)
+              .set({ status: "dormant" })
+              .where(eq(schema.territoryBuildings.id, b.id));
+            b.status = "dormant";
+          }
+        }
+      }
       // Watchtower upkeep: 2 energy/hour or goes dormant
       if (b.buildingType === "watchtower" && (b.status === "active" || b.status === "dormant")) {
         const lastUpkeep = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
@@ -4023,6 +4048,28 @@ export const handlers = {
       .values({ key: parsed.data.key, value: parsed.data.value, updatedAt: new Date() })
       .onConflictDoUpdate({ target: schema.siteColors.key, set: { value: parsed.data.value, updatedAt: new Date() } });
     return { ok: true };
+  },
+
+  // Feed energy to an Awoken as experience: 1 energy = 2 XP (Nigel, 2026-10-12).
+  // The peaceful path — battle remains far more efficient per hour.
+  async feedEnergy(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int(),
+      energy: z.number().int().min(1).max(100),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Choose an Awoken and 1–100 energy.");
+    const rows = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (!rows.length) badRequest("That Awoken is gone.");
+    if ((rows[0] as any).ownerKey && (rows[0] as any).ownerKey !== ownerKey) {
+      badRequest("That Awoken is not yours to feed.");
+    }
+    const spent = await spendEnergy(ownerKey, parsed.data.energy);
+    if (!spent) badRequest("Not enough energy.");
+    const xpGain = parsed.data.energy * 2;
+    const result = await grantXp(parsed.data.awakenedId, xpGain);
+    return { ok: true, xpGain, ...result };
   },
 
   // --- Tender feedback (bug reports, questions, suggestions) ---

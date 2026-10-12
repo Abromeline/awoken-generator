@@ -293,6 +293,7 @@ export const api = {
   setSiteColor: (value: { key: string; value: string }) => post<{ ok: boolean }>("setSiteColor", value),
   adminResetTenderPassword: (value: { tenderName: string; newPassword: string }) => post<{ ok: boolean; tenderName: string | null }>("adminResetTenderPassword", value),
   submitFeedback: (value: { category: string; body: string }) => post<{ ok: boolean; id: number }>("submitFeedback", value),
+  feedEnergy: (value: { awakenedId: number; energy: number }) => post<{ ok: boolean; xpGain: number; leveledUp: boolean; newLevel: number; statPointsGained: number }>("feedEnergy", value),
   listMyFeedback: () => post<{ messages: any[] }>("listMyFeedback", {}),
   listFeedback: () => post<{ messages: any[] }>("listFeedback", {}),
   pinFeedback: (value: { id: number; pinned: boolean }) => post<{ ok: boolean }>("pinFeedback", value),
