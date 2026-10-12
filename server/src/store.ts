@@ -163,10 +163,6 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS hall_residents (
   awakened_id INTEGER NOT NULL,
   housed_at INTEGER NOT NULL
 )`);
-// Migration: attunement realized-rate columns
-for (const col of ["lifetime_gains REAL NOT NULL DEFAULT 0", "sample_gains REAL NOT NULL DEFAULT 0", "sampled_at INTEGER", "display_rate REAL NOT NULL DEFAULT 0"]) {
-  try { sqlite.exec(`ALTER TABLE aspect_attunement ADD COLUMN ${col}`); } catch { /* exists */ }
-}
 // Migration: optional email on tenders
 try {
   sqlite.exec("ALTER TABLE tenders ADD COLUMN email TEXT");
@@ -389,6 +385,11 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_attunement (
   points INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner_key, element)
 );`);
+// Migration: attunement realized-rate columns — MUST run after the rebuild
+// migration above, which recreates the table without these columns.
+for (const col of ["lifetime_gains REAL NOT NULL DEFAULT 0", "sample_gains REAL NOT NULL DEFAULT 0", "sampled_at INTEGER", "display_rate REAL NOT NULL DEFAULT 0"]) {
+  try { sqlite.exec(`ALTER TABLE aspect_attunement ADD COLUMN ${col}`); } catch { /* exists */ }
+}
 // Glyph library
 sqlite.exec(`CREATE TABLE IF NOT EXISTS glyphs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
