@@ -49,6 +49,14 @@ const WORKSHOP_ACTIONS = new Set([
   "deleteUiSprite",
   "setSiteColor",
   "adminResetTenderPassword",
+  "saveGlyph",
+  "deleteGlyph",
+  "updateLayerAssetRarity",
+  "addBattleTrack",
+  "toggleBattleTrack",
+  "deleteBattleTrack",
+  "updateTrackPages",
+  "assignRandomAspects",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
