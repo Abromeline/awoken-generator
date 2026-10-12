@@ -188,8 +188,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
-  const hallForPicker = useQuery({ queryKey: ["hall"], queryFn: () => api.getHall() });
-  const housedIds = new Set<number>(((hallForPicker.data as any)?.hall?.rooms ?? []).map((r: any) => r.awakenedId).filter(Boolean));
   const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [showChampionTab, setShowChampionTab] = useState(false);
 
@@ -1582,7 +1580,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <button className="abtn small" onClick={() => unhouse.mutate(room.roomIndex)}>Leave room</button>
             {championId === resident.id
               ? <span className="quiet" style={{ alignSelf: "center" }}>Your champion — represents you in the Confluence.</span>
-              : <button className="abtn small" disabled={makeChampion.isPending} onClick={() => makeChampion.mutate(resident.id)} title="Only a housed Awoken can be champion">⭐ Make Champion</button>}
+              : <button className="abtn small" disabled={makeChampion.isPending} onClick={() => makeChampion.mutate(resident.id)} title="Crown this Awoken as your champion">⭐ Make Champion</button>}
           </div>
         </div>
       ) : (
@@ -1881,9 +1879,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         <div className="champion-picker-overlay" onClick={() => setShowChampionPicker(false)}>
           <div className="champion-picker" onClick={e => e.stopPropagation()}>
             <h3>Choose your champion</h3>
-            <p className="quiet">A champion is chosen from the housed — only an Awoken with a room in your Hall can represent you.</p>
+            <p className="quiet">Any of your Awoken can bear the title, wherever they stand. The champion's pieces pass into confluence victory births. The Hall is where champions are trained — fed and leveled.</p>
             <div className="champion-grid">
-              {tenderItems.filter(a => housedIds.has(a.id)).map(a => (
+              {tenderItems.map(a => (
                 <button key={a.id} className="champion-option"
                   onClick={async () => {
                     await api.setChampion({ awakenedId: a.id });
@@ -1897,7 +1895,6 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 </button>
               ))}
             </div>
-            {tenderItems.filter(a => housedIds.has(a.id)).length === 0 && <p className="quiet">No Awoken are housed yet. Build the Hall of Champions and give an Awoken a room first.</p>}
             <button className="abtn small" onClick={() => setShowChampionPicker(false)}>Close</button>
           </div>
         </div>
