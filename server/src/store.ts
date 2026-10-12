@@ -152,6 +152,17 @@ try {
 } catch {
   // Column already exists
 }
+// Migration: Hall of Champions building columns + residents table
+for (const col of ["level INTEGER NOT NULL DEFAULT 1", "fund_json TEXT", "upgrade_ready_at INTEGER"]) {
+  try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN ${col}`); } catch { /* exists */ }
+}
+sqlite.exec(`CREATE TABLE IF NOT EXISTS hall_residents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  room_index INTEGER NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  housed_at INTEGER NOT NULL
+)`);
 // Migration: attunement realized-rate columns
 for (const col of ["lifetime_gains REAL NOT NULL DEFAULT 0", "sample_gains REAL NOT NULL DEFAULT 0", "sampled_at INTEGER", "display_rate REAL NOT NULL DEFAULT 0"]) {
   try { sqlite.exec(`ALTER TABLE aspect_attunement ADD COLUMN ${col}`); } catch { /* exists */ }

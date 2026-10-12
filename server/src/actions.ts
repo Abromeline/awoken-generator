@@ -784,7 +784,42 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
   "tree": { name: "Dream Tree", cost: 2, buildMinutes: 15, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
+  "hall-of-champions": { name: "Hall of Champions", cost: 10, buildMinutes: 30, desc: "A castle haunted by the spirits of ancient Awoken. House champions in its dwellings to feed and level them. Upgrade to level 10 — each level opens a new room. One per tender; stands alone on its tile.", icon: "🏰" },
 };
+
+// Hall of Champions tier costs — exponential in energy, elemental points
+// (spent from the attunement meters, all four equally) and build time.
+// Target tier T (2..10): energy 20·2^(T-1), elemental 2^T each, 30·2^(T-1) min.
+export function hallTierCost(targetTier: number) {
+  return {
+    energy: 20 * Math.pow(2, targetTier - 1),
+    elementalEach: Math.pow(2, targetTier),
+    buildMinutes: 30 * Math.pow(2, targetTier - 1),
+  };
+}
+
+// Hall of Champions helpers (module-level: NOT action endpoints).
+async function hallBuildingFor(ownerKey: string) {
+  const rows = await db.select().from(schema.territoryBuildings)
+    .where(and(
+      eq(schema.territoryBuildings.ownerKey, ownerKey),
+      eq(schema.territoryBuildings.buildingType, "hall-of-champions")
+    )).limit(1);
+  return rows[0] ?? null;
+}
+
+async function settleHallFor(ownerKey: string) {
+  const hall = await hallBuildingFor(ownerKey);
+  if (hall && hall.upgradeReadyAt && new Date(hall.upgradeReadyAt).getTime() <= Date.now() && hall.status === "active") {
+    const newLevel = Math.min(10, (hall.level ?? 1) + 1);
+    await db.update(schema.territoryBuildings)
+      .set({ level: newLevel, upgradeReadyAt: null })
+      .where(eq(schema.territoryBuildings.id, hall.id));
+    hall.level = newLevel;
+    hall.upgradeReadyAt = null;
+  }
+  return hall;
+}
 
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
@@ -2982,6 +3017,7 @@ export const handlers = {
 
   async getBuildings(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    await settleHallFor(ownerKey);
     const buildings = await db.select().from(schema.territoryBuildings)
       .where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const now = Date.now();
@@ -3166,6 +3202,18 @@ export const handlers = {
         eq(schema.territoryBuildings.tileId, parsed.data.tileId)
       ));
     if (existing.length >= 2) badRequest("Max 2 buildings per hex.");
+    // Hall of Champions: one per tender, alone on its tile; nothing shares its tile.
+    if (parsed.data.buildingType === "hall-of-champions") {
+      const halls = await db.select().from(schema.territoryBuildings)
+        .where(and(
+          eq(schema.territoryBuildings.ownerKey, ownerKey),
+          eq(schema.territoryBuildings.buildingType, "hall-of-champions")
+        ));
+      if (halls.length) badRequest("Your Hall of Champions already stands.");
+      if (existing.length) badRequest("The Hall must stand alone on its tile.");
+    } else if (existing.some(b => b.buildingType === "hall-of-champions")) {
+      badRequest("The Hall of Champions stands alone.");
+    }
     const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes * synergyMultiplier / timeDivisor));
     const energyRes = await this.getEnergy({}, ctx);
     if (energyRes.energy < def.cost) badRequest("Not enough energy.");
@@ -4040,6 +4088,165 @@ export const handlers = {
     await db.insert(schema.siteColors)
       .values({ key: parsed.data.key, value: parsed.data.value, updatedAt: new Date() })
       .onConflictDoUpdate({ target: schema.siteColors.key, set: { value: parsed.data.value, updatedAt: new Date() } });
+    return { ok: true };
+  },
+
+  // --- Hall of Champions ---
+  async getHall(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const hall = await settleHallFor(ownerKey);
+    if (!hall) return { hall: null };
+    const level = hall.level ?? 1;
+    let fund = { energy: 0, tide: 0, sky: 0, stone: 0, root: 0 };
+    try { if (hall.fundJson) fund = { ...fund, ...JSON.parse(hall.fundJson) }; } catch {}
+    const residents = await db.select().from(schema.hallResidents)
+      .where(eq(schema.hallResidents.ownerKey, ownerKey));
+    const rooms: ({ roomIndex: number; awakenedId: number } | { roomIndex: number; awakenedId: null })[] = [];
+    for (let i = 0; i < level; i++) {
+      const r = residents.find(x => x.roomIndex === i);
+      rooms.push({ roomIndex: i, awakenedId: r ? r.awakenedId : null });
+    }
+    return {
+      hall: {
+        id: hall.id,
+        status: hall.status,
+        readyAt: hall.readyAt,
+        level,
+        rooms,
+        fund,
+        nextCost: level < 10 ? hallTierCost(level + 1) : null,
+        upgrading: !!hall.upgradeReadyAt,
+        upgradeReadyAt: hall.upgradeReadyAt,
+      },
+    };
+  },
+
+  async fundHallEnergy(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ amount: z.number().int().min(1).max(100000) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid amount.");
+    const hall = await settleHallFor(ownerKey);
+    if (!hall || hall.status !== "active") badRequest("The Hall is not standing yet.");
+    if (hall.upgradeReadyAt) badRequest("An upgrade is already underway.");
+    const level = hall.level ?? 1;
+    if (level >= 10) badRequest("The Hall is complete — ten rooms stand.");
+    const cost = hallTierCost(level + 1);
+    let fund = { energy: 0, tide: 0, sky: 0, stone: 0, root: 0 };
+    try { if (hall.fundJson) fund = { ...fund, ...JSON.parse(hall.fundJson) }; } catch {}
+    const remaining = cost.energy - fund.energy;
+    if (remaining <= 0) badRequest("The energy reservoir for this tier is full.");
+    const amount = Math.min(parsed.data.amount, remaining);
+    const spent = await spendEnergy(ownerKey, amount);
+    if (!spent) badRequest("Not enough energy.");
+    fund.energy += amount;
+    await db.update(schema.territoryBuildings)
+      .set({ fundJson: JSON.stringify(fund) })
+      .where(eq(schema.territoryBuildings.id, hall.id));
+    return { ok: true, fund, nextCost: cost };
+  },
+
+  async fundHallElement(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      element: z.enum(["tide", "sky", "stone", "root"]),
+      points: z.number().int().min(1).max(100000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    const hall = await settleHallFor(ownerKey);
+    if (!hall || hall.status !== "active") badRequest("The Hall is not standing yet.");
+    if (hall.upgradeReadyAt) badRequest("An upgrade is already underway.");
+    const level = hall.level ?? 1;
+    if (level >= 10) badRequest("The Hall is complete — ten rooms stand.");
+    const el = parsed.data.element;
+    const cost = hallTierCost(level + 1);
+    let fund = { energy: 0, tide: 0, sky: 0, stone: 0, root: 0 };
+    try { if (hall.fundJson) fund = { ...fund, ...JSON.parse(hall.fundJson) }; } catch {}
+    const remaining = cost.elementalEach - (fund as any)[el];
+    if (remaining <= 0) badRequest(`The ${el} reservoir for this tier is full.`);
+    const amount = Math.min(parsed.data.points, remaining);
+    const rows = await db.select().from(schema.aspectAttunement)
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, el as any)
+      )).limit(1);
+    const available = rows.length ? Math.floor(rows[0].points) : 0;
+    if (available < amount) badRequest(`Only ${available} ${el} points in the meter.`);
+    await db.update(schema.aspectAttunement)
+      .set({ points: rows[0].points - amount })
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, el as any)
+      ));
+    (fund as any)[el] += amount;
+    await db.update(schema.territoryBuildings)
+      .set({ fundJson: JSON.stringify(fund) })
+      .where(eq(schema.territoryBuildings.id, hall.id));
+    return { ok: true, fund, nextCost: cost };
+  },
+
+  async beginHallUpgrade(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const hall = await settleHallFor(ownerKey);
+    if (!hall || hall.status !== "active") badRequest("The Hall is not standing yet.");
+    if (hall.upgradeReadyAt) badRequest("An upgrade is already underway.");
+    const level = hall.level ?? 1;
+    if (level >= 10) badRequest("The Hall is complete — ten rooms stand.");
+    const cost = hallTierCost(level + 1);
+    let fund = { energy: 0, tide: 0, sky: 0, stone: 0, root: 0 };
+    try { if (hall.fundJson) fund = { ...fund, ...JSON.parse(hall.fundJson) }; } catch {}
+    if (fund.energy < cost.energy) badRequest(`Energy reservoir: ${fund.energy}/${cost.energy}.`);
+    for (const el of ["tide", "sky", "stone", "root"] as const) {
+      if (fund[el] < cost.elementalEach) badRequest(`${el} reservoir: ${fund[el]}/${cost.elementalEach}.`);
+    }
+    const readyAt = new Date(Date.now() + cost.buildMinutes * 60 * 1000);
+    await db.update(schema.territoryBuildings)
+      .set({ fundJson: JSON.stringify({ energy: 0, tide: 0, sky: 0, stone: 0, root: 0 }), upgradeReadyAt: readyAt })
+      .where(eq(schema.territoryBuildings.id, hall.id));
+    return { ok: true, upgradeReadyAt: readyAt, targetLevel: level + 1 };
+  },
+
+  async houseAwoken(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      roomIndex: z.number().int().min(0).max(9),
+      awakenedId: z.number().int(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    const hall = await settleHallFor(ownerKey);
+    if (!hall || hall.status !== "active") badRequest("The Hall is not standing yet.");
+    if (parsed.data.roomIndex >= (hall.level ?? 1)) badRequest("That room has not been built yet.");
+    const aw = await db.select().from(schema.awakened)
+      .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (!aw.length) badRequest("That Awoken is gone.");
+    if ((aw[0] as any).ownerKey !== ownerKey) badRequest("That Awoken is not yours.");
+    // Free the Awoken's previous room, clear the target room, then house.
+    await db.delete(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.awakenedId, parsed.data.awakenedId)
+      ));
+    await db.delete(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.roomIndex, parsed.data.roomIndex)
+      ));
+    await db.insert(schema.hallResidents).values({
+      ownerKey,
+      roomIndex: parsed.data.roomIndex,
+      awakenedId: parsed.data.awakenedId,
+    });
+    return { ok: true };
+  },
+
+  async unhouseAwoken(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ roomIndex: z.number().int().min(0).max(9) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    await db.delete(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.roomIndex, parsed.data.roomIndex)
+      ));
     return { ok: true };
   },
 

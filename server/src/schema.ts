@@ -354,6 +354,19 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   builderStances: text("builder_stances"),
   lastHarvestAt: integer("last_harvest_at", { mode: "timestamp_ms" }),
   lastUpkeepAt: integer("last_upkeep_at", { mode: "timestamp_ms" }),
+  // Hall of Champions: level (rooms), upgrade reservoir, upgrade timer.
+  level: integer("level").notNull().default(1),
+  fundJson: text("fund_json"),
+  upgradeReadyAt: integer("upgrade_ready_at", { mode: "timestamp_ms" }),
+});
+
+// Hall of Champions residents: one Awoken per room, freely swappable.
+export const hallResidents = sqliteTable("hall_residents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  roomIndex: integer("room_index").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  housedAt: integer("housed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
 // UI Workspace: editable sprites and config for enemies, buildings, timers.

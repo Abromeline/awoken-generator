@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
 
@@ -1504,6 +1504,115 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
+/** Hall of Champions: dwellings for champions — house, feed, and raise the Hall. */
+function HallPanel({ tenderItems, onUpdate }: { tenderItems: any[]; onUpdate: () => void }) {
+  const queryClient = useQueryClient();
+  const hallQ = useQuery({ queryKey: ["hall"], queryFn: () => api.getHall(), refetchInterval: 30000 });
+  const attQ = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement() });
+  const [selectedRoom, setSelectedRoom] = useState<number>(0);
+  const refresh = () => { queryClient.invalidateQueries({ queryKey: ["hall"] }); queryClient.invalidateQueries({ queryKey: ["aspectAttunement"] }); onUpdate(); };
+  const fundE = useMutation({ mutationFn: (amount: number) => api.fundHallEnergy({ amount }), onSuccess: refresh, onError: (e: any) => alert(e.message) });
+  const fundEl = useMutation({ mutationFn: (v: { element: string; points: number }) => api.fundHallElement(v), onSuccess: refresh, onError: (e: any) => alert(e.message) });
+  const begin = useMutation({ mutationFn: () => api.beginHallUpgrade(), onSuccess: refresh, onError: (e: any) => alert(e.message) });
+  const house = useMutation({ mutationFn: (v: { roomIndex: number; awakenedId: number }) => api.houseAwoken(v), onSuccess: refresh, onError: (e: any) => alert(e.message) });
+  const unhouse = useMutation({ mutationFn: (roomIndex: number) => api.unhouseAwoken({ roomIndex }), onSuccess: refresh, onError: (e: any) => alert(e.message) });
+  const feed = useMutation({
+    mutationFn: (v: { awakenedId: number; energy: number }) => api.feedEnergy(v),
+    onSuccess: (r: any, v: any) => { refresh(); const a = tenderItems.find(t => t.id === v.awakenedId); alert(r.leveledUp ? `${a?.name ?? "Your champion"} rises to level ${r.newLevel}!` : `+${r.xpGain} XP`); },
+    onError: (e: any) => alert(e.message),
+  });
+
+  if (hallQ.isPending) return <div className="champion-tab"><div className="celestial-title">Hall of Champions</div><p className="quiet">Approaching the castle…</p></div>;
+  const hall = hallQ.data?.hall;
+  if (!hall) return (
+    <div className="champion-tab">
+      <div className="celestial-title">Hall of Champions</div>
+      <p className="quiet">No hall stands yet. Raise the 🏰 Hall of Champions from the build menu — a castle haunted by ancient Awoken, where your champions will dwell, be fed, and grow.</p>
+    </div>
+  );
+  if (hall.status === "building") return (
+    <div className="champion-tab">
+      <div className="celestial-title">Hall of Champions</div>
+      <p className="quiet">The castle is rising from the stone… it will stand soon.</p>
+    </div>
+  );
+  const housedIds = new Set(hall.rooms.map((r: any) => r.awakenedId).filter(Boolean));
+  const room = hall.rooms[Math.min(selectedRoom, hall.rooms.length - 1)] ?? hall.rooms[0];
+  const resident = room?.awakenedId ? tenderItems.find(t => t.id === room.awakenedId) : null;
+  const cost = hall.nextCost;
+  const fund = hall.fund;
+  const elGlyph: Record<string, string> = { tide: "🌊", sky: "🌪️", stone: "🪨", root: "🌱" };
+  const full = cost && fund.energy >= cost.energy && ["tide", "sky", "stone", "root"].every(el => fund[el] >= cost.elementalEach);
+  const upgradeLeft = hall.upgradeReadyAt ? Math.max(0, new Date(hall.upgradeReadyAt).getTime() - Date.now()) : 0;
+
+  return (
+    <div className="champion-tab">
+      <div className="celestial-title">🏰 Hall of Champions — Level {hall.level}</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "8px 0" }}>
+        {hall.rooms.map((r: any) => {
+          const a = r.awakenedId ? tenderItems.find(t => t.id === r.awakenedId) : null;
+          return (
+            <button key={r.roomIndex} className="abtn small" style={room?.roomIndex === r.roomIndex ? { outline: "2px solid #d4af6a" } : { opacity: 0.85 }} onClick={() => setSelectedRoom(r.roomIndex)} title={a ? a.name : "Empty room"}>
+              {a ? <img src={a.image_url} alt="" style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 4, verticalAlign: "middle" }} /> : <span style={{ fontSize: 20 }}>🕯️</span>}
+              <span style={{ marginLeft: 4 }}>Room {r.roomIndex + 1}</span>
+            </button>
+          );
+        })}
+      </div>
+      {room && (resident ? (
+        <div className="champion-tab-card">
+          <img src={resident.image_url} alt={resident.name} />
+          <div className="champion-name">{resident.name}</div>
+          <div className="champion-stats">{resident.power}⚔ {resident.toughness}🛡 · Lv {resident.level ?? 0} · ✦ {resident.experience ?? 0} XP</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+            {[1, 5, 10].map(amt => (
+              <button key={amt} className="abtn small" disabled={feed.isPending} onClick={() => feed.mutate({ awakenedId: resident.id, energy: amt })} title={`Feed ${amt} energy → ${amt * 2} XP`}>
+                Feed {amt}⚡ → {amt * 2} XP
+              </button>
+            ))}
+            <button className="abtn small" onClick={() => unhouse.mutate(room.roomIndex)}>Leave room</button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <p className="quiet">Room {room.roomIndex + 1} stands empty. House an Awoken:</p>
+          <div className="champion-field-list" style={{ maxHeight: 150 }}>
+            {tenderItems.filter(a => !housedIds.has(a.id)).map(a => (
+              <div key={a.id} className="champion-field-item">
+                <img src={a.image_url} alt={a.name} />
+                <div className="champion-field-info"><div>{a.name}</div><div className="quiet">Lv {a.level ?? 0} · {a.power}⚔ {a.toughness}🛡</div></div>
+                <button className="abtn small" onClick={() => house.mutate({ roomIndex: room.roomIndex, awakenedId: a.id })}>House</button>
+              </div>
+            ))}
+            {tenderItems.filter(a => !housedIds.has(a.id)).length === 0 && <p className="quiet">Every Awoken is housed or none remain.</p>}
+          </div>
+        </div>
+      ))}
+      {cost && !hall.upgrading && (
+        <div style={{ marginTop: 12 }}>
+          <div className="celestial-title" style={{ fontSize: 14 }}>Raise the Hall to Level {hall.level + 1}</div>
+          <div style={{ fontSize: 13, display: "grid", gap: 4 }}>
+            <div>⚡ Energy: {fund.energy}/{cost.energy}
+              <button className="abtn small" style={{ marginLeft: 8 }} disabled={fundE.isPending} onClick={() => fundE.mutate(10)}>+10</button>
+              <button className="abtn small" style={{ marginLeft: 4 }} disabled={fundE.isPending} onClick={() => fundE.mutate(50)}>+50</button>
+            </div>
+            {(["tide", "sky", "stone", "root"] as const).map(el => (
+              <div key={el}>{elGlyph[el]} {el}: {fund[el]}/{cost.elementalEach} <span className="quiet">(meter: {Math.floor(attQ.data?.levels?.[el] ?? 0)})</span>
+                <button className="abtn small" style={{ marginLeft: 8 }} disabled={fundEl.isPending} onClick={() => fundEl.mutate({ element: el, points: 1 })}>+1</button>
+                <button className="abtn small" style={{ marginLeft: 4 }} disabled={fundEl.isPending} onClick={() => fundEl.mutate({ element: el, points: 10 })}>+10</button>
+              </div>
+            ))}
+          </div>
+          {full ? <button className="abtn" style={{ marginTop: 8 }} disabled={begin.isPending} onClick={() => begin.mutate()}>Begin the raising ({cost.buildMinutes >= 1440 ? `${Math.round(cost.buildMinutes / 1440 * 10) / 10} days` : cost.buildMinutes >= 60 ? `${Math.round(cost.buildMinutes / 60 * 10) / 10} h` : `${cost.buildMinutes} min`})</button>
+            : <p className="quiet" style={{ marginTop: 6 }}>Fill every reservoir, then begin. The spirits stir as the stores grow.</p>}
+        </div>
+      )}
+      {hall.upgrading && <p className="quiet" style={{ marginTop: 10 }}>🛠️ The Hall is being raised — a new room opens in {Math.ceil(upgradeLeft / 3600000)}h {Math.ceil((upgradeLeft % 3600000) / 60000)}m. Housed champions rest undisturbed.</p>}
+      {hall.level >= 10 && <p className="quiet" style={{ marginTop: 10 }}>Ten rooms stand. The Hall is complete — for now, the castle dreams no deeper.</p>}
+    </div>
+  );
+}
+
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
 function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void }) {
   if (!visible) return null;
@@ -1606,8 +1715,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
   return (
     <div className="territory-view">
       {showChampionTab && (
-        <div className="champion-tab">
+        <>
+        <div>
           <button className="aspect-close" onClick={() => setShowChampionTab(false)} title="Close">✕</button>
+          <HallPanel tenderItems={tenderItems} onUpdate={onUpdate} />
+        </div>
+        <div className="champion-tab">
           <div className="celestial-title">Champion & Field</div>
           {legends.champion ? (
             <div className="champion-tab-card">
@@ -1684,6 +1797,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             )}
           </div>
         </div>
+        </>
       )}
       <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToTarget(null); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={async (aspect) => {
         setShowAspects(false);
