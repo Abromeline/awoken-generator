@@ -251,6 +251,13 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
   element: text("element", { enum: ["tide", "sky", "stone", "root", "fire"] }).notNull(),
   points: real("points").notNull().default(0),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  // Realized-rate measurement: lifetime gains never decrease (births only
+  // spend `points`), and a periodic sample turns gain deltas into an
+  // honest points/hour figure that reflects every feeding system.
+  lifetimeGains: real("lifetime_gains").notNull().default(0),
+  sampleGains: real("sample_gains").notNull().default(0),
+  sampledAt: integer("sampled_at", { mode: "timestamp_ms" }),
+  displayRate: real("display_rate").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
 // Glyph library: SVG symbols for elements, magic, hexes, buffs. Used throughout the game.

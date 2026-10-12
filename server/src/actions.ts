@@ -1997,6 +1997,12 @@ export const handlers = {
             eq(schema.aspectAttunement.ownerKey, ownerKey),
             eq(schema.aspectAttunement.element, el as any)
           ));
+        await db.update(schema.aspectAttunement)
+          .set({ lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + ${gain}` })
+          .where(and(
+            eq(schema.aspectAttunement.ownerKey, ownerKey),
+            eq(schema.aspectAttunement.element, el as any)
+          ));
       }
       // Update timestamps for elements with no gains
       for (const [el, v] of attunement) {
@@ -2030,48 +2036,32 @@ export const handlers = {
         });
       }
     }
-    // Per-hour inflow rates per element (for the meter display):
-    // each binder yields 1 pt/hour split across its unique elements,
-    // doubled when adjacent to an active attunement shrine.
+    // Realized inflow rate per element (points/hour), MEASURED from the
+    // lifetime gains counter — every system that feeds a meter counts
+    // (binding channeling while the map is open, the hourly accrual,
+    // shrine doubling inside that accrual). Sampled over >=60s windows.
     const rates: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-    if (binders.length > 0) {
-      const shrines2 = await db.select({ tileId: schema.territoryBuildings.tileId })
-        .from(schema.territoryBuildings)
-        .where(and(
-          eq(schema.territoryBuildings.ownerKey, ownerKey),
-          eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
-          eq(schema.territoryBuildings.status, "active")
-        ));
-      const shrineIds2 = new Set(shrines2.map(s => s.tileId));
-      const tiles2 = await db.select({ id: schema.territoryTiles.id, q: schema.territoryTiles.q, r: schema.territoryTiles.r })
-        .from(schema.territoryTiles)
-        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
-      const byId2 = new Map(tiles2.map(t => [t.id, t]));
-      const hexD = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-      for (const b of binders) {
-        let layers: any[];
-        try { layers = JSON.parse(b.compositionJson || "[]"); } catch { continue; }
-        const els = new Set<string>();
-        for (const l of layers) {
-          if (l.category === "aspect") continue;
-          const el = elementForPieceName(l.name || "", (l as any).element);
-          if (el !== "fire") els.add(el);
-        }
-        if (els.size === 0) continue;
-        const bTile = byId2.get(b.tileId);
-        let mult = 1;
-        if (bTile) {
-          for (const sid of shrineIds2) {
-            const sTile = byId2.get(sid);
-            if (sTile && hexD(bTile, sTile) <= 1) { mult = 2; break; }
-          }
-        }
-        const per = (POINTS_PER_HOUR * mult) / els.size;
-        for (const el of els) {
-          if (el in rates) rates[el] += per;
-        }
+    const freshRows = await db.select().from(schema.aspectAttunement)
+      .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
+    for (const r of freshRows) {
+      if (!(r.element in rates)) continue;
+      const sampledAtMs = r.sampledAt ? new Date(r.sampledAt).getTime() : 0;
+      if (!sampledAtMs) {
+        await db.update(schema.aspectAttunement)
+          .set({ sampleGains: r.lifetimeGains, sampledAt: new Date(now) })
+          .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, r.element as any)));
+        rates[r.element] = 0;
+      } else if (now - sampledAtMs >= 60000) {
+        const hours = (now - sampledAtMs) / 3600000;
+        const rate = Math.max(0, (r.lifetimeGains - r.sampleGains) / hours);
+        const rounded = Math.round(rate * 10) / 10;
+        await db.update(schema.aspectAttunement)
+          .set({ sampleGains: r.lifetimeGains, sampledAt: new Date(now), displayRate: rounded })
+          .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, r.element as any)));
+        rates[r.element] = rounded;
+      } else {
+        rates[r.element] = r.displayRate ?? 0;
       }
-      for (const k of Object.keys(rates)) rates[k] = Math.round(rates[k] * 100) / 100;
     }
     return { levels, threshold: 10, inventoryCount: inventory.length, inventory, rates };
   },
@@ -2441,14 +2431,14 @@ export const handlers = {
           const newPoints = (existing[0]?.points ?? 0) + 1;
           if (existing.length) {
             await db.update(schema.aspectAttunement)
-              .set({ points: newPoints })
+              .set({ points: newPoints, lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + 1` })
               .where(and(
                 eq(schema.aspectAttunement.ownerKey, ownerKey),
                 eq(schema.aspectAttunement.element, domEl as any)
               ));
           } else {
             await db.insert(schema.aspectAttunement)
-              .values({ ownerKey, element: domEl as any, points: 1 });
+              .values({ ownerKey, element: domEl as any, points: 1, lifetimeGains: 1 });
           }
           // Threshold reached → birth an aspect
           if (newPoints >= ASPECT_THRESHOLD) {

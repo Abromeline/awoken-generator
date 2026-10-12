@@ -152,6 +152,10 @@ try {
 } catch {
   // Column already exists
 }
+// Migration: attunement realized-rate columns
+for (const col of ["lifetime_gains REAL NOT NULL DEFAULT 0", "sample_gains REAL NOT NULL DEFAULT 0", "sampled_at INTEGER", "display_rate REAL NOT NULL DEFAULT 0"]) {
+  try { sqlite.exec(`ALTER TABLE aspect_attunement ADD COLUMN ${col}`); } catch { /* exists */ }
+}
 // Migration: optional email on tenders
 try {
   sqlite.exec("ALTER TABLE tenders ADD COLUMN email TEXT");
