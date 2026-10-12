@@ -1293,12 +1293,18 @@ export const handlers = {
     if (!owned.length) badRequest("That Awoken is not yours.");
     // The Hall sends its champions (Nigel, 2026-10-12): only housed Awoken
     // may march to a confluence, and the Hall's size caps the roster.
+    // The marked champion is the quiet exception: housed or not, it may
+    // always march, and unhoused it stands outside the Hall's count.
     const housed = await db.select().from(schema.hallResidents)
       .where(and(
         eq(schema.hallResidents.ownerKey, ownerKey),
         eq(schema.hallResidents.awakenedId, parsed.data.awakenedId)
       )).limit(1);
-    if (!housed.length) badRequest("Only housed champions march to a confluence — house this Awoken in your Hall first.");
+    const champRows = await db.select().from(schema.tenderChampions)
+      .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+    const championId = champRows.length ? champRows[0].awakenedId : null;
+    const isChampion = championId === parsed.data.awakenedId;
+    if (!housed.length && !isChampion) badRequest("Only housed champions march to a confluence — house this Awoken in your Hall first.");
     const already = await db.select().from(schema.confluenceRoster)
       .where(and(
         eq(schema.confluenceRoster.sessionId, parsed.data.sessionId),
@@ -1306,14 +1312,23 @@ export const handlers = {
         eq(schema.confluenceRoster.awakenedId, parsed.data.awakenedId)
       )).limit(1);
     if (already.length) badRequest("That Awoken is already committed.");
-    const hall = await hallBuildingFor(ownerKey);
-    const cap = hall && hall.status === "active" ? (hall.level ?? 1) : 0;
-    const roster = await db.select().from(schema.confluenceRoster)
-      .where(and(
-        eq(schema.confluenceRoster.sessionId, parsed.data.sessionId),
-        eq(schema.confluenceRoster.ownerKey, ownerKey)
-      ));
-    if (roster.length >= cap) badRequest(`Your Hall holds ${cap} — it can send no more champions to this confluence.`);
+    if (!(isChampion && !housed.length)) {
+      const hall = await hallBuildingFor(ownerKey);
+      const cap = hall && hall.status === "active" ? (hall.level ?? 1) : 0;
+      const roster = await db.select().from(schema.confluenceRoster)
+        .where(and(
+          eq(schema.confluenceRoster.sessionId, parsed.data.sessionId),
+          eq(schema.confluenceRoster.ownerKey, ownerKey)
+        ));
+      // An unhoused champion already in the roster doesn't consume a room's slot.
+      const championHoused = championId !== null && (await db.select().from(schema.hallResidents)
+        .where(and(
+          eq(schema.hallResidents.ownerKey, ownerKey),
+          eq(schema.hallResidents.awakenedId, championId)
+        )).limit(1)).length > 0;
+      const counted = roster.filter(r => championHoused || r.awakenedId !== championId).length;
+      if (counted >= cap) badRequest(`Your Hall holds ${cap} — it can send no more champions to this confluence.`);
+    }
     await db.insert(schema.confluenceRoster).values({
       sessionId: parsed.data.sessionId, ownerKey, awakenedId: parsed.data.awakenedId,
     });

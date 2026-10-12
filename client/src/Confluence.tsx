@@ -19,6 +19,7 @@ export default function Confluence({
   // and the roster is capped by the Hall's level.
   const [housedIds, setHousedIds] = useState<Set<number>>(new Set());
   const [hallLevel, setHallLevel] = useState(0);
+  const [championId, setChampionId] = useState<number | null>(null);
   useEffect(() => {
     api.getHall().then(r => {
       const hall = r.hall;
@@ -27,7 +28,9 @@ export default function Confluence({
         setHousedIds(new Set(hall.rooms.map((x: any) => x.awakenedId).filter(Boolean)));
       }
     }).catch(() => {});
+    api.getLegends().then(r => setChampionId((r as any)?.champion?.id ?? null)).catch(() => {});
   }, []);
+  const canMarch = (a: Awakened) => housedIds.has(a.id) || a.id === championId;
 
   const create = async () => {
     try {
@@ -116,7 +119,7 @@ export default function Confluence({
               <h4>Commit your housed champions ({committed.length}/{hallLevel})</h4>
               <div className="referral-text">The Hall sends its champions — only Awoken housed in your Hall of Champions can march, up to its level.</div>
               <div className="champion-grid">
-                {hand.filter(a => housedIds.has(a.id) && !committed.includes(a.id)).map(a => (
+                {hand.filter(a => canMarch(a) && !committed.includes(a.id)).map(a => (
                   <button key={a.id} className="champion-option" onClick={() => commit(a.id)}>
                     <img src={a.image_url} alt={a.name} />
                     <div>{a.name}</div>
@@ -125,7 +128,7 @@ export default function Confluence({
                 ))}
               </div>
               {hand.length === 0 && <div className="friends-empty">No Awoken in hand.</div>}
-              {hand.length > 0 && housedIds.size === 0 && <div className="friends-empty">No champions are housed. Build the Hall of Champions and house an Awoken to send them.</div>}
+              {hand.length > 0 && !hand.some(a => canMarch(a)) && <div className="friends-empty">No champions are housed. Build the Hall of Champions and house an Awoken to send them.</div>}
             </div>
             {committed.length > 0 && (
               <div className="friends-section">
