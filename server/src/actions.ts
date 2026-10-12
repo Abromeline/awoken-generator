@@ -2030,7 +2030,50 @@ export const handlers = {
         });
       }
     }
-    return { levels, threshold: 10, inventoryCount: inventory.length, inventory };
+    // Per-hour inflow rates per element (for the meter display):
+    // each binder yields 1 pt/hour split across its unique elements,
+    // doubled when adjacent to an active attunement shrine.
+    const rates: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    if (binders.length > 0) {
+      const shrines2 = await db.select({ tileId: schema.territoryBuildings.tileId })
+        .from(schema.territoryBuildings)
+        .where(and(
+          eq(schema.territoryBuildings.ownerKey, ownerKey),
+          eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
+          eq(schema.territoryBuildings.status, "active")
+        ));
+      const shrineIds2 = new Set(shrines2.map(s => s.tileId));
+      const tiles2 = await db.select({ id: schema.territoryTiles.id, q: schema.territoryTiles.q, r: schema.territoryTiles.r })
+        .from(schema.territoryTiles)
+        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const byId2 = new Map(tiles2.map(t => [t.id, t]));
+      const hexD = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+      for (const b of binders) {
+        let layers: any[];
+        try { layers = JSON.parse(b.compositionJson || "[]"); } catch { continue; }
+        const els = new Set<string>();
+        for (const l of layers) {
+          if (l.category === "aspect") continue;
+          const el = elementForPieceName(l.name || "", (l as any).element);
+          if (el !== "fire") els.add(el);
+        }
+        if (els.size === 0) continue;
+        const bTile = byId2.get(b.tileId);
+        let mult = 1;
+        if (bTile) {
+          for (const sid of shrineIds2) {
+            const sTile = byId2.get(sid);
+            if (sTile && hexD(bTile, sTile) <= 1) { mult = 2; break; }
+          }
+        }
+        const per = (POINTS_PER_HOUR * mult) / els.size;
+        for (const el of els) {
+          if (el in rates) rates[el] += per;
+        }
+      }
+      for (const k of Object.keys(rates)) rates[k] = Math.round(rates[k] * 100) / 100;
+    }
+    return { levels, threshold: 10, inventoryCount: inventory.length, inventory, rates };
   },
 
   // Assign a random aspect to every Awoken missing one (workshop only).

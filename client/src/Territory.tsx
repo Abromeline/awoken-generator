@@ -1577,10 +1577,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         const points = data.levels[el.id] ?? 0;
         const pct = Math.min(100, (points / data.threshold) * 100);
         const aspectCount = (data.inventory || []).filter((i: any) => i.element === el.id).length;
+        const rate = (data.rates && data.rates[el.id]) || 0;
         return (
-          <div key={el.id} className="celestial-row" title={`${el.label}: ${points.toFixed(1)}/${data.threshold}`}>
+          <div key={el.id} className="celestial-row" title={`${el.label}: ${points.toFixed(1)}/${data.threshold} · +${rate}/hr`}>
             {glyphs[el.id]}
             <div className="celestial-track"><div className="celestial-progress" style={{ width: `${pct}%` }} /></div>
+            <span className="celestial-rate" style={{ fontSize: 11, opacity: rate > 0 ? 0.95 : 0.45, minWidth: 52, textAlign: "right", color: "#e8d5a0" }}>{rate > 0 ? `+${rate}/hr` : "—"}</span>
             <button
               className="celestial-orb"
               title={`${aspectCount} ${el.label} aspects ready — tap, then tap an Awoken`}
