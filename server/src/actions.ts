@@ -1450,8 +1450,8 @@ export const handlers = {
     if (!donorAsset.length) badRequest("Aspect asset not found.");
 
     // Elements must match — no mixing
-    const equippedEl = elementForPieceName(equipped.name || "");
-    const donorEl = elementForPieceName(donorAsset[0].name);
+    const equippedEl = elementForPieceName(equipped.name || "", (equipped as any).element);
+    const donorEl = elementForPieceName(donorAsset[0].name, (donorAsset[0] as any).element);
     if (equippedEl !== donorEl) badRequest(`Cannot combine ${donorEl} with ${equippedEl}. Aspects must match.`);
 
     // Level up the equipped aspect, consume the donor
@@ -1585,7 +1585,7 @@ export const handlers = {
     const existing = layers.find((l: any) => l.category === "aspect");
     if (existing) {
       // Upgrade path: elements must match
-      const existingEl = existing.aspectElement || elementForPieceName(existing.name || "");
+      const existingEl = existing.aspectElement || elementForPieceName(existing.name || "", (existing as any).element);
       if (existingEl !== element) {
         badRequest(`Cannot combine ${element} with ${existingEl}. Aspects must match.`);
       }
@@ -2413,7 +2413,7 @@ export const handlers = {
               .where(eq(schema.layerAssets.category, "aspect"));
             // Filter to matching element, exclude Fire (wildfire only)
             const matches = pool.filter(a => {
-              const el = elementForPieceName(a.name);
+              const el = elementForPieceName(a.name, (a as any).element);
               return el === domEl && el !== "fire";
             });
             if (matches.length) {
