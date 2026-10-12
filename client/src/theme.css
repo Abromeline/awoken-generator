@@ -112,6 +112,15 @@
 .trading-card{position:relative;background:#f3f1ea;color:#222;border:7px solid #141414;border-radius:3px;padding:10px;box-shadow:var(--hatch-widget-shadow,0 2px 8px rgba(0,0,0,.2))}
 .trading-card::before{content:"";position:absolute;inset:5px;border:1px solid #b89b5e;border-radius:2px;pointer-events:none;z-index:3}
 .trading-card::after{content:"";position:absolute;inset:8px;border:1px solid #d4c08a;border-radius:2px;pointer-events:none;z-index:3}
+
+/* Court marks (Nigel, 2026-10-12): housed Awoken and the marked champion
+   carry gold leaf filigree and a shadowy ink border. */
+.trading-card.court-housed{box-shadow:0 0 0 2px #c9a227,0 0 0 4px rgba(18,14,6,.92),0 10px 26px rgba(8,6,2,.55),0 0 20px rgba(160,124,32,.35)}
+.trading-card.court-housed::before{border-color:#d4af37}
+.trading-card.court-housed::after{border-color:#e8cf7e}
+.trading-card.court-champion{background:linear-gradient(165deg,#f8f3e2,#f3f1ea 45%,#eee2ba);box-shadow:0 0 0 3px #e3c565,0 0 0 5px #6d5518,0 0 0 7px rgba(12,10,5,.94),0 14px 34px rgba(8,6,2,.65),0 0 34px rgba(212,175,55,.5)}
+.trading-card.court-champion::before{border:2px solid #c9a227}
+.trading-card.court-champion::after{border-color:#f0d98c}
 .tcorner{position:absolute;width:40px;height:40px;pointer-events:none;z-index:4}
 .tcorner.tl{top:2px;left:2px}.tcorner.tr{top:2px;right:2px;transform:scaleX(-1)}
 .tcorner.bl{bottom:2px;left:2px;transform:scaleY(-1)}.tcorner.br{bottom:2px;right:2px;transform:scale(-1,-1)}

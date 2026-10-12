@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { setCourtMarks, useCourtMarks } from "./courtMarks";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/terrain-mountain.png";
 import debrisDark from "./assets/debris-dark.jpg";
@@ -226,7 +227,11 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
   const corners: Element[] = [0, 1, 2, 3].map((i) => unique[i % unique.length] ?? "root");
   const [tl, tr, bl, br] = corners;
   const stories = item.story_count ?? 0;
-  return <article className="trading-card" aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
+  const court = useCourtMarks();
+  const courtClass = item.collection === "tender"
+    ? court.championId === item.id ? " court-champion" : court.housedIds.has(item.id) ? " court-housed" : ""
+    : "";
+  return <article className={`trading-card${courtClass}`} aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
     <Corner element={tl} className="tcorner tl" />
     <Corner element={tr} className="tcorner tr" />
     <Corner element={bl} className="tcorner bl" />
@@ -1212,6 +1217,15 @@ export function App() {
   const [renaming, setRenaming] = useState(false);
   const query = useQuery({ queryKey: ["studio", tenderTokenState], queryFn: () => api.getStudio() });
   const welcomeQuery = useQuery({ queryKey: ["welcome", tenderTokenState], queryFn: () => api.getWelcome(), retry: false });
+  const courtLegendsQ = useQuery({ queryKey: ["legends"], queryFn: () => api.getLegends(), enabled: !!tenderTokenState });
+  const courtHallQ = useQuery({ queryKey: ["hall"], queryFn: () => api.getHall(), enabled: !!tenderTokenState });
+  useEffect(() => {
+    const hall = (courtHallQ.data as any)?.hall;
+    setCourtMarks({
+      championId: (courtLegendsQ.data as any)?.champion?.id ?? null,
+      housedIds: new Set<number>(hall && hall.status === "active" ? hall.rooms.map((r: any) => r.awakenedId).filter(Boolean) : []),
+    });
+  }, [courtLegendsQ.data, courtHallQ.data]);
   const lockQuery = useQuery({ queryKey: ["workshopStatus"], queryFn: () => api.workshopStatus() });
   const workshopOpen = !lockQuery.data?.locked || !!wtoken;
   const workshopQuery = useQuery({
