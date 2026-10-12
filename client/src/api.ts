@@ -348,14 +348,6 @@ export const api = {
   getWaveTarget: () => post<{ tile: { id: number; q: number; r: number; element: string } | null; defenderIds: number[] }>("getWaveTarget", {}),
   dissipateAwoken: (args: { awakenedId: number }) => post<{ ok: true }>("dissipateAwoken", args),
   birthNewbornToHand: (args: { tileId: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
-  passivePurify: (args: { tileId: number }) => post<{
-    ok: boolean;
-    reason?: "resting" | "too-weak" | "not-yet";
-    hoursLeft?: number;
-    need?: number;
-    have?: number;
-    purified?: boolean;
-  }>("passivePurify", args),
   claimFirstTile: (args: { teamIds: number[] }) => post<{ ok: true }>("claimFirstTile", args),
   birthFieldAwoken: (args: { layers: LayerRef[]; imageBase64: string; tileId: number; liberatorNames: string[]; toHand?: boolean }) =>
     post<{ ok: true; id: number }>("birthFieldAwoken", args),
