@@ -34,18 +34,19 @@ export const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
  */
 export function stripeSecretKey(): string | null {
   if (!STRIPE_SECRET_KEY) return null;
-  if (!STRIPE_SECRET_KEY.startsWith("sk_live_") && !STRIPE_SECRET_KEY.startsWith("sk_test_")) {
+  const k = STRIPE_SECRET_KEY;
+  if (!k.startsWith("sk_live_") && !k.startsWith("sk_test_") && !k.startsWith("rk_live_") && !k.startsWith("rk_test_")) {
     console.error("[stripe] Refusing unrecognized secret key format.");
     return null;
   }
-  return STRIPE_SECRET_KEY;
+  return k;
 }
 
 /** Deprecated alias. */
 export const stripeTestKey = stripeSecretKey;
 
 export function stripeLiveMode(): boolean {
-  return STRIPE_SECRET_KEY.startsWith("sk_live_");
+  return STRIPE_SECRET_KEY.startsWith("sk_live_") || STRIPE_SECRET_KEY.startsWith("rk_live_");
 }
 
 export function formatUsd(cents: number): string {
