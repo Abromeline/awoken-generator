@@ -1872,11 +1872,20 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               <span title="Experience">✦ {awoken.experience ?? 0} XP</span>
             </div>
             <div className="stance-picker-elements">
-              {[...new Set((awoken.layers || []).filter(l => l.category !== "aspect").map(l => elementForPiece(l.name || "", (l as any).element)))].map(el => (
-                <span key={el} className={`element-tag ${el}`} title={`Attunes ${el}`}>
-                  {el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥"} {el}
-                </span>
-              ))}
+              {(() => {
+                // Elemental points: every layer counts, aspects included (1 pt each).
+                // Feeds the stronger-element calc for terraforming.
+                const pts: Record<string, number> = {};
+                for (const l of (awoken.layers || [])) {
+                  const el = elementForPiece(l.name || "", (l as any).element);
+                  pts[el] = (pts[el] ?? 0) + 1;
+                }
+                return Object.entries(pts).map(([el, n]) => (
+                  <span key={el} className={`element-tag ${el}`} title={`${n} ${el} point${n === 1 ? "" : "s"}`}>
+                    {el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥"} {el} {n}
+                  </span>
+                ));
+              })()}
             </div>
             <div className="stance-buttons">
               <button
