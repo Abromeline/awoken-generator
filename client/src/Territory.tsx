@@ -7,6 +7,7 @@ import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
+import { useCourtMarks } from "./courtMarks";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
@@ -1036,7 +1037,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
+  const courtMarks = useCourtMarks();
+  const isCourt = (a: Awakened) => courtMarks.championId === a.id || courtMarks.housedIds.has(a.id);
   const toggleBattlePool = (index: number) => {
+    // Court-bound: housed Awoken and the champion stay in hand for battles —
+    // they never stage for field deployment.
+    const a = hand[index];
+    if (a && isCourt(a) && !battlePool.includes(index)) return;
     setBattlePool(prev => {
       if (prev.includes(index)) return prev.filter(i => i !== index);
       if (prev.length >= 4) return prev;
@@ -1884,10 +1891,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               {tenderItems.map(a => (
                 <button key={a.id} className="champion-option"
                   onClick={async () => {
-                    await api.setChampion({ awakenedId: a.id });
-                    const updated = await api.getLegends();
-                    setLegends(updated);
-                    setShowChampionPicker(false);
+                    try {
+                      await api.setChampion({ awakenedId: a.id });
+                      const updated = await api.getLegends();
+                      setLegends(updated);
+                      setShowChampionPicker(false);
+                    } catch (e: any) { alert(e.message); }
                   }}>
                   <img src={a.image_url} alt={a.name} />
                   <div>{a.name}</div>
@@ -2260,7 +2269,8 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             const xp = a.experience ?? 0;
             const progress = a.xp_progress ?? 0;
             return (
-            <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""} ${applyingAspect ? "apply-target" : ""}`}
+            <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""} ${applyingAspect ? "apply-target" : ""} ${courtMarks.championId === a.id ? "dock-court-champion" : courtMarks.housedIds.has(a.id) ? "dock-court-housed" : ""}`}
+              title={courtMarks.championId === a.id ? "Your champion — the court stays in hand for battles" : courtMarks.housedIds.has(a.id) ? "Housed in the Hall — the court stays in hand for battles" : undefined}
               onClick={async () => {
                 if (applyingAspect) {
                   try {

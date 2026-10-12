@@ -1449,6 +1449,11 @@ export const handlers = {
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
     if (!owned.length) badRequest("That Awoken is not yours.");
+    // Court-bound: the champion stands in hand. An Awoken stationed on the
+    // field cannot take the title until it returns.
+    const champOnField = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    if (champOnField.length) badRequest("Your champion must stand in hand — an Awoken on the field cannot take the title.");
     // Any Awoken can be champion, anywhere (Nigel, 2026-10-12). The Hall
     // TRAINS champions — housing is where they are fed and leveled — but
     // the title is not gated by a room. The marked champion is still the
@@ -2602,6 +2607,14 @@ export const handlers = {
     const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     if (already.length) badRequest("Already on the field.");
+    // Court-bound (Nigel, 2026-10-12): housed Awoken and the marked champion
+    // stay in hand for battles — they cannot be stationed on field tiles.
+    const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
+      .where(eq(schema.hallResidents.ownerKey, ownerKey));
+    const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
+      .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+    const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
+    if (courtIds.has(parsed.data.awakenedId)) badRequest("The court stays in hand — housed Awoken and the champion cannot be stationed on the field.");
     // Verify the tile belongs to the Tender and is not cursed.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
@@ -2651,6 +2664,14 @@ export const handlers = {
     for (const f of fighters) {
       if (!canTouchAwoken(f, ownerKey)) badRequest("That Awoken is not yours to send.");
       if (placedIds.has(f.id)) badRequest("Already on the field.");
+      // Court-bound (Nigel, 2026-10-12): housed Awoken and the marked champion
+      // stay in hand for battles — they cannot be stationed on field tiles.
+      const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
+        .where(eq(schema.hallResidents.ownerKey, ownerKey));
+      const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
+        .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+      const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
+      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awoken and the champion stay in hand for battles.`);
     }
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
@@ -4257,6 +4278,11 @@ export const handlers = {
     const hall = await settleHallFor(ownerKey);
     if (!hall || hall.status !== "active") badRequest("The Hall is not standing yet.");
     if (parsed.data.roomIndex >= (hall.level ?? 1)) badRequest("That room has not been built yet.");
+    // Court-bound: an Awoken stationed on the field cannot take a room —
+    // the court is drawn from the hand. (Placed Awoken return only by dissipation.)
+    const onField = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    if (onField.length) badRequest("That Awoken stands on the field — the court is drawn from the hand.");
     const aw = await db.select().from(schema.awakened)
       .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
     if (!aw.length) badRequest("That Awoken is gone.");

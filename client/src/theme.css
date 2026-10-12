@@ -1906,3 +1906,7 @@ body.defeat-flash {
 
 .tutorial-card p, .tutorial-card h2, .tutorial-card li { color: #222 !important; }
 .tutorial-lore { color: #444 !important; }
+
+/* Court-bound dock cards: same gold leaf + shadowy ink language, dock scale */
+.dock-card.dock-court-housed{box-shadow:0 0 0 2px #c9a227,0 0 0 3.5px rgba(18,14,6,.92),0 4px 12px rgba(8,6,2,.5)}
+.dock-card.dock-court-champion{box-shadow:0 0 0 2.5px #e3c565,0 0 0 4.5px #6d5518,0 0 0 6px rgba(12,10,5,.94),0 6px 16px rgba(8,6,2,.6),0 0 16px rgba(212,175,55,.45)}
