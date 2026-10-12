@@ -7,7 +7,7 @@
 // soft browser visitor — which closes the clear-storage farming loop.
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "./store.js";
 import { suggestTenderName } from "./naming.js";
@@ -246,8 +246,8 @@ export async function loginTender(args: unknown): Promise<{ token: string; tende
   const parsed = z.object({ identity: z.string().trim().min(1).max(64), password: z.string().min(1).max(128) }).safeParse(args);
   if (!parsed.success) badRequest("A Tender name (or secret key) and password are needed.");
   const identity = parsed.data.identity;
-  // Try the name first, then the immutable key.
-  let rows = await db.select().from(schema.tenders).where(eq(schema.tenders.tenderName, identity)).limit(1);
+  // Try the name first (case-insensitive), then the immutable key.
+  let rows = await db.select().from(schema.tenders).where(sql`lower(${schema.tenders.tenderName}) = lower(${identity})`).limit(1);
   if (!rows[0]) {
     rows = await db.select().from(schema.tenders).where(eq(schema.tenders.code, identity)).limit(1);
   }
