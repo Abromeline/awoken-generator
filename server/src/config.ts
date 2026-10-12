@@ -22,7 +22,7 @@ export const GROVE_PER_PACK_CENTS = intEnv("GROVE_PER_PACK_CENTS", 100);
  *  startup warning). Set it in Railway variables. */
 export const WORKSHOP_PASSWORD = process.env.WORKSHOP_PASSWORD ?? "";
 
-export const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
+export const STRIPE_SECRET_KEY = (process.env.STRIPE_SECRET_KEY ?? "").trim();
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 export const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY ?? "";
 /** Public base URL of this deployment, used for Stripe success/cancel redirects. */
