@@ -47,7 +47,7 @@ interface Props {
 function dominantElement(a: Awakened): Element {
   const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   for (const layer of a.layers ?? []) {
-    const el = elementForPiece(layer.name);
+    const el = elementForPiece(layer.name, (layer as any).element);
     counts[el] = (counts[el] ?? 0) + 1;
   }
   let best: Element = "root";
@@ -1872,7 +1872,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               <span title="Experience">✦ {awoken.experience ?? 0} XP</span>
             </div>
             <div className="stance-picker-elements">
-              {[...new Set((awoken.layers || []).filter(l => l.category !== "aspect").map(l => elementForPiece(l.name || "")))].map(el => (
+              {[...new Set((awoken.layers || []).filter(l => l.category !== "aspect").map(l => elementForPiece(l.name || "", (l as any).element)))].map(el => (
                 <span key={el} className={`element-tag ${el}`} title={`Attunes ${el}`}>
                   {el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥"} {el}
                 </span>

@@ -182,7 +182,10 @@ function toRoman(num: number): string {
 }
 
 export type Element = "tide" | "sky" | "stone" | "root" | "fire";
-export function elementForPiece(name: string): Element {
+export function elementForPiece(name: string, dbElement?: string | null): Element {
+  if (dbElement && ["tide", "sky", "stone", "root", "fire"].includes(dbElement)) {
+    return dbElement as Element;
+  }
   const n = name.toLowerCase();
   if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
   if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
@@ -218,7 +221,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const roman = toRoman(item.id);
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
-  const elements = litany.map((layer) => elementForPiece(layer.name));
+  const elements = litany.map((layer) => elementForPiece(layer.name, (layer as any).element));
   const unique = [...new Set(elements)];
   const corners: Element[] = [0, 1, 2, 3].map((i) => unique[i % unique.length] ?? "root");
   const [tl, tr, bl, br] = corners;

@@ -99,7 +99,7 @@ const ENEMY_SHOT = { glyph: "\u25C9", color: "#8a3a8a" };
 function dominantElementOf(aw?: Awakened): Element {
   const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   for (const layer of aw?.layers ?? []) {
-    const el = elementForPiece(layer.name);
+    const el = elementForPiece(layer.name, (layer as any).element);
     counts[el] = (counts[el] ?? 0) + 1;
   }
   let best: Element = "root";
