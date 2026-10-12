@@ -290,6 +290,7 @@ export const api = {
   setTenderPassword: (value: { password: string }) => post<{ ok: boolean }>("setTenderPassword", value),
   getSiteColors: () => post<{ ok: boolean; colors: Record<string, string> }>("getSiteColors", {}),
   setSiteColor: (value: { key: string; value: string }) => post<{ ok: boolean }>("setSiteColor", value),
+  adminResetTenderPassword: (value: { tenderName: string; newPassword: string }) => post<{ ok: boolean; tenderName: string | null }>("adminResetTenderPassword", value),
   igniteWildfire: (value: { awakenedId: number; tileId: number }) => post<{ ok: boolean; ignitedTileIds: number[] }>("igniteWildfire", value),
   getAspectAttunement: () => post<{ levels: Record<string, number>; threshold: number; inventoryCount: number; inventory: { id: number; name: string; element: string; imageUrl: string }[] }>("getAspectAttunement", {}),
   combineAspects: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; newLevel: number; element: string }>("combineAspects", value),

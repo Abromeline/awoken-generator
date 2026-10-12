@@ -48,6 +48,7 @@ const WORKSHOP_ACTIONS = new Set([
   "uploadUiSprite",
   "deleteUiSprite",
   "setSiteColor",
+  "adminResetTenderPassword",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {

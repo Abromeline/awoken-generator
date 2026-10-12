@@ -948,6 +948,8 @@ function TenderNaming({ onDone, isRename }: { onDone: () => void; isRename?: boo
 function TendersPanel() {
   const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
+  const [resetName, setResetName] = useState("");
+  const [resetPw, setResetPw] = useState("");
   const [deckPopup, setDeckPopup] = useState<{ ownerKey: string; name: string; field: any[]; hand: any[]; waveNumber: number } | null>(null);
   const [waveEdit, setWaveEdit] = useState<{ ownerKey: string; current: number } | null>(null);
   const doAdmin = async (fn: () => Promise<any>, label: string) => {
@@ -967,7 +969,16 @@ function TendersPanel() {
     <header><p className="eyebrow">The Tenders</p><h1>Those who tend.</h1><p className="quiet">Only you see this. Tenders never see each other's counts.</p>
     <button className="abtn small" onClick={() => doAdmin(() => api.adminRefillAllEnergy(), "All refilled to max")} style={{ marginTop: 8 }}>
       ⚡ Refill All to Max
-    </button></header>
+    </button>
+    <div className="pw-reset-row" style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <input value={resetName} onChange={(e) => setResetName(e.target.value)} placeholder="Tender name" style={{ maxWidth: 200 }} />
+      <input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="New password (8+ chars)" style={{ maxWidth: 200 }} autoComplete="new-password" />
+      <button className="abtn small" disabled={!resetName.trim() || resetPw.length < 8} onClick={() => {
+        doAdmin(() => api.adminResetTenderPassword({ tenderName: resetName.trim(), newPassword: resetPw }).then(r => { setResetPw(""); return r; }), "Password reset for " + resetName.trim());
+      }}>
+        Reset password
+      </button>
+    </div></header>
     {adminMsg && <p className="notice">{adminMsg}</p>}
     {!tenders.length ? <p className="quiet">No Tender has claimed a code yet.</p> : (
       <ol>{tenders.map((t, i) => <li key={t.code}>

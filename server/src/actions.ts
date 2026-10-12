@@ -3963,6 +3963,23 @@ export const handlers = {
     return { ok: true };
   },
 
+  async adminResetTenderPassword(args: unknown, ctx?: ActionContext) {
+    // Workshop only (gated by requireWorkshop in index.ts)
+    const parsed = z.object({
+      tenderName: z.string().trim().min(1).max(64),
+      newPassword: z.string().min(8).max(128),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Tender name and a new password (8+ chars) are needed.");
+    const { hashPassword } = await import("./tenders.js");
+    const rows = await db.select().from(schema.tenders)
+      .where(sql`lower(${schema.tenders.tenderName}) = lower(${parsed.data.tenderName})`).limit(1);
+    if (!rows[0]) badRequest("No tender found with that name.");
+    await db.update(schema.tenders)
+      .set({ passwordHash: hashPassword(parsed.data.newPassword) })
+      .where(eq(schema.tenders.id, rows[0].id));
+    return { ok: true, tenderName: rows[0].tenderName };
+  },
+
   async setTenderPassword(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // Extract tender ID from ownerKey (format: "tender-<id>")
