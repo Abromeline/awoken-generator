@@ -561,7 +561,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
       })()}
       {categories.map((layer) => { const items = assets.filter((asset) => asset.category === layer.id); return <section className="pool-group" key={layer.id}><header><h2>{layer.label}</h2><span>{items.length}</span></header>{!items.length ? <p className="quiet">Nothing rests here yet.</p> : <div className="trait-grid">{items.map((asset) => <article className="trait-tile" key={asset.sourceId}><img src={asset.imageUrl} alt={`${asset.name}, ${layer.label.toLowerCase()} layer`} /><div className="trait-copy">
         {asset.serverId && editing === asset.serverId ? <form onSubmit={(event: FormEvent) => { event.preventDefault(); if (pieceName.trim()) rename.mutate({ id: asset.serverId ?? 0, name: pieceName }); }}><input aria-label={`New name for ${asset.name}`} value={pieceName} onChange={(event) => setPieceName(event.target.value)} autoFocus /><button>Keep</button></form> : <button className="piece-name" disabled={!asset.serverId} onClick={() => { if (asset.serverId) { setEditing(asset.serverId); setPieceName(asset.name); } }}>{asset.name}</button>}
-        {asset.category === "aspect" && asset.serverId ? (
+        {asset.serverId ? (
           <label className="rarity-picker"><small>Rarity</small>
             <select aria-label={`Rarity for ${asset.name}`} value={asset.rarity} onChange={(e) => setRarity.mutate({ id: asset.serverId ?? 0, rarity: e.target.value })}>
               {(["common", "uncommon", "rare", "mythic"] as const).map(r => <option key={r} value={r}>{rarityLabel[r]}</option>)}
