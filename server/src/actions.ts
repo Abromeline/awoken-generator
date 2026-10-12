@@ -746,11 +746,11 @@ async function loadGameConfig() {
       buildings[type].harvestEnergy = overrides["building.dream-wheat.harvestEnergy"] ?? 4;
     }
     if (type === "dream-weed") {
-      buildings[type].harvestEnergy = overrides["building.dream-weed.harvestEnergy"] ?? 10;
+      buildings[type].harvestEnergy = overrides["building.dream-weed.harvestEnergy"] ?? 5;
       buildings[type].growHours = overrides["building.dream-weed.growHours"] ?? 1;
     }
     if (type === "sky-bloom") {
-      buildings[type].harvestEnergy = overrides["building.sky-bloom.harvestEnergy"] ?? 30;
+      buildings[type].harvestEnergy = overrides["building.sky-bloom.harvestEnergy"] ?? 10;
       buildings[type].growHours = overrides["building.sky-bloom.growHours"] ?? 8;
     }
     if (type === "awakening-well" || type === "tree") {
@@ -778,8 +778,8 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
-  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +10 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 10, growHours: 1 },
-  "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +30 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 30, growHours: 8 },
+  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
+  "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +10 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 10, growHours: 8 },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
