@@ -2411,55 +2411,58 @@ export const handlers = {
         if (!aw) continue;
         try {
           const comp = JSON.parse(aw.compositionJson || "[]");
+          // Elemental points: pieces = 1 pt, aspects = 1 pt per level.
+          // The binder's 1 channeled point per tick is DIVIDED across all
+          // its elements in proportion to those points (Nigel, 2026-10-12) —
+          // the stronger element receives the larger share.
           const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
           for (const layer of comp) {
             const el = elementForPieceName(layer.name || "", (layer as any).element);
-            if (el !== "fire" && el in counts) counts[el] += 1;
+            if (el !== "fire" && el in counts) {
+              counts[el] += layer.category === "aspect" ? ((layer as any).aspectLevel ?? 1) : 1;
+            }
           }
-          // Each binding Awoken contributes 1 point to their dominant element per getTerritory tick
-          let domEl = "neutral"; let maxC = 0;
-          for (const [el, n] of Object.entries(counts)) {
-            if (n > maxC) { maxC = n; domEl = el; }
-          }
-          if (domEl === "neutral" || maxC === 0) continue;
-          // Upsert attunement points
-          const existing = await db.select().from(schema.aspectAttunement)
-            .where(and(
-              eq(schema.aspectAttunement.ownerKey, ownerKey),
-              eq(schema.aspectAttunement.element, domEl as any)
-            )).limit(1);
-          const newPoints = (existing[0]?.points ?? 0) + 1;
-          if (existing.length) {
-            await db.update(schema.aspectAttunement)
-              .set({ points: newPoints, lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + 1` })
+          const totalPts = Object.values(counts).reduce((a, b) => a + b, 0);
+          if (totalPts === 0) continue;
+          for (const [el, pts] of Object.entries(counts)) {
+            if (pts === 0) continue;
+            const share = pts / totalPts; // fraction of the 1 channeled point
+            const existing = await db.select().from(schema.aspectAttunement)
               .where(and(
                 eq(schema.aspectAttunement.ownerKey, ownerKey),
-                eq(schema.aspectAttunement.element, domEl as any)
-              ));
-          } else {
-            await db.insert(schema.aspectAttunement)
-              .values({ ownerKey, element: domEl as any, points: 1, lifetimeGains: 1 });
-          }
-          // Threshold reached → birth an aspect
-          if (newPoints >= ASPECT_THRESHOLD) {
-            const pool = await db.select().from(schema.layerAssets)
-              .where(eq(schema.layerAssets.category, "aspect"));
-            // Filter to matching element, exclude Fire (wildfire only)
-            const matches = pool.filter(a => {
-              const el = elementForPieceName(a.name, (a as any).element);
-              return el === domEl && el !== "fire";
-            });
-            if (matches.length) {
-              const pick = matches[Math.floor(Math.random() * matches.length)];
-              await db.insert(schema.aspectInventory)
-                .values({ ownerKey, aspectAssetId: pick.id, createdAt: new Date() });
-              // Reset attunement for this element
+                eq(schema.aspectAttunement.element, el as any)
+              )).limit(1);
+            const newPoints = (existing[0]?.points ?? 0) + share;
+            if (existing.length) {
               await db.update(schema.aspectAttunement)
-                .set({ points: 0 })
+                .set({ points: newPoints, lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + ${share}` })
                 .where(and(
                   eq(schema.aspectAttunement.ownerKey, ownerKey),
-                  eq(schema.aspectAttunement.element, domEl as any)
+                  eq(schema.aspectAttunement.element, el as any)
                 ));
+            } else {
+              await db.insert(schema.aspectAttunement)
+                .values({ ownerKey, element: el as any, points: share, lifetimeGains: share });
+            }
+            // Threshold reached → birth an aspect (overflow is kept)
+            if (newPoints >= ASPECT_THRESHOLD) {
+              const pool = await db.select().from(schema.layerAssets)
+                .where(eq(schema.layerAssets.category, "aspect"));
+              const matches = pool.filter(a => {
+                const aEl = elementForPieceName(a.name, (a as any).element);
+                return aEl === el && aEl !== "fire";
+              });
+              if (matches.length) {
+                const pick = matches[Math.floor(Math.random() * matches.length)];
+                await db.insert(schema.aspectInventory)
+                  .values({ ownerKey, aspectAssetId: pick.id, createdAt: new Date() });
+                await db.update(schema.aspectAttunement)
+                  .set({ points: newPoints - ASPECT_THRESHOLD })
+                  .where(and(
+                    eq(schema.aspectAttunement.ownerKey, ownerKey),
+                    eq(schema.aspectAttunement.element, el as any)
+                  ));
+              }
             }
           }
         } catch { /* skip malformed composition */ }
