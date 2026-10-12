@@ -1411,6 +1411,14 @@ export const handlers = {
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
     if (!owned.length) badRequest("That Awoken is not yours.");
+    // Unification (Nigel, 2026-10-12): the champion is chosen FROM the housed —
+    // only an Awoken with a room in the Hall can represent the tender.
+    const housed = await db.select().from(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.awakenedId, parsed.data.awakenedId)
+      )).limit(1);
+    if (!housed.length) badRequest("Only an Awoken housed in your Hall of Champions can be champion. House them first.");
     await db.insert(schema.tenderChampions)
       .values({ ownerKey, awakenedId: parsed.data.awakenedId })
       .onConflictDoUpdate({ target: schema.tenderChampions.ownerKey, set: { awakenedId: parsed.data.awakenedId } });
@@ -4220,6 +4228,13 @@ export const handlers = {
     if (!aw.length) badRequest("That Awoken is gone.");
     if ((aw[0] as any).ownerKey !== ownerKey) badRequest("That Awoken is not yours.");
     // Free the Awoken's previous room, clear the target room, then house.
+    // If the room's current resident is the champion, being replaced lays
+    // down their title too.
+    const evicted = await db.select().from(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.roomIndex, parsed.data.roomIndex)
+      )).limit(1);
     await db.delete(schema.hallResidents)
       .where(and(
         eq(schema.hallResidents.ownerKey, ownerKey),
@@ -4230,6 +4245,13 @@ export const handlers = {
         eq(schema.hallResidents.ownerKey, ownerKey),
         eq(schema.hallResidents.roomIndex, parsed.data.roomIndex)
       ));
+    if (evicted.length && evicted[0].awakenedId !== parsed.data.awakenedId) {
+      await db.delete(schema.tenderChampions)
+        .where(and(
+          eq(schema.tenderChampions.ownerKey, ownerKey),
+          eq(schema.tenderChampions.awakenedId, evicted[0].awakenedId)
+        ));
+    }
     await db.insert(schema.hallResidents).values({
       ownerKey,
       roomIndex: parsed.data.roomIndex,
@@ -4242,11 +4264,24 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ roomIndex: z.number().int().min(0).max(9) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid.");
+    const leaving = await db.select().from(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.roomIndex, parsed.data.roomIndex)
+      )).limit(1);
     await db.delete(schema.hallResidents)
       .where(and(
         eq(schema.hallResidents.ownerKey, ownerKey),
         eq(schema.hallResidents.roomIndex, parsed.data.roomIndex)
       ));
+    // A champion who leaves the Hall lays down the title.
+    if (leaving.length) {
+      await db.delete(schema.tenderChampions)
+        .where(and(
+          eq(schema.tenderChampions.ownerKey, ownerKey),
+          eq(schema.tenderChampions.awakenedId, leaving[0].awakenedId)
+        ));
+    }
     return { ok: true };
   },
 

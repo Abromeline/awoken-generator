@@ -188,6 +188,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
+  const hallForPicker = useQuery({ queryKey: ["hall"], queryFn: () => api.getHall() });
+  const housedIds = new Set<number>(((hallForPicker.data as any)?.hall?.rooms ?? []).map((r: any) => r.awakenedId).filter(Boolean));
   const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [showChampionTab, setShowChampionTab] = useState(false);
 
@@ -1505,9 +1507,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
 /** Hall of Champions: dwellings for champions — house, feed, and raise the Hall. */
-function HallPanel({ tenderItems, onUpdate }: { tenderItems: any[]; onUpdate: () => void }) {
+function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: any[]; onUpdate: () => void; onChampionChange?: () => void }) {
   const queryClient = useQueryClient();
   const hallQ = useQuery({ queryKey: ["hall"], queryFn: () => api.getHall(), refetchInterval: 30000 });
+  const legendsQ = useQuery({ queryKey: ["legends"], queryFn: () => api.getLegends() });
+  const championId = (legendsQ.data as any)?.champion?.id ?? null;
+  const makeChampion = useMutation({
+    mutationFn: (awakenedId: number) => api.setChampion({ awakenedId }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["legends"] }); onChampionChange?.(); },
+    onError: (e: any) => alert(e.message),
+  });
   const attQ = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement() });
   const [selectedRoom, setSelectedRoom] = useState<number>(0);
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ["hall"] }); queryClient.invalidateQueries({ queryKey: ["aspectAttunement"] }); onUpdate(); };
@@ -1562,7 +1571,7 @@ function HallPanel({ tenderItems, onUpdate }: { tenderItems: any[]; onUpdate: ()
       {room && (resident ? (
         <div className="champion-tab-card">
           <img src={resident.image_url} alt={resident.name} />
-          <div className="champion-name">{resident.name}</div>
+          <div className="champion-name">{championId === resident.id ? "⭐ " : ""}{resident.name}</div>
           <div className="champion-stats">{resident.power}⚔ {resident.toughness}🛡 · Lv {resident.level ?? 0} · ✦ {resident.experience ?? 0} XP</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             {[1, 5, 10].map(amt => (
@@ -1571,6 +1580,9 @@ function HallPanel({ tenderItems, onUpdate }: { tenderItems: any[]; onUpdate: ()
               </button>
             ))}
             <button className="abtn small" onClick={() => unhouse.mutate(room.roomIndex)}>Leave room</button>
+            {championId === resident.id
+              ? <span className="quiet" style={{ alignSelf: "center" }}>Your champion — represents you in the Confluence.</span>
+              : <button className="abtn small" disabled={makeChampion.isPending} onClick={() => makeChampion.mutate(resident.id)} title="Only a housed Awoken can be champion">⭐ Make Champion</button>}
           </div>
         </div>
       ) : (
@@ -1718,7 +1730,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         <>
         <div>
           <button className="aspect-close" onClick={() => setShowChampionTab(false)} title="Close">✕</button>
-          <HallPanel tenderItems={tenderItems} onUpdate={onUpdate} />
+          <HallPanel tenderItems={tenderItems} onUpdate={onUpdate} onChampionChange={() => { api.getLegends().then(setLegends).catch(() => {}); }} />
         </div>
         <div className="champion-tab">
           <div className="celestial-title">Champion & Field</div>
@@ -1869,8 +1881,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         <div className="champion-picker-overlay" onClick={() => setShowChampionPicker(false)}>
           <div className="champion-picker" onClick={e => e.stopPropagation()}>
             <h3>Choose your champion</h3>
+            <p className="quiet">A champion is chosen from the housed — only an Awoken with a room in your Hall can represent you.</p>
             <div className="champion-grid">
-              {tenderItems.map(a => (
+              {tenderItems.filter(a => housedIds.has(a.id)).map(a => (
                 <button key={a.id} className="champion-option"
                   onClick={async () => {
                     await api.setChampion({ awakenedId: a.id });
@@ -1884,6 +1897,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 </button>
               ))}
             </div>
+            {tenderItems.filter(a => housedIds.has(a.id)).length === 0 && <p className="quiet">No Awoken are housed yet. Build the Hall of Champions and give an Awoken a room first.</p>}
             <button className="abtn small" onClick={() => setShowChampionPicker(false)}>Close</button>
           </div>
         </div>
