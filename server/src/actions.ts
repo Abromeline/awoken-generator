@@ -222,7 +222,7 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
   ]);
   const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
     const rarity = raritySchema.safeParse(row.rarity);
-    return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness }] as const] : [];
+    return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness, element: (row as any).element ?? null }] as const] : [];
   }));
   const canonicalLayers = layers.map((layer) => {
     const id = parseDbId(layer.source_id); const current = id === null ? undefined : currentStats.get(id);
@@ -269,7 +269,7 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
     const category = layerCategorySchema.safeParse(row.category); const rarity = raritySchema.safeParse(row.rarity);
     return category.success && rarity.success ? [{ ...row, category: category.data, rarity: rarity.data }] : [];
   });
-  const assetStats = new Map<number, AssetStats>(supportedAssetRows.map((row) => [row.id, { name: row.name, rarity: row.rarity, power: row.power, toughness: row.toughness }]));
+  const assetStats = new Map<number, AssetStats>(supportedAssetRows.map((row) => [row.id, { name: row.name, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null }]));
   const assets = supportedAssetRows.map((row) => ({
     id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null,
     image_url: blobUrl(row.imageBlobKey), mime_type: row.mimeType, created_at: row.createdAt.toISOString(),
@@ -1475,7 +1475,7 @@ export const handlers = {
       if (rows.length) {
         const assetRows = await db.select().from(schema.layerAssets);
         const assetStats = new Map();
-        for (const r of assetRows) assetStats.set(r.id, { name: r.name, power: r.power, toughness: r.toughness });
+        for (const r of assetRows) assetStats.set(r.id, { name: r.name, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
         const layers = parseLayers(rows[0].compositionJson, assetStats as any);
         championAwoken = toAwakenedPayload(rows[0] as any, layers, rows[0].identityKey, new Map());
       }
@@ -2192,7 +2192,7 @@ export const handlers = {
     const assetStats = new Map<number, AssetStats>();
     for (const r of assetRows) {
       const rar = raritySchema.safeParse(r.rarity);
-      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness });
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
     }
 
     const fighters = [];
@@ -2681,7 +2681,7 @@ export const handlers = {
     const assetStats = new Map<number, AssetStats>();
     for (const r of assetRows) {
       const rar = raritySchema.safeParse(r.rarity);
-      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness });
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
     }
     let totalCost = 0;
     for (const f of fighters) {
@@ -2744,7 +2744,7 @@ export const handlers = {
       const assetStats = new Map<number, AssetStats>();
       for (const r of assetRows) {
         const rar = raritySchema.safeParse(r.rarity);
-        if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness });
+        if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
       }
       const layers = parseLayers(awokenRows[0].compositionJson, assetStats);
       const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
