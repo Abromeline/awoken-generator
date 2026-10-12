@@ -2287,7 +2287,9 @@ export const handlers = {
       const lastCharge = p.lastBindingChargeAt ? new Date(p.lastBindingChargeAt).getTime() : new Date(p.placedAt).getTime();
       const hoursElapsed = (now - lastCharge) / (60 * 60 * 1000);
       if (hoursElapsed >= 1) {
-        const hoursToCharge = Math.floor(hoursElapsed);
+        // Cap backlog at 1 hour: upkeep is ongoing, not a debt collector.
+        // Billing the full absence would punish time away (Anti-Duolingo).
+        const hoursToCharge = 1;
         const cost = hoursToCharge * BINDING_PER_HOUR;
         if (await spendEnergy(ownerKey, cost)) {
           await db.update(schema.fieldPlacements)
