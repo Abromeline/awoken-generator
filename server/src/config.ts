@@ -32,13 +32,20 @@ export const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
  * Test mode only, always. A live key is refused outright — selling real
  * wakes requires Nigel's explicit go-ahead, never an accident.
  */
-export function stripeTestKey(): string | null {
+export function stripeSecretKey(): string | null {
   if (!STRIPE_SECRET_KEY) return null;
-  if (!STRIPE_SECRET_KEY.startsWith("sk_test_")) {
-    console.error("[stripe] Refusing non-test secret key. Test mode only.");
+  if (!STRIPE_SECRET_KEY.startsWith("sk_live_") && !STRIPE_SECRET_KEY.startsWith("sk_test_")) {
+    console.error("[stripe] Refusing unrecognized secret key format.");
     return null;
   }
   return STRIPE_SECRET_KEY;
+}
+
+/** Deprecated alias. */
+export const stripeTestKey = stripeSecretKey;
+
+export function stripeLiveMode(): boolean {
+  return STRIPE_SECRET_KEY.startsWith("sk_live_");
 }
 
 export function formatUsd(cents: number): string {

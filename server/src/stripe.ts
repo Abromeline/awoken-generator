@@ -9,7 +9,8 @@ import {
   STRIPE_WEBHOOK_SECRET,
   APP_URL,
   formatUsd,
-  stripeTestKey,
+  stripeSecretKey,
+  stripeLiveMode,
 } from "./config.js";
 import { alreadyCredited, grantCredits, SINGLE_OWNER } from "./credits.js";
 import { groveAccrue } from "./grove.js";
@@ -19,11 +20,11 @@ import { db, eq, schema } from "./store.js";
 let stripe: Stripe | null = null;
 
 export function stripeReady(): boolean {
-  return stripeTestKey() !== null;
+  return stripeSecretKey() !== null;
 }
 
 function client(): Stripe | null {
-  const key = stripeTestKey();
+  const key = stripeSecretKey();
   if (!key) return null;
   if (!stripe) stripe = new Stripe(key);
   return stripe;
@@ -39,7 +40,7 @@ function baseUrl(req: { headers: Record<string, string | string[] | undefined>; 
 export function stripeConfig() {
   return {
     configured: stripeReady(),
-    testMode: true,
+    testMode: !stripeLiveMode(),
     publishableKey: STRIPE_PUBLISHABLE_KEY || null,
     packPriceCents: PACK_PRICE_CENTS,
     creditsPerPack: CREDITS_PER_PACK,
