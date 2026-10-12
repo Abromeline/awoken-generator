@@ -87,6 +87,11 @@ export default function MusicLibrary() {
           Enabled tracks play at random when a battle begins. Upload any audio file —
           MP3, WAV, OGG, M4A — or add 8-bit compositions below.
         </p>
+        <p className="quiet">
+          License note: the five FF-style tracks are by Kevin MacLeod and the thirteen
+          orchestral tracks by Scott Buckley — both CC BY 4.0, credited on the public
+          lore panel. Keep that credit if you swap tracks.
+        </p>
       </header>
       {msg && <p className="notice">{msg}</p>}
 

@@ -695,6 +695,7 @@ function LoreSection() {
         <p className="eyebrow">Why $5?</p>
         <p>Your first 20 wakes are free, and a welcome Awoken is already waiting when you arrive. After that, a free wake gathers every 4 hours, whenever you visit — no alarms, no streaks, no guilt. If you want more than that, $5 gathers 20 wakes, and it goes directly to keeping this hand-drawn species alive.</p>
       </aside>
+      <p className="music-note">The music you hear here: “Call to Adventure”, “At Launch”, “Alchemists Tower”, “Five Armies” and “Crusade” by <a href="https://incompetech.com">Kevin MacLeod</a>, with further tracks by <a href="https://www.scottbuckley.com.au">Scott Buckley</a> — all shared under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p>
       <GroveSection />
     </details>
   </section>;
