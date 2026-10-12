@@ -1291,6 +1291,29 @@ export const handlers = {
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
     if (!owned.length) badRequest("That Awoken is not yours.");
+    // The Hall sends its champions (Nigel, 2026-10-12): only housed Awoken
+    // may march to a confluence, and the Hall's size caps the roster.
+    const housed = await db.select().from(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.awakenedId, parsed.data.awakenedId)
+      )).limit(1);
+    if (!housed.length) badRequest("Only housed champions march to a confluence — house this Awoken in your Hall first.");
+    const already = await db.select().from(schema.confluenceRoster)
+      .where(and(
+        eq(schema.confluenceRoster.sessionId, parsed.data.sessionId),
+        eq(schema.confluenceRoster.ownerKey, ownerKey),
+        eq(schema.confluenceRoster.awakenedId, parsed.data.awakenedId)
+      )).limit(1);
+    if (already.length) badRequest("That Awoken is already committed.");
+    const hall = await hallBuildingFor(ownerKey);
+    const cap = hall && hall.status === "active" ? (hall.level ?? 1) : 0;
+    const roster = await db.select().from(schema.confluenceRoster)
+      .where(and(
+        eq(schema.confluenceRoster.sessionId, parsed.data.sessionId),
+        eq(schema.confluenceRoster.ownerKey, ownerKey)
+      ));
+    if (roster.length >= cap) badRequest(`Your Hall holds ${cap} — it can send no more champions to this confluence.`);
     await db.insert(schema.confluenceRoster).values({
       sessionId: parsed.data.sessionId, ownerKey, awakenedId: parsed.data.awakenedId,
     });
