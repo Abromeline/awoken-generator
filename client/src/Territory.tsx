@@ -1172,10 +1172,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     }
                     return;
                   }
-                  if (b.buildingType !== "dream-wheat" || b.status !== "active") return;
+                  const HARVESTABLE_TYPES = ["dream-wheat", "dream-weed", "sky-bloom"];
+                  if (!HARVESTABLE_TYPES.includes(b.buildingType) || b.status !== "active") return;
                   const readyAt = b.readyAt ? new Date(b.readyAt).getTime() : Date.now();
                   const lastHarvest = b.lastHarvestAt ? new Date(b.lastHarvestAt).getTime() : readyAt;
-                  const isReady = Date.now() - lastHarvest >= 4 * 60 * 60 * 1000;
+                  const growHours = b.growHours ?? 4;
+                  const isReady = Date.now() - lastHarvest >= growHours * 60 * 60 * 1000;
                   if (isReady) {
                     try {
                       const r: any = await api.call("harvestWheat", { buildingId: b.id });
@@ -1185,7 +1187,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } catch (err) { console.error("Harvest failed", err); }
                   }
                 }}
-                style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : b.buildingType === "dream-wheat" ? "pointer" : "default" }}>
+                style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : ["dream-wheat", "dream-weed", "sky-bloom"].includes(b.buildingType) ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : b.buildingType === "dream-weed" ? dreamWeedStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5)}

@@ -745,6 +745,14 @@ async function loadGameConfig() {
     if (type === "dream-wheat") {
       buildings[type].harvestEnergy = overrides["building.dream-wheat.harvestEnergy"] ?? 4;
     }
+    if (type === "dream-weed") {
+      buildings[type].harvestEnergy = overrides["building.dream-weed.harvestEnergy"] ?? 10;
+      buildings[type].growHours = overrides["building.dream-weed.growHours"] ?? 1;
+    }
+    if (type === "sky-bloom") {
+      buildings[type].harvestEnergy = overrides["building.sky-bloom.harvestEnergy"] ?? 8;
+      buildings[type].growHours = overrides["building.sky-bloom.growHours"] ?? 8;
+    }
     if (type === "awakening-well" || type === "tree") {
       buildings[type].energyBonus = overrides[`building.${type}.energyBonus`] ?? (type === "tree" ? 1 : 3);
     }
@@ -770,7 +778,7 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
   "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, desc: "Doubles aspect attunement from adjacent Binding Awoken.", icon: "🛕" },
-  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +6 energy every 6h. Only in water.", icon: "🌊", harvestEnergy: 6, growHours: 6 },
+  "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +10 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 10, growHours: 1 },
   "sky-bloom": { name: "Sky Bloom", cost: 5, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +8 energy every 8h. Only on sky.", icon: "☁️", harvestEnergy: 8, growHours: 8 },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
@@ -2987,7 +2995,16 @@ export const handlers = {
         }
       }
     }
-    return { buildings };
+    // Attach harvest parameters so the client knows per-type grow times
+    const withDefs = buildings.map(b => {
+      const def = gameConfig.buildings[b.buildingType] || {};
+      return {
+        ...b,
+        harvestEnergy: def.harvestEnergy ?? null,
+        growHours: def.growHours ?? null,
+      };
+    });
+    return { buildings: withDefs };
   },
 
   async placeBuilding(args: unknown, ctx?: ActionContext) {

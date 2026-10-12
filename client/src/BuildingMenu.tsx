@@ -59,7 +59,7 @@ export function dreamWeedStageImage(building: any): string {
   }
   const readyAt = building.readyAt ? new Date(building.readyAt).getTime() : Date.now();
   const now = Date.now();
-  const growMs = 6 * 60 * 60 * 1000; // 6 hours
+  const growMs = (building.growHours ?? 1) * 60 * 60 * 1000;
   const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime() : readyAt;
   const elapsed = now - lastHarvest;
   const progress = Math.min(1, elapsed / growMs);
