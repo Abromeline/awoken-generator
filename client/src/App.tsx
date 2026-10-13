@@ -82,6 +82,14 @@ const starters: LayerAsset[] = [
 const TEMPLATE_WIDTH = 750;
 const TEMPLATE_HEIGHT = 971;
 function mutationError(error: unknown) { return error instanceof Error ? error.message : "Something interrupted the ritual."; }
+/** A 403 from a Tender-gated action means the visitor has not claimed
+ * an account yet (fix list #7: claim-first is the front door). Tender-
+ * face surfaces route it to the claim gate with a friendly word
+ * instead of surfacing the server's refusal text. */
+function isClaimGateError(error: unknown): boolean {
+  return (error as { status?: number } | null)?.status === 403;
+}
+const CLAIM_GATE_NOTE = "The Awoken are waiting — but the waking is for Tenders. Choose your name and a password, and the ritual opens: your first twenty wakes, and the one who has been waiting for you.";
 /** Both studio queries go stale together — the tender deck and the workshop compendium. */
 function invalidateStudios(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["studio"] });
@@ -320,7 +328,7 @@ function TenderRank() {
 
 type CeremonyPhase = "idle" | "crystal" | "flare" | "grow" | "settled";
 
-function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, nextFreeWakeAt, waitingFree, isFirstAwoken, creatorGifts, signedIn, items }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; nextFreeWakeAt?: string | null; waitingFree?: WaitingAwoken | null; isFirstAwoken?: boolean; creatorGifts?: number; signedIn?: boolean; items?: Awoken[] }) {
+function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClaim, credits, freeWakeAvailable, nextFreeWakeAt, waitingFree, isFirstAwoken, creatorGifts, signedIn, items }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; onNeedClaim?: () => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; nextFreeWakeAt?: string | null; waitingFree?: WaitingAwoken | null; isFirstAwoken?: boolean; creatorGifts?: number; signedIn?: boolean; items?: Awoken[] }) {
   const queryClient = useQueryClient();
   const [giftDismissed, setGiftDismissed] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
@@ -438,8 +446,8 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   // the spark-claim row below stays its door.
   function dismissWaitingCard() { clearCardTimers(); setCardOpen(false); setWantCard(false); }
   useEffect(() => () => { clearCeremonyTimers(); clearCardTimers(); }, []);
-  const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setCardId(data.id); onSaved(data.id); }, onError: () => { abortCeremony(); } });
-  const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => setNotice(mutationError(error)) });
+  const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setCardId(data.id); onSaved(data.id); }, onError: (error) => { abortCeremony(); if (collection === "tender" && isClaimGateError(error)) onNeedClaim?.(); } });
+  const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => { if (isClaimGateError(error) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(error)); } });
   const vesselEmpty = credits !== null && credits.balance <= 0;
   function onWakeButton() { if (vesselEmpty) { if (credits?.checkoutEnabled) checkout.mutate(); else setNotice("Wakes are gathered in packs — payments are not configured yet."); return; } wakeOne(); }
   useEffect(() => {
@@ -491,7 +499,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       setComposition(layers);
       setNotice("A free wake has gathered — it waits at the spark, yours to claim.");
       onSaved(0);
-    } catch (e) { abortCeremony(); setNotice(mutationError(e)); }
+    } catch (e) { abortCeremony(); if (isClaimGateError(e) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(e)); }
     finally { setFreeBusy(false); }
   }
   // Claiming the waiting free creature. From its card, the claim concludes
@@ -508,7 +516,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       onSaved(data.awakenedId);
       if (fromCard) concludeMoment();
       else { setCardId(data.awakenedId); setWantCard(true); }
-    } catch (e) { setNotice(mutationError(e)); }
+    } catch (e) { if (isClaimGateError(e) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(e)); }
     finally { setFreeBusy(false); }
   }
   // Re-weaving the waiting free creature. From its card, the card closes,
@@ -528,7 +536,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       setNotice("The matter re-gathers into a new form.");
       void queryClient.invalidateQueries({ queryKey: ["welcome"] });
       if (fromCard) { setCardOpen(false); setWantCard(true); startGrowBeat(); }
-    } catch (e) { setNotice(mutationError(e)); }
+    } catch (e) { if (isClaimGateError(e) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(e)); }
     finally { setFreeBusy(false); }
   }
   // The card resolves the just-woken creature from the studio items App
@@ -857,7 +865,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
   </section>;
 }
 
-function WaitingCreature({ slot, waiting, assets, onClaimed }: { slot: "welcome" | "free"; waiting: WaitingAwoken; assets: LayerAsset[]; onClaimed: (id: number) => void }) {
+function WaitingCreature({ slot, waiting, assets, onClaimed, onNeedClaim }: { slot: "welcome" | "free"; waiting: WaitingAwoken; assets: LayerAsset[]; onClaimed: (id: number) => void; onNeedClaim?: () => void }) {
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [weaving, setWeaving] = useState(false);
@@ -865,7 +873,7 @@ function WaitingCreature({ slot, waiting, assets, onClaimed }: { slot: "welcome"
   const claim = useMutation({
     mutationFn: () => api.claimWelcome({ slot }),
     onSuccess: (data) => { onClaimed(data.awakenedId); invalidateStudios(queryClient); void queryClient.invalidateQueries({ queryKey: ["welcome"] }); },
-    onError: (error) => setNotice(mutationError(error)),
+    onError: (error) => { if (isClaimGateError(error) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(error)); },
   });
   async function reconstitute() {
     if (!canWake(assets)) { setNotice("The pools are still gathering matter — the first pieces have not arrived yet."); return; }
@@ -875,7 +883,7 @@ function WaitingCreature({ slot, waiting, assets, onClaimed }: { slot: "welcome"
       const imageBase64 = await compose(layers);
       await api.reconstituteWelcome({ slot, layers: toLayerRefs(layers), imageBase64 });
       await queryClient.invalidateQueries({ queryKey: ["welcome"] });
-    } catch (error) { setNotice(mutationError(error)); }
+    } catch (error) { if (isClaimGateError(error) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(error)); }
     finally { setWeaving(false); }
   }
   if (!item) return null;
@@ -894,7 +902,7 @@ function WaitingCreature({ slot, waiting, assets, onClaimed }: { slot: "welcome"
   </section>;
 }
 
-function WelcomeSection({ assets, welcome, onClaimed }: { assets: LayerAsset[]; welcome: WelcomeStatus | undefined; onClaimed: (id: number) => void }) {
+function WelcomeSection({ assets, welcome, onClaimed, onNeedClaim }: { assets: LayerAsset[]; welcome: WelcomeStatus | undefined; onClaimed: (id: number) => void; onNeedClaim?: () => void }) {
   const queryClient = useQueryClient();
   const [seedNote, setSeedNote] = useState<string | null>(null);
   const seededRef = useRef(false);
@@ -910,6 +918,7 @@ function WelcomeSection({ assets, welcome, onClaimed }: { assets: LayerAsset[]; 
         await api.seedWelcome({ layers: toLayerRefs(layers), imageBase64: await compose(layers) });
         await queryClient.invalidateQueries({ queryKey: ["welcome"] });
       } catch (error) {
+        if (isClaimGateError(error) && onNeedClaim) { onNeedClaim(); return; }
         seededRef.current = false;
         setSeedNote(mutationError(error));
       }
@@ -921,7 +930,7 @@ function WelcomeSection({ assets, welcome, onClaimed }: { assets: LayerAsset[]; 
   // seen, and claimed at the spark in WakeRitual — one door only. This
   // section keeps the first-visit greeting alone.
   const greeting = welcome.welcome?.awakened
-    ? <WaitingCreature slot="welcome" waiting={welcome.welcome} assets={assets} onClaimed={onClaimed} />
+    ? <WaitingCreature slot="welcome" waiting={welcome.welcome} assets={assets} onClaimed={onClaimed} onNeedClaim={onNeedClaim} />
     : null;
   if (!greeting) {
     if (welcome.needsSeed && !ready) return <p className="freewake-quiet">The workshop's matter has not arrived yet — your first greeting is still gathering.</p>;
@@ -1086,7 +1095,7 @@ function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlo
 }
 
 /** The Tender account gate: claim a secret code (or log in) to begin. */
-function TenderGate({ onDone }: { onDone: (token: string) => void }) {
+function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: string | null }) {
   const [mode, setMode] = useState<"claim" | "login">("claim");
   const [suggestedCode, setSuggestedCode] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -1125,6 +1134,7 @@ function TenderGate({ onDone }: { onDone: (token: string) => void }) {
     <p className="eyebrow">Become a Tender</p>
     <h1>Every Awoken needs someone to wake it.</h1>
     <p>Take a secret key — it is yours alone, and it locks your wakes and your deck to you wherever you go. No email, no noise. Your name comes later, when the Awoken ask.</p>
+    {note && <p className="notice" role="status">{note}</p>}
     <div className="gate-tabs">
       <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>Take a key</button>
       <button type="button" className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(null); }}>Already have one?</button>
@@ -1507,6 +1517,13 @@ export function App() {
   const [wtoken, setWtoken] = useState<string | null>(() => storedWorkshopToken());
   const [tenderTokenState, setTenderTokenState] = useState<string | null>(() => storedTenderToken());
   const [showGate, setShowGate] = useState(false);
+  const [gateNote, setGateNote] = useState<string | null>(null);
+  // A gated action attempted before claiming routes here (fix list #7):
+  // the gate opens as the front door, carrying the friendly word.
+  function needClaim() {
+    setGateNote(CLAIM_GATE_NOTE);
+    setShowGate(true);
+  }
   const [renaming, setRenaming] = useState(false);
   const query = useQuery({ queryKey: ["studio", tenderTokenState], queryFn: () => api.getStudio() });
   const welcomeQuery = useQuery({ queryKey: ["welcome", tenderTokenState], queryFn: () => api.getWelcome(), retry: false });
@@ -1538,6 +1555,7 @@ export function App() {
     storeTenderToken(token);
     setTenderTokenState(token);
     setShowGate(false);
+    setGateNote(null);
     void queryClient.invalidateQueries({ queryKey: ["studio"] });
     void queryClient.invalidateQueries({ queryKey: ["welcome"] });
   }
@@ -1571,14 +1589,14 @@ export function App() {
     // soft visitors (welcome still resolves) keep their ritual.
     const showGateUI = !tenderTokenState && (showGate || welcomeForbidden);
     if (showGateUI) {
-      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} /><LoreSection /></main></div></>;
+      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} note={gateNote} /><LoreSection /></main></div></>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
     return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button><TenderRank /></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
-      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}
+      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} onNeedClaim={needClaim} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}
     </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       </div></>;  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;
