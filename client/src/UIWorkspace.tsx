@@ -309,7 +309,7 @@ export default function UIWorkspace() {
           <div className="workspace-card wide">
             <h3>⏱️ Global Timers</h3>
             <div className="stat-rows">
-              <label>Energy regen (min) <input type="number" value={getVal("timer.energyRegenMinutes")} onChange={e => setVal("timer.energyRegenMinutes", +e.target.value)} /></label>
+              <label>Energy regen, online (min) — offline is 3× slower <input type="number" value={getVal("timer.energyRegenMinutes")} onChange={e => setVal("timer.energyRegenMinutes", +e.target.value)} /></label>
               <label>Builder time divisor <input type="number" step="0.1" value={getVal("timer.buildHelperDivisor")} onChange={e => setVal("timer.buildHelperDivisor", +e.target.value)} />
                 <small>Each builder divides time by this</small></label>
               <label>Wheat-well synergy <input type="number" step="0.05" min="0" max="1" value={getVal("timer.wheatWellSynergy")} onChange={e => setVal("timer.wheatWellSynergy", +e.target.value)} />

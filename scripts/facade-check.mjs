@@ -134,6 +134,44 @@ for (const name of ["fray", "unraveler", "hollow", "tangle"]) {
   else ok(`enemy "${name}" — config pulled in ${pulls} place(s)`);
 }
 
+// --- 2c. Timer fields + workshop dead knobs -------------------------------
+// Every timers.* field the config builds must be read by a mechanic, and
+// every knob the workshop UI presents must be read by loadGameConfig —
+// a knob that turns nothing is a facade with a handle.
+console.log("Timers & workshop knobs — does every dial connect to something?");
+const cfgRegion = actions.slice(cfgFnStart, defsStart);
+const timersObj = cfgRegion.slice(cfgRegion.indexOf("const timers = {"));
+const timerFields = [...timersObj.matchAll(/^\s+(\w+):/gm)].map((m) => m[1]);
+for (const field of timerFields) {
+  let reads = 0;
+  let idx = 0;
+  for (const line of actions.split("\n")) {
+    const lineStart = idx; idx += line.length + 1;
+    if (inConfig(lineStart) || inDefs(lineStart)) continue;
+    if (line.includes(`timers.${field}`) || line.includes(`timers?.${field}`)) reads++;
+  }
+  for (const f of clientFiles) {
+    reads += f.text.split("\n").filter((l) => l.includes(`timers.${field}`) || l.includes(`timers?.${field}`)).length;
+  }
+  if (reads === 0) flag(`timers.${field} is built into game config but never read — its workshop knob turns nothing.`);
+  else ok(`timers.${field} — read in ${reads} place(s)`);
+}
+{
+  const uiWs = read("client/src/UIWorkspace.tsx");
+  const uiKeys = new Set([...uiWs.matchAll(/"((?:building|enemy|timer)\.[a-zA-Z0-9.\-]+)"\s*:/g)].map((m) => m[1]));
+  const rawReads = new Set([...cfgRegion.matchAll(/overrides\[(?:"([^"]+)"|`([^`]+)`)]/g)].map((m) => m[1] ?? m[2]));
+  const enemyNames = [...cfgRegion.matchAll(/for \(const name of \[([^\]]+)\]\)/g)].flatMap((m) => [...m[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1]));
+  const expanded = new Set();
+  for (const r of rawReads) {
+    if (r.includes("${type}")) for (const t of types) expanded.add(r.replace("${type}", t));
+    else if (r.includes("${name}")) for (const e of enemyNames) expanded.add(r.replace("${name}", e));
+    else expanded.add(r);
+  }
+  const dead = [...uiKeys].filter((k) => !expanded.has(k));
+  if (dead.length) for (const k of dead) flag(`workshop knob "${k}" is never read by the server — it turns nothing.`);
+  else ok(`all ${uiKeys.size} workshop knobs are read by the server`);
+}
+
 // --- 3. Client actions without server handlers ----------------------------
 console.log("Client actions — does every call have a server handler?");
 const api = read("client/src/api.ts");

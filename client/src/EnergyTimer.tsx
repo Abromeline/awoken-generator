@@ -1,12 +1,22 @@
-// EnergyTimer: Glowing orb with 12-minute refill countdown.
-// Energy regenerates +1 every 12 minutes, up to max, automatically.
+// EnergyTimer: Glowing orb counting down to the next +1 energy.
+// The interval is the workshop's timer.energyRegenMinutes (online rate),
+// loaded from game config — never a hardcoded guess.
 import { useState, useEffect } from "react";
 import { api } from "./api";
 
 export default function EnergyTimer() {
   const [energy, setEnergy] = useState(0);
   const [maxEnergy, setMaxEnergy] = useState(10);
-  const [secondsLeft, setSecondsLeft] = useState(240); // 4 min = 240s (online, 1/3 of 12min)
+  const [regenSeconds, setRegenSeconds] = useState(240);
+  const [secondsLeft, setSecondsLeft] = useState(240);
+
+  useEffect(() => {
+    api.call("getGameConfig", {}).then((cfg: any) => {
+      const mins = cfg?.timers?.energyRegenMinutes ?? 4;
+      setRegenSeconds(mins * 60);
+      setSecondsLeft(mins * 60);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const fetch = async () => {
@@ -14,8 +24,8 @@ export default function EnergyTimer() {
         const { energy: e, maxEnergy: m } = await api.getEnergy();
         setEnergy(e);
         setMaxEnergy(m);
-        // Estimate time to next +1 (we don't have exact server timestamp,
-        // so we count down from 12min and refresh on interval)
+        // Estimate time to next +1 (no exact server timestamp, so we
+        // count down the configured interval and refresh on interval)
       } catch {}
     };
     fetch();
@@ -33,18 +43,18 @@ export default function EnergyTimer() {
             setEnergy(e);
             setMaxEnergy(m);
           }).catch(() => {});
-          return 240;
+          return regenSeconds;
         }
         return s - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [energy, maxEnergy]);
+  }, [energy, maxEnergy, regenSeconds]);
 
   const isFull = energy >= maxEnergy;
   const mins = Math.floor(secondsLeft / 60);
   const secs = secondsLeft % 60;
-  const progress = 1 - secondsLeft / 240; // 0 to 1
+  const progress = 1 - secondsLeft / regenSeconds; // 0 to 1
 
   return (
     <div className={`energy-orb ${isFull ? "full" : "charging"}`} title={

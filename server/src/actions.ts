@@ -2959,10 +2959,13 @@ export const handlers = {
     const updatedAt = res[0].updatedAt ? new Date(res[0].updatedAt).getTime() : Date.now();
     const lastSeen = res[0].lastSeenAt ? new Date(res[0].lastSeenAt).getTime() : 0;
     const now = Date.now();
-    // Online detection: if last seen within 5 min, Tender is online
-    // Online: 4 min per energy (1/3 of 12 min). Offline: 12 min per energy.
+    // Online detection: if last seen within 5 min, Tender is online.
+    // Regen rate is the workshop timer (default 4 min online); offline
+    // regen is 3x slower, as it has always been.
     const isOnline = (now - lastSeen) < 5 * 60 * 1000;
-    const regenMinutes = isOnline ? 4 : 12;
+    const regenCfg = await loadGameConfig();
+    const onlineRegenMinutes = regenCfg.timers.energyRegenMinutes ?? 4;
+    const regenMinutes = isOnline ? onlineRegenMinutes : onlineRegenMinutes * 3;
     const elapsedMin = (now - updatedAt) / (1000 * 60);
     const regen = Math.floor(elapsedMin / regenMinutes);
     if (regen > 0 && energy < maxEnergy) {
@@ -3094,9 +3097,14 @@ export const handlers = {
   },
 
   // Admin: clear all timers (dispersed, passive, etc.) for a tender.
-  getBuildingDefs() {
+  async getBuildingDefs() {
+    // The build menu must show what will actually be charged: live config
+    // (workshop overrides applied), and disabled buildings are not offered.
+    const gameConfig = await loadGameConfig();
     return {
-      defs: Object.entries(BUILDING_DEFS).map(([type, d]) => ({ type, ...d })),
+      defs: Object.entries(gameConfig.buildings)
+        .filter(([, d]: any) => d.enabled !== false)
+        .map(([type, d]: any) => ({ type, ...d })),
     };
   },
 
