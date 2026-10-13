@@ -27,7 +27,21 @@ export function stripeReady(): boolean {
 function client(): Stripe | null {
   const key = stripeSecretKey();
   if (!key) return null;
-  if (!stripe) stripe = new Stripe(key);
+  if (!stripe) {
+    // STRIPE_API_BASE exists so tests can point the client at a local mock
+    // Stripe API; unset in production, where api.stripe.com is used.
+    const base = process.env.STRIPE_API_BASE;
+    if (base) {
+      const u = new URL(base);
+      stripe = new Stripe(key, {
+        protocol: u.protocol === "http:" ? "http" : "https",
+        host: u.hostname,
+        port: u.port || undefined,
+      });
+    } else {
+      stripe = new Stripe(key);
+    }
+  }
   return stripe;
 }
 
@@ -116,10 +130,46 @@ export async function stripeWebhookHandler(req: { body: Buffer; headers: Record<
     res.status(400).json({ error: "Missing Stripe signature." });
     return;
   }
-  let event: Stripe.Event;
+  let session: Stripe.Checkout.Session | null = null;
   try {
-    event = s.webhooks.constructEvent(req.body, signature, secret);
+    const event = s.webhooks.constructEvent(req.body, signature, secret);
+    if (event.type === "checkout.session.completed") {
+      session = event.data.object as Stripe.Checkout.Session;
+    }
   } catch (err) {
+    // Thin payloads (v2 event destinations - what the current Stripe
+    // dashboard creates) are rejected by constructEvent on shape alone,
+    // before signature verification runs. They verify through
+    // parseEventNotification instead and carry only a reference, so the
+    // full checkout session is fetched from Stripe before any crediting.
+    // (Found live 2026-10-13: the secret was right all along - the two
+    // signature prefixes in the diagnostic line matched - while every
+    // delivery failed on this shape check.)
+    let thinHandled = false;
+    if (err instanceof Error && /thin event/i.test(err.message)) {
+      try {
+        const notification = s.parseEventNotification(req.body, signature, secret);
+        // Thin notifications spell v1 event types with a "v1." prefix
+        // ("v1.checkout.session.completed"); accept either spelling.
+        if (notification.type.replace(/^v1\./, "") === "checkout.session.completed") {
+          // Not every notification type carries a related object, so the
+          // method is absent from parts of the SDK's union type.
+          const fetchRelated = (notification as { fetchRelatedObject?: () => Promise<unknown> }).fetchRelatedObject;
+          const related = fetchRelated ? ((await fetchRelated()) as unknown as Stripe.Checkout.Session | null) : null;
+          if (!related) throw new Error("thin event carried no related object");
+          session = related;
+        }
+        thinHandled = true;
+      } catch (thinErr) {
+        console.error(
+          "[stripe-webhook] thin event handling failed:",
+          thinErr instanceof Error ? thinErr.message.replace(/\s*\n\s*/g, " ") : String(thinErr)
+        );
+        res.status(400).json({ error: "Stripe signature verification failed." });
+        return;
+      }
+    }
+    if (!thinHandled) {
     // Diagnostics (2026-10-13): a live delivery kept failing verification
     // while the secret looked right everywhere. Log only non-secret facts:
     // the verification error, our secret's length + SHA-256 fingerprint
@@ -152,9 +202,9 @@ export async function stripeWebhookHandler(req: { body: Buffer; headers: Record<
     } catch { /* diagnostics must never break the handler */ }
     res.status(400).json({ error: "Stripe signature verification failed." });
     return;
+    }
   }
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
+  if (session) {
     const buyer = typeof session.client_reference_id === "string" && session.client_reference_id
       ? session.client_reference_id
       : SINGLE_OWNER;
