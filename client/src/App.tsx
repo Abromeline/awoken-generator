@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
 import { setCourtMarks, useCourtMarks } from "./courtMarks";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/terrain-mountain.png";
@@ -36,6 +36,7 @@ import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import UIWorkspace from "./UIWorkspace";
 import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
 import MusicLibrary from "./MusicLibrary";
+import { ElementGlyph } from "./glyphs";
 import auraWhisper from "./assets/auras/haze-01.png";
 import auraSoft from "./assets/auras/haze-02.png";
 import auraHaloRing from "./assets/auras/haze-03.png";
@@ -370,9 +371,24 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   const ceremonyTimers = useRef<number[]>([]);
   function clearCeremonyTimers() { ceremonyTimers.current.forEach((t) => window.clearTimeout(t)); ceremonyTimers.current = []; }
   function ceremonyLater(ms: number, fn: () => void) { ceremonyTimers.current.push(window.setTimeout(fn, ms)); }
+  // The card's own ceremony, once it forms over the spark: Drift In —
+  // the card's elements glide in from outside the frame (~2.6s) — then
+  // the corner burn: the body, arms and head pieces' glyphs and the
+  // power/toughness kindle into the card's four corners one by one in
+  // their elemental colors (~1.9s each, ~8s), and the finished card
+  // keeps their soft elemental glow. Phases are timer-driven (never
+  // animation events), so Keep always arrives; a tap on the stage
+  // during either act skips straight to the finished card.
+  const [cardPhase, setCardPhase] = useState<"forming" | "burning" | "done">("forming");
+  const cardTimers = useRef<number[]>([]);
+  function clearCardTimers() { cardTimers.current.forEach((t) => window.clearTimeout(t)); cardTimers.current = []; }
+  function cardLater(ms: number, fn: () => void) { cardTimers.current.push(window.setTimeout(fn, ms)); }
+  function finishCardCeremony() { clearCardTimers(); setCardPhase("done"); }
   function startCeremony() {
     if (collection !== "tender") return;
     clearCeremonyTimers();
+    clearCardTimers();
+    setCardPhase("forming");
     setCardOpen(false);
     setCardId(null);
     setSessionWaiting(null);
@@ -382,9 +398,10 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
     ceremonyLater(3600, () => setCeremony("grow"));
     ceremonyLater(7100, () => setCeremony("settled"));
   }
-  function abortCeremony() { clearCeremonyTimers(); setCeremony("idle"); setCardOpen(false); setWantCard(false); }
+  function abortCeremony() { clearCeremonyTimers(); clearCardTimers(); setCeremony("idle"); setCardOpen(false); setWantCard(false); }
   function skipCeremony() {
     if (ceremony === "crystal" || ceremony === "flare" || ceremony === "grow") { clearCeremonyTimers(); setCeremony("settled"); }
+    if (cardOpen && cardPhase !== "done") finishCardCeremony();
   }
   // A lone grow beat — the re-presentation of a re-woven free wake.
   function startGrowBeat() {
@@ -397,6 +414,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   function concludeMoment() {
     const concludedId = cardId;
     clearCeremonyTimers();
+    clearCardTimers();
     setCardOpen(false);
     setWantCard(false);
     setCardId(null);
@@ -414,8 +432,8 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   }
   // Dismissing an unclaimed waiting creature's card leaves it waiting —
   // the spark-claim row below stays its door.
-  function dismissWaitingCard() { setCardOpen(false); setWantCard(false); }
-  useEffect(() => () => clearCeremonyTimers(), []);
+  function dismissWaitingCard() { clearCardTimers(); setCardOpen(false); setWantCard(false); }
+  useEffect(() => () => { clearCeremonyTimers(); clearCardTimers(); }, []);
   const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setCardId(data.id); onSaved(data.id); }, onError: () => { abortCeremony(); } });
   const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => setNotice(mutationError(error)) });
   const vesselEmpty = credits !== null && credits.balance <= 0;
@@ -526,6 +544,28 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
     if (ceremony !== "settled" && ceremony !== "idle") return;
     if (presentedItem) setCardOpen(true);
   }, [collection, wantCard, cardOpen, ceremony, presentedItem]);
+  // Drive the card ceremony while the card stands: Drift In (2.6s),
+  // then the corner burn (4 corners, ~8.2s), then the finished card
+  // with its actions. Timer-driven throughout — if anything stalls,
+  // the final timer still lands and Keep appears.
+  useEffect(() => {
+    if (!cardOpen) { clearCardTimers(); setCardPhase("forming"); return; }
+    setCardPhase("forming");
+    cardLater(2600, () => setCardPhase("burning"));
+    cardLater(2600 + 8200, () => setCardPhase("done"));
+    return () => clearCardTimers();
+  }, [cardOpen]);
+  // The corner burn reads the presented creature's pieces: top-left the
+  // body's element, top-right the arms', bottom-left the head's — the
+  // same element resolution the card itself uses (DB element first,
+  // then the name's keywords). Bottom-right is the power/toughness.
+  const burnElement = (category: Category): Element | null => {
+    const layer = presentedItem?.layers.find((l) => l.category === category);
+    return layer ? elementForPiece(layer.name, (layer as any).element) : null;
+  };
+  const burnBody = burnElement("body");
+  const burnArms = burnElement("arms");
+  const burnHead = burnElement("head");
   const ceremonyActive = ceremony === "crystal" || ceremony === "flare" || ceremony === "grow";
   const canvasClass = collection !== "tender" ? "" : ceremony === "crystal" || ceremony === "flare" ? "ceremony-form-hidden" : ceremony === "grow" ? "ceremony-form-born" : ceremony === "settled" ? "awoken-breathing" : sparkFormRef.current !== null && composition.length ? "awoken-breathing" : "";
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
@@ -536,7 +576,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       </p>
     )}
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
-    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} onClick={skipCeremony}><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><TradingCard item={presentedItem} />{waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>)}</div></div>)}</div>
+    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} onClick={skipCeremony}><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={cardPhase !== "done" ? finishCardCeremony : waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><div className="ceremony-card-stage" data-phase={cardPhase}><TradingCard item={presentedItem} />{burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": elementColors[burnBody], "--burn-delay": "0s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={elementColors[burnBody]} dotColor={elementColors[burnBody]} width={54} height={22} /></span>)}{burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": elementColors[burnArms], "--burn-delay": "2.05s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={elementColors[burnArms]} dotColor={elementColors[burnArms]} width={54} height={22} /></span>)}{burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": elementColors[burnHead], "--burn-delay": "4.1s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={elementColors[burnHead]} dotColor={elementColors[burnHead]} width={54} height={22} /></span>)}<span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": "6.15s" } as CSSProperties} aria-hidden="true">{presentedItem.power}/{presentedItem.toughness}</span></div>{cardPhase === "done" && (waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>))}</div></div>)}</div>
       {collection === "tender" && waitingFree?.awakened && (
         <div className="spark-claim">
           <p className="spark-claim-line">✨ {waitingFree.awakened.name} waits at the spark — a free wake, already gathered.</p>

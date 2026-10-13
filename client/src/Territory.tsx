@@ -13,6 +13,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
 import AspectCelebration from "./AspectCelebration";
+import { ElementGlyph, type GlyphElement } from "./glyphs";
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -1670,49 +1671,6 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
   });
   if (!data) return null;
 
-  const glyphs: Record<string, React.ReactElement> = {
-    tide: (
-      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
-        <path d="M2,12 Q10,4 18,12 T34,12 T50,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M2,17 Q10,9 18,17 T34,17 T50,17" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.5"/>
-        <path d="M50,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-        <circle cx="50" cy="12" r="2" fill="#e8d5a0" opacity="0.8"/>
-      </svg>
-    ),
-    sky: (
-      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
-        <path d="M28,12 m-8,0 a8,8 0 1,1 8,8 a6,6 0 1,0 -6,-6 a4,4 0 1,1 4,4" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M36,12 Q44,12 50,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-        <circle cx="36" cy="12" r="1.5" fill="#e8d5a0" opacity="0.8"/>
-      </svg>
-    ),
-    stone: (
-      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
-        <path d="M6,18 L18,4 L26,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M18,4 L18,14 M12,11 L24,11" fill="none" stroke="#d4af6a" strokeWidth="0.8" opacity="0.5"/>
-        <path d="M26,12 Q36,12 44,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-        <path d="M26,12 L32,18" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.4"/>
-      </svg>
-    ),
-    root: (
-      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
-        <path d="M10,18 Q10,6 22,6 Q34,6 34,14" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M34,14 Q38,14 42,14 L60,14" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-        <path d="M22,6 Q26,2 30,4" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.6"/>
-        <ellipse cx="30" cy="4" rx="3" ry="1.5" fill="#d4af6a" opacity="0.35" transform="rotate(-25 30 4)"/>
-        <path d="M14,14 Q18,12 20,14" fill="none" stroke="#d4af6a" strokeWidth="0.8" opacity="0.4"/>
-      </svg>
-    ),
-    fire: (
-      <svg className="glyph-svg" viewBox="0 0 60 24" width="60" height="24">
-        <path d="M14,20 Q10,14 14,8 Q16,4 14,2 Q20,4 22,10 Q24,6 22,2 Q28,6 26,12 Q25,16 28,18 L60,18" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M18,20 Q16,16 18,12 Q20,14 19,17" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.6"/>
-        <path d="M28,18 L60,18" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-        <circle cx="22" cy="14" r="1.5" fill="#d4af6a" opacity="0.5"/>
-      </svg>
-    ),
-  };
-
   const elements = [
     { id: "tide", label: "Tide" },
     { id: "sky", label: "Sky" },
@@ -1736,7 +1694,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         const rate = (data.rates && data.rates[el.id]) || 0;
         return (
           <div key={el.id} className="celestial-row" title={`${el.label}: ${points.toFixed(1)}/${data.threshold} · +${rate}/hr`}>
-            {glyphs[el.id]}
+            <ElementGlyph element={el.id as GlyphElement} className="glyph-svg" width={60} height={24} />
             <div className="celestial-track"><div className="celestial-progress" style={{ width: `${pct}%` }} /></div>
             <span className="celestial-rate" style={{ fontSize: 11, opacity: rate > 0 ? 0.95 : 0.45, minWidth: 52, textAlign: "right", color: "#e8d5a0" }}>{rate > 0 ? `+${rate}/hr` : "—"}</span>
             <button
