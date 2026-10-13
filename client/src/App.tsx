@@ -313,7 +313,7 @@ function TenderRank() {
   );
 }
 
-function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, isFirstAwoken, creatorGifts, signedIn }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; isFirstAwoken?: boolean; creatorGifts?: number; signedIn?: boolean }) {
+function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, nextFreeWakeAt, waitingFree, isFirstAwoken, creatorGifts, signedIn }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; nextFreeWakeAt?: string | null; waitingFree?: WaitingAwoken | null; isFirstAwoken?: boolean; creatorGifts?: number; signedIn?: boolean }) {
   const queryClient = useQueryClient();
   const [giftDismissed, setGiftDismissed] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
@@ -342,6 +342,12 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   const awakening = useAwakeningSprites();
   const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
   const [composition, setComposition] = useState<LayerAsset[]>([]); const [notice, setNotice] = useState("The scattered matter waits.");
+  const [freeBusy, setFreeBusy] = useState(false);
+  // The id of the waiting free creature whose form currently fills the
+  // canvas, if any — so the spark can present it without fighting a form
+  // the Tender woke themselves.
+  const sparkFormRef = useRef<number | null>(null);
+  const [, setSparkTick] = useState(0);
   const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); onSaved(data.id); } });
   const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => setNotice(mutationError(error)) });
   const vesselEmpty = credits !== null && credits.balance <= 0;
@@ -356,7 +362,67 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
     const missing = statCategories.filter((category) => !assets.some((asset) => asset.category === category));
     if (missing.length) { setNotice(`The ${missing.join(", ")} pool must hold at least one piece before a form can wake.`); return; }
     const next = pickLayerSet(assets, manual ? choices : undefined, isFirstAwoken);
+    sparkFormRef.current = null;
     setComposition(next); setNotice("Matter gathers. The binding holds…"); save.mutate(next);
+  }
+  // The spark is the only door to the free wake. A gathered free creature
+  // waits at the spark: its form fills the canvas so it is seen and claimed
+  // where it woke — never in a box elsewhere on the page.
+  useEffect(() => {
+    const waiting = waitingFree?.awakened;
+    if (!waiting) return;
+    if (sparkFormRef.current === waiting.id) return;
+    if (composition.length && sparkFormRef.current === null) return; // the Tender's own woken form holds the canvas
+    const layers = waiting.layers
+      .map((ref) => assets.find((asset) => asset.sourceId === ref.source_id))
+      .filter((asset): asset is LayerAsset => !!asset);
+    if (!layers.length) return;
+    sparkFormRef.current = waiting.id;
+    setComposition(layers);
+  }, [waitingFree, assets, composition.length]);
+  // While the next free wake gathers, keep the spark's countdown honest.
+  useEffect(() => {
+    if (collection !== "tender" || freeWakeAvailable || !nextFreeWakeAt || composition.length) return;
+    const timer = setInterval(() => setSparkTick((n) => n + 1), 60000);
+    return () => clearInterval(timer);
+  }, [collection, freeWakeAvailable, nextFreeWakeAt, composition.length]);
+  async function wakeFreeAtSpark() {
+    if (freeBusy) return;
+    setFreeBusy(true);
+    try {
+      const layers = pickLayerSet(assets);
+      const data = await api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) });
+      sparkFormRef.current = data.awakened?.id ?? null;
+      setComposition(layers);
+      setNotice("A free wake has gathered — it waits at the spark, yours to claim.");
+      onSaved(0);
+    } catch (e) { setNotice(mutationError(e)); }
+    finally { setFreeBusy(false); }
+  }
+  async function claimWaitingFree() {
+    const waiting = waitingFree?.awakened;
+    if (!waiting || freeBusy) return;
+    setFreeBusy(true);
+    try {
+      const data = await api.claimWelcome({ slot: "free" });
+      setNotice(`${waiting.name} has joined your deck.`);
+      onSaved(data.awakenedId);
+    } catch (e) { setNotice(mutationError(e)); }
+    finally { setFreeBusy(false); }
+  }
+  async function reconstituteWaitingFree() {
+    if (!waitingFree?.awakened || freeBusy) return;
+    if (!canWake(assets)) { setNotice("The pools are still gathering matter — the first pieces have not arrived yet."); return; }
+    setFreeBusy(true);
+    try {
+      const layers = pickLayerSet(assets);
+      const data = await api.reconstituteWelcome({ slot: "free", layers: toLayerRefs(layers), imageBase64: await compose(layers) });
+      sparkFormRef.current = data.awakened?.id ?? null;
+      setComposition(layers);
+      setNotice("The matter re-gathers into a new form.");
+      void queryClient.invalidateQueries({ queryKey: ["welcome"] });
+    } catch (e) { setNotice(mutationError(e)); }
+    finally { setFreeBusy(false); }
   }
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
     {creatorGifts !== undefined && creatorGifts > 0 && !giftDismissed && (
@@ -366,7 +432,18 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       </p>
     )}
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
-    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }}><canvas ref={canvasRef} width={750} height={971} aria-label="Awoken awakening canvas" />{freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={async () => { try { const layers = pickLayerSet(assets); await api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) }); onSaved(0); } catch (e) { setNotice(mutationError(e)); } }} aria-label="A free wake is ready — tap to wake"><img src={awakening.wakeReady} alt="" /><span>Tap to wake</span></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span></div>
+    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }}><canvas ref={canvasRef} width={750} height={971} aria-label="Awoken awakening canvas" />{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span></div>
+      {collection === "tender" && waitingFree?.awakened && (
+        <div className="spark-claim">
+          <p className="spark-claim-line">✨ {waitingFree.awakened.name} waits at the spark — a free wake, already gathered.</p>
+          <div className="waiting-actions">
+            <button className="wake-button" type="button" onClick={() => void claimWaitingFree()} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>
+            {waitingFree.respinsRemaining > 0
+              ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree()} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button>
+              : <p className="quiet">The matter has settled into this form.</p>}
+          </div>
+        </div>
+      )}
       {vesselEmpty ? (
         <div className="gather-wakes-row">
           <button className="gather-wakes-btn" type="button" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Gather wakes">
@@ -691,34 +768,18 @@ function WelcomeSection({ assets, welcome, onClaimed }: { assets: LayerAsset[]; 
     })();
   }, [welcome, assets, ready, queryClient]);
 
-  const receiveFree = useMutation({
-    mutationFn: async () => {
-      const layers = pickLayerSet(assets);
-      return api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) });
-    },
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["welcome"] }); },
-    onError: (error) => setSeedNote(mutationError(error)),
-  });
-
   if (!welcome) return null;
+  // The recurring free wake has no surface here anymore: it is gathered,
+  // seen, and claimed at the spark in WakeRitual — one door only. This
+  // section keeps the first-visit greeting alone.
   const greeting = welcome.welcome?.awakened
     ? <WaitingCreature slot="welcome" waiting={welcome.welcome} assets={assets} onClaimed={onClaimed} />
     : null;
-  const gifted = welcome.freeWake?.awakened
-    ? <WaitingCreature slot="free" waiting={welcome.freeWake} assets={assets} onClaimed={onClaimed} />
-    : null;
-  const freeLine = !welcome.freeWake?.awakened && (
-    welcome.freeWakeAvailable
-      ? <div className="freewake-line"><p>A free wake has gathered, and it is yours whenever you want it.</p><button type="button" onClick={() => receiveFree.mutate()} disabled={receiveFree.isPending || !ready}>{receiveFree.isPending ? "Gathering…" : "Receive the free wake"}</button></div>
-      : welcome.nextFreeWakeAt
-        ? <p className="freewake-quiet">The next free wake gathers {inAbout(welcome.nextFreeWakeAt)} — no alarm, no summons. It will simply be here.</p>
-        : null
-  );
-  if (!greeting && !gifted && !freeLine) {
+  if (!greeting) {
     if (welcome.needsSeed && !ready) return <p className="freewake-quiet">The workshop's matter has not arrived yet — your first greeting is still gathering.</p>;
-    return null;
+    return seedNote ? <p className="notice error" role="status">{seedNote}</p> : null;
   }
-  return <>{greeting}{gifted}{freeLine}{seedNote && <p className="notice error" role="status">{seedNote}</p>}</>;
+  return <>{greeting}{seedNote && <p className="notice error" role="status">{seedNote}</p>}</>;
 }
 
 function GroveSection() {
@@ -1366,7 +1427,7 @@ export function App() {
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
-      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} /><LoreSection /></>}
+      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} /><LoreSection /></>}
     </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       {birthRevealId !== null && (() => {
         const newborn = tenderItems.find(i => i.id === birthRevealId);

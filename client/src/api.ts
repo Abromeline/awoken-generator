@@ -369,9 +369,6 @@ export const api = {
   claimFirstTile: (args: { teamIds: number[] }) => post<{ ok: true }>("claimFirstTile", args),
   birthFieldAwoken: (args: { layers: LayerRef[]; imageBase64: string; tileId: number; liberatorNames: string[]; toHand?: boolean }) =>
     post<{ ok: true; id: number }>("birthFieldAwoken", args),
-  getBirthStatus: () => post<{ ready: boolean; msUntil: number }>("getBirthStatus", {}),
-  claimTimedBirth: (args: { layers: LayerRef[]; imageBase64: string }) =>
-    post<{ ok: true; id: number }>("claimTimedBirth", args),
   deleteAwoken: (args: { id: number }) => post<{ ok: true }>("deleteAwoken", args),
   stripeConfig: () => postPath<StripeConfig>("/api/stripe/config"),
   createCheckoutSession: () => postPath<{ url: string }>("/api/stripe/checkout", {}),

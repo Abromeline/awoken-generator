@@ -25,7 +25,6 @@ const ENEMY_IMGS: Record<string, string> = {
   tangle: tangleImg,
 };
 import Tutorial, { tutorialComplete } from "./Tutorial";
-import { pickBirthLayers, composeBirth } from "./birth";
 import tideImg from "./assets/terrain-iso/tide-v2.png";
 import skyImg from "./assets/terrain-iso/sky-v2.png";
 import stoneImg from "./assets/terrain-iso/stone-v2.png";
@@ -220,19 +219,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // 1-3: 2, 4-6: 3, 7-9: 4, 10+: 5.
   const deployCost = (power: number) => 2 + Math.floor((power - 1) / 3);
 
-  // Timed birth: every 4 hours, a new Awoken joins the hand
-  const [birthStatus, setBirthStatus] = useState<{ ready: boolean; msUntil: number } | null>(null);
-
   // Whisper state: which field Awoken is speaking
   const [whisper, setWhisper] = useState<{ awakenedId: number; text: string } | null>(null);
-
-  useEffect(() => {
-    api.getBirthStatus().then(setBirthStatus).catch(() => {});
-    const timer = setInterval(() => {
-      api.getBirthStatus().then(setBirthStatus).catch(() => {});
-    }, 60000); // Check every minute
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     api.getLegends().then(setLegends).catch(() => {});
@@ -272,28 +260,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
     return () => window.removeEventListener("focus", onFocus);
   }, [tiles.length]);
-
-  const handleTimedBirth = async () => {
-    try {
-      const birthLayers = pickBirthLayers(assets.map(a => ({
-        sourceId: a.sourceId, name: a.name, category: a.category,
-        rarity: "common", power: null, toughness: null, imageUrl: a.imageUrl,
-      })));
-      if (birthLayers.length < 3) return;
-      const imageBase64 = await composeBirth(birthLayers);
-      const layerRefs = birthLayers.map(l => ({
-        source_id: l.sourceId, name: l.name,
-        category: l.category as "body" | "arms" | "aura" | "head",
-        rarity: "common" as const, power: null, toughness: null,
-      }));
-      await api.claimTimedBirth({ layers: layerRefs, imageBase64 });
-      const status = await api.getBirthStatus();
-      setBirthStatus(status);
-      onUpdate();
-    } catch (e) {
-      console.error("Timed birth failed", e);
-    }
-  };
 
   // Load buildings + game config
   useEffect(() => {
@@ -1961,18 +1927,6 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
       <button className="friends-btn" onClick={() => setShowFriends(true)} title="Friends">
         🤝
       </button>
-      <div className="territory-hud">
-        {birthStatus?.ready ? (
-          <button className="abtn birth-ready" onClick={handleTimedBirth}>
-            ✨ A new Awoken awaits
-          </button>
-        ) : birthStatus && (
-          <div className="birth-countdown">
-            Next birth in {Math.floor(birthStatus.msUntil / 3600000)}h {Math.floor((birthStatus.msUntil % 3600000) / 60000)}m
-          </div>
-        )}
-      </div>
-
       {wave && (
         <div className="wave-panel">
           <div className="wave-comp">

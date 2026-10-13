@@ -4652,54 +4652,6 @@ export const handlers = {
     };
   },
 
-  async getBirthStatus(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;
-    const now = Date.now();
-    const fourHours = 4 * 60 * 60 * 1000;
-    if (!row) {
-      // First time: birth is ready
-      return { ready: true, msUntil: 0 };
-    }
-    const elapsed = now - row.last_birth_at;
-    if (elapsed >= fourHours) {
-      return { ready: true, msUntil: 0 };
-    }
-    return { ready: false, msUntil: fourHours - elapsed };
-  },
-
-  async claimTimedBirth(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      layers: z.array(layerRefShape),
-      imageBase64: z.string(),
-    }).parse(args);
-    const now = Date.now();
-    const fourHours = 4 * 60 * 60 * 1000;
-    const row = sqlite.prepare(`SELECT last_birth_at FROM tender_births WHERE owner_key = ?`).get(ownerKey) as { last_birth_at: number } | undefined;
-    if (row && (now - row.last_birth_at) < fourHours) {
-      badRequest("The next birth is not ready yet.");
-    }
-    const blobKey = `timed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
-    blobs.put(blobKey, Buffer.from(base64Data, "base64"), "image/png");
-    const [latest] = await db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1);
-    const nextNumber = (latest?.id ?? 0) + 1;
-    const [newborn] = await db.insert(schema.awakened).values({
-      name: `Awoken ${String(nextNumber).padStart(3, "0")}`,
-      imageBlobKey: blobKey,
-      compositionJson: JSON.stringify(parsed.layers),
-      collection: "tender",
-      ownerName: ownerKey,
-      ownerKey,
-      identityKey: `timed-${Date.now()}`,
-      flavorText: "Born of patience. Every four hours, the world offers a new form.",
-      fieldBorn: 0, // Born of time, not of battle
-    }).returning({ id: schema.awakened.id });
-    sqlite.prepare(`INSERT OR REPLACE INTO tender_births (owner_key, last_birth_at) VALUES (?, ?)`).run(ownerKey, now);
-    return okResponse.parse({ ok: true, id: newborn.id });
-  },
-
   /**
    * Direct attack: send exactly 3 Awoken at a cursed tile. Overwhelming force
    * breaks the dark — the tile is purified, takes the dominant element of the

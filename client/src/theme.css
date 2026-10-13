@@ -37,10 +37,6 @@
 .waiting-respin span{font-family:var(--display);font-size:21px}
 .waiting-respin small{font-size:9px;letter-spacing:.09em;text-transform:uppercase;opacity:.7}
 .waiting-respin:disabled{opacity:.5;cursor:wait}
-.freewake-line{max-width:920px;margin:0 auto;padding:22px 18px 6px;display:grid;gap:10px;justify-items:start}
-.freewake-line p{margin:0;font-family:var(--display);font-size:17px}
-.freewake-line button{padding:10px 16px;border:1px solid var(--text);background:var(--text);color:var(--bg);font-size:12px}
-.freewake-line button:disabled{opacity:.5;cursor:wait}
 .freewake-quiet{max-width:920px;margin:0 auto;padding:18px 18px 6px;color:var(--dim);font-family:var(--display);font-style:italic;font-size:15px;line-height:1.5}
 .lore{max-width:920px;margin:0 auto;padding:26px 18px 54px}
 .lore details{border-top:1px solid var(--border);padding-top:14px}
@@ -1491,6 +1487,10 @@ body.defeat-flash {
 .wake-ready-overlay{position:absolute;inset:0;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
 .wake-ready-overlay img{width:70%;height:auto;filter:drop-shadow(0 0 20px rgba(120,255,120,0.4));animation:gentle-pulse 3s ease-in-out infinite}
 .wake-ready-overlay span{font-family:var(--display);font-size:18px;color:var(--text);background:rgba(0,0,0,0.6);padding:8px 20px;border-radius:20px;color:#e8f5e8}
+.wake-ready-overlay small{font-size:12px;letter-spacing:.05em;color:#cfe8cf;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:14px}
+.wake-ready-overlay:disabled{cursor:wait;opacity:.75}
+.spark-claim{display:grid;gap:10px;margin-top:14px}
+.spark-claim-line{margin:0;font-family:var(--display);font-size:16px}
 @keyframes gentle-pulse{0%,100%{transform:scale(1);opacity:0.9}50%{transform:scale(1.03);opacity:1}}
 .canvas-frame{position:relative}
 
