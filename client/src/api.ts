@@ -277,12 +277,12 @@ export const api = {
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string } }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
-  directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true }>("directAttack", args),
+  directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
   setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),
   attackTile: (args: { awakenedId: number; tileId: number }) =>
-    post<{ ok: true; purified: boolean; need?: number; have?: number; wavePull?: boolean; tileId?: number; sparked?: boolean; hp?: number; maxHp?: number; damage?: number; thorns?: number; thornsDamage?: number; attackerHp?: number; attackerMaxHp?: number; attackerDissipated?: boolean; awakenedId?: number }>("attackTile", args),
+    post<{ ok: true; purified: boolean; need?: number; have?: number; wavePull?: boolean; tileId?: number; sparked?: boolean; hp?: number; maxHp?: number; damage?: number; thorns?: number; thornsDamage?: number; attackerHp?: number; attackerMaxHp?: number; attackerDissipated?: boolean; awakenedId?: number; attackerXp?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number } }>("attackTile", args),
   moveAwoken: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true }>("moveAwoken", args),
   getWave: () => post<{
@@ -293,6 +293,7 @@ export const api = {
   defendWave: () => post<{
     victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
     nextWaveAt?: string | null;
+    defenderXp?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[];
   }>("defendWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
   assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
@@ -343,7 +344,7 @@ export const api = {
   updateTrackPages: (value: { id: number; pages: string[] }) => post<{ ok: boolean }>("updateTrackPages", value),
   grantAspectPoint: (value: { element: string }) => post<{ ok: boolean; spawned: boolean }>("grantAspectPoint", value),
   damageTileHp: (value: { tileId: number; damage: number }) => post<{ ok: boolean; hp: number; cursed: boolean }>("damageTileHp", value),
-  damageAwokenHp: (value: { awakenedId: number; damage: number }) => post<{ ok: boolean; hp: number; maxHp: number; dissipated?: boolean; awakenedId?: number }>("damageAwokenHp", value),
+  damageAwokenHp: (value: { awakenedId: number; damage: number }) => post<{ ok: boolean; hp: number; maxHp: number; dissipated?: boolean; awakenedId?: number; xpGain?: number; leveledUp?: boolean; newLevel?: number }>("damageAwokenHp", value),
   demolishBuilding: (value: { buildingId: number }) => post<{ ok: boolean }>("demolishBuilding", value),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean; pages: string[] }[] }>("listBattleTracks", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
@@ -352,7 +353,7 @@ export const api = {
   resolveConfluence: (args: { sessionId: number; victory: boolean }) => post<{ ok: boolean; xpGain: number; participants: number; twin: any }>("resolveConfluence", args),
   claimConfluenceTwin: (args: { sessionId: number }) => post<{ ok: boolean; id: number }>("claimConfluenceTwin", args),
   getConfluenceRoster: (args: { sessionId: number }) => post<{ fighters: any[]; wavePower: number; status: string }>("getConfluenceRoster", args),
-  resolveWavePull: (args: { tileId: number; victory: boolean; survivorIds: number[] }) => post<{ ok: boolean; purified: boolean }>("resolveWavePull", args),
+  resolveWavePull: (args: { tileId: number; victory: boolean; survivorIds: number[] }) => post<{ ok: boolean; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveWavePull", args),
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
@@ -376,7 +377,7 @@ export const api = {
   toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
   deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
   resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean; targetTileId?: number }) =>
-    post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[] }>("resolveBattle", args),
+    post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[]; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),
   getWaveTarget: () => post<{ tile: { id: number; q: number; r: number; element: string } | null; defenderIds: number[] }>("getWaveTarget", {}),

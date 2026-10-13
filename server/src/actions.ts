@@ -825,6 +825,41 @@ async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp:
   return { leveledUp: newLevel > oldLevel, newLevel, statPointsGained };
 }
 
+// --- Unified XP (Nigel, 2026-10-13): "UNify for simplicity… when an
+// awoken attacks or is attacked it gains 10 xp." Flat event XP, the same
+// on every path — the old per-path victory formulas (resolveBattle's
+// 50 + 10×wave, resolveWavePull's flat 60, the short-lived defendWave
+// formula) are folded into this one model:
+//   ATTACK EVENT  — an Awoken attacks: +10 to that Awoken.
+//   DEFENSE EVENT — an Awoken is attacked, or stands in a defense
+//                   resolution (wave defense, battle defense): +10.
+//   HEX TAKEN     — a hex is taken: +50 to the Awoken whose attack broke
+//                   the curse, or to each Awoken committed to a defense
+//                   whose victory purified the hex.
+// All grants flow through grantXp — level-ups, stat points, and level
+// deeds ride along exactly as before.
+export const XP_PER_ATTACK = 10;
+export const XP_PER_DEFENSE = 10;
+/** HEX-TAKEN XP — the one invented constant: Nigel ruled the event but
+ *  left its size unnumbered. 50 is a fill-in; retune here. */
+export const XP_PER_HEX_TAKEN = 50;
+
+export type XpGainReport = { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number };
+
+/** Grant event XP and accumulate a per-Awoken report for the response. */
+async function grantEventXp(
+  into: Map<number, XpGainReport>,
+  awakenedId: number,
+  amount: number
+): Promise<void> {
+  const r = await grantXp(awakenedId, amount);
+  const entry = into.get(awakenedId) ?? { awakenedId, xpGain: 0, leveledUp: false, newLevel: r.newLevel };
+  entry.xpGain += amount;
+  entry.leveledUp = entry.leveledUp || r.leveledUp;
+  entry.newLevel = r.newLevel;
+  into.set(awakenedId, entry);
+}
+
 // --- 2026-10-13 XP re-curve reconciliation (one-time) ---------------------
 // When xpForLevel's base dropped 100 → 20, every stored XP total suddenly
 // meant a HIGHER level (levels are derived from XP, never stored). Nobody
@@ -1701,15 +1736,22 @@ export const handlers = {
         eq(schema.territoryTiles.cursed, 1)
       )).limit(1);
     if (!tiles.length) badRequest("No such cursed tile.");
+    // Unified XP (Nigel, 2026-10-13): the survivors stood against the
+    // pulled wave — a DEFENSE EVENT, +10 XP each, win or lose. The old
+    // flat-60 victory grant is abolished; on victory the hex is taken
+    // and HEX-TAKEN XP (+50) goes to each of them instead.
+    const xpById = new Map<number, XpGainReport>();
+    for (const id of parsed.data.survivorIds) {
+      await grantEventXp(xpById, id, XP_PER_DEFENSE);
+    }
     if (parsed.data.victory) {
       // Purify!
       await db.update(schema.territoryTiles)
         .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
       await expandFrontier(ownerKey, tiles[0].q, tiles[0].r);
-      // Survivors gain XP
       for (const id of parsed.data.survivorIds) {
-        await grantXp(id, 60);
+        await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
       }
     } else {
       // Wave lost — curse HP restores to half
@@ -1718,7 +1760,7 @@ export const handlers = {
         .set({ curseHp: Math.ceil(maxHp / 2) })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
     }
-    return { ok: true, purified: parsed.data.victory };
+    return { ok: true, purified: parsed.data.victory, xpGains: [...xpById.values()] };
   },
 
   async setChampion(args: unknown, ctx?: ActionContext) {
@@ -2064,12 +2106,20 @@ export const handlers = {
     // here contradicted it). All placement damage flows through the single
     // path: at 0 HP the Awoken dissipates back to hand.
     const result = await damagePlacement(placement[0], parsed.data.damage);
+    // Unified XP: being attacked is a DEFENSE EVENT — +10 XP to the
+    // Awoken that took the hit, each time it is attacked (this action is
+    // the server's per-hit report from battle). The XP lands even when
+    // the hit dissipates it: it stood, it was struck.
+    const xp = await grantXp(parsed.data.awakenedId, XP_PER_DEFENSE);
     return {
       ok: true as const,
       hp: result.hp,
       maxHp: result.maxHp,
       dissipated: result.dissipated,
       awakenedId: parsed.data.awakenedId,
+      xpGain: XP_PER_DEFENSE,
+      leveledUp: xp.leveledUp,
+      newLevel: xp.newLevel,
     };
   },
 
@@ -3156,7 +3206,18 @@ export const handlers = {
 
     const victory = defensePower >= wavePower;
 
+    // Unified XP (Nigel, 2026-10-13): standing in this defense is a
+    // DEFENSE EVENT — +10 XP to each defender, win or lose. A victory
+    // also takes a hex (the purification below): +50 HEX-TAKEN XP to
+    // each Awoken committed to the defense.
+    const defenderXpById = new Map<number, XpGainReport>();
+    for (const d of defenders) {
+      await grantEventXp(defenderXpById, d.awakenedId, XP_PER_DEFENSE);
+    }
     if (victory) {
+      for (const d of defenders) {
+        await grantEventXp(defenderXpById, d.awakenedId, XP_PER_HEX_TAKEN);
+      }
       // Purify one adjacent cursed tile (player's choice comes later — auto for now).
       const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
       for (const [dq, dr] of dirs) {
@@ -3234,6 +3295,8 @@ export const handlers = {
       nextWaveAt: victory
         ? new Date(Date.now() + waveCooldownMs(state[0].wavesDefeated + 1)).toISOString()
         : null,
+      // XP the defenders earned under the unified event model (fix #5).
+      defenderXp: [...defenderXpById.values()],
     };
   },
 
@@ -4070,6 +4133,17 @@ export const handlers = {
       }
     }
 
+    // Unified XP (Nigel, 2026-10-13): the survivors stood in the battle
+    // defense — a DEFENSE EVENT, +10 XP each, win or lose. (The hits
+    // they take inside the battleground also reach the server one by
+    // one through damageAwokenHp, which pays its own defense XP; the
+    // Awoken's attacks in the client simulation have no server-side
+    // per-swing report, so no attack grant is invented here.)
+    const xpById = new Map<number, XpGainReport>();
+    for (const id of parsed.data.survivorIds) {
+      await grantEventXp(xpById, id, XP_PER_DEFENSE);
+    }
+
     let bonusEligible: { id: number; q: number; r: number }[] = [];
     if (parsed.data.victory) {
       // Wildfire: if the target was ignited, the fire purifies it
@@ -4084,6 +4158,11 @@ export const handlers = {
           await db.update(schema.territoryTiles)
             .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10 })
             .where(eq(schema.territoryTiles.id, target[0].id));
+          // The fire took the hex for the defenders: HEX-TAKEN XP to
+          // each Awoken committed to the defense.
+          for (const id of parsed.data.survivorIds) {
+            await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
+          }
         }
       }
       // Continue reward: +6 energy, server-side, one-time per victory
@@ -4097,10 +4176,12 @@ export const handlers = {
             .where(eq(schema.tenderResources.ownerKey, ownerKey));
         }
       }
-      // Survivors gain XP: 50 + 10 per wave number
-      const xpGain = 50 + currentWave * 10;
+      // Deeds of victory (unchanged): the old 50 + 10×wave XP grant
+      // that rode in this loop is abolished by the unified model —
+      // event XP is granted above, and no deed was ever triggered BY
+      // the grant itself (these recordDeed calls stand on their own),
+      // so removing the grant loses no deed.
       for (const id of parsed.data.survivorIds) {
-        await grantXp(id, xpGain);
         await recordDeed(ownerKey, id, "wave_survived");
         await recordDeed(ownerKey, id, "battle_won");
       }
@@ -4166,7 +4247,7 @@ export const handlers = {
         .where(eq(schema.waveState.ownerKey, ownerKey));
     }
 
-    return { ok: true, bonusEligible };
+    return { ok: true, bonusEligible, xpGains: [...xpById.values()] };
   },
 
   async setStance(args: unknown, ctx?: ActionContext) {
@@ -4255,6 +4336,12 @@ export const handlers = {
     const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
     const maxHp = tile[0].curseMaxHp ?? (4 + ring * 6);
     const currentHp = tile[0].curseHp ?? maxHp;
+    // Unified XP (Nigel, 2026-10-13): the attack has landed — an ATTACK
+    // EVENT, +10 XP to the attacker, whatever the curse does next. If
+    // the blow breaks the curse, HEX-TAKEN XP (+50) joins it below.
+    const attackerXpById = new Map<number, XpGainReport>();
+    await grantEventXp(attackerXpById, parsed.data.awakenedId, XP_PER_ATTACK);
+    const xpShape = z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() });
     // Exponential thorns: 2^(ring-1). The curse fights back, dealing thorns damage to the attacker.
     const thorns = Math.pow(2, Math.max(0, ring - 1));
     // The thorns LAND (Nigel, 2026-10-13): applied to the attacker's
@@ -4273,8 +4360,8 @@ export const handlers = {
       await db.update(schema.territoryTiles)
         .set({ curseHp: newHp, curseMaxHp: maxHp })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number(), thornsDamage: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number() })
-        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, thorns, thornsDamage: thorns, ...attackerOutcome });
+      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number(), thornsDamage: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
+        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, thorns, thornsDamage: thorns, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
     // HP reached 0 — the curse breaks!
     // 35% chance: pulled into one wave of the Unraveling instead of instant purify.
@@ -4284,8 +4371,8 @@ export const handlers = {
       await db.update(schema.territoryTiles)
         .set({ curseHp: 0 })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), wavePull: z.literal(true), tileId: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number() })
-        .parse({ ok: true, purified: false, wavePull: true, tileId: tile[0].id, ...attackerOutcome });
+      return z.object({ ok: z.literal(true), purified: z.literal(false), wavePull: z.literal(true), tileId: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
+        .parse({ ok: true, purified: false, wavePull: true, tileId: tile[0].id, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
     // Purify to neutral.
     await recordDeed(ownerKey, parsed.data.awakenedId, "curse_broken");
@@ -4317,8 +4404,10 @@ export const handlers = {
         }
         // Reveal new cursed land at the frontier.
         await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-        return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number() })
-          .parse({ ok: true, purified: true, sparked, ...attackerOutcome });
+        // HEX TAKEN: this attacker's blow broke the curse — +50 XP.
+        await grantEventXp(attackerXpById, parsed.data.awakenedId, XP_PER_HEX_TAKEN);
+        return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
+          .parse({ ok: true, purified: true, sparked, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
   },
 
@@ -4968,6 +5057,13 @@ export const handlers = {
     await db.update(schema.territoryTiles)
       .set({ cursed: 0, element })
       .where(eq(schema.territoryTiles.id, tile[0].id));
+    // Unified XP: each striker made an ATTACK EVENT (+10), and their
+    // combined blow took the hex — HEX-TAKEN XP (+50) to each.
+    const xpById = new Map<number, XpGainReport>();
+    for (const a of attackers) {
+      await grantEventXp(xpById, a.id, XP_PER_ATTACK);
+      await grantEventXp(xpById, a.id, XP_PER_HEX_TAKEN);
+    }
     // The attackers stand on the reclaimed land (3 < 4 tile cap).
     for (const a of attackers) {
       await db.insert(schema.fieldPlacements).values({
@@ -4993,7 +5089,7 @@ export const handlers = {
           eq(schema.territoryTiles.cursed, 1),
         ));
     }
-    return okResponse.parse({ ok: true });
+    return { ok: true as const, xpGains: [...xpById.values()] };
   },
 
   /**
