@@ -343,8 +343,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
-      // Apply thorns damage to attacker
-      if (result.thornsDamage > 0) {
+      // Thorns land server-side now: mirror the authoritative attacker HP
+      // the server returns. At 0 HP the server has already dissipated the
+      // attacker back to hand — the refreshed placements below show it.
+      if (typeof result.attackerHp === "number") {
+        setAwokenHp(prev => new Map(prev).set(selectedAwoken, result.attackerHp));
+      } else if (result.thornsDamage > 0) {
         setAwokenHp(prev => {
           const next = new Map(prev);
           const current = next.get(selectedAwoken) ?? 3;

@@ -894,6 +894,51 @@ async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): 
     .where(eq(schema.tenderResources.ownerKey, ownerKey));
 }
 
+// --- Placement HP: health is toughness alone (design law) ------------------
+// One damage path for every field placement. Damage lands, HP falls, and at
+// 0 HP the Awoken DISSIPATES BACK TO HAND (Nigel, 2026-10-13): the placement
+// is removed (stance goes with it) and the Awoken simply stands in hand
+// again — no re-coalescence timer on this path. Re-entering the field costs
+// the normal power-scaled deploy energy (deployCostForPower). The other
+// dispersal paths — tile-fall defeat (4h) and voluntary dissipation (8h) —
+// keep their own rules; they do not pass through here.
+
+/** Deploy / re-entry cost by power: 1-3 → 2, 4-6 → 3, 7-9 → 4, 10+ → 5.
+ *  The single form of the scale deployBattle always charged inline. */
+export function deployCostForPower(power: number): number {
+  return 2 + Math.floor((Math.max(1, power) - 1) / 3);
+}
+
+/** A placement's max HP: the Awoken's toughness alone (payload stats, the
+ *  numbers the card displays). Floored at 1 so a 0-toughness form is
+ *  fragile, not dead on arrival. */
+async function placementMaxHp(awakenedId: number): Promise<number> {
+  const payload = await awakenedPayloadById(awakenedId);
+  return Math.max(1, payload?.toughness ?? 1);
+}
+
+type PlacementRow = typeof schema.fieldPlacements.$inferSelect;
+
+/** Apply damage to a field placement through the single path. At hp <= 0
+ *  the placement is deleted and the Awoken returns to hand (dissipated). */
+async function damagePlacement(
+  placement: PlacementRow,
+  damage: number
+): Promise<{ hp: number; maxHp: number; dissipated: boolean }> {
+  const maxHp = await placementMaxHp(placement.awakenedId);
+  const currentHp = placement.hp ?? maxHp;
+  const newHp = currentHp - damage;
+  if (newHp <= 0) {
+    await db.delete(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.id, placement.id));
+    return { hp: 0, maxHp, dissipated: true };
+  }
+  await db.update(schema.fieldPlacements)
+    .set({ hp: newHp })
+    .where(eq(schema.fieldPlacements.id, placement.id));
+  return { hp: newHp, maxHp, dissipated: false };
+}
+
 // Standalone game config loader (used by both handlers and internal functions)
 async function loadGameConfig() {
   const rows = await db.select().from(schema.uiConfig);
@@ -1997,23 +2042,17 @@ export const handlers = {
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
     if (!placement.length) badRequest("Placement not found.");
-    // Get max HP from composition
-    const aw = await db.select().from(schema.awakened)
-      .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
-    let maxHp = 6;
-    if (aw.length) {
-      try {
-        const layers = JSON.parse(aw[0].compositionJson || "[]");
-        maxHp = layers.reduce((s: number, l: any) => s + (l.power || 0), 0) +
-                layers.reduce((s: number, l: any) => s + (l.toughness || 0), 0) || 6;
-      } catch {}
-    }
-    const currentHp = placement[0].hp ?? maxHp;
-    const newHp = Math.max(0, currentHp - parsed.data.damage);
-    await db.update(schema.fieldPlacements)
-      .set({ hp: newHp })
-      .where(eq(schema.fieldPlacements.id, placement[0].id));
-    return { ok: true as const, hp: newHp, maxHp };
+    // Health is toughness alone (Nigel's law — the old power+toughness sum
+    // here contradicted it). All placement damage flows through the single
+    // path: at 0 HP the Awoken dissipates back to hand.
+    const result = await damagePlacement(placement[0], parsed.data.damage);
+    return {
+      ok: true as const,
+      hp: result.hp,
+      maxHp: result.maxHp,
+      dissipated: result.dissipated,
+      awakenedId: parsed.data.awakenedId,
+    };
   },
 
   /** Demolish a building. */
@@ -2850,8 +2889,15 @@ export const handlers = {
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
     if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
+    // Entering the field costs the power-scaled deploy energy — the same
+    // price deployBattle charges (deployCostForPower). This is also the
+    // recast price for an Awoken that dissipated back to hand at 0 HP.
+    const payload = await awakenedPayloadById(parsed.data.awakenedId);
+    const cost = deployCostForPower(payload?.power ?? 1);
+    if (!(await spendEnergy(ownerKey, cost))) badRequest("Not enough energy.");
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId: parsed.data.awakenedId, tileId: parsed.data.tileId,
+      hp: await placementMaxHp(parsed.data.awakenedId),
     });
     return okResponse.parse({ ok: true });
   },
@@ -2916,12 +2962,13 @@ export const handlers = {
       const layers = parseLayers(f.compositionJson, assetStats);
       const payload = await awakenedPayloadById(f.id);
       const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
-      totalCost += 2 + Math.floor((power - 1) / 3);
+      totalCost += deployCostForPower(power);
     }
     if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
     for (const f of fighters) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
+        hp: await placementMaxHp(f.id),
       });
     }
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
@@ -4170,14 +4217,24 @@ export const handlers = {
     const currentHp = tile[0].curseHp ?? maxHp;
     // Exponential thorns: 2^(ring-1). The curse fights back, dealing thorns damage to the attacker.
     const thorns = Math.pow(2, Math.max(0, ring - 1));
+    // The thorns LAND (Nigel, 2026-10-13): applied to the attacker's
+    // placement HP through the single damage path — at 0 HP the attacker
+    // dissipates back to hand, whatever the curse itself does next.
+    const thornsResult = await damagePlacement(placement[0], thorns);
+    const attackerOutcome = {
+      attackerHp: thornsResult.hp,
+      attackerMaxHp: thornsResult.maxHp,
+      attackerDissipated: thornsResult.dissipated,
+      awakenedId: parsed.data.awakenedId,
+    };
     const newHp = Math.max(0, currentHp - power);
     if (newHp > 0) {
       // Curse holds — record the reduced HP.
       await db.update(schema.territoryTiles)
         .set({ curseHp: newHp, curseMaxHp: maxHp })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number(), thornsDamage: z.number() })
-        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, thorns, thornsDamage: thorns });
+      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number(), thornsDamage: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number() })
+        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, thorns, thornsDamage: thorns, ...attackerOutcome });
     }
     // HP reached 0 — the curse breaks!
     // 35% chance: pulled into one wave of the Unraveling instead of instant purify.
@@ -4187,8 +4244,8 @@ export const handlers = {
       await db.update(schema.territoryTiles)
         .set({ curseHp: 0 })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), wavePull: z.literal(true), tileId: z.number() })
-        .parse({ ok: true, purified: false, wavePull: true, tileId: tile[0].id });
+      return z.object({ ok: z.literal(true), purified: z.literal(false), wavePull: z.literal(true), tileId: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number() })
+        .parse({ ok: true, purified: false, wavePull: true, tileId: tile[0].id, ...attackerOutcome });
     }
     // Purify to neutral.
     await recordDeed(ownerKey, parsed.data.awakenedId, "curse_broken");
@@ -4211,13 +4268,17 @@ export const handlers = {
         await db.update(schema.territoryTiles)
           .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0 })
           .where(eq(schema.territoryTiles.id, tile[0].id));
-        await db.update(schema.fieldPlacements)
-          .set({ tileId: tile[0].id })
-          .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
+        // The attacker advances onto the broken land — unless the thorns
+        // took it as the curse broke, in which case it is back in hand.
+        if (!thornsResult.dissipated) {
+          await db.update(schema.fieldPlacements)
+            .set({ tileId: tile[0].id })
+            .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
+        }
         // Reveal new cursed land at the frontier.
         await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-        return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean() })
-          .parse({ ok: true, purified: true, sparked });
+        return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number() })
+          .parse({ ok: true, purified: true, sparked, ...attackerOutcome });
     }
   },
 
@@ -4305,6 +4366,7 @@ export const handlers = {
     for (let i = 0; i < Math.min(4, teamRows.length); i++) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: teamRows[i].id, tileId: center.id,
+        hp: await placementMaxHp(teamRows[i].id),
       });
     }
     return okResponse.parse({ ok: true });
@@ -4338,6 +4400,7 @@ export const handlers = {
     if (!parsed.toHand) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: newborn.id, tileId: parsed.tileId,
+        hp: await placementMaxHp(newborn.id),
       });
     }
     return okResponse.parse({ ok: true, id: newborn.id });
@@ -4869,6 +4932,7 @@ export const handlers = {
     for (const a of attackers) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: a.id, tileId: tile[0].id,
+        hp: await placementMaxHp(a.id),
       });
     }
     // The neighboring cursed land feels the shift — their 48h passive timers
