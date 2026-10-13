@@ -2060,24 +2060,30 @@ export const handlers = {
         return false;
       };
 
-      // For each binder, split 1 point/hour across its unique elements
-      // (doubled if adjacent to an attunement shrine)
+      // For each binder, its 1 point/hour is divided across its elements
+      // IN PROPORTION to its element points (pieces = 1 pt, aspects = 1 pt
+      // per level) — the same rule the map tick uses, so the split is one
+      // rule everywhere (Nigel, 2026-10-12). Total stays 1 pt/hour per
+      // binder (doubled adjacent to an attunement shrine).
       const gains = new Map<string, number>();
       for (const b of binders) {
         let layers: any[];
         try { layers = JSON.parse(b.compositionJson || "[]"); }
         catch { continue; }
-        const elements = new Set<string>();
+        const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const l of layers) {
-          if (l.category === "aspect") continue; // Don't count equipped aspects
           const el = elementForPieceName(l.name || "", (l as any).element);
-          if (el !== "fire") elements.add(el);
+          if (el !== "fire" && el in counts) {
+            counts[el] += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
+          }
         }
-        if (elements.size === 0) continue;
+        const totalPts = Object.values(counts).reduce((a, x) => a + x, 0);
+        if (totalPts === 0) continue;
         const multiplier = isNearShrine(b.tileId) ? 2 : 1;
-        const perElement = (POINTS_PER_HOUR * cappedHours * multiplier) / elements.size;
-        for (const el of elements) {
-          gains.set(el, (gains.get(el) || 0) + perElement);
+        const tickTotal = POINTS_PER_HOUR * cappedHours * multiplier;
+        for (const [el, pts] of Object.entries(counts)) {
+          if (pts === 0) continue;
+          gains.set(el, (gains.get(el) || 0) + tickTotal * (pts / totalPts));
         }
       }
       // Apply gains and check for threshold
