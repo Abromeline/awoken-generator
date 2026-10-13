@@ -85,6 +85,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
+  // First-tile claim (fix list #3): a fresh Tender holds no ground — the
+  // empty state is where the Last Bastion begins, not a dead end.
+  const [territoryLoaded, setTerritoryLoaded] = useState(false);
+  const [firstTeam, setFirstTeam] = useState<number[]>([]);
+  const [firstClaimBusy, setFirstClaimBusy] = useState(false);
+  const [firstClaimError, setFirstClaimError] = useState<string | null>(null);
   const [sparkAnimation, setSparkAnimation] = useState<{ phase: "center" | "fly" } | null>(null);
   const [fireFound, setFireFound] = useState(() => localStorage.getItem("awoken-fire-found") === "1");
 
@@ -286,7 +292,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setTiles(tiles); setPlacements(placements);
     }).catch((e) => {
       console.error("[Territory] getTerritory failed:", e);
-    });
+    }).finally(() => setTerritoryLoaded(true));
   }, []);
 
   // Hand = Awoken not on field (defined above for energy calc)
@@ -318,6 +324,37 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       onUpdate();
     } catch (e) {
       console.error("Battle deployment failed", e);
+    }
+  };
+
+  // First-tile claim (fix list #3): the company faces the Unraveler
+  // through the live server path — claimFirstTile measures the team's
+  // true power itself; the client only gathers the company. On victory
+  // the newborn step follows, exactly as after a battle purification.
+  const handleFirstClaim = async () => {
+    if (firstClaimBusy || firstTeam.length === 0) return;
+    setFirstClaimBusy(true);
+    setFirstClaimError(null);
+    try {
+      await api.claimFirstTile({ teamIds: firstTeam });
+      const after = await api.getTerritory();
+      setTiles(after.tiles);
+      setPlacements(after.placements);
+      const center = after.tiles.find(t => t.q === 0 && t.r === 0);
+      if (center) {
+        const liberatorNames = firstTeam
+          .map(id => tenderItems.find(a => a.id === id)?.name)
+          .filter((n): n is string => !!n);
+        api.birthNewbornToHand({ tileId: center.id, liberatorNames }).catch(e =>
+          console.error("[Birth] Newborn failed — game continues", e)
+        );
+      }
+      setFirstTeam([]);
+      onUpdate();
+    } catch (e) {
+      setFirstClaimError(e instanceof Error ? e.message : "The Unraveler would not yield.");
+    } finally {
+      setFirstClaimBusy(false);
     }
   };
 
@@ -1071,7 +1108,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const m = Math.floor((ms % 3600000) / 60000);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
-    // Tutorial handles the empty state now (no separate FirstTrial)
+    // The empty state is the first-tile step above (fix list #3) — the
+    // Tutorial overlay teaches; it never claimed ground.
     // Simple grid layout for now; parallax via row scaling
   // Project a point from the tilted map plane to screen coordinates.
   // The map container has: perspective(900px) rotateX(32deg), origin at center 60%.
@@ -1725,6 +1763,60 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
 
   return (
     <div className="territory-view">
+      {territoryLoaded && tiles.length === 0 && (() => {
+        // The first-tile step (fix list #3): a Tender with no ground
+        // gathers the company that faces the Unraveler. The court stays
+        // in hand, as everywhere — housed Awoken and the champion are
+        // never offered for the company.
+        const eligible = tenderItems.filter(a => !isCourt(a));
+        const teamPower = firstTeam.reduce((sum, id) => sum + (tenderItems.find(a => a.id === id)?.power ?? 0), 0);
+        const handPower = eligible.reduce((sum, a) => sum + a.power, 0);
+        const toggleFirstTeam = (id: number) => setFirstTeam(prev =>
+          prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= 6 ? prev : [...prev, id]);
+        const suggestFirstTeam = () => {
+          const picked: number[] = [];
+          let sum = 0;
+          for (const a of [...eligible].sort((x, y) => y.power - x.power)) {
+            if (picked.length >= 6 || sum >= 7) break;
+            picked.push(a.id);
+            sum += a.power;
+          }
+          setFirstTeam(picked);
+        };
+        return (
+          <section className="first-claim" aria-live="polite">
+            <p className="eyebrow">The Last Bastion</p>
+            <h2>No ground is held — yet.</h2>
+            <p>The Unraveler waits in the wilds at power 7. Gather a company of up to six of your Awoken whose combined power reaches 7, and face it together. The first four named will stand upon the bastion when the dark breaks — and a newborn follows every victory.</p>
+            {eligible.length === 0 ? (
+              <p className="quiet">Your deck is empty — wake Awoken at the spark first, then return to claim your ground.</p>
+            ) : (
+              <>
+                <div className="first-claim-team">
+                  {eligible.map(a => (
+                    <button key={a.id} type="button" className={`first-claim-card ${firstTeam.includes(a.id) ? "in-pool" : ""}`} onClick={() => toggleFirstTeam(a.id)} aria-pressed={firstTeam.includes(a.id)}>
+                      <img src={a.image_url} alt={a.name} />
+                      <div className="first-claim-card-name">{a.name}</div>
+                      <div className="quiet">{a.power}⚔ {a.toughness}🛡</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="first-claim-actions">
+                  <span>Company power: {teamPower} / 7</span>
+                  <button type="button" className="abtn" onClick={suggestFirstTeam}>Gather the strongest</button>
+                  <button type="button" className="abtn" disabled={teamPower < 7 || firstTeam.length === 0 || firstClaimBusy} onClick={() => void handleFirstClaim()}>
+                    {firstClaimBusy ? "Facing…" : "Face the Unraveler"}
+                  </button>
+                </div>
+                {teamPower < 7 && (handPower >= 7
+                  ? <p className="quiet">Choose more of your Awoken — together they must reach 7.</p>
+                  : <p className="quiet">Even together, your Awoken reach only {handPower}. Wake more at the spark, and return when the company is strong enough.</p>)}
+                {firstClaimError && <p className="notice error" role="status">{firstClaimError}</p>}
+              </>
+            )}
+          </section>
+        );
+      })()}
       {showChampionTab && (
         <>
         <div>

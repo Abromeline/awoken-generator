@@ -303,6 +303,17 @@
 .battle-pool-card-name{font-size:10px;color:#e8e0d0;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hand-card.in-pool{opacity:0.35}
 
+/* First-tile claim (fix list #3): the empty-territory step where a new
+   Tender gathers the company that faces the Unraveler. */
+.first-claim{margin:12px auto;max-width:640px;padding:16px;background:#0d0d0d;border:1px solid #b89b5e;border-radius:8px;text-align:center}
+.first-claim h2{margin:4px 0 8px}
+.first-claim-team{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}
+.first-claim-card{background:#1a1a1a;border:1px solid #b89b5e;border-radius:6px;padding:6px;cursor:pointer;width:84px;color:#e8e0d0}
+.first-claim-card img{width:100%;height:auto;border-radius:4px}
+.first-claim-card-name{font-size:11px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.first-claim-card.in-pool{border-color:#ffd700;box-shadow:0 0 10px rgba(255,215,0,0.5)}
+.first-claim-actions{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin:8px 0}
+
 /* Field drift — Awoken on the land breathe and drift gently, each on its own rhythm */
 @keyframes field-drift {
   0%, 100% { transform: translate(0, 0) rotate(0deg); }
