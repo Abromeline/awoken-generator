@@ -506,19 +506,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const purified = tiles.filter(t => !t.cursed);
     if (!cursed.length || !purified.length) return;
     
-    // Spawn unravelers on random cursed tiles
+    // Spawn unravelers on random cursed tiles.
+    // Enemy stats come from the one source of truth: gameConfig.enemies
+    // (workshop-overridable; fallbacks match the design law — Fray power 1).
     const units: typeof simUnits = [];
     let id = 0;
-    // Fray: power 1-2, hp 3. Unraveler: power 4, hp 6.
+    const frayCfg = (gameConfig as any)?.enemies?.["fray"] ?? { power: 1, hp: 3 };
+    const unravCfg = (gameConfig as any)?.enemies?.["unraveler"] ?? { power: 4, hp: 6 };
     for (let i = 0; i < wave.frayCount; i++) {
       const tile = cursed[Math.floor(Math.random() * cursed.length)];
       const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "fray", tileId: tile.id, hp: 3, maxHp: 3, power: 2, x: cx, y: cy, targetX: cx, targetY: cy });
+      units.push({ id: id++, type: "fray", tileId: tile.id, hp: frayCfg.hp, maxHp: frayCfg.hp, power: frayCfg.power, x: cx, y: cy, targetX: cx, targetY: cy });
     }
     for (let i = 0; i < wave.unravelers; i++) {
       const tile = cursed[Math.floor(Math.random() * cursed.length)];
       const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: 6, maxHp: 6, power: 4, x: cx, y: cy, targetX: cx, targetY: cy });
+      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: unravCfg.hp, maxHp: unravCfg.hp, power: unravCfg.power, x: cx, y: cy, targetX: cx, targetY: cy });
     }
     
     setSimUnits(units);
@@ -649,17 +652,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
     const units: typeof simUnits = [];
     let id = Date.now();
+    const frayCfgB = (gameConfig as any)?.enemies?.["fray"] ?? { power: 1, hp: 3 };
+    const unravCfgB = (gameConfig as any)?.enemies?.["unraveler"] ?? { power: 4, hp: 6 };
     const frayCount = wave!.frayCount + (waveNum - 1) * 2;
     const unravelerCount = wave!.unravelers + (waveNum - 1);
     for (let i = 0; i < frayCount; i++) {
       const tile = cursed[Math.floor(Math.random() * cursed.length)];
       const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "fray", tileId: tile.id, hp: 3, maxHp: 3, power: 2, x: cx, y: cy, targetX: cx, targetY: cy });
+      units.push({ id: id++, type: "fray", tileId: tile.id, hp: frayCfgB.hp, maxHp: frayCfgB.hp, power: frayCfgB.power, x: cx, y: cy, targetX: cx, targetY: cy });
     }
     for (let i = 0; i < unravelerCount; i++) {
       const tile = cursed[Math.floor(Math.random() * cursed.length)];
       const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: 6 + waveNum * 2, maxHp: 6 + waveNum * 2, power: 4, x: cx, y: cy, targetX: cx, targetY: cy });
+      // Wave scaling rides on the config base HP, as before.
+      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: unravCfgB.hp + waveNum * 2, maxHp: unravCfgB.hp + waveNum * 2, power: unravCfgB.power, x: cx, y: cy, targetX: cx, targetY: cy });
     }
     setBattleUnits(units);
     setTurnPhase("towers");

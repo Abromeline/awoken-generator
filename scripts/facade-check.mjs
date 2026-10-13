@@ -110,6 +110,30 @@ for (const [type, fields] of fieldsByType) {
   }
 }
 
+// --- 2b. Enemy config liveness --------------------------------------------
+// Enemy stats have one source of truth (gameConfig.enemies). A type whose
+// config object is never pulled by battle code is being simulated from
+// hardcoded numbers somewhere — the split-brain this check exists to catch.
+// (power/hp are always read off the pulled object together, so liveness is
+// judged per type.)
+console.log("Enemy types — is each one's config pulled by battle code?");
+for (const name of ["fray", "unraveler", "hollow", "tangle"]) {
+  let pulls = 0;
+  const pullLine = (l) => /(enemies|enemyConfig)\??\.?\[/.test(l) && l.includes(`"${name}"`);
+  let idx = 0;
+  for (const line of actions.split("\n")) {
+    const lineStart = idx; idx += line.length + 1;
+    if (inConfig(lineStart) || inDefs(lineStart)) continue;
+    if (pullLine(line)) pulls++;
+  }
+  for (const f of clientFiles) {
+    if (ART_OR_CONFIG_FILES.has(f.name)) continue;
+    pulls += f.text.split("\n").filter((l) => pullLine(l) && !isConfigKeyLine(l)).length;
+  }
+  if (pulls === 0) flag(`enemy "${name}" config is never pulled by any battle code — some path is inventing its stats.`);
+  else ok(`enemy "${name}" — config pulled in ${pulls} place(s)`);
+}
+
 // --- 3. Client actions without server handlers ----------------------------
 console.log("Client actions — does every call have a server handler?");
 const api = read("client/src/api.ts");

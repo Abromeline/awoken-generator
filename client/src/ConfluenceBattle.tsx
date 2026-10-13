@@ -49,7 +49,15 @@ export default function ConfluenceBattle({
   }, []);
 
   useEffect(() => {
-    api.getConfluenceRoster({ sessionId }).then(data => {
+    // Enemy power comes from gameConfig.enemies — the same source of truth
+    // as every other battle (Fray power 1 by law). Confluence keeps its own
+    // HP scaling (enemies swell against the combined roster), by design.
+    Promise.all([
+      api.getConfluenceRoster({ sessionId }),
+      api.call("getGameConfig", {}).catch(() => null),
+    ]).then(([data, cfg]) => {
+      const frayP = (cfg as any)?.enemies?.["fray"]?.power ?? 1;
+      const unravP = (cfg as any)?.enemies?.["unraveler"]?.power ?? 4;
       const fs: Fighter[] = data.fighters.map((f: any) => ({
         ...f,
         hp: f.toughness * 3,
@@ -61,7 +69,7 @@ export default function ConfluenceBattle({
       const en: Enemy[] = Array.from({ length: enemyCount }, (_, i) => ({
         id: i,
         name: i % 3 === 0 ? "Unraveler" : "Fray",
-        power: i % 3 === 0 ? 4 : 2,
+        power: i % 3 === 0 ? unravP : frayP,
         hp: 8 + Math.floor(totalPower / enemyCount),
         maxHp: 8 + Math.floor(totalPower / enemyCount),
       }));
