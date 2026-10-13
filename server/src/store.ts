@@ -222,6 +222,21 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS referral_codes (
   inviter_key TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );`);
+// Wake gift codes (The Ancient Creator) + gift notices.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS wake_codes (
+  code TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  redeemed_by TEXT,
+  redeemed_at INTEGER,
+  revoked INTEGER NOT NULL DEFAULT 0
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS creator_gifts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  seen_at INTEGER
+);`);
 // Conceived confluence twins.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS confluence_twins (
   session_id INTEGER PRIMARY KEY,

@@ -34,7 +34,7 @@ function useAwakeningSprites() {
 }
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import UIWorkspace from "./UIWorkspace";
-import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type WaitingAwoken, type WelcomeStatus } from "./api";
+import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
 import MusicLibrary from "./MusicLibrary";
 import auraWhisper from "./assets/auras/haze-01.png";
 import auraSoft from "./assets/auras/haze-02.png";
@@ -313,7 +313,32 @@ function TenderRank() {
   );
 }
 
-function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, isFirstAwoken }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; isFirstAwoken?: boolean }) {
+function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, freeWakeAvailable, isFirstAwoken, creatorGifts, signedIn }: { assets: LayerAsset[]; collection: "tender" | "workshop"; ownerName: string; manual: boolean; onSaved: (id: number) => void; credits: CreditInfo | null; freeWakeAvailable?: boolean; isFirstAwoken?: boolean; creatorGifts?: number; signedIn?: boolean }) {
+  const queryClient = useQueryClient();
+  const [giftDismissed, setGiftDismissed] = useState(false);
+  const [redeemCode, setRedeemCode] = useState("");
+  const [redeemMsg, setRedeemMsg] = useState<string | null>(null);
+  const [redeemFailed, setRedeemFailed] = useState(false);
+  useEffect(() => { setGiftDismissed(false); }, [creatorGifts]);
+  async function dismissGift() {
+    setGiftDismissed(true);
+    try { await api.ackCreatorGifts(); } catch { /* hidden locally either way */ }
+    void queryClient.invalidateQueries({ queryKey: ["studio"] });
+  }
+  async function redeemGift() {
+    const code = redeemCode.trim();
+    if (!code) return;
+    try {
+      await api.redeemWakeCode({ code });
+      setRedeemCode("");
+      setRedeemFailed(false);
+      setRedeemMsg("The creator has sent reinforcement!");
+      void queryClient.invalidateQueries({ queryKey: ["studio"] });
+    } catch (e) {
+      setRedeemFailed(true);
+      setRedeemMsg(mutationError(e));
+    }
+  }
   const awakening = useAwakeningSprites();
   const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
   const [composition, setComposition] = useState<LayerAsset[]>([]); const [notice, setNotice] = useState("The scattered matter waits.");
@@ -334,6 +359,12 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
     setComposition(next); setNotice("Matter gathers. The binding holds…"); save.mutate(next);
   }
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
+    {creatorGifts !== undefined && creatorGifts > 0 && !giftDismissed && (
+      <p className="notice creator-gift" role="status">
+        The creator has sent reinforcement!{creatorGifts > 1 ? ` ×${creatorGifts}` : ""}{" "}
+        <button type="button" className="quiet-link" aria-label="Dismiss gift notice" onClick={() => void dismissGift()}>✕</button>
+      </p>
+    )}
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
     <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }}><canvas ref={canvasRef} width={750} height={971} aria-label="Awoken awakening canvas" />{freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={async () => { try { const layers = pickLayerSet(assets); await api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) }); onSaved(0); } catch (e) { setNotice(mutationError(e)); } }} aria-label="A free wake is ready — tap to wake"><img src={awakening.wakeReady} alt="" /><span>Tap to wake</span></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span></div>
       {vesselEmpty ? (
@@ -347,6 +378,13 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
         <button className="wake-button" type="button" onClick={onWakeButton} disabled={save.isPending || checkout.isPending}><span>{save.isPending ? "Waking…" : "Wake One"}</span><small>{manual ? "chosen or weighted" : "let chance gather the form"}</small></button>
       )}
       {credits !== null && <p className="credit-line"><span>{credits.balance > 0 ? `${credits.balance} ${credits.balance === 1 ? "wake" : "wakes"} remaining` : "The vessel is empty."}</span><button type="button" className="credit-more" onClick={() => checkout.mutate()} disabled={checkout.isPending}>{checkout.isPending ? "Opening…" : "Get more wakes"}</button></p>}
+      {collection === "tender" && signedIn && (
+        <div className="redeem-row" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+          <input value={redeemCode} onChange={(e) => setRedeemCode(e.target.value)} placeholder="Gift code (WAKE-…)" style={{ maxWidth: 200 }} aria-label="Gift code" />
+          <button type="button" className="credit-more" onClick={() => void redeemGift()} disabled={!redeemCode.trim()}>Redeem gift code</button>
+          {redeemMsg && <span className={redeemFailed ? "notice error" : "notice"} role="status">{redeemMsg}</span>}
+        </div>
+      )}
       <p className={`notice ${save.error ? "error" : ""}`} role="status">{save.error ? mutationError(save.error) : notice}</p></div>
       {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → aspect → body → arms → aura → head</p></aside>}
     </div>
@@ -1062,6 +1100,23 @@ function TendersPanel() {
   const [resetPw, setResetPw] = useState("");
   const [deckPopup, setDeckPopup] = useState<{ ownerKey: string; name: string; field: any[]; hand: any[]; waveNumber: number } | null>(null);
   const [waveEdit, setWaveEdit] = useState<{ ownerKey: string; current: number } | null>(null);
+  const codesQuery = useQuery({ queryKey: ["wakeCodes"], queryFn: () => api.adminListWakeCodes() });
+  const [aspectCounts, setAspectCounts] = useState<Record<string, number>>({});
+  const grantAspects = async (t: TenderLeaderboardEntry) => {
+    const count = aspectCounts[t.ownerKey] ?? 5;
+    const els = ["tide", "sky", "stone", "root"] as const;
+    const nameOf = (el: (typeof els)[number]) => el.charAt(0).toUpperCase() + el.slice(1);
+    try {
+      const r = await api.adminGrantAspectPoints({ ownerKey: t.ownerKey, count });
+      const parts = els.filter((el) => r.granted[el] > 0).map((el) => `${nameOf(el)} +${r.granted[el]}`);
+      const born = els.flatMap((el) => Array.from({ length: r.spawned[el] }, () => nameOf(el)));
+      setAdminMsg(`Granted ${count} aspect points to ${t.displayName} — ${parts.join(", ")}${born.length ? ` · ${born.length} aspect${born.length > 1 ? "s" : ""} born (${born.join(", ")})` : ""}.`);
+      query.refetch();
+      setTimeout(() => setAdminMsg(null), 5000);
+    } catch (e) {
+      setAdminMsg("Failed: " + (e as Error).message);
+    }
+  };
   const doAdmin = async (fn: () => Promise<any>, label: string) => {
     try {
       await fn();
@@ -1109,6 +1164,7 @@ function TendersPanel() {
           <small>{t.code}</small>
         </div>
         <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awoken" : "Awoken"}</span>
+        <span className="count" title="Wakes remaining">Wakes: {t.wakeBalance}</span>
         <span className="energy-level" title="Energy">⚡{t.energy}</span>
         <button 
           className="wave-toggle" 
@@ -1125,9 +1181,31 @@ function TendersPanel() {
           <button className="abtn small" title="Clear timers" onClick={() => doAdmin(() => api.adminClearTimers({ ownerKey: t.ownerKey }), "Timers cleared")}>
             🕐
           </button>
+          <button className="abtn small" title="Gift a wake — The Ancient Creator" onClick={() => doAdmin(() => api.adminGiftWake({ ownerKey: t.ownerKey }), `Gifted a wake to ${t.displayName}`)}>
+            🎁
+          </button>
+          <input type="number" min={1} max={50} value={aspectCounts[t.ownerKey] ?? 5} onChange={(e) => setAspectCounts((prev) => ({ ...prev, [t.ownerKey]: Math.max(1, Math.min(50, Number(e.target.value) || 5)) }))} style={{ width: 56 }} aria-label={`Aspect points for ${t.displayName}`} />
+          <button className="abtn small" title="Grant random elemental aspect points — The Ancient Creator" onClick={() => void grantAspects(t)}>
+            Aspect pts
+          </button>
         </div>
       </li>)}</ol>
     )}
+    <div className="wake-codes" style={{ marginTop: 24 }}>
+      <h2 style={{ fontSize: 18, marginBottom: 4 }}>Wake Codes</h2>
+      <p className="quiet">Gift codes of The Ancient Creator — mint one, hand it out, and whoever redeems it gains a wake: “The creator has sent reinforcement!”</p>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button className="abtn small" onClick={() => doAdmin(() => api.adminMintWakeCodes({ count: 1 }).then(r => { void codesQuery.refetch(); return r; }), "Minted 1 wake code")}>Mint code</button>
+        <button className="abtn small" onClick={() => doAdmin(() => api.adminMintWakeCodes({ count: 5 }).then(r => { void codesQuery.refetch(); return r; }), "Minted 5 wake codes")}>Mint 5</button>
+      </div>
+      {codesQuery.isPending ? <p className="quiet">Gathering the codes…</p> : codesQuery.data?.codes.length ? (
+        <ol>{codesQuery.data.codes.map((c) => <li key={c.code}>
+          <code>{c.code}</code>{" "}
+          <span className="quiet">{c.status === "unused" ? "Unused" : c.status === "redeemed" ? `Redeemed by ${c.redeemedByName ?? "a Tender"}` : "Revoked"}</span>{" "}
+          {c.status === "unused" && <button className="abtn small" onClick={() => doAdmin(() => api.adminRevokeWakeCode({ code: c.code }).then(r => { void codesQuery.refetch(); return r; }), `Revoked ${c.code}`)}>Revoke</button>}
+        </li>)}</ol>
+      ) : <p className="quiet">No codes minted yet.</p>}
+    </div>
       {/* Wave editor popup */}
       {waveEdit && (
         <div className="admin-popup" onClick={() => setWaveEdit(null)}>
@@ -1288,7 +1366,7 @@ export function App() {
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
       {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
-      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} isFirstAwoken={tenderItems.length === 0} /><LoreSection /></>}
+      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} /><LoreSection /></>}
     </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       {birthRevealId !== null && (() => {
         const newborn = tenderItems.find(i => i.id === birthRevealId);

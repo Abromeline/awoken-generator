@@ -188,6 +188,27 @@ export const referralCodes = sqliteTable("referral_codes", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// Wake gift codes: minted by The Ancient Creator (Nigel, in the workshop),
+// each redeemable exactly once by a signed-in Tender for +1 wake.
+export const wakeCodes = sqliteTable("wake_codes", {
+  code: text("code").primaryKey(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  redeemedBy: text("redeemed_by"),
+  redeemedAt: integer("redeemed_at", { mode: "timestamp_ms" }),
+  revoked: integer("revoked").notNull().default(0),
+});
+
+// Gifts from The Ancient Creator: one row per gift (workshop button, gift
+// code, or aspect-point grant). Unseen rows (seen_at NULL) surface the
+// "The creator has sent reinforcement!" notice on the Tender's next visit.
+export const creatorGifts = sqliteTable("creator_gifts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  source: text("source", { enum: ["button", "code", "aspect"] }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  seenAt: integer("seen_at", { mode: "timestamp_ms" }),
+});
+
 // DB-backed sessions so logins survive restarts. Token lives in the
 // Tender's localStorage, sent as X-Tender-Token.
 export const tenderSessions = sqliteTable("tender_sessions", {

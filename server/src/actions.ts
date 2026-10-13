@@ -4,12 +4,12 @@
 // `ctx.blobs` -> the content-addressed blob store, `ctx.inference.complete`
 // -> the curated naming/flavor pools in naming.ts.
 
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
-import { creditBalance, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
+import { creditBalance, grantCredits, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
 import { stripeReady } from "./stripe.js";
 import {
@@ -34,6 +34,73 @@ function ownerKeyFor(ctx?: ActionContext): string {
 /** Display name for newly woken creatures. */
 function ownerNameFor(ctx?: ActionContext): string {
   return ctx?.tender?.tenderName ?? "Tender";
+}
+
+type AspectElement = "tide" | "sky" | "stone" | "root";
+
+/**
+ * Add ONE attunement point to an element for an owner — the exact arithmetic
+ * grantAspectPoint has always run: +1 point (insert or update, updatedAt
+ * touched), and at >= 10 points an aspect is born into the inventory when a
+ * "<Element> I" layer asset exists (10 points are then spent; without the
+ * asset the points stay). Lifetime gains are never touched. Returns true
+ * when an aspect spawned.
+ */
+async function addAspectPoint(ownerKey: string, element: AspectElement): Promise<boolean> {
+  const row = await db.select().from(schema.aspectAttunement)
+    .where(and(
+      eq(schema.aspectAttunement.ownerKey, ownerKey),
+      eq(schema.aspectAttunement.element, element)
+    )).limit(1);
+  const current = row[0]?.points ?? 0;
+  const newPoints = current + 1;
+  if (row[0]) {
+    await db.update(schema.aspectAttunement)
+      .set({ points: newPoints, updatedAt: new Date() })
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, element)
+      ));
+  } else {
+    await db.insert(schema.aspectAttunement)
+      .values({ ownerKey, element, points: newPoints, updatedAt: new Date() });
+  }
+  // Check threshold (10) — spawn aspect if reached
+  if (newPoints >= 10) {
+    const elementName = element.charAt(0).toUpperCase() + element.slice(1);
+    const asset = await db.select().from(schema.layerAssets)
+      .where(and(
+        eq(schema.layerAssets.category, "aspect"),
+        like(schema.layerAssets.name, `${elementName} I`)
+      )).limit(1);
+    if (asset.length) {
+      await db.insert(schema.aspectInventory)
+        .values({ ownerKey, aspectAssetId: asset[0].id });
+      await db.update(schema.aspectAttunement)
+        .set({ points: newPoints - 10 })
+        .where(and(
+          eq(schema.aspectAttunement.ownerKey, ownerKey),
+          eq(schema.aspectAttunement.element, element)
+        ));
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Record a gift from The Ancient Creator (drives the Tender's gift notice). */
+async function recordCreatorGift(ownerKey: string, source: "button" | "code" | "aspect"): Promise<void> {
+  await db.insert(schema.creatorGifts).values({ ownerKey, source });
+}
+
+/** Resolve a `tender:<id>` owner key to its Tender row, or refuse. */
+async function tenderForOwnerKey(ownerKey: string): Promise<TenderRow> {
+  const match = /^tender:(\d+)$/.exec(ownerKey);
+  if (!match) badRequest("That is not a Tender account.");
+  const rows = await db.select().from(schema.tenders)
+    .where(eq(schema.tenders.id, Number(match[1]))).limit(1);
+  if (!rows[0]) badRequest("That Tender could not be found.");
+  return rows[0];
 }
 
 const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "aspect", "head"]);
@@ -291,10 +358,17 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
   const idsByIdentity = new Map<string, number[]>();
   for (const item of parsedRows) idsByIdentity.set(item.identity, [...(idsByIdentity.get(item.identity) ?? []), item.row.id].sort((a, b) => a - b));
   const awakened = parsedRows.map(({ row, layers, identity }) => toAwakenedPayload(row, layers, identity, idsByIdentity));
+  // Unseen gifts from The Ancient Creator — the Tender face turns this count
+  // into the "The creator has sent reinforcement!" notice.
+  const giftRows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.creatorGifts)
+    .where(and(eq(schema.creatorGifts.ownerKey, ownerKey), isNull(schema.creatorGifts.seenAt)));
   return {
     assets,
     awakened,
     tender: ctx?.tender ? publicTender(ctx.tender) : null,
+    creatorGifts: giftRows[0]?.count ?? 0,
     credits: {
       balance: await creditBalance(ownerKey),
       packPriceCents: PACK_PRICE_CENTS,
@@ -1038,6 +1112,9 @@ export const handlers = {
     const energyRows = await db.select().from(schema.tenderResources);
     const energyByKey = new Map<string, number>();
     for (const row of energyRows) energyByKey.set(row.ownerKey, row.energy);
+    const ledgerRows = await db.select().from(schema.creditLedger);
+    const balanceByKey = new Map<string, number>();
+    for (const row of ledgerRows) balanceByKey.set(row.userId, (balanceByKey.get(row.userId) ?? 0) + row.delta);
     const tenders = tenderRows
       .map((t) => {
         const ownerKey = tenderOwnerKey(t.id);
@@ -1049,6 +1126,7 @@ export const handlers = {
           awokenCount: countByKey.get(ownerKey) ?? 0,
           ownerKey,
           energy: energyByKey.get(ownerKey) ?? 5,
+          wakeBalance: balanceByKey.get(ownerKey) ?? 0,
         };
       })
       .sort((a, b) => b.awokenCount - a.awokenCount || a.createdAt.localeCompare(b.createdAt));
@@ -1733,45 +1811,8 @@ export const handlers = {
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid element.");
     // Add 1 point to attunement (may trigger aspect spawn if threshold hit)
-    const row = await db.select().from(schema.aspectAttunement)
-      .where(and(
-        eq(schema.aspectAttunement.ownerKey, ownerKey),
-        eq(schema.aspectAttunement.element, parsed.data.element)
-      )).limit(1);
-    const current = row[0]?.points ?? 0;
-    const newPoints = current + 1;
-    if (row[0]) {
-      await db.update(schema.aspectAttunement)
-        .set({ points: newPoints, updatedAt: new Date() })
-        .where(and(
-          eq(schema.aspectAttunement.ownerKey, ownerKey),
-          eq(schema.aspectAttunement.element, parsed.data.element)
-        ));
-    } else {
-      await db.insert(schema.aspectAttunement)
-        .values({ ownerKey, element: parsed.data.element, points: newPoints, updatedAt: new Date() });
-    }
-    // Check threshold (10) — spawn aspect if reached
-    if (newPoints >= 10) {
-      const elementName = parsed.data.element.charAt(0).toUpperCase() + parsed.data.element.slice(1);
-      const asset = await db.select().from(schema.layerAssets)
-        .where(and(
-          eq(schema.layerAssets.category, "aspect"),
-          like(schema.layerAssets.name, `${elementName} I`)
-        )).limit(1);
-      if (asset.length) {
-        await db.insert(schema.aspectInventory)
-          .values({ ownerKey, aspectAssetId: asset[0].id });
-        await db.update(schema.aspectAttunement)
-          .set({ points: newPoints - 10 })
-          .where(and(
-            eq(schema.aspectAttunement.ownerKey, ownerKey),
-            eq(schema.aspectAttunement.element, parsed.data.element)
-          ));
-        return { ok: true as const, spawned: true as const };
-      }
-    }
-    return { ok: true as const, spawned: false as const };
+    const spawned = await addAspectPoint(ownerKey, parsed.data.element);
+    return { ok: true as const, spawned };
   },
 
   /** Persist battle damage to a tile. Returns new HP, and whether it fell. */
@@ -3468,6 +3509,145 @@ export const handlers = {
       .set({ lastPassiveAt: null })
       .where(eq(schema.territoryTiles.ownerKey, targetKey));
     return { ok: true };
+  },
+
+  // -- The Ancient Creator's gifts ------------------------------------------
+  // Nigel's reward system: +1 wake to a Tender (one press per wake), wake
+  // gift codes for like-and-share rewards, and random elemental attunement
+  // points. Every grant records a creator_gifts row so the Tender sees
+  // "The creator has sent reinforcement!" on their next visit.
+
+  /** Gift one wake to a Tender — The Ancient Creator's reward button. */
+  async adminGiftWake(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({ ownerKey: z.string().min(1) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await tenderForOwnerKey(parsed.data.ownerKey);
+    const balance = await grantCredits(parsed.data.ownerKey, 1, "creator_gift");
+    await recordCreatorGift(parsed.data.ownerKey, "button");
+    return { ok: true as const, balance };
+  },
+
+  /** Mint single-use wake gift codes (The Ancient Creator hands them out). */
+  async adminMintWakeCodes(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({ count: z.number().int().min(1).max(20).default(1) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no lookalikes
+    const segment = () => {
+      const bytes = randomBytes(4);
+      return Array.from(bytes).map((b) => alphabet[b % alphabet.length]).join("");
+    };
+    const codes: string[] = [];
+    for (let i = 0; i < parsed.data.count; i++) {
+      // Retry on primary-key collision (astronomically unlikely, but safe).
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const code = `WAKE-${segment()}-${segment()}`;
+        try {
+          await db.insert(schema.wakeCodes).values({ code });
+          codes.push(code);
+          break;
+        } catch {
+          // Collision — roll again.
+        }
+        if (attempt === 9) badRequest("The codes would not gather — try fewer at once.");
+      }
+    }
+    return { ok: true as const, codes };
+  },
+
+  /** List wake gift codes, newest first — The Ancient Creator's ledger view. */
+  async adminListWakeCodes(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const rows = await db.select().from(schema.wakeCodes)
+      .orderBy(desc(schema.wakeCodes.createdAt)).limit(100);
+    const tenderRows = await db.select().from(schema.tenders);
+    const nameByKey = new Map<string, string>();
+    for (const t of tenderRows) nameByKey.set(tenderOwnerKey(t.id), t.tenderName ?? t.code);
+    return {
+      codes: rows.map((row) => {
+        const status = row.redeemedBy ? "redeemed" : row.revoked ? "revoked" : "unused";
+        return {
+          code: row.code,
+          createdAt: row.createdAt.toISOString(),
+          status: status as "unused" | "redeemed" | "revoked",
+          redeemedByName: row.redeemedBy ? nameByKey.get(row.redeemedBy) ?? row.redeemedBy : null,
+          redeemedAt: row.redeemedAt ? row.redeemedAt.toISOString() : null,
+        };
+      }),
+    };
+  },
+
+  /** Revoke an unused wake gift code (redeemed codes are beyond revocation). */
+  async adminRevokeWakeCode(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({ code: z.string().trim().min(1).max(32) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const code = parsed.data.code.toUpperCase();
+    const rows = await db.select().from(schema.wakeCodes)
+      .where(eq(schema.wakeCodes.code, code)).limit(1);
+    if (!rows.length) badRequest("That code could not be found.");
+    if (rows[0].redeemedBy) badRequest("That code has already been redeemed — it cannot be revoked.");
+    if (!rows[0].revoked) {
+      await db.update(schema.wakeCodes)
+        .set({ revoked: 1 })
+        .where(eq(schema.wakeCodes.code, code));
+    }
+    return { ok: true as const };
+  },
+
+  /** Grant random elemental attunement points — The Ancient Creator's hand. */
+  async adminGrantAspectPoints(args: unknown, ctx?: ActionContext) {
+    // TODO: verify admin workshop password
+    const parsed = z.object({
+      ownerKey: z.string().min(1),
+      count: z.number().int().min(1).max(50),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    await tenderForOwnerKey(parsed.data.ownerKey);
+    const ownerKey = parsed.data.ownerKey;
+    const granted: Record<AspectElement, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    const spawned: Record<AspectElement, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    for (let i = 0; i < parsed.data.count; i++) {
+      const elements: AspectElement[] = ["tide", "sky", "stone", "root"];
+      const element = elements[Math.floor(Math.random() * elements.length)];
+      granted[element] += 1;
+      if (await addAspectPoint(ownerKey, element)) spawned[element] += 1;
+    }
+    await recordCreatorGift(ownerKey, "aspect");
+    return { ok: true as const, granted, spawned };
+  },
+
+  /** Redeem a wake gift code from The Ancient Creator (+1 wake, once ever). */
+  async redeemWakeCode(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Claim your secret code and sign in as a Tender to redeem a gift code.");
+    const parsed = z.object({ code: z.string().trim().min(1).max(32) }).safeParse(args);
+    if (!parsed.success) badRequest("That gift code doesn't look right — check it and try again.");
+    const code = parsed.data.code.toUpperCase();
+    const ownerKey = tenderOwnerKey(ctx.tender.id);
+    // Atomic claim: only one Tender can ever win this row.
+    const claim = sqlite
+      .prepare(`UPDATE wake_codes SET redeemed_by = ?, redeemed_at = ? WHERE code = ? AND redeemed_by IS NULL AND revoked = 0`)
+      .run(ownerKey, Date.now(), code);
+    if (claim.changes !== 1) {
+      const rows = await db.select().from(schema.wakeCodes)
+        .where(eq(schema.wakeCodes.code, code)).limit(1);
+      if (!rows.length) badRequest("That gift code doesn't exist — check it and try again.");
+      if (rows[0].revoked) badRequest("That gift code is no longer valid.");
+      badRequest("That gift code has already been redeemed.");
+    }
+    const balance = await grantCredits(ownerKey, 1, "creator_gift_code", code);
+    await recordCreatorGift(ownerKey, "code");
+    return { ok: true as const, balance };
+  },
+
+  /** Acknowledge The Ancient Creator's gifts (hides the reinforcement notice). */
+  async ackCreatorGifts(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await db.update(schema.creatorGifts)
+      .set({ seenAt: new Date() })
+      .where(and(eq(schema.creatorGifts.ownerKey, ownerKey), isNull(schema.creatorGifts.seenAt)));
+    return { ok: true as const };
   },
 
 

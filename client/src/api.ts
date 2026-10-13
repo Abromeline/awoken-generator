@@ -92,6 +92,7 @@ export interface Studio {
   awakened: Awakened[];
   tender: TenderInfo | null;
   credits: CreditInfo;
+  creatorGifts: number;
 }
 
 export interface TenderInfo {
@@ -108,6 +109,15 @@ export interface TenderLeaderboardEntry {
   awokenCount: number;
   ownerKey: string;
   energy: number;
+  wakeBalance: number;
+}
+
+export interface WakeCodeEntry {
+  code: string;
+  createdAt: string;
+  status: "unused" | "redeemed" | "revoked";
+  redeemedByName: string | null;
+  redeemedAt: string | null;
 }
 
 export interface StripeConfig {
@@ -332,6 +342,14 @@ export const api = {
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
   adminClearTimers: (args: { ownerKey: string }) => post<{ ok: true }>("adminClearTimers", args),
   adminSetWave: (args: { ownerKey: string; waveNumber: number }) => post<{ ok: true; waveNumber: number }>("adminSetWave", args),
+  adminGiftWake: (args: { ownerKey: string }) => post<{ ok: true; balance: number }>("adminGiftWake", args),
+  adminMintWakeCodes: (args: { count: number }) => post<{ ok: true; codes: string[] }>("adminMintWakeCodes", args),
+  adminListWakeCodes: () => post<{ codes: WakeCodeEntry[] }>("adminListWakeCodes", {}),
+  adminRevokeWakeCode: (args: { code: string }) => post<{ ok: true }>("adminRevokeWakeCode", args),
+  adminGrantAspectPoints: (args: { ownerKey: string; count: number }) =>
+    post<{ ok: true; granted: Record<"tide" | "sky" | "stone" | "root", number>; spawned: Record<"tide" | "sky" | "stone" | "root", number> }>("adminGrantAspectPoints", args),
+  redeemWakeCode: (args: { code: string }) => post<{ ok: true; balance: number }>("redeemWakeCode", args),
+  ackCreatorGifts: () => post<{ ok: true }>("ackCreatorGifts", {}),
   adminGetTenderDeck: (args: { ownerKey: string }) => post<{ ok: true; field: Awakened[]; hand: Awakened[]; waveNumber: number }>("adminGetTenderDeck", args),
   getBuildingDefs: () => post<{ defs: Array<{ type: string; name: string; cost: number; buildMinutes: number; desc: string; icon: string }> }>("getBuildingDefs", {}),
   getBuildings: () => post<{ buildings: Array<{ id: number; tileId: number; buildingType: string; status: string; readyAt: string | null; element: string | null }> }>("getBuildings", {}),
