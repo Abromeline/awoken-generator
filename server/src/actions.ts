@@ -836,8 +836,9 @@ async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp:
 //   DEFENSE EVENT — an Awoken is attacked, or stands in a defense
 //                   resolution (wave defense, battle defense): +10.
 //   HEX TAKEN     — a hex is taken: +50 to the Awoken whose attack broke
-//                   the curse, or to each Awoken committed to a defense
-//                   whose victory purified the hex.
+//                   the curse. WAVE COMPLETION pays the same +50 to ALL
+//                   Awoken involved in that wave's resolution (Nigel's
+//                   refinement) — every participant it touched.
 // All grants flow through grantXp — level-ups, stat points, and level
 // deeds ride along exactly as before.
 export const XP_PER_ATTACK = 10;
@@ -4160,11 +4161,6 @@ export const handlers = {
           await db.update(schema.territoryTiles)
             .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10 })
             .where(eq(schema.territoryTiles.id, target[0].id));
-          // The fire took the hex for the defenders: HEX-TAKEN XP to
-          // each Awoken committed to the defense.
-          for (const id of parsed.data.survivorIds) {
-            await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
-          }
         }
       }
       // Continue reward: +6 energy, server-side, one-time per victory
@@ -4177,6 +4173,13 @@ export const handlers = {
             .set({ energy: Math.min(energyRes[0].energy + 6, maxEnergy), updatedAt: new Date() })
             .where(eq(schema.tenderResources.ownerKey, ownerKey));
         }
+      }
+      // Wave completion (Nigel's refinement, 2026-10-13): a completed
+      // wave pays the HEX-TAKEN grant (+50) to ALL Awoken involved in
+      // the resolution — every survivor the battle touched, not only
+      // committed defenders.
+      for (const id of parsed.data.survivorIds) {
+        await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
       }
       // Deeds of victory (unchanged): the old 50 + 10×wave XP grant
       // that rode in this loop is abolished by the unified model —
