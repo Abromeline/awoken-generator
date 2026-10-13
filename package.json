@@ -34,7 +34,8 @@
     "build:server": "tsc -p server/tsconfig.json",
     "dev:server": "node --watch server/dist/index.js",
     "start": "node server/dist/index.js",
-    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit"
+    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
+    "prepush": "node scripts/prepush.mjs"
   },
   "type": "module",
   "version": "1.0.0"

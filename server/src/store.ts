@@ -470,6 +470,17 @@ if (trackCount.n === 0) {
   }
 }
 
+// Stories table for the Confluence power-up. (Restored 2026-10-12: the
+// CREATE was lost in an unrelated commit; production only kept working
+// because its database already had the table. Caught by schema-audit.)
+sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  awakened_id INTEGER NOT NULL,
+  tender_id INTEGER NOT NULL,
+  story_text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`);
+
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, { schema });
 
 function objectPath(objectId: string) {
