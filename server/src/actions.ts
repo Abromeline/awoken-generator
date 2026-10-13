@@ -738,19 +738,22 @@ function wavePowerFor(wave: number): { totalPower: number; unravelers: number; f
 
 // Wave recovery (fix list #4, Nigel, 2026-10-13): after a victory the
 // Unraveling needs time to gather itself — the next wave can be faced
-// 12 minutes × 1.15^wavesDefeated after the last victory (wave 1 → 12 min,
-// wave 2 ≈ 13.8, wave 5 ≈ 20.9, wave 10 ≈ 48.5). Gentle growth, never a
-// wall. wavesDefeated is the count BEFORE the victory that starts the wait.
+// 12 minutes × 1.15^k after the last victory, where k is the waves
+// defeated BEFORE that victory (wave 1 → 12 min, wave 2 ≈ 13.8,
+// wave 5 ≈ 20.9, wave 10 ≈ 42.2). Gentle growth, never a wall.
 export const WAVE_COOLDOWN_BASE_MS = 12 * 60 * 1000;
-export function waveCooldownMs(wavesDefeated: number): number {
-  return Math.round(WAVE_COOLDOWN_BASE_MS * Math.pow(1.15, Math.max(0, wavesDefeated)));
+export function waveCooldownMs(defeatedBeforeVictory: number): number {
+  return Math.round(WAVE_COOLDOWN_BASE_MS * Math.pow(1.15, Math.max(0, defeatedBeforeVictory)));
 }
 
 /** When the next wave may be faced, as an ISO string — or null when the
- *  way is open now (no victory yet, or the recovery has elapsed). */
+ *  way is open now (no victory yet, or the recovery has elapsed). The
+ *  stored wavesDefeated already counts the victory that started the
+ *  wait, so the exponent is that count minus the victory itself. */
 export function nextWaveAtFor(state: { lastVictoryAt: Date | null; wavesDefeated: number }): string | null {
   if (!state.lastVictoryAt) return null;
-  const readyAt = new Date(state.lastVictoryAt).getTime() + waveCooldownMs(state.wavesDefeated);
+  const exponent = Math.max(0, state.wavesDefeated - 1);
+  const readyAt = new Date(state.lastVictoryAt).getTime() + waveCooldownMs(exponent);
   return readyAt > Date.now() ? new Date(readyAt).toISOString() : null;
 }
 
@@ -3347,9 +3350,10 @@ export const handlers = {
     return {
       victory, wavePower, defensePower,
       waveNumber: victory ? wave + 1 : wave,
-      // After a victory, when the NEXT wave may be faced (fix list #4).
+      // After a victory, when the NEXT wave may be faced (fix list #4):
+      // the gap is set by the count BEFORE this victory.
       nextWaveAt: victory
-        ? new Date(Date.now() + waveCooldownMs(state[0].wavesDefeated + 1)).toISOString()
+        ? new Date(Date.now() + waveCooldownMs(state[0].wavesDefeated)).toISOString()
         : null,
       // XP the defenders earned under the unified event model (fix #5).
       defenderXp: [...defenderXpById.values()],
