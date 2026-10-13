@@ -1540,6 +1540,36 @@ body.defeat-flash {
 @keyframes awokenBreathe{from{transform:scale(1)}to{transform:scale(1.018)}}
 .ceremony-card-layer{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center}
 .ceremony-card-backdrop{position:absolute;inset:0;background:rgba(4,4,2,.55)}
+/* THE FADE — Option 1 from the ceremony examples (Nigel's pick,
+   2026-10-13: "fading away over 1 sec"). While the formed card hovers
+   over the large Awoken picture, the picture's hard rectangular edges
+   feather away from the outside in and the picture settles into the
+   card over 1s. The picture stack is the frame's wake-slot backdrop
+   (.canvas-frame-bg) plus the ritual canvas, feathered as ONE image by
+   a shared radial mask; the spark overlay, the whisper and the card
+   itself are never masked. The feather's geometry rides a registered
+   custom property (--stack-feather), so the mask itself morphs over
+   1s where @property is supported; a static-mask pop is avoided
+   everywhere else by a 1s luminous settle animation on the backdrop
+   and a 1s filter ease on the canvas. Only the custom property and
+   filter transition on the canvas — never opacity/transform — so the
+   wake ceremony's own choreography is untouched. When the moment
+   concludes, the state lifts and the feather eases back out as the
+   stage resets. Idle and workshop stages sit at --stack-feather:0,
+   where the mask is opaque across the whole frame: no visible mask. */
+@property --stack-feather{syntax:"<number>";inherits:false;initial-value:0}
+.canvas-frame-bg{position:absolute;inset:0;z-index:0}
+.canvas-frame-bg,.canvas-frame canvas{
+  --stack-feather:0;
+  -webkit-mask-image:radial-gradient(ellipse calc(160% - var(--stack-feather)*44%) calc(160% - var(--stack-feather)*44%) at 50% 47%,#000 calc(96% - var(--stack-feather)*38%),transparent calc(100% - var(--stack-feather)*4%));
+  mask-image:radial-gradient(ellipse calc(160% - var(--stack-feather)*44%) calc(160% - var(--stack-feather)*44%) at 50% 47%,#000 calc(96% - var(--stack-feather)*38%),transparent calc(100% - var(--stack-feather)*4%));
+  transition:--stack-feather 1s ease;
+}
+.canvas-frame canvas{transition:--stack-feather 1s ease,filter 1s ease}
+.canvas-frame.card-presented .canvas-frame-bg,.canvas-frame.card-presented canvas{--stack-feather:1}
+.canvas-frame.card-presented .canvas-frame-bg{animation:ceremonyStackSettle 1s ease both}
+.canvas-frame.card-presented canvas{filter:brightness(.98) saturate(.95)}
+@keyframes ceremonyStackSettle{from{filter:brightness(1.08) saturate(.9)}}
 .ceremony-card-wrap{position:relative;width:min(80%,320px);max-height:94%;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:10px}
 .ceremony-card-wrap .trading-card{width:100%}
 /* THE CARD FORMATION — "Drift In" + the corner burn (Nigel's final
@@ -1614,6 +1644,7 @@ body.defeat-flash {
   .ceremony-card-form .trading-card::before,.ceremony-card-form .trading-card::after{animation-duration:1s}
   .ceremony-card-stage::before,.ceremony-card-stage::after{animation-duration:1.6s}
   .ceremony-card-stage[data-phase="burning"] .ceremony-burn{animation-duration:1.9s}
+  .canvas-frame.card-presented .canvas-frame-bg{animation-duration:1s}
 }
 
 .gather-wakes-row{display:flex;align-items:center;gap:16px;margin:12px 0}
