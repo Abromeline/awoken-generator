@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
+import hallBanner from "./assets/hall-of-champions.jpg";
 
 import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
@@ -1562,17 +1563,19 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
     onError: (e: any) => alert(e.message),
   });
 
-  if (hallQ.isPending) return <div className="champion-tab"><div className="celestial-title">Hall of Champions</div><p className="quiet">Approaching the castle…</p></div>;
+  if (hallQ.isPending) return <div className="champion-tab"><div className="celestial-title">Hall of Champions</div><img src={hallBanner} className="hall-banner" alt="The Hall of Champions" /><p className="quiet">Approaching the castle…</p></div>;
   const hall = hallQ.data?.hall;
   if (!hall) return (
     <div className="champion-tab">
       <div className="celestial-title">Hall of Champions</div>
+      <img src={hallBanner} className="hall-banner" alt="The Hall of Champions" />
       <p className="quiet">No hall stands yet. Raise the 🏰 Hall of Champions from the build menu — a castle haunted by ancient Awoken, where your champions will dwell, be fed, and grow.</p>
     </div>
   );
   if (hall.status === "building") return (
     <div className="champion-tab">
       <div className="celestial-title">Hall of Champions</div>
+      <img src={hallBanner} className="hall-banner" alt="The Hall of Champions" />
       <p className="quiet">The castle is rising from the stone… it will stand soon.</p>
     </div>
   );
@@ -1588,6 +1591,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
   return (
     <div className="champion-tab">
       <div className="celestial-title">🏰 Hall of Champions — Level {hall.level}</div>
+      <img src={hallBanner} className="hall-banner" alt="The Hall of Champions" />
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "8px 0" }}>
         {hall.rooms.map((r: any) => {
           const a = r.awakenedId ? tenderItems.find(t => t.id === r.awakenedId) : null;

@@ -1551,6 +1551,7 @@ body.defeat-flash {
 .champion-fab{position:fixed;bottom:140px;right:20px;width:56px;height:56px;border-radius:50%;background:rgba(20,20,30,0.9);border:2px solid #d4af6a;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:900}
 .champion-fab:hover{background:rgba(40,40,50,0.95)}
 .champion-tab{position:fixed;bottom:210px;right:20px;width:280px;background:rgba(15,15,25,0.97);border:2px solid #d4af6a;border-radius:12px;padding:16px;z-index:950}
+.hall-banner{width:100%;height:auto;display:block;border-radius:8px;border:1px solid rgba(212,175,106,0.45);margin:8px 0 10px}
 .champion-tab-card{text-align:center}
 .champion-tab-card img{width:120px;height:120px;object-fit:cover;border-radius:8px;margin:8px auto;display:block}
 .champion-tab-card .abtn{margin:4px}
