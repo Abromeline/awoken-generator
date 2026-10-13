@@ -1338,9 +1338,12 @@ export const handlers = {
     return { id: (row as { id: number }).id, name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
   },
 
-  async renameAwoken(args: unknown) {
+  async renameAwoken(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid name.");
+    const rows = await db.select({ ownerKey: schema.awakened.ownerKey }).from(schema.awakened).where(eq(schema.awakened.id, parsed.data.id)).limit(1);
+    if (!rows[0]) badRequest("That Awoken is not found.");
+    if (rows[0].ownerKey !== ownerKeyFor(ctx)) badRequest("You can only rename your own Awoken.");
     await db.update(schema.awakened).set({ name: parsed.data.name }).where(eq(schema.awakened.id, parsed.data.id));
     return okResponse.parse({ ok: true });
   },
