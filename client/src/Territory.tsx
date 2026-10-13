@@ -205,10 +205,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
   const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
 
-  // Energy cap: 5 base + power-based bonus per Awoken (hand AND field).
-  // 1-3 power: +1, 4-6: +2, 7-9: +3, 10+: +4. Stronger beings contribute more existence.
+  // Energy cap: 10 base + power-based bonus per Awoken (hand AND field).
+  // TRIPLED 2026-10-13 (Nigel): 1-3 power: +3, 4-6: +6, 7-9: +9, 10+: +12.
+  // Stronger beings contribute more existence. Mirrors the server's
+  // calculateMaxEnergy — the two must agree.
   // Defenders generate +1 max energy each — they hold the line and gather strength.
-  const energyBonus = (power: number) => 1 + Math.floor((power - 1) / 3);
+  const energyBonus = (power: number) => 3 + 3 * Math.floor((power - 1) / 3);
   const fieldAwoken = placements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
   const defenderCount = placements.filter(p => p.stance === "defense").length;
   const maxEnergy = 10
