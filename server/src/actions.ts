@@ -681,6 +681,24 @@ function wavePowerFor(wave: number): { totalPower: number; unravelers: number; f
   return { totalPower, unravelers, frayCount };
 }
 
+// Wave recovery (fix list #4, Nigel, 2026-10-13): after a victory the
+// Unraveling needs time to gather itself — the next wave can be faced
+// 12 minutes × 1.15^wavesDefeated after the last victory (wave 1 → 12 min,
+// wave 2 ≈ 13.8, wave 5 ≈ 20.9, wave 10 ≈ 48.5). Gentle growth, never a
+// wall. wavesDefeated is the count BEFORE the victory that starts the wait.
+export const WAVE_COOLDOWN_BASE_MS = 12 * 60 * 1000;
+export function waveCooldownMs(wavesDefeated: number): number {
+  return Math.round(WAVE_COOLDOWN_BASE_MS * Math.pow(1.15, Math.max(0, wavesDefeated)));
+}
+
+/** When the next wave may be faced, as an ISO string — or null when the
+ *  way is open now (no victory yet, or the recovery has elapsed). */
+export function nextWaveAtFor(state: { lastVictoryAt: Date | null; wavesDefeated: number }): string | null {
+  if (!state.lastVictoryAt) return null;
+  const readyAt = new Date(state.lastVictoryAt).getTime() + waveCooldownMs(state.wavesDefeated);
+  return readyAt > Date.now() ? new Date(readyAt).toISOString() : null;
+}
+
 // Boss scaling: significantly harder than regular waves.
 // Boss N = equivalent to wave (5 + N*3) in power, with full enemy variety.
 function bossPowerFor(bossLevel: number): { totalPower: number; frayCount: number; unravelers: number; hollows: number; tangles: number } {
@@ -3065,6 +3083,9 @@ export const handlers = {
       wavesDefeated: state[0].wavesDefeated,
       frayCount, unravelers,
       totalPower,
+      // Fix list #4: when the recovery from the last victory ends (ISO),
+      // or null when the next wave can be faced now.
+      nextWaveAt: nextWaveAtFor(state[0]),
     };
   },
 
@@ -3075,6 +3096,13 @@ export const handlers = {
     if (!state.length) {
       const [row] = await db.insert(schema.waveState).values({ ownerKey }).returning();
       state = [row];
+    }
+    // Wave recovery (fix list #4): victories impose a wait — 12 min ×
+    // 1.15^wavesDefeated since the last one. The error carries the
+    // ready-at time so the client can show it.
+    const nextWaveAt = nextWaveAtFor(state[0]);
+    if (nextWaveAt) {
+      badRequest(`The Unraveling is still gathering itself — the next wave can be faced at ${nextWaveAt}.`);
     }
     const wave = state[0].waveNumber;
     const { totalPower: wavePower } = wavePowerFor(wave);
@@ -3152,6 +3180,8 @@ export const handlers = {
           waveNumber: wave + 1,
           wavesDefeated: state[0].wavesDefeated + 1,
           lastWaveAt: new Date(),
+          // The recovery clock starts at the victory (fix list #4).
+          lastVictoryAt: new Date(),
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {
@@ -3197,7 +3227,14 @@ export const handlers = {
         .where(eq(schema.waveState.ownerKey, ownerKey));
     }
 
-    return { victory, wavePower, defensePower, waveNumber: victory ? wave + 1 : wave };
+    return {
+      victory, wavePower, defensePower,
+      waveNumber: victory ? wave + 1 : wave,
+      // After a victory, when the NEXT wave may be faced (fix list #4).
+      nextWaveAt: victory
+        ? new Date(Date.now() + waveCooldownMs(state[0].wavesDefeated + 1)).toISOString()
+        : null,
+    };
   },
 
 
@@ -4087,6 +4124,9 @@ export const handlers = {
           waveNumber: currentWave + 1,
           wavesDefeated,
           lastWaveAt: new Date(),
+          // A victory on the battleground path starts the same recovery
+          // clock (fix list #4) — one ladder, one clock.
+          lastVictoryAt: new Date(),
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {

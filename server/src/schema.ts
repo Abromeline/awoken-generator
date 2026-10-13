@@ -349,6 +349,10 @@ export const waveState = sqliteTable("wave_state", {
     .notNull()
     .$defaultFn(() => new Date()),
   wavesDefeated: integer("waves_defeated").notNull().default(0),
+  // Fix list #4 (Nigel, 2026-10-13): victories impose a recovery — the next
+  // wave can be faced only 12 min × 1.15^wavesDefeated after the last
+  // victory. Defeats never write this; only victories do.
+  lastVictoryAt: integer("last_victory_at", { mode: "timestamp_ms" }),
 });
 
 // Tender energy: server-authoritative. Admin can refill.

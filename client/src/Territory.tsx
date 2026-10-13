@@ -160,7 +160,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
-  const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
+  const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
   // Wave simulation (preview only, no DB changes)
   const [simActive, setSimActive] = useState(false);
   const [battleActive, setBattleActive] = useState(false);
@@ -2142,11 +2142,26 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           </span>
         )}
 
-        {!battleActive && wavesCleared < 3 && wave && (
-          <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
-            ⚔ Face the Next Wave ({wavesCleared + 1}/3)
-          </button>
-        )}
+        {!battleActive && wavesCleared < 3 && wave && (() => {
+          // Wave recovery (fix list #4): after a victory the next wave
+          // gathers for a while — show the wait instead of inviting a
+          // fight the server would refuse.
+          const readyMs = wave.nextWaveAt ? new Date(wave.nextWaveAt).getTime() - Date.now() : 0;
+          if (readyMs > 0) {
+            const mins = Math.ceil(readyMs / 60000);
+            const label = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
+            return (
+              <button className="abtn" disabled style={{ marginLeft: 8, borderColor: "#666", opacity: 0.75 }}>
+                🌑 Next wave in {label}
+              </button>
+            );
+          }
+          return (
+            <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
+              ⚔ Face the Next Wave ({wavesCleared + 1}/3)
+            </button>
+          );
+        })()}
         {wavesCleared >= 3 && wave && (
           <span style={{ marginLeft: 12, color: "#ffd700", fontWeight: "bold" }}>
             All waves cleared — Boss awaits!

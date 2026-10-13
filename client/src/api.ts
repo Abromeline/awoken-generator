@@ -288,9 +288,11 @@ export const api = {
   getWave: () => post<{
     waveNumber: number; wavesDefeated: number;
     frayCount: number; unravelers: number; totalPower: number;
+    nextWaveAt: string | null;
   }>("getWave", {}),
   defendWave: () => post<{
     victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
+    nextWaveAt?: string | null;
   }>("defendWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
   assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
