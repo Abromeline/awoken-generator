@@ -1494,6 +1494,44 @@ body.defeat-flash {
 @keyframes gentle-pulse{0%,100%{transform:scale(1);opacity:0.9}50%{transform:scale(1.03);opacity:1}}
 .canvas-frame{position:relative}
 
+/* "Crystal into the Spark" — the wake ceremony at the spark (tender face).
+   Beats are transform/opacity only (iPad GPU) and are authored in real
+   seconds: crystal shrink ~2s, spark flare ~2.5s (swell / hold / dim),
+   the form grows ~3.5s riding the dim, then breathes at ~3.8s a breath.
+   The ceremony center is the spark's heart in the wake-slot art. */
+.canvas-frame canvas{position:relative;z-index:3;pointer-events:none}
+.canvas-frame .wake-ready-overlay{z-index:4}
+.canvas-frame .canvas-whisper{z-index:5}
+.ceremony-dim{position:absolute;inset:0;z-index:1;pointer-events:none;background:rgba(4,9,4,.22);backdrop-filter:brightness(.66) saturate(.6);-webkit-backdrop-filter:brightness(.66) saturate(.6)}
+.ceremony-crystal{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none;transform-origin:50% 44%;filter:saturate(1.65) brightness(1.16) drop-shadow(0 0 18px rgba(90,255,140,.5));animation:ceremonyCrystalShrink 2s cubic-bezier(.55,.05,.8,.4) forwards}
+@keyframes ceremonyCrystalShrink{0%{transform:scale(1);opacity:1}70%{opacity:1}100%{transform:scale(.015);opacity:0}}
+.ceremony-flare{position:absolute;left:50%;top:44%;width:78%;aspect-ratio:1;z-index:2;pointer-events:none;border-radius:50%;background:radial-gradient(circle,rgba(232,255,238,.95) 0%,rgba(140,255,170,.55) 34%,rgba(110,255,150,.18) 58%,transparent 70%);animation:ceremonyFlare 2.5s ease-out forwards}
+@keyframes ceremonyFlare{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}36%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}52%{opacity:.92;transform:translate(-50%,-50%) scale(1.04)}100%{opacity:0;transform:translate(-50%,-50%) scale(.92)}}
+.canvas-frame canvas.ceremony-form-hidden{opacity:0;transform:scale(.08);transform-origin:50% 44%}
+.canvas-frame canvas.ceremony-form-born{transform-origin:50% 44%;animation:ceremonyBorn 3.5s cubic-bezier(.22,.7,.25,1) forwards}
+@keyframes ceremonyBorn{0%{opacity:0;transform:scale(.06);filter:blur(3px) brightness(2.2)}30%{opacity:1}55%{filter:blur(0) brightness(1.25)}100%{opacity:1;transform:scale(1);filter:blur(0) brightness(1)}}
+/* The shared breathing loop of a form standing at the spark. */
+.canvas-frame canvas.awoken-breathing{transform-origin:50% 44%;animation:awokenBreathe 3.8s ease-in-out infinite alternate}
+@keyframes awokenBreathe{from{transform:scale(1)}to{transform:scale(1.018)}}
+.behold-button:not(:disabled){border-color:#c9a227;box-shadow:0 0 18px rgba(201,162,39,.35)}
+.ceremony-card-layer{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center}
+.ceremony-card-backdrop{position:absolute;inset:0;background:rgba(4,4,2,.55)}
+.ceremony-card-wrap{position:relative;width:min(80%,320px);max-height:94%;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:10px;animation:ceremonyCardIn .6s cubic-bezier(.22,.7,.25,1) both}
+.ceremony-card-wrap .trading-card{width:100%}
+.ceremony-card-wrap::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 30%,rgba(255,215,120,.28) 48%,transparent 62%);transform:translateX(-120%);animation:ceremonyShimmer 1.1s ease .15s both}
+@keyframes ceremonyCardIn{from{opacity:0;transform:scale(.88) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes ceremonyShimmer{to{transform:translateX(120%)}}
+/* Reduced motion: the ceremony's timed beats keep their real-second
+   durations (they ARE the ceremony); only the ambient loops simplify. */
+@media (prefers-reduced-motion: reduce){
+  .ceremony-crystal{animation-duration:2s}
+  .ceremony-flare{animation-duration:2.5s}
+  .canvas-frame canvas.ceremony-form-born{animation-duration:3.5s}
+  .canvas-frame canvas.awoken-breathing{animation:none}
+  .ceremony-card-wrap{animation-duration:.01s}
+  .ceremony-card-wrap::after{animation:none}
+}
+
 .gather-wakes-row{display:flex;align-items:center;gap:16px;margin:12px 0}
 .gather-wakes-btn{background:none;border:none;padding:0;cursor:pointer;width:120px;height:120px;flex-shrink:0}
 .gather-wakes-btn img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 12px rgba(120,255,120,0.5));transition:transform 0.2s}
