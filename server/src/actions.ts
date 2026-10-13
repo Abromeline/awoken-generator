@@ -2398,8 +2398,6 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);
-    // Wildfire burn: ignited tiles take 5 fire damage per round to their HP
-    await this.wildfireBurnTick(ownerKey);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -4084,100 +4082,6 @@ export const handlers = {
         .where(eq(schema.territoryTiles.id, t.id));
     }
     return { ok: true, ignitedTileIds: ignited.map(t => t.id) };
-  },
-
-  async getWildfireWave(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    // Find ignited tiles (spark=2)
-    const ignited = await db.select().from(schema.territoryTiles)
-      .where(and(
-        eq(schema.territoryTiles.ownerKey, ownerKey),
-        eq(schema.territoryTiles.spark, 2),
-      ));
-    if (!ignited.length) badRequest("No wildfire burning.");
-    // One wave per ignited tile: enraged Unravelers (power 6, hp 8)
-    // For now, return the first ignited tile's wave
-    const tile = ignited[0];
-    const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
-    const unravelerCount = 2 + Math.floor(ring / 2);
-    return {
-      ok: true,
-      tileId: tile.id,
-      enemies: Array(unravelerCount).fill(null).map((_, i) => ({
-        id: `wildfire-${tile.id}-${i}`,
-        name: `Enraged Unraveler`,
-        power: 6,
-        hp: 8,
-        maxHp: 8,
-      })),
-      remainingTiles: ignited.length,
-    };
-  },
-
-  async resolveWildfireWave(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      tileId: z.number().int().positive(),
-      victory: z.boolean(),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid wave resolution.");
-    if (parsed.data.victory) {
-      // Victory: tile purifies, fire ends here
-      await db.update(schema.territoryTiles)
-        .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null })
-        .where(and(
-          eq(schema.territoryTiles.id, parsed.data.tileId),
-          eq(schema.territoryTiles.ownerKey, ownerKey),
-        ));
-    } else {
-      // Defeat: Unravelers push into territory, igniting adjacent purified tiles
-      const allTiles = await db.select().from(schema.territoryTiles)
-        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
-      const tileById = new Map(allTiles.map(t => [t.id, t]));
-      const lostTile = tileById.get(parsed.data.tileId);
-      if (lostTile) {
-        const hexDist = (a: any, b: any) =>
-          (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-        // Ignite adjacent purified tiles (fire spreads)
-        const adjacent = allTiles.filter(t => !t.cursed && t.spark !== 2 && hexDist(lostTile, t) === 1);
-        for (const t of adjacent) {
-          await db.update(schema.territoryTiles)
-            .set({ spark: 2, cursed: 1 }) // Fire curses the land
-            .where(eq(schema.territoryTiles.id, t.id));
-        }
-        // The lost tile stays ignited
-      }
-    }
-    // Check if more ignited tiles remain
-    const remaining = await db.select().from(schema.territoryTiles)
-      .where(and(
-        eq(schema.territoryTiles.ownerKey, ownerKey),
-        eq(schema.territoryTiles.spark, 2),
-      ));
-    return { ok: true, remaining: remaining.length };
-  },
-
-  async wildfireBurnTick(ownerKey: string) {
-    // Fire damages burning purified tiles (enemy spread)
-    const burningPure = await db.select().from(schema.territoryTiles)
-      .where(and(
-        eq(schema.territoryTiles.ownerKey, ownerKey),
-        eq(schema.territoryTiles.spark, 2),
-        eq(schema.territoryTiles.cursed, 0),
-      ));
-    for (const tile of burningPure) {
-      const newHp = Math.max(0, (tile.hp ?? 10) - 5);
-      if (newHp === 0) {
-        // Tile falls: becomes cursed, fire ends
-        await db.update(schema.territoryTiles)
-          .set({ hp: 10, cursed: 1, spark: 0, curseHp: null, curseMaxHp: null })
-          .where(eq(schema.territoryTiles.id, tile.id));
-      } else {
-        await db.update(schema.territoryTiles)
-          .set({ hp: newHp })
-          .where(eq(schema.territoryTiles.id, tile.id));
-      }
-    }
   },
 
   async getSiteColors(args: unknown, ctx?: ActionContext) {
