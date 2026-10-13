@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
@@ -37,6 +37,71 @@ const TERRAIN: Record<string, string> = {
   tide: tideImg, sky: skyImg, stone: stoneImg, root: rootImg,
   neutral: neutralImg, cursed: cursedImg,
 };
+
+// ── THE hex geometry — one source for map, overlays, and hit-testing ──
+// (fix list #13, refined — Nigel's screenshot showed the old selection
+// hexagons as a lattice of separate red outlines, larger than the
+// terrain faces, crossing each other instead of sharing edges.)
+//
+// Root cause: the terrain tiles are placed by an axial→pixel basis
+// measured from the tile art — E neighbor (1292, 475), SE neighbor
+// (13, 946), per 796 source px — but the overlay/click polygon was a
+// hand-tuned REGULAR hexagon (radius 0.88·size, vertical squash 0.82)
+// that shares nothing with that basis. Centers agreed; corners never
+// could. A regular hexagon cannot tile this lattice: its edges cannot
+// coincide with its neighbors' edges, so outlines overshoot (≈48% too
+// tall for the v-bisector) and cross.
+//
+// The fix: every hex drawn over the map — terrain tint, click target,
+// hover, mist, committed marker — is the Wigner–Seitz cell of the
+// SAME lattice the renderer places tiles by: the hexagon whose edges
+// are the perpendicular bisectors of the six neighbor vectors
+// ±E, ±SE, ±(E−SE). Adjacent cells share full edges by construction,
+// so any set of them reads as ONE fitted hexmap at every zoom/pan,
+// and the click target is literally the hex you see.
+const ISO_E: [number, number] = [1292, 475];
+const ISO_SE: [number, number] = [13, 946];
+const ISO_DEN = 796;
+
+/** The lattice basis (east and south-east neighbor offsets) at a size. */
+function isoBasis(size: number): { u: [number, number]; v: [number, number] } {
+  const k = size / ISO_DEN;
+  return { u: [ISO_E[0] * k, ISO_E[1] * k], v: [ISO_SE[0] * k, ISO_SE[1] * k] };
+}
+
+/** Axial → pixel offset, from the same basis (used with an origin). */
+function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
+  const { u, v } = isoBasis(size);
+  return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
+}
+
+/** The six corners of the fitted hex cell around (cx, cy), optionally
+ *  scaled about the center (for double outlines). Computed by solving
+ *  the circumcenters of consecutive neighbor-vector pairs. */
+function hexCellVertices(cx: number, cy: number, size: number, scale = 1): [number, number][] {
+  const { u, v } = isoBasis(size);
+  const w: [number, number] = [u[0] - v[0], u[1] - v[1]];
+  const neg = (p: [number, number]): [number, number] => [-p[0], -p[1]];
+  const neighbors: [number, number][] = [u, v, w, neg(u), neg(v), neg(w)]
+    .sort((a, b) => Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]));
+  const vertices: [number, number][] = [];
+  for (let i = 0; i < 6; i++) {
+    const n1 = neighbors[i];
+    const n2 = neighbors[(i + 1) % 6];
+    const det = n1[0] * n2[1] - n1[1] * n2[0];
+    const b1 = (n1[0] * n1[0] + n1[1] * n1[1]) / 2;
+    const b2 = (n2[0] * n2[0] + n2[1] * n2[1]) / 2;
+    const px = (b1 * n2[1] - b2 * n1[1]) / det;
+    const py = (n1[0] * b2 - n2[0] * b1) / det;
+    vertices.push([cx + px * scale, cy + py * scale]);
+  }
+  return vertices;
+}
+
+/** The fitted hex cell as an SVG points string. */
+function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string {
+  return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+}
 
 interface Props {
   tenderItems: Awakened[];
@@ -168,6 +233,27 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // set on the very tap that chooses it, cleared when the flow ends or
   // is cancelled, so the gold marker never lags a server round-trip.
   const [targetHexId, setTargetHexId] = useState<number | null>(null);
+  // #13 refined (Nigel): it is about the hex you are ABOUT to touch.
+  // Input modality decides the manners: desktop glows on hover and
+  // shines on click (commit at once); touch has no hover, so the
+  // first tap raises a MIST preview and a confirm bar commits.
+  const [touchMode, setTouchMode] = useState<boolean>(
+    () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches
+  );
+  const [hoverHexId, setHoverHexId] = useState<number | null>(null);
+  const [hexConfirm, setHexConfirm] = useState<{ kind: "attack" | "move" | "deploy"; tileId: number } | null>(null);
+  const raiseHexConfirm = (kind: "attack" | "move" | "deploy", tileId: number) => setHexConfirm({ kind, tileId });
+  const clearHexConfirm = () => setHexConfirm(null);
+  const runHexConfirm = () => {
+    const pending = hexConfirm;
+    if (!pending) return;
+    setHexConfirm(null);
+    // The mist gives way to the committed shine while it resolves.
+    setTargetHexId(pending.tileId);
+    if (pending.kind === "attack") handleAttack(pending.tileId);
+    else if (pending.kind === "move") handleMove(pending.tileId);
+    else handleDeploy(pending.tileId);
+  };
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
@@ -515,9 +601,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const size = 24 * zoom;
     const HEIGHT_PX = 22 * zoom;
     const originX = 250, originY = 170;
-    const k = size / 796;
-    const px = t.q * 1292 * k + t.r * 13 * k;
-    const py = t.q * 475 * k + t.r * 946 * k;
+    const { px, py } = isoOffset(t.q, t.r, size);
     return { cx: originX + px + pan.x, cy: originY + py + pan.y - (t.height || 0) * HEIGHT_PX };
   };
   const startSim = () => {
@@ -1147,12 +1231,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const HEIGHT_PX = 22 * zoom;
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
-    // Isometric tiling vectors (measured from tile art, source px: E=(1292,475), SE=(13,946))
-    // Scaled by s/796 where 796 = hex half-width in source px
+    // Isometric tiling vectors come from the ONE shared hex geometry
+    // (ISO_E / ISO_SE / isoOffset at the top of this file) — the same
+    // basis the overlay cells are solved from, so map, selection, and
+    // hit-testing can never drift apart.
     const tilePos = (t: any) => {
-      const k = size / 796;
-      const px = t.q * 1292 * k + t.r * 13 * k;
-      const py = t.q * 475 * k + t.r * 946 * k;
+      const { px, py } = isoOffset(t.q, t.r, size);
       const cx = originX + px + pan.x;
       const cy = originY + py + pan.y - (t.height || 0) * HEIGHT_PX;
       return { cx, cy };
@@ -1435,19 +1519,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       // Flat-top XYZ: tilePos handles axial->pixel + height lift
       const { cx, cy } = tilePos(t);
       const s = size;
-      // Perspective-squashed hexagon matching the tile artwork.
-      // The tile PNGs are drawn in tilted perspective (wider than tall),
-      // so the outline uses the same squash instead of a regular hex.
-      const pts: string[] = [];
-      const hexR = s * 0.88; // hex radius - slightly larger to match art edges
-      const squash = 0.82; // vertical squash from perspective tilt
-      const xOff = s * 0.02; // nudge right to close left gap
-      for (let k = 0; k < 6; k++) {
-        const a = Math.PI / 180 * (60 * k);
-        const vx = cx + xOff + hexR * Math.cos(a);
-        const vy = cy + hexR * Math.sin(a) * squash;
-        pts.push(`${vx.toFixed(1)},${vy.toFixed(1)}`);
-      }
+      // The fitted hex cell from the shared geometry (hexCellPoints) —
+      // the same cell the terrain tiles by, so this tint, the click
+      // target below, and every selection overlay share full edges
+      // with their neighbors: one hexmap, never a lattice of strays.
+      const pts = hexCellPoints(cx, cy, s);
 
       const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
@@ -1503,7 +1579,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             </g>
           )}
           {t.element && t.element !== "neutral" && (
-            <polygon points={pts.join(" ")} fill={
+            <polygon points={pts} fill={
               t.element === "tide" ? "rgba(74,144,217,0.15)" :
               t.element === "sky" ? "rgba(135,206,235,0.15)" :
               t.element === "stone" ? "rgba(139,115,85,0.15)" :
@@ -1511,7 +1587,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               t.element === "fire" ? "rgba(255,68,68,0.15)" : "rgba(0,0,0,0)"
             } pointerEvents="none" />
           )}
-          <polygon points={pts.join(" ")} fill="rgba(0,0,0,0)"
+          {/* The hit target IS the visible hex (the fitted cell above).
+              While a battle company is readied, cursed ground carries
+              the red targeting wash — fitted cells share edges, so the
+              wash reads as one connected hexmap over the wilds. */}
+          <polygon points={pts}
+            fill={t.cursed && battlePool.length > 0 ? "rgba(255,68,68,0.07)" : "rgba(0,0,0,0)"}
             stroke={t.cursed && battlePool.length > 0 ? "#ff4444" : "transparent"}
             strokeWidth={2}
             opacity={t.cursed && battlePool.length > 0 ? 0.9 : 0}
@@ -1520,22 +1601,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
               pointerEvents: "all"
             }}
+            onMouseEnter={() => setHoverHexId(t.id)}
+            onMouseLeave={() => setHoverHexId(h => (h === t.id ? null : h))}
             onClick={async () => {
               if (selectedBuilding && !t.cursed) {
                 // Open builder selection for this tile — the pending
-                // tile itself carries the gold marker while it lasts.
+                // tile wears the mist while the placement is unconfirmed.
                 setPendingTile(t.id);
                 setSelectedBuilders([]);
                 setTargetHexId(null);
+                clearHexConfirm();
               } else if (attackTargeting && selectedAwoken !== null) {
-                setTargetHexId(t.id);
-                handleAttack(t.id);
+                if (touchMode) raiseHexConfirm("attack", t.id);
+                else { setTargetHexId(t.id); handleAttack(t.id); }
               } else if (moveTargeting && selectedAwoken !== null) {
-                setTargetHexId(t.id);
-                handleMove(t.id);
+                if (touchMode) raiseHexConfirm("move", t.id);
+                else { setTargetHexId(t.id); handleMove(t.id); }
               } else if (battlePool.length > 0) {
-                setTargetHexId(t.id);
-                handleDeploy(t.id);
+                if (touchMode) raiseHexConfirm("deploy", t.id);
+                else { setTargetHexId(t.id); handleDeploy(t.id); }
               }
             }} />
 
@@ -1543,49 +1627,63 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </g>
       );
     });
-    // Selected-hex marker (fix list #13, Nigel: "its hard to tell which
-    // hex is being clicked on"). Drawn as the LAST layer of the map —
-    // above terrain art and creatures, below the modal UI — so the
-    // chosen hex reads unambiguously at iPad distance even where the
-    // isometric art overhangs its borders: a gold double outline on the
-    // hex's own squashed shape, a soft pulsing glow, and a bobbing gold
-    // chevron pinned above it. The marked hex is the building flow's
-    // pending tile, or the tap-target of the attack / move / deploy
-    // flows (targetHexId, set on the selecting tap itself).
-    const markedTileId = pendingTile ?? targetHexId;
-    const markedTile = markedTileId !== null ? tiles.find(t => t.id === markedTileId) : undefined;
-    let targetMarker: ReactNode = null;
-    if (markedTile) {
-      const { cx, cy } = tilePos(markedTile);
+    // Selection layers (fix list #13, refined) — drawn as the LAST
+    // layers of the map, above terrain art and creatures, below the
+    // modal UI, all from the fitted cell geometry:
+    //  · HOVER (desktop): a soft gold glow on the hex under the cursor
+    //    while a targeting flow is armed — the hex you are about to
+    //    select.
+    //  · MIST (touch, and the building flow's pending tile): a pale,
+    //    translucent wash — this hex is about to be acted on, not yet
+    //    committed; the confirm bar (or the builder popup) decides.
+    //  · SHINE (committed): the gold double outline + chevron on the
+    //    hex the tap chose, while its action resolves.
+    const flowArmed = battlePool.length > 0 || attackTargeting || moveTargeting || !!selectedBuilding;
+    const mistTileId = hexConfirm?.tileId ?? pendingTile;
+    const cellLayer = (tileId: number | null, kind: "hover" | "mist" | "shine") => {
+      if (tileId === null) return null;
+      const tile = tiles.find(t => t.id === tileId);
+      if (!tile) return null;
+      const { cx, cy } = tilePos(tile);
       const s = size;
-      const lift = markedTile.cursed ? 0 : -5; // match the terrain layer's lift
-      const hexPoints = (scaleR: number) => {
-        const pts: string[] = [];
-        const hexR = s * 0.88 * scaleR;
-        const squash = 0.82;
-        const xOff = s * 0.02;
-        for (let k = 0; k < 6; k++) {
-          const a = Math.PI / 180 * (60 * k);
-          pts.push(`${(cx + xOff + hexR * Math.cos(a)).toFixed(1)},${(cy + hexR * Math.sin(a) * squash).toFixed(1)}`);
-        }
-        return pts.join(" ");
-      };
-      targetMarker = (
+      const lift = tile.cursed ? 0 : -5; // match the terrain layer's lift
+      if (kind === "hover") {
+        return (
+          <g key="target-hex-hover" transform={`translate(0,${lift})`} pointerEvents="none">
+            <polygon points={hexCellPoints(cx, cy, s)} fill="rgba(255,215,0,0.07)" stroke="rgba(255,215,0,0.55)" strokeWidth={1.5} strokeLinejoin="round" />
+          </g>
+        );
+      }
+      if (kind === "mist") {
+        return (
+          <g key="target-hex-mist" className="target-hex-mist" transform={`translate(0,${lift})`} pointerEvents="none">
+            <polygon points={hexCellPoints(cx, cy, s)} fill="rgba(255,244,214,0.20)" stroke="rgba(255,236,180,0.85)" strokeWidth={2} strokeDasharray="5 4" strokeLinejoin="round" />
+            <polygon points={hexCellPoints(cx, cy, s, 0.82)} fill="rgba(255,248,228,0.12)" stroke="none" />
+          </g>
+        );
+      }
+      return (
         <g key="target-hex-marker" className="target-hex-marker" transform={`translate(0,${lift})`} pointerEvents="none">
-          <polygon className="target-hex-pulse" points={hexPoints(1.07)} fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={3} strokeLinejoin="round" />
-          <polygon points={hexPoints(0.93)} fill="none" stroke="#ffedb0" strokeWidth={1.5} strokeLinejoin="round" />
+          <polygon className="target-hex-pulse" points={hexCellPoints(cx, cy, s, 1.05)} fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={3} strokeLinejoin="round" />
+          <polygon points={hexCellPoints(cx, cy, s, 0.93)} fill="none" stroke="#ffedb0" strokeWidth={1.5} strokeLinejoin="round" />
           <g>
             <animateTransform attributeName="transform" type="translate" values="0 0; 0 3; 0 0" dur="1.6s" repeatCount="indefinite" />
             <polygon points={`${cx - 7},${cy - s * 1.14} ${cx + 7},${cy - s * 1.14} ${cx},${cy - s * 0.82}`} fill="#ffd700" stroke="#7a5c00" strokeWidth={0.75} strokeLinejoin="round" />
           </g>
         </g>
       );
-    }
+    };
+    const hoverLayer = !touchMode && flowArmed && hoverHexId !== null && hoverHexId !== mistTileId && hoverHexId !== targetHexId
+      ? cellLayer(hoverHexId, "hover") : null;
+    const mistLayer = cellLayer(mistTileId, "mist");
+    const targetMarker = cellLayer(targetHexId, "shine");
     return (
       <>
         {elements}
         {buildingElements}
         {awokenElements}
+        {hoverLayer}
+        {mistLayer}
         {targetMarker}
       </>
     );
@@ -2096,11 +2194,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         if (!tile) return null;
         const size = 24 * zoom;
         const HEIGHT_PX = 22 * zoom;
-        const k = size / 796;
-        const px = tile.q * 1292 * k + tile.r * 13 * k;
-        const py = tile.q * 475 * k + tile.r * 946 * k - (tile.height || 0) * HEIGHT_PX;
+        const { px, py } = isoOffset(tile.q, tile.r, size);
         const cx = 250 + px + pan.x;
-        const cy = 170 + py + pan.y;
+        const cy = 170 + py + pan.y - (tile.height || 0) * HEIGHT_PX;
         // Render as HTML overlay positioned over the Awoken
         return (
           <div 
@@ -2252,7 +2348,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 ➤ Move ({moveCost(awoken.power)}⚡)
               </button>
             )}
-            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); setStanceMinimized(false); }}>
+            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); clearHexConfirm(); setStanceMinimized(false); }}>
               ✕
             </button>
             </>)}
@@ -2327,12 +2423,20 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         )}
       </div>
 
-      <div className="territory-map" onClick={() => {
+      <div className="territory-map"
+        onPointerDown={(e) => {
+          // Modality follows the actual input (#13 refined): a touch
+          // raises mist + confirm; a mouse glows on hover and commits
+          // on click. Pens count as touch — they tap like fingers.
+          setTouchMode(e.pointerType !== "mouse");
+        }}
+        onClick={() => {
         // Clicking empty map dismisses the stance box
         setSelectedAwoken(null);
         setAttackTargeting(false);
         setMoveTargeting(false);
         setTargetHexId(null);
+        clearHexConfirm();
       }}>
         <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
           onContextMenu={(e) => e.preventDefault()}
@@ -2379,6 +2483,36 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           ))}
         </svg>
       </div>
+      {hexConfirm && (() => {
+        // The touch confirm (fix list #13 refined): the misted hex is
+        // only a promise until the Tender speaks here.
+        const tile = tiles.find(t => t.id === hexConfirm.tileId);
+        const actor = selectedAwoken !== null ? tenderItems.find(a => a.id === selectedAwoken) : undefined;
+        let text = "";
+        let confirmLabel = "Confirm";
+        if (hexConfirm.kind === "attack") {
+          text = `${actor?.name ?? "Your Awoken"} will strike this cursed hex — its thorns answer back.`;
+          confirmLabel = "Strike";
+        } else if (hexConfirm.kind === "move") {
+          text = `${actor?.name ?? "Your Awoken"} will move to this hex — ${actor ? moveCost(actor.power) : 1}⚡.`;
+          confirmLabel = "Move";
+        } else {
+          const names = battlePool.map(i => hand[i]).filter(Boolean).map(a => a.name).join(", ");
+          text = tile?.cursed
+            ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours.`
+            : `${names || "The readied company"} will take position on this hex.`;
+          confirmLabel = "Send them";
+        }
+        return (
+          <div className="hex-confirm" role="dialog" aria-live="polite">
+            <p>{text}</p>
+            <div className="hex-confirm-actions">
+              <button type="button" className="abtn" onClick={runHexConfirm}>{confirmLabel}</button>
+              <button type="button" className="abtn ghost" onClick={clearHexConfirm}>Not yet</button>
+            </div>
+          </div>
+        );
+      })()}
       {/* Bottom dock: energy orb + hand */}
       <div className="energy-orb-fixed">
         <EnergyTimer />
@@ -2511,10 +2645,8 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 const scale = 22; // hex size
                 return tiles.map(t => {
                   const isTarget = waveTarget.tile ? t.id === waveTarget.tile.id : false;
-                  // Hex positioning (isometric vectors, same as main map, scaled down)
-                  const k = scale / 796;
-                  const px = (t.q - centerQ) * 1292 * k + (t.r - centerR) * 13 * k;
-                  const py = (t.q - centerQ) * 475 * k + (t.r - centerR) * 946 * k;
+                  // Hex positioning from the shared iso basis, scaled down
+                  const { px, py } = isoOffset(t.q - centerQ, t.r - centerR, scale);
                   return (
                     <div
                       key={t.id}
