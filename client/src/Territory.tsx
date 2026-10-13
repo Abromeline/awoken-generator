@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import EnergyTimer from "./EnergyTimer";
@@ -164,6 +164,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
   const [celebration, setCelebration] = useState<any | null>(null);
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
+  // The hex currently targeted in a tap-to-target flow (fix list #13) —
+  // set on the very tap that chooses it, cleared when the flow ends or
+  // is cancelled, so the gold marker never lags a server round-trip.
+  const [targetHexId, setTargetHexId] = useState<number | null>(null);
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
@@ -313,6 +317,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setTiles(after.tiles);
       setPlacements(after.placements);
       setBattlePool([]);
+      setTargetHexId(null);
       // If the dark broke, a newborn joins the hand. Server-side, fire-and-forget —
       // it can never hang the purification.
       if (result.purified) {
@@ -324,6 +329,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       onUpdate();
     } catch (e) {
       console.error("Battle deployment failed", e);
+      setTargetHexId(null);
     }
   };
 
@@ -407,10 +413,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       }
       setSelectedAwoken(null);
       setAttackTargeting(false);
+      setTargetHexId(null);
       onUpdate();
     } catch (e) {
       console.error("Attack failed", e);
       setAttackTargeting(false);
+      setTargetHexId(null);
     }
   };
 
@@ -430,10 +438,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setPlacements(refreshed.placements);
       setSelectedAwoken(null);
       setMoveTargeting(false);
+      setTargetHexId(null);
       onUpdate();
     } catch (e) {
       console.error("Move failed", e);
       setMoveTargeting(false);
+      setTargetHexId(null);
     }
   };
 
@@ -1512,14 +1522,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             }}
             onClick={async () => {
               if (selectedBuilding && !t.cursed) {
-                // Open builder selection for this tile
+                // Open builder selection for this tile — the pending
+                // tile itself carries the gold marker while it lasts.
                 setPendingTile(t.id);
                 setSelectedBuilders([]);
+                setTargetHexId(null);
               } else if (attackTargeting && selectedAwoken !== null) {
+                setTargetHexId(t.id);
                 handleAttack(t.id);
               } else if (moveTargeting && selectedAwoken !== null) {
+                setTargetHexId(t.id);
                 handleMove(t.id);
               } else if (battlePool.length > 0) {
+                setTargetHexId(t.id);
                 handleDeploy(t.id);
               }
             }} />
@@ -1528,11 +1543,50 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </g>
       );
     });
+    // Selected-hex marker (fix list #13, Nigel: "its hard to tell which
+    // hex is being clicked on"). Drawn as the LAST layer of the map —
+    // above terrain art and creatures, below the modal UI — so the
+    // chosen hex reads unambiguously at iPad distance even where the
+    // isometric art overhangs its borders: a gold double outline on the
+    // hex's own squashed shape, a soft pulsing glow, and a bobbing gold
+    // chevron pinned above it. The marked hex is the building flow's
+    // pending tile, or the tap-target of the attack / move / deploy
+    // flows (targetHexId, set on the selecting tap itself).
+    const markedTileId = pendingTile ?? targetHexId;
+    const markedTile = markedTileId !== null ? tiles.find(t => t.id === markedTileId) : undefined;
+    let targetMarker: ReactNode = null;
+    if (markedTile) {
+      const { cx, cy } = tilePos(markedTile);
+      const s = size;
+      const lift = markedTile.cursed ? 0 : -5; // match the terrain layer's lift
+      const hexPoints = (scaleR: number) => {
+        const pts: string[] = [];
+        const hexR = s * 0.88 * scaleR;
+        const squash = 0.82;
+        const xOff = s * 0.02;
+        for (let k = 0; k < 6; k++) {
+          const a = Math.PI / 180 * (60 * k);
+          pts.push(`${(cx + xOff + hexR * Math.cos(a)).toFixed(1)},${(cy + hexR * Math.sin(a) * squash).toFixed(1)}`);
+        }
+        return pts.join(" ");
+      };
+      targetMarker = (
+        <g key="target-hex-marker" className="target-hex-marker" transform={`translate(0,${lift})`} pointerEvents="none">
+          <polygon className="target-hex-pulse" points={hexPoints(1.07)} fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={3} strokeLinejoin="round" />
+          <polygon points={hexPoints(0.93)} fill="none" stroke="#ffedb0" strokeWidth={1.5} strokeLinejoin="round" />
+          <g>
+            <animateTransform attributeName="transform" type="translate" values="0 0; 0 3; 0 0" dur="1.6s" repeatCount="indefinite" />
+            <polygon points={`${cx - 7},${cy - s * 1.14} ${cx + 7},${cy - s * 1.14} ${cx},${cy - s * 0.82}`} fill="#ffd700" stroke="#7a5c00" strokeWidth={0.75} strokeLinejoin="round" />
+          </g>
+        </g>
+      );
+    }
     return (
       <>
         {elements}
         {buildingElements}
         {awokenElements}
+        {targetMarker}
       </>
     );
   };
@@ -2198,7 +2252,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 ➤ Move ({moveCost(awoken.power)}⚡)
               </button>
             )}
-            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setStanceMinimized(false); }}>
+            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); setStanceMinimized(false); }}>
               ✕
             </button>
             </>)}
@@ -2278,6 +2332,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         setSelectedAwoken(null);
         setAttackTargeting(false);
         setMoveTargeting(false);
+        setTargetHexId(null);
       }}>
         <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
           onContextMenu={(e) => e.preventDefault()}
