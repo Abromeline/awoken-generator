@@ -38,18 +38,6 @@ import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorks
 import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph } from "./glyphs";
 import { applyElementPalette, elementPalette, useElementPalette } from "./palette";
-import auraWhisper from "./assets/auras/haze-01.png";
-import auraSoft from "./assets/auras/haze-02.png";
-import auraHaloRing from "./assets/auras/haze-03.png";
-import auraWide from "./assets/auras/haze-04.png";
-import auraTall from "./assets/auras/haze-05.png";
-import auraTwin from "./assets/auras/haze-06.png";
-import auraCloud from "./assets/auras/haze-07.png";
-import auraCore from "./assets/auras/haze-08.png";
-import auraDrift from "./assets/auras/haze-09.png";
-import auraWispy from "./assets/auras/haze-10.png";
-import auraBloom from "./assets/auras/haze-11.png";
-import auraDisc from "./assets/auras/haze-12.png";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
@@ -62,7 +50,6 @@ const categories: { id: Category; label: string; note: string }[] = [
   { id: "background", label: "Background", note: "the world beneath" },
   { id: "body", label: "Body", note: "the held matter" },
   { id: "arms", label: "Arms", note: "reach and gesture" },
-  { id: "aura", label: "Aura", note: "the binding force" },
   { id: "aspect", label: "Aspect", note: "elemental manifestation" },
   { id: "head", label: "Head", note: "the final waking layer" },
 ];
@@ -72,12 +59,6 @@ const rarityWeight: Record<Rarity, number> = { common: 8, uncommon: 4, rare: 2, 
 const firstbornWeight: Record<Rarity, number> = { common: 2, uncommon: 4, rare: 6, mythic: 4 };
 const rarityScore: Record<Rarity, number> = { common: 1, uncommon: 2, rare: 3, mythic: 4 };
 const statValues = [0, 1, 2, 3] as const;
-const starters: LayerAsset[] = [
-  ["whisper", "Whisper Aura", auraWhisper], ["soft", "Soft Aura", auraSoft], ["halo-ring", "Halo Ring", auraHaloRing],
-  ["wide", "Wide Aura", auraWide], ["tall", "Tall Aura", auraTall], ["twin", "Twin Aura", auraTwin],
-  ["cloud", "Cloud Aura", auraCloud], ["core", "Core Aura", auraCore], ["drift", "Drift Aura", auraDrift],
-  ["wispy", "Wispy Aura", auraWispy], ["bloom", "Bloom Aura", auraBloom], ["disc", "Disc Aura", auraDisc],
-].map(([id, name, imageUrl]) => ({ sourceId: `seed:aura-${id}`, name, category: "aura", rarity: "common", power: null, toughness: null, imageUrl, mimeType: "image/png", isStarter: true })) as LayerAsset[];
 
 const TEMPLATE_WIDTH = 750;
 const TEMPLATE_HEIGHT = 971;
@@ -96,7 +77,7 @@ function invalidateStudios(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["workshopStudio"] });
 }
 function toLayerAssets(serverAssets: Asset[]): LayerAsset[] {
-  return [...starters, ...serverAssets.map((asset) => ({ sourceId: `db:${asset.id}`, serverId: asset.id, name: asset.name, category: asset.category, rarity: asset.rarity, power: asset.power, toughness: asset.toughness, element: asset.element ?? null, imageUrl: asset.image_url, mimeType: asset.mime_type, isStarter: false }))];
+  return serverAssets.map((asset) => ({ sourceId: `db:${asset.id}`, serverId: asset.id, name: asset.name, category: asset.category, rarity: asset.rarity, power: asset.power, toughness: asset.toughness, element: asset.element ?? null, imageUrl: asset.image_url, mimeType: asset.mime_type, isStarter: false }));
 }
 function chooseWeighted(options: LayerAsset[], lucky = false) {
   const weights = lucky ? firstbornWeight : rarityWeight;
@@ -156,8 +137,11 @@ async function preparePng(file: File) {
     return { ok: true as const, file: new File([blob], file.name, { type: "image/png", lastModified: file.lastModified }), note: "2550 × 3300 PNG · fitted to the shared canvas" };
   } finally { URL.revokeObjectURL(url); }
 }
-/** Back-to-front draw order, per the artist: background, body, arms, aura, head. */
-const LAYER_ORDER: Category[] = ["background", "aspect", "body", "arms", "aura", "head"];
+/** Back-to-front draw order, per the artist: background, body, arms, head.
+ *  "aura" keeps its slot for legacy compositions only (fix list #9) —
+ *  old Awoken bearing an aura layer still draw it between arms and
+ *  head; no new aura piece can be filed or chosen. */
+const LAYER_ORDER: readonly string[] = ["background", "aspect", "body", "arms", "aura", "head"];
 async function compose(layers: LayerAsset[], target?: HTMLCanvasElement | null) {
   const canvas = target ?? document.createElement("canvas"); canvas.width = TEMPLATE_WIDTH; canvas.height = TEMPLATE_HEIGHT;
   const context = canvas.getContext("2d"); if (!context) throw new Error("This device could not prepare the awakening canvas.");
@@ -172,7 +156,12 @@ async function compose(layers: LayerAsset[], target?: HTMLCanvasElement | null) 
   context.fillStyle = "#f3f1ea"; context.fillRect(0, 0, 750, 971);
   ordered.forEach((layer, index) => {
     const image = images[index]; context.globalCompositeOperation = layer.category === "background" || layer.mimeType === "image/png" ? "source-over" : "multiply";
-    context.globalAlpha = layer.category === "aura" ? auraOpacity : 1; context.drawImage(image, 0, 0, 750, 971);
+    // Legacy aura layers (fix list #9) still fade in by rarity, exactly
+    // as before — the category is read as a runtime string here so old
+    // compositions keep rendering even though "aura" is no longer a
+    // choosable Category.
+    const layerCategory: string = layer.category;
+    context.globalAlpha = layerCategory === "aura" ? auraOpacity : 1; context.drawImage(image, 0, 0, 750, 971);
   });
   context.globalCompositeOperation = "source-over"; context.globalAlpha = 1;
   return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
@@ -355,7 +344,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
     }
   }
   const awakening = useAwakeningSprites();
-  const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aura: "", aspect: "", head: "" });
+  const canvasRef = useRef<HTMLCanvasElement>(null); const [choices, setChoices] = useState<Record<Category, string>>({ background: "", arms: "", body: "", aspect: "", head: "" });
   const [composition, setComposition] = useState<LayerAsset[]>([]); const [notice, setNotice] = useState("The scattered matter waits.");
   const [freeBusy, setFreeBusy] = useState(false);
   // The id of the waiting free creature whose form currently fills the
@@ -619,7 +608,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
         </div>
       )}
       <p className={`notice ${save.error ? "error" : ""}`} role="status">{save.error ? mutationError(save.error) : notice}</p></div>
-      {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → aspect → body → arms → aura → head</p></aside>}
+      {manual && <aside className="manual-panel"><p className="eyebrow">Workshop hand</p><h2>Choose each mark, or leave it to chance.</h2>{categories.map((category, index) => { const options = assets.filter((asset) => asset.category === category.id); return <label className="layer-control" key={category.id}><span>{String(index + 1).padStart(2, "0")}</span><strong>{category.label}</strong><select aria-label={`${category.label} piece`} value={choices[category.id]} onChange={(event) => setChoice(category.id, event.target.value)} disabled={!options.length}><option value="">Weighted chance</option>{options.map((asset) => <option key={asset.sourceId} value={asset.sourceId}>{asset.name}{asset.power !== null ? ` · ${asset.power}/${asset.toughness}` : ""}</option>)}</select></label>; })}<p className="stack-order">Background → aspect → body → arms → head</p></aside>}
     </div>
   </section>;
 }
@@ -859,7 +848,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
           </label>
         )}
         {asset.serverId && (asset.category === "aspect" || (asset.power !== null && asset.toughness !== null)) && <div className="stat-editor"><label><small>Power</small><select aria-label={`Power for ${asset.name}`} value={asset.power ?? 1} onChange={(event) => stats.mutate({ id: asset.serverId ?? 0, power: Number(event.target.value), toughness: asset.toughness ?? 1 })}>{statValues.map((value) => <option key={value}>{value}</option>)}</select></label><i>/</i><label><small>Toughness</small><select aria-label={`Toughness for ${asset.name}`} value={asset.toughness ?? 1} onChange={(event) => stats.mutate({ id: asset.serverId ?? 0, power: asset.power ?? 1, toughness: Number(event.target.value) })}>{statValues.map((value) => <option key={value}>{value}</option>)}</select></label></div>}
-        {asset.serverId && <button className="remove-piece" onClick={() => remove.mutate(asset.serverId ?? 0)}>Remove</button>}{asset.isStarter && <small className="starter-mark">aura study</small>}
+        {asset.serverId && <button className="remove-piece" onClick={() => remove.mutate(asset.serverId ?? 0)}>Remove</button>}
         {asset.serverId && <label className="move-piece"><small>Move to</small><select aria-label={`Move ${asset.name} to another pool`} value="" onChange={(event) => { if (event.target.value) move.mutate({ id: asset.serverId ?? 0, category: event.target.value }); event.target.value = ""; }}><option value="">Another pool…</option>{categories.filter((item) => item.id !== asset.category).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       </div></article>)}</div>}</section>; })}</div>
   </section>;

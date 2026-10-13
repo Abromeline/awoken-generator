@@ -105,6 +105,12 @@ async function tenderForOwnerKey(ownerKey: string): Promise<TenderRow> {
 }
 
 const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "aspect", "head"]);
+/** Categories a piece may be FILED under (fix list #9, Nigel
+ *  2026-10-13: the aura pool is removed — "it became assets").
+ *  layerCategorySchema keeps "aura" so legacy rows and compositions
+ *  still parse everywhere they are READ; only new filings and moves
+ *  are held to this narrower list. */
+const filingCategorySchema = z.enum(["background", "arms", "body", "aspect", "head"]);
 const raritySchema = z.enum(["common", "uncommon", "rare", "mythic"]);
 const collectionSchema = z.enum(["tender", "workshop"]);
 const statSchema = z.number().int().min(0).max(3);
@@ -1206,8 +1212,8 @@ export const handlers = {
   },
 
   async uploadLayerAsset(args: unknown) {
-    const parsed = z.object({ category: layerCategorySchema, imageBase64: z.string().min(100).max(16_000_000), mimeType: z.literal("image/png") }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid upload request.");
+    const parsed = z.object({ category: filingCategorySchema, imageBase64: z.string().min(100).max(16_000_000), mimeType: z.literal("image/png") }).safeParse(args);
+    if (!parsed.success) badRequest(`Invalid upload request — ${describeValidationIssues(parsed.error)}.`);
     const { category, imageBase64, mimeType } = parsed.data;
     const bytes = Buffer.from(imageBase64, "base64");
     const signature = [137, 80, 78, 71, 13, 10, 26, 10];
@@ -1282,8 +1288,8 @@ export const handlers = {
   },
 
   async moveLayerAsset(args: unknown) {
-    const parsed = z.object({ id: z.number().int().positive(), category: layerCategorySchema }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid move.");
+    const parsed = z.object({ id: z.number().int().positive(), category: filingCategorySchema }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid move — pieces rest in the background, body, arms, aspect, or head pools.");
     const rows = await db.select({ category: schema.layerAssets.category, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness, element: schema.layerAssets.element }).from(schema.layerAssets).where(eq(schema.layerAssets.id, parsed.data.id)).limit(1);
     const row = rows[0]; if (!row) badRequest("That piece is gone.");
     if (row.category === parsed.data.category) badRequest("It already rests in that pool.");

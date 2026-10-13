@@ -2,7 +2,12 @@
 // Method names and request/response shapes match the original action module
 // one-to-one, so the UI code is untouched apart from imports.
 
-export type Category = "background" | "arms" | "body" | "aura" | "aspect" | "head";
+// The choosable/fileable layer categories. Aura is gone (fix list #9,
+// Nigel 2026-10-13: 'just remove the aura pool, it became assets') —
+// legacy aura layers in old compositions still render (the renderers
+// read category as a runtime string), they just can't be filed or
+// chosen anymore.
+export type Category = "background" | "arms" | "body" | "aspect" | "head";
 export type Rarity = "common" | "uncommon" | "rare" | "mythic";
 export type Collection = "tender" | "workshop";
 
