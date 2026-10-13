@@ -128,7 +128,7 @@ app.get("/api/grove", async (_req, res) => {
   catch (error) { sendError(res, error); }
 });
 app.post("/api/grove/record-planting", async (req, res) => {
-  try { res.json(await recordPlanting(req.body ?? {})); }
+  try { requireWorkshop(req); res.json(await recordPlanting(req.body ?? {})); }
   catch (error) { sendError(res, error); }
 });
 
