@@ -403,6 +403,59 @@ function badRequest(message: string): never {
   throw Object.assign(new Error(message), { status: 400 });
 }
 
+/** Player-readable form of a validation failure (fix list #10, Nigel,
+ *  2026-10-13): name the field and what's wrong with it — "the image
+ *  is too small", "piece 2's kind is not one of the known kinds" —
+ *  never the validation library's raw dump. Shared by the wake save
+ *  (saveAwoken) and the whole welcome flow (welcome.ts). */
+export function describeValidationIssues(error: z.ZodError): string {
+  const fieldName = (path: readonly (string | number)[]): string => {
+    const [head, index, sub] = path;
+    if (head === "imageBase64") return "the image";
+    if (head === "layers") {
+      if (typeof index === "number") {
+        if (sub === "category") return `piece ${index + 1}'s kind`;
+        if (sub === "source_id") return `piece ${index + 1}'s identity`;
+        if (sub === "name") return `piece ${index + 1}'s name`;
+        if (sub === "rarity") return `piece ${index + 1}'s rarity`;
+        if (sub === "power") return `piece ${index + 1}'s power`;
+        if (sub === "toughness") return `piece ${index + 1}'s toughness`;
+        return `piece ${index + 1}`;
+      }
+      return "the pieces";
+    }
+    if (head === "collection") return "the collection";
+    if (head === "ownerName") return "the owner's name";
+    if (head === "slot") return "the slot";
+    if (head === "tileId") return "the tile";
+    if (head === "liberatorNames") return "the liberators' names";
+    if (head === "name") return "the name";
+    return "the awakening";
+  };
+  const parts = error.issues.map((issue) => {
+    const field = fieldName(issue.path as (string | number)[]);
+    const head = issue.path[0];
+    switch (issue.code) {
+      case "too_small":
+        if (head === "imageBase64") return "the image is too small — the picture did not arrive whole";
+        if (head === "layers" && issue.path.length === 1) return "no pieces were gathered — an Awoken needs a body, arms and a head";
+        return `${field} is too small`;
+      case "too_big":
+        if (head === "imageBase64") return "the image is too large";
+        if (head === "layers" && issue.path.length === 1) return "too many pieces — five at most";
+        return `${field} is too large`;
+      case "invalid_type":
+        return /undefined/.test(issue.message) ? `${field} is missing` : `${field} is the wrong shape`;
+      case "invalid_value":
+        return `${field} is not one of the known kinds`;
+      default:
+        return `${field} is not right`;
+    }
+  });
+  // A sentence, not a dump: unique problems, at most three named.
+  return [...new Set(parts)].slice(0, 3).join("; ");
+}
+
 
 
 /**
@@ -1243,7 +1296,7 @@ export const handlers = {
 
   async saveAwoken(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(5), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid awakening.");
+    if (!parsed.success) badRequest(`Invalid awakening — ${describeValidationIssues(parsed.error)}.`);
     const { layers, imageBase64, collection } = parsed.data;
     // Tender wakes cost one credit; the workshop (Nigel's own hand) is free.
     // Tender wakes require a Tender account — the vessel belongs to someone.
@@ -4508,13 +4561,15 @@ export const handlers = {
 
   async birthFieldAwoken(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
+    const parsedResult = z.object({
       layers: z.array(layerRefShape),
       imageBase64: z.string(),
       tileId: z.number(),
       liberatorNames: z.array(z.string()),
       toHand: z.boolean().optional(),
-    }).parse(args);
+    }).safeParse(args);
+    if (!parsedResult.success) badRequest(`Invalid birth — ${describeValidationIssues(parsedResult.error)}.`);
+    const parsed = parsedResult.data;
     const story = `Liberated by ${parsed.liberatorNames.join(", ")}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
     const blobKey = `fieldborn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
@@ -4552,7 +4607,7 @@ export const handlers = {
       tileId: z.number().int().positive().optional(),
       liberatorNames: z.array(z.string()),
     }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid birth request.");
+    if (!parsed.success) badRequest(`Invalid birth request — ${describeValidationIssues(parsed.error)}.`);
     // Newborns no longer pop directly into the hand. Instead, the tender gains
     // a wake credit — the newborn is fully born through the Wake One ritual.
     const { grantCredits } = await import("./credits.js");

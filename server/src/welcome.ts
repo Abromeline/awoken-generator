@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
-import { awakenedPayloadById, layerRefShape, planAwakening } from "./actions.js";
+import { awakenedPayloadById, describeValidationIssues, layerRefShape, planAwakening } from "./actions.js";
 import { CREDITS_PER_PACK } from "./config.js";
 import { grantCredits } from "./credits.js";
 import { tenderFromToken, tenderOwnerKey, type TenderRow } from "./tenders.js";
@@ -115,8 +115,7 @@ async function removePending(pending: Pending): Promise<void> {
 async function holdAwakening(ownerKey: string, ownerName: string, slot: Slot, layers: unknown, imageBase64: unknown, respinsUsed: number) {
   const parsed = generationInput.safeParse({ layers, imageBase64 });
   if (!parsed.success) {
-    const details = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
-    badRequest(`That awakening could not be gathered. [${details}]`);
+    badRequest(`That awakening could not be gathered — ${describeValidationIssues(parsed.error)}.`);
   }
   const plan = await planAwakening(parsed.data.layers);
   const bytes = Buffer.from(parsed.data.imageBase64, "base64");
@@ -189,8 +188,7 @@ export async function seedWelcome(ownerKey: string, ownerName: string, body: unk
   if (visitor.welcomeWakesGranted !== 1) badRequest("No welcome is waiting for this visitor.");
   const parsed = generationInput.safeParse(body);
   if (!parsed.success) {
-    const details = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
-    badRequest(`That awakening could not be gathered. [${details}]`);
+    badRequest(`That awakening could not be gathered — ${describeValidationIssues(parsed.error)}.`);
   }
   const awakened = await holdAwakening(ownerKey, ownerName, "welcome", parsed.data.layers, parsed.data.imageBase64, 0);
   return { awakened, respinsUsed: 0, respinsRemaining: 1 };
@@ -199,7 +197,7 @@ export async function seedWelcome(ownerKey: string, ownerName: string, body: unk
 /** Accept the waiting Awoken into the Tender deck. */
 export async function claimWelcome(ownerKey: string, body: unknown) {
   const parsed = z.object({ slot: slotSchema }).safeParse(body);
-  if (!parsed.success) badRequest("Invalid claim.");
+  if (!parsed.success) badRequest(`Invalid claim — ${describeValidationIssues(parsed.error)}.`);
   await ensureVisitor(ownerKey);
   const existing = await pendingFor(ownerKey, parsed.data.slot);
   if (!existing) badRequest("Nothing is waiting to be claimed.");
@@ -214,7 +212,7 @@ export async function claimWelcome(ownerKey: string, body: unknown) {
  *  waiting Awoken — one free re-weaving per free generation. */
 export async function reconstituteWelcome(ownerKey: string, ownerName: string, body: unknown) {
   const parsed = z.object({ slot: slotSchema }).merge(generationInput).safeParse(body);
-  if (!parsed.success) badRequest("That reconstitution could not be gathered.");
+  if (!parsed.success) badRequest(`That reconstitution could not be gathered — ${describeValidationIssues(parsed.error)}.`);
   await ensureVisitor(ownerKey);
   const existing = await pendingFor(ownerKey, parsed.data.slot);
   if (!existing) badRequest("Nothing is waiting to be reconstituted.");
@@ -234,8 +232,7 @@ export async function reconstituteWelcome(ownerKey: string, ownerName: string, b
 export async function claimFreeWake(ownerKey: string, ownerName: string, body: unknown) {
   const parsed = generationInput.safeParse(body);
   if (!parsed.success) {
-    const details = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
-    badRequest(`That awakening could not be gathered. [${details}]`);
+    badRequest(`That awakening could not be gathered — ${describeValidationIssues(parsed.error)}.`);
   }
   const { visitor } = await ensureVisitor(ownerKey);
   const free = freeWakeState(visitor.lastFreeWakeAt, Date.now());
