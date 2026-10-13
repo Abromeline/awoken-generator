@@ -742,6 +742,9 @@ async function loadGameConfig() {
     if (type === "thorn-wall") {
       buildings[type].damage = overrides["building.thorn-wall.damage"] ?? 1;
     }
+    if (type === "attunement-shrine") {
+      buildings[type].upkeepPerHour = overrides["building.attunement-shrine.upkeepPerHour"] ?? buildings[type].upkeepPerHour ?? 3;
+    }
     if (type === "dream-wheat") {
       buildings[type].harvestEnergy = overrides["building.dream-wheat.harvestEnergy"] ?? 4;
     }

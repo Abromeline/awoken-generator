@@ -54,24 +54,32 @@ interface UiSprite {
 // Default config values
 const DEFAULTS: Record<string, any> = {
   // Enemies
-  "enemy.fray.power": 2, "enemy.fray.hp": 3,
+  "enemy.fray.power": 1, "enemy.fray.hp": 3,
   "enemy.unraveler.power": 4, "enemy.unraveler.hp": 6,
   "enemy.hollow.power": 0, "enemy.hollow.hp": 5,
   "enemy.tangle.power": 3, "enemy.tangle.hp": 8,
   // Buildings
-  "building.watchtower.cost": 5, "building.watchtower.buildMinutes": 15,
-  "building.watchtower.damage": 3, "building.watchtower.powerBonus": 2, "building.watchtower.upkeepPerHour": 3,
+  "building.watchtower.cost": 2, "building.watchtower.buildMinutes": 15,
+  "building.watchtower.damage": 3, "building.watchtower.powerBonus": 2, "building.watchtower.upkeepPerHour": 2,
   "building.watchtower.enabled": true,
   "building.dream-wheat.cost": 2, "building.dream-wheat.buildMinutes": 10,
   "building.dream-wheat.harvestEnergy": 4, "building.dream-wheat.enabled": true,
-  "building.awakening-well.cost": 10, "building.awakening-well.buildMinutes": 20,
+  "building.awakening-well.cost": 2, "building.awakening-well.buildMinutes": 20,
   "building.awakening-well.energyBonus": 3, "building.awakening-well.enabled": true,
-  "building.thorn-wall.cost": 3, "building.thorn-wall.buildMinutes": 5,
+  "building.thorn-wall.cost": 2, "building.thorn-wall.buildMinutes": 5,
   "building.thorn-wall.damage": 1, "building.thorn-wall.enabled": true,
-  "building.binding-circle.cost": 6, "building.binding-circle.buildMinutes": 10,
+  "building.binding-circle.cost": 2, "building.binding-circle.buildMinutes": 10,
   "building.binding-circle.enabled": true,
-  "building.tree.cost": 4, "building.tree.buildMinutes": 15,
+  "building.tree.cost": 2, "building.tree.buildMinutes": 15,
   "building.tree.energyBonus": 1, "building.tree.enabled": true,
+  "building.attunement-shrine.cost": 4, "building.attunement-shrine.buildMinutes": 20,
+  "building.attunement-shrine.upkeepPerHour": 3, "building.attunement-shrine.enabled": true,
+  "building.dream-weed.cost": 5, "building.dream-weed.buildMinutes": 25,
+  "building.dream-weed.harvestEnergy": 5, "building.dream-weed.growHours": 1, "building.dream-weed.enabled": true,
+  "building.sky-bloom.cost": 15, "building.sky-bloom.buildMinutes": 25,
+  "building.sky-bloom.harvestEnergy": 10, "building.sky-bloom.growHours": 8, "building.sky-bloom.enabled": true,
+  "building.hall-of-champions.cost": 10, "building.hall-of-champions.buildMinutes": 30,
+  "building.hall-of-champions.enabled": true,
   // Timers
   "timer.energyRegenMinutes": 4,
   "timer.buildHelperDivisor": 2,
@@ -79,7 +87,9 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree", "hall-of-champions"];
+// Real building types get stat knobs; growth-stage entries are sprite slots only.
+const CONFIG_BUILDINGS = new Set(["watchtower", "dream-wheat", "attunement-shrine", "dream-weed", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree", "hall-of-champions"]);
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
 const AWAKENING_LABELS: Record<string, string> = {
@@ -244,6 +254,7 @@ export default function UIWorkspace() {
                   {uploading === name ? "..." : "+ Sprite"}
                 </button>
               </div>
+              {CONFIG_BUILDINGS.has(name) && (
               <div className="stat-rows">
                 <label>Cost ⚡ <input type="number" value={getVal(`building.${name}.cost`)} onChange={e => setVal(`building.${name}.cost`, +e.target.value)} /></label>
                 <label>Build (min) <input type="number" value={getVal(`building.${name}.buildMinutes`)} onChange={e => setVal(`building.${name}.buildMinutes`, +e.target.value)} /></label>
@@ -260,6 +271,15 @@ export default function UIWorkspace() {
                 {name === "dream-wheat" && (
                   <label>Harvest ⚡ <input type="number" value={getVal("building.dream-wheat.harvestEnergy")} onChange={e => setVal("building.dream-wheat.harvestEnergy", +e.target.value)} /></label>
                 )}
+                {name === "attunement-shrine" && (
+                  <label>Upkeep ⚡/hr <input type="number" value={getVal("building.attunement-shrine.upkeepPerHour")} onChange={e => setVal("building.attunement-shrine.upkeepPerHour", +e.target.value)} /></label>
+                )}
+                {(name === "dream-weed" || name === "sky-bloom") && (
+                  <>
+                    <label>Harvest ⚡ <input type="number" value={getVal(`building.${name}.harvestEnergy`)} onChange={e => setVal(`building.${name}.harvestEnergy`, +e.target.value)} /></label>
+                    <label>Grow (hrs) <input type="number" value={getVal(`building.${name}.growHours`)} onChange={e => setVal(`building.${name}.growHours`, +e.target.value)} /></label>
+                  </>
+                )}
                 {(name === "awakening-well" || name === "tree") && (
                   <label>Energy bonus <input type="number" value={getVal(`building.${name}.energyBonus`)} onChange={e => setVal(`building.${name}.energyBonus`, +e.target.value)} /></label>
                 )}
@@ -268,6 +288,7 @@ export default function UIWorkspace() {
                   Enabled
                 </label>
               </div>
+              )}
             </div>
           ))}
         </div>
