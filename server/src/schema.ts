@@ -200,7 +200,7 @@ export const wakeCodes = sqliteTable("wake_codes", {
 
 // Gifts from The Ancient Creator: one row per gift (workshop button, gift
 // code, or aspect-point grant). Unseen rows (seen_at NULL) surface the
-// "The creator has sent reinforcement!" notice on the Tender's next visit.
+// "...another seed grows" notice on the Tender's next visit.
 export const creatorGifts = sqliteTable("creator_gifts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerKey: text("owner_key").notNull(),

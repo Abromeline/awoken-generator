@@ -336,7 +336,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
       await api.redeemWakeCode({ code });
       setRedeemCode("");
       setRedeemFailed(false);
-      setRedeemMsg("The creator has sent reinforcement!");
+      setRedeemMsg("...another seed grows");
       void queryClient.invalidateQueries({ queryKey: ["studio"] });
     } catch (e) {
       setRedeemFailed(true);
@@ -572,7 +572,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
     {creatorGifts !== undefined && creatorGifts > 0 && !giftDismissed && (
       <p className="notice creator-gift" role="status">
-        The creator has sent reinforcement!{creatorGifts > 1 ? ` ×${creatorGifts}` : ""}{" "}
+        ...another seed grows{creatorGifts > 1 ? ` ×${creatorGifts}` : ""}{" "}
         <button type="button" className="quiet-link" aria-label="Dismiss gift notice" onClick={() => void dismissGift()}>✕</button>
       </p>
     )}
@@ -1401,7 +1401,7 @@ function TendersPanel() {
     )}
     <div className="wake-codes" style={{ marginTop: 24 }}>
       <h2 style={{ fontSize: 18, marginBottom: 4 }}>Wake Codes</h2>
-      <p className="quiet">Gift codes of The Ancient Creator — mint one, hand it out, and whoever redeems it gains a wake: “The creator has sent reinforcement!”</p>
+      <p className="quiet">Gift codes of The Ancient Creator — mint one, hand it out, and whoever redeems it gains a wake: “...another seed grows”</p>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button className="abtn small" onClick={() => doAdmin(() => api.adminMintWakeCodes({ count: 1 }).then(r => { void codesQuery.refetch(); return r; }), "Minted 1 wake code")}>Mint code</button>
         <button className="abtn small" onClick={() => doAdmin(() => api.adminMintWakeCodes({ count: 5 }).then(r => { void codesQuery.refetch(); return r; }), "Minted 5 wake codes")}>Mint 5</button>

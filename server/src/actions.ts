@@ -384,7 +384,7 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
   for (const item of parsedRows) idsByIdentity.set(item.identity, [...(idsByIdentity.get(item.identity) ?? []), item.row.id].sort((a, b) => a - b));
   const awakened = parsedRows.map(({ row, layers, identity }) => toAwakenedPayload(row, layers, identity, idsByIdentity));
   // Unseen gifts from The Ancient Creator — the Tender face turns this count
-  // into the "The creator has sent reinforcement!" notice.
+  // into the "...another seed grows" notice.
   const giftRows = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.creatorGifts)
@@ -3977,7 +3977,7 @@ export const handlers = {
   // Nigel's reward system: +1 wake to a Tender (one press per wake), wake
   // gift codes for like-and-share rewards, and random elemental attunement
   // points. Every grant records a creator_gifts row so the Tender sees
-  // "The creator has sent reinforcement!" on their next visit.
+  // "...another seed grows" on their next visit.
 
   /** Gift one wake to a Tender — The Ancient Creator's reward button. */
   async adminGiftWake(args: unknown, ctx?: ActionContext) {
