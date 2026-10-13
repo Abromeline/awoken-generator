@@ -353,11 +353,20 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
   // "Crystal into the Spark" — the wake ceremony (tender face only). A
   // vibrant crystal dwindles into the spark (~2s), the spark flares and
   // dims (~2.5s), the new form grows out of that point (~3.5s) into a
-  // quiet breathing loop; then Behold presents its full card in the same
-  // spot. Tapping the canvas mid-ceremony skips to the settled breath.
+  // quiet breathing loop; then the form's full card takes shape in the
+  // same spot on its own. Two taps a wake: one to wake, one to Keep.
+  // Tapping the canvas mid-ceremony skips to the settled breath.
   const [ceremony, setCeremony] = useState<CeremonyPhase>("idle");
-  const [beholdId, setBeholdId] = useState<number | null>(null);
+  const [cardId, setCardId] = useState<number | null>(null);
   const [cardOpen, setCardOpen] = useState(false);
+  // Armed when a card should form on its own once its data lands: a
+  // session wake (at the settled breath) or a spark-claimed waiting
+  // creature (once the claimed form joins the deck payload).
+  const [wantCard, setWantCard] = useState(false);
+  // The waiting payload of a free wake gathered this session, captured
+  // from the claim/re-weave responses so its card can form before the
+  // welcome payload catches up.
+  const [sessionWaiting, setSessionWaiting] = useState<WaitingAwoken | null>(null);
   const ceremonyTimers = useRef<number[]>([]);
   function clearCeremonyTimers() { ceremonyTimers.current.forEach((t) => window.clearTimeout(t)); ceremonyTimers.current = []; }
   function ceremonyLater(ms: number, fn: () => void) { ceremonyTimers.current.push(window.setTimeout(fn, ms)); }
@@ -365,18 +374,49 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
     if (collection !== "tender") return;
     clearCeremonyTimers();
     setCardOpen(false);
-    setBeholdId(null);
+    setCardId(null);
+    setSessionWaiting(null);
+    setWantCard(true);
     setCeremony("crystal");
     ceremonyLater(2300, () => setCeremony("flare"));
     ceremonyLater(3600, () => setCeremony("grow"));
     ceremonyLater(7100, () => setCeremony("settled"));
   }
-  function abortCeremony() { clearCeremonyTimers(); setCeremony("idle"); setCardOpen(false); }
+  function abortCeremony() { clearCeremonyTimers(); setCeremony("idle"); setCardOpen(false); setWantCard(false); }
   function skipCeremony() {
     if (ceremony === "crystal" || ceremony === "flare" || ceremony === "grow") { clearCeremonyTimers(); setCeremony("settled"); }
   }
+  // A lone grow beat — the re-presentation of a re-woven free wake.
+  function startGrowBeat() {
+    clearCeremonyTimers();
+    setCeremony("grow");
+    ceremonyLater(3500, () => setCeremony("settled"));
+  }
+  // Keep (or a claim made from the card) concludes the moment: the card
+  // closes and the stage resets to the clean spark — the single door.
+  function concludeMoment() {
+    const concludedId = cardId;
+    clearCeremonyTimers();
+    setCardOpen(false);
+    setWantCard(false);
+    setCardId(null);
+    setSessionWaiting(null);
+    // Remember the concluded form so a lagging welcome payload cannot
+    // re-plant it on the canvas while its claim settles server-side.
+    sparkFormRef.current = concludedId;
+    setComposition([]);
+    setCeremony("idle");
+    // The compose effect leaves the last form on the bitmap when the
+    // composition empties — wipe it so the spark stands clean again.
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  // Dismissing an unclaimed waiting creature's card leaves it waiting —
+  // the spark-claim row below stays its door.
+  function dismissWaitingCard() { setCardOpen(false); setWantCard(false); }
   useEffect(() => () => clearCeremonyTimers(), []);
-  const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setBeholdId(data.id); onSaved(data.id); }, onError: () => { abortCeremony(); } });
+  const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setCardId(data.id); onSaved(data.id); }, onError: () => { abortCeremony(); } });
   const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => setNotice(mutationError(error)) });
   const vesselEmpty = credits !== null && credits.balance <= 0;
   function onWakeButton() { if (vesselEmpty) { if (credits?.checkoutEnabled) checkout.mutate(); else setNotice("Wakes are gathered in packs — payments are not configured yet."); return; } wakeOne(); }
@@ -408,7 +448,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
     if (!layers.length) return;
     sparkFormRef.current = waiting.id;
     setComposition(layers);
-    setBeholdId(waiting.id);
+    setCardId(waiting.id);
   }, [waitingFree, assets, composition.length]);
   // While the next free wake gathers, keep the spark's countdown honest.
   useEffect(() => {
@@ -424,45 +464,69 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       const layers = pickLayerSet(assets);
       const data = await api.claimFreeWake({ layers: toLayerRefs(layers), imageBase64: await compose(layers) });
       sparkFormRef.current = data.awakened?.id ?? null;
-      setBeholdId(data.awakened?.id ?? null);
+      setCardId(data.awakened?.id ?? null);
+      setSessionWaiting({ awakened: data.awakened, respinsUsed: data.respinsUsed, respinsRemaining: data.respinsRemaining });
       setComposition(layers);
       setNotice("A free wake has gathered — it waits at the spark, yours to claim.");
       onSaved(0);
     } catch (e) { abortCeremony(); setNotice(mutationError(e)); }
     finally { setFreeBusy(false); }
   }
-  async function claimWaitingFree() {
-    const waiting = waitingFree?.awakened;
+  // Claiming the waiting free creature. From its card, the claim concludes
+  // the moment (the stage resets to the clean spark); from the spark-claim
+  // row, the claim arms the card, which forms once the form lands in the
+  // deck payload — its Keep then concludes.
+  async function claimWaitingFree(fromCard: boolean) {
+    const waiting = waitingFree?.awakened ?? sessionWaiting?.awakened;
     if (!waiting || freeBusy) return;
     setFreeBusy(true);
     try {
       const data = await api.claimWelcome({ slot: "free" });
-      setBeholdId(data.awakenedId);
       setNotice(`${waiting.name} has joined your deck.`);
       onSaved(data.awakenedId);
+      if (fromCard) concludeMoment();
+      else { setCardId(data.awakenedId); setWantCard(true); }
     } catch (e) { setNotice(mutationError(e)); }
     finally { setFreeBusy(false); }
   }
-  async function reconstituteWaitingFree() {
-    if (!waitingFree?.awakened || freeBusy) return;
+  // Re-weaving the waiting free creature. From its card, the card closes,
+  // the new form grows out of the spark, and the card re-forms around it;
+  // from the row, the form simply re-gathers on the canvas, as before.
+  async function reconstituteWaitingFree(fromCard: boolean) {
+    if ((!waitingFree?.awakened && !sessionWaiting?.awakened) || freeBusy) return;
     if (!canWake(assets)) { setNotice("The pools are still gathering matter — the first pieces have not arrived yet."); return; }
     setFreeBusy(true);
     try {
       const layers = pickLayerSet(assets);
       const data = await api.reconstituteWelcome({ slot: "free", layers: toLayerRefs(layers), imageBase64: await compose(layers) });
       sparkFormRef.current = data.awakened?.id ?? null;
-      setBeholdId(data.awakened?.id ?? null);
+      setCardId(data.awakened?.id ?? null);
+      setSessionWaiting({ awakened: data.awakened, respinsUsed: data.respinsUsed, respinsRemaining: data.respinsRemaining });
       setComposition(layers);
       setNotice("The matter re-gathers into a new form.");
       void queryClient.invalidateQueries({ queryKey: ["welcome"] });
+      if (fromCard) { setCardOpen(false); setWantCard(true); startGrowBeat(); }
     } catch (e) { setNotice(mutationError(e)); }
     finally { setFreeBusy(false); }
   }
-  // Behold resolves the just-woken creature from the studio items App
-  // passes in; until the item lands, Behold waits — never a wrong card.
-  const beholdItem = beholdId !== null ? (items ?? []).find((item) => item.id === beholdId) : undefined;
+  // The card resolves the just-woken creature from the studio items App
+  // passes in — or, while a free wake still waits unclaimed, from the
+  // waiting payload. Until one of them lands, the card holds off: never
+  // a wrong card, never an empty one.
+  const cardItem = cardId !== null ? (items ?? []).find((item) => item.id === cardId) : undefined;
+  const waitingCard = cardId !== null && !cardItem
+    ? (waitingFree?.awakened?.id === cardId ? waitingFree : sessionWaiting?.awakened?.id === cardId ? sessionWaiting : null)
+    : null;
+  const presentedItem = cardItem ?? waitingCard?.awakened ?? null;
+  // The two-taps heart: when a card is armed and its creature has landed,
+  // the card forms on its own — at the settled breath for a session wake,
+  // or as soon as the claimed form joins the deck after a row claim.
+  useEffect(() => {
+    if (collection !== "tender" || !wantCard || cardOpen) return;
+    if (ceremony !== "settled" && ceremony !== "idle") return;
+    if (presentedItem) setCardOpen(true);
+  }, [collection, wantCard, cardOpen, ceremony, presentedItem]);
   const ceremonyActive = ceremony === "crystal" || ceremony === "flare" || ceremony === "grow";
-  const showBehold = collection === "tender" && beholdId !== null && composition.length > 0 && (ceremony === "idle" || ceremony === "settled");
   const canvasClass = collection !== "tender" ? "" : ceremony === "crystal" || ceremony === "flare" ? "ceremony-form-hidden" : ceremony === "grow" ? "ceremony-form-born" : ceremony === "settled" ? "awoken-breathing" : sparkFormRef.current !== null && composition.length ? "awoken-breathing" : "";
   return <section className={`ritual ${manual ? "workshop-ritual" : ""}`}>
     {creatorGifts !== undefined && creatorGifts > 0 && !giftDismissed && (
@@ -472,17 +536,14 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       </p>
     )}
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
-    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} onClick={skipCeremony}><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && beholdItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={() => setCardOpen(false)} /><div className="ceremony-card-wrap"><TradingCard item={beholdItem} /><button type="button" className="abtn" onClick={() => setCardOpen(false)}>Keep</button></div></div>)}</div>
-      {showBehold && (
-        <button className="wake-button behold-button" type="button" onClick={() => setCardOpen(true)} disabled={!beholdItem}><span>Behold</span><small>{beholdItem ? "the card takes form" : waitingFree?.awakened?.id === beholdId ? "add it to your deck first" : "the card is still gathering…"}</small></button>
-      )}
+    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} onClick={skipCeremony}><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><TradingCard item={presentedItem} />{waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>)}</div></div>)}</div>
       {collection === "tender" && waitingFree?.awakened && (
         <div className="spark-claim">
           <p className="spark-claim-line">✨ {waitingFree.awakened.name} waits at the spark — a free wake, already gathered.</p>
           <div className="waiting-actions">
-            <button className="wake-button" type="button" onClick={() => void claimWaitingFree()} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>
+            <button className="wake-button" type="button" onClick={() => void claimWaitingFree(false)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>
             {waitingFree.respinsRemaining > 0
-              ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree()} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button>
+              ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(false)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button>
               : <p className="quiet">The matter has settled into this form.</p>}
           </div>
         </div>
@@ -494,9 +555,9 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
           </button>
           {credits && <span className="gather-wakes-price">{credits.packPriceLabel} for {credits.creditsPerPack} wakes</span>}
         </div>
-      ) : (
+      ) : collection === "workshop" ? (
         <button className="wake-button" type="button" onClick={onWakeButton} disabled={save.isPending || checkout.isPending}><span>{save.isPending ? "Waking…" : "Wake One"}</span><small>{manual ? "chosen or weighted" : "let chance gather the form"}</small></button>
-      )}
+      ) : null}
       {credits !== null && <p className="credit-line"><span>{credits.balance > 0 ? `${credits.balance} ${credits.balance === 1 ? "wake" : "wakes"} remaining` : "The vessel is empty."}</span><button type="button" className="credit-more" onClick={() => checkout.mutate()} disabled={checkout.isPending}>{checkout.isPending ? "Opening…" : "Get more wakes"}</button></p>}
       {collection === "tender" && signedIn && (
         <div className="redeem-row" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
