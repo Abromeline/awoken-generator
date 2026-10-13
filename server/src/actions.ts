@@ -1906,26 +1906,27 @@ export const handlers = {
     const hexDist = (a: any, b: any) =>
       (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 
-    const calcStats = (json: string) => {
-      try {
-        const layers = JSON.parse(json || "[]");
-        const power = layers.reduce((s: number, l: any) => s + (l.power || 0), 0) || 3;
-        const toughness = layers.reduce((s: number, l: any) => s + (l.toughness || 0), 0) || 3;
-        return { power, toughness };
-      } catch { return { power: 3, toughness: 3 }; }
-    };
+    // True stats from payloads (live piece values + empowerment, stories,
+    // aspects, stat points) — the heal honors the numbers the cards show,
+    // not the values frozen into the composition JSON at birth.
+    const statsById = new Map<number, { power: number; toughness: number }>();
+    for (const id of new Set([...binders.map(b => b.awakenedId), ...fighters.map(f => f.awakenedId)])) {
+      const p = await awakenedPayloadById(id);
+      statsById.set(id, { power: p?.power ?? 3, toughness: p?.toughness ?? 3 });
+    }
+    const calcStats = (id: number) => statsById.get(id) ?? { power: 3, toughness: 3 };
 
     let healed = 0;
     for (const b of binders) {
       const bTile = tileById.get(b.tileId);
       if (!bTile) continue;
-      const { power } = calcStats(b.compositionJson);
+      const { power } = calcStats(b.awakenedId);
       // Find wounded in hex + adjacent
       const wounded = fighters.filter(f => {
         const fTile = tileById.get(f.tileId);
         if (!fTile) return false;
         if (hexDist(bTile, fTile) > 1) return false;
-        const { power: pw, toughness: tg } = calcStats(f.compositionJson);
+        const { power: pw, toughness: tg } = calcStats(f.awakenedId);
         const maxHp = pw + tg;
         const curHp = f.hp ?? maxHp;
         return curHp < maxHp;
@@ -1934,7 +1935,7 @@ export const handlers = {
       // Binding Circle: binders on or beside an active circle heal +50%.
       const healPer = (power / wounded.length) * (circleTilesForHeal.some(ct => hexDist(bTile, ct) <= 1) ? 1.5 : 1);
       for (const w of wounded) {
-        const { power: pw, toughness: tg } = calcStats(w.compositionJson);
+        const { power: pw, toughness: tg } = calcStats(w.awakenedId);
         const maxHp = pw + tg;
         const newHp = Math.min(maxHp, (w.hp ?? maxHp) + healPer);
         await db.update(schema.fieldPlacements)
@@ -2707,8 +2708,11 @@ export const handlers = {
     }
     let totalCost = 0;
     for (const f of fighters) {
+      // True (payload) power — empowerment/stories/aspects count, matching
+      // the cost the client quoted from the same payload stats.
       const layers = parseLayers(f.compositionJson, assetStats);
-      const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
+      const payload = await awakenedPayloadById(f.id);
+      const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
       totalCost += 2 + Math.floor((power - 1) / 3);
     }
     if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
@@ -2769,7 +2773,8 @@ export const handlers = {
         if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
       }
       const layers = parseLayers(awokenRows[0].compositionJson, assetStats);
-      const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
+      const payload = await awakenedPayloadById(awokenRows[0].id);
+      const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
       const cost = 1 + Math.floor((power - 1) / 3);
       if (!(await spendEnergy(ownerKey, cost))) badRequest("Not enough energy.");
     }
@@ -3779,7 +3784,10 @@ export const handlers = {
       if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
     }
     const layers = parseLayers(attacker.compositionJson, assetStats);
-    const power = layers.reduce((s, l) => s + (l.power ?? 0), 0);
+    // True power from the payload — empowerment, story bonuses, aspect
+    // bonuses and stat points all count, exactly as the card displays.
+    const attackerPayload = await awakenedPayloadById(attacker.id);
+    const power = attackerPayload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
     // HP system: each attack dwindles the curse HP by the attacker's power.
     // Initialize HP if missing (legacy tiles).
     const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
@@ -4028,10 +4036,8 @@ export const handlers = {
       tileId: z.number().int().positive(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid ignition.");
-    // Costs 13 energy
-    if (!(await spendEnergy(ownerKey, 13))) {
-      badRequest("Not enough energy (need 13).");
-    }
+    // Validate EVERYTHING before charging: a failed ignition must never
+    // eat the 13 energy. (Charge sits just before the tiles are marked.)
     // Awoken must have Fire III aspect (level 3 fire)
     const aw = await db.select().from(schema.awakened)
       .where(and(
@@ -4064,6 +4070,10 @@ export const handlers = {
       (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
     const ignited = allTiles.filter(t => t.cursed && hexDist(center, t) === 1);
     if (!ignited.length) badRequest("No cursed tiles adjacent to ignite.");
+    // All checks passed — now charge the 13 energy.
+    if (!(await spendEnergy(ownerKey, 13))) {
+      badRequest("Not enough energy (need 13).");
+    }
     // Mark them as ignited (wildfire)
     for (const t of ignited) {
       await db.update(schema.territoryTiles)
