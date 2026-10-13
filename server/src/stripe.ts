@@ -2,6 +2,7 @@
 // the webhook credits the ledger, and the portal manages payment methods.
 // Nothing here invents account details; every key comes from the environment.
 import Stripe from "stripe";
+import { createHash, createHmac } from "node:crypto";
 import {
   CREDITS_PER_PACK,
   PACK_PRICE_CENTS,
@@ -118,7 +119,37 @@ export async function stripeWebhookHandler(req: { body: Buffer; headers: Record<
   let event: Stripe.Event;
   try {
     event = s.webhooks.constructEvent(req.body, signature, secret);
-  } catch {
+  } catch (err) {
+    // Diagnostics (2026-10-13): a live delivery kept failing verification
+    // while the secret looked right everywhere. Log only non-secret facts:
+    // the verification error, our secret's length + SHA-256 fingerprint
+    // prefix, and the first chars of Stripe's v1 signature vs the HMAC our
+    // secret computes over the same payload. If the two v1 prefixes match,
+    // the secret is right and the failure is the timestamp tolerance; if
+    // they differ, the secret the app holds is not the one signing.
+    try {
+      const fp = createHash("sha256").update(secret).digest("hex").slice(0, 10);
+      const tMatch = /(?:^|,)t=(\d+)/.exec(signature);
+      const v1Match = /(?:^|,)v1=([0-9a-f]+)/.exec(signature);
+      let expected = "n/a";
+      if (tMatch) {
+        expected = createHmac("sha256", secret)
+          .update(Buffer.concat([Buffer.from(tMatch[1] + "."), req.body]))
+          .digest("hex")
+          .slice(0, 12);
+      }
+      console.error(
+        "[stripe-webhook] verify failed:",
+        err instanceof Error ? err.message.replace(/\s*\n\s*/g, " ") : String(err),
+        "| secret_len=" + secret.length,
+        "secret_fp=" + fp,
+        "| sig_t=" + (tMatch ? tMatch[1] : "none"),
+        "sig_v1=" + (v1Match ? v1Match[1].slice(0, 12) : "none"),
+        "expected_v1=" + expected,
+        "| body_len=" + req.body.length,
+        "now=" + Math.floor(Date.now() / 1000)
+      );
+    } catch { /* diagnostics must never break the handler */ }
     res.status(400).json({ error: "Stripe signature verification failed." });
     return;
   }
