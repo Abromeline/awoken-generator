@@ -1118,7 +1118,7 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
       return api.claimTender({ password, refCode, tenderName: tenderName.trim() });
     },
     onSuccess: (data) => onDone(data.token),
-    onError: (e) => setError(e instanceof Error ? e.message : "The key could not be claimed."),
+    onError: (e) => setError(e instanceof Error ? e.message : "The bond could not be made."),
   });
   const login = useMutation({
     mutationFn: () => api.loginTender({ identity: loginIdentity.trim(), password: loginPassword }),
@@ -1133,10 +1133,10 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
   return <main className="tender-gate">
     <p className="eyebrow">Become a Tender</p>
     <h1>Every Awoken needs someone to wake it.</h1>
-    <p>Take a secret key — it is yours alone, and it locks your wakes and your deck to you wherever you go. No email, no noise. Your name comes later, when the Awoken ask.</p>
+    <p>Choose the name the Awoken will call you, and keep it with a password only you know — together they bind your wakes and your deck to you, wherever you go. No email, no noise.</p>
     {note && <p className="notice" role="status">{note}</p>}
     <div className="gate-tabs">
-      <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>Take a key</button>
+      <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>New Tender</button>
       <button type="button" className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(null); }}>Already have one?</button>
     </div>
     {mode === "claim" ? (
@@ -1592,7 +1592,7 @@ export function App() {
       return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} note={gateNote} /><LoreSection /></main></div></>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
-    return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button><TenderRank /></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Take a key</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
+    return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button><TenderRank /></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Become a Tender</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
