@@ -17,6 +17,7 @@ import {
   publicTender, setTenderName, suggestTenderCode, tenderOwnerKey,
   type TenderRow,
 } from "./tenders.js";
+import { adoptVisitorState } from "./adopt.js";
 
 export interface ActionContext {
   /** Browser-visitor mark from the X-Visitor-Id header (null when absent). */
@@ -311,6 +312,21 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
 }
 
 async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?: boolean }) {
+  // Self-heal (claim adoption): accounts claimed before adoption existed —
+  // or claimed on a different device than the one holding their soft
+  // visitor state — can still have that state stranded under this
+  // browser's visitor id. On the Tender face only, a signed-in Tender
+  // whose browser carries a different visitor id adopts that state
+  // before the studio is assembled. adoptVisitorState guards itself: it
+  // only ever fires for a Tender who owns no Awoken of their own, so
+  // two real accounts can never be merged, and once healed it is a
+  // couple of count queries and a no-op.
+  if (opts?.tenderOnly && ctx?.tender && ctx.visitorId) {
+    const tenderKey = tenderOwnerKey(ctx.tender.id);
+    if (ctx.visitorId !== tenderKey) {
+      await adoptVisitorState(ctx.visitorId, tenderKey);
+    }
+  }
   const ownerKey = ownerKeyFor(ctx);
   let assetRows = await db.select().from(schema.layerAssets).orderBy(asc(schema.layerAssets.category), desc(schema.layerAssets.id));
   const renames = assetRows.flatMap((row) => {

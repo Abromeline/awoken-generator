@@ -10,6 +10,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "./store.js";
+import { adoptVisitorState } from "./adopt.js";
 import { suggestTenderName } from "./naming.js";
 import { grantCredits } from "./credits.js";
 import { CREDITS_PER_PACK } from "./config.js";
@@ -137,10 +138,10 @@ function badRequest(message: string): never {
 }
 
 /**
- * Claim a secret code as a new Tender account. Migrates the current soft
- * visitor's state (credits, welcome progress, waiting Awoken) onto the new
- * account so nothing is stranded — and so an already-welcomed browser does
- * not grant itself a second 20.
+ * Claim a secret code as a new Tender account. Adopts the current soft
+ * visitor's whole state (Awoken, territory, decks, attunement, credits,
+ * welcome progress) onto the new account so nothing is stranded — and so
+ * an already-welcomed browser does not grant itself a second 20.
  */
 export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean }> {
   const parsed = z
@@ -164,12 +165,18 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
 
   const ownerKey = tenderOwnerKey(tender.id);
   // Migrate the soft visitor's state, if any. A browser that already
-  // received its welcome keeps it — no second 20.
+  // received its welcome keeps it — no second 20. Claiming ADOPTS the
+  // visitor's whole state (Awoken, land, decks, attunement, credits —
+  // see adoptVisitorState). When the visitor held no Awoken or land,
+  // adoption declines and the original minimal migration below still
+  // carries the credits and waiting welcome across, exactly as before.
   let granted = false;
   if (softVisitorId) {
     const softRows = await db.select().from(schema.visitors).where(eq(schema.visitors.visitorId, softVisitorId)).limit(1);
     const soft = softRows[0];
-    if (soft) {
+    if (soft) granted = soft.welcomeWakesGranted === 1;
+    const adopted = await adoptVisitorState(softVisitorId, ownerKey);
+    if (!adopted && soft) {
       await db.update(schema.creditLedger).set({ userId: ownerKey }).where(eq(schema.creditLedger.userId, softVisitorId));
       await db.update(schema.pendingWelcomes).set({ visitorId: ownerKey }).where(eq(schema.pendingWelcomes.visitorId, softVisitorId));
       await db.insert(schema.visitors).values({
@@ -181,7 +188,6 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
       });
       // Do NOT delete the soft row: it stays dormant so logging out later
       // cannot re-trigger a fresh welcome for the same browser.
-      granted = soft.welcomeWakesGranted === 1;
     }
   }
   if (!granted) {
