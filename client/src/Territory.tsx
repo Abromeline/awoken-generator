@@ -1517,6 +1517,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
   });
   const attQ = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement() });
   const [selectedRoom, setSelectedRoom] = useState<number>(0);
+  // Feeding reports inline (browser alerts are clunky on iPad); a level-up
+  // also pulses the resident card gold.
+  const [feedNote, setFeedNote] = useState<{ text: string; tone: "plain" | "leveled" | "error" } | null>(null);
+  const [pulse, setPulse] = useState(false);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerPulse = () => {
+    if (pulseTimer.current) clearTimeout(pulseTimer.current);
+    setPulse(false);
+    // Restart the animation even on back-to-back level-ups.
+    requestAnimationFrame(() => requestAnimationFrame(() => setPulse(true)));
+    pulseTimer.current = setTimeout(() => setPulse(false), 2000);
+  };
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ["hall"] }); queryClient.invalidateQueries({ queryKey: ["aspectAttunement"] }); onUpdate(); };
   const fundE = useMutation({ mutationFn: (amount: number) => api.fundHallEnergy({ amount }), onSuccess: refresh, onError: (e: any) => alert(e.message) });
   const fundEl = useMutation({ mutationFn: (v: { element: string; points: number }) => api.fundHallElement(v), onSuccess: refresh, onError: (e: any) => alert(e.message) });
@@ -1525,8 +1537,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
   const unhouse = useMutation({ mutationFn: (roomIndex: number) => api.unhouseAwoken({ roomIndex }), onSuccess: refresh, onError: (e: any) => alert(e.message) });
   const feed = useMutation({
     mutationFn: (v: { awakenedId: number; energy: number }) => api.feedEnergy(v),
-    onSuccess: (r: any, v: any) => { refresh(); const a = tenderItems.find(t => t.id === v.awakenedId); alert(r.leveledUp ? `${a?.name ?? "Your champion"} rises to level ${r.newLevel}!` : `+${r.xpGain} XP`); },
-    onError: (e: any) => alert(e.message),
+    onSuccess: (r: any, v: any) => {
+      refresh();
+      const a = tenderItems.find(t => t.id === v.awakenedId);
+      const name = a?.name ?? "Your champion";
+      if (r.leveledUp) {
+        setFeedNote({ tone: "leveled", text: `✦ ${name} rises to Lv ${r.newLevel}! (+${r.xpGain} XP${r.statPointsGained ? ` · +${r.statPointsGained} stat point${r.statPointsGained > 1 ? "s" : ""}` : ""})` });
+        triggerPulse();
+      } else {
+        setFeedNote({ tone: "plain", text: `+${r.xpGain} XP — ${name} drinks deep.` });
+      }
+    },
+    onError: (e: any) => setFeedNote({ tone: "error", text: e?.message ?? "Feeding failed." }),
   });
 
   if (hallQ.isPending) return <div className="champion-tab"><div className="celestial-title">Hall of Champions</div><img src={hallBanner} className="hall-banner" alt="The Hall of Champions" /><p className="quiet">Approaching the castle…</p></div>;
@@ -1562,7 +1584,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         {hall.rooms.map((r: any) => {
           const a = r.awakenedId ? tenderItems.find(t => t.id === r.awakenedId) : null;
           return (
-            <button key={r.roomIndex} className="abtn small" style={room?.roomIndex === r.roomIndex ? { outline: "2px solid #d4af6a" } : { opacity: 0.85 }} onClick={() => setSelectedRoom(r.roomIndex)} title={a ? a.name : "Empty room"}>
+            <button key={r.roomIndex} className="abtn small" style={room?.roomIndex === r.roomIndex ? { outline: "2px solid #d4af6a" } : { opacity: 0.85 }} onClick={() => { setSelectedRoom(r.roomIndex); setFeedNote(null); }} title={a ? a.name : "Empty room"}>
               {a ? <img src={a.image_url} alt="" style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 4, verticalAlign: "middle" }} /> : <span style={{ fontSize: 20 }}>🕯️</span>}
               <span style={{ marginLeft: 4 }}>Room {r.roomIndex + 1}</span>
             </button>
@@ -1570,10 +1592,21 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         })}
       </div>
       {room && (resident ? (
-        <div className="champion-tab-card">
+        <div className={`champion-tab-card${pulse ? " levelup-pulse" : ""}`}>
           <img src={resident.image_url} alt={resident.name} />
           <div className="champion-name">{championId === resident.id ? "⭐ " : ""}{resident.name}</div>
           <div className="champion-stats">{resident.power}⚔ {resident.toughness}🛡 · Lv {resident.level ?? 0} · ✦ {resident.experience ?? 0} XP</div>
+          {(() => {
+            const into = resident.xp_into_level ?? Math.max(0, (resident.experience ?? 0) - (resident.xp_current ?? 0));
+            const forNext = resident.xp_for_next_level ?? Math.max(0, (resident.xp_next ?? 0) - (resident.xp_current ?? 0));
+            const pct = forNext > 0 ? Math.min(100, Math.round((into / forNext) * 100)) : 100;
+            return (
+              <div className="hall-xp">
+                <div className="hall-xp-bar"><div className="hall-xp-fill" style={{ width: `${pct}%` }} /></div>
+                <div className="hall-xp-text">✦ {into}/{forNext} XP — {Math.max(0, forNext - into)} to Lv {(resident.level ?? 0) + 1}</div>
+              </div>
+            );
+          })()}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             {[1, 5, 10].map(amt => (
               <button key={amt} className="abtn small" disabled={feed.isPending} onClick={() => feed.mutate({ awakenedId: resident.id, energy: amt })} title={`Feed ${amt} energy → ${amt * 2} XP`}>
@@ -1585,6 +1618,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               ? <span className="quiet" style={{ alignSelf: "center" }}>Your champion — represents you in the Confluence.</span>
               : <button className="abtn small" disabled={makeChampion.isPending} onClick={() => makeChampion.mutate(resident.id)} title="Crown this Awoken as your champion">⭐ Make Champion</button>}
           </div>
+          {feedNote && <div className={`hall-feed-note ${feedNote.tone}`}>{feedNote.text}</div>}
         </div>
       ) : (
         <div>
@@ -1593,7 +1627,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             {tenderItems.filter(a => !housedIds.has(a.id)).map(a => (
               <div key={a.id} className="champion-field-item">
                 <img src={a.image_url} alt={a.name} />
-                <div className="champion-field-info"><div>{a.name}</div><div className="quiet">Lv {a.level ?? 0} · {a.power}⚔ {a.toughness}🛡</div></div>
+                <div className="champion-field-info"><div>{a.name}</div><div className="quiet">Lv {a.level ?? 0} · {a.xp_into_level ?? 0}/{a.xp_for_next_level ?? 0} XP · {a.power}⚔ {a.toughness}🛡</div></div>
                 <button className="abtn small" onClick={() => house.mutate({ roomIndex: room.roomIndex, awakenedId: a.id })}>House</button>
               </div>
             ))}
@@ -1989,7 +2023,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               <span title="Toughness">🛡 {awoken.toughness}</span>
               <span title="Health">❤ {awokenHp.get(awoken.id) ?? awoken.toughness}/{awoken.toughness}</span>
               <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
-              <span title="Experience">✦ {awoken.experience ?? 0} XP</span>
+              <span title="Experience">✦ {awoken.experience ?? 0} XP{typeof awoken.xp_into_level === "number" && typeof awoken.xp_for_next_level === "number" ? ` (${awoken.xp_into_level}/${awoken.xp_for_next_level} to Lv ${(awoken.level ?? 0) + 1})` : ""}</span>
             </div>
             <div className="stance-picker-elements">
               {(() => {

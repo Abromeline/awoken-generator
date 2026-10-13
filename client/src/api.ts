@@ -53,6 +53,8 @@ export interface Awakened {
   xp_current?: number;
   xp_next?: number;
   xp_progress?: number;
+  xp_into_level?: number;
+  xp_for_next_level?: number;
 }
 
 export interface TerritoryTile {

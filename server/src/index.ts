@@ -2,7 +2,7 @@ import express from "express";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { blobs, DATA_DIR } from "./store.js";
-import { handlers, type ActionContext, type ActionName } from "./actions.js";
+import { handlers, reconcileXpRecurve, type ActionContext, type ActionName } from "./actions.js";
 import { stripeConfig, createCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
 import {
   claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
@@ -190,6 +190,16 @@ if (existsSync(join(clientDist, "index.html"))) {
   app.get("*", (_req, res) => res.sendFile(join(clientDist, "index.html")));
 } else {
   app.get("/", (_req, res) => res.status(503).json({ error: "Client not built. Run `npm run build:client` first." }));
+}
+
+// One-time XP re-curve reconciliation (2026-10-13): before serving, make
+// sure every Awoken already holds the stat points and milestone deeds the
+// gentler curve says it crossed. Idempotent; a failure logs and leaves the
+// flag unset so the next boot retries.
+try {
+  await reconcileXpRecurve();
+} catch (err) {
+  console.error("[xp] re-curve reconciliation failed; will retry next boot:", err);
 }
 
 const port = Number(process.env.PORT ?? 3000);

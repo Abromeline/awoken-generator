@@ -242,6 +242,9 @@ export function toAwakenedPayload(
     experience: xp, level, stat_points: row.statPoints ?? 0,
     bonus_power: bonusPower, bonus_toughness: bonusToughness,
     xp_current: xpInfo.current, xp_next: xpInfo.next, xp_progress: xpInfo.progress,
+    // Progress within the current level, for visible growth bars (Hall, dock):
+    // XP earned into this level, and the size of this level's XP span.
+    xp_into_level: xp - xpInfo.current, xp_for_next_level: Math.max(0, xpInfo.next - xpInfo.current),
   };
 }
 
@@ -756,12 +759,15 @@ async function getConceivedTwin(sessionId: number) {
   return rows[0] ?? null;
 }
 
-// Experience, exponential: XP to go from level n to n+1 = floor(100 * 1.5^n).
-// Total XP for level L = sum over n=0..L-1 of 100 * 1.5^n.
+// Experience, exponential (re-curved 2026-10-13, Nigel): the base constant
+// dropped 100 → 20 so the Hall's peaceful path teaches itself — one 10⚡
+// feed (20 XP) now takes a fresh Awoken to level 1, while battles (60 XP)
+// remain the faster road. Thresholds: L1=20, L2=50, L3=95, L5=264,
+// L10≈2267. Total XP for level L = 20 * (1.5^L - 1) / (1.5 - 1), rounded.
 function xpForLevel(level: number): number {
   if (level <= 0) return 0;
-  // Geometric series: 100 * (1.5^level - 1) / (1.5 - 1)
-  return Math.floor(100 * (Math.pow(1.5, level) - 1) / 0.5);
+  // Geometric series: 20 * (1.5^level - 1) / (1.5 - 1)
+  return Math.round(20 * (Math.pow(1.5, level) - 1) / 0.5);
 }
 function levelForXp(xp: number): number {
   let level = 0;
@@ -799,6 +805,85 @@ async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp:
   if (newLevel >= 20 && oldLevel < 20) await recordDeed(ownerKey, awakenedId, "level_20");
   if (newLevel >= 30 && oldLevel < 30) await recordDeed(ownerKey, awakenedId, "level_30");
   return { leveledUp: newLevel > oldLevel, newLevel, statPointsGained };
+}
+
+// --- 2026-10-13 XP re-curve reconciliation (one-time) ---------------------
+// When xpForLevel's base dropped 100 → 20, every stored XP total suddenly
+// meant a HIGHER level (levels are derived from XP, never stored). Nobody
+// may lose what the gentler curve says they already crossed, so this pass
+// grants the difference exactly once: stat points for tens boundaries the
+// new curve crosses that the old one didn't (floor(newLv/10) −
+// floor(oldLv/10)), and level_10/20/30 milestone deeds for newly reached
+// thresholds. Idempotence is layered: a settings flag short-circuits the
+// pass once it completes, and each Awoken's marker row (raw DDL, like
+// tender_births) is claimed in the same transaction as its stat grant, so
+// even a crash mid-pass can be re-run without double-granting anyone.
+const XP_RECURVE_FLAG = "xp_recurve_2026_10_13_done";
+// The pre-recurve curve, frozen here so old levels can be recomputed.
+function oldXpForLevel(level: number): number {
+  if (level <= 0) return 0;
+  return Math.floor(100 * (Math.pow(1.5, level) - 1) / 0.5);
+}
+function oldLevelForXp(xp: number): number {
+  let level = 0;
+  xp = Math.max(0, xp);
+  while (oldXpForLevel(level + 1) <= xp) level++;
+  return level;
+}
+
+export async function reconcileXpRecurve(): Promise<void> {
+  const flag = await db.select({ key: schema.settings.key }).from(schema.settings)
+    .where(eq(schema.settings.key, XP_RECURVE_FLAG)).limit(1);
+  if (flag.length) return;
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS xp_recurve_2026_10_13_grants (
+    awakened_id INTEGER PRIMARY KEY NOT NULL,
+    stat_points_granted INTEGER NOT NULL DEFAULT 0,
+    processed_at INTEGER NOT NULL
+  )`);
+  const claimStmt = sqlite.prepare(
+    `INSERT OR IGNORE INTO xp_recurve_2026_10_13_grants (awakened_id, stat_points_granted, processed_at) VALUES (?, ?, ?)`
+  );
+  const grantStmt = sqlite.prepare(`UPDATE awakened SET stat_points = ? WHERE id = ?`);
+  // Marker claim + stat grant land in ONE transaction: a crash can neither
+  // lose a grant (marker without points) nor double one (points re-granted
+  // on re-run), because the marker insert is what reports "already done".
+  const claimAndGrant = sqlite.transaction((id: number, statGain: number, newStatPoints: number): boolean => {
+    const claim = claimStmt.run(id, statGain, Date.now());
+    if (!claim.changes) return false;
+    if (statGain > 0) grantStmt.run(newStatPoints, id);
+    return true;
+  });
+  const rows = await db.select({
+    id: schema.awakened.id, experience: schema.awakened.experience,
+    statPoints: schema.awakened.statPoints, ownerKey: schema.awakened.ownerKey,
+  }).from(schema.awakened);
+  let reconciled = 0;
+  for (const row of rows) {
+    const xp = row.experience ?? 0;
+    const oldLevel = oldLevelForXp(xp);
+    const newLevel = levelForXp(xp);
+    const statGain = Math.max(0, Math.floor(newLevel / 10) - Math.floor(oldLevel / 10));
+    const claimed = claimAndGrant(row.id, statGain, (row.statPoints ?? 0) + statGain);
+    if (!claimed) continue; // reconciled in an earlier partial run
+    // Milestone deeds the new level reaches that the old one didn't;
+    // checked against existing rows so recordDeed never double-counts.
+    for (const threshold of [10, 20, 30]) {
+      if (newLevel >= threshold && oldLevel < threshold) {
+        const deed = `level_${threshold}`;
+        const existing = await db.select({ id: schema.awokenLegends.id }).from(schema.awokenLegends)
+          .where(and(
+            eq(schema.awokenLegends.awakenedId, row.id),
+            eq(schema.awokenLegends.deed, deed as any)
+          )).limit(1);
+        if (!existing.length) await recordDeed(row.ownerKey ?? "", row.id, deed);
+      }
+    }
+    if (newLevel > oldLevel) reconciled++;
+  }
+  const stamp = new Date().toISOString();
+  await db.insert(schema.settings).values({ key: XP_RECURVE_FLAG, value: stamp })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value: stamp } });
+  if (reconciled) console.log(`[xp] re-curve reconciliation: ${reconciled} Awoken stand higher under the gentler curve.`);
 }
 
 async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): Promise<void> {
