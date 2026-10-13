@@ -269,13 +269,13 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
   </article>;
 }
 
-function CreatureCard({ item, allowDelete = false, newborn = false }: { item: Awoken; allowDelete?: boolean; newborn?: boolean }) {
-  const queryClient = useQueryClient(); const [editing, setEditing] = useState(newborn); const [name, setName] = useState(item.name);
+function CreatureCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
+  const queryClient = useQueryClient(); const [editing, setEditing] = useState(false); const [name, setName] = useState(item.name);
   const rename = useMutation({ mutationFn: () => api.renameAwoken({ id: item.id, name }), onSuccess: () => { setEditing(false); invalidateStudios(queryClient); } });
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
   const powerParts = litany.map((layer) => layer.power ?? 0).join(" + "); const toughnessParts = litany.map((layer) => layer.toughness ?? 0).join(" + ");
-  return <article className={`creature-card ${newborn ? "newborn" : ""}`}>
+  return <article className="creature-card">
     <div className="creature-image"><img src={item.image_url} alt={`${item.name}, a layered ink-wash Awoken`} />{item.iteration > 0 && <span className="iteration-mark">{ordinal(item.iteration)}</span>}</div>
     <div className="creature-copy">
       <div className="creature-heading">
@@ -580,12 +580,12 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, credits, f
       </p>
     )}
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
-    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} onClick={skipCeremony}><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={cardPhase !== "done" ? finishCardCeremony : waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><div className="ceremony-card-stage" data-phase={cardPhase}><TradingCard item={presentedItem} />{burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": elementColors[burnBody], "--burn-delay": "0s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={elementColors[burnBody]} dotColor={elementColors[burnBody]} width={54} height={22} /></span>)}{burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": elementColors[burnArms], "--burn-delay": "2.05s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={elementColors[burnArms]} dotColor={elementColors[burnArms]} width={54} height={22} /></span>)}{burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": elementColors[burnHead], "--burn-delay": "4.1s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={elementColors[burnHead]} dotColor={elementColors[burnHead]} width={54} height={22} /></span>)}<span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": "6.15s" } as CSSProperties} aria-hidden="true">{presentedItem.power}/{presentedItem.toughness}</span></div>{cardPhase === "done" && (waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>))}</div></div>)}</div>
+    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}`} style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} onClick={skipCeremony}><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={cardPhase !== "done" ? finishCardCeremony : waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><div className="ceremony-card-stage" data-phase={cardPhase}><TradingCard item={presentedItem} />{burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": elementColors[burnBody], "--burn-delay": "0s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={elementColors[burnBody]} dotColor={elementColors[burnBody]} width={54} height={22} /></span>)}{burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": elementColors[burnArms], "--burn-delay": "2.05s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={elementColors[burnArms]} dotColor={elementColors[burnArms]} width={54} height={22} /></span>)}{burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": elementColors[burnHead], "--burn-delay": "4.1s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={elementColors[burnHead]} dotColor={elementColors[burnHead]} width={54} height={22} /></span>)}<span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": "6.15s" } as CSSProperties} aria-hidden="true">{presentedItem.power}/{presentedItem.toughness}</span></div>{cardPhase === "done" && (waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>joins your deck</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>))}</div></div>)}</div>
       {collection === "tender" && waitingFree?.awakened && (
         <div className="spark-claim">
           <p className="spark-claim-line">✨ {waitingFree.awakened.name} waits at the spark — a free wake, already gathered.</p>
           <div className="waiting-actions">
-            <button className="wake-button" type="button" onClick={() => void claimWaitingFree(false)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>
+            <button className="wake-button" type="button" onClick={() => void claimWaitingFree(false)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>joins your deck</small></button>
             {waitingFree.respinsRemaining > 0
               ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(false)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button>
               : <p className="quiet">The matter has settled into this form.</p>}
@@ -885,7 +885,7 @@ function WaitingCreature({ slot, waiting, assets, onClaimed }: { slot: "welcome"
     {slot === "welcome" && <p className="waiting-note">Your first twenty wakes are free — and this one arrived ahead of you, a gift on top of them. Keep it, or let the matter re-gather once, free.</p>}
     <CreatureCard item={item} />
     <div className="waiting-actions">
-      <button className="wake-button" type="button" onClick={() => claim.mutate()} disabled={claim.isPending || weaving}><span>{claim.isPending ? "Joining…" : "Add to deck"}</span><small>yours to name</small></button>
+      <button className="wake-button" type="button" onClick={() => claim.mutate()} disabled={claim.isPending || weaving}><span>{claim.isPending ? "Joining…" : "Add to deck"}</span><small>joins your deck</small></button>
       {waiting.respinsRemaining > 0
         ? <button className="waiting-respin" type="button" onClick={() => void reconstitute()} disabled={weaving || claim.isPending}><span>{weaving ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button>
         : <p className="quiet">The matter has settled into this form.</p>}
@@ -1503,7 +1503,7 @@ export function App() {
       if (r.ok) applyElementPalette(r.theme.elementColors);
     }).catch(() => {});
   }, []);
-  const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null); const [showPacket, setShowPacket] = useState(false); const [showTenderDeck, setShowTenderDeck] = useState(false); const [birthRevealId, setBirthRevealId] = useState<number | null>(null);
+  const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null); const [showPacket, setShowPacket] = useState(false); const [showTenderDeck, setShowTenderDeck] = useState(false);
   const [wtoken, setWtoken] = useState<string | null>(() => storedWorkshopToken());
   const [tenderTokenState, setTenderTokenState] = useState<string | null>(() => storedTenderToken());
   const [showGate, setShowGate] = useState(false);
@@ -1555,10 +1555,8 @@ export function App() {
   if (query.error || !query.data) return <main className="loading-screen error"><span>{mutationError(query.error)}</span><button onClick={() => query.refetch()}>Try again</button></main>;
   const studio = query.data; const tenderItems = studio.awakened.filter((item) => item.collection === "tender"); const focused = studio.awakened.find((item) => item.id === focusId);
   const tender = studio.tender;
-  const needsNaming = !!tender && !tender.tenderName && tenderItems.length > 0;
   function saved(id: number) {
     setFocusId(id);
-    setBirthRevealId(id);
     if (face === "workshop") void workshopQuery.refetch();
     else { void query.refetch(); void welcomeQuery.refetch(); }
   }
@@ -1580,21 +1578,8 @@ export function App() {
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
-      {needsNaming ? <TenderNaming onDone={refreshTender} /> : null}
       {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}
     </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
-      {birthRevealId !== null && (() => {
-        const newborn = tenderItems.find(i => i.id === birthRevealId);
-        if (!newborn) return null;
-        return (
-          <div className="birth-reveal-overlay" onClick={() => setBirthRevealId(null)}>
-            <div className="birth-reveal" onClick={e => e.stopPropagation()}>
-              <CreatureCard item={newborn} newborn />
-              <button className="abtn" onClick={() => setBirthRevealId(null)}>Behold</button>
-            </div>
-          </div>
-        );
-      })()}
       </div></>;  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;
   if (lockQuery.data?.locked && !wtoken) {
