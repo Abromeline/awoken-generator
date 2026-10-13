@@ -36,6 +36,7 @@ const WORKSHOP_ACTIONS = new Set([
   "deleteLayerAsset",
   "moveLayerAsset",
   "deleteAwoken",
+  "cleanDeckCards",
   "getWorkshopStudio",
   "listTenders",
   "adminResetTender",
