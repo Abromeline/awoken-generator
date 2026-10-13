@@ -527,6 +527,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     // Get tower/defender info
     const watchtowers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
     const thornWalls = buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active");
+    const simTowerDamage = (gameConfig as any)?.buildings?.["watchtower"]?.damage ?? 3;
+    const simTowerBonus = (gameConfig as any)?.buildings?.["watchtower"]?.powerBonus ?? 2;
+    const simThornDamage = (gameConfig as any)?.buildings?.["thorn-wall"]?.damage ?? 1;
     
     // Track which units have been hit by volley (once per tower)
     const volleyHit = new Set<string>();
@@ -572,22 +575,26 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               const key = `${wt.id}-${u.id}`;
               if (inRange && !volleyHit.has(key)) {
                 volleyHit.add(key);
-                hp -= 3;
+                hp -= simTowerDamage;
               }
             }
             // Thorn Wall: 1 damage when entering tile
             const wall = thornWalls.find(w => w.tileId === closestTile.id);
             if (wall && u.tileId !== closestTile.id) {
-              hp -= 1;
+              hp -= simThornDamage;
             }
             // Defenders: Awoken on tile deal full power as damage per tick
             // Enemies are stopped (don't advance) while defenders are present
             const defenders = placements.filter(p => p.tileId === closestTile.id && (p.stance === "defense" || p.stance === "attack"));
             if (defenders.length > 0) {
+              const nearTower = watchtowers.some(wt => {
+                const wtTile = tiles.find(t => t.id === wt.tileId);
+                return wtTile && Math.abs(wtTile.q - closestTile.q) <= 1 && Math.abs(wtTile.r - closestTile.r) <= 1;
+              });
               for (const d of defenders) {
                 const aw = tenderItems.find(a => a.id === d.awakenedId);
                 if (aw) {
-                  hp -= (aw.power || 3) * 0.5; // Meaningful damage per tick
+                  hp -= ((aw.power || 3) + (nearTower ? simTowerBonus : 0)) * 0.5; // Meaningful damage per tick
                 }
               }
               // Don't move while defenders hold the tile
@@ -663,6 +670,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   /** Phase 1: All towers fire at range 3. */
   const doTowerPhase = () => {
     const watchtowers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
+    const wtDamage = (gameConfig as any)?.buildings?.["watchtower"]?.damage ?? 3;
     setBattleUnits(prev => {
       let updated = [...prev];
       for (const wt of watchtowers) {
@@ -678,7 +686,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           if (d <= 3 && d < bestDist) { bestDist = d; best = u; }
         }
         if (best) {
-          updated = updated.map(u => u.id === best!.id ? { ...u, hp: u.hp - 3 } : u).filter(u => u.hp > 0);
+          updated = updated.map(u => u.id === best!.id ? { ...u, hp: u.hp - wtDamage } : u).filter(u => u.hp > 0);
         }
       }
       return updated;
@@ -720,6 +728,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       let updated = [...prev];
       const purified = tiles.filter(t => !t.cursed);
       const towers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
+      // Watchtower aura: defenders on the tower's tile or adjacent fight at
+      // +powerBonus (config-driven). Thorn walls bite enemies entering.
+      const towerBonus = (gameConfig as any)?.buildings?.["watchtower"]?.powerBonus ?? 2;
+      const towerAura = new Set<number>();
+      for (const t of towers) {
+        const tt = tiles.find(ti => ti.id === t.tileId);
+        if (!tt) continue;
+        for (const tile of tiles) if (hexDist(tt, tile) <= 1) towerAura.add(tile.id);
+      }
+      const thornDmg = (gameConfig as any)?.buildings?.["thorn-wall"]?.damage ?? 1;
+      const thornWallTiles = new Set(buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active").map(b => b.tileId));
 
       for (const c of combatants) {
         if (c.isAwoken) {
@@ -731,7 +750,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             if (!uTile) continue;
             const d = hexDist(c.tile, uTile);
             // Exponential falloff: damage = power * 0.65^distance (min 1)
-            const dmg = Math.max(1, Math.round((c.aw.power || 3) * Math.pow(0.65, d)));
+            const effPower = (c.aw.power || 3) + (towerAura.has(c.tile.id) ? towerBonus : 0);
+            const dmg = Math.max(1, Math.round(effPower * Math.pow(0.65, d)));
             if (dmg > bestDmg) { bestDmg = dmg; best = u; }
           }
           if (best) {
@@ -768,7 +788,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             );
             if (next) {
               const { cx, cy } = simTilePos(next);
-              updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id } : u);
+              updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) } : u).filter(u => u.hp > 0);
               // If reached the hex, attack purification
               if (next.id === targetHex.id) {
                 damageTile(next.id, c.power || 2);
@@ -807,7 +827,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               );
               if (next) {
                 const { cx, cy } = simTilePos(next);
-                updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id } : u);
+                updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) } : u).filter(u => u.hp > 0);
               }
             } else {
               // No targets: move toward center
@@ -821,7 +841,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 );
                 if (next) {
                   const { cx, cy } = simTilePos(next);
-                  updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id } : u);
+                  updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) } : u).filter(u => u.hp > 0);
                 }
               }
             }

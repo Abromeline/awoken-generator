@@ -429,6 +429,10 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   last_harvest_at INTEGER,
   last_upkeep_at INTEGER
 );`);
+// Elemental Shrine retired (Nigel, 2026-10-12): the Attunement Shrine
+// succeeds it. Standing elemental shrines become attunement shrines with a
+// fresh upkeep clock — no surprise billing for the conversion.
+try { sqlite.exec(`UPDATE territory_buildings SET building_type = 'attunement-shrine', last_upkeep_at = NULL WHERE building_type = 'elemental-shrine';`); } catch { /* table may not exist yet on a fresh DB */ }
 // UI Workspace
 sqlite.exec(`CREATE TABLE IF NOT EXISTS ui_sprites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

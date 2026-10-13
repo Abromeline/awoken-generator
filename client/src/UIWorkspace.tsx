@@ -12,7 +12,6 @@ import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
 import wheatHalfImg from "./assets/buildings/wheat-half.png";
 import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
-import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import dreamWeedImg from "./assets/buildings/dream-weed.png";
 import dreamWeedHalfImg from "./assets/buildings/dream-weed-half.png";
@@ -34,7 +33,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   building: {
     watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
     "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-full": wheatFullImg, "wheat-harvest": wheatHarvestImg,
-    "elemental-shrine": elementalShrineImg, "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "dream-weed-half": dreamWeedHalfImg, "dream-weed-planted": dreamWeedPlantedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
+    "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "dream-weed-half": dreamWeedHalfImg, "dream-weed-planted": dreamWeedPlantedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
   },
   terrain: {
@@ -65,8 +64,6 @@ const DEFAULTS: Record<string, any> = {
   "building.watchtower.enabled": true,
   "building.dream-wheat.cost": 2, "building.dream-wheat.buildMinutes": 10,
   "building.dream-wheat.harvestEnergy": 4, "building.dream-wheat.enabled": true,
-  "building.elemental-shrine.cost": 8, "building.elemental-shrine.buildMinutes": 15,
-  "building.elemental-shrine.enabled": true,
   "building.awakening-well.cost": 10, "building.awakening-well.buildMinutes": 20,
   "building.awakening-well.energyBonus": 3, "building.awakening-well.enabled": true,
   "building.thorn-wall.cost": 3, "building.thorn-wall.buildMinutes": 5,
@@ -82,7 +79,7 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "elemental-shrine", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree"];
+const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree"];
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
 const AWAKENING = ["wake-slot", "wake-ready", "gather-wakes"];
 const AWAKENING_LABELS: Record<string, string> = {

@@ -776,7 +776,6 @@ async function loadGameConfig() {
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number; upkeepPerHour?: number }> = {
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
-  "elemental-shrine": { name: "Elemental Shrine", cost: 2, buildMinutes: 15, desc: "+1 element power to adjacent births (24h).", icon: "⛩️" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awoken. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops.", icon: "🛕" },
   "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
   "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +10 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 10, growHours: 8 },
@@ -1897,6 +1896,13 @@ export const handlers = {
     const tiles = await db.select().from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const tileById = new Map(tiles.map(t => [t.id, t]));
+    const circleRowsForHeal = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.ownerKey, ownerKey),
+        eq(schema.territoryBuildings.buildingType, "binding-circle"),
+        eq(schema.territoryBuildings.status, "active")
+      ));
+    const circleTilesForHeal = circleRowsForHeal.map(b => tileById.get(b.tileId)).filter(Boolean) as any[];
     const hexDist = (a: any, b: any) =>
       (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 
@@ -1925,7 +1931,8 @@ export const handlers = {
         return curHp < maxHp;
       });
       if (!wounded.length) continue;
-      const healPer = power / wounded.length;
+      // Binding Circle: binders on or beside an active circle heal +50%.
+      const healPer = (power / wounded.length) * (circleTilesForHeal.some(ct => hexDist(bTile, ct) <= 1) ? 1.5 : 1);
       for (const w of wounded) {
         const { power: pw, toughness: tg } = calcStats(w.compositionJson);
         const maxHp = pw + tg;
@@ -2395,8 +2402,23 @@ export const handlers = {
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     
     // Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
+    // Binding Circle (real mechanic): binders on or beside an active circle
+    // pay 1/hour instead — "Binding costs 1."
     const now = Date.now();
     const BINDING_PER_HOUR = 3;
+    const circleRows = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.ownerKey, ownerKey),
+        eq(schema.territoryBuildings.buildingType, "binding-circle"),
+        eq(schema.territoryBuildings.status, "active")
+      ));
+    const tileByIdForUpkeep = new Map(tiles.map(t => [t.id, t]));
+    const circleTiles = circleRows.map(b => tileByIdForUpkeep.get(b.tileId)).filter(Boolean) as any[];
+    const hexDistU = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+    const nearCircle = (tileId: number) => {
+      const t = tileByIdForUpkeep.get(tileId);
+      return !!t && circleTiles.some(ct => hexDistU(t, ct) <= 1);
+    };
     for (const p of placements) {
       if (p.stance !== "binding") continue;
       const lastCharge = p.lastBindingChargeAt ? new Date(p.lastBindingChargeAt).getTime() : new Date(p.placedAt).getTime();
@@ -2405,7 +2427,7 @@ export const handlers = {
         // Cap backlog at 1 hour: upkeep is ongoing, not a debt collector.
         // Billing the full absence would punish time away (Anti-Duolingo).
         const hoursToCharge = 1;
-        const cost = hoursToCharge * BINDING_PER_HOUR;
+        const cost = hoursToCharge * (nearCircle(p.tileId) ? 1 : BINDING_PER_HOUR);
         if (await spendEnergy(ownerKey, cost)) {
           await db.update(schema.fieldPlacements)
             .set({ lastBindingChargeAt: new Date() })

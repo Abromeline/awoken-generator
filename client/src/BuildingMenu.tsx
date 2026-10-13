@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { api } from "./api";
 import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
-import elementalShrineImg from "./assets/buildings/elemental-shrine.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import dreamWeedImg from "./assets/buildings/dream-weed.png";
 import dreamWeedHalfImg from "./assets/buildings/dream-weed-half.png";
@@ -38,7 +37,6 @@ import bindingCircleImg from "./assets/buildings/binding-circle.png";
 const BUILDING_IMGS: Record<string, string> = {
   "watchtower": watchtowerImg,
   "dream-wheat": dreamWheatImg,
-  "elemental-shrine": elementalShrineImg,
   "awakening-well": awakeningWellImg,
   "tree": treeImg,
   "thorn-wall": thornWallImg,
