@@ -3098,7 +3098,84 @@ export const handlers = {
         hp: await placementMaxHp(f.id),
       });
     }
-    return z.object({ ok: z.literal(true) }).parse({ ok: true });
+    // ACTIVE ASSAULT resolution (Corruption Toughness Protocol, and fix
+    // list #2, Nigel 2026-10-13: "make the purify real"). The promise in
+    // this action's doc comment and the client's `purified` field is now
+    // kept by code: assaulting a cursed tile is an ATTACK EVENT for each
+    // fighter sent (+10 XP, the unified model), and if the combined true
+    // power of ALL Awoken standing on the tile meets the corruption
+    // toughness, the dark breaks on the spot.
+    const xpShape = z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() });
+    const xpById = new Map<number, XpGainReport>();
+    let purified = false;
+    if (tile[0].cursed) {
+      for (const f of fighters) {
+        await grantEventXp(xpById, f.id, XP_PER_ATTACK);
+      }
+      // Every Awoken standing on the tile — the fighters just sent plus
+      // any already holding it — lends their power to the break.
+      const standing = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+        .from(schema.fieldPlacements)
+        .where(eq(schema.fieldPlacements.tileId, tile[0].id));
+      let combinedPower = 0;
+      for (const s of standing) {
+        const payload = await awakenedPayloadById(s.awakenedId);
+        combinedPower += payload?.power ?? 0;
+      }
+      if (combinedPower >= corruptionToughness(tile[0].q, tile[0].r)) {
+        // The tile becomes what its liberators are: the dominant element
+        // of all standing Awoken's layers (fire never claims conquered
+        // land). A tie stays neutral.
+        const standingRows = owned.filter(a => standing.some(s => s.awakenedId === a.id));
+        const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+        for (const a of standingRows) {
+          for (const layer of parseLayers(a.compositionJson, assetStats)) {
+            const el = elementForPieceName(layer.name, (layer as any).element);
+            if (el !== "fire") elementCounts[el] += 1;
+          }
+        }
+        let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+        let maxCount = 0; let tie = false;
+        for (const [el, count] of Object.entries(elementCounts)) {
+          if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+          else if (count === maxCount && count > 0) { tie = true; }
+        }
+        if (tie) element = "neutral";
+        await db.update(schema.territoryTiles)
+          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null })
+          .where(eq(schema.territoryTiles.id, tile[0].id));
+        // The neighboring cursed land feels the shift — their 48h
+        // passive timers start now (as directAttack does).
+        const now = new Date();
+        const neighborCoords = [
+          [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
+          [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
+          [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
+        ];
+        for (const [nq, nr] of neighborCoords) {
+          await db.update(schema.territoryTiles)
+            .set({ lastPassiveAt: now })
+            .where(and(
+              eq(schema.territoryTiles.ownerKey, ownerKey),
+              eq(schema.territoryTiles.q, nq),
+              eq(schema.territoryTiles.r, nr),
+              eq(schema.territoryTiles.cursed, 1),
+            ));
+        }
+        // Reveal new cursed land at the frontier, as every other
+        // purification does.
+        await expandFrontier(ownerKey, tile[0].q, tile[0].r);
+        // HEX TAKEN: the hex was taken by all who stood in the break —
+        // the curse_broken deed and +50 XP go to every liberator.
+        for (const s of standing) {
+          await recordDeed(ownerKey, s.awakenedId, "curse_broken");
+          await grantEventXp(xpById, s.awakenedId, XP_PER_HEX_TAKEN);
+        }
+        purified = true;
+      }
+    }
+    return z.object({ ok: z.literal(true), purified: z.boolean(), xpGains: z.array(xpShape) })
+      .parse({ ok: true, purified, xpGains: [...xpById.values()] });
   },
 
 

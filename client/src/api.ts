@@ -278,7 +278,7 @@ export const api = {
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string } }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
-  deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean }>("deployBattle", args),
+  deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
   setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),
   attackTile: (args: { awakenedId: number; tileId: number }) =>
