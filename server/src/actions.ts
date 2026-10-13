@@ -1906,6 +1906,15 @@ export const handlers = {
         eq(schema.territoryBuildings.status, "active")
       ));
     const circleTilesForHeal = circleRowsForHeal.map(b => tileById.get(b.tileId)).filter(Boolean) as any[];
+    const towerRowsForHeal = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.ownerKey, ownerKey),
+        eq(schema.territoryBuildings.buildingType, "watchtower"),
+        eq(schema.territoryBuildings.status, "active")
+      ));
+    const towerTilesForHeal = towerRowsForHeal.map(b => tileById.get(b.tileId)).filter(Boolean) as any[];
+    const healConfig = await loadGameConfig();
+    const towerBonus = healConfig.buildings["watchtower"]?.powerBonus ?? 2;
     const hexDist = (a: any, b: any) =>
       (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 
@@ -1918,6 +1927,15 @@ export const handlers = {
       statsById.set(id, { power: p?.power ?? 3, toughness: p?.toughness ?? 3 });
     }
     const calcStats = (id: number) => statsById.get(id) ?? { power: 3, toughness: 3 };
+    // Health cap (Nigel, 2026-10-12): toughness alone — plus the watchtower
+    // bonus for a fighter standing on or beside an active watchtower,
+    // mirroring the tower's defender aura.
+    const maxHpFor = (f: { awakenedId: number; tileId: number }) => {
+      const { toughness } = calcStats(f.awakenedId);
+      const fTile = tileById.get(f.tileId);
+      const nearTower = !!fTile && towerTilesForHeal.some(tt => hexDist(fTile, tt) <= 1);
+      return toughness + (nearTower ? towerBonus : 0);
+    };
 
     let healed = 0;
     for (const b of binders) {
@@ -1929,8 +1947,7 @@ export const handlers = {
         const fTile = tileById.get(f.tileId);
         if (!fTile) return false;
         if (hexDist(bTile, fTile) > 1) return false;
-        const { power: pw, toughness: tg } = calcStats(f.awakenedId);
-        const maxHp = pw + tg;
+        const maxHp = maxHpFor(f);
         const curHp = f.hp ?? maxHp;
         return curHp < maxHp;
       });
@@ -1938,8 +1955,7 @@ export const handlers = {
       // Binding Circle: binders on or beside an active circle heal +50%.
       const healPer = (power / wounded.length) * (circleTilesForHeal.some(ct => hexDist(bTile, ct) <= 1) ? 1.5 : 1);
       for (const w of wounded) {
-        const { power: pw, toughness: tg } = calcStats(w.awakenedId);
-        const maxHp = pw + tg;
+        const maxHp = maxHpFor(w);
         const newHp = Math.min(maxHp, (w.hp ?? maxHp) + healPer);
         await db.update(schema.fieldPlacements)
           .set({ hp: Math.round(newHp) })
