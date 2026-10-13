@@ -131,6 +131,15 @@ export interface StripeConfig {
   packPriceLabel: string;
 }
 
+/** The five elements of the canonical palette (see client/src/palette.ts). */
+export type ElementName = "root" | "tide" | "sky" | "stone" | "fire";
+
+/** The UI theme: the canonical element palette, stored server-side and
+ *  tweakable from the UI Workspace's Elements section. */
+export interface UITheme {
+  elementColors: Record<ElementName, string>;
+}
+
 export interface GroveStatus {
   centsAccrued: number;
   dollarsAccrued: string;
@@ -303,6 +312,9 @@ export const api = {
   setTenderPassword: (value: { password: string }) => post<{ ok: boolean }>("setTenderPassword", value),
   getSiteColors: () => post<{ ok: boolean; colors: Record<string, string> }>("getSiteColors", {}),
   setSiteColor: (value: { key: string; value: string }) => post<{ ok: boolean }>("setSiteColor", value),
+  getUITheme: () => post<{ ok: boolean; theme: UITheme }>("getUITheme", {}),
+  updateUITheme: (value: { elementColors: Partial<Record<ElementName, string>> }) =>
+    post<{ ok: boolean; theme: UITheme }>("updateUITheme", value),
   adminResetTenderPassword: (value: { tenderName: string; newPassword: string }) => post<{ ok: boolean; tenderName: string | null }>("adminResetTenderPassword", value),
   submitFeedback: (value: { category: string; body: string }) => post<{ ok: boolean; id: number }>("submitFeedback", value),
   feedEnergy: (value: { awakenedId: number; energy: number }) => post<{ ok: boolean; xpGain: number; leveledUp: boolean; newLevel: number; statPointsGained: number }>("feedEnergy", value),

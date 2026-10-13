@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { setWheatStageOverride, setDreamWeedStageOverride, setEnemyOverride } from "./BuildingMenu";
 import { api } from "./api";
+import { ElementGlyph } from "./glyphs";
+import { ELEMENTS, ELEMENT_SCHEME, applyElementPalette, elementPalette, isHexColor, type ElementName } from "./palette";
 // Current default sprites (bundled with the app)
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
@@ -44,7 +46,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements";
 
 interface UiSprite {
   id: number;
@@ -108,6 +110,11 @@ export default function UIWorkspace() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadTarget, setUploadTarget] = useState<{ category: string; name: string } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Element palette adjusters: a local draft of the canonical scheme.
+  // Edits live-preview (the shared palette + --elem-* vars move at once);
+  // Apply persists the whole draft through updateUITheme in one save.
+  const [elementDraft, setElementDraft] = useState<Record<ElementName, string>>({ ...elementPalette });
+  const [elementSave, setElementSave] = useState<"" | "saving" | "saved" | "error">("");
 
   useEffect(() => {
     api.call("listUiSprites", {}).then((r: any) => {
@@ -126,7 +133,39 @@ export default function UIWorkspace() {
       }
     }).catch(() => {});
     api.call("getUiConfig", {}).then((r: any) => setConfig({ ...DEFAULTS, ...r.config })).catch(() => setConfig(DEFAULTS));
+    api.getUITheme().then(r => {
+      if (r.ok) setElementDraft({ ...ELEMENT_SCHEME, ...r.theme.elementColors });
+    }).catch(() => {});
   }, []);
+
+  const setElementColor = (el: ElementName, value: string) => {
+    setElementDraft(prev => ({ ...prev, [el]: value }));
+    setElementSave("");
+    // Live preview only for well-formed hex; a half-typed hex field must
+    // never push a broken color into the shared palette.
+    if (isHexColor(value)) applyElementPalette({ [el]: value });
+  };
+
+  const saveElementColors = async (colors: Record<ElementName, string>) => {
+    setElementSave("saving");
+    try {
+      const valid: Partial<Record<ElementName, string>> = {};
+      for (const el of ELEMENTS) if (isHexColor(colors[el])) valid[el] = colors[el];
+      const r = await api.updateUITheme({ elementColors: valid });
+      setElementDraft({ ...ELEMENT_SCHEME, ...r.theme.elementColors });
+      applyElementPalette(r.theme.elementColors);
+      setElementSave("saved");
+    } catch (e) {
+      console.error("Element palette save failed", e);
+      setElementSave("error");
+    }
+  };
+
+  const resetElementColors = () => {
+    setElementDraft({ ...ELEMENT_SCHEME });
+    applyElementPalette({ ...ELEMENT_SCHEME });
+    void saveElementColors({ ...ELEMENT_SCHEME });
+  };
 
   const getVal = (key: string) => config[key] ?? DEFAULTS[key];
 
@@ -186,9 +225,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "awakening"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : "✨ Awakening"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : "🌿 Elements"}
           </button>
         ))}
       </div>
@@ -337,6 +376,54 @@ export default function UIWorkspace() {
                 <small>Each builder divides time by this</small></label>
               <label>Wheat-well synergy <input type="number" step="0.05" min="0" max="1" value={getVal("timer.wheatWellSynergy")} onChange={e => setVal("timer.wheatWellSynergy", +e.target.value)} />
                 <small>Multiplier (0.75 = 25% faster)</small></label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {section === "elements" && (
+        <div className="workspace-grid">
+          <div className="workspace-card wide">
+            <h3>🌿 Element Colors</h3>
+            <p className="quiet" style={{ marginTop: 0 }}>
+              The one canonical palette — card corners, the wake ceremony's burn, attunement,
+              celebrations, and battle shots all read these colors. Edits preview live;
+              Apply saves them to the site for every visitor, on desktop and mobile alike.
+            </p>
+            <div className="element-rows">
+              {ELEMENTS.map(el => (
+                <div key={el} className="element-row">
+                  <span className="glyph-swatch">
+                    <ElementGlyph element={el} color={isHexColor(elementDraft[el]) ? elementDraft[el] : ELEMENT_SCHEME[el]} dotColor={isHexColor(elementDraft[el]) ? elementDraft[el] : ELEMENT_SCHEME[el]} width={60} height={24} />
+                  </span>
+                  <span className="element-name">{el}</span>
+                  <input
+                    type="color"
+                    aria-label={`${el} color picker`}
+                    value={isHexColor(elementDraft[el]) ? elementDraft[el] : ELEMENT_SCHEME[el]}
+                    onChange={e => setElementColor(el, e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    aria-label={`${el} hex value`}
+                    value={elementDraft[el]}
+                    onChange={e => setElementColor(el, e.target.value)}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="element-actions">
+              <button className="upload-btn" disabled={elementSave === "saving"} onClick={() => void saveElementColors(elementDraft)}>
+                {elementSave === "saving" ? "Saving…" : "Apply colors"}
+              </button>
+              <button className="upload-btn" disabled={elementSave === "saving"} onClick={resetElementColors}>
+                Reset to scheme
+              </button>
+              {elementSave === "saved" && <span className="save-note">Saved — live across the site.</span>}
+              {elementSave === "error" && <span className="save-note" style={{ color: "#e88" }}>Save failed — check your connection and try again.</span>}
             </div>
           </div>
         </div>

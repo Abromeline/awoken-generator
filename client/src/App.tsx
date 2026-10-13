@@ -37,6 +37,7 @@ import UIWorkspace from "./UIWorkspace";
 import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
 import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph } from "./glyphs";
+import { applyElementPalette, elementPalette, useElementPalette } from "./palette";
 import auraWhisper from "./assets/auras/haze-01.png";
 import auraSoft from "./assets/auras/haze-02.png";
 import auraHaloRing from "./assets/auras/haze-03.png";
@@ -203,7 +204,10 @@ export const cornerPaths: Record<Element, string[]> = {
   root: ["M4 40 C4 24 10 12 22 8 C30 5 38 6 41 10", "M41 10 c-3 -4 -9 -4 -12 -1 c-2.5 2.5 -2 7 1 8.5 c2.4 1.2 5.5 -0.3 5.4 -3 c-0.1 -2.2 -2.8 -3.4 -4.6 -2.2", "M10 34 C14 32 18 32 21 34 C19 36 15 36 13 34 Z"],
   fire: ["M22 6 C22 6 11 21 11 29 A11 11 0 0 0 33 29 C33 21 22 6 22 6 Z"],
 };
-export const elementColors: Record<Element, string> = { tide: "#4e8a9b", sky: "#7ba7c4", stone: "#8a7f70", root: "#6a8a4e", fire: "#b8542e" };
+/** The canonical element palette lives in ./palette (theme-driven: the
+ *  stored UI theme overrides the scheme defaults on boot). This alias is
+ *  the same live record, so reads at render time always see current colors. */
+export const elementColors: Record<Element, string> = elementPalette;
 
 export function Corner({ element, className }: { element: Element; className: string }) {
   return <svg className={className} viewBox="0 0 44 44" fill="none" stroke={elementColors[element]} strokeWidth="1.1" strokeLinecap="round" aria-hidden="true">
@@ -1487,10 +1491,16 @@ function CosmicBackground() {
 
 export function App() {
   const queryClient = useQueryClient();
-  // Load and apply site colors on startup
+  // Re-render the tree when the element palette changes (theme load below,
+  // or live tweaks from the UI Workspace's Elements section).
+  useElementPalette();
+  // Load and apply site colors + the UI theme (element palette) on startup
   useEffect(() => {
     api.getSiteColors().then(r => {
       if (r.ok) applySiteColors(r.colors);
+    }).catch(() => {});
+    api.getUITheme().then(r => {
+      if (r.ok) applyElementPalette(r.theme.elementColors);
     }).catch(() => {});
   }, []);
   const [face, setFace] = useState<Face>("tender"); const [workshopView, setWorkshopView] = useState<WorkshopView>("wake"); const [showDeck, setShowDeck] = useState(false); const [focusId, setFocusId] = useState<number | null>(null); const [showPacket, setShowPacket] = useState(false); const [showTenderDeck, setShowTenderDeck] = useState(false); const [birthRevealId, setBirthRevealId] = useState<number | null>(null);

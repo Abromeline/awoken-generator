@@ -50,6 +50,7 @@ const WORKSHOP_ACTIONS = new Set([
   "adminRevokeWakeCode",
   "adminGrantAspectPoints",
   "setUiConfig",
+  "updateUITheme",
   "uploadUiSprite",
   "deleteUiSprite",
   "setSiteColor",

@@ -998,6 +998,44 @@ async function settleHallFor(ownerKey: string) {
   return hall;
 }
 
+// --- UI theme: the ONE canonical element palette ("the new scheme") -------
+// Stored as a single ui_config row ("uiTheme", JSON) — the same key-value
+// store the UI Workspace already persists to. The client mirrors these
+// defaults in client/src/palette.ts (ELEMENT_SCHEME); keep the two in step.
+//   root  living green    tide  deep teal-blue    sky   pale violet-blue
+//   stone warm amber-earth    fire  ember orange
+export const ELEMENT_COLOR_KEYS = ["root", "tide", "sky", "stone", "fire"] as const;
+export type ElementColorKey = (typeof ELEMENT_COLOR_KEYS)[number];
+export const DEFAULT_ELEMENT_COLORS: Record<ElementColorKey, string> = {
+  root: "#6a8a4e",
+  tide: "#4e8a9b",
+  sky: "#8d9fd6",
+  stone: "#9c7c4c",
+  fire: "#b8542e",
+};
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+export interface UITheme {
+  elementColors: Record<ElementColorKey, string>;
+}
+
+/** The stored theme with the scheme defaults merged under any saved values.
+ *  Stored values that are not valid #rrggbb hex are ignored, never served. */
+async function loadUITheme(): Promise<UITheme> {
+  const [row] = await db.select().from(schema.uiConfig)
+    .where(eq(schema.uiConfig.key, "uiTheme"));
+  let stored: { elementColors?: Record<string, unknown> } = {};
+  try { stored = row ? JSON.parse(row.value) : {}; } catch { stored = {}; }
+  const elementColors: Record<ElementColorKey, string> = { ...DEFAULT_ELEMENT_COLORS };
+  if (stored.elementColors && typeof stored.elementColors === "object") {
+    for (const key of ELEMENT_COLOR_KEYS) {
+      const v = stored.elementColors[key];
+      if (typeof v === "string" && HEX_COLOR.test(v)) elementColors[key] = v.toLowerCase();
+    }
+  }
+  return { elementColors };
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -3561,6 +3599,39 @@ export const handlers = {
       .values({ key: parsed.data.key, value: JSON.stringify(parsed.data.value) })
       .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(parsed.data.value) } });
     return { ok: true };
+  },
+
+  /** The UI theme (currently: the canonical element palette). Public read —
+   *  every face of the app renders element colors from it on boot. */
+  async getUITheme(args: unknown, ctx?: ActionContext) {
+    return { ok: true, theme: await loadUITheme() };
+  },
+
+  /** Persist element palette tweaks from the UI Workspace. Workshop-gated
+   *  in index.ts, like setUiConfig. Partial payloads merge over the stored
+   *  theme (and the scheme defaults beneath it); colors must be #rrggbb. */
+  async updateUITheme(args: unknown, ctx?: ActionContext) {
+    const hex = z.string().regex(HEX_COLOR);
+    const parsed = z.object({
+      elementColors: z.object({
+        root: hex.optional(),
+        tide: hex.optional(),
+        sky: hex.optional(),
+        stone: hex.optional(),
+        fire: hex.optional(),
+      }).optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid theme colors.");
+    const theme = await loadUITheme();
+    const incoming = parsed.data.elementColors ?? {};
+    for (const key of ELEMENT_COLOR_KEYS) {
+      const v = incoming[key];
+      if (typeof v === "string") theme.elementColors[key] = v.toLowerCase();
+    }
+    await db.insert(schema.uiConfig)
+      .values({ key: "uiTheme", value: JSON.stringify(theme) })
+      .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(theme) } });
+    return { ok: true, theme };
   },
 
   async harvestWheat(args: unknown, ctx?: ActionContext) {

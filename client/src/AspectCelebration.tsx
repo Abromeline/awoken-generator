@@ -3,6 +3,7 @@
 // Phase 2: Awoken card pops up, aspect fades in over 1s
 // Phase 3: Golden glow + chime (pitch by level), stats buff, level badge
 import { useState, useEffect, useRef } from "react";
+import { elementPalette, type ElementName } from "./palette";
 
 interface Props {
   awoken: any;
@@ -16,13 +17,10 @@ interface Props {
   onDone: () => void;
 }
 
-const ELEMENT_COLORS: Record<string, string> = {
-  tide: "#4a90d9",
-  sky: "#87ceeb",
-  stone: "#8b7355",
-  root: "#6b8e23",
-  fire: "#ff4444",
-};
+// Element colors come from the ONE canonical palette (./palette) — the
+// same scheme the cards, ceremony, and attunement UI use, theme-tweakable
+// from the UI Workspace. (This file once kept a brighter private palette;
+// it was unified 2026-10-13.)
 
 const ELEMENT_PARTICLES: Record<string, string[]> = {
   tide: ["~", "≈", "∿", "💧"],
@@ -37,7 +35,7 @@ export default function AspectCelebration({ awoken, aspect, element, newLevel, o
   const [particles, setParticles] = useState<any[]>([]);
   const audioRef = useRef<AudioContext | null>(null);
 
-  const color = ELEMENT_COLORS[element] || "#d4af6a";
+  const color = elementPalette[element as ElementName] || "#d4af6a";
   const glyphs = ELEMENT_PARTICLES[element] || ["✦"];
   const roman = ["", "I", "II", "III"][newLevel] || newLevel;
 

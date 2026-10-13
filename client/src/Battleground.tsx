@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { elementForPiece, type Element } from "./App";
 import FieldAwoken from "./FieldAwoken";
 import { api, type Awakened } from "./api";
+import { elementPalette } from "./palette";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -85,13 +86,15 @@ interface Projectile {
   duration: number;        // ms of flight
 }
 
-/** Element-flavored attack visuals for Awoken strikes. */
-const ELEMENT_SHOT: Record<string, { glyph: string; color: string }> = {
-  tide: { glyph: "\u{1F4A7}", color: "#4e8a9b" },
-  sky: { glyph: "\u{1F300}", color: "#7ba7c4" },
-  stone: { glyph: "\u{1FAA8}", color: "#8a7f70" },
-  root: { glyph: "\u{1F33F}", color: "#6a8a4e" },
-  fire: { glyph: "\u{1F525}", color: "#b8542e" },
+/** Element-flavored attack visuals for Awoken strikes. Projectile colors
+ *  read the ONE canonical palette (./palette) at spawn time — this map
+ *  keeps only the glyphs. */
+const ELEMENT_SHOT_GLYPH: Record<string, string> = {
+  tide: "\u{1F4A7}",
+  sky: "\u{1F300}",
+  stone: "\u{1FAA8}",
+  root: "\u{1F33F}",
+  fire: "\u{1F525}",
 };
 const ENEMY_SHOT = { glyph: "\u25C9", color: "#8a3a8a" };
 
@@ -551,8 +554,9 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       later(350, () => setAttacking(null));
       const from = fighterCenter(atk.id);
       const to = fighterCenter(def.id);
+      const shotEl = dominantElementOf(atk.awoken);
       const shot = atk.side === "aw"
-        ? (ELEMENT_SHOT[dominantElementOf(atk.awoken)] ?? { glyph: "\u2726", color: "#ffd700" })
+        ? { glyph: ELEMENT_SHOT_GLYPH[shotEl] ?? "\u2726", color: elementPalette[shotEl] }
         : ENEMY_SHOT;
       const impact = () => {
         applyStrike(atk, def);

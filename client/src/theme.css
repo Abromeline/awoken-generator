@@ -5,6 +5,11 @@
   color-scheme: light dark;
   --bg:#f2f0e8; --surface:#e8e5dc; --surface-deep:#d9d5ca; --text:#11110f; --dim:#b8b8b8; --border:#aaa69a;
   --accent:#846a3e; --accent-strong:#5f4928; --danger:#7a2d25; --radius:2px;
+  /* The canonical element palette ("the new scheme") — defaults only:
+     App overrides these from the stored UI theme on boot, and the UI
+     Workspace's Elements adjusters rewrite them live. One source of
+     truth in JS: client/src/palette.ts. */
+  --elem-root:#6a8a4e; --elem-tide:#4e8a9b; --elem-sky:#8d9fd6; --elem-stone:#9c7c4c; --elem-fire:#b8542e;
   --display:"Iowan Old Style","Palatino Linotype","Book Antiqua",Georgia,serif; --sans:"Avenir Next","Segoe UI",sans-serif;
   --space-surface:var(--surface); --space-surface-alt:var(--surface-deep); --space-muted:var(--dim); --space-border:var(--border); --space-accent:var(--accent);
 }
@@ -643,6 +648,26 @@ body.defeat-flash {
 .stat-rows small { font-size: 11px; color:#b8b8b8; display: block; }
 .stat-rows .toggle { justify-content: flex-start; gap: 8px; cursor: pointer; }
 .stat-rows .toggle input { width: auto; }
+/* UI Workspace — Elements (canonical palette adjusters). Tap targets stay
+   ≥44px and rows wrap, so the section works on iPad/mobile as well as
+   desktop. */
+.element-rows { display: flex; flex-direction: column; gap: 10px; }
+.element-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.element-row .glyph-swatch {
+  display: grid; place-items: center; width: 84px; min-height: 44px;
+  background: rgba(0,0,0,0.3); border: 1px solid #444; border-radius: 8px;
+}
+.element-row .element-name { min-width: 52px; font-size: 13px; color: #aaa; text-transform: capitalize; }
+.element-row input[type="color"] {
+  width: 56px; height: 44px; min-height: 44px; padding: 2px;
+  background: rgba(0,0,0,0.3); border: 1px solid #444; border-radius: 8px; cursor: pointer;
+}
+.element-row input[type="text"] {
+  width: 104px; min-height: 44px; background: rgba(0,0,0,0.3); border: 1px solid #444; color: #fff;
+  padding: 8px 10px; border-radius: 8px; font-size: 14px; font-family: monospace;
+}
+.element-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.element-actions .save-note { font-size: 12px; color: #b8b8b8; }
 /* Builder selection */
 .builder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
 .builder-card {
@@ -1625,11 +1650,11 @@ body.defeat-flash {
 
 .stance-picker-elements{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
 .element-tag{font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);text-transform:capitalize}
-.element-tag.tide{border-color:#4a90d9}
-.element-tag.sky{border-color:#87ceeb}
-.element-tag.stone{border-color:#8b7355}
-.element-tag.root{border-color:#6b8e23}
-.element-tag.fire{border-color:#ff4444}
+.element-tag.tide{border-color:var(--elem-tide)}
+.element-tag.sky{border-color:var(--elem-sky)}
+.element-tag.stone{border-color:var(--elem-stone)}
+.element-tag.root{border-color:var(--elem-root)}
+.element-tag.fire{border-color:var(--elem-fire)}
 
 .aspect-apply-modal{margin-top:16px;padding:16px;background:rgba(0,0,0,0.5);border:1px solid #b89b5e;border-radius:8px}
 .aspect-apply-modal h4{margin:0 0 8px;color:#e8d5a8}
