@@ -21,6 +21,7 @@ import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
 import treeImg from "./assets/buildings/tree.png";
+import hallOfChampionsImg from "./assets/buildings/hall-of-champions.png";
 import tideTileImg from "./assets/terrain-iso/tide-v2.png";
 import skyTileImg from "./assets/terrain-iso/sky-v2.png";
 import stoneTileImg from "./assets/terrain-iso/stone-v2.png";
@@ -35,6 +36,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
     "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-full": wheatFullImg, "wheat-harvest": wheatHarvestImg,
     "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "dream-weed-half": dreamWeedHalfImg, "dream-weed-planted": dreamWeedPlantedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
+    "hall-of-champions": hallOfChampionsImg,
   },
   terrain: {
     tide: tideTileImg, sky: skyTileImg, stone: stoneTileImg,

@@ -33,6 +33,7 @@ export function enemyImage(type: string): string {
 import treeImg from "./assets/buildings/tree.png";
 import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
+import hallOfChampionsImg from "./assets/buildings/hall-of-champions.png";
 
 const BUILDING_IMGS: Record<string, string> = {
   "watchtower": watchtowerImg,
@@ -44,6 +45,7 @@ const BUILDING_IMGS: Record<string, string> = {
   "attunement-shrine": attunementShrineImg,
   "dream-weed": dreamWeedImg,
   "sky-bloom": skyBloomImg,
+  "hall-of-champions": hallOfChampionsImg,
 };
 
 export function buildingImage(type: string): string {
