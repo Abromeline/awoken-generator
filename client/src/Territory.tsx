@@ -551,7 +551,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const handleAttack = async (tileId: number) => {
     if (selectedAwoken === null) return;
-    if (energy < 1) return; // Attacks cost 1 energy
+    if (energy < 1) { // Attacks cost 1 energy
+      showHexNotice("A strike costs 1⚡ — your energy is spent. It returns with time.");
+      return;
+    }
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
@@ -598,7 +601,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const awoken = tenderItems.find(a => a.id === selectedAwoken);
     if (!awoken) return;
     const cost = moveCost(awoken.power);
-    if (energy < cost) return;
+    if (energy < cost) {
+      showHexNotice(`${awoken.name} needs ${cost}⚡ to move — you hold ${energy}⚡.`);
+      return;
+    }
     try {
       await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
       await refreshEnergy();
@@ -1639,6 +1645,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             <g className={battlePool.length > 0 ? "corruption-glow armed" : "corruption-glow"} pointerEvents="none">
               <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(150,20,96,0.30)" : "rgba(150,20,96,0.13)"} stroke="none" />
               <polygon points={pts} fill={battlePool.length > 0 ? "rgba(158,26,102,0.40)" : "rgba(158,26,102,0.17)"} stroke="none" />
+              {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
+                  drifting up off the corruption — the glow made taller.
+                  Two soft wisps per hex, staggered by tile so the wilds
+                  never breathe in lockstep. CSS-risen, no filters. */}
+              <ellipse className="mist-wisp" cx={cx - s * 0.18} cy={cy - s * 0.30} rx={s * 0.30} ry={s * 0.55}
+                fill={battlePool.length > 0 ? "rgba(178,24,44,0.16)" : "rgba(178,24,44,0.09)"} stroke="none"
+                style={{ animationDelay: `${(t.id % 5) * 0.9}s` }} />
+              <ellipse className="mist-wisp" cx={cx + s * 0.22} cy={cy - s * 0.42} rx={s * 0.22} ry={s * 0.44}
+                fill={battlePool.length > 0 ? "rgba(160,20,70,0.14)" : "rgba(160,20,70,0.07)"} stroke="none"
+                style={{ animationDelay: `${(t.id % 7) * 0.7 + 1.3}s` }} />
             </g>
           )}
           {/* Curse HP on cursed tiles */}
@@ -1704,7 +1720,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             }}
             onMouseEnter={() => setHoverHexId(t.id)}
             onMouseLeave={() => setHoverHexId(h => (h === t.id ? null : h))}
-            onClick={async () => {
+            onClick={async (e) => {
+              // A tile tap is not an empty-map tap: stop the click here,
+              // or it bubbles into the map's dismiss handler and erases
+              // the confirm/targeting this very tap just raised.
+              e.stopPropagation();
               if (selectedBuilding && !t.cursed) {
                 // Open builder selection for this tile — the pending
                 // tile wears the mist while the placement is unconfirmed.

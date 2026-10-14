@@ -2105,3 +2105,7 @@ body.defeat-flash {
 .corruption-glow{animation:corruptionPulse 4.2s ease-in-out infinite}
 .corruption-glow.armed{animation-duration:1.9s}
 @keyframes corruptionPulse{0%,100%{opacity:.7}50%{opacity:1}}
+
+.mist-wisp{transform-box:fill-box;transform-origin:center;animation:mistRise 5.5s ease-in-out infinite}
+.corruption-glow.armed .mist-wisp{animation-duration:3.4s}
+@keyframes mistRise{0%,100%{transform:translateY(5px);opacity:.55}50%{transform:translateY(-9px);opacity:1}}
