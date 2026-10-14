@@ -1403,6 +1403,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     }
                     return;
                   }
+                  if (b.buildingType === "hall-of-champions") {
+                    if (b.status !== "active") {
+                      showHexNotice("The Hall of Champions is still rising — its doors open when the building stands complete.");
+                      return;
+                    }
+                    setShowChampionTab(true);
+                    window.setTimeout(() => document.getElementById("hall-panel-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+                    return;
+                  }
                   const HARVESTABLE_TYPES = ["dream-wheat", "dream-weed", "sky-bloom"];
                   if (!HARVESTABLE_TYPES.includes(b.buildingType) || b.status !== "active") return;
                   const readyAt = b.readyAt ? new Date(b.readyAt).getTime() : Date.now();
@@ -1418,7 +1427,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } catch (err) { console.error("Harvest failed", err); }
                   }
                 }}
-                style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : ["dream-wheat", "dream-weed", "sky-bloom"].includes(b.buildingType) ? "pointer" : "default" }}>
+                style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : ["dream-wheat", "dream-weed", "sky-bloom", "hall-of-champions"].includes(b.buildingType) ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : b.buildingType === "dream-weed" ? dreamWeedStageImage(b) : buildingImage(b.buildingType)}
                   x={bpx.x - s * (b.buildingType === "dream-tree" || b.buildingType === "watchtower" || b.buildingType === "hall-of-champions" ? 1 : 0.5)}
@@ -2092,7 +2101,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
       })()}
       {showChampionTab && (
         <>
-        <div>
+        <div id="hall-panel-anchor">
           <button className="aspect-close" onClick={() => setShowChampionTab(false)} title="Close">✕</button>
           <HallPanel tenderItems={tenderItems} onUpdate={onUpdate} onChampionChange={() => { api.getLegends().then(setLegends).catch(() => {}); }} />
         </div>
