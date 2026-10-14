@@ -77,6 +77,16 @@ export default function MusicLibrary() {
   if (query.isPending) return <p className="quiet">Loading music library…</p>;
   if (query.error) return <p className="notice error">Couldn't load tracks.</p>;
   const tracks = query.data?.tracks ?? [];
+  // Music keeps this playlist (Nigel, 2026-10-13): her own works stand as
+  // their own group, the weather layers as terrain layers, then the library.
+  const MUSIC_WORK_PREFIXES = ["The Theme", "Ode to Weather", "The Rupture Suite"];
+  const isMusicWork = (t: (typeof tracks)[number]) => MUSIC_WORK_PREFIXES.some(p => t.name.startsWith(p));
+  const isWeatherLayer = (t: (typeof tracks)[number]) => t.name.startsWith("Weather Layer");
+  const groups: { title: string; note?: string; items: typeof tracks }[] = [
+    { title: "Music's Own — the Compendium", note: "Every work she has generated for the site, the first Theme at the head.", items: tracks.filter(isMusicWork) },
+    { title: "Weather Layers", note: "Terrain layers, following the sky.", items: tracks.filter(isWeatherLayer) },
+    { title: "The Curated Library", items: tracks.filter(t => !isMusicWork(t) && !isWeatherLayer(t)) },
+  ].filter(g => g.items.length);
 
   return (
     <section className="music-library">
@@ -86,6 +96,10 @@ export default function MusicLibrary() {
         <p className="quiet">
           Enabled tracks play at random when a battle begins. Upload any audio file —
           MP3, WAV, OGG, M4A — or add 8-bit compositions below.
+        </p>
+        <p className="quiet">
+          This playlist is Music's to keep: her own works from the Compendium stand
+          first, and the weather layers ride with them — the full list, in both her homes.
         </p>
         <p className="quiet">
           License note: the five FF-style tracks are by Kevin MacLeod and the thirteen
@@ -121,8 +135,12 @@ export default function MusicLibrary() {
       {!tracks.length ? (
         <p className="quiet">The library is empty. Upload your first track above.</p>
       ) : (
-        <ol className="music-track-list">
-          {tracks.map(t => (
+        groups.map(g => (
+          <div key={g.title} className="music-group">
+            <p className="eyebrow">{g.title}</p>
+            {g.note && <p className="quiet">{g.note}</p>}
+            <ol className="music-track-list">
+              {g.items.map(t => (
             <li key={t.id} className={`music-track ${playingId === t.id ? "playing" : ""}`}>
               <div className="music-controls">
                 <button
@@ -194,8 +212,10 @@ export default function MusicLibrary() {
                 </button>
               </div>
             </li>
-          ))}
-        </ol>
+              ))}
+            </ol>
+          </div>
+        ))
       )}
     </section>
   );

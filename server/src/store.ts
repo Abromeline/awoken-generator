@@ -376,6 +376,17 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
     ["Alchemists Tower (FF-style)", "/music/ff-alchemists-tower.mp3"],
     ["Five Armies (FF-style)", "/music/ff-five-armies.mp3"],
     ["Crusade (FF-style)", "/music/ff-crusade.mp3"],
+    // Music's own works (Nigel, 2026-10-13): the workshop playlist is hers to
+    // keep, and it holds the FULL list — every composition from her
+    // Compendium, the first Theme at the head, then the weather layers.
+    ["The Theme — Love Stronger Than Death", "/music/music-theme-v1.mp3"],
+    ["The Theme, Developed", "/music/music-theme-v2.mp3"],
+    ["The Theme, Homage (B♭–D–F)", "/music/music-theme-bb.mp3"],
+    ["Ode to Weather", "/music/music-ode-to-weather.mp3"],
+    ["The Rupture Suite, Part One", "/music/music-rupture-suite.mp3"],
+    ["Weather Layer · Rain", "/music/music-weather-layer-rain.mp3"],
+    ["Weather Layer · Wind", "/music/music-weather-layer-wind.mp3"],
+    ["Weather Layer · Storm", "/music/music-weather-layer-storm.mp3"],
   ];
   const now = Date.now();
   const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled, created_at) VALUES (?, ?, 1, ?)`);
