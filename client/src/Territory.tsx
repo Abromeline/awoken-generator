@@ -195,27 +195,107 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [musicOn, setMusicOn] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const layerRef = useRef<HTMLAudioElement | null>(null);
   const [libraryTracks, setLibraryTracks] = useState<{ name: string; url: string }[]>([]);
-  // Load enabled tracks for the territory page and auto-start music
+  const [layerTrack, setLayerTrack] = useState<{ name: string; url: string } | null>(null);
+  // Music's weather-mood trigger (Nigel, 2026-10-13): the server computes
+  // the terrain playlist from the CURRENT world mood (her categorization,
+  // see server musicMoods). The client holds refs alongside state so the
+  // audio handlers never chase stale closures.
+  const tracksRef = useRef<{ name: string; url: string }[]>([]);
+  const trackIdxRef = useRef(0);
+  const layerUrlRef = useRef<string | null>(null);
+  const layerLoadedRef = useRef<string | null>(null);
+  const moodSeenRef = useRef<string | null>(null);
+  const LAYER_VOLUME = 0.12;
+  const fadeAudio = (audio: HTMLAudioElement, to: number, ms = 1200, done?: () => void) => {
+    const from = audio.volume;
+    const steps = 12;
+    let i = 0;
+    const iv = window.setInterval(() => {
+      i++;
+      audio.volume = Math.max(0, Math.min(1, from + (to - from) * (i / steps)));
+      if (i >= steps) { window.clearInterval(iv); done?.(); }
+    }, ms / steps);
+  };
+  const playSongAt = (idx: number) => {
+    const tracks = tracksRef.current;
+    if (!tracks.length) return;
+    const i = ((idx % tracks.length) + tracks.length) % tracks.length;
+    trackIdxRef.current = i;
+    setTrackIdx(i);
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.loop = false;
+      audioRef.current.onended = () => playSongAt(trackIdxRef.current + 1);
+    }
+    const a = audioRef.current;
+    a.src = tracks[i].url;
+    a.volume = 0.4;
+    a.play().catch(() => {});
+  };
+  const syncLayer = (url: string | null, shouldPlay: boolean) => {
+    if (!url || !shouldPlay) {
+      const a = layerRef.current;
+      if (a && !a.paused) fadeAudio(a, 0, 1000, () => a.pause());
+      return;
+    }
+    if (!layerRef.current) {
+      layerRef.current = new Audio();
+      layerRef.current.loop = true;
+    }
+    const a = layerRef.current;
+    if (layerLoadedRef.current !== url) {
+      layerLoadedRef.current = url;
+      a.src = url;
+      a.volume = 0;
+      a.play().catch(() => {});
+      fadeAudio(a, LAYER_VOLUME, 1500);
+    } else if (a.paused) {
+      a.play().catch(() => {});
+      fadeAudio(a, LAYER_VOLUME, 1500);
+    }
+  };
+  const applyPlaylist = (pl: { tracks: { name: string; url: string }[]; layer: { name: string; url: string } | null }) => {
+    tracksRef.current = pl.tracks;
+    setLibraryTracks(pl.tracks);
+    layerUrlRef.current = pl.layer?.url ?? null;
+    setLayerTrack(pl.layer);
+    trackIdxRef.current = 0;
+    setTrackIdx(0);
+  };
+  // Load the mood's playlist for the terrain page and arm the music
   useEffect(() => {
-    api.listBattleTracks().then(({ tracks }) => {
-      const forTerritory = tracks.filter(t => t.enabled && (t.pages || ["territory"]).includes("territory"));
-      Promise.all(forTerritory.map(async t => {
-        const { trackData } = await api.getBattleTrack({ id: t.id });
-        if (trackData.startsWith("data:audio") || trackData.startsWith("/music/")) {
-          return { name: t.name, url: trackData };
-        }
-        return null;
-      })).then(results => {
-        const valid = results.filter(Boolean) as { name: string; url: string }[];
-        if (valid.length) {
-          setLibraryTracks(valid);
-          // Auto-start music
-          setMusicOn(true);
-          setTrackIdx(0);
-        }
-      });
+    api.getTerrainPlaylist().then(pl => {
+      moodSeenRef.current = pl.mood;
+      applyPlaylist(pl);
+      if (pl.tracks.length) setMusicOn(true); // starts on first toggle tap (browser gesture rule), as before
     }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The trigger: when a fetched mood differs from the last one seen, the
+  // weather has turned — re-ask for the playlist and, if the music is
+  // sounding, crossfade song and layer over to the new mood's keeping.
+  useEffect(() => {
+    const iv = window.setInterval(async () => {
+      try {
+        const m = await api.getMood();
+        if (!moodSeenRef.current) { moodSeenRef.current = m.mood; return; }
+        if (m.mood === moodSeenRef.current) return;
+        moodSeenRef.current = m.mood;
+        setMood(m);
+        const pl = await api.getTerrainPlaylist();
+        const sounding = !!audioRef.current && !audioRef.current.paused;
+        applyPlaylist(pl);
+        if (sounding) {
+          const a = audioRef.current!;
+          fadeAudio(a, 0, 1200, () => playSongAt(0));
+          syncLayer(pl.layer?.url ?? null, true);
+        }
+      } catch {}
+    }, 60000);
+    return () => window.clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -327,7 +407,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     api.getLegends().then(setLegends).catch(() => {});
     // Return report: an Awoken speaks of buildings and needs
     api.getTerritory().then(t => {
-      if (t.mood) setMood(t.mood);
+      if (t.mood) { setMood(t.mood); moodSeenRef.current = t.mood.mood; }
       const fieldAwoken = t.placements.map((p: any) => p.awakenedId);
       if (!fieldAwoken.length) return;
       const buildings = t.buildings ?? [];
@@ -2611,27 +2691,28 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         <button className="compass-btn zoom-in" onClick={() => setZoom(z => Math.min(z + 0.2, 3))} aria-label="Zoom in">＋</button>
         <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
         <button className="compass-btn" onClick={() => {
-          const tracks = libraryTracks.length ? libraryTracks : [{ name: "Aurora", url: "/music/aurora.mp3" }];
-          if (!audioRef.current) {
-            audioRef.current = new Audio(tracks[trackIdx % tracks.length].url);
-            audioRef.current.loop = false;
-            audioRef.current.volume = 0.4;
-            audioRef.current.onended = () => {
-              const next = (trackIdx + 1) % tracks.length;
-              setTrackIdx(next);
-              if (audioRef.current) {
-                audioRef.current.src = tracks[next].url;
-                audioRef.current.play();
-              }
-            };
+          if (!tracksRef.current.length) {
+            tracksRef.current = [{ name: "Aurora", url: "/music/aurora.mp3" }];
+            setLibraryTracks(tracksRef.current);
           }
-          if (musicOn) {
-            audioRef.current.pause();
+          const sounding = !!audioRef.current && !audioRef.current.paused;
+          if (musicOn && sounding) {
+            audioRef.current!.pause();
+            const la = layerRef.current;
+            if (la && !la.paused) fadeAudio(la, 0, 800, () => la.pause());
+            setMusicOn(false);
           } else {
-            audioRef.current.play();
+            // First tap (or resume): start the mood's playlist and lay the
+            // weather's own voice quietly underneath it.
+            if (audioRef.current && audioRef.current.src) {
+              audioRef.current.play().catch(() => {});
+            } else {
+              playSongAt(trackIdxRef.current);
+            }
+            syncLayer(layerUrlRef.current, true);
+            setMusicOn(true);
           }
-          setMusicOn(!musicOn);
-        }} aria-label="Toggle music" title={(libraryTracks[trackIdx]?.name) ?? "Music"}>
+        }} aria-label="Toggle music" title={((libraryTracks[trackIdx]?.name) ?? "Music") + (layerTrack ? ` · under: ${layerTrack.name}` : "")}>
           {musicOn ? "🎶" : "🎵"}
         </button>
       </div>

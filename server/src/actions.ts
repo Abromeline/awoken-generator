@@ -18,6 +18,10 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
+import {
+  WORLD_MOOD_TO_PLAYLIST, playlistForMood, layerForMood,
+  type LibraryTrack,
+} from "./musicMoods.js";
 
 export interface ActionContext {
   /** Browser-visitor mark from the X-Visitor-Id header (null when absent). */
@@ -1941,6 +1945,36 @@ export const handlers = {
 
   async getMood(_args: unknown) {
     return await getWorldMood();
+  },
+
+  // Music's weather-mood trigger (Nigel, 2026-10-13): she categorizes,
+  // code triggers. The client asks for the terrain playlist; the answer
+  // is computed from the CURRENT world mood at ask time — no watcher,
+  // no autonomy. When the fetched mood changes, the client re-asks and
+  // the music follows the weather event. Workshop switches are law
+  // here: a disabled track is never handed out for auto-play, and the
+  // weather layer rides UNDER the playlist, never inside it.
+  async getTerrainPlaylist(_args: unknown) {
+    const { mood, description } = await getWorldMood();
+    const playlistMood = WORLD_MOOD_TO_PLAYLIST[mood] ?? "Calm";
+    const rows = await db.select().from(schema.battleTracks).orderBy(asc(schema.battleTracks.id));
+    const tracks: LibraryTrack[] = rows.map(t => ({
+      id: t.id,
+      name: t.name,
+      url: (t.trackData.startsWith("/music/") || t.trackData.startsWith("data:audio")) ? t.trackData : null,
+      enabled: !!t.enabled,
+      pages: JSON.parse(t.pages || '["territory"]') as string[],
+    }));
+    const list = playlistForMood(playlistMood, tracks);
+    const layer = layerForMood(playlistMood, tracks);
+    const slim = (t: LibraryTrack) => ({ id: t.id, name: t.name, url: t.url as string });
+    return {
+      mood,
+      description,
+      playlistMood,
+      tracks: list.map(slim),
+      layer: layer ? slim(layer) : null,
+    };
   },
 
   async combineAspects(args: unknown, ctx?: ActionContext) {

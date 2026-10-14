@@ -352,6 +352,14 @@ export const api = {
   damageAwokenHp: (value: { awakenedId: number; damage: number }) => post<{ ok: boolean; hp: number; maxHp: number; dissipated?: boolean; awakenedId?: number; xpGain?: number; leveledUp?: boolean; newLevel?: number }>("damageAwokenHp", value),
   demolishBuilding: (value: { buildingId: number }) => post<{ ok: boolean }>("demolishBuilding", value),
   listBattleTracks: () => post<{ tracks: { id: number; name: string; enabled: boolean; pages: string[] }[] }>("listBattleTracks", {}),
+  getMood: () => post<{ mood: string; description: string; endsAt: string }>("getMood", {}),
+  // Music's mood playlist for the terrain, computed by the server from the
+  // current world mood at ask time (see server getTerrainPlaylist).
+  getTerrainPlaylist: () => post<{
+    mood: string; description: string; playlistMood: string;
+    tracks: { id: number; name: string; url: string }[];
+    layer: { id: number; name: string; url: string } | null;
+  }>("getTerrainPlaylist", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
   joinConfluence: (args: { code: string }) => post<{ sessionId: number; ok: boolean }>("joinConfluence", args),
   commitToConfluence: (args: { sessionId: number; awakenedId: number }) => post<{ ok: boolean }>("commitToConfluence", args),

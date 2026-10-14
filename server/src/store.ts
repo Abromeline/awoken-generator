@@ -341,7 +341,11 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_resources (
   updated_at INTEGER NOT NULL
 );`);
 // Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
-// Migration: add pages column to battle_tracks
+// Migration: add pages column to battle_tracks. The ALTER must run AFTER
+// the CREATE as well as before it: on a fresh database the pre-CREATE
+// ALTER throws (no table yet) and the CREATE then leaves the table
+// without pages — the fresh-DB drift noted on the 2026-10-13 fix list.
+// Both guards are idempotent; existing databases keep their column.
 try {
   sqlite.exec(`ALTER TABLE battle_tracks ADD COLUMN pages TEXT NOT NULL DEFAULT '["territory"]'`);
 } catch {}
@@ -350,8 +354,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS battle_tracks (
   name TEXT NOT NULL,
   track_data TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
+  pages TEXT NOT NULL DEFAULT '["territory"]',
   created_at INTEGER NOT NULL
 );`);
+try {
+  sqlite.exec(`ALTER TABLE battle_tracks ADD COLUMN pages TEXT NOT NULL DEFAULT '["territory"]'`);
+} catch {}
 // Seed the built-in music library. Idempotent: only adds tracks not already present.
 {
   const existing = new Set(
