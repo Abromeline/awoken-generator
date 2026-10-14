@@ -9,7 +9,7 @@ import {
 } from "./welcome.js";
 import { tenderFromToken, tenderOwnerKey, tenderTokenFromHeader } from "./tenders.js";
 import { groveStatus, recordPlanting } from "./grove.js";
-import { requireWorkshop, unlockWorkshop, workshopLockEnabled } from "./workshopAuth.js";
+import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -74,9 +74,17 @@ for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
     try {
       if (WORKSHOP_ACTIONS.has(name)) requireWorkshop(req);
-      const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+      const tenderToken = tenderTokenFromHeader(req.headers["x-tender-token"]);
+      const tender = await tenderFromToken(tenderToken);
       const handler = (handlers[name] as (args: unknown, ctx?: ActionContext) => Promise<unknown>).bind(handlers);
-      const result = await handler(req.body ?? {}, { visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]), tender });
+      const result = await handler(req.body ?? {}, {
+        visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]),
+        tender,
+        tenderToken,
+        // Resolved here (not in WORKSHOP_ACTIONS) so mixed public/workshop
+        // handlers like saveAwoken can gate their own workshop branch.
+        workshopAuthorized: workshopTokenValid(req.headers["x-workshop-token"]),
+      });
       res.json(result);
     } catch (error) {
       sendError(res, error);
@@ -173,13 +181,18 @@ app.post("/api/stripe/checkout", async (req, res) => {
     res.status(status).json({ error: error instanceof Error ? error.message : "Checkout could not begin." });
   }
 });
-app.post("/api/stripe/portal", (req, res) => {
-  createPortalSession({ headers: req.headers as Record<string, string | string[] | undefined> })
-    .then((result) => res.json(result))
-    .catch((error: unknown) => {
-      const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : 500;
-      res.status(status).json({ error: error instanceof Error ? error.message : "The portal could not be opened." });
-    });
+app.post("/api/stripe/portal", async (req, res) => {
+  try {
+    // Same gate as checkout: the portal opens the customer's billing
+    // surface, so it requires a Tender session — never an open door.
+    const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+    if (!tender) throw Object.assign(new Error("Claim your secret code to manage your wakes."), { status: 403 });
+    const result = await createPortalSession({ headers: req.headers as Record<string, string | string[] | undefined> });
+    res.json(result);
+  } catch (error) {
+    const status = typeof (error as { status?: number }).status === "number" ? (error as { status: number }).status : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "The portal could not be opened." });
+  }
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, dataDir: DATA_DIR }));

@@ -136,6 +136,11 @@ export async function adoptVisitorState(softVisitorId: string, ownerKey: string)
     sqlite.prepare("UPDATE tender_births SET owner_key = ? WHERE owner_key = ?").run(ownerKey, softVisitorId);
   }
 
+  // Pending newborn claims (raw-DDL, owner_key): an earned-but-ungathered
+  // newborn follows its owner across the claim like everything else —
+  // claims are additive, so both sides' rows simply re-key.
+  sqlite.prepare("UPDATE pending_newborn_claims SET owner_key = ? WHERE owner_key = ?").run(ownerKey, softVisitorId);
+
   // --- Plain re-keys: every other table keyed by the visitor identity.
   // (deck_cards follow their decks by id; confluence_twins belong to a
   // session, not an owner; awoken_stories key the numeric tender id,

@@ -7,7 +7,7 @@
 // soft browser visitor — which closes the clear-storage farming loop.
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "./store.js";
 import { adoptVisitorState } from "./adopt.js";
@@ -117,6 +117,21 @@ export async function tenderFromToken(token: unknown): Promise<TenderRow | null>
 export async function destroySession(token: unknown): Promise<void> {
   if (typeof token !== "string" || !token) return;
   await db.delete(schema.tenderSessions).where(eq(schema.tenderSessions.token, token));
+}
+
+/**
+ * Revoke a Tender's sessions — every one, or every one but `exceptToken`
+ * (the session performing a self-service password change keeps its seat;
+ * all other devices/browsers must log in with the new password).
+ */
+export async function destroyTenderSessions(tenderId: number, exceptToken?: string | null): Promise<void> {
+  if (exceptToken) {
+    await db.delete(schema.tenderSessions).where(
+      and(eq(schema.tenderSessions.tenderId, tenderId), ne(schema.tenderSessions.token, exceptToken))
+    );
+  } else {
+    await db.delete(schema.tenderSessions).where(eq(schema.tenderSessions.tenderId, tenderId));
+  }
 }
 
 export function tenderTokenFromHeader(value: unknown): string | null {

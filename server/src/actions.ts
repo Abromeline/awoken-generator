@@ -13,7 +13,7 @@ import { creditBalance, grantCredits, spendWakeCredit, SINGLE_OWNER } from "./cr
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
 import { stripeReady } from "./stripe.js";
 import {
-  claimTender, destroySession, loginTender, newTenderNameSuggestion,
+  claimTender, destroySession, destroyTenderSessions, loginTender, newTenderNameSuggestion,
   publicTender, setTenderName, suggestTenderCode, tenderOwnerKey,
   type TenderRow,
 } from "./tenders.js";
@@ -24,6 +24,11 @@ export interface ActionContext {
   visitorId: string | null;
   /** Logged-in Tender from the X-Tender-Token header (null when absent). */
   tender: TenderRow | null;
+  /** The session token that produced `tender` (null when not logged in). */
+  tenderToken?: string | null;
+  /** Whether the request carries a live workshop token (true when the
+   *  workshop lock is disabled, matching requireWorkshop's semantics). */
+  workshopAuthorized?: boolean;
 }
 
 /** Owner key for credits, welcome state, and deck ownership. */
@@ -35,6 +40,41 @@ function ownerKeyFor(ctx?: ActionContext): string {
 /** Display name for newly woken creatures. */
 function ownerNameFor(ctx?: ActionContext): string {
   return ctx?.tender?.tenderName ?? "Tender";
+}
+
+/** The PNG truth test uploadLayerAsset applies: the real 8-byte signature
+ *  and at least an IHDR's worth of bytes. Anything else is not a PNG,
+ *  whatever its filename or declared type claims. */
+function assertPngBytes(bytes: Buffer): void {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 26 || !signature.every((byte, index) => bytes[index] === byte)) {
+    badRequest("That file is not a true PNG.");
+  }
+}
+
+// --- Pending newborn claims -------------------------------------------------
+// A newborn is EARNED, never asserted. The server-side event that
+// qualifies — a purification in deployBattle / attackTile /
+// resolveWavePull, or the first-tile claim — records one claim in
+// pending_newborn_claims, and the birth endpoints (birthNewbornToHand,
+// birthFieldAwoken) consume exactly one claim per birth. Before this
+// ledger existed, birthNewbornToHand granted a paid wake credit to any
+// caller on demand — an open mint on the credits Stripe sells.
+
+function recordNewbornClaim(ownerKey: string, source: string): void {
+  sqlite.prepare("INSERT INTO pending_newborn_claims (owner_key, source, created_at) VALUES (?, ?, ?)")
+    .run(ownerKey, source, Date.now());
+}
+
+/** Take the owner's oldest pending claim, atomically — a claim pays out
+ *  exactly once, even if two birth calls race. */
+function consumeNewbornClaim(ownerKey: string): boolean {
+  return sqlite.transaction(() => {
+    const row = sqlite.prepare("SELECT MIN(id) AS id FROM pending_newborn_claims WHERE owner_key = ?")
+      .get(ownerKey) as { id: number | null } | undefined;
+    if (!row || row.id == null) return false;
+    return sqlite.prepare("DELETE FROM pending_newborn_claims WHERE id = ?").run(row.id).changes === 1;
+  })();
 }
 
 type AspectElement = "tide" | "sky" | "stone" | "root";
@@ -1321,9 +1361,19 @@ export const handlers = {
         );
       }
     }
+    // The workshop branch is gated HERE, not in the router's
+    // WORKSHOP_ACTIONS — this handler is mixed, and the tender branch
+    // above must stay public to logged-in Tenders. The gate is the same
+    // token requireWorkshop checks, resolved by the router into ctx.
+    if (collection === "workshop" && !ctx?.workshopAuthorized) {
+      throw Object.assign(new Error("The workshop is locked — speak the word to enter."), { status: 401 });
+    }
     const plan = await planAwakening(layers);
     const blobKey = `awakened/${Date.now()}-${randomUUID()}.png`;
     const bytes = Buffer.from(imageBase64, "base64");
+    // Stored as image/png in BOTH branches — so it must BE a PNG, held
+    // to the same truth test uploadLayerAsset applies.
+    assertPngBytes(bytes);
     blobs.put(blobKey, bytes, "image/png");
     const ownerName = collection === "tender" ? ownerNameFor(ctx) : parsed.data.ownerName;
     const ownerKey = collection === "tender" && ctx?.tender ? tenderOwnerKey(ctx.tender.id) : null;
@@ -1821,6 +1871,9 @@ export const handlers = {
       for (const id of parsed.data.survivorIds) {
         await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
       }
+      // A newborn follows this purification — record its claim now;
+      // the birth endpoint consumes it exactly once.
+      recordNewbornClaim(ownerKey, "resolveWavePull");
     } else {
       // Wave lost — curse HP restores to half
       const maxHp = tiles[0].curseMaxHp ?? 10;
@@ -3181,6 +3234,9 @@ export const handlers = {
           await grantEventXp(xpById, s.awakenedId, XP_PER_HEX_TAKEN);
         }
         purified = true;
+        // A newborn follows this purification — record its claim now;
+        // the birth endpoint consumes it exactly once.
+        recordNewbornClaim(ownerKey, "deployBattle");
       }
     }
     return z.object({ ok: z.literal(true), purified: z.boolean(), xpGains: z.array(xpShape) })
@@ -4524,6 +4580,9 @@ export const handlers = {
     }
     // Purify to neutral.
     await recordDeed(ownerKey, parsed.data.awakenedId, "curse_broken");
+    // A newborn follows this purification — record its claim now;
+    // the birth endpoint consumes it exactly once.
+    recordNewbornClaim(ownerKey, "attackTile");
     {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const layer of layers) {
@@ -4646,6 +4705,9 @@ export const handlers = {
         hp: await placementMaxHp(teamRows[i].id),
       });
     }
+    // The first-tile victory births a newborn, like every purification —
+    // record its claim; the birth endpoint consumes it exactly once.
+    recordNewbornClaim(ownerKey, "claimFirstTile");
     return okResponse.parse({ ok: true });
   },
 
@@ -4663,7 +4725,28 @@ export const handlers = {
     const story = `Liberated by ${parsed.liberatorNames.join(", ")}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
     const blobKey = `fieldborn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
-    blobs.put(blobKey, Buffer.from(base64Data, "base64"), "image/png");
+    const imageBytes = Buffer.from(base64Data, "base64");
+    // Stored as image/png — so it must BE a PNG (uploadLayerAsset's test).
+    assertPngBytes(imageBytes);
+    // Placing the newborn obeys the same ground rules as any deployment
+    // (deployBattle's checks): the tile must be the caller's own, already
+    // reclaimed, and hold fewer than 4 Awoken. Before this, any caller
+    // could pin a newborn onto another Tender's tile.
+    if (!parsed.toHand) {
+      const tile = await db.select().from(schema.territoryTiles)
+        .where(and(eq(schema.territoryTiles.id, parsed.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+      if (!tile.length) badRequest("That tile is not yours.");
+      if (tile[0].cursed) badRequest("A newborn can only be placed on reclaimed land.");
+      const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+        .where(eq(schema.fieldPlacements.tileId, parsed.tileId));
+      if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
+    }
+    // A birth follows a victory, and the victory is the server's own
+    // record: consume exactly one pending claim. No claim, no birth.
+    if (!consumeNewbornClaim(ownerKey)) {
+      badRequest("No newborn is waiting — a birth follows a victory, and this victory's newborn has already been gathered.");
+    }
+    blobs.put(blobKey, imageBytes, "image/png");
     const [newborn] = await db.insert(schema.awakened).values({
       name: "Newborn of the Purified Land",
       imageBlobKey: blobKey,
@@ -4698,6 +4781,14 @@ export const handlers = {
       liberatorNames: z.array(z.string()),
     }).safeParse(args);
     if (!parsed.success) badRequest(`Invalid birth request — ${describeValidationIssues(parsed.error)}.`);
+    // A birth follows a victory, and the victory is the server's own
+    // record: consume exactly one pending claim (recorded by deployBattle,
+    // attackTile, resolveWavePull, or claimFirstTile when the dark broke).
+    // Before this ledger, any caller could mint paid wake credits here on
+    // demand — no victory, no limit, no record.
+    if (!consumeNewbornClaim(ownerKey)) {
+      badRequest("No newborn is waiting — a birth follows a victory, and this victory's newborn has already been gathered.");
+    }
     // Newborns no longer pop directly into the hand. Instead, the tender gains
     // a wake credit — the newborn is fully born through the Wake One ritual.
     const { grantCredits } = await import("./credits.js");
@@ -5087,6 +5178,10 @@ export const handlers = {
     await db.update(schema.tenders)
       .set({ passwordHash: hashPassword(parsed.data.newPassword) })
       .where(eq(schema.tenders.id, rows[0].id));
+    // An admin reset is the compromised-account remedy: every live
+    // session for this Tender dies with the old password, so a stolen
+    // token cannot ride out the reset.
+    await destroyTenderSessions(rows[0].id);
     return { ok: true, tenderName: rows[0].tenderName };
   },
 
@@ -5104,16 +5199,31 @@ export const handlers = {
   },
 
   async setTenderPassword(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    // Extract tender ID from ownerKey (format: "tender-<id>")
-    const tenderId = parseInt(ownerKey.replace("tender-", ""), 10);
-    if (!tenderId) badRequest("Invalid tender.");
+    // The target is ALWAYS the session's own Tender — never an id taken
+    // from the owner key, a header, or the body. The old code derived the
+    // target from ownerKeyFor(ctx) by stripping "tender-", which for an
+    // unauthenticated caller is their own X-Visitor-Id: a crafted visitor
+    // id of "tender-<victimId>" overwrote that Tender's password, while
+    // the genuine path never worked at all (real owner keys are
+    // "tender:<id>" — a colon, not a hyphen). The one live call site (the
+    // naming ritual in TenderNaming) runs with a session in hand — its
+    // setTenderName step already requires one — so session-only is the
+    // honest shape.
+    if (!ctx?.tender) {
+      throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    }
     const parsed = z.object({ password: z.string().min(8).max(128) }).safeParse(args);
     if (!parsed.success) badRequest("Password must be at least 8 characters.");
     const { hashPassword } = await import("./tenders.js");
     await db.update(schema.tenders)
       .set({ passwordHash: hashPassword(parsed.data.password) })
-      .where(eq(schema.tenders.id, tenderId));
+      .where(eq(schema.tenders.id, ctx.tender.id));
+    // The password changed: every OTHER session for this Tender is
+    // revoked. The current session keeps its seat — the client drops
+    // dead tokens quietly to the claim gate and does not re-login
+    // gracefully mid-ritual, so revoking it too would strand the
+    // naming flow it just completed.
+    await destroyTenderSessions(ctx.tender.id, ctx.tenderToken ?? null);
     return { ok: true };
   },
 

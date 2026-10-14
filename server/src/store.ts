@@ -310,6 +310,18 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,
   last_birth_at INTEGER NOT NULL
 );`);
+// Pending newborn claims: a victory that births a newborn (a purification
+// in deployBattle/attackTile/resolveWavePull, the first-tile claim)
+// records one claim here; the birth endpoints consume exactly one per
+// birth. A raw-DDL table like tender_births — the claim is the server's
+// own record of the event, never the client's word for it.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_newborn_claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_newborn_claims_owner ON pending_newborn_claims (owner_key, id);`);
 // Wave defense: the Unraveling attacks the bastion in waves.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   owner_key TEXT PRIMARY KEY,
