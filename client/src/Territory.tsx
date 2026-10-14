@@ -1628,6 +1628,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + imgOff.dy * s} width={s * 2.41} height={s * 1.608}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+          {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
+              GLOW crimson-violet from within — the dark bruising the land
+              itself, never a red grid laid over it. Always on: the wilds
+              smolder at the edge of the light. When a company is readied
+              the bruise deepens and its pulse quickens — the dark knows
+              it is being aimed at. Layered polygons, no SVG filters, so
+              the iPad stays smooth. */}
+          {t.cursed && (
+            <g className={battlePool.length > 0 ? "corruption-glow armed" : "corruption-glow"} pointerEvents="none">
+              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(150,20,96,0.30)" : "rgba(150,20,96,0.13)"} stroke="none" />
+              <polygon points={pts} fill={battlePool.length > 0 ? "rgba(158,26,102,0.40)" : "rgba(158,26,102,0.17)"} stroke="none" />
+            </g>
+          )}
           {/* Curse HP on cursed tiles */}
           {t.cursed && (() => {
             const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
@@ -1678,15 +1691,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               t.element === "fire" ? "rgba(255,68,68,0.15)" : "rgba(0,0,0,0)"
             } pointerEvents="none" />
           )}
-          {/* The hit target IS the visible hex (the fitted cell above).
-              While a battle company is readied, cursed ground carries
-              the red targeting wash — fitted cells share edges, so the
-              wash reads as one connected hexmap over the wilds. */}
+          {/* The hit target IS the visible hex (the fitted cell above) —
+              invisible itself; the corruption glow over the terrain face
+              is what marks cursed ground now. */}
           <polygon points={pts}
-            fill={t.cursed && battlePool.length > 0 ? "rgba(255,68,68,0.07)" : "rgba(0,0,0,0)"}
-            stroke={t.cursed && battlePool.length > 0 ? "#ff4444" : "transparent"}
-            strokeWidth={2}
-            opacity={t.cursed && battlePool.length > 0 ? 0.9 : 0}
+            fill="rgba(0,0,0,0)"
+            stroke="transparent"
             style={{
               cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
               filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,

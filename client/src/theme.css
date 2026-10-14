@@ -2101,3 +2101,7 @@ body.defeat-flash {
 .dock-card.dock-court-champion{box-shadow:0 0 0 2.5px #e3c565,0 0 0 4.5px #6d5518,0 0 0 6px rgba(12,10,5,.94),0 6px 16px rgba(8,6,2,.6),0 0 16px rgba(212,175,55,.45)}
 .hex-notice{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:91;width:min(560px,92vw);padding:10px 14px;background:rgba(43,26,13,0.96);border:1px solid #d08a3e;border-radius:8px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
 .hex-notice p{margin:0;color:#f3ddba}
+
+.corruption-glow{animation:corruptionPulse 4.2s ease-in-out infinite}
+.corruption-glow.armed{animation-duration:1.9s}
+@keyframes corruptionPulse{0%,100%{opacity:.7}50%{opacity:1}}
