@@ -2,7 +2,7 @@ import express from "express";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { blobs, DATA_DIR } from "./store.js";
-import { handlers, reconcileXpRecurve, type ActionContext, type ActionName } from "./actions.js";
+import { handlers, reconcileXpRecurve, reconcileStatEvery3, type ActionContext, type ActionName } from "./actions.js";
 import { stripeConfig, createCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
 import {
   claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
@@ -215,6 +215,15 @@ try {
   await reconcileXpRecurve();
 } catch (err) {
   console.error("[xp] re-curve reconciliation failed; will retry next boot:", err);
+}
+
+// Stat-point cadence reconciliation (2026-10-14): every-3-levels top-up for
+// Awoken who leveled under the old 1-per-10 law. Idempotent; failure leaves
+// the flag unset so the next boot retries.
+try {
+  await reconcileStatEvery3();
+} catch (err) {
+  console.error("[xp] stat-cadence reconciliation failed; will retry next boot:", err);
 }
 
 const port = Number(process.env.PORT ?? 3000);

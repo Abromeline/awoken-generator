@@ -916,10 +916,12 @@ async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp:
   const oldLevel = levelForXp(oldXp);
   const newXp = oldXp + amount;
   const newLevel = levelForXp(newXp);
-  // Stat points: 1 per 10 levels crossed
-  const oldTens = Math.floor(oldLevel / 10);
-  const newTens = Math.floor(newLevel / 10);
-  const statPointsGained = newTens - oldTens;
+  // Stat points: 1 per 3 levels crossed (Nigel's ruling, 2026-10-14 —
+  // the earlier 1-per-10 law is superseded; veterans were reconciled to
+  // this cadence once by reconcileStatEvery3 below).
+  const oldThrees = Math.floor(oldLevel / 3);
+  const newThrees = Math.floor(newLevel / 3);
+  const statPointsGained = newThrees - oldThrees;
   await db.update(schema.awakened)
     .set({
       experience: newXp,
@@ -1047,6 +1049,52 @@ export async function reconcileXpRecurve(): Promise<void> {
   await db.insert(schema.settings).values({ key: XP_RECURVE_FLAG, value: stamp })
     .onConflictDoUpdate({ target: schema.settings.key, set: { value: stamp } });
   if (reconciled) console.log(`[xp] re-curve reconciliation: ${reconciled} Awoken stand higher under the gentler curve.`);
+}
+
+// --- Stat-point cadence reconciliation (one-time, 2026-10-14) -------------
+// Nigel's ruling: an Awoken gains a stat point every 3 levels. The old law
+// granted on 10-level boundaries, and both grantXp and the 2026-10-13
+// re-curve kept every Awoken's LIFETIME grants at exactly floor(level/10).
+// So the honest top-up is derivable from the level alone:
+// floor(level/3) − floor(level/10), never negative, granted exactly once —
+// marker claim and grant in one transaction, the re-curve's own pattern,
+// so a crash mid-pass can be re-run without double-granting anyone.
+const STAT_EVERY_3_FLAG = "stat_every_3_2026_10_14_done";
+
+export async function reconcileStatEvery3(): Promise<void> {
+  const flag = await db.select({ key: schema.settings.key }).from(schema.settings)
+    .where(eq(schema.settings.key, STAT_EVERY_3_FLAG)).limit(1);
+  if (flag.length) return;
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS stat_every_3_2026_10_14_grants (
+    awakened_id INTEGER PRIMARY KEY NOT NULL,
+    stat_points_granted INTEGER NOT NULL DEFAULT 0,
+    processed_at INTEGER NOT NULL
+  )`);
+  const claimStmt = sqlite.prepare(
+    `INSERT OR IGNORE INTO stat_every_3_2026_10_14_grants (awakened_id, stat_points_granted, processed_at) VALUES (?, ?, ?)`
+  );
+  const grantStmt = sqlite.prepare(`UPDATE awakened SET stat_points = ? WHERE id = ?`);
+  const claimAndGrant = sqlite.transaction((id: number, statGain: number, newStatPoints: number): boolean => {
+    const claim = claimStmt.run(id, statGain, Date.now());
+    if (!claim.changes) return false;
+    if (statGain > 0) grantStmt.run(newStatPoints, id);
+    return true;
+  });
+  const rows = await db.select({
+    id: schema.awakened.id, experience: schema.awakened.experience,
+    statPoints: schema.awakened.statPoints,
+  }).from(schema.awakened);
+  let topped = 0;
+  for (const row of rows) {
+    const level = levelForXp(row.experience ?? 0);
+    const statGain = Math.max(0, Math.floor(level / 3) - Math.floor(level / 10));
+    const claimed = claimAndGrant(row.id, statGain, (row.statPoints ?? 0) + statGain);
+    if (claimed && statGain > 0) topped++;
+  }
+  const stamp = new Date().toISOString();
+  await db.insert(schema.settings).values({ key: STAT_EVERY_3_FLAG, value: stamp })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value: stamp } });
+  if (topped) console.log(`[xp] stat-cadence reconciliation: ${topped} Awoken received the every-3-levels top-up.`);
 }
 
 async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): Promise<void> {
