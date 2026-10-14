@@ -655,8 +655,9 @@ async function grantBirthEnergy(ownerKey: string, power: number): Promise<number
 async function calculateMaxEnergy(ownerKey: string): Promise<number> {
   // 10 base + power-scaled bonus per Awoken owned (hand and deployed —
   // holding Awoken feeds the cap; Nigel, 2026-10-13: the contribution
-  // TRIPLED so holding is rewarding):
-  // 1-3pwr:+3, 4-6:+6, 7-9:+9, 10+:+12
+  // DOUBLED so holding is rewarding — the tripled scale ran too high and
+  // was retuned down the same evening):
+  // 1-3pwr:+2, 4-6:+4, 7-9:+6, 10+:+8
   // Defending/binding only raise the cap, not the refresh rate.
   // Each active Dream Tree: +1 max energy.
   const awoken = await db.select().from(schema.awakened)
@@ -668,10 +669,10 @@ async function calculateMaxEnergy(ownerKey: string): Promise<number> {
     try {
       const layers = JSON.parse(a.compositionJson) as { power?: number }[];
       const p = layers.reduce((sum, l) => sum + (l.power ?? 0), 0);
-      if (p >= 10) max += 12;
-      else if (p >= 7) max += 9;
-      else if (p >= 4) max += 6;
-      else if (p >= 1) max += 3;
+      if (p >= 10) max += 8;
+      else if (p >= 7) max += 6;
+      else if (p >= 4) max += 4;
+      else if (p >= 1) max += 2;
     } catch {}
   }
   // Dream Trees and Awakening Wells: configurable energy bonus each
