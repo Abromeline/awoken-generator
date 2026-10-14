@@ -1376,7 +1376,7 @@ function TendersPanel() {
         <span className="energy-level" title="Energy">⚡{t.energy}</span>
         <button 
           className="wave-toggle" 
-          title="Set wave number"
+          title="Set Unraveling number"
           onClick={() => setWaveEdit({ ownerKey: t.ownerKey, current: 1 })}
         >
           🌊
@@ -1418,7 +1418,7 @@ function TendersPanel() {
       {waveEdit && (
         <div className="admin-popup" onClick={() => setWaveEdit(null)}>
           <div className="admin-popup-inner" onClick={e => e.stopPropagation()}>
-            <h3>Set Wave Number</h3>
+            <h3>Set Unraveling Number</h3>
             <div className="wave-edit-row">
               <button className="abtn" onClick={() => {
                 const n = Math.max(1, waveEdit.current - 1);

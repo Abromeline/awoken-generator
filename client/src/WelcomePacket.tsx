@@ -46,7 +46,7 @@ const PAGES: Page[] = [
   {
     title: "The Unraveling",
     body: [
-      "Waves of the Unraveling assault your territory. Survive, and the wave breaks.",
+      "Unravelings assault your territory. Survive, and the Unraveling breaks.",
       "Victory brings a spinning golden hex — and a choice. Pick one new territory from the map as your reward.",
       "Then decide: ✦ Raise Binding to bank your progress and rest, or Continue → for +6 energy, fresh cards, and a harder wave.",
       "An Awoken's presence slowly attunes neutral land toward its element — 13 minutes to take root.",

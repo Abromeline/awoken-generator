@@ -81,7 +81,7 @@ export default function Confluence({
             <div className="friends-section">
               <h4>Start a confluence</h4>
               <div className="referral-text">
-                Two tenders pool their housed champions against a shared wave.
+                Two tenders pool their housed champions against a shared Unraveling.
                 No territory changes hands — only experience, and twins on victory.
               </div>
               <button className="abtn small" onClick={create}>Create confluence</button>

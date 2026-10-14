@@ -52,7 +52,7 @@ const MESSAGES = [
   "Tap an Awoken on your territory to set its stance — ⚔ Attack, 🛡 Defense, or ✦ Binding.",
   "Defense stance Awoken gain +2 toughness in battle. Attack stance gains +2 power.",
   "A Binding Awoken heals all wounded Awoken on its tile with its power.",
-  "Waves grow stronger every 3 waves. Territory rewards come every 3rd victory.",
+  "Unravelings grow stronger every 3. Territory rewards come every 3rd victory.",
   "The Fray are ink splatters with twig legs — small, but they attack in groups.",
   "The Unraveler pulls at your strongest Awoken with its tendrils. Beware.",
   // Tending

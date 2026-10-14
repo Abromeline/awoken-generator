@@ -90,7 +90,7 @@ export default function ConfluenceBattle({
       if (aliveEnemies.length === 0) {
         clearInterval(timer);
         setPhase("victory");
-        setLog(l => [...l, "THE WAVE BREAKS!"]);
+        setLog(l => [...l, "THE UNRAVELING BREAKS!"]);
         // Resolve on server
         api.resolveConfluence({ sessionId, victory: true }).then(res => {
           if (res.twin) setTwin({ ...res.twin, sessionId });

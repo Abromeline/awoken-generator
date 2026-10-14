@@ -585,7 +585,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setVictory(true);
       setSimRunning(false);
       trackPlayer.stop();
-      addLog("THE WAVE BREAKS!");
+      addLog("THE UNRAVELING BREAKS!");
       setTimeout(async () => {
         if (onVictoryDetected) await onVictoryDetected();
         setShowVictoryScreen(true);
@@ -794,7 +794,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       </div>
       {victory !== null && !showVictoryScreen && (
         <div className="victory-overlay">
-          <div className="victory-text">{victory ? "THE WAVE BREAKS" : "THE LINE FALLS"}</div>
+          <div className="victory-text">{victory ? "THE UNRAVELING BREAKS" : "THE LINE FALLS"}</div>
         </div>
       )}
       {showVictoryScreen && victory && (

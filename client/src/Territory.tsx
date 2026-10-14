@@ -1782,7 +1782,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const deedLabel = (deed: string) => {
     switch (deed) {
-      case "wave_survived": return "Waves survived";
+      case "wave_survived": return "Unravelings survived";
       case "curse_broken": return "Curses broken";
       case "battle_won": return "Battles won";
       case "level_10": return "Reached level 10";
@@ -2270,7 +2270,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           {waveResult && (
             <div className={`wave-result ${waveResult.victory ? "victory" : "defeat"}`}>
               {waveResult.victory
-                ? `Victory! The wave breaks. (${waveResult.defensePower} vs ${waveResult.wavePower})`
+                ? `Victory! The Unraveling breaks. (${waveResult.defensePower} vs ${waveResult.wavePower})`
                 : `The line bends... (${waveResult.defensePower} vs ${waveResult.wavePower})`}
             </div>
           )}
@@ -2487,24 +2487,24 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             const label = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
             return (
               <button className="abtn" disabled style={{ marginLeft: 8, borderColor: "#666", opacity: 0.75 }}>
-                🌑 Next wave in {label}
+                🌑 Next Unraveling in {label}
               </button>
             );
           }
           return (
             <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
-              ⚔ Face the Next Wave ({wavesCleared + 1}/3)
+              ⚔ Face the Next Unraveling ({wavesCleared + 1}/3)
             </button>
           );
         })()}
         {wavesCleared >= 3 && wave && (
           <span style={{ marginLeft: 12, color: "#ffd700", fontWeight: "bold" }}>
-            All waves cleared — Boss awaits!
+            All Unravelings broken — Boss awaits!
           </span>
         )}
         {battleActive && (
           <span style={{ marginLeft: 12, color: "#ff6666", fontWeight: "bold" }}>
-            Wave {battleWave}/3 — Turn {turnNumber} ({turnPhase === "towers" ? "Towers" : turnPhase === "initiative" ? "Initiative" : "..."})
+            Unraveling {battleWave}/3 — Turn {turnNumber} ({turnPhase === "towers" ? "Towers" : turnPhase === "initiative" ? "Initiative" : "..."})
           </span>
         )}
         {simActive && (

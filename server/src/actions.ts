@@ -3385,7 +3385,7 @@ export const handlers = {
     // ready-at time so the client can show it.
     const nextWaveAt = nextWaveAtFor(state[0]);
     if (nextWaveAt) {
-      badRequest(`The Unraveling is still gathering itself — the next wave can be faced at ${nextWaveAt}.`);
+      badRequest(`The Unraveling is still gathering itself — the next Unraveling can be faced at ${nextWaveAt}.`);
     }
     const wave = state[0].waveNumber;
     const { totalPower: wavePower } = wavePowerFor(wave);
@@ -4354,7 +4354,7 @@ export const handlers = {
     const state = await db.select().from(schema.waveState)
       .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
     const currentWave = state.length ? state[0].waveNumber : 1;
-    if (parsed.data.waveNumber !== currentWave) badRequest("Wave mismatch.");
+    if (parsed.data.waveNumber !== currentWave) badRequest("Unraveling mismatch.");
 
     // Validate: survivors must be Awoken owned by the tender and placed on the field
     // (The battle defends the wave's target tile, not necessarily the bastion)

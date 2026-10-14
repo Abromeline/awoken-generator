@@ -56,7 +56,7 @@ const STEPS: Step[] = [
   {
     title: "The Unraveling",
     body: [
-      "Waves of the Unraveling assault your territory. Tap 'Face the Next Wave' when ready.",
+      "Unravelings assault your territory. Tap 'Face the Next Unraveling' when ready.",
       "Towers fire first. Then Awoken and enemies act in initiative order (tougher = slower).",
       "Enemies target your Awoken and towers — unless they see an undefended tile, then they go for the land.",
     ],
