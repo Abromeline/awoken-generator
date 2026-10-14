@@ -296,6 +296,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [hexConfirm, setHexConfirm] = useState<{ kind: "attack" | "move" | "deploy"; tileId: number } | null>(null);
   const raiseHexConfirm = (kind: "attack" | "move" | "deploy", tileId: number) => setHexConfirm({ kind, tileId });
   const clearHexConfirm = () => setHexConfirm(null);
+  // Refusals must SPEAK (Nigel's iPad, 2026-10-14: "I tapped to place and
+  // nothing happened at all"). Every guard on the hex flows — staging,
+  // energy, and every server refusal — lands here in words, never in a
+  // silent return or a console line the player will never see.
+  const [hexNotice, setHexNotice] = useState<string | null>(null);
+  const hexNoticeTimer = useRef<number | null>(null);
+  const showHexNotice = (msg: string) => {
+    setHexNotice(msg);
+    if (hexNoticeTimer.current) window.clearTimeout(hexNoticeTimer.current);
+    hexNoticeTimer.current = window.setTimeout(() => setHexNotice(null), 7000);
+  };
+  const refusalText = (e: unknown, fallback: string) =>
+    (e as { message?: string })?.message && (e as { message?: string }).message !== "Failed to fetch"
+      ? (e as { message?: string }).message as string
+      : fallback;
   const runHexConfirm = () => {
     const pending = hexConfirm;
     if (!pending) return;
@@ -446,7 +461,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const fighters = battlePool.map(i => hand[i]).filter(Boolean);
     if (fighters.length === 0) return;
     const totalCost = fighters.reduce((sum, a) => sum + deployCost(a.power), 0);
-    if (energy < totalCost) return;
+    if (energy < totalCost) {
+      showHexNotice(`This company needs ${totalCost}⚡ to take the field — you hold ${energy}⚡. Energy returns with time, and with the Awoken you keep in hand.`);
+      return;
+    }
     const fighterIds = fighters.map(a => a.id);
     try {
       const result = await api.deployBattle({ awakenedIds: fighterIds, tileId });
@@ -468,6 +486,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     } catch (e) {
       console.error("Battle deployment failed", e);
       setTargetHexId(null);
+      showHexNotice(refusalText(e, "The deployment was refused."));
     }
   };
 
@@ -555,6 +574,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       onUpdate();
     } catch (e) {
       console.error("Attack failed", e);
+      showHexNotice(refusalText(e, "That strike was refused."));
       setAttackTargeting(false);
       setTargetHexId(null);
     }
@@ -580,6 +600,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       onUpdate();
     } catch (e) {
       console.error("Move failed", e);
+      showHexNotice(refusalText(e, "That move was refused."));
       setMoveTargeting(false);
       setTargetHexId(null);
     }
@@ -1226,7 +1247,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     // Court-bound: housed Awoken and the champion stay in hand for battles —
     // they never stage for field deployment.
     const a = hand[index];
-    if (a && isCourt(a) && !battlePool.includes(index)) return;
+    if (a && isCourt(a) && !battlePool.includes(index)) {
+      showHexNotice(`${a.name} is of the court — housed Awoken and the champion stay in hand for battles.`);
+      return;
+    }
     setBattlePool(prev => {
       if (prev.includes(index)) return prev.filter(i => i !== index);
       if (prev.length >= 4) return prev;
@@ -2540,6 +2564,11 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           ))}
         </svg>
       </div>
+      {hexNotice && (
+        <div className="hex-notice" role="alert" aria-live="polite">
+          <p>{hexNotice}</p>
+        </div>
+      )}
       {hexConfirm && (() => {
         // The touch confirm (fix list #13 refined): the misted hex is
         // only a promise until the Tender speaks here.
@@ -2555,9 +2584,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           confirmLabel = "Move";
         } else {
           const names = battlePool.map(i => hand[i]).filter(Boolean).map(a => a.name).join(", ");
+          const cost = battlePool.map(i => hand[i]).filter(Boolean).reduce((sum, a) => sum + deployCost(a.power), 0);
           text = tile?.cursed
-            ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours.`
-            : `${names || "The readied company"} will take position on this hex.`;
+            ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours. ${cost}⚡.`
+            : `${names || "The readied company"} will take position on this hex. ${cost}⚡.`;
           confirmLabel = "Send them";
         }
         return (
