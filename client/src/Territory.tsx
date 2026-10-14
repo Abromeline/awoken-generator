@@ -38,29 +38,40 @@ const TERRAIN: Record<string, string> = {
   neutral: neutralImg, cursed: cursedImg,
 };
 
+// Per-key seating offsets for the tile <image>, in units of s (the map
+// tile size), converted from source px at the image's render scale
+// (dx: ×2.41/1920, dy: ×1.608/1280). Five tiles share one canvas
+// template and need none; neutral's slab sits off-template in its own
+// canvas (+94, −24 source px from the shared registration), so only
+// neutral is nudged to seat its painted face on the lattice point.
+const TERRAIN_IMG_OFFSET: Record<string, { dx: number; dy: number }> = {
+  neutral: { dx: -0.1180, dy: 0.0302 },
+};
+
 // ── THE hex geometry — one source for map, overlays, and hit-testing ──
-// (fix list #13, refined — Nigel's screenshot showed the old selection
-// hexagons as a lattice of separate red outlines, larger than the
-// terrain faces, crossing each other instead of sharing edges.)
 //
-// Root cause: the terrain tiles are placed by an axial→pixel basis
-// measured from the tile art — E neighbor (1292, 475), SE neighbor
-// (13, 946), per 796 source px — but the overlay/click polygon was a
-// hand-tuned REGULAR hexagon (radius 0.88·size, vertical squash 0.82)
-// that shares nothing with that basis. Centers agreed; corners never
-// could. A regular hexagon cannot tile this lattice: its edges cannot
-// coincide with its neighbors' edges, so outlines overshoot (≈48% too
-// tall for the v-bisector) and cross.
+// The polygon IS the painted face. Fix list #13 drew the Wigner–Seitz
+// (Voronoi) cell of the tile lattice — but a Voronoi cell's edges are
+// the perpendicular bisectors of the neighbor vectors, and the painted
+// face's slants are not: measured, that cell is 1459×961 source px
+// against a face of 1730×944, so the #13 outlines crossed the painted
+// edges along every slant and no basis correction could ever seat
+// them. (Before #13 it was worse: a hand-tuned regular hexagon that
+// shared nothing with the lattice at all.)
 //
-// The fix: every hex drawn over the map — terrain tint, click target,
-// hover, mist, committed marker — is the Wigner–Seitz cell of the
-// SAME lattice the renderer places tiles by: the hexagon whose edges
-// are the perpendicular bisectors of the six neighbor vectors
-// ±E, ±SE, ±(E−SE). Adjacent cells share full edges by construction,
-// so any set of them reads as ONE fitted hexmap at every zoom/pan,
-// and the click target is literally the hex you see.
-const ISO_E: [number, number] = [1292, 475];
-const ISO_SE: [number, number] = [13, 946];
+// Measured 2026-10-13 (rim-fit sweep of all six terrain PNGs, ±5 px):
+// the FACE_HEX polygon below, and the lattice that translates it —
+// E (1292, 470), SE (0, 948) per 796 source px. The face tiles by
+// translation: its edge midpoints sit at ±E/2, ±SE/2, ±(E−SE)/2 within
+// painting tolerance, so adjacent polygons share full edges by
+// construction. Every hex drawn over the map — terrain tint, click
+// target, hover, mist, selection — is this face at the tile's lattice
+// position, so any set of them reads as ONE fitted hexmap at every
+// zoom/pan, and the click target is literally the hex you see.
+// The ART is canonical: where measurement and art disagree, the code
+// moves, never the art.
+const ISO_E: [number, number] = [1292, 470];
+const ISO_SE: [number, number] = [0, 948];
 const ISO_DEN = 796;
 
 /** The lattice basis (east and south-east neighbor offsets) at a size. */
@@ -75,27 +86,18 @@ function isoOffset(q: number, r: number, size: number): { px: number; py: number
   return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
 }
 
-/** The six corners of the fitted hex cell around (cx, cy), optionally
- *  scaled about the center (for double outlines). Computed by solving
- *  the circumcenters of consecutive neighbor-vector pairs. */
+/** The painted face, measured from the tile art (source px, relative
+ *  to face center, in angular order: TL, TR, R, BR, BL, L). */
+const FACE_HEX: [number, number][] = [
+  [-406, -468], [415, -468], [861, -6],
+  [431, 476], [-431, 472], [-870, -6],
+];
+
+/** The six corners of the painted-face polygon around (cx, cy),
+ *  optionally scaled about the center (pulses, double outlines). */
 function hexCellVertices(cx: number, cy: number, size: number, scale = 1): [number, number][] {
-  const { u, v } = isoBasis(size);
-  const w: [number, number] = [u[0] - v[0], u[1] - v[1]];
-  const neg = (p: [number, number]): [number, number] => [-p[0], -p[1]];
-  const neighbors: [number, number][] = [u, v, w, neg(u), neg(v), neg(w)]
-    .sort((a, b) => Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]));
-  const vertices: [number, number][] = [];
-  for (let i = 0; i < 6; i++) {
-    const n1 = neighbors[i];
-    const n2 = neighbors[(i + 1) % 6];
-    const det = n1[0] * n2[1] - n1[1] * n2[0];
-    const b1 = (n1[0] * n1[0] + n1[1] * n1[1]) / 2;
-    const b2 = (n2[0] * n2[0] + n2[1] * n2[1]) / 2;
-    const px = (b1 * n2[1] - b2 * n1[1]) / det;
-    const py = (n1[0] * b2 - n2[0] * b1) / det;
-    vertices.push([cx + px * scale, cy + py * scale]);
-  }
-  return vertices;
+  const k = (size / ISO_DEN) * scale;
+  return FACE_HEX.map(([x, y]): [number, number] => [cx + x * k, cy + y * k]);
 }
 
 /** The fitted hex cell as an SVG points string. */
@@ -1524,6 +1526,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       // target below, and every selection overlay share full edges
       // with their neighbors: one hexmap, never a lattice of strays.
       const pts = hexCellPoints(cx, cy, s);
+      const tileKey = t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral");
+      const imgOff = TERRAIN_IMG_OFFSET[tileKey] ?? { dx: 0, dy: 0 };
 
       const placement = placements.find(p => p.tileId === t.id);
       const tilePlacements = placements.filter(p => p.tileId === t.id);
@@ -1532,9 +1536,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
       return (
         <g key={t.id} transform={`translate(0,${lift})`}>
-          {/* Isometric tile: 1920x1280 PNG, hex face ~1345px wide. Scale to hex radius s. */}
-          <image href={TERRAIN[t.cursed ? "cursed" : (TERRAIN[t.element] ? t.element : "neutral")]}
-            x={cx - s * 1.289} y={cy - s * 0.687} width={s * 2.41} height={s * 1.608}
+          {/* Isometric tile: 1920x1280 PNG; painted face measured 1730×944
+              with its center at (964, 546) source px. The x/y place the
+              image so the face center lands exactly on the tile's
+              lattice point (cx, cy); imgOff seats off-template art. */}
+          <image href={TERRAIN[tileKey]}
+            x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + imgOff.dy * s} width={s * 2.41} height={s * 1.608}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
           {/* Curse HP on cursed tiles */}
