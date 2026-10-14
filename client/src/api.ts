@@ -358,7 +358,6 @@ export const api = {
   getTerrainPlaylist: () => post<{
     mood: string; description: string; playlistMood: string;
     tracks: { id: number; name: string; url: string }[];
-    layer: { id: number; name: string; url: string } | null;
   }>("getTerrainPlaylist", {}),
   createConfluence: () => post<{ code: string; sessionId: number }>("createConfluence", {}),
   joinConfluence: (args: { code: string }) => post<{ sessionId: number; ok: boolean }>("joinConfluence", args),

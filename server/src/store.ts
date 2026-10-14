@@ -386,21 +386,32 @@ try {
     ["Crusade (FF-style)", "/music/ff-crusade.mp3"],
     // Music's own works (Nigel, 2026-10-13): the workshop playlist is hers to
     // keep, and it holds the FULL list — every composition from her
-    // Compendium, the first Theme at the head, then the weather layers.
+    // Compendium, the first Theme at the head.
     ["The Theme — Love Stronger Than Death", "/music/music-theme-v1.mp3"],
     ["The Theme, Developed", "/music/music-theme-v2.mp3"],
     ["The Theme, Homage (B♭–D–F)", "/music/music-theme-bb.mp3"],
     ["Ode to Weather", "/music/music-ode-to-weather.mp3"],
     ["The Rupture Suite, Part One", "/music/music-rupture-suite.mp3"],
-    ["Weather Layer · Rain", "/music/music-weather-layer-rain.mp3"],
-    ["Weather Layer · Wind", "/music/music-weather-layer-wind.mp3"],
-    ["Weather Layer · Storm", "/music/music-weather-layer-storm.mp3"],
   ];
   const now = Date.now();
   const stmt = sqlite.prepare(`INSERT INTO battle_tracks (name, track_data, enabled, created_at) VALUES (?, ?, 1, ?)`);
   for (const [name, url] of seedTracks) {
     if (!existing.has(name)) stmt.run(name, url, now);
   }
+}
+// Nigel's removal order (2026-10-14): the weather sound layers are removed
+// from the game everywhere. One-time cleanup for databases that already
+// carry them: delete exactly the rows the old seed planted, matched by
+// seeded name AND url — no other row is touched. Idempotent: once the
+// rows are gone, nothing matches.
+{
+  const removedLayers: [string, string][] = [
+    ["Weather Layer · Rain", "/music/music-weather-layer-rain.mp3"],
+    ["Weather Layer · Wind", "/music/music-weather-layer-wind.mp3"],
+    ["Weather Layer · Storm", "/music/music-weather-layer-storm.mp3"],
+  ];
+  const del = sqlite.prepare(`DELETE FROM battle_tracks WHERE name = ? AND track_data = ?`);
+  for (const [name, url] of removedLayers) del.run(name, url);
 }
 // Aspect inventory: earned aspects waiting to be equipped at level 3
 sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_inventory (

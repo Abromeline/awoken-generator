@@ -9,8 +9,10 @@
 // every existing world for no player-visible gain. The full spec lives at
 // ~/workspace/music-of-the-awoken/mood-playlists.md; this map mirrors it.
 //
-// The weather LAYERS are not playlist songs — they are the weather's own
-// voice, laid UNDER whichever playlist the mood calls (see LAYER_FOR_MOOD).
+// The weather sound layers that once rode under the playlists were
+// removed from the game everywhere on Nigel's order (2026-10-14): this
+// map categorizes SONGS only, and the terrain sounds its mood's songs
+// alone.
 
 /** The sky's tongues, as Music names them. */
 export type PlaylistMood = "Storm" | "Rain" | "Wind" | "Calm" | "Mist" | "Thickening";
@@ -78,32 +80,6 @@ export const GREAT_STORM_ONLY: ReadonlySet<string> = new Set([
   "The Rupture Suite, Part One",
 ]);
 
-/** The weather layers, by the names they were seeded under. */
-export const LAYER_TRACK_NAMES = {
-  rain: "Weather Layer · Rain",
-  wind: "Weather Layer · Wind",
-  storm: "Weather Layer · Storm",
-} as const;
-
-export type LayerKind = keyof typeof LAYER_TRACK_NAMES;
-
-export function isLayerTrack(name: string): boolean {
-  return (Object.values(LAYER_TRACK_NAMES) as string[]).includes(name);
-}
-
-/** The underlay each mood calls (her crossfade rule): storm moods carry
- *  the storm layer, rain the rain layer, wind the wind layer; calm, mist
- *  and thickening lie over silence — the spec names no underlay for them,
- *  and none is invented here. */
-export const LAYER_FOR_MOOD: Record<PlaylistMood, LayerKind | null> = {
-  Storm: "storm",
-  Rain: "rain",
-  Wind: "wind",
-  Calm: null,
-  Mist: null,
-  Thickening: null,
-};
-
 export interface LibraryTrack {
   id: number;
   name: string;
@@ -116,8 +92,7 @@ export interface LibraryTrack {
 
 /** The ordered playlist for a mood, from the library as it stands:
  *  only enabled, territory-bound, playable songs she has categorized
- *  under the mood — never a layer (layers are underlay, not songs),
- *  never a track the workshop has switched off.
+ *  under the mood — never a track the workshop has switched off.
  *
  *  Her pacifying law: a Storm list ENDS with a song from Calm — the
  *  final track of the list is the tranquil one that sings the sky
@@ -129,7 +104,7 @@ export function playlistForMood(
   opts: { authored?: boolean } = {},
 ): LibraryTrack[] {
   const eligible = tracks.filter(t =>
-    t.enabled && t.url && t.pages.includes("territory") && !isLayerTrack(t.name));
+    t.enabled && t.url && t.pages.includes("territory"));
   const inMood = (t: LibraryTrack, m: PlaylistMood) => (MOOD_MAP[t.name] ?? []).includes(m);
   let list = eligible.filter(t => inMood(t, mood));
   if (!opts.authored) list = list.filter(t => !GREAT_STORM_ONLY.has(t.name));
@@ -138,13 +113,4 @@ export function playlistForMood(
     if (pacifier) list = [...list, pacifier];
   }
   return list;
-}
-
-/** The underlay track a mood calls, or null. Respects the workshop
- *  switch like any track: a layer Nigel disabled does not sound. */
-export function layerForMood(mood: PlaylistMood, tracks: LibraryTrack[]): LibraryTrack | null {
-  const kind = LAYER_FOR_MOOD[mood];
-  if (!kind) return null;
-  const name = LAYER_TRACK_NAMES[kind];
-  return tracks.find(t => t.name === name && t.enabled && t.url) ?? null;
 }

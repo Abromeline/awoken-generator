@@ -19,7 +19,7 @@ import {
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
 import {
-  WORLD_MOOD_TO_PLAYLIST, playlistForMood, layerForMood,
+  WORLD_MOOD_TO_PLAYLIST, playlistForMood,
   type LibraryTrack,
 } from "./musicMoods.js";
 
@@ -1952,8 +1952,7 @@ export const handlers = {
   // is computed from the CURRENT world mood at ask time — no watcher,
   // no autonomy. When the fetched mood changes, the client re-asks and
   // the music follows the weather event. Workshop switches are law
-  // here: a disabled track is never handed out for auto-play, and the
-  // weather layer rides UNDER the playlist, never inside it.
+  // here: a disabled track is never handed out for auto-play.
   async getTerrainPlaylist(_args: unknown) {
     const { mood, description } = await getWorldMood();
     const playlistMood = WORLD_MOOD_TO_PLAYLIST[mood] ?? "Calm";
@@ -1966,14 +1965,12 @@ export const handlers = {
       pages: JSON.parse(t.pages || '["territory"]') as string[],
     }));
     const list = playlistForMood(playlistMood, tracks);
-    const layer = layerForMood(playlistMood, tracks);
     const slim = (t: LibraryTrack) => ({ id: t.id, name: t.name, url: t.url as string });
     return {
       mood,
       description,
       playlistMood,
       tracks: list.map(slim),
-      layer: layer ? slim(layer) : null,
     };
   },
 

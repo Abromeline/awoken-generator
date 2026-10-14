@@ -195,19 +195,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [musicOn, setMusicOn] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const layerRef = useRef<HTMLAudioElement | null>(null);
   const [libraryTracks, setLibraryTracks] = useState<{ name: string; url: string }[]>([]);
-  const [layerTrack, setLayerTrack] = useState<{ name: string; url: string } | null>(null);
   // Music's weather-mood trigger (Nigel, 2026-10-13): the server computes
   // the terrain playlist from the CURRENT world mood (her categorization,
   // see server musicMoods). The client holds refs alongside state so the
   // audio handlers never chase stale closures.
   const tracksRef = useRef<{ name: string; url: string }[]>([]);
   const trackIdxRef = useRef(0);
-  const layerUrlRef = useRef<string | null>(null);
-  const layerLoadedRef = useRef<string | null>(null);
   const moodSeenRef = useRef<string | null>(null);
-  const LAYER_VOLUME = 0.12;
   const fadeAudio = (audio: HTMLAudioElement, to: number, ms = 1200, done?: () => void) => {
     const from = audio.volume;
     const steps = 12;
@@ -234,33 +229,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     a.volume = 0.4;
     a.play().catch(() => {});
   };
-  const syncLayer = (url: string | null, shouldPlay: boolean) => {
-    if (!url || !shouldPlay) {
-      const a = layerRef.current;
-      if (a && !a.paused) fadeAudio(a, 0, 1000, () => a.pause());
-      return;
-    }
-    if (!layerRef.current) {
-      layerRef.current = new Audio();
-      layerRef.current.loop = true;
-    }
-    const a = layerRef.current;
-    if (layerLoadedRef.current !== url) {
-      layerLoadedRef.current = url;
-      a.src = url;
-      a.volume = 0;
-      a.play().catch(() => {});
-      fadeAudio(a, LAYER_VOLUME, 1500);
-    } else if (a.paused) {
-      a.play().catch(() => {});
-      fadeAudio(a, LAYER_VOLUME, 1500);
-    }
-  };
-  const applyPlaylist = (pl: { tracks: { name: string; url: string }[]; layer: { name: string; url: string } | null }) => {
+  const applyPlaylist = (pl: { tracks: { name: string; url: string }[] }) => {
     tracksRef.current = pl.tracks;
     setLibraryTracks(pl.tracks);
-    layerUrlRef.current = pl.layer?.url ?? null;
-    setLayerTrack(pl.layer);
     trackIdxRef.current = 0;
     setTrackIdx(0);
   };
@@ -275,7 +246,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   }, []);
   // The trigger: when a fetched mood differs from the last one seen, the
   // weather has turned — re-ask for the playlist and, if the music is
-  // sounding, crossfade song and layer over to the new mood's keeping.
+  // sounding, crossfade the song over to the new mood's keeping.
   useEffect(() => {
     const iv = window.setInterval(async () => {
       try {
@@ -290,7 +261,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (sounding) {
           const a = audioRef.current!;
           fadeAudio(a, 0, 1200, () => playSongAt(0));
-          syncLayer(pl.layer?.url ?? null, true);
         }
       } catch {}
     }, 60000);
@@ -2698,21 +2668,17 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           const sounding = !!audioRef.current && !audioRef.current.paused;
           if (musicOn && sounding) {
             audioRef.current!.pause();
-            const la = layerRef.current;
-            if (la && !la.paused) fadeAudio(la, 0, 800, () => la.pause());
             setMusicOn(false);
           } else {
-            // First tap (or resume): start the mood's playlist and lay the
-            // weather's own voice quietly underneath it.
+            // First tap (or resume): start the mood's playlist.
             if (audioRef.current && audioRef.current.src) {
               audioRef.current.play().catch(() => {});
             } else {
               playSongAt(trackIdxRef.current);
             }
-            syncLayer(layerUrlRef.current, true);
             setMusicOn(true);
           }
-        }} aria-label="Toggle music" title={((libraryTracks[trackIdx]?.name) ?? "Music") + (layerTrack ? ` · under: ${layerTrack.name}` : "")}>
+        }} aria-label="Toggle music" title={(libraryTracks[trackIdx]?.name) ?? "Music"}>
           {musicOn ? "🎶" : "🎵"}
         </button>
       </div>
