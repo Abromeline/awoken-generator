@@ -290,7 +290,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // shines on click (commit at once); touch has no hover, so the
   // first tap raises a MIST preview and a confirm bar commits.
   const [touchMode, setTouchMode] = useState<boolean>(
-    () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches
+    () => {
+      if (typeof window === "undefined") return false;
+      // An iPad is a touch device even when a keyboard makes its PRIMARY
+      // pointer report "fine", and webviews disagree with Safari here —
+      // (pointer: coarse) alone left Nigel's iPad on the desktop path
+      // (2026-10-14: card readied, tap deployed-or-died invisibly, no
+      // mist, no confirm bar). Any touch capability earns touch manners:
+      // the mist + confirm flow is strictly safer than instant commit.
+      const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+      return coarse || navigator.maxTouchPoints > 0 || "ontouchstart" in window;
+    }
   );
   const [hoverHexId, setHoverHexId] = useState<number | null>(null);
   const [hexConfirm, setHexConfirm] = useState<{ kind: "attack" | "move" | "deploy"; tileId: number } | null>(null);
