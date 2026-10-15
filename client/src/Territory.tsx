@@ -1676,7 +1676,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
           {t.cursed && (
-            <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.58} ry={s * 0.98}
+            <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
               fill="url(#corruptionHalo)" pointerEvents="none" />
           )}
           {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
@@ -1688,7 +1688,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               the iPad stays smooth. */}
           {t.cursed && (
             <g className={battlePool.length > 0 ? "corruption-glow armed" : "corruption-glow"} pointerEvents="none">
-              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(120,8,30,0.45)" : "rgba(110,6,26,0.30)"} stroke="none" />
+              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(120,8,30,0.34)" : "rgba(110,6,26,0.16)"} stroke="none" />
               <polygon points={pts} fill={battlePool.length > 0 ? "rgba(165,18,60,0.38)" : "rgba(148,14,52,0.20)"} stroke="none" />
               {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
                   drifting up off the corruption — the glow made taller.
@@ -2608,9 +2608,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           onMouseLeave={() => { dragRef.current = null; }}>
           <defs>
             <radialGradient id="corruptionHalo" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(26,0,6,0.88)" />
-              <stop offset="55%" stopColor="rgba(96,4,18,0.42)" />
-              <stop offset="100%" stopColor="rgba(96,4,18,0)" />
+              <stop offset="0%" stopColor="rgba(96,4,18,0)" />
+              <stop offset="58%" stopColor="rgba(96,4,18,0.10)" />
+              <stop offset="80%" stopColor="rgba(52,2,10,0.55)" />
+              <stop offset="100%" stopColor="rgba(52,2,10,0)" />
             </radialGradient>
           </defs>
           {renderGrid()}
