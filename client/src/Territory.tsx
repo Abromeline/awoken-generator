@@ -190,7 +190,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   }, [tiles, buildings, tutorialDone, objectivesMet]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
-  const [battlePool, setBattlePool] = useState<number[]>([]); // hand indices staged for battle, max 4
+  const [battlePool, setBattlePool] = useState<number[]>([]); // AWAKENED IDs staged for battle, max 4 — IDs, never hand indices: an index rots the moment the hand re-derives
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [musicOn, setMusicOn] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
@@ -468,13 +468,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (battlePool.length === 0) return;
     const tile = tiles.find(t => t.id === tileId);
     if (!tile) return;
-    const fighters = battlePool.map(i => hand[i]).filter(Boolean);
-    if (fighters.length === 0) return;
-    const totalCost = fighters.reduce((sum, a) => sum + deployCost(a.power), 0);
-    if (energy < totalCost) {
-      showHexNotice(`This company needs ${totalCost}⚡ to take the field — you hold ${energy}⚡. Energy returns with time, and with the Awoken you keep in hand.`);
+    const fighters = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
+    if (fighters.length === 0) {
+      showHexNotice("The readied company has scattered — ready them again.");
       return;
     }
+    // No client-side energy gate (round four): this client's `energy` is a
+    // mount-time snapshot that regen leaves behind, while the orb reads
+    // the server fresh — a stale gate here refused deploys the tender
+    // could afford ("couldn't place, but had energy"). The server's
+    // spendEnergy is the only honest cashier; its refusal speaks below.
     const fighterIds = fighters.map(a => a.id);
     try {
       const result = await api.deployBattle({ awakenedIds: fighterIds, tileId });
@@ -551,10 +554,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const handleAttack = async (tileId: number) => {
     if (selectedAwoken === null) return;
-    if (energy < 1) { // Attacks cost 1 energy
-      showHexNotice("A strike costs 1⚡ — your energy is spent. It returns with time.");
-      return;
-    }
+    // (No client energy gate — the server's cashier decides; see deploy.)
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
@@ -600,11 +600,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (selectedAwoken === null) return;
     const awoken = tenderItems.find(a => a.id === selectedAwoken);
     if (!awoken) return;
-    const cost = moveCost(awoken.power);
-    if (energy < cost) {
-      showHexNotice(`${awoken.name} needs ${cost}⚡ to move — you hold ${energy}⚡.`);
-      return;
-    }
+    // (No client energy gate — the server's cashier decides; see deploy.)
     try {
       await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
       await refreshEnergy();
@@ -619,6 +615,29 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       showHexNotice(refusalText(e, "That move was refused."));
       setMoveTargeting(false);
       setTargetHexId(null);
+    }
+  };
+
+  // The hex-tap law (round four): ONE chain decides what a tap on a hex
+  // means, and every layer that can cover a hex — the tile polygon, a
+  // building standing on it, an Awoken standing on it — routes its taps
+  // here while a flow is armed. Before this, covered hexes were simply
+  // unreachable: their taps died in the covering element's own handler.
+  const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
+    if (selectedBuilding && !tile.cursed) {
+      setPendingTile(tile.id);
+      setSelectedBuilders([]);
+      setTargetHexId(null);
+      clearHexConfirm();
+    } else if (attackTargeting && selectedAwoken !== null) {
+      if (touchMode) raiseHexConfirm("attack", tile.id);
+      else { setTargetHexId(tile.id); handleAttack(tile.id); }
+    } else if (moveTargeting && selectedAwoken !== null) {
+      if (touchMode) raiseHexConfirm("move", tile.id);
+      else { setTargetHexId(tile.id); handleMove(tile.id); }
+    } else if (battlePool.length > 0) {
+      if (touchMode) raiseHexConfirm("deploy", tile.id);
+      else { setTargetHexId(tile.id); handleDeploy(tile.id); }
     }
   };
 
@@ -1259,18 +1278,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   const courtMarks = useCourtMarks();
   const isCourt = (a: Awakened) => courtMarks.championId === a.id || courtMarks.housedIds.has(a.id);
-  const toggleBattlePool = (index: number) => {
+  const toggleBattlePool = (a: Awakened) => {
     // Court-bound: housed Awoken and the champion stay in hand for battles —
     // they never stage for field deployment.
-    const a = hand[index];
-    if (a && isCourt(a) && !battlePool.includes(index)) {
+    if (isCourt(a) && !battlePool.includes(a.id)) {
       showHexNotice(`${a.name} is of the court — housed Awoken and the champion stay in hand for battles.`);
       return;
     }
     setBattlePool(prev => {
-      if (prev.includes(index)) return prev.filter(i => i !== index);
+      if (prev.includes(a.id)) return prev.filter(id => id !== a.id);
       if (prev.length >= 4) return prev;
-      return [...prev, index];
+      return [...prev, a.id];
     });
   };
 
@@ -1391,6 +1409,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}
                 onClick={async (e) => {
                   e.stopPropagation();
+                  // A building stands ON a hex: while a flow is armed,
+                  // a tap here is a tap on that hex (round four).
+                  if (attackTargeting || moveTargeting || battlePool.length > 0) { handleHexTap(t); return; }
                   if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
                   if (demoMode) {
                     if (confirm(`Demolish this ${b.buildingType}?`)) {
@@ -1491,9 +1512,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       pointerEvents: selectedBuilding ? "none" : "auto",
                     } as React.CSSProperties}
                     onClick={async (e) => {
-                      if (selectedBuilding) return; // Let tile handle it in build mode
-                      if (moveTargeting || attackTargeting) return; // Only tiles selectable in move/attack mode
                       e.stopPropagation();
+                      // An Awoken stands ON a hex: while a flow is armed,
+                      // a tap here is a tap on that hex (round four).
+                      if (attackTargeting || moveTargeting || battlePool.length > 0) { handleHexTap(t); return; }
+                      if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
                           const awoken = tenderItems.find(x => x.id === a.id);
@@ -1729,28 +1752,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             }}
             onMouseEnter={() => setHoverHexId(t.id)}
             onMouseLeave={() => setHoverHexId(h => (h === t.id ? null : h))}
-            onClick={async (e) => {
+            onClick={(e) => {
               // A tile tap is not an empty-map tap: stop the click here,
               // or it bubbles into the map's dismiss handler and erases
               // the confirm/targeting this very tap just raised.
               e.stopPropagation();
-              if (selectedBuilding && !t.cursed) {
-                // Open builder selection for this tile — the pending
-                // tile wears the mist while the placement is unconfirmed.
-                setPendingTile(t.id);
-                setSelectedBuilders([]);
-                setTargetHexId(null);
-                clearHexConfirm();
-              } else if (attackTargeting && selectedAwoken !== null) {
-                if (touchMode) raiseHexConfirm("attack", t.id);
-                else { setTargetHexId(t.id); handleAttack(t.id); }
-              } else if (moveTargeting && selectedAwoken !== null) {
-                if (touchMode) raiseHexConfirm("move", t.id);
-                else { setTargetHexId(t.id); handleMove(t.id); }
-              } else if (battlePool.length > 0) {
-                if (touchMode) raiseHexConfirm("deploy", t.id);
-                else { setTargetHexId(t.id); handleDeploy(t.id); }
-              }
+              handleHexTap(t);
             }} />
 
           {/* Awoken render in entity layer */}
@@ -2632,8 +2639,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           text = `${actor?.name ?? "Your Awoken"} will move to this hex — ${actor ? moveCost(actor.power) : 1}⚡.`;
           confirmLabel = "Move";
         } else {
-          const names = battlePool.map(i => hand[i]).filter(Boolean).map(a => a.name).join(", ");
-          const cost = battlePool.map(i => hand[i]).filter(Boolean).reduce((sum, a) => sum + deployCost(a.power), 0);
+          const pooled = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
+          const names = pooled.map(a => a.name).join(", ");
+          const cost = pooled.reduce((sum, a) => sum + deployCost(a.power), 0);
           text = tile?.cursed
             ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours. ${cost}⚡.`
             : `${names || "The readied company"} will take position on this hex. ${cost}⚡.`;
@@ -2660,12 +2668,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           <div className="battle-pool">
             <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
             <div className="battle-pool-cards">
-              {battlePool.map(i => {
-                const a = hand[i];
+              {battlePool.map(id => {
+                const a = hand.find(x => x.id === id);
                 if (!a) return null;
                 const el = dominantElement(a);
                 return (
-                  <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(i)} title="Remove">
+                  <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(a)} title="Remove">
                     <Corner element={el} className="hcorner tl" />
                     <Corner element={el} className="hcorner br" />
                     <img src={a.image_url} alt={a.name} />
@@ -2683,7 +2691,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             const xp = a.experience ?? 0;
             const progress = a.xp_progress ?? 0;
             return (
-            <button key={a.id} className={`dock-card ${battlePool.includes(i) ? "in-pool" : ""} ${applyingAspect ? "apply-target" : ""} ${courtMarks.championId === a.id ? "dock-court-champion" : courtMarks.housedIds.has(a.id) ? "dock-court-housed" : ""}`}
+            <button key={a.id} className={`dock-card ${battlePool.includes(a.id) ? "in-pool" : ""} ${applyingAspect ? "apply-target" : ""} ${courtMarks.championId === a.id ? "dock-court-champion" : courtMarks.housedIds.has(a.id) ? "dock-court-housed" : ""}`}
               title={courtMarks.championId === a.id ? "Your champion — the court stays in hand for battles" : courtMarks.housedIds.has(a.id) ? "Housed in the Hall — the court stays in hand for battles" : undefined}
               onClick={async () => {
                 if (applyingAspect) {
@@ -2705,7 +2713,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   }
                   return;
                 }
-                toggleBattlePool(i);
+                toggleBattlePool(a);
               }}>
               <Corner element={el} className="hcorner tl" />
               <Corner element={el} className="hcorner br" />
