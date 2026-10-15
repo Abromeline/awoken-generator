@@ -128,6 +128,14 @@ CREATE TABLE IF NOT EXISTS field_placements (
   placed_at INTEGER NOT NULL,
   last_moved_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS terrain_art (
+  element TEXT NOT NULL,
+  stage INTEGER NOT NULL,
+  image_blob_key TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (element, stage)
+);
 `;
 
 // (tender_births table created after sqlite init below)

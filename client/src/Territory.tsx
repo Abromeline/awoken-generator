@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
+import { useTerrainArt, terrainImgFor, stageForTile } from "./terrainArt";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 
@@ -161,6 +162,9 @@ function dominantElement(a: Awakened): Element {
 }
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
+  // The creator's uploaded stage art, shared cache with the workshop's
+  // Terrain Stages section; tiles resolve through terrainImgFor below.
+  const { data: terrainArt } = useTerrainArt();
   const fireAspectImg = assets.find(a => a.category === "aspect" && (a as any).element === "fire" && /II/.test(a.name))?.imageUrl
     ?? assets.find(a => a.category === "aspect" && (a as any).element === "fire")?.imageUrl
     ?? null;
@@ -1728,7 +1732,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               with its center at (964, 546) source px. The x/y place the
               image so the face center lands exactly on the tile's
               lattice point (cx, cy); imgOff seats off-template art. */}
-          <image href={TERRAIN[tileKey]}
+          <image href={tileKey === "cursed" ? TERRAIN[tileKey] : terrainImgFor(tileKey, stageForTile(t), terrainArt)}
             x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />

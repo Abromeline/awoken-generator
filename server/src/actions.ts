@@ -1427,6 +1427,74 @@ export const handlers = {
     return okResponse.parse({ ok: true });
   },
 
+  // --- Terrain stage art (Nigel, 2026-10-15) --------------------------------
+  // The hex's grown faces. Stage 1 is the art bundled with the game; stages
+  // 2 and 3 are the creator's to upload from the workshop's Terrain Stages
+  // section. Upload and delete are workshop-gated in index.ts (the same
+  // lock as uploadLayerAsset); the read is public — the map itself needs it.
+
+  async getTerrainArt() {
+    const rows = await db.select().from(schema.terrainArt);
+    const art: Record<string, Record<number, string>> = {};
+    for (const row of rows) {
+      (art[row.element] ??= {})[row.stage] = blobUrl(row.imageBlobKey);
+    }
+    return { art };
+  },
+
+  async uploadTerrainArt(args: unknown) {
+    const parsed = z.object({
+      element: z.enum(["tide", "sky", "stone", "root", "neutral"]),
+      stage: z.union([z.literal(2), z.literal(3)]),
+      imageBase64: z.string().min(100).max(16_000_000),
+      mimeType: z.literal("image/png"),
+    }).safeParse(args);
+    if (!parsed.success) badRequest(`Invalid terrain art upload — ${describeValidationIssues(parsed.error)}.`);
+    const { element, stage, imageBase64, mimeType } = parsed.data;
+    const bytes = Buffer.from(imageBase64, "base64");
+    assertPngBytes(bytes);
+    // The seating contract: terrain art registers on the shared
+    // 1920 × 1280 canvas the provided tiles were measured on (Territory's
+    // TERRAIN_IMG placement seats the painted face from those pixels).
+    // Any other canvas would seat crooked on the lattice, so it is
+    // refused here rather than silently misplaced on the map.
+    const width = bytes.readUInt32BE(16); const height = bytes.readUInt32BE(20);
+    if (width !== 1920 || height !== 1280) {
+      badRequest(`That PNG is ${width} × ${height}. Terrain art uses the shared 1920 × 1280 canvas, like the tiles you provided.`);
+    }
+    const existing = await db.select({ imageBlobKey: schema.terrainArt.imageBlobKey })
+      .from(schema.terrainArt)
+      .where(and(eq(schema.terrainArt.element, element), eq(schema.terrainArt.stage, stage)))
+      .limit(1);
+    const blobKey = `terrain-art/${element}-stage${stage}-${Date.now()}-${randomUUID()}.png`;
+    blobs.put(blobKey, bytes, mimeType);
+    await db.insert(schema.terrainArt)
+      .values({ element, stage, imageBlobKey: blobKey, mimeType, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [schema.terrainArt.element, schema.terrainArt.stage],
+        set: { imageBlobKey: blobKey, mimeType, updatedAt: new Date() },
+      });
+    const replacedKey = existing[0]?.imageBlobKey;
+    if (replacedKey && replacedKey !== blobKey) blobs.delete(replacedKey);
+    return { ok: true as const, element, stage, image_url: blobUrl(blobKey) };
+  },
+
+  async deleteTerrainArt(args: unknown) {
+    const parsed = z.object({
+      element: z.enum(["tide", "sky", "stone", "root", "neutral"]),
+      stage: z.union([z.literal(2), z.literal(3)]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid terrain art removal.");
+    const rows = await db.select({ imageBlobKey: schema.terrainArt.imageBlobKey })
+      .from(schema.terrainArt)
+      .where(and(eq(schema.terrainArt.element, parsed.data.element), eq(schema.terrainArt.stage, parsed.data.stage)))
+      .limit(1);
+    await db.delete(schema.terrainArt)
+      .where(and(eq(schema.terrainArt.element, parsed.data.element), eq(schema.terrainArt.stage, parsed.data.stage)));
+    const key = rows[0]?.imageBlobKey; if (key) blobs.delete(key);
+    return okResponse.parse({ ok: true });
+  },
+
   async saveAwoken(args: unknown, ctx?: ActionContext) {
     const parsed = z.object({ layers: z.array(layerRefShape).min(1).max(5), imageBase64: z.string().min(100).max(16_000_000), collection: collectionSchema, ownerName: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest(`Invalid awakening — ${describeValidationIssues(parsed.error)}.`);

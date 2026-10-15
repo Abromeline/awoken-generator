@@ -329,6 +329,26 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   curseMaxHp: integer("curse_max_hp"),
 });
 
+// Terrain stage art (Nigel, 2026-10-15): the creator's uploaded faces for
+// a hex's grown stages — stage 2 (the swelling) and stage 3 (the
+// flourishing). Stage 1 is the bundled art he provided with the game and
+// is never stored here. Keyed (element, stage): one living face per slot;
+// uploading again replaces it. Until a slot is filled, the map renders
+// his provided art for every stage (see client/src/terrainArt.ts).
+export const terrainArt = sqliteTable("terrain_art", {
+  element: text("element", {
+    enum: ["tide", "sky", "stone", "root", "neutral"],
+  }).notNull(),
+  stage: integer("stage").notNull(),
+  imageBlobKey: text("image_blob_key").notNull(),
+  mimeType: text("mime_type").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => [
+  primaryKey({ columns: [table.element, table.stage] }),
+]);
+
 // Field placements: which Awoken stands on which tile.
 // An Awoken on the field cannot return to hand except by dissipation.
 export const fieldPlacements = sqliteTable("field_placements", {

@@ -2120,3 +2120,20 @@ body.defeat-flash {
 .growth-spend button:hover:not(:disabled){background:rgba(60,42,8,0.9)}
 .dock-spend-open{display:flex;gap:4px}
 .dock-spend-open button{padding:2px 8px;border-radius:999px;border:1px solid rgba(212,175,106,0.7);background:rgba(20,14,4,0.9);color:#f0dfae;cursor:pointer;font-size:11px}
+
+/* Terrain Stages workshop bench (2026-10-15): one slot per grown face.
+   Previews sit on deep ink — the map's own ground — at the tiles' 3:2
+   canvas ratio; an unfilled slot greys the provided art it stands in for. */
+.terrain-art-grid{display:grid;grid-template-columns:1fr;gap:1px;background:var(--border);margin-top:14px}
+@media(min-width:760px){.terrain-art-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.terrain-slot{background:var(--bg);padding:12px;display:grid;gap:8px;align-content:start}
+.terrain-slot>img{display:block;width:100%;aspect-ratio:3/2;object-fit:contain;background:#171310}
+.terrain-slot>img.placeholder{opacity:.55;filter:saturate(.55)}
+.terrain-slot .slot-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.terrain-slot .slot-head strong{font-family:var(--display);font-weight:500}
+.terrain-slot .live-mark{color:var(--accent-strong);font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.terrain-slot .placeholder-mark{color:var(--dim);font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.terrain-slot .slot-note{margin:0;color:var(--dim);font-family:var(--display);font-size:12px;line-height:1.45}
+.terrain-slot .slot-note.warn{color:#efa69e}
+.terrain-slot .slot-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.terrain-slot .file-button{cursor:pointer}

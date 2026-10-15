@@ -38,10 +38,11 @@ import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorks
 import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph } from "./glyphs";
 import { applyElementPalette, elementPalette, useElementPalette } from "./palette";
+import { BUNDLED_TERRAIN, TERRAIN_ART_ELEMENTS, TERRAIN_ART_QUERY_KEY, useTerrainArt } from "./terrainArt";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors" | "feedback";
+type WorkshopView = "wake" | "pool" | "terrain" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors" | "feedback";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -136,6 +137,17 @@ async function preparePng(file: File) {
     const blob = await canvasToPng(canvas);
     return { ok: true as const, file: new File([blob], file.name, { type: "image/png", lastModified: file.lastModified }), note: "2550 × 3300 PNG · fitted to the shared canvas" };
   } finally { URL.revokeObjectURL(url); }
+}
+/** Terrain stage art intake check — the same truth test the server runs
+ *  (true PNG signature, the shared 1920 × 1280 canvas), so a wrong file is
+ *  answered here before the upload rather than after it. The server
+ *  remains the judge; this only saves the trip. */
+async function checkTerrainPng(file: File) {
+  const header = new Uint8Array(await file.slice(0, 33).arrayBuffer()); const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (header.length < 26 || !signature.every((byte, index) => header[index] === byte)) return { ok: false as const, note: "Not a true PNG file." };
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength); const width = view.getUint32(16); const height = view.getUint32(20);
+  if (width !== 1920 || height !== 1280) return { ok: false as const, note: `${width} × ${height} — terrain art uses the shared 1920 × 1280 canvas, like the tiles you provided.` };
+  return { ok: true as const, note: "1920 × 1280 PNG" };
 }
 /** Back-to-front draw order, per the artist: background, body, arms, head.
  *  "aura" keeps its slot for legacy compositions only (fix list #9) —
@@ -858,6 +870,60 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
         {asset.serverId && <button className="remove-piece" onClick={() => remove.mutate(asset.serverId ?? 0)}>Remove</button>}
         {asset.serverId && <label className="move-piece"><small>Move to</small><select aria-label={`Move ${asset.name} to another pool`} value="" onChange={(event) => { if (event.target.value) move.mutate({ id: asset.serverId ?? 0, category: event.target.value }); event.target.value = ""; }}><option value="">Another pool…</option>{categories.filter((item) => item.id !== asset.category).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       </div></article>)}</div>}</section>; })}</div>
+  </section>;
+}
+
+/** Terrain Stages — the creator's bench for the hex's grown faces
+ *  (Nigel, 2026-10-15). Stage 1 is the art bundled with the game and
+ *  never changes here; stages 2 and 3 take his uploads, one face per
+ *  element, and go live on the map the moment they land. A slot with no
+ *  upload shows his provided art greyed as the placeholder it is. */
+function TerrainArtPanel() {
+  const queryClient = useQueryClient();
+  const { data: art } = useTerrainArt();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const elementLabel: Record<string, string> = { tide: "🌊 Tide", sky: "🌀 Sky", stone: "🪨 Stone", root: "🌿 Root", neutral: "◇ Neutral" };
+  const stageLabel: Record<number, string> = { 2: "Stage 2 — the swelling", 3: "Stage 3 — the flourishing" };
+  const setNote = (key: string, note: string) => setNotes((current) => ({ ...current, [key]: note }));
+  async function upload(element: string, stage: 2 | 3, file: File) {
+    const key = `${element}-${stage}`; setBusy(key);
+    try {
+      const check = await checkTerrainPng(file);
+      if (!check.ok) { setNote(key, check.note); return; }
+      const encoded = await fileToBase64(file);
+      await api.uploadTerrainArt({ element, stage, imageBase64: encoded.dataBase64, mimeType: "image/png" });
+      setNote(key, "Live on the map now.");
+      await queryClient.invalidateQueries({ queryKey: TERRAIN_ART_QUERY_KEY });
+    } catch (error) { setNote(key, mutationError(error)); }
+    finally { setBusy(null); }
+  }
+  async function revert(element: string, stage: 2 | 3) {
+    const key = `${element}-${stage}`; setBusy(key);
+    try {
+      await api.deleteTerrainArt({ element, stage });
+      setNote(key, "Reverted — your provided art stands here again.");
+      await queryClient.invalidateQueries({ queryKey: TERRAIN_ART_QUERY_KEY });
+    } catch (error) { setNote(key, mutationError(error)); }
+    finally { setBusy(null); }
+  }
+  return <section className="pool"><header className="pool-header"><div><p className="eyebrow">Terrain Stage Art</p><h1>The land, as it grows.</h1></div><p>A hex coalesces in three stages: the broken floating land you provided (stage 1, bundled with the game and never replaced here), the elements swelling (stage 2), and the fully filled, flourishing hex (stage 3). Upload a face for any stage and it goes live on the map at once; until you do, your provided art stands in at every stage.</p></header>
+    <p className="quiet">Uploads must be true PNGs on the shared 1920 × 1280 canvas — the same registration as the tiles you provided, so uploaded art seats on the lattice with the same placement as yours. Stage 3 art is stored and previewed here now, and first renders on the map when the levels engine computes stage 3.</p>
+    {TERRAIN_ART_ELEMENTS.map((element) => <section className="pool-group" key={element}><header><h2>{elementLabel[element]}</h2><span>stage 1 · your provided art</span></header>
+      <div className="terrain-art-grid">{([2, 3] as const).map((stage) => {
+        const uploaded = art?.[element]?.[stage]; const key = `${element}-${stage}`; const isBusy = busy === key;
+        return <article className="terrain-slot" key={key}>
+          <div className="slot-head"><strong>{stageLabel[stage]}</strong>{uploaded ? <span className="live-mark">Uploaded</span> : <span className="placeholder-mark">Placeholder</span>}</div>
+          <img src={uploaded ?? BUNDLED_TERRAIN[element]} alt={`${elementLabel[element]} stage ${stage} terrain art`} className={uploaded ? "" : "placeholder"} />
+          <p className="slot-note">{uploaded ? "Your uploaded art — this is the face growing tiles of this element wear." : "Placeholder — your provided art stands here until you upload this stage."}</p>
+          {notes[key] && <p className="slot-note warn">{notes[key]}</p>}
+          <div className="slot-actions">
+            <label className="file-button"><input type="file" accept="image/png,.png" disabled={isBusy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(element, stage, file); }} />{isBusy ? "Working…" : uploaded ? "Replace PNG" : "Upload PNG"}</label>
+            {uploaded && <button className="remove-piece" disabled={isBusy} onClick={() => void revert(element, stage)}>Revert to provided art</button>}
+          </div>
+        </article>;
+      })}</div>
+    </section>)}
   </section>;
 }
 
@@ -1667,9 +1733,10 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }, { id: "feedback", label: "Feedback" }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "terrain", label: "Terrain Stages" }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }, { id: "feedback", label: "Feedback" }];
   return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>    {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} /></>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
+    {workshopView === "terrain" && <TerrainArtPanel />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
     {workshopView === "tenders" && <TendersPanel />}

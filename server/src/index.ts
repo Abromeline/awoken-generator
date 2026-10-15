@@ -30,6 +30,8 @@ const actionNames = Object.keys(handlers) as ActionName[];
 // the workshop token when WORKSHOP_PASSWORD is set.
 const WORKSHOP_ACTIONS = new Set([
   "uploadLayerAsset",
+  "uploadTerrainArt",
+  "deleteTerrainArt",
   "updateLayerAssetStats",
   "updateLayerAssetElement",
   "renameLayerAsset",

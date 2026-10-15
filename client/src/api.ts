@@ -76,6 +76,11 @@ export interface TerritoryTile {
   height?: number;
   curseHp?: number | null;
   curseMaxHp?: number | null;
+  /** The terrain attunement bank, as getTerritory serves it: which
+   *  element is pressing this tile, and how full its 10-point bank is.
+   *  Both absent/null until a company or a turned shrine first pours. */
+  attunePoints?: number | null;
+  attuneElement?: string | null;
 }
 
 export interface FieldPlacement {
@@ -146,6 +151,11 @@ export type ElementName = "root" | "tide" | "sky" | "stone" | "fire";
 export interface UITheme {
   elementColors: Record<ElementName, string>;
 }
+
+/** Terrain stage art the creator has uploaded: element → stage → image
+ *  URL. Only filled slots appear; every other (element, stage) renders
+ *  the bundled provided art (see client/src/terrainArt.ts). */
+export type TerrainArtMap = Partial<Record<string, Partial<Record<number, string>>>>;
 
 export interface GroveStatus {
   centsAccrued: number;
@@ -265,6 +275,10 @@ export const api = {
   getStudio: () => post<Studio>("getStudio", {}),
   uploadLayerAsset: (args: { category: Category; imageBase64: string; mimeType: "image/png" }) =>
     post<{ id: number; name: string }>("uploadLayerAsset", args),
+  getTerrainArt: () => post<{ art: TerrainArtMap }>("getTerrainArt", {}),
+  uploadTerrainArt: (args: { element: string; stage: 2 | 3; imageBase64: string; mimeType: "image/png" }) =>
+    post<{ ok: true; element: string; stage: number; image_url: string }>("uploadTerrainArt", args),
+  deleteTerrainArt: (args: { element: string; stage: 2 | 3 }) => post<{ ok: true }>("deleteTerrainArt", args),
   updateLayerAssetStats: (args: { id: number; power: number; toughness: number }) =>
     post<{ ok: true; rarity: Rarity }>("updateLayerAssetStats", args),
   renameLayerAsset: (args: { id: number; name: string }) => post<{ ok: true }>("renameLayerAsset", args),
