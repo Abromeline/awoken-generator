@@ -2113,3 +2113,10 @@ body.defeat-flash {
 /* The Ode's pause — always within reach over the main page */
 .ode-toggle{position:fixed;right:14px;bottom:96px;z-index:95;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;border:1px solid rgba(212,175,106,0.55);background:rgba(10,8,14,0.72);color:#e8d9ae;font-size:12.5px;letter-spacing:0.4px;cursor:pointer;backdrop-filter:blur(3px)}
 .ode-toggle:hover{background:rgba(30,22,10,0.85);border-color:rgba(212,175,106,0.9)}
+
+/* Growth, spent by the tender's hand (2026-10-15) */
+.growth-spend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;padding:9px 11px;border:1px solid rgba(212,175,106,0.5);border-radius:8px;background:rgba(212,175,106,0.08);font-size:13px}
+.growth-spend button{padding:5px 12px;border-radius:999px;border:1px solid rgba(212,175,106,0.7);background:rgba(20,14,4,0.85);color:#f0dfae;cursor:pointer;font-size:12.5px}
+.growth-spend button:hover:not(:disabled){background:rgba(60,42,8,0.9)}
+.dock-spend-open{display:flex;gap:4px}
+.dock-spend-open button{padding:2px 8px;border-radius:999px;border:1px solid rgba(212,175,106,0.7);background:rgba(20,14,4,0.9);color:#f0dfae;cursor:pointer;font-size:11px}

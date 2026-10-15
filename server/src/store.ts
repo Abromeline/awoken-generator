@@ -157,6 +157,17 @@ try {
 } catch {
   // Column already exists
 }
+// Migration: spent stat points (Nigel, 2026-10-15)
+try {
+  sqlite.exec("ALTER TABLE awakened ADD COLUMN spent_power INTEGER NOT NULL DEFAULT 0");
+} catch {
+  // Column already exists
+}
+try {
+  sqlite.exec("ALTER TABLE awakened ADD COLUMN spent_toughness INTEGER NOT NULL DEFAULT 0");
+} catch {
+  // Column already exists
+}
 // Migration: the shrine's calling (Nigel, 2026-10-14)
 try {
   sqlite.exec("ALTER TABLE territory_buildings ADD COLUMN mode TEXT NOT NULL DEFAULT 'blessing'");

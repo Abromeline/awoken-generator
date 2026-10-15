@@ -54,6 +54,8 @@ export interface Awakened {
   level?: number;
   stat_points?: number;
   bonus_power?: number;
+  spent_power?: number;
+  spent_toughness?: number;
   bonus_toughness?: number;
   xp_current?: number;
   xp_next?: number;

@@ -44,6 +44,11 @@ export const awakened = sqliteTable("awakened", {
   experience: integer("experience").notNull().default(0),
   // Unassigned stat points earned from levels
   statPoints: integer("stat_points").notNull().default(0),
+  // Growth made permanent (Nigel, 2026-10-15): stat points the tender
+  // has SPENT into this Awoken, tracked apart from aspect bonuses so
+  // the card's litany can show what levels built.
+  spentPower: integer("spent_power").notNull().default(0),
+  spentToughness: integer("spent_toughness").notNull().default(0),
   // Bonus stats from assigned points
   bonusPower: integer("bonus_power").notNull().default(0),
   bonusToughness: integer("bonus_toughness").notNull().default(0),

@@ -355,6 +355,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
+  const [spendOpenId, setSpendOpenId] = useState<number | null>(null);
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
   // Wave simulation (preview only, no DB changes)
   const [simActive, setSimActive] = useState(false);
@@ -1724,15 +1725,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             let etaSec: number | null = null;
             if (rate > 0) etaSec = Math.ceil(remaining / rate) * 30;
             else if ((t as any).attuneShrineNextSec != null) etaSec = Math.max(30, (t as any).attuneShrineNextSec);
-            const eta = etaSec == null ? "" : etaSec < 90 ? `~${etaSec}s` : etaSec < 5400 ? `~${Math.round(etaSec / 60)}m` : `~${Math.round(etaSec / 360) / 10}h`;
+            const eta = etaSec == null ? `${Math.floor((t as any).attunePoints ?? 0)}/10` : etaSec < 90 ? `~${etaSec}s` : etaSec < 5400 ? `~${Math.round(etaSec / 60)}m` : `~${Math.round(etaSec / 360) / 10}h`;
             const col = nextStage === "neutral" ? "#9a958c" : (elementPalette[nextStage as keyof typeof elementPalette] ?? "#d4af6a");
             return (
               <g pointerEvents="none">
-                <circle cx={cx + s * 0.55} cy={cy - s * 0.52} r={s * 0.21} fill="rgba(8,6,10,0.82)" stroke={col} strokeWidth={1.4} />
+                <circle cx={cx + s * 0.48} cy={cy - s * 0.52} r={s * 0.30} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6} />
                 {nextStage === "neutral"
-                  ? <text x={cx + s * 0.55} y={cy - s * 0.44} textAnchor="middle" fontSize={s * 0.24} fill={col}>◇</text>
-                  : <g transform={`translate(${cx + s * 0.365}, ${cy - s * 0.595})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.37} height={s * 0.148} /></g>}
-                {eta && <text x={cx + s * 0.55} y={cy - s * 0.20} textAnchor="middle" fontSize={s * 0.15} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3} paintOrder="stroke">{eta}</text>}
+                  ? <text x={cx + s * 0.48} y={cy - s * 0.40} textAnchor="middle" fontSize={s * 0.34} fill={col}>◇</text>
+                  : <g transform={`translate(${cx + s * 0.22}, ${cy - s * 0.624})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.52} height={s * 0.208} /></g>}
+                {eta && <text x={cx + s * 0.48} y={cy + s * 0.18} textAnchor="middle" fontSize={s * 0.42} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3.4} paintOrder="stroke">{eta}</text>}
               </g>
             );
           })()}
@@ -2523,13 +2524,13 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               </button>
             </div>
             <div className="feed-energy-row" style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, opacity: 0.85 }}>Feed energy → XP (×2):</span>
+              <span style={{ fontSize: 12, opacity: 0.85 }}>Feed energy → XP (×2 in the Hall · ×1 in the field):</span>
               {[1, 5, 10].map(amt => (
                 <button
                   key={amt}
                   className="stance-btn"
                   disabled={energy < amt}
-                  title={`Give ${amt} energy, ${awoken.name} gains ${amt * 2} XP`}
+                  title={`Give ${amt} energy — XP at ×2 while ${awoken.name} dwells in the Hall, ×1 in the field`}
                   onClick={async () => {
                     try {
                       const r = await api.feedEnergy({ awakenedId: selectedAwoken, energy: amt });
@@ -2541,7 +2542,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                     }
                   }}
                 >
-                  {amt}⚡ → {amt * 2} XP
+                  {amt}⚡
                 </button>
               ))}
             </div>
@@ -2807,13 +2808,16 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 <span className="dock-xp-text">Lv {level}</span>
               </div>
               {(a.stat_points ?? 0) > 0 && (
-                <div className="dock-stat-points" onClick={(e) => {
-                  e.stopPropagation();
-                  const stat = window.confirm("Add to Power? (Cancel = Toughness)") ? "power" : "toughness";
-                  api.assignStatPoint({ awakenedId: a.id, stat }).then(() => onUpdate()).catch(console.error);
-                }}>
-                  +{a.stat_points} point!
-                </div>
+                spendOpenId === a.id ? (
+                  <div className="dock-stat-points dock-spend-open" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => { api.assignStatPoint({ awakenedId: a.id, stat: "power" }).then(() => { setSpendOpenId(null); onUpdate(); }).catch(console.error); }}>⚔ +1</button>
+                    <button onClick={() => { api.assignStatPoint({ awakenedId: a.id, stat: "toughness" }).then(() => { setSpendOpenId(null); onUpdate(); }).catch(console.error); }}>♥ +1</button>
+                  </div>
+                ) : (
+                  <div className="dock-stat-points" onClick={(e) => { e.stopPropagation(); setSpendOpenId(a.id); }}>
+                    +{a.stat_points} point!
+                  </div>
+                )
               )}
             </button>
             );

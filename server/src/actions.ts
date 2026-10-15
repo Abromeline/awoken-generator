@@ -291,6 +291,7 @@ export function toAwakenedPayload(
     owner_name: row.ownerName, flavor_text: row.flavorText, created_at: row.createdAt.toISOString(),
     experience: xp, level, stat_points: row.statPoints ?? 0,
     bonus_power: bonusPower, bonus_toughness: bonusToughness,
+    spent_power: (row as any).spentPower ?? 0, spent_toughness: (row as any).spentToughness ?? 0,
     xp_current: xpInfo.current, xp_next: xpInfo.next, xp_progress: xpInfo.progress,
     // Progress within the current level, for visible growth bars (Hall, dock):
     // XP earned into this level, and the size of this level's XP span.
@@ -1716,8 +1717,8 @@ export const handlers = {
     if (!rows.length) badRequest("That Awoken is not yours.");
     if ((rows[0].statPoints ?? 0) < 1) badRequest("No stat points available.");
     const update = parsed.data.stat === "power"
-      ? { bonusPower: (rows[0].bonusPower ?? 0) + 1 }
-      : { bonusToughness: (rows[0].bonusToughness ?? 0) + 1 };
+      ? { bonusPower: (rows[0].bonusPower ?? 0) + 1, spentPower: ((rows[0] as any).spentPower ?? 0) + 1 }
+      : { bonusToughness: (rows[0].bonusToughness ?? 0) + 1, spentToughness: ((rows[0] as any).spentToughness ?? 0) + 1 };
     await db.update(schema.awakened)
       .set({ ...update, statPoints: (rows[0].statPoints ?? 1) - 1 })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
@@ -3038,10 +3039,16 @@ export const handlers = {
         bank += pts;
         if (fresh && !completeStage && bank > 9) bank = 9;
         let element = tile.element as string;
+        let crossed = false;
         while (bank >= 10) {
           if (element === el) { bank = 10; break; }
           element = element === "neutral" ? el : "neutral";
           bank -= 10;
+          crossed = true;
+          // One stage per beat (Nigel, 2026-10-15): a carried bank
+          // may not sprint through the neutral shore in the same
+          // answer — the crossing must be witnessed too.
+          if (!completeStage) { if (bank > 9) bank = 9; break; }
         }
         if (element !== tile.element || bankEl !== (tile.attuneElement ?? null) || bank !== (tile.attunePoints ?? 0)) {
           return { element, attuneElement: bankEl, attunePoints: bank };
@@ -5305,9 +5312,20 @@ export const handlers = {
     }
     const spent = await spendEnergy(ownerKey, parsed.data.energy);
     if (!spent) badRequest("Not enough energy.");
-    const xpGain = parsed.data.energy * 2;
+    // The Hall's teaching is for the HOUSED (Nigel, 2026-10-15,
+    // Run #3 SUSPECT): feeding teaches at ×2 only while the Awoken
+    // dwells in the Hall of Champions; in the field it teaches ×1.
+    // Before this, the ×2 flowed anywhere and the Hall's training
+    // ground meant nothing.
+    const housed = await db.select().from(schema.hallResidents)
+      .where(and(
+        eq(schema.hallResidents.ownerKey, ownerKey),
+        eq(schema.hallResidents.awakenedId, parsed.data.awakenedId)
+      )).limit(1);
+    const multiplier = housed.length ? 2 : 1;
+    const xpGain = parsed.data.energy * multiplier;
     const result = await grantXp(parsed.data.awakenedId, xpGain);
-    return { ok: true, xpGain, ...result };
+    return { ok: true, xpGain, multiplier, ...result };
   },
 
   // --- Tender feedback (bug reports, questions, suggestions) ---

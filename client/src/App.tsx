@@ -268,6 +268,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
 
 function CreatureCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
   const queryClient = useQueryClient(); const [editing, setEditing] = useState(false); const [name, setName] = useState(item.name);
+  const spend = useMutation({ mutationFn: (stat: "power" | "toughness") => api.assignStatPoint({ awakenedId: item.id, stat }), onSuccess: () => invalidateStudios(queryClient), onError: (e: any) => alert(e?.message || "That Awoken is not yours to grow.") });
   const rename = useMutation({ mutationFn: () => api.renameAwoken({ id: item.id, name }), onSuccess: () => { setEditing(false); invalidateStudios(queryClient); } });
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
@@ -282,8 +283,10 @@ function CreatureCard({ item, allowDelete = false }: { item: Awoken; allowDelete
       <blockquote>{item.flavor_text}</blockquote>
       <div className="total-stats"><div><span>Power</span><strong>{item.power}</strong></div><i aria-hidden="true" /><div><span>Toughness</span><strong>{item.toughness}</strong></div></div>
       {item.empowerment > 0 && <p className="empowerment"><strong>Shared awakening +{item.empowerment}/+{item.empowerment}</strong><span>Every copy of this form has grown stronger.</span></p>}
+      {((item.spent_power ?? 0) > 0 || (item.spent_toughness ?? 0) > 0) && <p className="empowerment"><strong>Growth +{item.spent_power ?? 0}/+{item.spent_toughness ?? 0}</strong><span>Levels made flesh — stat points spent into this Awoken, permanent in every battle.</span></p>}
+      {(item.stat_points ?? 0) > 0 && <div className="growth-spend"><span>{item.stat_points} stat point{(item.stat_points ?? 0) > 1 ? "s" : ""} waiting — growth is a choice:</span><button disabled={spend.isPending} onClick={() => spend.mutate("power")}>+1 Power</button><button disabled={spend.isPending} onClick={() => spend.mutate("toughness")}>+1 Toughness</button></div>}
       <section className="litany" aria-label="Stat litany"><header><span>The stat litany</span><small>the parts become the whole</small></header>{litany.map((layer) => <div className="litany-row" key={`${item.id}-${layer.category}`}><span>{layer.category}</span><strong>{layer.name}</strong><b>{layer.power}/{layer.toughness}</b></div>)}
-        <div className="arithmetic"><span>Power</span><strong>{powerParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""} = {item.power}</strong><span>Toughness</span><strong>{toughnessParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""} = {item.toughness}</strong></div>
+        <div className="arithmetic"><span>Power</span><strong>{powerParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""}{item.bonus_power ? ` + ${item.bonus_power} gifts` : ""} = {item.power}</strong><span>Toughness</span><strong>{toughnessParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""}{item.bonus_toughness ? ` + ${item.bonus_toughness} gifts` : ""} = {item.toughness}</strong></div>
       </section>
       <div className="card-foot"><span>{ordinal(item.iteration)}</span><time>{new Date(item.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time></div>
       {allowDelete && <button className="release-button" onClick={() => remove.mutate()} disabled={remove.isPending}>Release from collection</button>}
