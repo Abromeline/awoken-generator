@@ -2159,3 +2159,8 @@ body.defeat-flash {
 .story-form-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .story-form-foot button{min-height:40px;padding:8px 16px;cursor:pointer}
 .story-card-stage{position:fixed;left:-10000px;top:0;width:340px;pointer-events:none}
+
+/* Lore's seed: the Awoken's own prompt, opening its Stories tab. */
+.story-prompt{margin:0 0 16px;padding:12px 14px;border-left:3px solid #b89b5e;background:rgba(184,155,94,.10);border-radius:0 6px 6px 0}
+.story-prompt-label{display:block;font-size:.78em;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.75;margin-bottom:4px}
+.story-prompt p{margin:0;font-style:italic}

@@ -90,6 +90,15 @@ export interface TerritoryTile {
    *  Both absent/null until a company or a turned shrine first pours. */
   attunePoints?: number | null;
   attuneElement?: string | null;
+  /** Terraforming trays (Nigel, 2026-10-15): the hex's stack as the
+   *  server settles it — sealed trays, the growing tray's points,
+   *  the TOP tray's stage (what the tile renders) and HP, and the
+   *  whole stack's power. height (above) is the total tray count. */
+  traysSealed?: number;
+  growPoints?: number;
+  trayStage?: number;
+  topHp?: number;
+  stackPower?: number;
 }
 
 export interface FieldPlacement {
@@ -297,7 +306,7 @@ export const api = {
     post<{ id: number; name: string; iteration: number; empowerment: number; flavor_text: string }>("saveAwoken", args),
   renameAwoken: (args: { id: number; name: string }) => post<{ ok: true }>("renameAwoken", args),
   shareStory: (args: { id: number; story: string }) => post<{ ok: true; storyCount: number }>("shareStory", args),
-  getAwokenStories: (args: { id: number }) => post<{ stories: AwokenStory[] }>("getAwokenStories", args),
+  getAwokenStories: (args: { id: number }) => post<{ stories: AwokenStory[]; nextPrompt: string | null }>("getAwokenStories", args),
   sendStoryToDiscord: (args: { storyId: number; cardPngBase64: string }) => post<{ ok: true; sentAt: string }>("sendStoryToDiscord", args),
   createDeck: (args: { name: string }) => post<{ id: number; name: string; faceCardId: number | null; cardCount: number }>("createDeck", args),
   listDecks: () => post<{ decks: { id: number; name: string; faceCardId: number | null; cardCount: number }[] }>("listDecks", {}),

@@ -327,6 +327,17 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   // the land is locked in its flux until one is near.
   attunePoints: real("attune_points").notNull().default(0),
   attuneElement: text("attune_element"),
+  // Terraforming trays (Nigel, 2026-10-15): a purified hex is a STACK
+  // of trays, Z = total trays, cap 6. sealedTrays counts the trays
+  // that filled to 30 and sealed as the hex's element; growPoints is
+  // the one growing tray's attunement (0–30), born at the bottom of
+  // the stack; topPoints is the top tray's remaining points when it
+  // has been wounded (null = whole — and points ARE hit points: a
+  // sealed top holds 30). height (above) is maintained by the tray
+  // engine as the stack's total tray count.
+  sealedTrays: integer("sealed_trays").notNull().default(0),
+  growPoints: real("grow_points").notNull().default(0),
+  topPoints: real("top_points"),
   // Curse HP: attacks dwindle this; at 0 the tile becomes neutral.
   curseHp: integer("curse_hp"),
   curseMaxHp: integer("curse_max_hp"),

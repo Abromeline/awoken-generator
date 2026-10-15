@@ -58,32 +58,35 @@ export function terrainImgFor(element: string, stage: number, art?: TerrainArtMa
   return BUNDLED_TERRAIN[element as TerrainArtElement] ?? BUNDLED_TERRAIN.neutral;
 }
 
-/** The minimal tile shape the stage rule reads — the attunement bank as
- *  getTerritory serves it (camelCase), with the column spelling accepted
- *  too so the rule survives either payload. */
+/** The minimal tile shape the stage rule reads — the tray engine's
+ *  word (trayStage) when the payload carries it, with the attunement
+ *  bank fields accepted too so the rule survives older payloads. */
 export type StageTile = {
+  trayStage?: number | null;
   attunePoints?: number | null;
   attuneElement?: string | null;
   attune_points?: number | null;
   attune_element?: string | null;
 };
 
+/** The stage of a tray holding `points` attunement (Nigel, 2026-10-15):
+ *  0–9 the broken land, 10–19 the swelling, 20–30 the flourishing.
+ *  A sealed tray (30) is stage 3 by the same reading. */
+export function trayStageOf(points: number): 1 | 2 | 3 {
+  return points >= 20 ? 3 : points >= 10 ? 2 : 1;
+}
+
 /**
- * INTERIM stage rule — declared interim until the terraforming levels
- * engine lands (Nigel, 2026-10-15). The engine will own stage fully
- * (attunement depth, trays, the +30 fully-attuned threshold); until then
- * the map reads the land's flux directly:
- *
- *   - a tile with no attunement bank (attune_points == null, and no
- *     element pressing it) stands at stage 1 — the broken land;
- *   - a tile whose bank has started (an element is pressing, points
- *     gathering) is land in flux → stage 2, the swelling.
- *
- * Stage 3 art can already be uploaded, stored, and previewed in the
- * workshop; no tile renders it yet — the levels engine will be the first
- * thing that computes stage 3.
+ * The stage a tile's TOP tray wears. The tray engine owns this now
+ * (Nigel, 2026-10-15): getTerritory settles trayStage server-side
+ * from the hex's sealed trays and its growing tray's fill, and the
+ * map renders what it is told. Payloads older than the engine fall
+ * back to the interim bank reading (land in flux → stage 2), so the
+ * map never breaks mid-deploy.
  */
-export function stageForTile(tile: StageTile): 1 | 2 {
+export function stageForTile(tile: StageTile): 1 | 2 | 3 {
+  const s = tile.trayStage;
+  if (s === 1 || s === 2 || s === 3) return s;
   const points = tile.attunePoints ?? tile.attune_points;
   const pressing = tile.attuneElement ?? tile.attune_element;
   if (points == null || pressing == null) return 1;

@@ -342,6 +342,17 @@ if (!tileCols.some((col) => col.name === "curse_hp")) {
 if (!tileCols.some((col) => col.name === "curse_max_hp")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_max_hp INTEGER`);
 }
+// Terraforming trays (Nigel, 2026-10-15): the hex's stack — sealed
+// trays, the growing tray's points, the top tray's remaining HP.
+if (!tileCols.some((col) => col.name === "sealed_trays")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN sealed_trays INTEGER NOT NULL DEFAULT 0`);
+}
+if (!tileCols.some((col) => col.name === "grow_points")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN grow_points REAL NOT NULL DEFAULT 0`);
+}
+if (!tileCols.some((col) => col.name === "top_points")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN top_points REAL`);
+}
 // Binding upkeep tracking.
 if (!placementCols.some((col) => col.name === "last_binding_charge_at")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN last_binding_charge_at INTEGER`);

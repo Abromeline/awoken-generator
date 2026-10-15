@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
-import { useTerrainArt, terrainImgFor, stageForTile } from "./terrainArt";
+import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 
@@ -745,10 +745,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // === WAVE SIMULATION (preview only) ===
   const simTilePos = (t: any) => {
     const size = HEX_BASE_SIZE * zoom;
-    const HEIGHT_PX = 22 * zoom;
+    const TRAY_LIFT = Math.round(size * 0.2);
     const originX = 250, originY = 170;
     const { px, py } = isoOffset(t.q, t.r, size);
-    return { cx: originX + px + pan.x, cy: originY + py + pan.y - (t.height || 0) * HEIGHT_PX };
+    return { cx: originX + px + pan.x, cy: originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT };
   };
   const startSim = () => {
     if (!wave || !tiles.length) return;
@@ -1336,20 +1336,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     return "neutral";
   };
 
-  // Helper: attunement time remaining in ms — 13 minutes. Energy sets the pace.
-  const getAttuneRemaining = (tile: TerritoryTile, placement: FieldPlacement, awoken: Awakened): number | null => {
-    // TODO: real element detection; for now show countdown on all fresh placements
-    const placedAt = new Date(placement.placedAt).getTime();
-    const duration = 13 * 60 * 1000;
-    const remaining = placedAt + duration - Date.now();
-    return remaining > 0 ? remaining : 0;
-  };
-
-  const formatRemaining = (ms: number): string => {
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
-  };
+  // The old 13-minute attunement countdown is retired (Nigel,
+  // 2026-10-15): it counted toward a ghost — the legacy server block
+  // that flipped neutral tiles by name-guessing, now removed. The
+  // land's attunement is read where the real engine speaks: the
+  // tile's own seal badge (bank ETA) and its stack bar (trays).
     // The empty state is the first-tile step above (fix list #3) — the
     // Tutorial overlay teaches; it never claimed ground.
     // Simple grid layout for now; parallax via row scaling
@@ -1375,8 +1366,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
     const size = HEX_BASE_SIZE * zoom;
-    // XYZ grid: height in pixels per terrain level (for future terraforming)
-    const HEIGHT_PX = 22 * zoom;
+    // XYZ grid (Nigel, 2026-10-15): one TRAY_LIFT of rise per tray
+    // in a hex's stack. tilePos anchors the TOP tray; trays beneath
+    // step down by TRAY_LIFT each, and everything standing on the
+    // hex (Awoken, buildings) rides the same anchor to the top face.
+    const TRAY_LIFT = Math.round(size * 0.2);
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
     // Isometric tiling vectors come from the ONE shared hex geometry
@@ -1386,7 +1380,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const tilePos = (t: any) => {
       const { px, py } = isoOffset(t.q, t.r, size);
       const cx = originX + px + pan.x;
-      const cy = originY + py + pan.y - (t.height || 0) * HEIGHT_PX;
+      const cy = originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT;
       return { cx, cy };
     };
     // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
@@ -1640,22 +1634,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
                     )}
-                    {/* Attunement: element + timer */}
-                    {(() => {
-                      if (!placement) return null;
-                      const remaining = getAttuneRemaining(t, placement, a);
-                      if (remaining === null || remaining <= 0) return null;
-                      const el = dominantElement(a);
-                      const elIcon = ({ tide: "🌊", sky: "🌪", stone: "⛰", root: "🌿", fire: "🔥" } as Record<string, string>)[(el || "").toLowerCase()] || "✦";
-                      const akx = kx, aky = ky + ahs / 2 + 10;
-                      return (
-                        <g className="attunement-badge" opacity="0.9">
-                          <text x={akx} y={aky} textAnchor="middle" fontSize={8} fill="#ffd700">
-                            {elIcon} {formatRemaining(remaining)}
-                          </text>
-                        </g>
-                      );
-                    })()}
+                    {/* The per-Awoken attunement countdown stood here
+                        until 2026-10-15 — retired with the ghost it
+                        counted toward (see getAttuneRemaining's note). */}
                     {isWhispering && (() => {
                       const words = whisper.text.split(" ");
                       const lines: string[] = [];
@@ -1684,26 +1665,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                   </g>
                 );
               })}
-              {(() => {
-                const placement = tilePlacements[0];
-                if (!placement || !awoken) return null;
-                const remaining = getAttuneRemaining(t, placement, awoken);
-                if (remaining === null || remaining <= 0) return null;
-                const attuneEl = dominantElement(awoken);
-                const elColor: Record<string, string> = {
-                  tide: "#6aa8d8", sky: "#a8d8f0", stone: "#c8a878",
-                  root: "#78b878", fire: "#e87848", neutral: "#b89b5e",
-                };
-                return (
-                  <g>
-                    <rect x={cx - 18} y={cy + s * 0.55} width={36} height={9} rx={4.5} fill="#000" opacity="0.8" />
-                    <circle cx={cx - 12} cy={cy + s * 0.55 + 4.5} r={2.8} fill={elColor[attuneEl] ?? "#b89b5e"} opacity="0.95" />
-                    <text x={cx + 3} y={cy + s * 0.55 + 7} textAnchor="middle" fill="#e8e0d0" fontSize={6.5}>
-                      {formatRemaining(remaining)}
-                    </text>
-                  </g>
-                );
-              })()}
+              {/* The tile attunement pill stood here until 2026-10-15 —
+                  retired with the ghost countdown it rendered. */}
             </g>
         </g>
       );
@@ -1732,10 +1695,37 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               with its center at (964, 546) source px. The x/y place the
               image so the face center lands exactly on the tile's
               lattice point (cx, cy); imgOff seats off-template art. */}
-          <image href={tileKey === "cursed" ? TERRAIN[tileKey] : terrainImgFor(tileKey, stageForTile(t), terrainArt)}
-            x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-            preserveAspectRatio="xMidYMid meet"
-            style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+          {t.cursed ? (
+            <image href={TERRAIN[tileKey]}
+              x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
+              preserveAspectRatio="xMidYMid meet"
+              style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+          ) : (
+            /* The stack (Nigel, 2026-10-15): a purified hex is drawn
+               as its trays — the growing tray at the bottom wearing
+               the stage of its fill, every sealed tray above it at
+               stage 3, the top tray (drawn last) at the tile's
+               anchor. Each tray is the full tile image, stepped down
+               by TRAY_LIFT per level beneath the top. */
+            Array.from({ length: Math.max(1, (t as any).height || 1) }, (_, i) => {
+              const total = Math.max(1, (t as any).height || 1);
+              const sealed = (t as any).traysSealed ?? 0;
+              const isGrowing = i === 0 && sealed < 6;
+              // The top tray wears the engine's stage (stageForTile);
+              // beneath it, the growing tray wears its fill's stage
+              // and sealed trays wear stage 3.
+              const stage = i === total - 1 ? stageForTile(t) : isGrowing ? trayStageOf((t as any).growPoints ?? 0) : 3;
+              const drop = (total - 1 - i) * TRAY_LIFT;
+              return (
+                <image key={`tray-${t.id}-${i}`} href={terrainImgFor(tileKey, stage, terrainArt)}
+                  x={cx - s * 1.2106 + imgOff.dx * s}
+                  y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s + drop}
+                  width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
+                  preserveAspectRatio="xMidYMid meet"
+                  style={i === total - 1 && auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+              );
+            })
+          )}
           {/* The turning of the land, made visible (Nigel, 2026-10-15):
               a hex whose attunement bank is filling toward a switch
               wears a small dark seal — the glyph of the element it is
@@ -1762,6 +1752,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               </g>
             );
           })()}
+          {/* One info bar per hex (Nigel, 2026-10-15): the stack's
+              facts ride in the tile's badge cluster — Z (its trays),
+              the whole stack's power, and the top tray's HP, the
+              only skin erosion or an enemy can wound. It appears
+              once the land has begun to grow or to stack. */}
+          {!t.cursed && (((t as any).height ?? 1) >= 2 || ((t as any).growPoints ?? 0) > 0) && (
+            <g pointerEvents="none">
+              <rect x={cx - s * 0.98} y={cy + s * 0.80} width={s * 1.96} height={s * 0.36} rx={s * 0.18} fill="rgba(8,6,10,0.82)" />
+              <text x={cx} y={cy + s * 1.06} textAnchor="middle" fontSize={s * 0.26} fill="#f0e6cc">
+                {`Z${(t as any).height ?? 1} · ⚡${(((t as any).stackPower ?? 0) as number).toFixed(1).replace(/\.0$/, "")} · ♥${(t as any).topHp ?? 0}`}
+              </text>
+            </g>
+          )}
           {t.cursed && (
             <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
               fill="url(#corruptionHalo)" pointerEvents="none" />
@@ -2430,10 +2433,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         const tile = tiles.find(t => t.id === placement.tileId);
         if (!tile) return null;
         const size = HEX_BASE_SIZE * zoom;
-        const HEIGHT_PX = 22 * zoom;
+        const TRAY_LIFT = Math.round(size * 0.2);
         const { px, py } = isoOffset(tile.q, tile.r, size);
         const cx = 250 + px + pan.x;
-        const cy = 170 + py + pan.y - (tile.height || 0) * HEIGHT_PX;
+        const cy = 170 + py + pan.y - (Math.max(1, tile.height || 1) - 1) * TRAY_LIFT;
         // Render as HTML overlay positioned over the Awoken
         return (
           <div 

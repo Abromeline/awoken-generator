@@ -18,6 +18,7 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
+import { storyPromptFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
   type LibraryTrack,
@@ -1598,6 +1599,10 @@ export const handlers = {
         createdAt: s.createdAt.toISOString(),
         sentAt: s.sentAt ? s.sentAt.toISOString() : null,
       })),
+      // This Awoken's own seed for its next telling, drawn from Lore's
+      // Volume of Prompts — the same creature always meets the same seed
+      // for a given slot (storyPrompts.ts). Null once it holds three.
+      nextPrompt: stories.length < 3 ? storyPromptFor(parsed.data.id, stories.length) : null,
     };
   },
 
@@ -3231,6 +3236,92 @@ export const handlers = {
         }
         return null;
       };
+      // Terraforming trays (Nigel, 2026-10-15): a purified hex is a
+      // STACK of trays — Z trays, cap 6. One growing tray, born at
+      // the BOTTOM of the stack, accrues the matching company's
+      // dominant tally point for point; at 30 it SEALS as the hex's
+      // element and a new growing tray is born beneath. Only the TOP
+      // tray can be hurt, and its points are its HP: a mismatched
+      // company erodes it at the same rate growth pours, and when
+      // the top tray's points reach 0 the stack drops one. When the
+      // LAST tray falls, the purification is defeated and the tile
+      // reverts to the curse (Z-1). A hex whose element flips via
+      // the bank resets to a single growing tray of the new element —
+      // one stack, one element, always. Neutral hexes neither grow
+      // nor erode (their trays wait for an element), and fire land
+      // grows no trays (fire is map-exclusive, never a stack).
+      const TRAY_CAP = 6;
+      const TRAY_SEAL = 30;
+      const stackHeight = (t: any) => {
+        const sealed = t.sealedTrays ?? 0;
+        return sealed >= TRAY_CAP ? TRAY_CAP : sealed + 1;
+      };
+      const persistTray = async (t: any) => {
+        const upd = {
+          sealedTrays: t.sealedTrays ?? 0,
+          growPoints: t.growPoints ?? 0,
+          topPoints: t.topPoints ?? null,
+          height: t.cursed ? 0 : stackHeight(t),
+        };
+        await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, t.id));
+        Object.assign(t, upd);
+      };
+      // Growth: pour points into the growing tray, sealing as it
+      // fills. A full stack (6 sealed) grows no further.
+      const growStack = async (t: any, pts: number) => {
+        if ((t.sealedTrays ?? 0) >= TRAY_CAP) return;
+        let grow = (t.growPoints ?? 0) + pts;
+        let sealed = t.sealedTrays ?? 0;
+        while (grow >= TRAY_SEAL && sealed < TRAY_CAP) { grow -= TRAY_SEAL; sealed += 1; }
+        if (sealed >= TRAY_CAP) grow = 0;
+        t.growPoints = grow;
+        t.sealedTrays = sealed;
+        await persistTray(t);
+      };
+      // The purification defeated: the tile reverts to cursed with
+      // its curse HP restored by the ring law (4 + ring x 6). The
+      // Awoken standing on it disperse exactly as a wave-fallen
+      // tile's do (4h re-coalescence, placements cleared); buildings
+      // are left standing, as tile-fall leaves them.
+      const revertToCurse = async (t: any) => {
+        const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+        const curse = 4 + ring * 6;
+        const victims = placements.filter(p => p.tileId === t.id);
+        const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
+        for (const v of victims) {
+          await db.update(schema.awakened).set({ dispersedUntil }).where(eq(schema.awakened.id, v.awakenedId));
+          await db.delete(schema.fieldPlacements).where(eq(schema.fieldPlacements.awakenedId, v.awakenedId));
+          const idx = placements.indexOf(v);
+          if (idx >= 0) placements.splice(idx, 1);
+        }
+        const upd = {
+          cursed: 1, curseHp: curse, curseMaxHp: curse, spark: 0,
+          attunePoints: 0, attuneElement: null,
+          sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
+        };
+        await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, t.id));
+        Object.assign(t, upd);
+      };
+      // Damage lands on the TOP tray alone. One tray per beat: the
+      // overflow of a heavy blow is spent breaking the tray it
+      // broke (the witness rule's spirit) — it does not sprint
+      // down the stack in a single answer.
+      const damageTopTray = async (t: any, dmg: number) => {
+        if ((t.sealedTrays ?? 0) > 0) {
+          const hp = (t.topPoints ?? TRAY_SEAL) - dmg;
+          if (hp > 0) { t.topPoints = hp; await persistTray(t); return; }
+          t.sealedTrays = (t.sealedTrays ?? 0) - 1;
+          t.topPoints = null;
+          await persistTray(t);
+          return;
+        }
+        const grow = (t.growPoints ?? 0) - dmg;
+        if (grow > 0) { t.growPoints = grow; await persistTray(t); return; }
+        // The bastion (0,0) never falls — the same law the wave
+        // defeat honors. Its last tray can be worn bare, not lost.
+        if (t.q === 0 && t.r === 0) { t.growPoints = 0; await persistTray(t); return; }
+        await revertToCurse(t);
+      };
       const byTile = new Map<number, any[]>();
       for (const p of placements) {
         const arr = byTile.get(p.tileId) ?? [];
@@ -3260,10 +3351,24 @@ export const handlers = {
         const dom = dominantOf(await companySums(company), tile.element);
         if (!dom.el || dom.pts <= 0) continue;
         (tile as any).attuneRatePts = dom.pts;
+        const elementBefore = tile.element as string;
         const upd = pour(tile, dom.el, dom.pts);
         if (upd) {
           await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, tile.id));
           Object.assign(tile, upd);
+        }
+        // Trays ride the same beat (Nigel, 2026-10-15).
+        if ((tile.element as string) !== elementBefore) {
+          // The land turned: the old stack belonged to the old
+          // element. A single growing tray of the new element
+          // remains — one stack, one element, always.
+          tile.sealedTrays = 0;
+          tile.growPoints = 0;
+          tile.topPoints = null;
+          await persistTray(tile);
+        } else if (tile.element !== "neutral" && tile.element !== "fire") {
+          if (dom.el === tile.element) await growStack(tile, dom.pts);
+          else await damageTopTray(tile, dom.pts);
         }
       }
       // The Attunement Shrine turned to the LAND (Nigel, 2026-10-14):
@@ -3310,10 +3415,25 @@ export const handlers = {
               if (outs.length) target = outs[Math.floor(Math.random() * outs.length)];
             }
             if (!target) break;
+            const shrineElBefore = target.element as string;
             const upd = pour(target, voice.el, 10, true);
             if (upd) {
               await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, target.id));
               Object.assign(target, upd);
+            }
+            // The shrine's pour feeds the land's trays as it feeds
+            // the bank (Nigel, 2026-10-15): if the pour turned the
+            // hex, its stack resets like any turning; if the hex now
+            // holds the poured element, ten points settle into its
+            // growing tray.
+            if ((target.element as string) !== shrineElBefore) {
+              target.sealedTrays = 0;
+              target.growPoints = 0;
+              target.topPoints = null;
+              await persistTray(target);
+            }
+            if (!target.cursed && target.element === voice.el) {
+              await growStack(target, 10);
             }
             steps--;
             anchor += 5 * 3600 * 1000;
@@ -3404,48 +3524,24 @@ export const handlers = {
       }
     }
 
-    // Process attunement: Awoken present for 13+ minutes attune neutral tiles to their dominant element
-    const ATTUNE_MS = 13 * 60 * 1000;
-    for (const p of placements) {
-      const placedAt = new Date(p.placedAt).getTime();
-      if (now - placedAt < ATTUNE_MS) continue;
-      
-      const tile = tiles.find(t => t.id === p.tileId);
-      if (!tile || tile.cursed || tile.element !== "neutral") continue;
-      
-      // Get Awoken's dominant element from composition
-      const aw = await db.select().from(schema.awakened)
-        .where(eq(schema.awakened.id, p.awakenedId)).limit(1);
-      if (!aw.length) continue;
-      
-      try {
-        const comp = JSON.parse(aw[0].compositionJson || "[]");
-        const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
-        for (const layer of comp) {
-          const name = (layer.name || "").toLowerCase();
-          let el = "root";
-          if (/fire|ember|flame|ash|inferno/.test(name)) el = "fire";
-          else if (/tide|water|current|pool|pond|rain|moonwater/.test(name)) el = "tide";
-          else if (/mountain|monolith|stone|rock|crystal/.test(name)) el = "stone";
-          else if (/sky|bird|moon|star|lantern|upward|weather|bell/.test(name)) el = "sky";
-          counts[el]++;
-        }
-        let best = "root", max = -1;
-        for (const [el, n] of Object.entries(counts)) {
-          if (n > max) { max = n; best = el; }
-        }
-        // Attune the tile
-        await db.update(schema.territoryTiles)
-          .set({ element: best as any })
-          .where(eq(schema.territoryTiles.id, tile.id));
-        tile.element = best as any;
-      } catch (e) {
-        // Skip on parse error
-      }
-    }
-    
     const buildings = await db.select().from(schema.territoryBuildings).where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const mood = await getWorldMood();
+    // Tray facts for the map (Nigel, 2026-10-15): each hex's stack as
+    // the engine settles it — sealed trays, the growing tray's fill,
+    // the TOP tray's stage (what the tile renders) and HP, the whole
+    // stack's power (points / 10), and height as the stack's total
+    // trays (Z). All tray math is the server's; the client renders
+    // what it is told. Enemy reach reads these fields next.
+    for (const t of tiles) {
+      const sealed = (t as any).sealedTrays ?? 0;
+      const grow = (t as any).growPoints ?? 0;
+      (t as any).height = t.cursed ? 0 : sealed + (sealed >= 6 ? 0 : 1); // 6 = the tray cap
+      (t as any).traysSealed = sealed;
+      (t as any).growPoints = Math.round(grow * 10) / 10;
+      (t as any).trayStage = t.cursed ? 1 : sealed > 0 ? 3 : grow >= 20 ? 3 : grow >= 10 ? 2 : 1;
+      (t as any).topHp = t.cursed ? 0 : Math.round(sealed > 0 ? ((t as any).topPoints ?? 30) : grow);
+      (t as any).stackPower = Math.round(((sealed * 30 + grow) / 10) * 10) / 10;
+    }
     return { tiles, placements, buildings, mood };
   },
 
