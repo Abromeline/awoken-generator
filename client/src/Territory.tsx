@@ -54,6 +54,18 @@ const TERRAIN_IMG_OFFSET: Record<string, { dx: number; dy: number }> = {
 // flame-wisps rising above its face, so its canvas is 1920x1510 with
 // the face centre at (960, 790): h is the render height in units of s,
 // dy lifts the image so the face — never the canvas — seats the tile.
+// Content-true placement for the buildings that stand alone
+// (Nigel, 2026-10-15): each canvas was measured for where its ink
+// actually sits, so the BUILDING — not its transparent canvas — is
+// what centers on the hex. aspect = canvas W/H; (cx, cy) = the ink's
+// centre as canvas fractions; hFrac = the ink's share of the height;
+// displayH = the ink's height in tile-widths (the Hall a bit bigger
+// than the Tower, on his measure).
+const BUILDING_PLACE: Record<string, { aspect: number; cx: number; cy: number; hFrac: number; displayH: number }> = {
+  "watchtower": { aspect: 0.3922, cx: 0.5194, cy: 0.5458, hFrac: 0.8874, displayH: 2.0 },
+  "hall-of-champions": { aspect: 0.5350, cx: 0.5249, cy: 0.4999, hFrac: 0.9998, displayH: 2.35 },
+};
+
 const TERRAIN_IMG_PLACE: Record<string, { dy: number; h: number }> = {
   cursed: { dy: -0.3067, h: 1.8968 },
 };
@@ -1410,7 +1422,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           )}
           {/* Buildings on this tile (max 2) */}
           {tileBuildings.map((b, bi) => {
-            const bpx = { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 };
+            // A building ALONE on its tile anchors on the hex's own
+            // heart (Nigel, 2026-10-15); the side offsets exist only
+            // for a pair sharing one hex.
+            const bpx = tileBuildings.length === 1 ? { x: cx, y: cy } : { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 };
+            const place = BUILDING_PLACE[b.buildingType];
+            const pH = place ? (s * place.displayH) / place.hFrac : 0;
+            const pW = pH * (place?.aspect ?? 1);
             const isBuilding = b.status === "building";
             const isDormant = b.status === "dormant";
             const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
@@ -1477,10 +1495,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : ["dream-wheat", "dream-weed", "sky-bloom", "hall-of-champions"].includes(b.buildingType) ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : b.buildingType === "dream-weed" ? dreamWeedStageImage(b) : buildingImage(b.buildingType)}
-                  x={bpx.x - s * (b.buildingType === "hall-of-champions" ? 1.175 : (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5))}
-                  y={bpx.y - s * (b.buildingType === "hall-of-champions" ? 1.175 : (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 1 : 0.5))}
-                  width={s * (b.buildingType === "hall-of-champions" ? 2.35 : (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 2 : 1))}
-                  height={s * (b.buildingType === "hall-of-champions" ? 2.35 : (b.buildingType === "dream-tree" || b.buildingType === "watchtower" ? 2 : 1))}
+                  x={place ? bpx.x - place.cx * pW : bpx.x - s * (b.buildingType === "dream-tree" ? 1 : 0.5)}
+                  y={place ? bpx.y - place.cy * pH : bpx.y - s * (b.buildingType === "dream-tree" ? 1 : 0.5)}
+                  width={place ? pW : s * (b.buildingType === "dream-tree" ? 2 : 1)}
+                  height={place ? pH : s * (b.buildingType === "dream-tree" ? 2 : 1)}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={isBuilding ? 0.7 : isDormant ? 0.4 : 1}
                   style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
