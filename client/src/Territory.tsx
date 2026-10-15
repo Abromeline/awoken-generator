@@ -139,7 +139,7 @@ function dominantElement(a: Awakened): Element {
   const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   for (const layer of a.layers ?? []) {
     const el = elementForPiece(layer.name, (layer as any).element);
-    counts[el] = (counts[el] ?? 0) + 1;
+    if (el !== "neutral") counts[el] = (counts[el] ?? 0) + 1;
   }
   let best: Element = "root";
   let max = -1;
@@ -2450,6 +2450,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 const pts: Record<string, number> = {};
                 for (const l of (awoken.layers || [])) {
                   const el = elementForPiece(l.name || "", (l as any).element);
+                  if (el === "neutral") continue;
                   const w = l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
                   pts[el] = (pts[el] ?? 0) + w;
                 }

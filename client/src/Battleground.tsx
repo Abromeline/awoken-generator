@@ -103,11 +103,11 @@ function dominantElementOf(aw?: Awakened): Element {
   const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   for (const layer of aw?.layers ?? []) {
     const el = elementForPiece(layer.name, (layer as any).element);
-    counts[el] = (counts[el] ?? 0) + 1;
+    if (el !== "neutral") counts[el] = (counts[el] ?? 0) + 1;
   }
   let best: Element = "root";
   let max = -1;
-  for (const k of Object.keys(counts) as Element[]) {
+  for (const k of ["tide", "sky", "stone", "root", "fire"] as Element[]) {
     if (counts[k] > max) { max = counts[k]; best = k; }
   }
   return best;

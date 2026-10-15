@@ -200,10 +200,12 @@ function mysticalLegacyName(category: string, name: string) {
 const storedLayerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable().optional(), toughness: statSchema.nullable().optional(),
+  element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
 });
 export const layerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable(), toughness: statSchema.nullable(),
+  element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
 });
 const assetShape = z.object({
   id: z.number(), name: z.string(), category: layerCategorySchema, rarity: raritySchema,
@@ -243,17 +245,45 @@ function identityFor(layers: z.infer<typeof layerRefShape>[]) {
 /** Mirror of the client's element keyword read (App.tsx): a piece's element
  *  from its name. The server keeps its own copy so it never trusts the
  *  client's claim about what a team is. */
-function elementForPieceName(name: string, dbElement?: string | null): "tide" | "sky" | "stone" | "root" | "fire" {
-  // DB element takes precedence over name guessing
-  if (dbElement && ["tide", "sky", "stone", "root", "fire"].includes(dbElement)) {
-    return dbElement as "tide" | "sky" | "stone" | "root" | "fire";
+const ELEMENTS_5 = ["tide", "sky", "stone", "root", "fire"] as const;
+type Element5 = (typeof ELEMENTS_5)[number];
+/** A part's element, from its own record alone. THE LAW (Nigel,
+ *  2026-10-15): an Awoken's elements are ALWAYS read from the sum of
+ *  its parts — the element recorded on the part — NEVER inferred
+ *  from a part's name. (The name-regex that once guessed here, and
+ *  defaulted everything unrecognized to root, is abolished; it made
+ *  Awoken press elements their bodies never held.) A part with no
+ *  recorded element contributes NONE — "neutral" — until its element
+ *  is filed on the part itself (workshop: updateLayerAssetElement). */
+function storedElement(dbElement?: string | null): Element5 | "neutral" {
+  return dbElement && (ELEMENTS_5 as readonly string[]).includes(dbElement)
+    ? (dbElement as Element5)
+    : "neutral";
+}
+/** Kept name for the truth above: the name argument is IGNORED —
+ *  it is accepted only so older call sites compile while they are
+ *  swept to the resolver; nothing may ever read it again. */
+function elementForPieceName(_name: string, dbElement?: string | null): Element5 | "neutral" {
+  return storedElement(dbElement);
+}
+/** Resolve every layer of a composition to its part's true element:
+ *  the asset record its source_id names first (the living truth, as
+ *  parseLayers stamps), then the element the layer itself carries
+ *  (aspect layers), else "neutral". One asset query per composition. */
+async function compositionElements(layers: any[]): Promise<(Element5 | "neutral")[]> {
+  const ids = [...new Set(layers.map(l => parseDbId(l?.source_id ?? "")).filter((x): x is number => x !== null))];
+  const byId = new Map<number, string | null>();
+  if (ids.length) {
+    const rows = await db.select({ id: schema.layerAssets.id, element: schema.layerAssets.element })
+      .from(schema.layerAssets).where(inArray(schema.layerAssets.id, ids));
+    for (const r of rows) byId.set(r.id, (r as any).element ?? null);
   }
-  const n = name.toLowerCase();
-  if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
-  if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
-  if (/mountain|monolith|stone|rock|crystal/.test(n)) return "stone";
-  if (/sky|bird|moon|star|lantern|upward|weather|bell/.test(n)) return "sky";
-  return "root";
+  return layers.map(l => {
+    const id = parseDbId(l?.source_id ?? "");
+    const fromAsset = id === null ? undefined : storedElement(byId.get(id));
+    if (fromAsset && fromAsset !== "neutral") return fromAsset;
+    return storedElement((l as any)?.element ?? (l as any)?.aspectElement);
+  });
 }
 
 export function blobUrl(key: string): string {
@@ -2064,8 +2094,8 @@ export const handlers = {
     if (!donorAsset.length) badRequest("Aspect asset not found.");
 
     // Elements must match — no mixing
-    const equippedEl = elementForPieceName(equipped.name || "", (equipped as any).element);
-    const donorEl = elementForPieceName(donorAsset[0].name, (donorAsset[0] as any).element);
+    const equippedEl = (await compositionElements([equipped]))[0];
+    const donorEl = storedElement((donorAsset[0] as any).element);
     if (equippedEl !== donorEl) badRequest(`Cannot combine ${donorEl} with ${equippedEl}. Aspects must match.`);
 
     // Level up the equipped aspect, consume the donor
@@ -2199,7 +2229,7 @@ export const handlers = {
     const existing = layers.find((l: any) => l.category === "aspect");
     if (existing) {
       // Upgrade path: elements must match
-      const existingEl = existing.aspectElement || elementForPieceName(existing.name || "", (existing as any).element);
+      const existingEl = existing.aspectElement || (await compositionElements([existing]))[0];
       if (existingEl !== element) {
         badRequest(`Cannot combine ${element} with ${existingEl}. Aspects must match.`);
       }
@@ -2592,12 +2622,13 @@ export const handlers = {
         try { layers = JSON.parse(b.compositionJson || "[]"); }
         catch { continue; }
         const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-        for (const l of layers) {
-          const el = elementForPieceName(l.name || "", (l as any).element);
+        const layerEls = await compositionElements(layers);
+        layers.forEach((l, i) => {
+          const el = layerEls[i];
           if (el !== "fire" && el in counts) {
             counts[el] += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
           }
-        }
+        });
         const totalPts = Object.values(counts).reduce((a, x) => a + x, 0);
         if (totalPts === 0) continue;
         const multiplier = isNearShrine(b.tileId) ? 2 : 1;
@@ -2667,7 +2698,7 @@ export const handlers = {
         inventory.push({
           id: inv.id,
           name: asset[0].name,
-          element: elementForPieceName(asset[0].name, (asset[0] as any).element),
+          element: storedElement((asset[0] as any).element),
           imageUrl: `/blobs/${asset[0].imageBlobKey}`,
         });
       }
@@ -3003,15 +3034,16 @@ export const handlers = {
     // attuned by presence — that reach belongs to the shrine alone.
     try {
       const tileById = new Map(tiles.map(t => [t.id, t]));
-      const elementPointsOf = (aw: any): Record<string, number> => {
+      const elementPointsOf = async (aw: any): Promise<Record<string, number>> => {
         let layers: any[] = [];
         try { layers = JSON.parse(aw.compositionJson || "[]"); } catch { return {}; }
+        const layerEls = await compositionElements(layers);
         const counts: Record<string, number> = {};
-        for (const l of layers) {
-          const el = elementForPieceName(l.name || "", (l as any).element) as string;
-          if (el === "fire" || el === "neutral") continue;
+        layers.forEach((l, i) => {
+          const el = layerEls[i] as string;
+          if (el === "fire" || el === "neutral") return;
           counts[el] = (counts[el] || 0) + (l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1);
-        }
+        });
         return counts;
       };
       const dominantOf = (sums: Record<string, number>, current: string): { el: string; pts: number } => {
@@ -3074,7 +3106,7 @@ export const handlers = {
         for (const p of company) {
           const aw = await awOf(p.awakenedId);
           if (!aw) continue;
-          for (const [el, n] of Object.entries(elementPointsOf(aw))) sums[el] = (sums[el] || 0) + n;
+          for (const [el, n] of Object.entries(await elementPointsOf(aw))) sums[el] = (sums[el] || 0) + n;
         }
         return sums;
       };
@@ -3174,12 +3206,13 @@ export const handlers = {
           // its elements in proportion to those points (Nigel, 2026-10-12) —
           // the stronger element receives the larger share.
           const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-          for (const layer of comp) {
-            const el = elementForPieceName(layer.name || "", (layer as any).element);
+          const compEls = await compositionElements(comp);
+          comp.forEach((layer: any, i: number) => {
+            const el = compEls[i];
             if (el !== "fire" && el in counts) {
               counts[el] += layer.category === "aspect" ? ((layer as any).aspectLevel ?? 1) : 1;
             }
-          }
+          });
           const totalPts = Object.values(counts).reduce((a, b) => a + b, 0);
           if (totalPts === 0) continue;
           for (const [el, pts] of Object.entries(counts)) {
@@ -3207,7 +3240,7 @@ export const handlers = {
               const pool = await db.select().from(schema.layerAssets)
                 .where(eq(schema.layerAssets.category, "aspect"));
               const matches = pool.filter(a => {
-                const aEl = elementForPieceName(a.name, (a as any).element);
+                const aEl = storedElement((a as any).element);
                 return aEl === el && aEl !== "fire";
               });
               if (matches.length) {
@@ -3414,8 +3447,8 @@ export const handlers = {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const a of standingRows) {
           for (const layer of parseLayers(a.compositionJson, assetStats)) {
-            const el = elementForPieceName(layer.name, (layer as any).element);
-            if (el !== "fire") elementCounts[el] += 1;
+            const el = storedElement((layer as any).element);
+            if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
           }
         }
         let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
@@ -4809,8 +4842,8 @@ export const handlers = {
     {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const layer of layers) {
-          const el = elementForPieceName(layer.name, (layer as any).element);
-          if (el !== "fire") elementCounts[el] += 1;
+          const el = storedElement((layer as any).element);
+          if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
         }
         let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
         let maxCount = 0; let tie = false;
@@ -4884,12 +4917,12 @@ export const handlers = {
       const layers = parseLayers(t.compositionJson, assetStats);
       const identity = t.identityKey === "legacy" ? identityFor(layers) : t.identityKey;
       totalPower += toAwakenedPayload(t, layers, identity, idsByIdentity).power;
-      // The tile becomes what the team is: each layer's element, read from
-      // its name with the same keyword rules the client uses. Fire is never
-      // inherited here — it only ever sparks on wild land.
+      // The tile becomes what the team is: each layer's element, read
+      // from the part's own record — never its name (Nigel, 2026-10-15).
+      // Fire is never inherited here — it only ever sparks on wild land.
       for (const layer of layers) {
-        const el = elementForPieceName(layer.name, (layer as any).element);
-        if (el !== "fire") elementCounts[el] += 1;
+        const el = storedElement((layer as any).element);
+        if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
       }
     }
     if (totalPower < 7) badRequest("Your combined power must reach 7 to face the Unraveler.");
@@ -5081,7 +5114,7 @@ export const handlers = {
     catch { layers = []; }
     const aspect = layers.find((l: any) => l.category === "aspect");
     if (!aspect) badRequest("This Awoken has no aspect.");
-    const el = aspect.aspectElement || elementForPieceName(aspect.name || "", (aspect as any).element);
+    const el = aspect.aspectElement || (await compositionElements([aspect]))[0];
     if (el !== "fire") badRequest("Only a Fire Awoken can ignite wildfire.");
     if ((aspect.aspectLevel ?? 1) < 3) badRequest("Requires Fire III (level 3).");
     // Must be on a border tile (adjacent to cursed)
@@ -5536,8 +5569,8 @@ export const handlers = {
     const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
     for (const a of attackers) {
       for (const layer of parseLayers(a.compositionJson, assetStats)) {
-        const el = elementForPieceName(layer.name, (layer as any).element);
-        if (el !== "fire") elementCounts[el] += 1;
+        const el = storedElement((layer as any).element);
+        if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
       }
     }
     let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";

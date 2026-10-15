@@ -182,16 +182,17 @@ function toRoman(num: number): string {
 }
 
 export type Element = "tide" | "sky" | "stone" | "root" | "fire";
-export function elementForPiece(name: string, dbElement?: string | null): Element {
+export function elementForPiece(_name: string, dbElement?: string | null): Element | "neutral" {
+  // THE LAW (Nigel, 2026-10-15): a part's element comes from the
+  // part's own record — the element the server stamps from the asset
+  // — NEVER from keywords in its name. The name-guessing that once
+  // lived here (and defaulted everything unrecognized to root) is
+  // abolished. A part with no recorded element is "neutral": it
+  // contributes nothing, and surfaces must say so honestly.
   if (dbElement && ["tide", "sky", "stone", "root", "fire"].includes(dbElement)) {
     return dbElement as Element;
   }
-  const n = name.toLowerCase();
-  if (/fire|ember|flame|ash|inferno/.test(n)) return "fire";
-  if (/tide|water|current|pool|pond|rain|moonwater/.test(n)) return "tide";
-  if (/mountain|monolith|stone|rock|crystal/.test(n)) return "stone";
-  if (/sky|bird|moon|star|lantern|upward|weather|bell/.test(n)) return "sky";
-  return "root";
+  return "neutral";
 }
 
 export const cornerPaths: Record<Element, string[]> = {
@@ -224,7 +225,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const roman = toRoman(item.id);
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
-  const elements = litany.map((layer) => elementForPiece(layer.name, (layer as any).element));
+  const elements = litany.map((layer) => elementForPiece(layer.name, (layer as any).element)).filter((el): el is Element => el !== "neutral");
   const unique = [...new Set(elements)];
   const corners: Element[] = [0, 1, 2, 3].map((i) => unique[i % unique.length] ?? "root");
   const [tl, tr, bl, br] = corners;
@@ -560,12 +561,15 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
     return () => clearCardTimers();
   }, [cardOpen]);
   // The corner burn reads the presented creature's pieces: top-left the
-  // body's element, top-right the arms', bottom-left the head's — the
-  // same element resolution the card itself uses (DB element first,
-  // then the name's keywords). Bottom-right is the power/toughness.
+  // body's element, top-right the arms', bottom-left the head's — each
+  // from the part's own recorded element, never its name (Nigel,
+  // 2026-10-15). A part with no recorded element kindles no corner.
+  // Bottom-right is the power/toughness.
   const burnElement = (category: Category): Element | null => {
     const layer = presentedItem?.layers.find((l) => l.category === category);
-    return layer ? elementForPiece(layer.name, (layer as any).element) : null;
+    if (!layer) return null;
+    const el = elementForPiece(layer.name, (layer as any).element);
+    return el === "neutral" ? null : el;
   };
   const burnBody = burnElement("body");
   const burnArms = burnElement("arms");
