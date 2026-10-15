@@ -3023,11 +3023,20 @@ export const handlers = {
       };
       // Pour pressure into a tile's bank and resolve its 10-point
       // steps. Returns the fields to persist, or null when unmoved.
-      const pour = (tile: any, el: string, pts: number) => {
+      // WITNESS RULE (Nigel, 2026-10-15): a company's pour may not
+      // complete a stage in the same beat its bank (re)starts — the
+      // fresh bank caps at 9, so the seal and its countdown stand on
+      // the tile for at least one full beat before the land turns.
+      // (Before this, a heavy company flipped a hex between glances
+      // and a turned hex fell back with no visible cause.) A shrine's
+      // pour is exempt: its five-hour rhythm is its own witness.
+      const pour = (tile: any, el: string, pts: number, completeStage = false) => {
         let bankEl = tile.attuneElement as string | null;
         let bank = tile.attunePoints ?? 0;
+        const fresh = bankEl !== el || bank <= 0;
         if (bankEl !== el) { bankEl = el; bank = 0; }
         bank += pts;
+        if (fresh && !completeStage && bank > 9) bank = 9;
         let element = tile.element as string;
         while (bank >= 10) {
           if (element === el) { bank = 10; break; }
@@ -3118,7 +3127,7 @@ export const handlers = {
               if (outs.length) target = outs[Math.floor(Math.random() * outs.length)];
             }
             if (!target) break;
-            const upd = pour(target, voice.el, 10);
+            const upd = pour(target, voice.el, 10, true);
             if (upd) {
               await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, target.id));
               Object.assign(target, upd);

@@ -1728,11 +1728,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const col = nextStage === "neutral" ? "#9a958c" : (elementPalette[nextStage as keyof typeof elementPalette] ?? "#d4af6a");
             return (
               <g pointerEvents="none">
-                <circle cx={cx + s * 0.55} cy={cy - s * 0.52} r={s * 0.17} fill="rgba(8,6,10,0.78)" stroke={col} strokeWidth={1.2} />
+                <circle cx={cx + s * 0.55} cy={cy - s * 0.52} r={s * 0.21} fill="rgba(8,6,10,0.82)" stroke={col} strokeWidth={1.4} />
                 {nextStage === "neutral"
-                  ? <text x={cx + s * 0.55} y={cy - s * 0.455} textAnchor="middle" fontSize={s * 0.19} fill={col}>◇</text>
-                  : <g transform={`translate(${cx + s * 0.40}, ${cy - s * 0.58})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.30} height={s * 0.12} /></g>}
-                {eta && <text x={cx + s * 0.55} y={cy - s * 0.235} textAnchor="middle" fontSize={s * 0.115} fill="#f0e6cc" stroke="rgba(0,0,0,0.85)" strokeWidth={2.4} paintOrder="stroke">{eta}</text>}
+                  ? <text x={cx + s * 0.55} y={cy - s * 0.44} textAnchor="middle" fontSize={s * 0.24} fill={col}>◇</text>
+                  : <g transform={`translate(${cx + s * 0.365}, ${cy - s * 0.595})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.37} height={s * 0.148} /></g>}
+                {eta && <text x={cx + s * 0.55} y={cy - s * 0.20} textAnchor="middle" fontSize={s * 0.15} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3} paintOrder="stroke">{eta}</text>}
               </g>
             );
           })()}
