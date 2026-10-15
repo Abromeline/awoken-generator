@@ -354,6 +354,7 @@
 /* Cosmic background — interstellar debris over black, layered, rotating, breathing */
 .cosmic-bg{position:fixed;inset:0;overflow:hidden;z-index:-1;background:#000;pointer-events:none}
 .cosmic-layer{position:absolute;width:160%;height:160%;left:-30%;top:-30%;background-size:cover;background-position:center;background-repeat:no-repeat}
+.cosmic-deep{opacity:0.95;animation:cosmic-rotate 206.9s linear infinite, cosmic-breathe 16s ease-in-out infinite}
 .cosmic-dark{opacity:0.85;animation:cosmic-rotate 180s linear infinite, cosmic-breathe 14s ease-in-out infinite}
 .cosmic-light{opacity:0.35;animation:cosmic-rotate-rev 240s linear infinite, cosmic-breathe 18s ease-in-out infinite reverse;mix-blend-mode:screen}
 @keyframes cosmic-rotate{from{transform:rotate(0deg) scale(1)}to{transform:rotate(360deg) scale(1)}}
@@ -2109,3 +2110,7 @@ body.defeat-flash {
 .mist-wisp{transform-box:fill-box;transform-origin:center;animation:mistRise 5.5s ease-in-out infinite}
 .corruption-glow.armed .mist-wisp{animation-duration:3.4s}
 @keyframes mistRise{0%,100%{transform:translateY(5px);opacity:.55}50%{transform:translateY(-9px);opacity:1}}
+
+/* The Ode's pause — always within reach over the main page */
+.ode-toggle{position:fixed;right:14px;bottom:96px;z-index:95;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;border:1px solid rgba(212,175,106,0.55);background:rgba(10,8,14,0.72);color:#e8d9ae;font-size:12.5px;letter-spacing:0.4px;cursor:pointer;backdrop-filter:blur(3px)}
+.ode-toggle:hover{background:rgba(30,22,10,0.85);border-color:rgba(212,175,106,0.9)}

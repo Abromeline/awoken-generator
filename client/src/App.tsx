@@ -3,6 +3,7 @@ import { setCourtMarks, useCourtMarks } from "./courtMarks";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/terrain-mountain.png";
 import debrisDark from "./assets/debris-dark.jpg";
+import nebulaDeep from "./assets/nebula-2.png";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
 import MarginGuide from "./MarginGuide";
@@ -1482,9 +1483,72 @@ function TendersPanel() {
 /** Layered cosmic background: interstellar debris over black, slowly rotating and breathing. Edges never cross the screen. */
 function CosmicBackground() {
   return (
-    <div className="cosmic-bg" aria-hidden="true">
-      <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
-    </div>
+    <>
+      <div className="cosmic-bg" aria-hidden="true">
+        {/* Nigel's second nebula (2026-10-14) rests BEHIND the first,
+            turning with it but 13% slower — 180s / 0.87 ≈ 206.9s a
+            revolution — so the two fields drift against each other
+            and space gains depth. */}
+        <div className="cosmic-layer cosmic-deep" style={{ backgroundImage: `url(${nebulaDeep})` }} />
+        <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
+      </div>
+      <OdeToTheMaster />
+    </>
+  );
+}
+
+/** The Ode to the Master — Music's full orchestral telling — sounds
+ *  over the main page (Nigel, 2026-10-14). It reaches for autoplay;
+ *  where the browser forbids sound before a first touch, the Ode
+ *  begins at that touch instead. The pause is always within reach,
+ *  and a tender's pause is never overridden. */
+function OdeToTheMaster() {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const userPausedRef = useRef(false);
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    const audio = new Audio("/music/ode-to-the-master.mp3");
+    audio.loop = true;
+    audio.volume = 0.75;
+    audio.preload = "auto";
+    audioRef.current = audio;
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    const begin = () => { if (!userPausedRef.current) audio.play().catch(() => {}); };
+    begin();
+    const unlock = () => begin();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    window.addEventListener("touchstart", unlock);
+    return () => {
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("touchstart", unlock);
+      audio.pause();
+      audioRef.current = null;
+    };
+  }, []);
+  const toggle = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      userPausedRef.current = false;
+      audio.play().catch(() => {});
+    } else {
+      userPausedRef.current = true;
+      audio.pause();
+    }
+  };
+  return (
+    <button type="button" className="ode-toggle" onClick={toggle}
+      title={playing ? "Pause the Ode to the Master" : "Play the Ode to the Master"}
+      aria-label={playing ? "Pause the Ode to the Master" : "Play the Ode to the Master"}>
+      {playing ? "❚❚" : "▶"} <span>Ode to the Master</span>
+    </button>
   );
 }
 
