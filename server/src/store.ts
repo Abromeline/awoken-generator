@@ -407,6 +407,26 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_aspect_grants (
   created_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_aspect_grants_owner ON pending_aspect_grants (owner_key, id);`);
+// Hex walls (War-Ground charter extension, Nigel 2026-10-15): an
+// Awoken standing on a hex raises a wall on one of its six edges for
+// energy. The edge is stored CANONICALLY (the lexicographically
+// smaller tile + the dir from that tile), so the border between two
+// hexes is ONE wall, never two. Walls block enemies in battle and
+// carry their own HP; battle damage is reported at resolution and
+// only ever lowers HP. Building/wall locations are locked once set.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS hex_walls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  edge_key TEXT NOT NULL,
+  q INTEGER NOT NULL,
+  r INTEGER NOT NULL,
+  dir INTEGER NOT NULL,
+  hp INTEGER NOT NULL,
+  max_hp INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(owner_key, edge_key)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_hex_walls_owner ON hex_walls (owner_key);`);
 // Wave defense: the Unraveling attacks the bastion in waves.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   owner_key TEXT PRIMARY KEY,

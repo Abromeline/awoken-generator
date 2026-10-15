@@ -85,6 +85,32 @@ function consumeNewbornClaim(ownerKey: string): boolean {
   })();
 }
 
+// --- Hex walls ---------------------------------------------------------------
+// Edge geometry shared by placeWall and battle-damage reporting. Dirs
+// follow the client's painted-face corner order (0 = top edge, then
+// clockwise): WALL_DIRS[d] is the axial neighbour across edge d and
+// WALL_OPP[d] is the same edge seen from that neighbour.
+const WALL_DIRS: ReadonlyArray<readonly [number, number]> = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
+const WALL_OPP: ReadonlyArray<number> = [3, 4, 5, 0, 1, 2];
+
+/** Apply battle-reported wall damage: reported HP only ever LOWERS a
+ *  wall (a client cannot heal or raise walls by reporting), and a
+ *  wall at 0 is gone. Reports for unknown edges are ignored. */
+function applyWallDamage(ownerKey: string, wallState: unknown): void {
+  if (!Array.isArray(wallState)) return;
+  for (const w of wallState.slice(0, 200)) {
+    const edgeKey = (w as any)?.edgeKey;
+    const hp = (w as any)?.hp;
+    if (typeof edgeKey !== "string" || typeof hp !== "number" || !Number.isFinite(hp)) continue;
+    const row = sqlite.prepare("SELECT hp FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as { hp: number } | undefined;
+    if (!row) continue;
+    const next = Math.max(0, Math.min(row.hp, Math.floor(hp)));
+    if (next === row.hp) continue;
+    if (next <= 0) sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ?").run(ownerKey, edgeKey);
+    else sqlite.prepare("UPDATE hex_walls SET hp = ? WHERE owner_key = ? AND edge_key = ?").run(next, ownerKey, edgeKey);
+  }
+}
+
 // --- Boss state & pending aspect grants -------------------------------------
 // The boss ladder is the server's record, never the client's: how many
 // bosses this tender has broken, and the wavesDefeated count when the
@@ -3718,7 +3744,9 @@ export const handlers = {
       (t as any).topHp = t.cursed ? 0 : Math.round(sealed > 0 ? ((t as any).topPoints ?? 30) : grow);
       (t as any).stackPower = Math.round(((sealed * 30 + grow) / 10) * 10) / 10;
     }
-    return { tiles, placements, buildings, mood };
+    const walls = sqlite.prepare("SELECT edge_key AS edgeKey, q, r, dir, hp, max_hp AS maxHp FROM hex_walls WHERE owner_key = ? ORDER BY id")
+      .all(ownerKey);
+    return { tiles, placements, buildings, mood, walls };
   },
 
   async deployAwoken(args: unknown, ctx?: ActionContext) {
@@ -4024,6 +4052,7 @@ export const handlers = {
       victory: z.boolean(),
       bossLevel: z.number().int().min(1).max(99),
       survivorIds: z.array(z.number().int().positive()),
+      wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid boss battle result.");
 
@@ -4070,6 +4099,9 @@ export const handlers = {
     for (const id of survivorIds) {
       await grantEventXp(xpById, id, XP_PER_DEFENSE);
     }
+
+    // The report is accepted — walls took their damage, win or lose.
+    applyWallDamage(ownerKey, parsed.data.wallState);
 
     if (!parsed.data.victory) {
       sqlite.prepare("UPDATE boss_state SET last_boss_at = ? WHERE owner_key = ?")
@@ -4122,6 +4154,46 @@ export const handlers = {
       if (await addAspectPoint(ownerKey, element)) spawnedElements.push(element);
     }
     return { ok: true as const, elements: grant!.elements, spawnedElements, source: grant!.source };
+  },
+
+  // ── HEX WALLS (War-Ground charter extension, Nigel 2026-10-15) ──
+  // An Awoken standing on a hex raises a wall on one of its six edges:
+  // 2 energy, instant — fieldwork, not a building. The wall blocks
+  // enemies in battle (their strikes land on it first) and carries
+  // its own HP. Edge dirs follow the painted-face order used by the
+  // client (0 top, then clockwise); WALL_DIRS[d] is the neighbour
+  // across edge d, and the canonical form stores the edge under the
+  // lexicographically smaller tile so a shared border is ONE wall.
+  async placeWall(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ tileId: z.number().int(), dir: z.number().int().min(0).max(5) }).safeParse(args);
+    if (!parsed.success) badRequest("The War-Ground needs a tile and an edge (0–5).");
+    const { tileId, dir } = parsed.data;
+    const WALL_COST = 2; // stem (War-Ground, 2026-10-15) — retune by Nigel's ear
+    const WALL_HP = 10;   // stem
+    const tileRows = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
+    const tile = tileRows[0] as any;
+    if (!tile) badRequest("That hex is not yours to wall.");
+    if (tile.cursed) badRequest("The curse holds that hex — no wall stands on cursed ground.");
+    const standing = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
+    if (standing.length === 0) badRequest("No Awoken stands on that hex — walls are raised by the Awoken who stand there.");
+    const [dq, dr] = WALL_DIRS[dir];
+    const nq = tile.q + dq, nr = tile.r + dr;
+    const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
+    const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[dir] : dir;
+    const edgeKey = `${cq},${cr},${cdir}`;
+    const existing = sqlite.prepare("SELECT id FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey);
+    if (existing) badRequest("A wall already stands on that edge.");
+    if (!(await spendEnergy(ownerKey, WALL_COST))) badRequest(`Not enough energy — a wall costs ${WALL_COST}.`);
+    try {
+      sqlite.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(ownerKey, edgeKey, cq, cr, cdir, WALL_HP, WALL_HP, Date.now());
+    } catch {
+      badRequest("A wall already stands on that edge.");
+    }
+    return { ok: true as const, wall: { edgeKey, q: cq, r: cr, dir: cdir, hp: WALL_HP, maxHp: WALL_HP }, cost: WALL_COST };
   },
 
   async getWave(args: unknown, ctx?: ActionContext) {
@@ -5138,6 +5210,7 @@ export const handlers = {
       survivorIds: z.array(z.number().int().positive()),
       continueWave: z.boolean().optional(),
       targetTileId: z.number().int().positive().optional(),
+      wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle result.");
 
@@ -5203,6 +5276,10 @@ export const handlers = {
         badRequest(`The War-Ground does not reckon this victory — your committed company stands at ${committedPower} against the Unraveling's ${wavePower}.`);
       }
     }
+
+    // The report is accepted — the walls took what they took during
+    // the fight, win or lose (reported HP only ever lowers a wall).
+    applyWallDamage(ownerKey, parsed.data.wallState);
 
     // Unified XP (Nigel, 2026-10-13): the survivors stood in the battle
     // defense — a DEFENSE EVENT, +10 XP each, win or lose. (The hits

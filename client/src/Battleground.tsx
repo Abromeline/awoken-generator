@@ -57,10 +57,15 @@ interface BattlegroundProps {
   assets: FieldAsset[];
   energy: number;
   maxEnergy: number;
-  onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => void;
+  onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[] }) => void;
   onClose: () => void;
   bonusTiles?: { id: number; q: number; r: number }[];
-  onVictoryDetected?: (survivors: number[]) => Promise<void>;
+  onVictoryDetected?: (survivors: number[], wallState?: { edgeKey: string; hp: number }[]) => Promise<void>;
+  // Hex walls standing on the defenders' tiles (War-Ground, 2026-10-15):
+  // tileId → the walls on that tile's edges. Enemy strikes against a
+  // fighter land on its tile's walls first; the walls' remaining HP is
+  // reported back at resolution and persisted by the server.
+  wallsByTile?: Record<number, { edgeKey: string; hp: number }[]>;
   // The server's rolled aspect grant for a boss victory (resolved at
   // detection, before this screen opens) — null when no grant waits.
   aspectGrant?: string[] | null;
@@ -192,9 +197,29 @@ function VictoryAspects({ grant }: { grant: string[] | null }) {
   );
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {} }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
+  // Hex walls (War-Ground, 2026-10-15): live HP per wall edge during
+  // the battle. Enemy strikes against a fighter whose tile still has
+  // a standing wall land on the wall instead — the wall blocks the
+  // crossing. Remaining HP is reported at resolution.
+  const [wallHp, setWallHpState] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {};
+    for (const list of Object.values(wallsByTile)) for (const w of list) init[w.edgeKey] = w.hp;
+    return init;
+  });
+  const wallHpRef = useRef(wallHp);
+  const setWallHp = (updater: (prev: Record<string, number>) => Record<string, number>) => {
+    wallHpRef.current = updater(wallHpRef.current);
+    setWallHpState(wallHpRef.current);
+  };
+  const currentWallState = (): { edgeKey: string; hp: number }[] =>
+    Object.entries(wallHpRef.current).map(([edgeKey, hp]) => ({ edgeKey, hp }));
+  const wallShieldFor = (tileId?: number): number => {
+    if (tileId == null) return 0;
+    return (wallsByTile[tileId] ?? []).reduce((sum, w) => sum + (wallHpRef.current[w.edgeKey] ?? 0), 0);
+  };
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState("The Unraveling comes...");
   const [logHistory, setLogHistory] = useState<string[]>(["The Unraveling comes..."]);
@@ -522,6 +547,27 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   };
 
   const applyEnemyStrike = (attacker: Fighter, target: Fighter) => {
+    // Hex walls block the crossing (War-Ground, 2026-10-15): while a
+    // wall stands on the target's tile, the enemy's strike lands on
+    // the WALL — its full power against the wall's HP, no toughness —
+    // and the fighter behind it is untouched.
+    if (target.tileId != null) {
+      const standing = (wallsByTile[target.tileId] ?? []).find(w => (wallHpRef.current[w.edgeKey] ?? 0) > 0);
+      if (standing) {
+        const wallDmg = Math.max(1, attacker.power);
+        const left = Math.max(0, (wallHpRef.current[standing.edgeKey] ?? 0) - wallDmg);
+        setWallHp(prev => ({ ...prev, [standing.edgeKey]: left }));
+        addLog(left > 0
+          ? `${attacker.name} hammers the wall before ${target.name} — the wall holds at ${left}.`
+          : `${attacker.name} brings the wall down before ${target.name}!`);
+        setHitFlash(target.id);
+        later(400, () => setHitFlash(null));
+        const numId = `wall-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: wallDmg, crit: false }]);
+        later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
+        return;
+      }
+    }
     const edmg = Math.max(1, attacker.power - target.tough);
     const thornHit = target.tileId != null && thornWallTiles.includes(target.tileId);
     let logMsg = `${attacker.name} strikes back at ${target.name} for ${edmg}!`;
@@ -623,7 +669,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setTimeout(async () => {
         if (onVictoryDetected) {
           const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!).filter(Boolean);
-          await onVictoryDetected(survivors);
+          await onVictoryDetected(survivors, currentWallState());
         }
         setShowVictoryScreen(true);
       }, 1500);
@@ -633,7 +679,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setSimRunning(false);
       trackPlayer.stop();
       addLog("THE LINE FALLS...");
-      setTimeout(() => onBattleEnd({ victory: false, survivors: [] }), 2500);
+      setTimeout(() => onBattleEnd({ victory: false, survivors: [], wallState: currentWallState() }), 2500);
     }
   }, [fighters, enemies]);
 
@@ -765,6 +811,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               <div className="thermo-bulb" />
             </div>
             {f.field && <div className="field-badge">⚔</div>}
+            {(() => { const shield = wallShieldFor(f.tileId); return shield > 0 ? <div className="field-badge" style={{ right: "auto", left: 2 }} title="Hex wall HP shielding this fighter">🧱{shield}</div> : null; })()}
             {dmgNumbers.filter(n => n.fighterId === f.id).map(n => (
               <div key={n.id} className={`dmg-number ${n.crit ? "crit" : ""}`}>-{n.dmg}</div>
             ))}
@@ -885,13 +932,13 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           <div className="victory-buttons">
             <button className="abtn raise-binding" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, raiseBinding: true, bonusTileId: pickedTerritory ?? undefined });
+              onBattleEnd({ victory: true, survivors, raiseBinding: true, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState() });
             }}>
               ✦ Raise Binding
             </button>
             <button className="abtn continue-wave" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined });
+              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState() });
             }}>
               Continue →
             </button>

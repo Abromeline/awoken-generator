@@ -139,6 +139,18 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
   return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 }
 
+/** Canonical wall edge key — MUST match the server (placeWall): the
+ *  edge lives under the lexicographically smaller of its two tiles,
+ *  so a shared border is one wall from either side. Dirs follow the
+ *  FACE_HEX corner order (0 = top edge, then clockwise). */
+const WALL_DIR_DELTAS: [number, number][] = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
+const WALL_OPPOSITE = [3, 4, 5, 0, 1, 2];
+function canonicalWallEdgeKey(q: number, r: number, dir: number): string {
+  const nq = q + WALL_DIR_DELTAS[dir][0], nr = r + WALL_DIR_DELTAS[dir][1];
+  if (nq < q || (nq === q && nr < r)) return `${nq},${nr},${WALL_OPPOSITE[dir]}`;
+  return `${q},${r},${dir}`;
+}
+
 interface Props {
   tenderItems: Awakened[];
   assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
@@ -314,6 +326,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     } catch {}
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
+  const [walls, setWalls] = useState<{ edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }[]>([]); // hex walls (server-canonical edges)
+  const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
   const [celebration, setCelebration] = useState<any | null>(null);
@@ -404,6 +418,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // placements at battle start) — the survivors reported to the server
   // at resolution are drawn from this list (War-Ground fix, 2026-10-15).
   const battleFighterIdsRef = useRef<number[]>([]);
+  // Hex walls during the in-map battle sim: live HP per edge, seeded
+  // from the server's walls when the battle starts; enemy damage to a
+  // fighter is absorbed by its tile's walls first (damageAwoken), and
+  // the remainder is reported at resolution (War-Ground, 2026-10-15).
+  const battleWallHpRef = useRef<Map<string, number>>(new Map());
+  const wallsTouchingTile = (t: { q: number; r: number }) => walls.filter(w =>
+    (w.q === t.q && w.r === t.r) ||
+    (w.q + WALL_DIR_DELTAS[w.dir][0] === t.q && w.r + WALL_DIR_DELTAS[w.dir][1] === t.r));
+  const seedBattleWalls = () => {
+    battleWallHpRef.current = new Map(walls.map(w => [w.edgeKey, w.hp]));
+  };
+  const simWallState = (): { edgeKey: string; hp: number }[] =>
+    [...battleWallHpRef.current.entries()].map(([edgeKey, hp]) => ({ edgeKey, hp }));
   // Boss resolution recorded at victory detection (before the victory
   // screen opens), so handleBattleEnd never resolves a boss twice;
   // bossAspectGrant is the server's rolled grant the screen displays.
@@ -510,12 +537,31 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   }, [placements]);
 
   useEffect(() => {
-    api.getTerritory().then(({ tiles, placements }) => {
-      setTiles(tiles); setPlacements(placements);
+    api.getTerritory().then(({ tiles, placements, walls }) => {
+      setTiles(tiles); setPlacements(placements); setWalls(walls ?? []);
     }).catch((e) => {
       console.error("[Territory] getTerritory failed:", e);
     }).finally(() => setTerritoryLoaded(true));
   }, []);
+
+  // ── Hex walls (War-Ground, Nigel 2026-10-15) ──────────────────────
+  // An Awoken standing on a hex raises a wall on one of its six edges:
+  // one tap on the edge itself (a fat invisible hit-strip laid exactly
+  // along the painted edge), 2 energy, instant. The wall blocks
+  // enemies in battle — their strikes land on it first — and carries
+  // its own HP. Edge dirs follow hexCellVertices order (0 = top edge,
+  // then clockwise), the same numbering the server canonicalises.
+  const handlePlaceWall = async (tileId: number, dir: number) => {
+    try {
+      await api.placeWall({ tileId, dir });
+      const refreshed = await api.getTerritory();
+      setTiles(refreshed.tiles); setPlacements(refreshed.placements); setWalls(refreshed.walls ?? []);
+      onUpdate();
+      showHexNotice("A wall rises on the hex edge — it will take the enemy's blows first.");
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "The wall would not rise.");
+    }
+  };
 
   // Hand = Awoken not on field (defined above for energy calc)
 
@@ -916,6 +962,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       return;
     }
     battleFighterIdsRef.current = fighterIds;
+    seedBattleWalls();
     const committedPower = fighterIds.reduce((sum, id) => {
       const aw = tenderItems.find(a => a.id === id);
       return sum + (aw?.power ?? 0);
@@ -1189,6 +1236,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   /** Damage an Awoken (defends tile first). Syncs to server. */
   const damageAwoken = async (awakenedId: number, dmg: number) => {
+    // Hex walls absorb first (War-Ground, 2026-10-15): damage meant
+    // for a fighter standing on a walled tile chews through that
+    // tile's walls before it reaches the Awoken.
+    const placement = placements.find(p => p.awakenedId === awakenedId);
+    const tile = placement ? tiles.find(t => t.id === placement.tileId) : null;
+    if (tile) {
+      let remaining = dmg;
+      for (const w of wallsTouchingTile(tile)) {
+        if (remaining <= 0) break;
+        const hp = battleWallHpRef.current.get(w.edgeKey) ?? 0;
+        if (hp <= 0) continue;
+        const absorbed = Math.min(hp, remaining);
+        battleWallHpRef.current.set(w.edgeKey, hp - absorbed);
+        remaining -= absorbed;
+        if (hp - absorbed <= 0) showHexNotice("A wall crumbles under the Unraveling's blows!");
+      }
+      if (remaining <= 0) return;
+      dmg = remaining;
+    }
     try {
       const { hp } = await api.damageAwokenHp({ awakenedId, damage: Math.round(dmg) });
       setAwokenHp(prev => new Map(prev).set(awakenedId, hp));
@@ -1243,6 +1309,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
+      setWalls(refreshed.walls ?? []);
     } catch (e) { console.error("Territory refresh after resolution failed", e); }
     try {
       const w = await api.getWave();
@@ -1272,6 +1339,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         waveNumber: wave.waveNumber,
         survivorIds: survivors,
         targetTileId: waveTarget?.tile?.id,
+        wallState: simWallState(),
       });
       if (res.bonusEligible && res.bonusEligible.length > 0) {
         setBonusTiles(res.bonusEligible);
@@ -1334,6 +1402,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         victory: false,
         waveNumber: wave.waveNumber,
         survivorIds: [],
+        wallState: simWallState(),
       });
     } catch (e) {
       console.error("Defeat resolution failed", e);
@@ -1348,7 +1417,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // rolls the aspect grant, so the screen shows the server's own roll —
   // and handleBattleEnd, which runs when the screen's buttons are
   // pressed, does not resolve the same victory twice.
-  const handleVictoryDetected = async (survivors: number[] = []) => {
+  const handleVictoryDetected = async (survivors: number[] = [], wallState?: { edgeKey: string; hp: number }[]) => {
     if (battleResolvedRef.current) return;
     battleResolvedRef.current = true;
     if (isBossFight && wave?.isBoss) {
@@ -1357,6 +1426,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           victory: true,
           bossLevel: wave.bossLevel ?? bossLevel,
           survivorIds: survivors,
+          wallState,
         });
         bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
         // The screen claims the OLDEST pending grant (the ledger pays
@@ -1371,7 +1441,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => {
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[] }) => {
     const wasBoss = isBossFight && !!wave?.isBoss;
     const bossLvl = wave?.bossLevel ?? bossLevel;
     setShowBattleground(false);
@@ -1386,7 +1456,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (result.victory) {
           if (!bossResolutionRef.current) {
             // Detection never resolved (screen closed early) — resolve now.
-            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors });
+            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState });
             bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
           }
           if (bossResolutionRef.current.victory) {
@@ -1401,7 +1471,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             } catch (e) { console.error("Boss newborn birth failed", e); }
           }
         } else if (!bossResolutionRef.current) {
-          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors });
+          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState });
         }
       } catch (e) {
         showHexNotice(refusalText(e, "The boss resolution was refused."));
@@ -1437,6 +1507,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         survivorIds: result.survivors,
         continueWave: result.continueWave,
         targetTileId: waveTarget?.tile?.id,
+        wallState: result.wallState,
       });
       if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
         setBonusTiles(battleRes.bonusEligible);
@@ -1451,6 +1522,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
+      setWalls(refreshed.walls ?? []);
       const w = await api.getWave();
       setWave(w);
       await refreshEnergy();
@@ -2063,11 +2135,63 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       ? cellLayer(hoverHexId, "hover") : null;
     const mistLayer = cellLayer(mistTileId, "mist");
     const targetMarker = cellLayer(targetHexId, "shine");
+    // Hex walls: a raised segment drawn along the wall's edge (a dark
+    // outer face offset outward, a paler top), paling as its HP falls.
+    // In wall-raising mode the selected Awoken's hex shows its six
+    // edges — a gold guide line plus a FAT invisible hit-strip along
+    // each free edge, so one tap (finger or mouse) picks exactly one
+    // side. Edges already walled show grey and take no tap.
+    const wallLayer = (
+      <g key="walls">
+        {walls.map(w => {
+          const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
+          const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px + pan.x, cy: originY + py + pan.y }; })();
+          const verts = hexCellVertices(c.cx, c.cy, size);
+          const [x1, y1] = verts[w.dir];
+          const [x2, y2] = verts[(w.dir + 1) % 6];
+          const mx = (x1 + x2) / 2 - c.cx, my = (y1 + y2) / 2 - c.cy;
+          const mlen = Math.hypot(mx, my) || 1;
+          const ox = (mx / mlen) * size * 0.07, oy = (my / mlen) * size * 0.07;
+          const frac = w.maxHp > 0 ? w.hp / w.maxHp : 0;
+          return (
+            <g key={w.edgeKey}>
+              <line x1={x1 + ox} y1={y1 + oy} x2={x2 + ox} y2={y2 + oy} stroke="#4a3826" strokeWidth={size * 0.11} strokeLinecap="round" />
+              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={frac > 0.5 ? "#d9c68f" : frac > 0.25 ? "#b39b5e" : "#7d5f30"} strokeWidth={size * 0.075} strokeLinecap="round" />
+            </g>
+          );
+        })}
+        {wallTargeting && selectedAwoken !== null && (() => {
+          const p = placements.find(pp => pp.awakenedId === selectedAwoken);
+          const t = p ? tiles.find(tt => tt.id === p.tileId) : null;
+          if (!t || t.cursed) return null;
+          const { cx, cy } = tilePos(t);
+          const verts = hexCellVertices(cx, cy, size);
+          return (
+            <g>
+              {verts.map((v, d) => {
+                const n = verts[(d + 1) % 6];
+                const taken = walls.some(w => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d));
+                return (
+                  <g key={d}>
+                    <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(255,215,0,0.6)"} strokeWidth={3} strokeDasharray="6 4" pointerEvents="none" />
+                    {!taken && (
+                      <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(255,215,0,0.02)" strokeWidth={24} strokeLinecap="round" style={{ cursor: "pointer" }}
+                        onClick={(e) => { e.stopPropagation(); handlePlaceWall(t.id, d); }} />
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })()}
+      </g>
+    );
     return (
       <>
         {elements}
         {buildingElements}
         {awokenElements}
+        {wallLayer}
         {hoverLayer}
         {mistLayer}
         {targetMarker}
@@ -2682,6 +2806,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 );
               })()}
               <button
+                className={`stance-btn ${wallTargeting ? "active" : ""}`}
+                onClick={() => { setWallTargeting(w => !w); setAttackTargeting(false); setMoveTargeting(false); }}
+                title="Raise a wall on one edge of this hex (2 energy). Tap the glowing edge itself — one tap, one wall. Enemies in battle strike the wall before the Awoken behind it.">
+                🧱 {wallTargeting ? "Tap an edge…" : "Raise wall (2⚡)"}
+              </button>
+              <button
                 className="stance-btn dissipate"
                 onClick={async () => {
                   if (confirm("Dissipate this Awoken? It will enter 8h re-coalescence.")) {
@@ -3131,6 +3261,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             onVictoryDetected={handleVictoryDetected}
             aspectGrant={bossAspectGrant}
             mood={mood?.mood ?? null}
+            wallsByTile={Object.fromEntries(tiles.map(t => [
+              t.id,
+              wallsTouchingTile(t).map(w => ({ edgeKey: w.edgeKey, hp: w.hp })),
+            ]))}
           />
         );
       })()}
