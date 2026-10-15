@@ -312,7 +312,7 @@ function StoryTell({ item }: { item: Awoken }) {
   const full = stories.length >= 3 || (item.story_count ?? 0) >= 3;
   return <section className="story-tell" aria-label={`Stories told to ${item.name}`}>
     <header><span>Stories</span><small>told to {item.name} — personal, kept here unless you send one on</small></header>
-    {storiesQuery.data?.nextPrompt && <div className="story-prompt"><span className="story-prompt-label">Its seed — begin here</span><p>{storiesQuery.data.nextPrompt}</p></div>}
+    {storiesQuery.data?.nextPrompt && <div className="story-prompt"><span className="story-prompt-label">{storiesQuery.data.nextThread && storiesQuery.data.nextChapter ? `Its seed · ${storiesQuery.data.nextThread} · Chapter ${["I", "II", "III"][storiesQuery.data.nextChapter - 1]}` : "Its seed — begin here"}</span><p>{storiesQuery.data.nextPrompt}</p></div>}
     {storiesQuery.isPending && <p className="quiet">Gathering the tellings…</p>}
     {storiesQuery.isError && <p className="quiet">{mutationError(storiesQuery.error)}</p>}
     {stories.map((story) => <div className="story-entry" key={story.id}>

@@ -18,7 +18,7 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { storyPromptFor } from "./storyPrompts.js";
+import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
   type LibraryTrack,
@@ -1601,8 +1601,13 @@ export const handlers = {
       })),
       // This Awoken's own seed for its next telling, drawn from Lore's
       // Volume of Prompts — the same creature always meets the same seed
-      // for a given slot (storyPrompts.ts). Null once it holds three.
+      // for a given slot (storyPrompts.ts). Every Awoken walks ONE thread
+      // for life (Nigel's weaving, 2026-10-15), so its three seeds come
+      // from that thread's chapters I, II, III in order. All three fields
+      // are null once it holds three stories.
       nextPrompt: stories.length < 3 ? storyPromptFor(parsed.data.id, stories.length) : null,
+      nextThread: stories.length < 3 ? storyThreadNameFor(parsed.data.id) : null,
+      nextChapter: stories.length < 3 ? stories.length + 1 : null,
     };
   },
 

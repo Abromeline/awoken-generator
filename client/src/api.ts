@@ -306,7 +306,7 @@ export const api = {
     post<{ id: number; name: string; iteration: number; empowerment: number; flavor_text: string }>("saveAwoken", args),
   renameAwoken: (args: { id: number; name: string }) => post<{ ok: true }>("renameAwoken", args),
   shareStory: (args: { id: number; story: string }) => post<{ ok: true; storyCount: number }>("shareStory", args),
-  getAwokenStories: (args: { id: number }) => post<{ stories: AwokenStory[]; nextPrompt: string | null }>("getAwokenStories", args),
+  getAwokenStories: (args: { id: number }) => post<{ stories: AwokenStory[]; nextPrompt: string | null; nextThread: string | null; nextChapter: number | null }>("getAwokenStories", args),
   sendStoryToDiscord: (args: { storyId: number; cardPngBase64: string }) => post<{ ok: true; sentAt: string }>("sendStoryToDiscord", args),
   createDeck: (args: { name: string }) => post<{ id: number; name: string; faceCardId: number | null; cardCount: number }>("createDeck", args),
   listDecks: () => post<{ decks: { id: number; name: string; faceCardId: number | null; cardCount: number }[] }>("listDecks", {}),
