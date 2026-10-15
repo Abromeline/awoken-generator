@@ -404,6 +404,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // placements at battle start) — the survivors reported to the server
   // at resolution are drawn from this list (War-Ground fix, 2026-10-15).
   const battleFighterIdsRef = useRef<number[]>([]);
+  // Boss resolution recorded at victory detection (before the victory
+  // screen opens), so handleBattleEnd never resolves a boss twice;
+  // bossAspectGrant is the server's rolled grant the screen displays.
+  const bossResolutionRef = useRef<{ victory: boolean; bossesDefeated?: number } | null>(null);
+  const [bossAspectGrant, setBossAspectGrant] = useState<string[]>([]);
   // Cycle position toward the boss (0–3) from the server's own count:
   // every third victory completes a cycle and opens the boss window.
   const cycleFromDefeated = (defeated: number) =>
@@ -696,7 +701,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     let w = wave;
     if (isBoss) {
       try {
-        const bw: any = await api.call("getBossWave", { bossLevel: bossLvl });
+        bossResolutionRef.current = null;
+        setBossAspectGrant([]);
+        // The boss ladder is the server's record now (War-Ground fix,
+        // 2026-10-15): the level fought is the server's next boss, and
+        // the fight opens only when the server says a boss waits — the
+        // old localStorage count is retired.
+        const bs = await api.getBossState();
+        setBossLevel(bs.nextBossLevel);
+        if (!bs.eligible) {
+          showHexNotice("No boss waits — break a full cycle of three Unravelings since the last boss fell.");
+          setIsBossFight(false);
+          return;
+        }
+        const bw: any = await api.call("getBossWave", { bossLevel: bs.nextBossLevel });
         w = {
           waveNumber: bw.waveNumber,
           wavesDefeated: 0,
@@ -706,11 +724,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           hollows: bw.hollows,
           tangles: bw.tangles,
           isBoss: true,
-          bossLevel: bossLvl,
+          bossLevel: bs.nextBossLevel,
         };
         setWave(w);
       } catch (e) {
         console.error("Boss wave fetch failed", e);
+        setIsBossFight(false);
+        return;
       }
     }
     if (!w) {
@@ -1322,22 +1342,74 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
 
 
-  // Called when victory is detected — resolve the battle early to get bonus tiles
-  // for the victory screen picker.
-  const handleVictoryDetected = async () => {
-    // Victory detected mid-battle — the real resolve with survivor IDs happens in handleBattleEnd.
+  // Called when victory is detected — before the victory screen opens.
+  // For a boss fight the resolution happens HERE (War-Ground fix,
+  // 2026-10-15): the server's reckoning records the newborn claim and
+  // rolls the aspect grant, so the screen shows the server's own roll —
+  // and handleBattleEnd, which runs when the screen's buttons are
+  // pressed, does not resolve the same victory twice.
+  const handleVictoryDetected = async (survivors: number[] = []) => {
     if (battleResolvedRef.current) return;
     battleResolvedRef.current = true;
+    if (isBossFight && wave?.isBoss) {
+      try {
+        const res = await api.resolveBossBattle({
+          victory: true,
+          bossLevel: wave.bossLevel ?? bossLevel,
+          survivorIds: survivors,
+        });
+        bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
+        // The screen claims the OLDEST pending grant (the ledger pays
+        // FIFO) — fetch it, so what is shown is exactly what a claim pays.
+        const pending = await api.getPendingAspectGrant();
+        setBossAspectGrant(pending.grant?.elements ?? res.aspectElements ?? []);
+      } catch (e) {
+        bossResolutionRef.current = { victory: false };
+        showHexNotice(refusalText(e, "The War-Ground did not reckon this boss victory."));
+        setBossAspectGrant([]);
+      }
+    }
   };
 
   const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => {
+    const wasBoss = isBossFight && !!wave?.isBoss;
+    const bossLvl = wave?.bossLevel ?? bossLevel;
     setShowBattleground(false);
     setIsBossFight(false);
     battleResolvedRef.current = false; // reset for next battle
-    // Track boss victories
-    if (result.victory && isBossFight) {
-      const beaten = parseInt(localStorage.getItem("awoken-bosses-beaten") || "0") + 1;
-      localStorage.setItem("awoken-bosses-beaten", String(beaten));
+    // Boss battle: resolve through the boss's own server path
+    // (War-Ground fix, 2026-10-15). A victory was already reckoned at
+    // detection (handleVictoryDetected) — here we only gather what it
+    // freed. The wave ladder is not touched by a boss, either way.
+    if (wasBoss && wavePullTile === null) {
+      try {
+        if (result.victory) {
+          if (!bossResolutionRef.current) {
+            // Detection never resolved (screen closed early) — resolve now.
+            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors });
+            bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
+          }
+          if (bossResolutionRef.current.victory) {
+            // The newborn claim stands in the ledger — gather it.
+            try {
+              // No tileId: the server's schema accepts it only when
+              // positive — the old call passed 0 and was refused on
+              // shape before the claim was ever reached, one more dead
+              // link in the boss chain.
+              await api.birthNewbornToHand({ liberatorNames: [] });
+              showHexNotice("The boss breaks — a newborn is freed, and a wake credit waits at the Wake One spark.");
+            } catch (e) { console.error("Boss newborn birth failed", e); }
+          }
+        } else if (!bossResolutionRef.current) {
+          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors });
+        }
+      } catch (e) {
+        showHexNotice(refusalText(e, "The boss resolution was refused."));
+      }
+      bossResolutionRef.current = null;
+      setBossAspectGrant([]);
+      await refreshAfterResolution();
+      return;
     }
     // Wave-pull battle (from mystery purification): resolve separately
     if (wavePullTile !== null) {
@@ -1382,23 +1454,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const w = await api.getWave();
       setWave(w);
       await refreshEnergy();
-      if (result.victory && isBossFight) {
-        // Newborns only from boss fights — adds to wake count
-        api.birthNewbornToHand({ tileId: 0, liberatorNames: [] }).catch(() => {});
-        if (result.raiseBinding) {
-          // Raise Binding: save wave difficulty, return to tender view
-          // (wave state already saved by resolveBattle)
-          onUpdate();
-          return;
-        }
-        if (result.continueWave) {
-          // Continue: +6 energy (granted server-side in resolveBattle), 2 fresh cards, next harder wave
-          await refreshEnergy();
-          // Refresh hand with 2 new cards (via onUpdate)
-          onUpdate();
-          return;
-        }
-      }
       onUpdate();
     } catch (e) {
       console.error("Battle resolve failed", e);
@@ -2691,10 +2746,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         {wavesCleared >= 3 && (
           <button className="abtn battle-cta" onClick={() => {
             setIsBossFight(true);
-            // Boss level = how many bosses beaten + 1
-            const bl = (parseInt(localStorage.getItem("awoken-bosses-beaten") || "0") + 1);
-            setBossLevel(bl);
-            handleDefend(true, bl);
+            // Boss level = the server's next boss (getBossState, asked
+            // inside handleDefend) — no local count is kept anymore.
+            handleDefend(true);
           }} style={{ borderColor: "#ffd700" }}>
             👑 BOSS FIGHT
           </button>
@@ -3075,6 +3129,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             onClose={() => setShowBattleground(false)}
             bonusTiles={bonusTiles}
             onVictoryDetected={handleVictoryDetected}
+            aspectGrant={bossAspectGrant}
           />
         );
       })()}

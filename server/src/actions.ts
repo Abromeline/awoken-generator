@@ -59,12 +59,15 @@ function assertPngBytes(bytes: Buffer): void {
 
 // --- Pending newborn claims -------------------------------------------------
 // A newborn is EARNED, never asserted. The server-side event that
-// qualifies — a purification in deployBattle / attackTile /
-// resolveWavePull, or the first-tile claim — records one claim in
-// pending_newborn_claims, and the birth endpoints (birthNewbornToHand,
-// birthFieldAwoken) consume exactly one claim per birth. Before this
-// ledger existed, birthNewbornToHand granted a paid wake credit to any
-// caller on demand — an open mint on the credits Stripe sells.
+// qualifies records one claim in pending_newborn_claims, and the birth
+// endpoints (birthNewbornToHand, birthFieldAwoken) consume exactly one
+// claim per birth. Before this ledger existed, birthNewbornToHand
+// granted a paid wake credit to any caller on demand — an open mint on
+// the credits Stripe sells. (Corrected 2026-10-15: purification events
+// recorded claims when the ledger was built, but Nigel's 2026-10-14
+// ruling abolished purification births and those recording sites were
+// removed; since the War-Ground fix the ONLY recording site is a
+// verified boss victory in resolveBossBattle.)
 
 function recordNewbornClaim(ownerKey: string, source: string): void {
   sqlite.prepare("INSERT INTO pending_newborn_claims (owner_key, source, created_at) VALUES (?, ?, ?)")
@@ -82,11 +85,73 @@ function consumeNewbornClaim(ownerKey: string): boolean {
   })();
 }
 
+// --- Boss state & pending aspect grants -------------------------------------
+// The boss ladder is the server's record, never the client's: how many
+// bosses this tender has broken, and the wavesDefeated count when the
+// last one fell. A boss can be faced only when a fresh cycle of three
+// Unravelings has been broken since then (War-Ground fix, 2026-10-15 —
+// boss victories previously had NO server resolution path: the client
+// sent waveNumber 901+ to resolveBattle, which rejected it as a ladder
+// mismatch and swallowed the error, so no claim ever recorded).
+
+interface BossStateRow {
+  bossesDefeated: number;
+  lastVictoryDefeated: number;
+  lastBossAt: number | null;
+}
+
+function loadBossState(ownerKey: string): BossStateRow {
+  sqlite.prepare("INSERT OR IGNORE INTO boss_state (owner_key) VALUES (?)").run(ownerKey);
+  const row = sqlite.prepare(
+    "SELECT bosses_defeated AS bd, last_victory_defeated AS lvd, last_boss_at AS lba FROM boss_state WHERE owner_key = ?"
+  ).get(ownerKey) as { bd: number; lvd: number; lba: number | null };
+  return { bossesDefeated: row.bd, lastVictoryDefeated: row.lvd, lastBossAt: row.lba };
+}
+
+/** A boss waits when a full 3-Unraveling cycle has been broken since
+ *  the last boss victory (or since the beginning). */
+function bossEligible(wavesDefeated: number, boss: BossStateRow): boolean {
+  return wavesDefeated > 0 && wavesDefeated % 3 === 0 && wavesDefeated > boss.lastVictoryDefeated;
+}
+
+function recordAspectGrant(ownerKey: string, elements: AspectElement[], source: string): void {
+  sqlite.prepare("INSERT INTO pending_aspect_grants (owner_key, elements, source, created_at) VALUES (?, ?, ?, ?)")
+    .run(ownerKey, JSON.stringify(elements), source, Date.now());
+}
+
+/** The owner's oldest pending aspect grant, or null when none waits. */
+function peekAspectGrant(ownerKey: string): { elements: AspectElement[]; source: string } | null {
+  const row = sqlite.prepare("SELECT elements, source FROM pending_aspect_grants WHERE owner_key = ? ORDER BY id ASC LIMIT 1")
+    .get(ownerKey) as { elements: string; source: string } | undefined;
+  if (!row) return null;
+  try {
+    const elements = JSON.parse(row.elements) as AspectElement[];
+    return Array.isArray(elements) ? { elements, source: row.source } : null;
+  } catch { return null; }
+}
+
+/** Take the owner's oldest pending aspect grant, atomically — a grant
+ *  pays out exactly once, like a newborn claim. */
+function consumeAspectGrant(ownerKey: string): { elements: AspectElement[]; source: string } | null {
+  return sqlite.transaction(() => {
+    const row = sqlite.prepare("SELECT MIN(id) AS id FROM pending_aspect_grants WHERE owner_key = ?")
+      .get(ownerKey) as { id: number | null } | undefined;
+    if (!row || row.id == null) return null;
+    const grant = sqlite.prepare("SELECT elements, source FROM pending_aspect_grants WHERE id = ?")
+      .get(row.id) as { elements: string; source: string };
+    sqlite.prepare("DELETE FROM pending_aspect_grants WHERE id = ?").run(row.id);
+    try {
+      const elements = JSON.parse(grant.elements) as AspectElement[];
+      return Array.isArray(elements) ? { elements, source: grant.source } : null;
+    } catch { return null; }
+  })();
+}
+
 type AspectElement = "tide" | "sky" | "stone" | "root";
 
 /**
  * Add ONE attunement point to an element for an owner — the exact arithmetic
- * grantAspectPoint has always run: +1 point (insert or update, updatedAt
+ * aspect grants have always run: +1 point (insert or update, updatedAt
  * touched), and at >= 10 points an aspect is born into the inventory when a
  * "<Element> I" layer asset exists (10 points are then spent; without the
  * asset the points stay). Lifetime gains are never touched. Returns true
@@ -781,7 +846,17 @@ async function recordDeed(ownerKey: string, awakenedId: number, deed: string) {
   }
 }
 
-// Unraveling moods: week-long world states that shift the strategic landscape.
+// Weather's sky (Nigel's ruling, the Sky's Terrace, 2026-10-15): world
+// moods are short reigns of ROUGHLY 15 minutes — never a metronome.
+// Weather sways each reign a few minutes either way as her mood
+// pertains, and storms and calms (quiet) may linger a little longer at
+// her discretion. The mood roll is the Pantheon app's weighted roll —
+// same weights, same law: the manic sky prefers change over repetition,
+// so a mood that just reigned is six times less likely to roll again.
+// Great Storms are NOT part of this roll: authored events only,
+// initiated by the Ancient One. The old week-long sequential rotation
+// is deleted; a stored reign with more than a longest reign left to
+// run can only be one of its leftovers, so it is cut short below.
 export type WorldMood = "thickening" | "thinning" | "quiet" | "storm";
 const MOODS: WorldMood[] = ["thickening", "thinning", "quiet", "storm"];
 const MOOD_DESCRIPTIONS: Record<WorldMood, string> = {
@@ -790,25 +865,79 @@ const MOOD_DESCRIPTIONS: Record<WorldMood, string> = {
   quiet: "A hush falls. Fewer waves, but the Awoken dream vividly.",
   storm: "The Unraveling rages. Waves strike with +50% power.",
 };
+const MOOD_WEIGHTS: Record<WorldMood, number> = {
+  thickening: 30,
+  thinning: 28,
+  quiet: 27,
+  storm: 15,
+};
+// Each reign's sway, in minutes: [shortest, longest]. Base ~15;
+// thickening and thinning pass a little quicker, quiet and storm
+// are the moods Weather may hold longer.
+export const MOOD_REIGN_MINUTES: Record<WorldMood, [number, number]> = {
+  thickening: [12, 16],
+  thinning: [11, 15],
+  quiet: [15, 21],
+  storm: [15, 22],
+};
+const LONGEST_REIGN_MS = 22 * 60 * 1000;
 
-async function getWorldMood(): Promise<{ mood: WorldMood; description: string; endsAt: string }> {
-  const rows = await db.select().from(schema.settings).where(eq(schema.settings.key, "world_mood")).limit(1);
-  const now = Date.now();
-  if (rows.length) {
-    const data = JSON.parse(rows[0].value);
-    if (new Date(data.endsAt).getTime() > now) {
-      return data;
-    }
+export function rollWorldMood(current: WorldMood | null): WorldMood {
+  const pool: WorldMood[] = [];
+  for (const mood of MOODS) {
+    let w = MOOD_WEIGHTS[mood];
+    if (current !== null && mood === current) w = Math.max(1, Math.round(w / 6));
+    for (let i = 0; i < w; i++) pool.push(mood);
   }
-  // Rotate to next mood
-  const lastMood = rows.length ? JSON.parse(rows[0].value).mood : "quiet";
-  const nextIdx = (MOODS.indexOf(lastMood) + 1) % MOODS.length;
-  const mood = MOODS[nextIdx];
-  const endsAt = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const data = { mood, description: MOOD_DESCRIPTIONS[mood], endsAt };
+  return pool[Math.floor(Math.random() * pool.length)] ?? "quiet";
+}
+
+/** A reign's length, rolled within the mood's sway at its start so
+ *  every reader (battle, terrain, Music's playlist) agrees on endsAt. */
+export function worldMoodReignMs(mood: WorldMood, firstReign = false): number {
+  if (firstReign) return (10 + Math.floor(Math.random() * 3)) * 60 * 1000; // 10–12 min
+  const [min, max] = MOOD_REIGN_MINUTES[mood];
+  return (min + Math.floor(Math.random() * (max - min + 1))) * 60 * 1000;
+}
+
+type WorldMoodState = { mood: WorldMood; description: string; endsAt: string };
+
+async function storeWorldMood(data: WorldMoodState): Promise<WorldMoodState> {
   await db.insert(schema.settings).values({ key: "world_mood", value: JSON.stringify(data) })
     .onConflictDoUpdate({ target: schema.settings.key, set: { value: JSON.stringify(data) } });
   return data;
+}
+
+async function getWorldMood(): Promise<WorldMoodState> {
+  const rows = await db.select().from(schema.settings).where(eq(schema.settings.key, "world_mood")).limit(1);
+  const now = Date.now();
+  let lastMood: WorldMood | null = null;
+  if (rows.length) {
+    try {
+      const data = JSON.parse(rows[0].value) as WorldMoodState;
+      if (MOODS.includes(data.mood)) {
+        lastMood = data.mood;
+        const remainingMs = new Date(data.endsAt).getTime() - now;
+        if (remainingMs > 0 && remainingMs <= LONGEST_REIGN_MS) {
+          return { mood: data.mood, description: MOOD_DESCRIPTIONS[data.mood], endsAt: data.endsAt };
+        }
+        if (remainingMs > LONGEST_REIGN_MS) {
+          // A leftover week-long reign from the old sky: keep the mood
+          // the world is under, but cut its reign to a swayed length.
+          const endsAt = new Date(now + worldMoodReignMs(data.mood)).toISOString();
+          return await storeWorldMood({ mood: data.mood, description: MOOD_DESCRIPTIONS[data.mood], endsAt });
+        }
+      }
+    } catch { /* malformed stored sky: fall through and roll a fresh one */ }
+  }
+  // The reign has ended (or the world is new): roll the next sky. One
+  // roll however many reigns passed unwatched, as in the Pantheon app.
+  // A brand-new world opens quiet and brief — never the old accident
+  // of a first mood that stormed for a week.
+  const firstReign = lastMood === null;
+  const mood = firstReign ? "quiet" : rollWorldMood(lastMood);
+  const endsAt = new Date(now + worldMoodReignMs(mood, firstReign)).toISOString();
+  return await storeWorldMood({ mood, description: MOOD_DESCRIPTIONS[mood], endsAt });
 }
 
 // Single source of truth for wave power. Wave 1 = 7, +2 per wave, +4 per Unraveler (every 3rd wave).
@@ -2111,13 +2240,11 @@ export const handlers = {
       }
       // Only BOSS fights free new Awoken (Nigel, 2026-10-14):
       // purification births are abolished — too many unnamed Awoken
-      // were simply popping up. A boss wave (900+) still frees one;
-      // the birth endpoint consumes the claim exactly once.
-      const waveRows = await db.select().from(schema.waveState)
-        .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
-      if ((waveRows[0]?.waveNumber ?? 0) >= 900) {
-        recordNewbornClaim(ownerKey, "bossVictory");
-      }
+      // were simply popping up. No claim is recorded here, ever: the
+      // old boss-wave (900+) check that stood in this spot could never
+      // fire (the ladder never holds a 900+ wave number) and boss
+      // victories now record their claim in resolveBossBattle, the
+      // boss's own resolution path (War-Ground fix, 2026-10-15).
     } else {
       // Wave lost — curse HP restores to half
       const maxHp = tiles[0].curseMaxHp ?? 10;
@@ -2440,16 +2567,10 @@ export const handlers = {
     return { ok: true as const, element, newLevel: 1, upgraded: false as const };
   },
 
-  async grantAspectPoint(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      element: z.enum(["tide", "sky", "stone", "root"]),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid element.");
-    // Add 1 point to attunement (may trigger aspect spawn if threshold hit)
-    const spawned = await addAspectPoint(ownerKey, parsed.data.element);
-    return { ok: true as const, spawned };
-  },
+  // grantAspectPoint is GONE (War-Ground fix, 2026-10-15): it minted a
+  // point for any caller with no victory behind it, as often as it was
+  // called. Aspect points now move only through claimAspectGrant,
+  // which consumes a grant a verified boss victory recorded.
 
   /** Persist battle damage to a tile. Returns new HP, and whether it fell. */
   async damageTileHp(args: unknown, ctx?: ActionContext) {
@@ -3816,6 +3937,141 @@ export const handlers = {
       isBoss: true,
       bossLevel: parsed.data.bossLevel,
     };
+  },
+
+  /** The boss ladder as the server holds it: how many bosses this
+   *  tender has broken, which boss comes next, and whether a fresh
+   *  3-Unraveling cycle has opened the boss window. (Replaces the
+   *  client's old localStorage count, which the server never saw.) */
+  async getBossState(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const boss = loadBossState(ownerKey);
+    const waveRows = await db.select().from(schema.waveState)
+      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
+    const wavesDefeated = waveRows[0]?.wavesDefeated ?? 0;
+    return {
+      bossesDefeated: boss.bossesDefeated,
+      nextBossLevel: boss.bossesDefeated + 1,
+      eligible: bossEligible(wavesDefeated, boss),
+      wavesDefeated,
+      cycleProgress: wavesDefeated % 3,
+    };
+  },
+
+  /** Resolve a boss battle — the boss's own verified path, beside the
+   *  wave ladder rather than forced through it (War-Ground fix,
+   *  2026-10-15). The reckoning mirrors resolveBattle: the boss's power
+   *  is recomputed server-side from bossPowerFor, survivors must be
+   *  committed fighters still placed, a victory needs at least one
+   *  survivor and a company whose server-measured power matches the
+   *  boss. A victory records the only things that free a newborn: the
+   *  newborn claim in the ledger, and a pending aspect grant whose
+   *  element split (5 + 2 per boss level, Nigel 2026-10-11) is rolled
+   *  here, server-side, at the moment of victory. */
+  async resolveBossBattle(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      victory: z.boolean(),
+      bossLevel: z.number().int().min(1).max(99),
+      survivorIds: z.array(z.number().int().positive()),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid boss battle result.");
+
+    const boss = loadBossState(ownerKey);
+    const expectedLevel = boss.bossesDefeated + 1;
+    if (parsed.data.bossLevel !== expectedLevel) {
+      badRequest(`Boss mismatch — the next boss is level ${expectedLevel}.`);
+    }
+    const waveRows = await db.select().from(schema.waveState)
+      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
+    const wavesDefeated = waveRows[0]?.wavesDefeated ?? 0;
+    if (!bossEligible(wavesDefeated, boss)) {
+      badRequest("No boss waits — break a full cycle of three Unravelings since the last boss fell.");
+    }
+
+    const { totalPower: bossPower } = bossPowerFor(parsed.data.bossLevel);
+    const survivorIds = [...new Set(parsed.data.survivorIds)];
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const fighterIds = new Set(
+      placements
+        .filter(p => p.stance === "attack" || p.stance === "defense")
+        .map(p => p.awakenedId)
+    );
+    for (const id of survivorIds) {
+      if (!fighterIds.has(id)) badRequest("Invalid survivor.");
+    }
+    let committedPower = 0;
+    for (const id of fighterIds) {
+      const payload = await awakenedPayloadById(id);
+      committedPower += payload?.power ?? 0;
+    }
+    if (parsed.data.victory) {
+      if (survivorIds.length === 0) badRequest("A victory with no survivors is no victory.");
+      if (committedPower < bossPower) {
+        badRequest(`The War-Ground does not reckon this victory — your committed company stands at ${committedPower} against the boss's ${bossPower}.`);
+      }
+    }
+
+    // Unified XP: the survivors stood in the battle — a DEFENSE EVENT,
+    // +10 XP each, win or lose. (No hex is taken from a boss; its prize
+    // is the newborn and the aspects, not the +50 hex-taken grant.)
+    const xpById = new Map<number, XpGainReport>();
+    for (const id of survivorIds) {
+      await grantEventXp(xpById, id, XP_PER_DEFENSE);
+    }
+
+    if (!parsed.data.victory) {
+      sqlite.prepare("UPDATE boss_state SET last_boss_at = ? WHERE owner_key = ?")
+        .run(Date.now(), ownerKey);
+      return { ok: true as const, victory: false, bossesDefeated: boss.bossesDefeated, committedPower, bossPower, xpGains: [...xpById.values()] };
+    }
+
+    for (const id of survivorIds) {
+      await recordDeed(ownerKey, id, "battle_won");
+    }
+    sqlite.prepare("UPDATE boss_state SET bosses_defeated = ?, last_victory_defeated = ?, last_boss_at = ? WHERE owner_key = ?")
+      .run(boss.bossesDefeated + 1, wavesDefeated, Date.now(), ownerKey);
+    // Only boss victories free newborns (Nigel, 2026-10-14) — the claim
+    // is the server's record; birthNewbornToHand consumes it once.
+    recordNewbornClaim(ownerKey, "bossVictory");
+    // The aspect split is rolled here, not in the client: 5 + 2 per
+    // boss level, split randomly among the four elements.
+    const grantCount = 5 + parsed.data.bossLevel * 2;
+    const elements: AspectElement[] = ["tide", "sky", "stone", "root"];
+    const rolled: AspectElement[] = Array.from({ length: grantCount }, () =>
+      elements[Math.floor(Math.random() * elements.length)]);
+    recordAspectGrant(ownerKey, rolled, `bossVictory:${parsed.data.bossLevel}`);
+    return {
+      ok: true as const, victory: true,
+      bossesDefeated: boss.bossesDefeated + 1,
+      committedPower, bossPower,
+      aspectElements: rolled, newbornClaimed: true,
+      xpGains: [...xpById.values()],
+    };
+  },
+
+  /** The oldest pending aspect grant waiting for this tender, if any —
+   *  what the victory screen shows is the server's roll, not its own. */
+  async getPendingAspectGrant(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const grant = peekAspectGrant(ownerKey);
+    return { grant };
+  },
+
+  /** Claim the oldest pending aspect grant: the recorded elements are
+   *  granted exactly once through the same addAspectPoint arithmetic
+   *  every grant has always used (points accumulate; at 10 an aspect
+   *  may be born into the inventory). */
+  async claimAspectGrant(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const grant = consumeAspectGrant(ownerKey);
+    if (!grant) badRequest("No aspect grant waits — aspects are earned by a boss victory, and this victory's grant has already been claimed.");
+    const spawnedElements: AspectElement[] = [];
+    for (const element of grant!.elements) {
+      if (await addAspectPoint(ownerKey, element)) spawnedElements.push(element);
+    }
+    return { ok: true as const, elements: grant!.elements, spawnedElements, source: grant!.source };
   },
 
   async getWave(args: unknown, ctx?: ActionContext) {
@@ -5324,8 +5580,10 @@ export const handlers = {
     if (!parsed.success) badRequest(`Invalid birth request — ${describeValidationIssues(parsed.error)}.`);
     // A birth follows a BOSS victory, and the victory is the server's
     // own record: consume exactly one pending claim (recorded by
-    // resolveWavePull when a boss wave — 900+ — broke; since Nigel's
-    // ruling of 2026-10-14, purification births are abolished).
+    // resolveBossBattle when a boss broke — the boss's own verified
+    // resolution path since the War-Ground fix of 2026-10-15; before
+    // it, the claim was recorded on a wave-state condition that could
+    // never occur, so no boss birth could ever be gathered).
     // Before this ledger, any caller could mint paid wake credits here on
     // demand — no victory, no limit, no record.
     if (!consumeNewbornClaim(ownerKey)) {

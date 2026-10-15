@@ -365,11 +365,14 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,
   last_birth_at INTEGER NOT NULL
 );`);
-// Pending newborn claims: a victory that births a newborn (a purification
-// in deployBattle/attackTile/resolveWavePull, the first-tile claim)
-// records one claim here; the birth endpoints consume exactly one per
-// birth. A raw-DDL table like tender_births — the claim is the server's
-// own record of the event, never the client's word for it.
+// Pending newborn claims: a victory that births a newborn records one
+// claim here; the birth endpoints consume exactly one per birth. A
+// raw-DDL table like tender_births — the claim is the server's own
+// record of the event, never the client's word for it. (Since Nigel's
+// 2026-10-14 abolition of purification births, the only recording site
+// is a verified boss victory in resolveBossBattle — corrected
+// 2026-10-15; this comment previously listed the purification sites
+// the ledger was first built with.)
 sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_newborn_claims (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_key TEXT NOT NULL,
@@ -377,6 +380,33 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_newborn_claims (
   created_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_newborn_claims_owner ON pending_newborn_claims (owner_key, id);`);
+// Boss state (War-Ground fix, 2026-10-15): the server's own record of
+// the boss ladder — how many bosses this tender has broken, and the
+// wavesDefeated count at the last boss victory (a new cycle of three
+// Unravelings must complete before the next boss can be faced). Until
+// this table existed the boss count lived in the client's localStorage
+// and boss victories had no server resolution path at all. Raw DDL,
+// like the newborn-claim ledger above.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS boss_state (
+  owner_key TEXT PRIMARY KEY,
+  bosses_defeated INTEGER NOT NULL DEFAULT 0,
+  last_victory_defeated INTEGER NOT NULL DEFAULT 0,
+  last_boss_at INTEGER
+);`);
+// Pending aspect grants: a verified boss victory records ONE grant
+// here — the element split (5 + 2 per boss level) rolled server-side
+// at the moment of victory. The claim endpoint consumes a grant
+// exactly once. Until this ledger existed, VictoryAspects rolled the
+// split in the client and grantAspectPoint minted the points with no
+// victory behind them, repeatable per battle.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_aspect_grants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  elements TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_aspect_grants_owner ON pending_aspect_grants (owner_key, id);`);
 // Wave defense: the Unraveling attacks the bastion in waves.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   owner_key TEXT PRIMARY KEY,

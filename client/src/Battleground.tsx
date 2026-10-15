@@ -60,7 +60,10 @@ interface BattlegroundProps {
   onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number }) => void;
   onClose: () => void;
   bonusTiles?: { id: number; q: number; r: number }[];
-  onVictoryDetected?: () => Promise<void>;
+  onVictoryDetected?: (survivors: number[]) => Promise<void>;
+  // The server's rolled aspect grant for a boss victory (resolved at
+  // detection, before this screen opens) — null when no grant waits.
+  aspectGrant?: string[] | null;
 }
 
 interface Fighter {
@@ -113,20 +116,17 @@ function dominantElementOf(aw?: Awakened): Element {
   return best;
 }
 
-/** Victory aspect rewards: 1 random aspect point per boss level, shown with element glyphs. */
-function VictoryAspects({ bossLevel }: { bossLevel: number }) {
-  const [aspects, setAspects] = useState<{ element: string }[]>([]);
+/** Victory aspect rewards: the grant a verified boss victory recorded
+ *  server-side (5 + 2 per boss level, split rolled by the server at the
+ *  moment of victory). This component only displays the server's roll
+ *  and claims it — exactly once, through claimAspectGrant. Until the
+ *  War-Ground fix (2026-10-15) it rolled the split in the client and
+ *  minted the points through an ungated endpoint, on every victory
+ *  screen, as often as the screen was shown. */
+function VictoryAspects({ grant }: { grant: string[] | null }) {
   const [claimed, setClaimed] = useState(false);
-
-  useEffect(() => {
-    // Generate aspect points scaled by boss level (5 + 2 per level, split randomly)
-    const elements = ["tide", "sky", "stone", "root"];
-    const count = 5 + (bossLevel * 2);
-    const pts = Array.from({ length: count }, () => ({
-      element: elements[Math.floor(Math.random() * elements.length)],
-    }));
-    setAspects(pts);
-  }, [bossLevel]);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const aspects = (grant ?? []).map(element => ({ element }));
 
   const glyphs: Record<string, React.ReactElement> = {
     tide: (
@@ -156,11 +156,15 @@ function VictoryAspects({ bossLevel }: { bossLevel: number }) {
   };
 
   const claim = async () => {
-    // Award aspect points via API
-    for (const a of aspects) {
-      await api.grantAspectPoint({ element: a.element });
+    // One call: the server consumes the recorded grant and pays its
+    // elements exactly once. A second claim finds no grant waiting.
+    try {
+      await api.claimAspectGrant();
+      setClaimed(true);
+      setClaimError(null);
+    } catch (e) {
+      setClaimError((e as Error).message || "The grant could not be claimed.");
     }
-    setClaimed(true);
   };
 
   if (!aspects.length) return null;
@@ -178,12 +182,13 @@ function VictoryAspects({ bossLevel }: { bossLevel: number }) {
       {!claimed && (
         <button className="abtn small" onClick={claim}>Claim Aspects</button>
       )}
+      {claimError && <p className="quiet" style={{ color: "#ff8888" }}>{claimError}</p>}
       {claimed && <p className="quiet">✓ Aspects claimed</p>}
     </div>
   );
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -587,7 +592,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       trackPlayer.stop();
       addLog("THE UNRAVELING BREAKS!");
       setTimeout(async () => {
-        if (onVictoryDetected) await onVictoryDetected();
+        if (onVictoryDetected) {
+          const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!).filter(Boolean);
+          await onVictoryDetected(survivors);
+        }
         setShowVictoryScreen(true);
       }, 1500);
     } else if (totalEnemies > 0 && aliveFighters === 0 && aliveEnemies > 0) {
@@ -806,7 +814,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               fill="rgba(255,215,0,0.2)" stroke="#ffedaa" strokeWidth="2" />
           </svg>
           <h1>UNRAVELING COMPLETE</h1>
-          <VictoryAspects bossLevel={wave.waveNumber} />
+          <VictoryAspects grant={aspectGrant} />
           {bonusTiles.length > 0 && (
             <div className="victory-territory-pick">
               <p>Choose one new territory to claim:</p>
