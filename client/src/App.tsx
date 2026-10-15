@@ -3,7 +3,6 @@ import { setCourtMarks, useCourtMarks } from "./courtMarks";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/terrain-mountain.png";
 import debrisDark from "./assets/debris-dark.jpg";
-import nebulaDeep from "./assets/nebula-2.png";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
 import MarginGuide from "./MarginGuide";
@@ -1485,11 +1484,6 @@ function CosmicBackground() {
   return (
     <>
       <div className="cosmic-bg" aria-hidden="true">
-        {/* Nigel's second nebula (2026-10-14) rests BEHIND the first,
-            turning with it but 13% slower — 180s / 0.87 ≈ 206.9s a
-            revolution — so the two fields drift against each other
-            and space gains depth. */}
-        <div className="cosmic-layer cosmic-deep" style={{ backgroundImage: `url(${nebulaDeep})` }} />
         <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
       </div>
       <OdeToTheMaster />
