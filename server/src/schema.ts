@@ -110,6 +110,9 @@ export const awokenStories = sqliteTable("awoken_stories", {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+  // Set when the Tender chooses to send this telling to Discord via the
+  // Voice (2026-10-15). A story is sent at most once; null = still personal.
+  sentAt: integer("sent_at", { mode: "timestamp_ms" }),
 });
 
 // Standalone-only: minimal blob index replacing the runtime blob store.

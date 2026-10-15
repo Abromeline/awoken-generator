@@ -34,7 +34,8 @@ function useAwakeningSprites() {
 }
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import UIWorkspace from "./UIWorkspace";
-import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
+import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type AwokenStory, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
+import { toPng } from "html-to-image";
 import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph } from "./glyphs";
 import { applyElementPalette, elementPalette, useElementPalette } from "./palette";
@@ -279,7 +280,62 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
   </article>;
 }
 
-function CreatureCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
+/** The telling spot (Nigel's ruling, 2026-10-15): a Tender tells stories
+ *  to their own Awoken, here on the creature itself. Stories stay personal
+ *  unless the Tender chooses to send one to Discord — the Voice carries it
+ *  with a true image of the card, rendered from the living card itself. */
+function StoryTell({ item }: { item: Awoken }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<number | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const storiesQuery = useQuery({ queryKey: ["awokenStories", item.id], queryFn: () => api.getAwokenStories({ id: item.id }) });
+  const tell = useMutation({
+    mutationFn: () => api.shareStory({ id: item.id, story: draft.trim() }),
+    onSuccess: () => { setDraft(""); setNotice(null); void queryClient.invalidateQueries({ queryKey: ["awokenStories", item.id] }); invalidateStudios(queryClient); },
+    onError: (error) => setNotice(mutationError(error)),
+  });
+  async function sendToDiscord(storyId: number) {
+    const node = stageRef.current;
+    if (!node) { setNotice("The card could not be gathered for the sending."); return; }
+    setSendingId(storyId); setNotice(null);
+    try {
+      const dataUrl = await toPng(node, { pixelRatio: 2 });
+      const cardPngBase64 = dataUrl.replace(/^data:image\/png;base64,/, "");
+      await api.sendStoryToDiscord({ storyId, cardPngBase64 });
+      void queryClient.invalidateQueries({ queryKey: ["awokenStories", item.id] });
+    } catch (error) { setNotice(mutationError(error)); }
+    finally { setSendingId(null); }
+  }
+  const stories: AwokenStory[] = storiesQuery.data?.stories ?? [];
+  const full = stories.length >= 3 || (item.story_count ?? 0) >= 3;
+  return <section className="story-tell" aria-label={`Stories told to ${item.name}`}>
+    <header><span>Stories</span><small>told to {item.name} — personal, kept here unless you send one on</small></header>
+    {storiesQuery.isPending && <p className="quiet">Gathering the tellings…</p>}
+    {storiesQuery.isError && <p className="quiet">{mutationError(storiesQuery.error)}</p>}
+    {stories.map((story) => <div className="story-entry" key={story.id}>
+      <blockquote>{story.storyText}</blockquote>
+      <div className="story-entry-foot">
+        <time>{new Date(story.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time>
+        {story.sentAt
+          ? <span className="story-sent">Sent to Discord · {new Date(story.sentAt).toLocaleDateString([], { dateStyle: "medium" })}</span>
+          : <button type="button" className="story-send" disabled={sendingId !== null} onClick={() => void sendToDiscord(story.id)}>{sendingId === story.id ? "The Voice is carrying it…" : "Send to Discord"}</button>}
+      </div>
+    </div>)}
+    {!full
+      ? <form className="story-form" onSubmit={(event) => { event.preventDefault(); if (draft.trim().length >= 100) tell.mutate(); }}>
+          <label htmlFor={`story-${item.id}`}>Tell {item.name} a story</label>
+          <textarea id={`story-${item.id}`} value={draft} onChange={(event) => setDraft(event.target.value)} rows={5} maxLength={2000} placeholder="A real telling — 100 to 2,000 characters. Each story strengthens this Awoken, +1/+1, up to three." />
+          <div className="story-form-foot"><span>{draft.trim().length} / 2,000{draft.trim().length < 100 ? ` · ${100 - draft.trim().length} more to a telling` : ""}</span><button type="submit" disabled={tell.isPending || draft.trim().length < 100}>{tell.isPending ? "Telling…" : "Tell it"}</button></div>
+        </form>
+      : <p className="quiet">This Awoken is full of stories — three tellings, held close.</p>}
+    {notice && <p className="notice error" role="status">{notice}</p>}
+    <div className="story-card-stage" aria-hidden="true"><div ref={stageRef}><TradingCard item={item} /></div></div>
+  </section>;
+}
+
+function CreatureCard({ item, allowDelete = false, storyteller = false }: { item: Awoken; allowDelete?: boolean; storyteller?: boolean }) {
   const queryClient = useQueryClient(); const [editing, setEditing] = useState(false); const [name, setName] = useState(item.name);
   const spend = useMutation({ mutationFn: (stat: "power" | "toughness") => api.assignStatPoint({ awakenedId: item.id, stat }), onSuccess: () => invalidateStudios(queryClient), onError: (e: any) => alert(e?.message || "That Awoken is not yours to grow.") });
   const rename = useMutation({ mutationFn: () => api.renameAwoken({ id: item.id, name }), onSuccess: () => { setEditing(false); invalidateStudios(queryClient); } });
@@ -303,6 +359,7 @@ function CreatureCard({ item, allowDelete = false }: { item: Awoken; allowDelete
       </section>
       <div className="card-foot"><span>{ordinal(item.iteration)}</span><time>{new Date(item.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time></div>
       {allowDelete && <button className="release-button" onClick={() => remove.mutate()} disabled={remove.isPending}>Release from collection</button>}
+      {storyteller && <StoryTell item={item} />}
     </div>
   </article>;
 }
@@ -632,9 +689,11 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   </section>;
 }
 
-function CollectionView({ items, title, note, allowDelete = false, focusId = null }: { items: Awoken[]; title: string; note: string; allowDelete?: boolean; focusId?: number | null }) {
+function CollectionView({ items, title, note, allowDelete = false, focusId = null, storyteller = false }: { items: Awoken[]; title: string; note: string; allowDelete?: boolean; focusId?: number | null; storyteller?: boolean }) {
   const [sort, setSort] = useState<"newest" | "power" | "toughness" | "name">("newest");
   const [filter, setFilter] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = storyteller ? items.find((item) => item.id === selectedId) ?? null : null;
   const visible = useMemo(() => {
     const query = filter.trim().toLowerCase();
     const list = (query ? items.filter((item) => item.name.toLowerCase().includes(query)) : [...items]);
@@ -647,7 +706,9 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
   }, [items, sort, filter]);
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
   return <section className="collection"><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
-    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header><div className="collection-grid trading">{visible.map((item) => <TradingCard key={item.id} item={item} allowDelete={allowDelete} />)}</div></section>;
+    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header>{selected && <div className="collection-detail"><button type="button" className="quiet-link" onClick={() => setSelectedId(null)}>Close {selected.name}</button><CreatureCard item={selected} storyteller /></div>}<div className="collection-grid trading">{visible.map((item) => storyteller
+      ? <div key={item.id} className="card-tap" role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} /></div>
+      : <TradingCard key={item.id} item={item} allowDelete={allowDelete} />)}</div></section>;
 }
 
 function AspectAssignButton() {
@@ -1713,7 +1774,7 @@ export function App() {
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
     return <><CosmicBackground />{!showDeck && <MarginGuide awoken={tenderItems} assets={assets} />}<div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="tender-tools"><button onClick={() => setShowDeck((value) => !value)} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}><img src={deckButtonImg} alt="" /><span>{showDeck ? "Return" : "Terrain Map"}</span></button>{tender ? <span className="tender-name-display">{tender.tenderName ?? "Nameless"} <button onClick={() => setRenaming((v) => !v)} className="quiet-link tiny" title="Rename yourself">rename</button><TenderRank /></span> : <button onClick={() => setShowGate(true)} className="quiet-link">Become a Tender</button>}{tender ? <button onClick={handleLogout} className="quiet-link">Step away</button> : null}<button className="quiet-link" onClick={() => setShowTenderDeck(v => !v)}>{showTenderDeck ? "Hide Deck" : "View My Deck"}</button><button className="workshop-door" onClick={() => setFace("workshop")} aria-label="Enter Nigel's workshop">Workshop</button></header><main>
-      {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection." />}
+      {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection. Tap one to tell it a story." storyteller />}
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
       {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} onNeedClaim={needClaim} /><WakeRitual assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}

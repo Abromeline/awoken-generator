@@ -583,6 +583,10 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_stories (
   story_text TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`);
+const storyCols = sqlite.prepare(`PRAGMA table_info(awoken_stories)`).all() as { name: string }[];
+if (!storyCols.some((c) => c.name === "sent_at")) {
+  sqlite.exec(`ALTER TABLE awoken_stories ADD COLUMN sent_at INTEGER`);
+}
 
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, { schema });
 

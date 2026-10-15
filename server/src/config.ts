@@ -28,6 +28,12 @@ export const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY ?? "";
 /** Public base URL of this deployment, used for Stripe success/cancel redirects. */
 export const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
 
+/** The Voice's road to Discord for Tenders' chosen story sendings
+ *  (Nigel's ruling, 2026-10-15). Lives ONLY as a Railway variable; when
+ *  unset, story sending fails closed with an honest word. Never expose
+ *  this value to the client. */
+export const DISCORD_STORIES_WEBHOOK_URL = (process.env.DISCORD_STORIES_WEBHOOK_URL ?? "").trim();
+
 /**
  * Test mode only, always. A live key is refused outright — selling real
  * wakes requires Nigel's explicit go-ahead, never an accident.

@@ -10,7 +10,7 @@ import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
 import { creditBalance, grantCredits, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
-import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd } from "./config.js";
+import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd, DISCORD_STORIES_WEBHOOK_URL } from "./config.js";
 import { stripeReady } from "./stripe.js";
 import {
   claimTender, destroySession, destroyTenderSessions, loginTender, newTenderNameSuggestion,
@@ -1574,6 +1574,82 @@ export const handlers = {
     });
     await db.update(schema.awakened).set({ storyCount: (awoken.storyCount ?? 0) + 1 }).where(eq(schema.awakened.id, parsed.data.id));
     return okResponse.parse({ ok: true, storyCount: (awoken.storyCount ?? 0) + 1 });
+  },
+
+  // A Tender reads back the stories they have told one of their own Awoken.
+  // Stories are personal (Nigel's ruling, 2026-10-15): owner-only, never
+  // public, never another Tender's.
+  async getAwokenStories(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("A Tender must ask for their own stories.");
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid id.");
+    const ownerKey = tenderOwnerKey(ctx.tender.id);
+    const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.id)).limit(1);
+    const awoken = rows[0];
+    if (!awoken) badRequest("That Awoken is not found.");
+    if (awoken.ownerKey !== ownerKey) badRequest("You can only read stories of your own Awoken.");
+    const stories = await db.select().from(schema.awokenStories)
+      .where(eq(schema.awokenStories.awakenedId, parsed.data.id))
+      .orderBy(asc(schema.awokenStories.id));
+    return {
+      stories: stories.map((s) => ({
+        id: s.id,
+        storyText: s.storyText,
+        createdAt: s.createdAt.toISOString(),
+        sentAt: s.sentAt ? s.sentAt.toISOString() : null,
+      })),
+    };
+  },
+
+  // The chosen sending (Nigel's ruling, 2026-10-15): a Tender may send one
+  // of their told stories to Discord, carried by the Voice with a true
+  // image of the Awoken's card (rendered by the client, which alone knows
+  // the card's face). Once per story, opt-in only, nothing automatic.
+  // Fails closed when the Voice has no road (webhook unset in Railway).
+  async sendStoryToDiscord(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("A Tender must send the story.");
+    const parsed = z.object({
+      storyId: z.number().int().positive(),
+      cardPngBase64: z.string().min(1).max(14_000_000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("That sending is malformed.");
+    const storyRows = await db.select().from(schema.awokenStories).where(eq(schema.awokenStories.id, parsed.data.storyId)).limit(1);
+    const story = storyRows[0];
+    if (!story) badRequest("That story is not found.");
+    if (story.tenderId !== ctx.tender.id) badRequest("You can only send your own stories.");
+    if (story.sentAt) badRequest("That telling has already been sent to Discord.");
+    const awokenRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, story.awakenedId)).limit(1);
+    const awoken = awokenRows[0];
+    if (!awoken) badRequest("That Awoken is not found.");
+    if (awoken.ownerKey !== tenderOwnerKey(ctx.tender.id)) badRequest("You can only send stories of your own Awoken.");
+    if (!DISCORD_STORIES_WEBHOOK_URL) {
+      badRequest("The Voice has no road to Discord yet — the stories webhook is not set on the server. Your story stays safe here, personal and unsent.");
+    }
+    const base64 = parsed.data.cardPngBase64.replace(/^data:image\/png;base64,/, "");
+    const cardBytes = Buffer.from(base64, "base64");
+    if (cardBytes.length > 10_000_000) badRequest("That card image is too large to carry.");
+    assertPngBytes(cardBytes);
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({
+      username: "The Voice",
+      embeds: [{
+        title: awoken.name,
+        description: story.storyText,
+        image: { url: "attachment://card.png" },
+        footer: { text: `Told by ${ctx.tender.tenderName ?? "a Tender"}` },
+      }],
+    }));
+    form.append("files[0]", new Blob([new Uint8Array(cardBytes)], { type: "image/png" }), "card.png");
+    let response: Response;
+    try {
+      response = await fetch(`${DISCORD_STORIES_WEBHOOK_URL}?wait=true`, { method: "POST", body: form });
+    } catch {
+      badRequest("The Voice could not reach Discord — the telling was not sent. Try again in a little while.");
+    }
+    if (!response!.ok) badRequest("Discord turned the telling away — it was not sent. Try again in a little while.");
+    const sentAt = new Date();
+    await db.update(schema.awokenStories).set({ sentAt }).where(eq(schema.awokenStories.id, story.id));
+    return { ok: true as const, sentAt: sentAt.toISOString() };
   },
 
   // -- Self-serve Tender accounts -------------------------------------------

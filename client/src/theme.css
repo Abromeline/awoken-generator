@@ -2137,3 +2137,25 @@ body.defeat-flash {
 .terrain-slot .slot-note.warn{color:#efa69e}
 .terrain-slot .slot-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .terrain-slot .file-button{cursor:pointer}
+
+/* The telling spot (2026-10-15): stories told on the Awoken, personal by
+   default; the send is the Tender's own choice, once per story. */
+.card-tap{cursor:pointer}
+.card-tap:focus-visible{outline:2px solid #b89b5e;outline-offset:3px}
+.collection-detail{margin:18px 0 26px}
+.collection-detail>.quiet-link{margin-bottom:10px}
+.story-tell{margin-top:20px;border-top:1px solid rgba(184,155,94,.45);padding-top:14px;text-align:left}
+.story-tell>header{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.story-tell>header span{font-weight:700;letter-spacing:.04em}
+.story-tell>header small{opacity:.75}
+.story-entry{margin:0 0 14px;padding:10px 12px;border:1px solid rgba(184,155,94,.35);border-radius:6px;background:rgba(0,0,0,.06)}
+.story-entry blockquote{margin:0 0 8px;white-space:pre-wrap}
+.story-entry-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.story-entry-foot time{opacity:.7;font-size:.85em}
+.story-sent{font-size:.85em;color:#7a9a52;font-weight:600}
+.story-send{min-height:40px;padding:8px 14px;cursor:pointer}
+.story-form{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.story-form textarea{width:100%;box-sizing:border-box;padding:10px;border-radius:6px;font:inherit}
+.story-form-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.story-form-foot button{min-height:40px;padding:8px 16px;cursor:pointer}
+.story-card-stage{position:fixed;left:-10000px;top:0;width:340px;pointer-events:none}

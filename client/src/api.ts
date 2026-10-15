@@ -64,6 +64,15 @@ export interface Awakened {
   xp_for_next_level?: number;
 }
 
+/** A story a Tender has told one of their Awoken. Personal by default;
+ *  sentAt is set only when the Tender chose to send it to Discord. */
+export interface AwokenStory {
+  id: number;
+  storyText: string;
+  createdAt: string;
+  sentAt: string | null;
+}
+
 export interface TerritoryTile {
   id: number;
   q: number;
@@ -288,6 +297,8 @@ export const api = {
     post<{ id: number; name: string; iteration: number; empowerment: number; flavor_text: string }>("saveAwoken", args),
   renameAwoken: (args: { id: number; name: string }) => post<{ ok: true }>("renameAwoken", args),
   shareStory: (args: { id: number; story: string }) => post<{ ok: true; storyCount: number }>("shareStory", args),
+  getAwokenStories: (args: { id: number }) => post<{ stories: AwokenStory[] }>("getAwokenStories", args),
+  sendStoryToDiscord: (args: { storyId: number; cardPngBase64: string }) => post<{ ok: true; sentAt: string }>("sendStoryToDiscord", args),
   createDeck: (args: { name: string }) => post<{ id: number; name: string; faceCardId: number | null; cardCount: number }>("createDeck", args),
   listDecks: () => post<{ decks: { id: number; name: string; faceCardId: number | null; cardCount: number }[] }>("listDecks", {}),
   renameDeck: (args: { id: number; name: string }) => post<{ ok: true }>("renameDeck", args),
