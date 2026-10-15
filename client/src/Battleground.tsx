@@ -64,6 +64,9 @@ interface BattlegroundProps {
   // The server's rolled aspect grant for a boss victory (resolved at
   // detection, before this screen opens) — null when no grant waits.
   aspectGrant?: string[] | null;
+  // The live world mood, kept current by the Territory's sky watch —
+  // when the sky turns mid-battle, Weather's teeth turn with it.
+  mood?: string | null;
 }
 
 interface Fighter {
@@ -72,6 +75,7 @@ interface Fighter {
   img?: string;  // For enemies
   x: number; y: number; w: number;
   power: number; tough: number; hp: number; maxHp: number;
+  basePower?: number; // enemies: their unsurged power (storm scaling restores to this)
   name: string;
   side: "aw" | "en";
   field: boolean;  // True if field defender, false if reinforcement
@@ -188,7 +192,7 @@ function VictoryAspects({ grant }: { grant: string[] | null }) {
   );
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null }: BattlegroundProps) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -251,6 +255,31 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   // Keep latest snapshots for mid-sequence targeting; clear timeouts on unmount.
   useEffect(() => { fightersRef.current = fighters; }, [fighters]);
   useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
+
+  // Weather's teeth, felt live (Nigel's ruling, 2026-10-15: no
+  // snapshot — the live sky applies): when the sky turns DURING the
+  // battle, the Unraveling turns with it. A storm breaking over the
+  // battleground surges every living enemy's power by half; a storm
+  // spending itself lets the surge fall back to their true power.
+  // The server's resolution reads the same live sky, so what the
+  // tender feels here is what the War-Ground will reckon there.
+  const skySeenRef = useRef<string | null>(mood);
+  useEffect(() => {
+    const prev = skySeenRef.current;
+    const next = mood;
+    skySeenRef.current = next;
+    if (!prev || !next || prev === next) return;
+    if (next === "storm") {
+      setEnemies(ens => ens.map(e => e.hp > 0 && e.basePower !== undefined ? { ...e, power: Math.ceil(e.basePower * 1.5) } : e));
+      addLog("⛈️ The storm breaks over the battleground — the Unraveling surges with +50% power!");
+    } else if (prev === "storm") {
+      setEnemies(ens => ens.map(e => e.basePower !== undefined ? { ...e, power: e.basePower } : e));
+      addLog("🌤️ The storm spends itself — the Unraveling's surge falls away.");
+    } else {
+      addLog(`🌙 The sky turns to ${next} over the battleground.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mood]);
   useEffect(() => () => {
     timeoutsRef.current.forEach(clearTimeout);
     timeoutsRef.current = [];
@@ -337,7 +366,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       en.push({
         id: `e-fray-${i}`, img: "fray",
         x: 52 + i * 4.5, y: 30, w: 9,
-        power: frayCfg.power, tough: 0, hp: frayCfg.hp, maxHp: frayCfg.hp,
+        power: frayCfg.power, basePower: frayCfg.power, tough: 0, hp: frayCfg.hp, maxHp: frayCfg.hp,
         name: "Fray", side: "en", field: false,
       });
     }
@@ -346,7 +375,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       en.push({
         id: `e-unrav-${i}`, img: "unraveler",
         x: 52 + (wave.frayCount * 4.5) + i * 5, y: 30, w: 10,
-        power: unravCfg.power, tough: 0, hp: unravCfg.hp, maxHp: unravCfg.hp,
+        power: unravCfg.power, basePower: unravCfg.power, tough: 0, hp: unravCfg.hp, maxHp: unravCfg.hp,
         name: "Unraveler", side: "en", field: false,
       });
     }
@@ -355,7 +384,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       en.push({
         id: `e-hollow-${i}`, img: "hollow",
         x: 52 + (wave.frayCount * 4.5) + (wave.unravelers * 5) + i * 5, y: 30, w: 10,
-        power: hollowCfg.power, tough: 0, hp: hollowCfg.hp, maxHp: hollowCfg.hp,
+        power: hollowCfg.power, basePower: hollowCfg.power, tough: 0, hp: hollowCfg.hp, maxHp: hollowCfg.hp,
         name: "Hollow", side: "en", field: false,
       });
     }
@@ -364,7 +393,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       en.push({
         id: `e-tangle-${i}`, img: "tangle",
         x: 52 + (wave.frayCount * 4.5) + (wave.unravelers * 5) + ((wave.hollows || 0) * 5) + i * 5, y: 30, w: 10,
-        power: tangleCfg.power, tough: 0, hp: tangleCfg.hp, maxHp: tangleCfg.hp,
+        power: tangleCfg.power, basePower: tangleCfg.power, tough: 0, hp: tangleCfg.hp, maxHp: tangleCfg.hp,
         name: "Tangle", side: "en", field: false,
       });
     }

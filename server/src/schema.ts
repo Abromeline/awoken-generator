@@ -401,6 +401,10 @@ export const waveState = sqliteTable("wave_state", {
   // wave can be faced only 12 min × 1.15^wavesDefeated after the last
   // victory. Defeats never write this; only victories do.
   lastVictoryAt: integer("last_victory_at", { mode: "timestamp_ms" }),
+  // Quiet's tooth (Weather, 2026-10-15): the recovery multiplier the
+  // sky stamped at the last victory — 1.5 when it was won under a
+  // quiet sky, 1 otherwise. nextWaveAtFor applies it to the cooldown.
+  recoveryMult: real("recovery_mult").notNull().default(1),
 });
 
 // Tender energy: server-authoritative. Admin can refill.

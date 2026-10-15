@@ -696,8 +696,7 @@ async function expandFrontier(ownerKey: string, q: number, r: number, depth: num
         seen.add(key);
         const el = elements[Math.floor(Math.random() * elements.length)];
         const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
-        let hp = 4 + ring * 6;
-        if (mood.mood === "thickening") hp = Math.ceil(hp * 1.5);
+        const hp = curseHpFor(ring, mood.mood);
         await db.insert(schema.territoryTiles).values({
           ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
           curseHp: hp, curseMaxHp: hp,
@@ -940,10 +939,47 @@ async function getWorldMood(): Promise<WorldMoodState> {
   return await storeWorldMood({ mood, description: MOOD_DESCRIPTIONS[mood], endsAt });
 }
 
+// Weather's teeth (Nigel's order, the Sky's Terrace, 2026-10-15): the
+// mood effects the game's own descriptions have always promised, in
+// one server-side table every system reads — no tooth without this
+// table behind it. THE LIVE SKY APPLIES (Nigel's ruling, same day):
+// no mood is ever snapshotted at a battle's start; every reckoning
+// reads the sky at its own moment, so a storm that begins mid-battle
+// surges mid-battle, and one that spends itself lifts mid-battle.
+// (The one deliberate exception is quiet's recovery stretch, which is
+// stamped at the victory — see waveRecoveryMult — because the
+// alternative is a next-wave countdown that flickers as moods turn.)
+export interface MoodEffects {
+  wavePowerMult: number;      // storm: Unravelings strike harder
+  curseHpMult: number;        // thickening: cursed births hold more HP
+  attunementRateMult: number; // thinning: attunement completes faster
+  waveRecoveryMult: number;   // quiet: the Unraveling gathers slower
+}
+export function moodEffects(mood: WorldMood): MoodEffects {
+  return {
+    wavePowerMult: mood === "storm" ? 1.5 : 1,
+    curseHpMult: mood === "thickening" ? 1.5 : 1,
+    attunementRateMult: mood === "thinning" ? 2 : 1,
+    waveRecoveryMult: mood === "quiet" ? 1.5 : 1,
+  };
+}
+
+/** Curse HP for a tile born (or reborn cursed) under the given sky:
+ *  the ring law, 4 + ring × 6, thickened by the live mood. Tiles keep
+ *  the HP they were born with — thickening bites at birth, everywhere
+ *  a curse is born, and nowhere else. */
+export function curseHpFor(ring: number, mood: WorldMood): number {
+  return Math.ceil((4 + ring * 6) * moodEffects(mood).curseHpMult);
+}
+
 // Single source of truth for wave power. Wave 1 = 7, +2 per wave, +4 per Unraveler (every 3rd wave).
-function wavePowerFor(wave: number): { totalPower: number; unravelers: number; frayCount: number } {
+// Under a live storm the total swells by half (Weather's tooth); the
+// Unraveler count is the wave's own law and does not change — the
+// surge arrives as Fray.
+export function wavePowerFor(wave: number, mood: WorldMood | null = null): { totalPower: number; unravelers: number; frayCount: number } {
   const unravelers = Math.floor(wave / 3);
-  const totalPower = 7 + (wave - 1) * 2 + unravelers * 4;
+  const base = 7 + (wave - 1) * 2 + unravelers * 4;
+  const totalPower = mood ? Math.round(base * moodEffects(mood).wavePowerMult) : base;
   const frayCount = totalPower - unravelers * 4;
   return { totalPower, unravelers, frayCount };
 }
@@ -962,10 +998,13 @@ export function waveCooldownMs(defeatedBeforeVictory: number): number {
  *  way is open now (no victory yet, or the recovery has elapsed). The
  *  stored wavesDefeated already counts the victory that started the
  *  wait, so the exponent is that count minus the victory itself. */
-export function nextWaveAtFor(state: { lastVictoryAt: Date | null; wavesDefeated: number }): string | null {
+export function nextWaveAtFor(state: { lastVictoryAt: Date | null; wavesDefeated: number; recoveryMult?: number | null }): string | null {
   if (!state.lastVictoryAt) return null;
   const exponent = Math.max(0, state.wavesDefeated - 1);
-  const readyAt = new Date(state.lastVictoryAt).getTime() + waveCooldownMs(exponent);
+  // Quiet's tooth: a victory won under a quiet sky stamps a longer
+  // recovery (×1.5) — fewer waves can be faced in its wake. Stamped
+  // at the victory, not read live, so the countdown never flickers.
+  const readyAt = new Date(state.lastVictoryAt).getTime() + waveCooldownMs(exponent) * (state.recoveryMult ?? 1);
   return readyAt > Date.now() ? new Date(readyAt).toISOString() : null;
 }
 
@@ -2246,8 +2285,10 @@ export const handlers = {
       // victories now record their claim in resolveBossBattle, the
       // boss's own resolution path (War-Ground fix, 2026-10-15).
     } else {
-      // Wave lost — curse HP restores to half
-      const maxHp = tiles[0].curseMaxHp ?? 10;
+      // Wave lost — curse HP restores to half. A legacy tile with no
+      // stored max is measured by the ring law under the live sky.
+      const legacyRing = Math.max(Math.abs(tiles[0].q), Math.abs(tiles[0].r), Math.abs(tiles[0].q + tiles[0].r));
+      const maxHp = tiles[0].curseMaxHp ?? curseHpFor(legacyRing, (await getWorldMood()).mood);
       await db.update(schema.territoryTiles)
         .set({ curseHp: Math.ceil(maxHp / 2) })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
@@ -2798,6 +2839,13 @@ export const handlers = {
     const now = Date.now();
     const THRESHOLD = 10;
     const POINTS_PER_HOUR = 1;
+    // Thinning's tooth (Weather, 2026-10-15): attunement completes
+    // twice as fast under a thinning sky. The live sky applies — the
+    // rate of the sky at the moment this accrual is reckoned governs
+    // the window being settled, exactly as a storm governs the battle
+    // being resolved when it breaks.
+    const { mood: attuneSky } = await getWorldMood();
+    const attunementRateMult = moodEffects(attuneSky).attunementRateMult;
 
     // Get all Binding Awoken with their compositions
     const binders = await db.select({
@@ -2906,7 +2954,7 @@ export const handlers = {
         });
         const totalPts = Object.values(counts).reduce((a, x) => a + x, 0);
         if (totalPts === 0) continue;
-        const multiplier = isNearShrine(b.tileId) ? 2 : 1;
+        const multiplier = (isNearShrine(b.tileId) ? 2 : 1) * attunementRateMult;
         const tickTotal = POINTS_PER_HOUR * cappedHours * multiplier;
         for (const [el, pts] of Object.entries(counts)) {
           if (pts === 0) continue;
@@ -3411,7 +3459,9 @@ export const handlers = {
       // are left standing, as tile-fall leaves them.
       const revertToCurse = async (t: any) => {
         const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
-        const curse = 4 + ring * 6;
+        // Reborn cursed under the live sky (thickening's tooth).
+        const { mood: skyMood } = await getWorldMood();
+        const curse = curseHpFor(ring, skyMood);
         const victims = placements.filter(p => p.tileId === t.id);
         const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
         for (const v of victims) {
@@ -4083,12 +4133,16 @@ export const handlers = {
       state = [row];
     }
     const wave = state[0].waveNumber;
-    const { totalPower, unravelers, frayCount } = wavePowerFor(wave);
+    // The live sky (Weather's teeth): the preview shows the power the
+    // Unraveling strikes with under the mood reigning right now.
+    const { mood } = await getWorldMood();
+    const { totalPower, unravelers, frayCount } = wavePowerFor(wave, mood);
     return {
       waveNumber: wave,
       wavesDefeated: state[0].wavesDefeated,
       frayCount, unravelers,
       totalPower,
+      mood,
       // Fix list #4: when the recovery from the last victory ends (ISO),
       // or null when the next wave can be faced now.
       nextWaveAt: nextWaveAtFor(state[0]),
@@ -4111,7 +4165,8 @@ export const handlers = {
       badRequest(`The Unraveling is still gathering itself — the next Unraveling can be faced at ${nextWaveAt}.`);
     }
     const wave = state[0].waveNumber;
-    const { totalPower: wavePower } = wavePowerFor(wave);
+    const { mood } = await getWorldMood();
+    const { totalPower: wavePower } = wavePowerFor(wave, mood);
 
     // Defense: Awoken on the bastion (center tile) in defense stance.
     // The center is the last bastion — it never falls.
@@ -4199,6 +4254,9 @@ export const handlers = {
           lastWaveAt: new Date(),
           // The recovery clock starts at the victory (fix list #4).
           lastVictoryAt: new Date(),
+          // Quiet's tooth: a victory under a quiet sky stamps the
+          // longer recovery onto the clock (Weather, 2026-10-15).
+          recoveryMult: moodEffects(mood).waveRecoveryMult,
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {
@@ -4234,8 +4292,11 @@ export const handlers = {
           await db.delete(schema.fieldPlacements)
             .where(eq(schema.fieldPlacements.awakenedId, v.awakenedId));
         }
+        // The curse is reborn under the live sky (thickening's tooth).
+        const fallRing = Math.max(Math.abs(victim.q), Math.abs(victim.r), Math.abs(victim.q + victim.r));
+        const fallHp = curseHpFor(fallRing, mood);
         await db.update(schema.territoryTiles)
-          .set({ cursed: 1 })
+          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp })
           .where(eq(schema.territoryTiles.id, victim.id));
       }
       // Wave number stays — you face it again.
@@ -4323,12 +4384,15 @@ export const handlers = {
       .onConflictDoUpdate({ target: schema.tenderResources.ownerKey, set: { energy: 5 } });
     // Re-create the bastion: center purified + 6 cursed ring
     const now = new Date();
+    const { mood: adminSky } = await getWorldMood();
+    const adminRingHp = curseHpFor(1, adminSky);
     await db.insert(schema.territoryTiles).values({
       ownerKey: targetKey, q: 0, r: 0, element: "neutral", cursed: 0, createdAt: now,
     });
     for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) {
       await db.insert(schema.territoryTiles).values({
         ownerKey: targetKey, q: dq, r: dr, element: "neutral", cursed: 1, createdAt: now,
+        curseHp: adminRingHp, curseMaxHp: adminRingHp,
       });
     }
     return { ok: true };
@@ -5098,8 +5162,13 @@ export const handlers = {
       badRequest(`The Unraveling is still gathering itself — the next Unraveling can be faced at ${nextWaveAt}.`);
     }
     // 2. The wave's composition is recomputed server-side from the single
-    //    source of truth; the client's numbers are never consulted.
-    const { totalPower: wavePower } = wavePowerFor(currentWave);
+    //    source of truth; the client's numbers are never consulted. The
+    //    sky it is recomputed under is the LIVE sky at this moment
+    //    (Weather's ruling: no snapshot — a storm that began mid-battle
+    //    has already surged into this reckoning, and one that spent
+    //    itself mid-battle has already lifted from it).
+    const { mood } = await getWorldMood();
+    const { totalPower: wavePower } = wavePowerFor(currentWave, mood);
     // 3. Survivors are checked against the committed company: Awoken the
     //    tender owns, placed on the field in attack or defense stance —
     //    the fighters who can actually stand in this battle. A fighter
@@ -5212,6 +5281,9 @@ export const handlers = {
           // A victory on the battleground path starts the same recovery
           // clock (fix list #4) — one ladder, one clock.
           lastVictoryAt: new Date(),
+          // Quiet's tooth, same stamp as the defendWave path: the sky
+          // at the victory sets the length of the hush that follows.
+          recoveryMult: moodEffects(mood).waveRecoveryMult,
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {
@@ -5242,8 +5314,11 @@ export const handlers = {
           await db.delete(schema.fieldPlacements)
             .where(eq(schema.fieldPlacements.awakenedId, v.awakenedId));
         }
+        // The curse is reborn under the live sky (thickening's tooth).
+        const fallRing = Math.max(Math.abs(victim.q), Math.abs(victim.r), Math.abs(victim.q + victim.r));
+        const fallHp = curseHpFor(fallRing, mood);
         await db.update(schema.territoryTiles)
-          .set({ cursed: 1 })
+          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp })
           .where(eq(schema.territoryTiles.id, victim.id));
       }
       await db.update(schema.waveState)
@@ -5338,7 +5413,9 @@ export const handlers = {
     // HP system: each attack dwindles the curse HP by the attacker's power.
     // Initialize HP if missing (legacy tiles).
     const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
-    const maxHp = tile[0].curseMaxHp ?? (4 + ring * 6);
+    // A legacy tile with no stored curse HP is born now, under the
+    // live sky (thickening's tooth reaches it too).
+    const maxHp = tile[0].curseMaxHp ?? curseHpFor(ring, (await getWorldMood()).mood);
     const currentHp = tile[0].curseHp ?? maxHp;
     // Unified XP (Nigel, 2026-10-13): the attack has landed — an ATTACK
     // EVENT, +10 XP to the attacker, whatever the curse does next. If
@@ -5482,13 +5559,18 @@ export const handlers = {
     }).returning({ id: schema.territoryTiles.id });
     // Create ring of cursed tiles around it (random elements).
     // Their 48h passive timers start now — the center's purification stirs them.
+    // Born under the live sky: their curse HP follows the ring law and
+    // thickening's tooth, like every other cursed birth.
     const now = new Date();
+    const { mood: firstSky } = await getWorldMood();
+    const ringHp = curseHpFor(1, firstSky);
     const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
     const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
     for (const [dq, dr] of dirs) {
       const el = elements[Math.floor(Math.random() * elements.length)];
       await db.insert(schema.territoryTiles).values({
         ownerKey, q: dq, r: dr, element: el, cursed: 1, lastPassiveAt: now,
+        curseHp: ringHp, curseMaxHp: ringHp,
       });
     }
     // The wilds press in from beyond the first ring.

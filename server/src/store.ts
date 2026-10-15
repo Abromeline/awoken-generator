@@ -413,11 +413,15 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   wave_number INTEGER NOT NULL DEFAULT 1,
   last_wave_at INTEGER NOT NULL,
   waves_defeated INTEGER NOT NULL DEFAULT 0,
-  last_victory_at INTEGER
+  last_victory_at INTEGER,
+  recovery_mult REAL NOT NULL DEFAULT 1
 );`);
 const waveCols = sqlite.prepare(`PRAGMA table_info(wave_state)`).all() as { name: string }[];
 if (!waveCols.some((col) => col.name === "last_victory_at")) {
   sqlite.exec(`ALTER TABLE wave_state ADD COLUMN last_victory_at INTEGER`);
+}
+if (!waveCols.some((col) => col.name === "recovery_mult")) {
+  sqlite.exec(`ALTER TABLE wave_state ADD COLUMN recovery_mult REAL NOT NULL DEFAULT 1`);
 }
 // Tender energy: server-authoritative. Admin can refill.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_resources (

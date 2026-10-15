@@ -3130,6 +3130,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             bonusTiles={bonusTiles}
             onVictoryDetected={handleVictoryDetected}
             aspectGrant={bossAspectGrant}
+            mood={mood?.mood ?? null}
           />
         );
       })()}
