@@ -103,6 +103,12 @@ function isoBasis(size: number): { u: [number, number]; v: [number, number] } {
 }
 
 /** Axial → pixel offset, from the same basis (used with an origin). */
+/** The hex's base size — the boundary every Awoken and building
+ *  lives inside. Nigel (2026-10-15): the hexes were easy to clutter,
+ *  so the base grew 24 → 36 (each hex's floor area ×2.25). EVERY
+ *  position on this map derives from this one constant times the
+ *  view's zoom — a single source, so the lattice can never drift. */
+export const HEX_BASE_SIZE = 36;
 function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
   const { u, v } = isoBasis(size);
   return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
@@ -729,7 +735,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   // === WAVE SIMULATION (preview only) ===
   const simTilePos = (t: any) => {
-    const size = 24 * zoom;
+    const size = HEX_BASE_SIZE * zoom;
     const HEIGHT_PX = 22 * zoom;
     const originX = 250, originY = 170;
     const { px, py } = isoOffset(t.q, t.r, size);
@@ -1359,7 +1365,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
-    const size = 24 * zoom;
+    const size = HEX_BASE_SIZE * zoom;
     // XYZ grid: height in pixels per terrain level (for future terraforming)
     const HEIGHT_PX = 22 * zoom;
     // Center the (0,0) tile in the viewBox
@@ -2404,7 +2410,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         // Position the picker over the Awoken in the field
         const tile = tiles.find(t => t.id === placement.tileId);
         if (!tile) return null;
-        const size = 24 * zoom;
+        const size = HEX_BASE_SIZE * zoom;
         const HEIGHT_PX = 22 * zoom;
         const { px, py } = isoOffset(tile.q, tile.r, size);
         const cx = 250 + px + pan.x;
