@@ -24,12 +24,12 @@ import thornWallImg from "./assets/buildings/thorn-wall.png";
 import bindingCircleImg from "./assets/buildings/binding-circle.png";
 import treeImg from "./assets/buildings/tree.png";
 import hallOfChampionsImg from "./assets/buildings/hall-of-champions.png";
-import tideTileImg from "./assets/terrain-iso/tide-v2.png";
-import skyTileImg from "./assets/terrain-iso/sky-v2.png";
-import stoneTileImg from "./assets/terrain-iso/stone-v2.png";
-import rootTileImg from "./assets/terrain-iso/root-v2.png";
-import neutralTileImg from "./assets/terrain-iso/neutral-v2.png";
-import cursedTileImg from "./assets/terrain-iso/cursed-v2.png";
+import tideTileImg from "./assets/terrain-iso/tide-v3.png";
+import skyTileImg from "./assets/terrain-iso/sky-v3.png";
+import stoneTileImg from "./assets/terrain-iso/stone-v3.png";
+import rootTileImg from "./assets/terrain-iso/root-v3.png";
+import neutralTileImg from "./assets/terrain-iso/neutral-v3.png";
+import cursedTileImg from "./assets/terrain-iso/cursed-v3.png";
 
 const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   enemy: { fray: frayImg, unraveler: unravelerImg, hollow: hollowImg, tangle: tangleImg },

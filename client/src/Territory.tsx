@@ -26,12 +26,12 @@ const ENEMY_IMGS: Record<string, string> = {
   tangle: tangleImg,
 };
 import Tutorial, { tutorialComplete } from "./Tutorial";
-import tideImg from "./assets/terrain-iso/tide-v2.png";
-import skyImg from "./assets/terrain-iso/sky-v2.png";
-import stoneImg from "./assets/terrain-iso/stone-v2.png";
-import rootImg from "./assets/terrain-iso/root-v2.png";
-import neutralImg from "./assets/terrain-iso/neutral-v2.png";
-import cursedImg from "./assets/terrain-iso/cursed-v2.png";
+import tideImg from "./assets/terrain-iso/tide-v3.png";
+import skyImg from "./assets/terrain-iso/sky-v3.png";
+import stoneImg from "./assets/terrain-iso/stone-v3.png";
+import rootImg from "./assets/terrain-iso/root-v3.png";
+import neutralImg from "./assets/terrain-iso/neutral-v3.png";
+import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 
 const TERRAIN: Record<string, string> = {
   tide: tideImg, sky: skyImg, stone: stoneImg, root: rootImg,
@@ -46,6 +46,15 @@ const TERRAIN: Record<string, string> = {
 // neutral is nudged to seat its painted face on the lattice point.
 const TERRAIN_IMG_OFFSET: Record<string, { dx: number; dy: number }> = {
   neutral: { dx: -0.1180, dy: 0.0302 },
+};
+
+// Per-key render placement for art that leaves the shared 1920x1280
+// template. Nigel's cursed tile (v3, hand-drawn 2026-10-14) carries
+// flame-wisps rising above its face, so its canvas is 1920x1510 with
+// the face centre at (960, 790): h is the render height in units of s,
+// dy lifts the image so the face — never the canvas — seats the tile.
+const TERRAIN_IMG_PLACE: Record<string, { dy: number; h: number }> = {
+  cursed: { dy: -0.3067, h: 1.8968 },
 };
 
 // ── THE hex geometry — one source for map, overlays, and hit-testing ──
@@ -1663,9 +1672,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               image so the face center lands exactly on the tile's
               lattice point (cx, cy); imgOff seats off-template art. */}
           <image href={TERRAIN[tileKey]}
-            x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + imgOff.dy * s} width={s * 2.41} height={s * 1.608}
+            x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+          {t.cursed && (
+            <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.58} ry={s * 0.98}
+              fill="url(#corruptionHalo)" pointerEvents="none" />
+          )}
           {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
               GLOW crimson-violet from within — the dark bruising the land
               itself, never a red grid laid over it. Always on: the wilds
@@ -1675,8 +1688,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               the iPad stays smooth. */}
           {t.cursed && (
             <g className={battlePool.length > 0 ? "corruption-glow armed" : "corruption-glow"} pointerEvents="none">
-              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(150,20,96,0.30)" : "rgba(150,20,96,0.13)"} stroke="none" />
-              <polygon points={pts} fill={battlePool.length > 0 ? "rgba(158,26,102,0.40)" : "rgba(158,26,102,0.17)"} stroke="none" />
+              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(120,8,30,0.45)" : "rgba(110,6,26,0.30)"} stroke="none" />
+              <polygon points={pts} fill={battlePool.length > 0 ? "rgba(165,18,60,0.38)" : "rgba(148,14,52,0.20)"} stroke="none" />
               {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
                   drifting up off the corruption — the glow made taller.
                   Two soft wisps per hex, staggered by tile so the wilds
@@ -2593,6 +2606,13 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             if (e.button === 2) dragRef.current = null;
           }}
           onMouseLeave={() => { dragRef.current = null; }}>
+          <defs>
+            <radialGradient id="corruptionHalo" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(26,0,6,0.88)" />
+              <stop offset="55%" stopColor="rgba(96,4,18,0.42)" />
+              <stop offset="100%" stopColor="rgba(96,4,18,0)" />
+            </radialGradient>
+          </defs>
           {renderGrid()}
           {/* Simulation units */}
           {battleUnits.map(u => {
