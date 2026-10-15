@@ -4822,19 +4822,60 @@ export const handlers = {
     if (!parsed.success) badRequest("Invalid battle result.");
 
     // Validate: wave number must match current
-    const state = await db.select().from(schema.waveState)
+    let state = await db.select().from(schema.waveState)
       .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
-    const currentWave = state.length ? state[0].waveNumber : 1;
+    if (!state.length) {
+      const [row] = await db.insert(schema.waveState).values({ ownerKey }).returning();
+      state = [row];
+    }
+    const currentWave = state[0].waveNumber;
     if (parsed.data.waveNumber !== currentWave) badRequest("Unraveling mismatch.");
 
-    // Validate: survivors must be Awoken owned by the tender and placed on the field
-    // (The battle defends the wave's target tile, not necessarily the bastion)
-    if (parsed.data.survivorIds.length > 0) {
-      const placements = await db.select().from(schema.fieldPlacements)
-        .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
-      const placedIds = new Set(placements.map(p => p.awakenedId));
-      for (const id of parsed.data.survivorIds) {
-        if (!placedIds.has(id)) badRequest("Invalid survivor.");
+    // Verified resolution (War-Ground fix, Nigel's word 2026-10-15 — the
+    // main loop reports here, and the server reckons the report before
+    // anything is paid):
+    // 1. The recovery clock is enforced at resolution, not only stamped:
+    //    no battle can have been fought while the Unraveling was still
+    //    gathering, so no resolution is accepted in that window.
+    const nextWaveAt = nextWaveAtFor(state[0]);
+    if (nextWaveAt) {
+      badRequest(`The Unraveling is still gathering itself — the next Unraveling can be faced at ${nextWaveAt}.`);
+    }
+    // 2. The wave's composition is recomputed server-side from the single
+    //    source of truth; the client's numbers are never consulted.
+    const { totalPower: wavePower } = wavePowerFor(currentWave);
+    // 3. Survivors are checked against the committed company: Awoken the
+    //    tender owns, placed on the field in attack or defense stance —
+    //    the fighters who can actually stand in this battle. A fighter
+    //    the server's own per-hit damage already dissipated mid-battle is
+    //    no longer placed, and cannot be reported as a survivor.
+    const survivorIds = [...new Set(parsed.data.survivorIds)];
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const fighterIds = new Set(
+      placements
+        .filter(p => p.stance === "attack" || p.stance === "defense")
+        .map(p => p.awakenedId)
+    );
+    for (const id of survivorIds) {
+      if (!fighterIds.has(id)) badRequest("Invalid survivor.");
+    }
+    // 4. A victory must be claimable by the force that was committed:
+    //    at least one survivor, and the company's combined power —
+    //    measured server-side from the Awoken's true payloads, the same
+    //    arithmetic as claimFirstTile and defendWave — must match the
+    //    Unraveling's recomputed power. Tactics, towers and thorns are
+    //    the edge that lets a matching force hold; a force that does not
+    //    match it on paper cannot claim to have broken it.
+    let committedPower = 0;
+    for (const id of fighterIds) {
+      const payload = await awakenedPayloadById(id);
+      committedPower += payload?.power ?? 0;
+    }
+    if (parsed.data.victory) {
+      if (survivorIds.length === 0) badRequest("A victory with no survivors is no victory.");
+      if (committedPower < wavePower) {
+        badRequest(`The War-Ground does not reckon this victory — your committed company stands at ${committedPower} against the Unraveling's ${wavePower}.`);
       }
     }
 
@@ -4845,7 +4886,7 @@ export const handlers = {
     // Awoken's attacks in the client simulation have no server-side
     // per-swing report, so no attack grant is invented here.)
     const xpById = new Map<number, XpGainReport>();
-    for (const id of parsed.data.survivorIds) {
+    for (const id of survivorIds) {
       await grantEventXp(xpById, id, XP_PER_DEFENSE);
     }
 
@@ -4880,7 +4921,7 @@ export const handlers = {
       // wave pays the HEX-TAKEN grant (+50) to ALL Awoken involved in
       // the resolution — every survivor the battle touched, not only
       // committed defenders.
-      for (const id of parsed.data.survivorIds) {
+      for (const id of survivorIds) {
         await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
       }
       // Deeds of victory (unchanged): the old 50 + 10×wave XP grant
@@ -4888,7 +4929,7 @@ export const handlers = {
       // event XP is granted above, and no deed was ever triggered BY
       // the grant itself (these recordDeed calls stand on their own),
       // so removing the grant loses no deed.
-      for (const id of parsed.data.survivorIds) {
+      for (const id of survivorIds) {
         await recordDeed(ownerKey, id, "wave_survived");
         await recordDeed(ownerKey, id, "battle_won");
       }
@@ -4954,7 +4995,7 @@ export const handlers = {
         .where(eq(schema.waveState.ownerKey, ownerKey));
     }
 
-    return { ok: true, bonusEligible, xpGains: [...xpById.values()] };
+    return { ok: true, bonusEligible, xpGains: [...xpById.values()], committedPower, wavePower };
   },
 
   async setStance(args: unknown, ctx?: ActionContext) {

@@ -602,6 +602,55 @@ if (!storyCols.some((c) => c.name === "sent_at")) {
   sqlite.exec(`ALTER TABLE awoken_stories ADD COLUMN sent_at INTEGER`);
 }
 
+// Fresh-DB drift, second front (found 2026-10-15, War-Ground E2E): the
+// ALTER block near the top of this file runs BEFORE sqlite.exec(DDL)
+// creates the tables, so on a fresh database every one of those ALTERs
+// throws "no such table" into its silent catch and the columns are
+// never added — while production, whose tables already existed when
+// the ALTERs first shipped, carries them and masks the drift. Any
+// drizzle select over these tables then crashes on a fresh DB
+// (resolveBattle's placement read was the first to be caught doing
+// so). Same remedy as battle_tracks.pages above: repeat the ALTERs
+// AFTER every CREATE, PRAGMA-guarded and idempotent — a no-op wherever
+// the columns already exist.
+const lateCols: Record<string, [string, string][]> = {
+  territory_tiles: [
+    ["hp", "INTEGER NOT NULL DEFAULT 10"],
+    ["attune_points", "REAL NOT NULL DEFAULT 0"],
+    ["attune_element", "TEXT"],
+  ],
+  awakened: [
+    ["spent_power", "INTEGER NOT NULL DEFAULT 0"],
+    ["spent_toughness", "INTEGER NOT NULL DEFAULT 0"],
+  ],
+  field_placements: [
+    ["hp", "INTEGER"],
+  ],
+  territory_buildings: [
+    ["mode", "TEXT NOT NULL DEFAULT 'blessing'"],
+    ["attune_anchor_at", "INTEGER"],
+    ["level", "INTEGER NOT NULL DEFAULT 1"],
+    ["fund_json", "TEXT"],
+    ["upgrade_ready_at", "INTEGER"],
+  ],
+  // Its rebuild migration above also runs pre-CREATE on a fresh DB
+  // (empty PRAGMA → skipped), and the CREATE that follows omits this
+  // column — same disease, third front.
+  aspect_attunement: [
+    ["updated_at", "INTEGER NOT NULL DEFAULT 0"],
+  ],
+};
+for (const [table, cols] of Object.entries(lateCols)) {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+  );
+  for (const [name, def] of cols) {
+    if (!existing.has(name)) {
+      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
+    }
+  }
+}
+
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, { schema });
 
 function objectPath(objectId: string) {

@@ -400,6 +400,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [showBattleground, setShowBattleground] = useState(false);
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
+  // The company committed to the current in-map battle (attack/defense
+  // placements at battle start) — the survivors reported to the server
+  // at resolution are drawn from this list (War-Ground fix, 2026-10-15).
+  const battleFighterIdsRef = useRef<number[]>([]);
+  // Cycle position toward the boss (0–3) from the server's own count:
+  // every third victory completes a cycle and opens the boss window.
+  const cycleFromDefeated = (defeated: number) =>
+    defeated <= 0 ? 0 : (defeated % 3 === 0 ? 3 : defeated % 3);
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
   const [showChampionPicker, setShowChampionPicker] = useState(false);
   const [showChampionTab, setShowChampionTab] = useState(false);
@@ -462,6 +470,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     if (tiles.length) {
       api.getWave().then(w => {
         setWave(w);
+        // The 3-Unraveling cycle toward the boss is derived from the
+        // server's wavesDefeated, so it survives a reload (War-Ground
+        // fix, 2026-10-15) instead of evaporating with local state.
+        setWavesCleared(cycleFromDefeated(w.wavesDefeated));
         // After 3 victories, prompt the binding — it protects tiles from waves.
         if (w.wavesDefeated >= 3 && !localStorage.getItem("bindingPromptSeen")) {
           setShowBindingPrompt(true);
@@ -873,10 +885,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   /** Start a single wave (turn-based). */
   const startBattle = () => {
     if (!wave || !tiles.length || battleActive) return;
+    // The committed company: Awoken placed in attack or defense stance.
+    // Towers alone cannot claim a victory — the server reckons the
+    // result against this company (War-Ground fix, 2026-10-15).
+    const fighterIds = placements
+      .filter(p => p.stance === "attack" || p.stance === "defense")
+      .map(p => p.awakenedId);
+    if (!fighterIds.length) {
+      showHexNotice("Commit Awoken in attack or defense stance first — towers alone cannot claim a victory.");
+      return;
+    }
+    battleFighterIdsRef.current = fighterIds;
+    const committedPower = fighterIds.reduce((sum, id) => {
+      const aw = tenderItems.find(a => a.id === id);
+      return sum + (aw?.power ?? 0);
+    }, 0);
+    if (committedPower < wave.totalPower) {
+      showHexNotice(`Your committed company stands at ${committedPower} against the Unraveling's ${wave.totalPower} — the War-Ground will not reckon a victory until the company matches it.`);
+    }
     setBattleActive(true);
     setBattleWave(wavesCleared + 1);
     setTurnNumber(1);
-    spawnBattleWave(wavesCleared + 1);
+    spawnBattleWave();
   };
 
   /** Hex distance for range calculations. */
@@ -890,7 +920,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const getTile = (tileId: number) => tileByIdCache.current.get(tileId);
 
   /** Spawn a battle wave on cursed tiles. */
-  const spawnBattleWave = (waveNum: number) => {
+  const spawnBattleWave = () => {
     const cursed = tiles.filter(t => t.cursed);
     if (!cursed.length) return;
     // Cache all tile positions and objects once (performance)
@@ -905,8 +935,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     let id = Date.now();
     const frayCfgB = (gameConfig as any)?.enemies?.["fray"] ?? { power: 1, hp: 3 };
     const unravCfgB = (gameConfig as any)?.enemies?.["unraveler"] ?? { power: 4, hp: 6 };
-    const frayCount = wave!.frayCount + (waveNum - 1) * 2;
-    const unravelerCount = wave!.unravelers + (waveNum - 1);
+    // The enemy company is the server's composition for the CURRENT
+    // server wave, exactly as getWave served it — no local escalation
+    // on top (War-Ground fix, 2026-10-15: one composition law, held
+    // server-side, so the battle fought is the battle resolved).
+    const frayCount = wave!.frayCount;
+    const unravelerCount = wave!.unravelers;
     for (let i = 0; i < frayCount; i++) {
       const tile = cursed[Math.floor(Math.random() * cursed.length)];
       const { cx, cy } = simTilePos(tile);
@@ -916,7 +950,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const tile = cursed[Math.floor(Math.random() * cursed.length)];
       const { cx, cy } = simTilePos(tile);
       // Wave scaling rides on the config base HP, as before.
-      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: unravCfgB.hp + waveNum * 2, maxHp: unravCfgB.hp + waveNum * 2, power: unravCfgB.power, x: cx, y: cy, targetX: cx, targetY: cy });
+      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: unravCfgB.hp + wave!.waveNumber * 2, maxHp: unravCfgB.hp + wave!.waveNumber * 2, power: unravCfgB.power, x: cx, y: cy, targetX: cx, targetY: cy });
     }
     setBattleUnits(units);
     setTurnPhase("towers");
@@ -1162,27 +1196,71 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         setTimeout(() => onWaveCleared(), 100);
         return prev;
       }
-      // Next turn
+      // Defeat: enemies remain and every committed fighter has fallen
+      // (HP is the server-synced map; an untouched fighter has no entry
+      // and stands at full toughness). Before this check existed the
+      // battle soft-locked here — enemies kept striking with no loss
+      // ever declared (War-Ground fix, 2026-10-15).
+      const fighterIds = battleFighterIdsRef.current;
+      if (fighterIds.length > 0 && fighterIds.every(id => (awokenHp.get(id) ?? 1) <= 0)) {
+        setTimeout(() => onBattleLost(), 100);
+        return prev;
+      }
+      // Next turn — in manual step-through, wait for the next Step
+      // instead of advancing the phases on a timer.
       setTurnNumber(t => t + 1);
-      setTurnPhase("towers");
-      setTimeout(() => doTowerPhase(), battleSpeed * 1000);
+      if (!battleManual) {
+        setTurnPhase("towers");
+        setTimeout(() => doTowerPhase(), battleSpeed * 1000);
+      }
       return prev;
     });
   };
 
-  /** Called when a wave is cleared. */
-  const onWaveCleared = () => {
-    const cleared = wavesCleared + 1;
-    setWavesCleared(cleared);
+  /** Refresh map + wave state from the server after a resolution. */
+  const refreshAfterResolution = async () => {
+    try {
+      const refreshed = await api.getTerritory();
+      setTiles(refreshed.tiles);
+      setPlacements(refreshed.placements);
+    } catch (e) { console.error("Territory refresh after resolution failed", e); }
+    try {
+      const w = await api.getWave();
+      setWave(w);
+      setWavesCleared(cycleFromDefeated(w.wavesDefeated));
+    } catch (e) { console.error("Wave refresh after resolution failed", e); }
+    await refreshEnergy();
+    onUpdate();
+  };
+
+  /** Called when a wave is cleared. The clear is reported to the server
+   *  for its reckoning — wave_state, XP, territory and the recovery clock
+   *  all move only there (War-Ground fix, 2026-10-15). Until this wiring
+   *  the in-map battle was local theatre: nothing it won was real. */
+  const onWaveCleared = async () => {
     setBattleActive(false);
     setBattleUnits([]);
     setTurnPhase(null);
-    if (cleared >= 3) {
-      // All 3 waves cleared — boss stage available
-      console.log("[battle] All waves cleared! Boss available.");
-    }
     // Binding heal between waves
     doBindingHeal();
+    if (!wave) return;
+    const survivors = battleFighterIdsRef.current
+      .filter(id => (awokenHp.get(id) ?? 1) > 0);
+    try {
+      const res = await api.resolveBattle({
+        victory: true,
+        waveNumber: wave.waveNumber,
+        survivorIds: survivors,
+        targetTileId: waveTarget?.tile?.id,
+      });
+      if (res.bonusEligible && res.bonusEligible.length > 0) {
+        setBonusTiles(res.bonusEligible);
+      }
+      showHexNotice(`The Unraveling breaks — victory reckoned by the War-Ground (${res.committedPower ?? "?"} against ${res.wavePower ?? wave.totalPower}).`);
+    } catch (e) {
+      showHexNotice(refusalText(e, "The War-Ground did not reckon this victory."));
+    }
+    await refreshAfterResolution();
   };
 
   /** Binding Awoken heal: total power divided by wounded Awoken in hex + adjacent. */
@@ -1222,12 +1300,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     });
   };
 
-  /** Called when enemies breach the center. */
-  const onBattleLost = () => {
+  /** Called when the committed company has fallen with enemies still
+   *  standing. The defeat is reported to the server, which takes its
+   *  price — an unbound border tile falls (War-Ground fix, 2026-10-15). */
+  const onBattleLost = async () => {
     setBattleActive(false);
     setBattleUnits([]);
     setTurnPhase(null);
-    console.log("[battle] Territory breached!");
+    showHexNotice("The line has fallen — the Unraveling takes its price.");
+    if (!wave) return;
+    try {
+      await api.resolveBattle({
+        victory: false,
+        waveNumber: wave.waveNumber,
+        survivorIds: [],
+      });
+    } catch (e) {
+      console.error("Defeat resolution failed", e);
+    }
+    await refreshAfterResolution();
   };
 
 
@@ -2617,7 +2708,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               {battleManual ? "⏭ Manual" : "▶ Auto"}
             </button>
             {battleManual && (
-              <button className="abtn small" onClick={() => doInitiativePhase()} title="Next attack" style={{ marginLeft: 4 }}>
+              <button className="abtn small" onClick={() => { doInitiativePhase(); setTimeout(() => endTurn(), 50); }} title="Next attack" style={{ marginLeft: 4 }}>
                 → Step
               </button>
             )}
