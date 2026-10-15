@@ -13,8 +13,13 @@
  * Each prompt is one or two sentences, offered as a seed for the 100–2000
  * character story its Tender may write. The prompts name no creature, piece,
  * or appearance: any Awoken may draw any prompt in its thread. They invite;
- * they never assign. Deep lore is kept behind Lore's Gate — at most a
- * whisper of cipher, never the telling itself.
+ * they never assign. Deep lore is kept behind Lore's Gate — never the
+ * telling itself, only whispers of it, woven deeper by the Ancient One's
+ * ruling (2026-10-15): Chapter I holds none; each thread hides ONE whisper
+ * in Chapter II (the falling light, the rising water, the name spoken into
+ * the dark) and TWO in Chapter III, where fate loosens (the tune no one was
+ * taught, the telling that goes on without you) — fifteen whispers in the
+ * three hundred, each still rooted in its own thread.
  */
 export interface StoryThread {
   name: string;
@@ -84,9 +89,9 @@ export const STORY_THREADS: StoryThread[] = [
         "Were the years to scatter everyone eventually, this one's gift against the scattering is drawn from its lack. What does it do, today, against the scattering?",
         "A friend succeeded at the very thing this one failed at, and this one celebrated first and loudest. What had healed to make that possible?",
         "The day came when this one taught a newborn its own hard lesson — the one the road taught it — and how gently it taught it.",
-        "Its favorite scratch, dent, or quirk has a story everyone knows by now. Tell the final version, the one it tells itself.",
+        "Once, dreaming, the old voices spoke all at once, kindly and broken, and one of them carried this one's own crack. What did the cracked voice ask it to mend?",
         "The border it once could not hold is where others now come to be held together. What happens at that stretch of the line?",
-        "While mending — now that the mending includes itself — what does this one hum: the prayer, or the grocery list, or the spell?",
+        "While mending — now that the mending includes itself — it hums the tune it never learned, the one everyone knows and no one was ever taught. Where was that tune kept, through the long dark, for it?",
         "One debt it owed can never be repaid, so it pays it forward instead. To whom, and in what coin?",
         "It found an old thing buried at the edge of a hex — its own first attempt at hiding. What did it do with it this time?",
         "Asked at last what a Tender is, this one answers with its flaw in the answer. What does it say?",
@@ -129,7 +134,7 @@ export const STORY_THREADS: StoryThread[] = [
         "It told the others about the light, and no one believed it. What did this one do with being the only witness?",
         "Mist took the path home and the wonder with it. Which of its senses did this one follow then, and what did they report back?",
         "Deep in one night's dreaming, the stars came down to drink at the pool, and this one crept close. What did they look like up close?",
-        "A puppeteer of wind moved the clouds like curtains all afternoon, and this one followed the scene to its end. What played out?",
+        "Midway on the road it saw a light fall slowly, not burning, and settle somewhere without a sound, the way a seed takes soil. Did it follow — and what did it find, or choose not to find?",
         "The chase led across a battlefield where rain falls too, on old sorrows and new quests alike. Did the wonder wait, and what did this one do while it rained?",
         "Tell when the weather changed this one's mind about the thing it was chasing — what the sky did, and what shifted.",
         "It found the shining thing's twin sleeping in border soil, and the pair together made a sound. What sound, and what did this one do?",
@@ -152,7 +157,7 @@ export const STORY_THREADS: StoryThread[] = [
         "A friend who never believed now keeps the watch for the wonder's return beside this one. How did belief travel between them?",
         "For the feast after a hard-won hex, this one brings the story of the chase as its dish. Write the toast it gives before telling.",
         "The marvel returns on a fixed night each year, and this one has built a small ritual around its coming. Describe the ritual.",
-        "Were one sound to be kept forever, in a jar, labeled, this one knows exactly which now. What is written on the label?",
+        "The wonder it brought home is a silence — a place where a song should be, shaped exactly like one. How does it keep a silence, and whom has it shown the keeping to?",
         "Somewhere kind, the story of the wonder is told about this one by others — slightly wrong, in the way of all good stories. What do they get wrong, and does it mind?",
         "The pool at dawn was mirror-still and the sky was in it, and this one made the wish it once refused to make. What was the wish, this time?",
         "It dreamt the wonder had a name in the old tongue of the land, and woke able to say it once. Who did it say it to?",
@@ -208,7 +213,7 @@ export const STORY_THREADS: StoryThread[] = [
         "For one breath in a dream the whole work came loose, unbound, like a sigh — and in the dream, this one let it. What did waking ask of it after?",
         "Others hurried; this one did one part slowly on purpose, while everything else hurried. Which part, and why did slowness save it?",
         "The mist came down so thick the towers vanished, and the work went on by touch. What did this one build blind, and how straight did it stand?",
-        "A storm rearranged the landscape the night before the work's hardest day. What did this one find first when it walked out, and what did it salvage?",
+        "The water rose once beyond every bank — the ground itself seems to remember it — and one night undid an age of work. What does this one build differently, knowing the water keeps its own counsel?",
         "It carried a heavy thing a long way, for someone whose own strength had run out, and the work waited. Was the waiting worth it — tell the whole of it.",
         "The well ran dry in the middle of everything. What does this one hope for, out loud, to keep the others' spirits — and its own — up?",
         "Someone argued the needy hex should be abandoned to the wilds. What did this one say in the argument, and what did it do after?",
@@ -226,14 +231,14 @@ export const STORY_THREADS: StoryThread[] = [
         "A seedling planted in the finished ground's first spring is taller than this one now. What does it tell the young tree about the work?",
         "The first green shoot came up through the mended ground, and this one ran to tell someone. Whom did it run to, and what was said?",
         "It would do the work again even if no one ever thanked it, ever noticed, ever knew. Name the work, and what doing it made of this one.",
-        "Travelers at the border are shown one thing first by this one, and it is not the towers. What is it, and why that?",
+        "In the clean ground it found the mark of a hand — too large, too old, pressed there before anyone it knows was woken. Whose hand does it leave unspoken of, and how does the finding change the deed?",
         "The deed changed the doer: describe its hands at work now — mending, planting, lifting, holding — and how they differ from the first season's.",
         "Carving is allowed only once, and this one carves the deed's mark into the border stone. What mark, and where on the stone?",
         "In later mouths, this one's name has come to mean the work itself. Is the meaning fair, and would it trade it?",
         "At the turning of the year, the Bastion counts what it kept and what it lost, and this one does its counting at the finished hex. What does it do there?",
         "Rain falls on old battlefields too, and on finished work, kindly. What does this one believe the rain is doing there — washing, or remembering?",
         "A promise this one made to the land at the start still matters, and the land has now kept its side of it. What was the promise, in the end?",
-        "Were one thing to be built on the deed's ground, later, by other hands, what would this one hope they build — and what would it ask them to leave untouched?",
+        "Something was kept in trust for this one's work through a long dark it cannot remember, and placed in its hands the morning it was needed. What was kept — and what does it keep in trust now, in turn?",
         "The smallest hex in the world grew out of the great work — a window box, a crack of clean earth. Who keeps it now, and how?",
         "Someday the work will need doing again, by others. What does this one leave written, buried, or planted at the site, for the next hands?",
       ],
@@ -271,7 +276,7 @@ export const STORY_THREADS: StoryThread[] = [
         "A fellow Awoken fell in the last defense and came back changed. How does this one welcome them home — and what does it not say?",
         "Tell how it felt the time this one was defended by the friend it least expected, and what it did with being defended.",
         "A friend asked this one to remember something for them, because they feared forgetting — and the keeping was tested by the season. What was it, and how is it kept?",
-        "Distance did what the wilds could not: the letters thinned, the visits stopped. What did this one send into the silence, and when?",
+        "When no word could pass between them, each went on saying the other's name into the dark, on faith. Tell of the night the naming itself became the road home.",
         "Envy came visiting when a friend succeeded where this one had failed, in front of everyone. How did this one entertain the unwelcome guest, and how long did it stay?",
         "A promise between friends was nearly broken by weather and war, though each kept it alone as best they could. Tell how it was mended.",
         "It told a secret it keeps for a friend to no one — but the keeping grew heavy in a hard season. How does it guard it still?",
@@ -295,7 +300,7 @@ export const STORY_THREADS: StoryThread[] = [
         "Tell about holding a newborn of the line for the first time — the twin's child, the line's continuation — and what this one whispered to it.",
         "At the dreamed table that held everyone it has ever loved, these two sat where they always sit. Describe the seats, and who poured.",
         "It writes a letter, in mud, in frost, in light, to the friend — though they will meet at supper. What does the letter say that supper cannot?",
-        "The years will scatter everyone eventually, and these two have made their plans against the scattering together. What do they do, today, as a pair?",
+        "It believes, without proof it would defend, that a bond truly attended to cannot wholly end — that somewhere the telling of it goes on. How does that belief change what it does at a parting?",
         "A batch of newborns woke all at once at the spark, and the two of them worked the beautiful chaos like one pair of hands. What did the newborns learn by watching?",
         "Were one afternoon given to teach the newborns a single thing together, what would the lesson look like, taught by two voices?",
         "The friend this one argues with most is the friend it would choose again, every time. Say why, at last, in plain words.",
@@ -306,7 +311,7 @@ export const STORY_THREADS: StoryThread[] = [
         "The line goes on: a newborn of their shared bloodline stands between them, resembling both and neither. What does each see?",
         "Write the sign the two of them would hang at the border of the Bastion for travelers, together — one line each.",
         "In the small hours when the wind is up, what lullaby do they sing to frightened newborns, and who takes which part?",
-        "Their friendship has a founding story the Bastion tells without them now. What do the tellers get right, and what do the two keep private?",
+        "A stranger at the feast swore it had known these two before — in another telling, by other names. What did the two of them do with the stranger's certainty?",
         "When this one is gone to the scattering, the other will keep one thing of it, by agreement made in sunlight. What is the thing, and the agreement?",
       ],
     ],
@@ -346,7 +351,7 @@ export const STORY_THREADS: StoryThread[] = [
         "A long drought taught the Bastion something about patience. What did it teach this one, whose hands were made for planting?",
         "It gave away the thing it most wanted to keep — its best seed, its saved season — to another's ground. Who received it, and what did it cost?",
         "Someone else's garden flourished on the plan this one had abandoned. How did it tend its own heart in that season?",
-        "The seed slept two full years in the dark of the soil, and this one kept faith with it. What did the keeping look like, month by month?",
+        "In ground where a light once fell, it planted — ground where something slept in shadow a long age, until sprouting was safe. What did the long sleeping teach the seed, and what is it teaching this one?",
         "It asked the land for one thing all through a hard year, and the land answered with a different thing. What grew instead?",
         "Tell of how this one learned to be patient — or how it is still learning, one slow shoot at a time.",
         "Were borrowing from the seasons allowed, it would borrow one season twice and skip another entirely. Which, and for what planting?",
@@ -375,10 +380,10 @@ export const STORY_THREADS: StoryThread[] = [
         "If shrines were its to build, it would raise a small one where the first successful planting stands. What would it honor there?",
         "The finished forest needs no Tender now, and that is the grief inside the joy. How does this one say goodbye to being needed?",
         "What does it plant now, at the height of its powers, that it will certainly never see grown? Tell of the planting as a letter to the future.",
-        "Everyone it has ever loved sat at one dreamed table, fed from its own plantings, laughing. What was served, and who grew it all?",
+        "Three bright sounds open its oldest dream, always the same, like a door remembering how it first swung wide. What grows on the other side of that door that it has not yet dared to plant?",
         "A promise to a tree has two sides, and the tree has kept its side in rings. How does such a promise settle, at the last?",
         "Were one moment to be held still while the world moved on, it would hold the moment a certain shoot broke ground. Which shoot, and why that one?",
-        "In the margin of the world's story, this one's planting is one green word. If it found the page left open, what word would it add beside it?",
+        "Somewhere, a telling of this one's garden is already underway without it, in a voice it almost recognizes. If it could add one sentence to that telling, what would the sentence plant?",
         "One last seed it carries still, unplanted, at the end of all its roads. What ground is it saving it for — and whose hands does it hope will plant it?",
       ],
     ],
