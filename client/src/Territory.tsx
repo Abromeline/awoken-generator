@@ -1434,12 +1434,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           )}
           {/* Buildings on this tile (max 2) */}
           {tileBuildings.map((b, bi) => {
+            const place = BUILDING_PLACE[b.buildingType];
+            const bs = s * (BUILDING_BASE_SIZE / HEX_BASE_SIZE);
+            // The seat is RECALCULATED for the bigger map (Nigel,
+            // 2026-10-15): a building grounds on its hex's FLOOR, and
+            // the floor dropped when the hexes grew — by 0.7174 (the
+            // face's bottom-vertex depth) times the growth. Anchoring
+            // at the old centre would leave every building floating
+            // high in its hex; dropping the anchor by the floor's own
+            // drop restores the exact seat each building held when
+            // hex and building shared a measure.
+            const seatDrop = 0.7174 * (s - bs);
             // A building ALONE on its tile anchors on the hex's own
             // heart (Nigel, 2026-10-15); the side offsets exist only
             // for a pair sharing one hex.
-            const bpx = tileBuildings.length === 1 ? { x: cx, y: cy } : { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 };
-            const place = BUILDING_PLACE[b.buildingType];
-            const bs = s * (BUILDING_BASE_SIZE / HEX_BASE_SIZE);
+            const bpx = tileBuildings.length === 1 ? { x: cx, y: cy + seatDrop } : { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 + seatDrop };
             const pH = place ? (bs * place.displayH) / place.hFrac : 0;
             const pW = pH * (place?.aspect ?? 1);
             const isBuilding = b.status === "building";
