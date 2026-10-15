@@ -1210,7 +1210,7 @@ async function loadGameConfig() {
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number; upkeepPerHour?: number }> = {
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
-  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awoken. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops.", icon: "🛕" },
+  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awoken. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops. TAP the standing shrine on the map to turn it to the LAND: the doubling sleeps, and the shrine pours its congregation's dominant element into its own hex and the six around it — one hex about every five hours, its own first.", icon: "🛕" },
   "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
   "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +10 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 10, growHours: 8 },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
@@ -1924,9 +1924,15 @@ export const handlers = {
       for (const id of parsed.data.survivorIds) {
         await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
       }
-      // A newborn follows this purification — record its claim now;
-      // the birth endpoint consumes it exactly once.
-      recordNewbornClaim(ownerKey, "resolveWavePull");
+      // Only BOSS fights free new Awoken (Nigel, 2026-10-14):
+      // purification births are abolished — too many unnamed Awoken
+      // were simply popping up. A boss wave (900+) still frees one;
+      // the birth endpoint consumes the claim exactly once.
+      const waveRows = await db.select().from(schema.waveState)
+        .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
+      if ((waveRows[0]?.waveNumber ?? 0) >= 900) {
+        recordNewbornClaim(ownerKey, "bossVictory");
+      }
     } else {
       // Wave lost — curse HP restores to half
       const maxHp = tiles[0].curseMaxHp ?? 10;
@@ -2325,6 +2331,29 @@ export const handlers = {
   },
 
   /** Demolish a building. */
+  async setShrineMode(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      buildingId: z.number().int().positive(),
+      mode: z.enum(["blessing", "attune"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const rows = await db.select().from(schema.territoryBuildings)
+      .where(and(
+        eq(schema.territoryBuildings.id, parsed.data.buildingId),
+        eq(schema.territoryBuildings.ownerKey, ownerKey)
+      )).limit(1);
+    if (!rows.length) badRequest("No such building.");
+    const b = rows[0];
+    if (b.buildingType !== "attunement-shrine") badRequest("Only an Attunement Shrine can turn between its blessing and the land.");
+    if (b.status !== "active") badRequest("The shrine is not standing active — it is still rising, or its upkeep is unpaid.");
+    const turn = parsed.data.mode === "attune";
+    await db.update(schema.territoryBuildings)
+      .set({ mode: turn ? "attune" : "blessing", attuneAnchorAt: turn ? new Date() : null } as any)
+      .where(eq(schema.territoryBuildings.id, b.id));
+    return { ok: true, mode: turn ? "attune" : "blessing" };
+  },
+
   async demolishBuilding(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
@@ -2525,7 +2554,10 @@ export const handlers = {
         .where(and(
           eq(schema.territoryBuildings.ownerKey, ownerKey),
           eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
-          eq(schema.territoryBuildings.status, "active")
+          eq(schema.territoryBuildings.status, "active"),
+          // A shrine turned to the LAND gives no blessing (Nigel,
+          // 2026-10-14): the doubling sleeps while it attunes.
+          eq(schema.territoryBuildings.mode, "blessing")
         ));
       const shrineTileIds = new Set(shrines.map(s => s.tileId));
       // Get tile coordinates for adjacency check
@@ -2955,62 +2987,151 @@ export const handlers = {
       }
     }
     
-    // Land attunement: Awoken slowly attune adjacent tiles to their dominant element.
-    // Champions attune 3x faster. Runs on getTerritory (every ~30s when map open).
+    // Terrain attunement — the 30-point flux (Nigel, 2026-10-14).
+    // The old dice (5% a tick to flip your own tile) are abolished.
+    // Now: the Awoken on a hex pour the full combined weight of their
+    // elements into that hex alone — point for point, exactly as
+    // attunement counts (pieces 1 pt, aspects 1 pt per level, fire
+    // aside) — but only the DOMINANT element of the whole company
+    // presses; the rest are disregarded on terrain. The hex holds a
+    // 10-point bank: 10 points carry it from its element to neutral,
+    // 10 more from neutral to the pressing element, and pressure that
+    // matches its current element refills the bank — the shepherd's
+    // hold. No Awoken on the hex, no change: the land is locked in
+    // its state of flux until one is near. Surrounding tiles are NOT
+    // attuned by presence — that reach belongs to the shrine alone.
     try {
-      const championRows = await db.select().from(schema.tenderChampions)
-        .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
-      const championId = championRows[0]?.awakenedId ?? -1;
       const tileById = new Map(tiles.map(t => [t.id, t]));
-      for (const p of placements) {
-        const aw = await db.select().from(schema.awakened)
-          .where(eq(schema.awakened.id, p.awakenedId)).limit(1);
-        if (!aw.length) continue;
-        let layers: any[];
-        try { layers = JSON.parse(aw[0].compositionJson || "[]"); }
-        catch { continue; }
-        // Dominant element (excluding aspects)
+      const elementPointsOf = (aw: any): Record<string, number> => {
+        let layers: any[] = [];
+        try { layers = JSON.parse(aw.compositionJson || "[]"); } catch { return {}; }
         const counts: Record<string, number> = {};
         for (const l of layers) {
-          if (l.category === "aspect") continue;
-          const el = elementForPieceName(l.name || "", (l as any).element);
-          if (el === "fire") continue;
-          counts[el] = (counts[el] || 0) + 1;
+          const el = elementForPieceName(l.name || "", (l as any).element) as string;
+          if (el === "fire" || el === "neutral") continue;
+          counts[el] = (counts[el] || 0) + (l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1);
         }
-        let domEl = "neutral";
-        let max = 0;
-        for (const [el, n] of Object.entries(counts)) {
-          if (n > max) { max = n; domEl = el; }
+        return counts;
+      };
+      const dominantOf = (sums: Record<string, number>, current: string): { el: string; pts: number } => {
+        let best = "", bestPts = 0;
+        for (const el of ["root", "sky", "stone", "tide"]) {
+          const pts = sums[el] || 0;
+          if (pts > bestPts || (pts === bestPts && pts > 0 && el === current)) { best = el; bestPts = pts; }
         }
-        if (domEl === "neutral") continue;
-        const isChampion = p.awakenedId === championId;
-        // 5% chance per tick for normal, 15% for champion (~30s ticks)
-        const chance = isChampion ? 0.15 : 0.05;
-        if (Math.random() < chance) {
-          const tile = tileById.get(p.tileId);
-          if (!tile) continue;
-          let newElement: "tide" | "sky" | "stone" | "root" | "fire" | "neutral" = tile.element as "tide" | "sky" | "stone" | "root" | "fire" | "neutral";
-          if (tile.element === domEl) continue; // Already attuned
-          if (tile.element === "neutral") {
-            // Neutral → shift toward Awoken's element
-            newElement = domEl as "tide" | "sky" | "stone" | "root" | "fire" | "neutral";
-          } else {
-            // Different element → decay toward neutral first, then shift
-            // 50% chance to go neutral, otherwise stay (gradual tug-of-war)
-            if (Math.random() < 0.5) {
-              newElement = "neutral";
-            } else {
-              continue; // Hold current element this tick
-            }
+        return { el: best, pts: bestPts };
+      };
+      // Pour pressure into a tile's bank and resolve its 10-point
+      // steps. Returns the fields to persist, or null when unmoved.
+      const pour = (tile: any, el: string, pts: number) => {
+        let bankEl = tile.attuneElement as string | null;
+        let bank = tile.attunePoints ?? 0;
+        if (bankEl !== el) { bankEl = el; bank = 0; }
+        bank += pts;
+        let element = tile.element as string;
+        while (bank >= 10) {
+          if (element === el) { bank = 10; break; }
+          element = element === "neutral" ? el : "neutral";
+          bank -= 10;
+        }
+        if (element !== tile.element || bankEl !== (tile.attuneElement ?? null) || bank !== (tile.attunePoints ?? 0)) {
+          return { element, attuneElement: bankEl, attunePoints: bank };
+        }
+        return null;
+      };
+      const byTile = new Map<number, any[]>();
+      for (const p of placements) {
+        const arr = byTile.get(p.tileId) ?? [];
+        arr.push(p);
+        byTile.set(p.tileId, arr);
+      }
+      const awCache = new Map<number, any>();
+      const awOf = async (id: number) => {
+        if (!awCache.has(id)) {
+          const r = await db.select().from(schema.awakened).where(eq(schema.awakened.id, id)).limit(1);
+          awCache.set(id, r[0]);
+        }
+        return awCache.get(id);
+      };
+      const companySums = async (company: any[]): Promise<Record<string, number>> => {
+        const sums: Record<string, number> = {};
+        for (const p of company) {
+          const aw = await awOf(p.awakenedId);
+          if (!aw) continue;
+          for (const [el, n] of Object.entries(elementPointsOf(aw))) sums[el] = (sums[el] || 0) + n;
+        }
+        return sums;
+      };
+      for (const [tileId, company] of byTile) {
+        const tile = tileById.get(tileId);
+        if (!tile || tile.cursed) continue;
+        const dom = dominantOf(await companySums(company), tile.element);
+        if (!dom.el || dom.pts <= 0) continue;
+        const upd = pour(tile, dom.el, dom.pts);
+        if (upd) {
+          await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, tile.id));
+          Object.assign(tile, upd);
+        }
+      }
+      // The Attunement Shrine turned to the LAND (Nigel, 2026-10-14):
+      // the one reach beyond a single hex. While turned, its blessing
+      // sleeps (the doubling below honors the mode), and the shrine
+      // pours its congregation's dominant element — the Awoken on its
+      // hex and the six around it — into one hex about every five
+      // hours, ten points at a time: its own hex first, then a random
+      // neighbour still out of tune. Time is settled from the clock,
+      // so a shrine left standing works unwatched.
+      const turnedShrines = await db.select().from(schema.territoryBuildings)
+        .where(and(
+          eq(schema.territoryBuildings.ownerKey, ownerKey),
+          eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
+          eq(schema.territoryBuildings.status, "active"),
+          eq(schema.territoryBuildings.mode, "attune"),
+        ));
+      if (turnedShrines.length) {
+        const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+        const tileByQR = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+        for (const sh of turnedShrines) {
+          const home = tileById.get(sh.tileId);
+          if (!home) continue;
+          const ring = [home, ...DIRS.map(([dq, dr]) => tileByQR.get(`${home.q + dq},${home.r + dr}`)).filter(Boolean)] as any[];
+          const sums: Record<string, number> = {};
+          for (const rt of ring) {
+            const part = await companySums(byTile.get(rt.id) ?? []);
+            for (const [el, n] of Object.entries(part)) sums[el] = (sums[el] || 0) + n;
           }
-          await db.update(schema.territoryTiles)
-            .set({ element: newElement as any })
-            .where(eq(schema.territoryTiles.id, tile.id));
-          tile.element = newElement as any;
+          const voice = dominantOf(sums, home.element);
+          if (!voice.el) continue;
+          let anchor = sh.attuneAnchorAt ? new Date(sh.attuneAnchorAt as any).getTime() : 0;
+          if (!anchor) {
+            await db.update(schema.territoryBuildings).set({ attuneAnchorAt: new Date() } as any).where(eq(schema.territoryBuildings.id, sh.id));
+            continue;
+          }
+          let steps = Math.floor((Date.now() - anchor) / (5 * 3600 * 1000));
+          let guard = 0;
+          while (steps > 0 && guard++ < 40) {
+            let target: any = null;
+            if (!home.cursed && home.element !== voice.el) target = home;
+            else {
+              const outs = ring.slice(1).filter(t => !t.cursed && t.element !== voice.el);
+              if (outs.length) target = outs[Math.floor(Math.random() * outs.length)];
+            }
+            if (!target) break;
+            const upd = pour(target, voice.el, 10);
+            if (upd) {
+              await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, target.id));
+              Object.assign(target, upd);
+            }
+            steps--;
+            anchor += 5 * 3600 * 1000;
+          }
+          if (steps !== Math.floor((Date.now() - (sh.attuneAnchorAt ? new Date(sh.attuneAnchorAt as any).getTime() : 0)) / (5 * 3600 * 1000))) {
+            await db.update(schema.territoryBuildings).set({ attuneAnchorAt: new Date(anchor) } as any).where(eq(schema.territoryBuildings.id, sh.id));
+          }
         }
       }
     } catch (e) {
-      console.error("[LandAttune] failed", e);
+      console.error("[TerrainAttune] failed", e);
     }
 
     // Aspect attunement: binding Awoken channel elements into the pool.
@@ -3314,9 +3435,8 @@ export const handlers = {
           await grantEventXp(xpById, s.awakenedId, XP_PER_HEX_TAKEN);
         }
         purified = true;
-        // A newborn follows this purification — record its claim now;
-        // the birth endpoint consumes it exactly once.
-        recordNewbornClaim(ownerKey, "deployBattle");
+        // No newborn follows a purification any more (Nigel,
+        // 2026-10-14): only boss fights free new Awoken.
       }
     }
     return z.object({ ok: z.literal(true), purified: z.boolean(), xpGains: z.array(xpShape) })
@@ -3925,12 +4045,16 @@ export const handlers = {
         synergyMultiplier = gameConfig.timers.wheatWellSynergy;
       }
     }
-    // Max 2 buildings per hex
+    // The Tower stands alone upon its tile, like the Hall stands
+    // alone in the world (Nigel, 2026-10-14): nothing may share a
+    // Tower's hex, and a Tower may rise only upon an empty one.
     const existing = await db.select().from(schema.territoryBuildings)
       .where(and(
         eq(schema.territoryBuildings.ownerKey, ownerKey),
         eq(schema.territoryBuildings.tileId, parsed.data.tileId)
       ));
+    if (parsed.data.buildingType === "watchtower" && existing.length > 0) badRequest("The Tower stands alone upon its tile — no other building may share its hex.");
+    if (existing.some((b: any) => b.buildingType === "watchtower")) badRequest("A Tower already stands upon this tile, and it stands alone.");
     if (existing.length >= 2) badRequest("Max 2 buildings per hex.");
     // Hall of Champions: one per tender, alone on its tile; nothing shares its tile.
     if (parsed.data.buildingType === "hall-of-champions") {
@@ -4660,9 +4784,7 @@ export const handlers = {
     }
     // Purify to neutral.
     await recordDeed(ownerKey, parsed.data.awakenedId, "curse_broken");
-    // A newborn follows this purification — record its claim now;
-    // the birth endpoint consumes it exactly once.
-    recordNewbornClaim(ownerKey, "attackTile");
+    // No newborn follows a purification any more (Nigel, 2026-10-14).
     {
         const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
         for (const layer of layers) {
@@ -4785,9 +4907,8 @@ export const handlers = {
         hp: await placementMaxHp(teamRows[i].id),
       });
     }
-    // The first-tile victory births a newborn, like every purification —
-    // record its claim; the birth endpoint consumes it exactly once.
-    recordNewbornClaim(ownerKey, "claimFirstTile");
+    // The first-tile victory births no newborn (Nigel, 2026-10-14):
+    // purification births are abolished — only boss fights free one.
     return okResponse.parse({ ok: true });
   },
 
@@ -4861,9 +4982,10 @@ export const handlers = {
       liberatorNames: z.array(z.string()),
     }).safeParse(args);
     if (!parsed.success) badRequest(`Invalid birth request — ${describeValidationIssues(parsed.error)}.`);
-    // A birth follows a victory, and the victory is the server's own
-    // record: consume exactly one pending claim (recorded by deployBattle,
-    // attackTile, resolveWavePull, or claimFirstTile when the dark broke).
+    // A birth follows a BOSS victory, and the victory is the server's
+    // own record: consume exactly one pending claim (recorded by
+    // resolveWavePull when a boss wave — 900+ — broke; since Nigel's
+    // ruling of 2026-10-14, purification births are abolished).
     // Before this ledger, any caller could mint paid wake credits here on
     // demand — no victory, no limit, no record.
     if (!consumeNewbornClaim(ownerKey)) {

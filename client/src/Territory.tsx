@@ -1433,6 +1433,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     }
                     return;
                   }
+                  if (b.buildingType === "attunement-shrine" && b.status === "active") {
+                    // The shrine turns (Nigel, 2026-10-14): blessing
+                    // (doubling nearby binders) or the LAND (pouring
+                    // its congregation's element into the ring).
+                    try {
+                      const turning = (b as any).mode !== "attune";
+                      await api.call("setShrineMode", { buildingId: b.id, mode: turning ? "attune" : "blessing" });
+                      showHexNotice(turning
+                        ? "The shrine turns to the land — its blessing sleeps while it pours its congregation's dominant element into its hex and the six around it, one hex about every five hours."
+                        : "The shrine returns to its blessing — the doubling of nearby binders wakes again.");
+                      const rb = await api.getBuildings();
+                      setBuildings(rb.buildings);
+                      onUpdate();
+                    } catch (e) { showHexNotice(refusalText(e, "The shrine would not turn.")); }
+                    return;
+                  }
                   if (b.buildingType === "hall-of-champions") {
                     if (b.status !== "active") {
                       showHexNotice("The Hall of Champions is still rising — its doors open when the building stands complete.");
@@ -2089,7 +2105,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           <section className="first-claim" aria-live="polite">
             <p className="eyebrow">The Last Bastion</p>
             <h2>No ground is held — yet.</h2>
-            <p>The Unraveler waits in the wilds at power 7. Gather a company of up to six of your Awoken whose combined power reaches 7, and face it together. The first four named will stand upon the bastion when the dark breaks — and a newborn follows every victory.</p>
+            <p>The Unraveler waits in the wilds at power 7. Gather a company of up to six of your Awoken whose combined power reaches 7, and face it together. The first four named will stand upon the bastion when the dark breaks. Purification frees no newborn — only the Boss, when it falls, frees one.</p>
             {eligible.length === 0 ? (
               <p className="quiet">Your deck is empty — wake Awoken at the spark first, then return to claim your ground.</p>
             ) : (

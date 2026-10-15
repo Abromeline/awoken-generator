@@ -146,6 +146,28 @@ try {
 } catch {
   // Column already exists
 }
+// Migration: terrain attunement bank (Nigel, 2026-10-14)
+try {
+  sqlite.exec("ALTER TABLE territory_tiles ADD COLUMN attune_points REAL NOT NULL DEFAULT 0");
+} catch {
+  // Column already exists
+}
+try {
+  sqlite.exec("ALTER TABLE territory_tiles ADD COLUMN attune_element TEXT");
+} catch {
+  // Column already exists
+}
+// Migration: the shrine's calling (Nigel, 2026-10-14)
+try {
+  sqlite.exec("ALTER TABLE territory_buildings ADD COLUMN mode TEXT NOT NULL DEFAULT 'blessing'");
+} catch {
+  // Column already exists
+}
+try {
+  sqlite.exec("ALTER TABLE territory_buildings ADD COLUMN attune_anchor_at INTEGER");
+} catch {
+  // Column already exists
+}
 // Migration: add hp column to field_placements
 try {
   sqlite.exec("ALTER TABLE field_placements ADD COLUMN hp INTEGER");

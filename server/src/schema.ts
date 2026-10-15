@@ -310,6 +310,15 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   lastPassiveAt: integer("last_passive_at", { mode: "timestamp_ms" }),
   // XYZ grid: terrain height level. 0 = base. Future terraforming mechanic.
   height: integer("height").notNull().default(0),
+  // Terrain attunement (Nigel, 2026-10-14): the 30-point flux. A tile's
+  // element is held by a 10-point bank; Awoken standing on the tile pour
+  // their dominant element's points into the bank, point for point.
+  // 10 points carry a tile from its element to neutral, 10 more from
+  // neutral to the pressing element, and pressure matching the current
+  // element refills its bank — the shepherd's hold. No Awoken, no change:
+  // the land is locked in its flux until one is near.
+  attunePoints: real("attune_points").notNull().default(0),
+  attuneElement: text("attune_element"),
   // Curse HP: attacks dwindle this; at 0 the tile becomes neutral.
   curseHp: integer("curse_hp"),
   curseMaxHp: integer("curse_max_hp"),
@@ -379,6 +388,13 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   builderStances: text("builder_stances"),
   lastHarvestAt: integer("last_harvest_at", { mode: "timestamp_ms" }),
   lastUpkeepAt: integer("last_upkeep_at", { mode: "timestamp_ms" }),
+  // The Attunement Shrine's calling (Nigel, 2026-10-14): "blessing"
+  // (doubling nearby binders, its first nature) or "attune" — turned to
+  // the LAND, pouring its congregation's dominant element into its hex
+  // and the six around it, one hex about every five hours, while the
+  // blessing sleeps. attuneAnchorAt starts the current five-hour step.
+  mode: text("mode").notNull().default("blessing"),
+  attuneAnchorAt: integer("attune_anchor_at", { mode: "timestamp_ms" }),
   // Hall of Champions: level (rooms), upgrade reservoir, upgrade timer.
   level: integer("level").notNull().default(1),
   fundJson: text("fund_json"),
