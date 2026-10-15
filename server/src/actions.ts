@@ -3067,6 +3067,7 @@ export const handlers = {
         if (!tile || tile.cursed) continue;
         const dom = dominantOf(await companySums(company), tile.element);
         if (!dom.el || dom.pts <= 0) continue;
+        (tile as any).attuneRatePts = dom.pts;
         const upd = pour(tile, dom.el, dom.pts);
         if (upd) {
           await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, tile.id));
@@ -3127,6 +3128,10 @@ export const handlers = {
           }
           if (steps !== Math.floor((Date.now() - (sh.attuneAnchorAt ? new Date(sh.attuneAnchorAt as any).getTime() : 0)) / (5 * 3600 * 1000))) {
             await db.update(schema.territoryBuildings).set({ attuneAnchorAt: new Date(anchor) } as any).where(eq(schema.territoryBuildings.id, sh.id));
+          }
+          const nextPourSec = Math.max(0, Math.round((anchor + 5 * 3600 * 1000 - Date.now()) / 1000));
+          for (const rt of ring) {
+            if (!rt.cursed && rt.element !== voice.el) (rt as any).attuneShrineNextSec = nextPourSec;
           }
         }
       }

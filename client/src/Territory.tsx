@@ -14,6 +14,7 @@ import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
 import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
+import { elementPalette } from "./palette";
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -1691,6 +1692,32 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
             preserveAspectRatio="xMidYMid meet"
             style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+          {/* The turning of the land, made visible (Nigel, 2026-10-15):
+              a hex whose attunement bank is filling toward a switch
+              wears a small dark seal — the glyph of the element it is
+              about to become (◇ for the neutral shore between) — and
+              beneath it the honest estimate of the wait, from the
+              pressing company's weight or the shrine's five-hour pour. */}
+          {!t.cursed && (t as any).attuneElement && ((t as any).attunePoints ?? 0) > 0 && t.element !== (t as any).attuneElement && (() => {
+            const target = (t as any).attuneElement as string;
+            const nextStage = t.element === "neutral" ? target : "neutral";
+            const remaining = 10 - ((t as any).attunePoints ?? 0);
+            const rate = (t as any).attuneRatePts ?? 0;
+            let etaSec: number | null = null;
+            if (rate > 0) etaSec = Math.ceil(remaining / rate) * 30;
+            else if ((t as any).attuneShrineNextSec != null) etaSec = Math.max(30, (t as any).attuneShrineNextSec);
+            const eta = etaSec == null ? "" : etaSec < 90 ? `~${etaSec}s` : etaSec < 5400 ? `~${Math.round(etaSec / 60)}m` : `~${Math.round(etaSec / 360) / 10}h`;
+            const col = nextStage === "neutral" ? "#9a958c" : (elementPalette[nextStage as keyof typeof elementPalette] ?? "#d4af6a");
+            return (
+              <g pointerEvents="none">
+                <circle cx={cx + s * 0.55} cy={cy - s * 0.52} r={s * 0.17} fill="rgba(8,6,10,0.78)" stroke={col} strokeWidth={1.2} />
+                {nextStage === "neutral"
+                  ? <text x={cx + s * 0.55} y={cy - s * 0.455} textAnchor="middle" fontSize={s * 0.19} fill={col}>◇</text>
+                  : <g transform={`translate(${cx + s * 0.40}, ${cy - s * 0.58})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.30} height={s * 0.12} /></g>}
+                {eta && <text x={cx + s * 0.55} y={cy - s * 0.235} textAnchor="middle" fontSize={s * 0.115} fill="#f0e6cc" stroke="rgba(0,0,0,0.85)" strokeWidth={2.4} paintOrder="stroke">{eta}</text>}
+              </g>
+            );
+          })()}
           {t.cursed && (
             <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
               fill="url(#corruptionHalo)" pointerEvents="none" />
