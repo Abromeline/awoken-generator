@@ -204,13 +204,16 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS hall_residents (
   awakened_id INTEGER NOT NULL,
   housed_at INTEGER NOT NULL
 )`);
-// Migration: optional email on tenders
+sqlite.exec(DDL);
+// Migration: optional email on tenders — must run AFTER the DDL so a
+// fresh database (where tenders does not exist yet) gets the column
+// too; running it before swallowed the "no such table" error and the
+// column never landed, breaking claimTender on new databases.
 try {
   sqlite.exec("ALTER TABLE tenders ADD COLUMN email TEXT");
 } catch {
   // Column already exists
 }
-sqlite.exec(DDL);
 
 // Lightweight migration: awakened.owner_key for per-Tender decks.
 // (CREATE TABLE IF NOT EXISTS can't add columns to existing tables.)
