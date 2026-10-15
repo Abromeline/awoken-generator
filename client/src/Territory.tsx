@@ -105,10 +105,11 @@ function isoBasis(size: number): { u: [number, number]; v: [number, number] } {
 /** Axial → pixel offset, from the same basis (used with an origin). */
 /** The hex's base size — the boundary every Awoken and building
  *  lives inside. Nigel (2026-10-15): the hexes were easy to clutter,
- *  so the base grew 24 → 36 (each hex's floor area ×2.25). EVERY
+ *  so the base grew 24 → 36, still crowded to his eye, then → 54
+ *  (each hex's floor area ×5 over the original). EVERY
  *  position on this map derives from this one constant times the
  *  view's zoom — a single source, so the lattice can never drift. */
-export const HEX_BASE_SIZE = 36;
+export const HEX_BASE_SIZE = 54;
 function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
   const { u, v } = isoBasis(size);
   return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
