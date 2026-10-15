@@ -110,6 +110,10 @@ function isoBasis(size: number): { u: [number, number]; v: [number, number] } {
  *  position on this map derives from this one constant times the
  *  view's zoom — a single source, so the lattice can never drift. */
 export const HEX_BASE_SIZE = 54;
+/** Buildings keep their own measure: the size they had when the hex
+ *  base was 36. The hexes grew for room; the buildings did not grow
+ *  with them (Nigel, 2026-10-15). */
+export const BUILDING_BASE_SIZE = 36;
 function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
   const { u, v } = isoBasis(size);
   return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
@@ -1435,7 +1439,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             // for a pair sharing one hex.
             const bpx = tileBuildings.length === 1 ? { x: cx, y: cy } : { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 };
             const place = BUILDING_PLACE[b.buildingType];
-            const pH = place ? (s * place.displayH) / place.hFrac : 0;
+            const bs = s * (BUILDING_BASE_SIZE / HEX_BASE_SIZE);
+            const pH = place ? (bs * place.displayH) / place.hFrac : 0;
             const pW = pH * (place?.aspect ?? 1);
             const isBuilding = b.status === "building";
             const isDormant = b.status === "dormant";
@@ -1503,16 +1508,16 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : ["dream-wheat", "dream-weed", "sky-bloom", "hall-of-champions"].includes(b.buildingType) ? "pointer" : "default" }}>
                 <image
                   href={b.buildingType === "dream-wheat" ? wheatStageImage(b) : b.buildingType === "dream-weed" ? dreamWeedStageImage(b) : buildingImage(b.buildingType)}
-                  x={place ? bpx.x - place.cx * pW : bpx.x - s * (b.buildingType === "dream-tree" ? 1 : 0.5)}
-                  y={place ? bpx.y - place.cy * pH : bpx.y - s * (b.buildingType === "dream-tree" ? 1 : 0.5)}
-                  width={place ? pW : s * (b.buildingType === "dream-tree" ? 2 : 1)}
-                  height={place ? pH : s * (b.buildingType === "dream-tree" ? 2 : 1)}
+                  x={place ? bpx.x - place.cx * pW : bpx.x - bs * (b.buildingType === "dream-tree" ? 1 : 0.5)}
+                  y={place ? bpx.y - place.cy * pH : bpx.y - bs * (b.buildingType === "dream-tree" ? 1 : 0.5)}
+                  width={place ? pW : bs * (b.buildingType === "dream-tree" ? 2 : 1)}
+                  height={place ? pH : bs * (b.buildingType === "dream-tree" ? 2 : 1)}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={isBuilding ? 0.7 : isDormant ? 0.4 : 1}
                   style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
                 />
                 {isBuilding && (
-                  <text x={bpx.x} y={bpx.y + s * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
+                  <text x={bpx.x} y={bpx.y + bs * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
                     ⏱ {readyMin >= 60 ? `${Math.floor(readyMin/60)}h${readyMin%60}m` : `${readyMin}m`}
                   </text>
                 )}
