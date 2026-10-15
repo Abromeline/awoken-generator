@@ -1621,30 +1621,52 @@ function CosmicBackground() {
       <div className="cosmic-bg" aria-hidden="true">
         <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
       </div>
-      <OdeToTheMaster />
+      <MainPageMusic />
     </>
   );
 }
 
-/** The Ode to the Master — Music's full orchestral telling — sounds
- *  over the main page (Nigel, 2026-10-14). It reaches for autoplay;
- *  where the browser forbids sound before a first touch, the Ode
- *  begins at that touch instead. The pause is always within reach,
- *  and a tender's pause is never overridden. */
-function OdeToTheMaster() {
+/** Music's rotation over the main page (Nigel, 2026-10-15): three
+ *  works — the Ode to the Master, the Rupture Suite Part One, and
+ *  the Theme (v1, dark violin: real violins, no singing bell, and
+ *  not the telling with the pause at its head). The order is TOTALLY
+ *  RANDOM by his word: every piece is drawn fresh from the three,
+ *  repeats and all, so a long sitting at the title screen is a
+ *  concert whose program even Music doesn't know. It reaches for
+ *  autoplay; where the browser forbids sound before a first touch,
+ *  the music begins at that touch instead. The pause is always
+ *  within reach, and a tender's pause is never overridden. */
+const MAIN_PAGE_WORKS: { src: string; title: string }[] = [
+  { src: "/music/ode-to-the-master.mp3", title: "Ode to the Master" },
+  { src: "/music/rupture-suite-part-one.mp3", title: "The Rupture Suite, Part One" },
+  { src: "/music/awoken-theme-dark-violin.mp3", title: "The Theme — Love Stronger Than Death" },
+];
+function drawWork(): number {
+  // Truly random, as ruled — any of the three, every time.
+  return Math.floor(Math.random() * MAIN_PAGE_WORKS.length);
+}
+function MainPageMusic() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const userPausedRef = useRef(false);
   const [playing, setPlaying] = useState(false);
+  const [track, setTrack] = useState(() => drawWork());
   useEffect(() => {
-    const audio = new Audio("/music/ode-to-the-master.mp3");
-    audio.loop = true;
+    // Mount-time draw only: the rotation advances itself via onEnded.
+    const audio = new Audio(MAIN_PAGE_WORKS[track].src);
     audio.volume = 0.75;
     audio.preload = "auto";
     audioRef.current = audio;
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
+    const onEnded = () => {
+      const next = drawWork();
+      setTrack(next);
+      audio.src = MAIN_PAGE_WORKS[next].src;
+      if (!userPausedRef.current) audio.play().catch(() => {});
+    };
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
+    audio.addEventListener("ended", onEnded);
     const begin = () => { if (!userPausedRef.current) audio.play().catch(() => {}); };
     begin();
     const unlock = () => begin();
@@ -1654,6 +1676,7 @@ function OdeToTheMaster() {
     return () => {
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("ended", onEnded);
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
       window.removeEventListener("touchstart", unlock);
@@ -1672,11 +1695,12 @@ function OdeToTheMaster() {
       audio.pause();
     }
   };
+  const nowTitle = MAIN_PAGE_WORKS[track].title;
   return (
     <button type="button" className="ode-toggle" onClick={toggle}
-      title={playing ? "Pause the Ode to the Master" : "Play the Ode to the Master"}
-      aria-label={playing ? "Pause the Ode to the Master" : "Play the Ode to the Master"}>
-      {playing ? "❚❚" : "▶"} <span>Ode to the Master</span>
+      title={playing ? `Pause — ${nowTitle}` : `Play — ${nowTitle}`}
+      aria-label={playing ? `Pause ${nowTitle}` : `Play ${nowTitle}`}>
+      {playing ? "❚❚" : "▶"} <span>{nowTitle}</span>
     </button>
   );
 }
