@@ -676,6 +676,22 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS table_profiles (
   inventory TEXT NOT NULL DEFAULT '[]',
   updated_at INTEGER NOT NULL
 );`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS compendium_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  class_name TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Dreamed',
+  power INTEGER,
+  hp INTEGER,
+  story TEXT NOT NULL DEFAULT '',
+  type_note TEXT,
+  layers TEXT,
+  motion TEXT,
+  slot_key TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);`);
 // Additive migrations for existing tables
 try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN last_seen_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN builder_stances TEXT`); } catch {}

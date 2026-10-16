@@ -48,7 +48,37 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium";
+
+// The Monsters Compendium (the game's living copy of the Atelier's roll):
+// entries live in the game's own store (compendium_entries, seeded from
+// the Compendium app's founding roll); sprites are NOT stored on the
+// entry — a slotKey points at the ui_sprites table slots, and the canon
+// four resolve through the shared enemy-art rule.
+interface CompendiumEntry {
+  id: number;
+  className: string;
+  name: string;
+  status: "Canon" | "Named" | "Confirmed" | "Dreamed";
+  power: number | null;
+  hp: number | null;
+  story: string;
+  typeNote: string | null;
+  layers: string | null;
+  motion: string | null;
+  slotKey: string | null;
+  sortOrder: number;
+}
+interface CompendiumClass { name: string; blurb: string; order: number }
+type CompendiumDraft = {
+  className: string; name: string; status: CompendiumEntry["status"];
+  power: string; hp: string; story: string; typeNote: string;
+  layers: string; motion: string; slotKey: string; sortOrder: string;
+};
+const EMPTY_DRAFT: CompendiumDraft = {
+  className: "", name: "", status: "Dreamed", power: "", hp: "",
+  story: "", typeNote: "", layers: "", motion: "", slotKey: "", sortOrder: "1",
+};
 
 interface UiSprite {
   id: number;
@@ -193,6 +223,66 @@ export default function UIWorkspace() {
     setSwapping(null);
   };
   const [sprites, setSprites] = useState<UiSprite[]>([]);
+  const [compClasses, setCompClasses] = useState<CompendiumClass[]>([]);
+  const [compEntries, setCompEntries] = useState<CompendiumEntry[]>([]);
+  const [compEditing, setCompEditing] = useState<number | "new" | null>(null);
+  const [compDraft, setCompDraft] = useState<CompendiumDraft>(EMPTY_DRAFT);
+  const [compSaving, setCompSaving] = useState(false);
+  const [compError, setCompError] = useState<string | null>(null);
+
+  const loadCompendium = async () => {
+    try {
+      const r: any = await api.call("getCompendium", {});
+      setCompClasses(r.classes || []);
+      setCompEntries(r.entries || []);
+    } catch (e) { console.error("Compendium load failed", e); }
+  };
+
+  const startCompEdit = (entry: CompendiumEntry) => {
+    setCompError(null);
+    setCompEditing(entry.id);
+    setCompDraft({
+      className: entry.className, name: entry.name, status: entry.status,
+      power: entry.power === null ? "" : String(entry.power),
+      hp: entry.hp === null ? "" : String(entry.hp),
+      story: entry.story, typeNote: entry.typeNote ?? "",
+      layers: entry.layers ?? "", motion: entry.motion ?? "",
+      slotKey: entry.slotKey ?? "", sortOrder: String(entry.sortOrder),
+    });
+  };
+
+  const saveCompEntry = async () => {
+    setCompSaving(true);
+    setCompError(null);
+    const num = (v: string) => (v.trim() === "" ? null : Math.max(0, parseInt(v, 10) || 0));
+    const payload = {
+      className: compDraft.className.trim(), name: compDraft.name.trim(),
+      status: compDraft.status, power: num(compDraft.power), hp: num(compDraft.hp),
+      story: compDraft.story, typeNote: compDraft.typeNote.trim() || null,
+      layers: compDraft.layers.trim() || null, motion: compDraft.motion.trim() || null,
+      slotKey: compDraft.slotKey.trim() || null, sortOrder: Math.max(0, parseInt(compDraft.sortOrder, 10) || 0),
+    };
+    try {
+      if (compEditing === "new") await api.call("addCompendiumEntry", payload);
+      else await api.call("updateCompendiumEntry", { id: compEditing, ...payload });
+      setCompEditing(null);
+      await loadCompendium();
+    } catch (e) {
+      setCompError(e instanceof Error ? e.message : "Save failed");
+    }
+    setCompSaving(false);
+  };
+
+  const deleteCompEntry = async (entry: CompendiumEntry) => {
+    if (!confirm(`Remove ${entry.name} from the Compendium?`)) return;
+    try {
+      await api.call("deleteCompendiumEntry", { id: entry.id });
+      setCompEditing(null);
+      await loadCompendium();
+    } catch (e) {
+      setCompError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
   const [config, setConfig] = useState<Record<string, any>>({});
   const [uploading, setUploading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -218,6 +308,7 @@ export default function UIWorkspace() {
       }
     }).catch(() => {});
     api.call("getUiConfig", {}).then((r: any) => setConfig({ ...DEFAULTS, ...r.config })).catch(() => setConfig(DEFAULTS));
+    void loadCompendium();
     api.getUITheme().then(r => {
       if (r.ok) setElementDraft({ ...ELEMENT_SCHEME, ...r.theme.elementColors });
     }).catch(() => {});
@@ -312,9 +403,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : "🎲 Discord Table"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : "📖 Compendium"}
           </button>
         ))}
       </div>
@@ -640,6 +731,157 @@ export default function UIWorkspace() {
           ))}
         </div>
       )}
+
+      {section === "compendium" && (() => {
+        const renderCompForm = (showDelete: boolean, entry?: CompendiumEntry) => (
+          <div className="comp-form">
+            <label>Name
+              <input value={compDraft.name} onChange={e => setCompDraft({ ...compDraft, name: e.target.value })} placeholder="The Seamother" />
+            </label>
+            <label>Class
+              <input value={compDraft.className} onChange={e => setCompDraft({ ...compDraft, className: e.target.value })} list="comp-class-list" placeholder="The Stitchers" />
+              <datalist id="comp-class-list">
+                {compClasses.map(c => <option key={c.name} value={c.name} />)}
+              </datalist>
+            </label>
+            <label>Status
+              <select value={compDraft.status} onChange={e => setCompDraft({ ...compDraft, status: e.target.value as CompendiumEntry["status"] })}>
+                <option value="Canon">Canon</option>
+                <option value="Named">Named</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Dreamed">Dreamed</option>
+              </select>
+            </label>
+            <div className="comp-form-row">
+              <label>Power
+                <input type="number" min={0} value={compDraft.power} onChange={e => setCompDraft({ ...compDraft, power: e.target.value })} placeholder="—" />
+              </label>
+              <label>HP
+                <input type="number" min={0} value={compDraft.hp} onChange={e => setCompDraft({ ...compDraft, hp: e.target.value })} placeholder="—" />
+              </label>
+              <label>Order in class
+                <input type="number" min={0} value={compDraft.sortOrder} onChange={e => setCompDraft({ ...compDraft, sortOrder: e.target.value })} />
+              </label>
+            </div>
+            <label>Story
+              <textarea rows={3} value={compDraft.story} onChange={e => setCompDraft({ ...compDraft, story: e.target.value })} />
+            </label>
+            <label>Type / variant note
+              <input value={compDraft.typeNote} onChange={e => setCompDraft({ ...compDraft, typeNote: e.target.value })} placeholder="Optional" />
+            </label>
+            <label>Layers
+              <textarea rows={2} value={compDraft.layers} onChange={e => setCompDraft({ ...compDraft, layers: e.target.value })} placeholder="Optional — so the body can move" />
+            </label>
+            <label>Motion
+              <textarea rows={2} value={compDraft.motion} onChange={e => setCompDraft({ ...compDraft, motion: e.target.value })} placeholder="Optional — how it crosses the map" />
+            </label>
+            <label>Sprite slot key
+              <input value={compDraft.slotKey} onChange={e => setCompDraft({ ...compDraft, slotKey: e.target.value })} placeholder="enemy_seamother — optional; art uploads live in that Table slot" />
+            </label>
+            <div className="comp-form-actions">
+              <button className="upload-btn" disabled={compSaving} onClick={saveCompEntry}>
+                {compSaving ? "..." : compEditing === "new" ? "Add to the roll" : "Save changes"}
+              </button>
+              <button className="swap-btn" disabled={compSaving} onClick={() => { setCompEditing(null); setCompError(null); }}>Cancel</button>
+              {showDelete && entry && (
+                <button className="swap-btn comp-delete" disabled={compSaving} onClick={() => deleteCompEntry(entry)}>Remove from roll</button>
+              )}
+            </div>
+          </div>
+        );
+        return (
+          <div>
+            <p className="quiet" style={{ marginTop: 0 }}>
+              📖 <strong>The Monsters Compendium</strong> — the standing roll of every enemy the heroes
+              may face, kept by class. This is the game's own living copy of the roll founded in the
+              Unseated's Atelier: it was seeded from the Compendium app's entries, and edits here are
+              kept in the game's store. Sprites are not stored on an entry — an entry's slot key points
+              at the workshop's Table slots, so art uploaded here (or in the Discord Table section)
+              shows on the entry; the canon four wear the live art from the Enemies section.
+            </p>
+            {compError && (
+              <p className="notice error" style={{ marginBottom: 12 }}>
+                {compError}
+                <button className="abtn small" onClick={() => setCompError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+              </p>
+            )}
+            {uploadError && (
+              <p className="notice error" style={{ marginBottom: 12 }}>
+                Upload failed: {uploadError}
+                <button className="abtn small" onClick={() => setUploadError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+              </p>
+            )}
+            {compEditing === "new" ? (
+              <div className="workspace-card" style={{ marginBottom: 16 }}>{renderCompForm(false)}</div>
+            ) : (
+              <button className="upload-btn" style={{ marginBottom: 16 }} onClick={() => { setCompError(null); setCompDraft(EMPTY_DRAFT); setCompEditing("new"); }}>
+                + New entry
+              </button>
+            )}
+            {compClasses.map(cls => (
+              <div key={cls.name}>
+                <h3 style={{ margin: "18px 0 4px" }}>{cls.name}</h3>
+                {cls.blurb ? <p className="quiet" style={{ margin: "0 0 8px" }}>{cls.blurb}</p> : null}
+                <div className="workspace-grid">
+                  {compEntries.filter(e => e.className === cls.name).map(entry => {
+                    const canonKey = entry.name.toLowerCase();
+                    const isCanon = entry.status === "Canon" && ENEMIES.includes(canonKey);
+                    const slotUploads = entry.slotKey ? spritesFor("table", entry.slotKey) : [];
+                    const slotLive = slotUploads[slotUploads.length - 1];
+                    return (
+                      <div key={entry.id} className="workspace-card">
+                        <h3 style={{ textTransform: "none" }}>{entry.name}</h3>
+                        <div className="sprite-row">
+                          {isCanon ? (
+                            <div className="sprite-current">
+                              <img src={enemyArtData?.art?.[canonKey]?.url || CURRENT_SPRITES.enemy[canonKey]} alt={entry.name} className="sprite-thumb" />
+                              <small>Live art — kept in Enemies</small>
+                            </div>
+                          ) : entry.slotKey ? (
+                            <>
+                              {slotLive ? (
+                                <div className="sprite-uploaded">
+                                  <img src={slotLive.url} alt={entry.name} className="sprite-thumb" />
+                                  <small>Uploaded</small>
+                                </div>
+                              ) : (
+                                <div className="sprite-owed"><span>Sprite<br />owed</span></div>
+                              )}
+                              <button
+                                className="upload-btn"
+                                disabled={uploading === entry.slotKey}
+                                onClick={() => { setUploadTarget({ category: "table", name: entry.slotKey! }); fileRef.current?.click(); }}
+                              >
+                                {uploading === entry.slotKey ? "..." : "+ Sprite"}
+                              </button>
+                            </>
+                          ) : (
+                            <div className="sprite-owed"><span>Sprite owed<br />— no slot yet</span></div>
+                          )}
+                        </div>
+                        <p style={{ margin: "8px 0 4px" }}>
+                          <span className={`comp-chip comp-${entry.status.toLowerCase()}`}>{entry.status}</span>
+                          {entry.power !== null && entry.hp !== null && (
+                            <span style={{ marginLeft: 8 }}>Power {entry.power} · HP {entry.hp}</span>
+                          )}
+                        </p>
+                        {entry.story && <p className="comp-text">{entry.story}</p>}
+                        {entry.typeNote && <p className="comp-text"><em>{entry.typeNote}</em></p>}
+                        {entry.layers && <p className="comp-text"><strong>Layers:</strong> {entry.layers}</p>}
+                        {entry.motion && <p className="comp-text"><strong>Motion:</strong> {entry.motion}</p>}
+                        {entry.slotKey && <p className="quiet" style={{ fontSize: 11 }}>Slot <code>{entry.slotKey}</code> · Discord Table section</p>}
+                        {compEditing === entry.id ? renderCompForm(true, entry) : (
+                          <button className="swap-btn" onClick={() => startCompEdit(entry)}>Edit entry</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }

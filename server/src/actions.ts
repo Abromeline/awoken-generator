@@ -1769,6 +1769,78 @@ async function loadUITheme(): Promise<UITheme> {
   return { elementColors };
 }
 
+// ── THE MONSTERS COMPENDIUM ─────────────────────────────────────────
+// The game's living copy of the roll kept in the Unseated's Atelier
+// (the Monsters Compendium app + MONSTERS-COMPENDIUM.md). The two
+// stores are NOT wired together — this seed is a one-time copy of the
+// app's entries as they stood at the founding (2026-10-16); from here
+// the game's copy lives its own life in compendium_entries, edited
+// from the UI Workspace's Compendium page. Class blurbs/order are the
+// roll's own; a class invented in the editor simply sorts after the
+// known ones until it is given a place here.
+const COMPENDIUM_CLASS_META: Record<string, { blurb: string; order: number }> = {
+  "The Canon Dark": { blurb: "In the game, with art, stats, and law.", order: 10 },
+  "The Stitchers": { blurb: "The Seamother is not alone. A whole kindred works the world's seams.", order: 20 },
+  "The Procession": { blurb: "The congregation that never arrived.", order: 30 },
+  "The Unthreading": { blurb: "Where a thread has reached, she can simply be.", order: 40 },
+  "The Mouthed": { blurb: "All mouth.", order: 50 },
+  "The Counted": { blurb: "Not hunting you — counting you.", order: 60 },
+  "The Thorned": { blurb: "Named for the Table; art owed.", order: 70 },
+  "The Hollowed": { blurb: "Named for the Table; art owed.", order: 80 },
+  "The Gloaming": { blurb: "Named for the Table; art owed.", order: 90 },
+  "The Listeners": { blurb: "Every spell cast is a dinner bell.", order: 100 },
+  "The Kneeling": { blurb: "He has never been seen standing.", order: 110 },
+};
+
+type CompendiumSeed = {
+  className: string; name: string; status: "Canon" | "Named" | "Confirmed" | "Dreamed";
+  power: number | null; hp: number | null; story: string;
+  typeNote: string | null; layers: string | null; motion: string | null;
+  slotKey: string | null; sortOrder: number;
+};
+
+const COMPENDIUM_SEED: CompendiumSeed[] = [
+  { className: "The Canon Dark", name: "Fray", status: "Canon", power: 1, hp: 3, story: "Small ink splatter with twig legs; attacks in groups, the dark's least and most numerous grief.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 1 },
+  { className: "The Canon Dark", name: "Unraveler", status: "Canon", power: 4, hp: 6, story: "Looming ink mass with tendrils; hunts the strongest Awoken standing.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 2 },
+  { className: "The Canon Dark", name: "Hollow", status: "Canon", power: 0, hp: 5, story: "Pure void, no gold — it eats light. Drains the Tender's energy instead of dealing damage.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 3 },
+  { className: "The Canon Dark", name: "Tangle", status: "Canon", power: 3, hp: 8, story: "Knotted thorns with gold sap; pins one played Awoken for the wave.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 4 },
+  { className: "The Stitchers", name: "The Seamother", status: "Confirmed", power: null, hp: null, story: "A mother of mending gone wrong.", typeNote: null, layers: "Knotted shadow-cloth torso; spool head wound with black thread; stitch-X eyeless eyes; four needle-legs jointed three times too many; trailing thread-tendrils; one gold seam.", motion: "She stitches herself forward — a leg plants ahead, her body sews along the thread, turning only at knots, the ground unstitching behind her.", slotKey: "enemy_seamother", sortOrder: 1 },
+  { className: "The Stitchers", name: "The Stitchlings", status: "Dreamed", power: null, hp: null, story: "The Seamother's smallest issue: hand-sized knots of black thread, each with one long needle for a spine, scuttling on thread legs.", typeNote: null, layers: "Knot-body; needle-spine; thread legs; one gold thread the swarm shares like a lifeline.", motion: "They travel as one frayed knot — where one goes, the seam pulls the rest; they enter a field through its edges and work inward, unstitching as they come.", slotKey: "enemy_stitchlings", sortOrder: 2 },
+  { className: "The Stitchers", name: "The Buttonhole", status: "Dreamed", power: null, hp: null, story: "A squat fold of black cloth pierced by buttonhole slits rimmed with pale stitching — mouths sewn open. Three thread-stalks end in dull gold spiral buttons that are NOT eyes, whatever they behave like.", typeNote: null, layers: "Cloth body; slit-mouths; button stalks; needle fingers; a lower half frayed to loose threads.", motion: "It slips through seams — gaps in walls, tent-flaps, the space between a door and its frame — and is simply on the other side, mid-conversation with itself.", slotKey: "enemy_buttonhole", sortOrder: 3 },
+  { className: "The Stitchers", name: "The Patchwork Saint", status: "Dreamed", power: null, hp: null, story: "Tall, robed, assembled: mismatched patches of cloth, fur, and pale leather joined by heavy gold crosshatch stitching — each patch cut from something different. A halo of bent needles; a featureless pale face; arms of uneven length ending in thread-knot fingers.", typeNote: null, layers: null, motion: "It lurches — the patches do not always agree on a direction — then arrives all at once, like a quilt remembering it is one thing.", slotKey: "enemy_patchwork_saint", sortOrder: 4 },
+  { className: "The Stitchers", name: "The Skin-Tailor", status: "Dreamed", power: null, hp: null, story: "Gaunt, in a tailor's coat of layered rags, carrying enormous shears and a measuring tape of knotted cord that moves like a living thing. He measures the heroes — politely, thoroughly — for a garment they will be worn in.", typeNote: "Sprite owed — the dreaming engine declined him.", layers: null, motion: "Hems you in: never faster than a walk, but every path he takes shortens, as if the field were being taken in at the seams.", slotKey: null, sortOrder: 5 },
+  { className: "The Stitchers", name: "The Hem", status: "Dreamed", power: null, hp: null, story: "The kindred's lowest thing: all hemline and pins, a creeping edge with pin-claws.", typeNote: null, layers: null, motion: "It travels by rolling itself along the borders of things — the rim of the field, the edge of the road, the hem of the Bastion's ground. Heroes who stand at edges meet it first.", slotKey: null, sortOrder: 6 },
+  { className: "The Procession", name: "The Long Parish", status: "Confirmed", power: null, hp: null, story: "A congregation that never arrived.", typeNote: null, layers: "Five kneeling shadow segments under one robe; five hooded heads on jointed necks, faces smooth and eyeless, mouths stitched in gold; a cracked bell that has never rung; many small hands beneath, praying and walking at once.", motion: "Peristaltic procession — kneel, rise, kneel, rise; never hurrying, never stopping; the ground it crosses stays knelt-on.", slotKey: "enemy_long_parish", sortOrder: 1 },
+  { className: "The Unthreading", name: "Mother of Ends", status: "Dreamed", power: null, hp: null, story: "Elite of the first dreaming — the First Unthreading.", typeNote: "The First Unthreading · elite", layers: "One great loosened knot of shadow; a spine of pale eyeless button-eyes facing different yesterdays; limbs ending in clawed tongues; a halo of fraying thread; one gold thread at her heart that does not loosen.", motion: "She does not travel — her threads spread hex by hex, and where a thread has reached, she can simply be.", slotKey: "enemy_mother_of_ends", sortOrder: 1 },
+  { className: "The Mouthed", name: "The Grinstitch", status: "Dreamed", power: null, hp: null, story: "All mouth: black-bone jaw-plates, front teeth grown into digging claws, a seeing tongue whose underside is patterned with eyeless eyes.", typeNote: "Render declined twice by the dreaming engine; lives as words for now.", layers: null, motion: "Bites the ground and hauls itself jaw over jaw; the tongue tastes the air before every lunge — the telegraph.", slotKey: null, sortOrder: 1 },
+  { className: "The Counted", name: "The Tallyman", status: "Dreamed", power: null, hp: null, story: "Not hunting you — counting you.", typeNote: "Render declined twice by the dreaming engine; lives as words for now.", layers: "Abacus-ribcage of teeth and counting-claws; over-jointed enumerating fingers; a knotted head with one gold tally-bead for an eye; a tail of tally-cord, each knot a finished count of something gone.", motion: "Ticks — long stillness, then suddenly nearer, in the blink between counts.", slotKey: null, sortOrder: 1 },
+  { className: "The Thorned", name: "Thornrunner", status: "Named", power: null, hp: null, story: "Fast, thorn-limbed; the Storytender may deal it at the Table.", typeNote: null, layers: null, motion: null, slotKey: "enemy_thornrunner", sortOrder: 1 },
+  { className: "The Hollowed", name: "The Hollow Choir", status: "Named", power: null, hp: null, story: "Many mouths, one song.", typeNote: null, layers: null, motion: null, slotKey: "enemy_hollow_choir", sortOrder: 1 },
+  { className: "The Gloaming", name: "Gloaming Stag", status: "Named", power: null, hp: null, story: "Antlers in dusk-light.", typeNote: null, layers: null, motion: null, slotKey: "enemy_gloaming_stag", sortOrder: 1 },
+  { className: "The Listeners", name: "The Hushword", status: "Dreamed", power: null, hp: null, story: "The Unraveling's listener.", typeNote: null, layers: "A smooth listening-dish of a head, all ear and no face; a body of layered hush-cloth that swallows sound the way the Hollow swallows light; long fingers made for cupping ears it does not have.", motion: "It drifts toward the loudest thing on the field — every spell cast is a dinner bell. Where it stands, the Tale itself writes quieter; dice rolled near it are rolled again, worse for the remembering.", slotKey: null, sortOrder: 1 },
+  { className: "The Kneeling", name: "The Kneeling King", status: "Dreamed", power: null, hp: null, story: "A giant in a crown of bent nails who has never been seen standing.", typeNote: null, layers: "A vast layered cloak-body, jointed at knee and neck only; a crown-layer of black nails; hands the size of doors, palms up, in supplication or in waiting — no one has stayed to learn which.", motion: "He does not advance. He kneels closer — each round the kneel is taken one field nearer, the ground shaking its apology. What happens when he finishes kneeling, no telling keeps.", slotKey: null, sortOrder: 1 },
+];
+
+async function ensureCompendiumSeeded() {
+  const existing = await db.select({ id: schema.compendiumEntries.id }).from(schema.compendiumEntries).limit(1);
+  if (existing.length > 0) return;
+  await db.insert(schema.compendiumEntries).values(COMPENDIUM_SEED.map(s => ({ ...s })));
+}
+
+const compendiumEntryShape = z.object({
+  className: z.string().min(1).max(80),
+  name: z.string().min(1).max(120),
+  status: z.enum(["Canon", "Named", "Confirmed", "Dreamed"]),
+  power: z.number().int().min(0).max(999).nullable(),
+  hp: z.number().int().min(0).max(9999).nullable(),
+  story: z.string().max(4000),
+  typeNote: z.string().max(1000).nullable(),
+  layers: z.string().max(4000).nullable(),
+  motion: z.string().max(4000).nullable(),
+  slotKey: z.string().regex(/^[a-z0-9_]+$/).max(80).nullable(),
+  sortOrder: z.number().int().min(0).max(9999),
+});
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -5642,6 +5714,57 @@ export const handlers = {
       .values({ key, value: JSON.stringify(selection) })
       .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(selection) } });
     return { ok: true, selection };
+  },
+
+  // The Monsters Compendium — the game's living copy of the Atelier's
+  // roll (see the seed note above COMPENDIUM_SEED). Public read, like
+  // listUiSprites; the writes are workshop-gated in index.ts. Sprites
+  // resolve client-side through the ui_sprites slots (an entry's
+  // slotKey) and getEnemyArt (the canon four) — never stored here.
+  async getCompendium() {
+    await ensureCompendiumSeeded();
+    const rows = await db.select().from(schema.compendiumEntries);
+    const classNames = [...new Set(rows.map(r => r.className))];
+    const classes = classNames
+      .map(name => ({
+        name,
+        blurb: COMPENDIUM_CLASS_META[name]?.blurb ?? "",
+        order: COMPENDIUM_CLASS_META[name]?.order ?? 900,
+      }))
+      .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+    const orderOf = new Map(classes.map(c => [c.name, c.order]));
+    const entries = [...rows].sort((a, b) =>
+      (orderOf.get(a.className) ?? 900) - (orderOf.get(b.className) ?? 900)
+      || a.sortOrder - b.sortOrder
+      || a.id - b.id);
+    return { classes, entries };
+  },
+
+  async addCompendiumEntry(args: unknown, ctx?: ActionContext) {
+    const parsed = compendiumEntryShape.safeParse(args);
+    if (!parsed.success) badRequest("Invalid compendium entry.");
+    await ensureCompendiumSeeded();
+    const [entry] = await db.insert(schema.compendiumEntries).values({ ...parsed.data }).returning();
+    return { ok: true, entry };
+  },
+
+  async updateCompendiumEntry(args: unknown, ctx?: ActionContext) {
+    const parsed = compendiumEntryShape.extend({ id: z.number().int() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid compendium entry.");
+    const { id, ...fields } = parsed.data;
+    const [entry] = await db.update(schema.compendiumEntries)
+      .set({ ...fields, updatedAt: new Date() })
+      .where(eq(schema.compendiumEntries.id, id))
+      .returning();
+    if (!entry) badRequest("No such compendium entry.");
+    return { ok: true, entry };
+  },
+
+  async deleteCompendiumEntry(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ id: z.number().int() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    await db.delete(schema.compendiumEntries).where(eq(schema.compendiumEntries.id, parsed.data.id));
+    return { ok: true };
   },
 
   async getGameConfig() {

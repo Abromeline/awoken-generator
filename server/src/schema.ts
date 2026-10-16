@@ -500,6 +500,29 @@ export const tableProfiles = sqliteTable("table_profiles", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// THE MONSTERS COMPENDIUM (the game's living copy of the Atelier's roll,
+// seeded from the Compendium app's entries at first read, 2026-10-16):
+// every enemy the heroes may face, kept by class. Sprites are NOT stored
+// here — an entry's slotKey points at the ui_sprites machinery (category
+// "table" for the newer faces; the canon four resolve through getEnemyArt),
+// so art uploaded anywhere in the workshop shows on the entry.
+export const compendiumEntries = sqliteTable("compendium_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  className: text("class_name").notNull(),
+  name: text("name").notNull(),
+  status: text("status", { enum: ["Canon", "Named", "Confirmed", "Dreamed"] }).notNull().default("Dreamed"),
+  power: integer("power"),
+  hp: integer("hp"),
+  story: text("story").notNull().default(""),
+  typeNote: text("type_note"),
+  layers: text("layers"),
+  motion: text("motion"),
+  slotKey: text("slot_key"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // Battle tracks: rotating 8-bit music for battlegrounds.
 export const battleTracks = sqliteTable("battle_tracks", {
   id: integer("id").primaryKey({ autoIncrement: true }),
