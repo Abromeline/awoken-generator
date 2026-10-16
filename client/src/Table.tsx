@@ -81,11 +81,22 @@ export default function Table() {
   // The boot names its step, and no step may hang silently: if the
   // Table sits at one step for 20 seconds, the door says which step
   // jammed instead of spinning forever (Nigel's stuck launch,
-  // 2026-10-16 — the candle burned with no word of where).
+  // 2026-10-16 — the candle burned with no word of where). The error
+  // carries the door record: what this page can see of its own
+  // framing, so the Keeper can tell a launch that never entered
+  // Discord's frame from a handshake Discord never answered.
+  const doorRecord = () => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const embedded = window.parent !== window;
+      const referrer = document.referrer ? new URL(document.referrer).origin : "none";
+      return `Door record — framed by Discord: ${embedded ? "yes" : "NO"} · sent by: ${referrer} · door: ${window.location.host} · frame tag: ${q.has("frame_id") ? "present" : "MISSING"}`;
+    } catch { return "Door record unavailable."; }
+  };
   useEffect(() => {
     if (phase !== "boot" && phase !== "connecting") return;
     const t = setTimeout(() => {
-      setError(`The Table got stuck at this step: “${bootStep}”. Tell the Keeper those exact words — they say where the door jammed.`);
+      setError(`The Table got stuck at this step: “${bootStep}”. Tell the Keeper those exact words — they say where the door jammed. ${doorRecord()}`);
       setPhase("error");
     }, 20000);
     return () => clearTimeout(t);
