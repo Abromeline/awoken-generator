@@ -167,13 +167,27 @@ export default function Table() {
         return;
       }
       try {
-        const cfg = await (await fetch("/api/table/config")).json();
-        if (!cfg.discordClientId) {
+        // KNOCK FIRST, FETCH LATER (audit, 2026-10-16): Discord's
+        // answer to the handshake is effectively single-use and
+        // swift, and this boot used to wait on a config fetch
+        // through Discord's proxy — clocked at over a second — before
+        // constructing the SDK and knocking, plausibly after the
+        // client's window had closed. Inside Discord the app id
+        // needs no fetch: it is our own hostname,
+        // <clientId>.discordsays.com. The config fetch remains only
+        // as the fallback for a framed launch off the proxy host.
+        const hostId = window.location.hostname.endsWith(".discordsays.com") ? window.location.hostname.split(".")[0] : "";
+        let clientId = /^\d+$/.test(hostId) ? hostId : "";
+        if (!clientId) {
+          const cfg = await (await fetch("/api/table/config")).json();
+          clientId = typeof cfg.discordClientId === "string" ? cfg.discordClientId : "";
+        }
+        if (!clientId) {
           setError("Discord is not configured on the server yet, so the Table cannot check your name. The Ancient One holds the keys that finish this door.");
           setPhase("error");
           return;
         }
-        const sdk = new DiscordSDK(cfg.discordClientId);
+        const sdk = new DiscordSDK(clientId);
         setBootStep("Knocking on Discord's door…");
         // THE MISADDRESSED KNOCK (proven by the door record,
         // 2026-10-16): Discord's launcher delivers this page through
@@ -193,7 +207,7 @@ export default function Table() {
         await sdk.ready();
         setBootStep("Asking Discord your name…");
         const { code } = await sdk.commands.authorize({
-          client_id: cfg.discordClientId,
+          client_id: clientId,
           response_type: "code",
           state: "",
           prompt: "none",
