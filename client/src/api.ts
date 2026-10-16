@@ -73,6 +73,17 @@ export interface AwokenStory {
   sentAt: string | null;
 }
 
+/** One edge work on a hex border (War-Ground, Nigel 2026-10-15):
+ *  kind wall / thorns / ward / rune, stored server-side under its
+ *  canonical edge (q, r, dir) — a shared border is ONE work. Barrier
+ *  works (wall, ward) carry hp/maxHp; runes carry their runeKind. */
+export interface EdgeWork {
+  edgeKey: string; q: number; r: number; dir: number;
+  hp: number; maxHp: number;
+  kind: "wall" | "thorns" | "ward" | "rune";
+  level: number; runeKind?: "snare" | "harm" | "meld" | null;
+}
+
 export interface TerritoryTile {
   id: number;
   q: number;
@@ -316,7 +327,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: { edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[] }>("getTerritory", {}),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
@@ -387,7 +398,15 @@ export const api = {
   getBossState: () => post<{ bossesDefeated: number; nextBossLevel: number; eligible: boolean; wavesDefeated: number; cycleProgress: number }>("getBossState", {}),
   placeWall: (args: { tileId: number; dir: number }) =>
     post<{ ok: true; wall: { edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }; cost: number }>("placeWall", args),
-  resolveBossBattle: (args: { victory: boolean; bossLevel: number; survivorIds: number[]; wallState?: { edgeKey: string; hp: number }[] }) =>
+  placeEdgeWork: (args: { tileId: number; dir: number; kind: "wall" | "thorns" | "ward" | "rune"; runeKind?: "snare" | "harm" | "meld" }) =>
+    post<{ ok: true; work: EdgeWork; cost: number }>("placeEdgeWork", args),
+  strengthenEdgeWork: (args: { tileId: number; dir: number }) =>
+    post<{ ok: true; work: { edgeKey: string; kind: string; level: number; hp: number; maxHp: number }; cost: number; nextCost: number }>("strengthenEdgeWork", args),
+  removeEdgeWork: (args: { tileId: number; dir: number }) =>
+    post<{ ok: true; edgeKey: string }>("removeEdgeWork", args),
+  teachSkill: (args: { awakenedId: number; skill: "warding" | "runeing" }) =>
+    post<{ ok: true; awakenedId: number; skill: string; cost: number }>("teachSkill", args),
+  resolveBossBattle: (args: { victory: boolean; bossLevel: number; survivorIds: number[]; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) =>
     post<{ ok: true; victory: boolean; bossesDefeated: number; committedPower: number; bossPower: number; aspectElements?: string[]; newbornClaimed?: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveBossBattle", args),
   getPendingAspectGrant: () => post<{ grant: { elements: string[]; source: string } | null }>("getPendingAspectGrant", {}),
   claimAspectGrant: () => post<{ ok: true; elements: string[]; spawnedElements: string[]; source: string }>("claimAspectGrant", {}),
@@ -431,7 +450,7 @@ export const api = {
   addBattleTrack: (args: { name: string; trackData: string }) => post<{ id: number }>("addBattleTrack", args),
   toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
   deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
-  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean; targetTileId?: number; wallState?: { edgeKey: string; hp: number }[] }) =>
+  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean; targetTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) =>
     post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[]; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[]; committedPower?: number; wavePower?: number }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),

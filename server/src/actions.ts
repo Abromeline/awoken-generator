@@ -95,19 +95,75 @@ const WALL_OPP: ReadonlyArray<number> = [3, 4, 5, 0, 1, 2];
 
 /** Apply battle-reported wall damage: reported HP only ever LOWERS a
  *  wall (a client cannot heal or raise walls by reporting), and a
- *  wall at 0 is gone. Reports for unknown edges are ignored. */
+ *  wall at 0 is gone. Reports for unknown edges are ignored. Only the
+ *  barrier works (wall, ward) carry HP — a damage report can never
+ *  touch thorns or runes. */
 function applyWallDamage(ownerKey: string, wallState: unknown): void {
   if (!Array.isArray(wallState)) return;
   for (const w of wallState.slice(0, 200)) {
     const edgeKey = (w as any)?.edgeKey;
     const hp = (w as any)?.hp;
     if (typeof edgeKey !== "string" || typeof hp !== "number" || !Number.isFinite(hp)) continue;
-    const row = sqlite.prepare("SELECT hp FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as { hp: number } | undefined;
+    const row = sqlite.prepare("SELECT hp, kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as { hp: number; kind: string } | undefined;
     if (!row) continue;
+    if (row.kind !== "wall" && row.kind !== "ward") continue;
     const next = Math.max(0, Math.min(row.hp, Math.floor(hp)));
     if (next === row.hp) continue;
     if (next <= 0) sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ?").run(ownerKey, edgeKey);
     else sqlite.prepare("UPDATE hex_walls SET hp = ? WHERE owner_key = ? AND edge_key = ?").run(next, ownerKey, edgeKey);
+  }
+}
+
+// --- Edge works (War-Ground, Nigel 2026-10-15) ------------------------------
+// The four works an edge may carry — ONE per edge, six per hex:
+//   wall   blocks passage, does no damage; any Awoken standing (HP 10)
+//   thorns passage allowed but slowed; any Awoken standing (growth —
+//          no HP, and the one work that cannot be strengthened)
+//   ward   a wall of the other kind: blocks or traps EVERY reach,
+//          fliers included; WARDING hands only (HP 15)
+//   rune   a trap, not a barrier; RUNEING hands only; kind chosen at
+//          casting — snare (stops, no damage) / harm (heavy damage,
+//          no stop) / meld (some of both). One-shot: sprung is spent.
+// Walls, wards and runes can be STRENGTHENED: each strengthening
+// doubles the work's strength and costs exponentially more energy.
+// Costs are stems (War-Ground, 2026-10-15) — retune by Nigel's ear.
+const EDGE_WORK: Record<string, { cost: number; hp: number; name: string }> = {
+  wall: { cost: 2, hp: 10, name: "Wall" },
+  thorns: { cost: 1, hp: 0, name: "Thorns" },
+  ward: { cost: 3, hp: 15, name: "Ward" },
+  rune: { cost: 3, hp: 0, name: "Rune" },
+};
+const RUNE_KINDS: ReadonlyArray<string> = ["snare", "harm", "meld"];
+const SKILL_FOR_WORK: Record<string, string> = { ward: "warding", rune: "runeing" };
+const TEACH_COST = 5;   // stem — teaching a skill (level 5+ Awoken)
+const TEACH_MIN_LEVEL = 5; // stem — skills are milestone teachings
+
+function workMaxHp(kind: string, level: number): number {
+  const base = EDGE_WORK[kind]?.hp ?? 0;
+  return base > 0 ? base * Math.pow(2, Math.max(0, level - 1)) : 0;
+}
+/** Cost to strengthen a work FROM `level` to `level + 1`: the base
+ *  cost doubles with every level already bought (2⚡→4→8→16…). */
+function strengthenCostFor(kind: string, level: number): number {
+  return (EDGE_WORK[kind]?.cost ?? 0) * Math.pow(2, Math.max(0, level));
+}
+function awokenLevelOf(experience: number): number {
+  return Math.floor(Math.sqrt(Math.max(0, experience) / 100));
+}
+function skillsHeldBy(ownerKey: string, awakenedIds: number[]): Set<string> {
+  if (awakenedIds.length === 0) return new Set();
+  const marks = awakenedIds.map(() => "?").join(",");
+  const rows = sqlite.prepare(`SELECT DISTINCT skill FROM awoken_skills WHERE owner_key = ? AND awakened_id IN (${marks})`)
+    .all(ownerKey, ...awakenedIds) as { skill: string }[];
+  return new Set(rows.map(r => r.skill));
+}
+/** Consume runes the battle reports as sprung (one-shot traps). Only
+ *  rows that are runes can be consumed this way. */
+function applyRunesTriggered(ownerKey: string, runesTriggered: unknown): void {
+  if (!Array.isArray(runesTriggered)) return;
+  for (const edgeKey of runesTriggered.slice(0, 200)) {
+    if (typeof edgeKey !== "string") continue;
+    sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ? AND kind = 'rune'").run(ownerKey, edgeKey);
   }
 }
 
@@ -3744,9 +3800,11 @@ export const handlers = {
       (t as any).topHp = t.cursed ? 0 : Math.round(sealed > 0 ? ((t as any).topPoints ?? 30) : grow);
       (t as any).stackPower = Math.round(((sealed * 30 + grow) / 10) * 10) / 10;
     }
-    const walls = sqlite.prepare("SELECT edge_key AS edgeKey, q, r, dir, hp, max_hp AS maxHp FROM hex_walls WHERE owner_key = ? ORDER BY id")
+    const walls = sqlite.prepare("SELECT edge_key AS edgeKey, q, r, dir, hp, max_hp AS maxHp, kind, level, rune_kind AS runeKind FROM hex_walls WHERE owner_key = ? ORDER BY id")
       .all(ownerKey);
-    return { tiles, placements, buildings, mood, walls };
+    const skills = sqlite.prepare("SELECT awakened_id AS awakenedId, skill FROM awoken_skills WHERE owner_key = ? ORDER BY id")
+      .all(ownerKey);
+    return { tiles, placements, buildings, mood, walls, skills };
   },
 
   async deployAwoken(args: unknown, ctx?: ActionContext) {
@@ -4053,6 +4111,7 @@ export const handlers = {
       bossLevel: z.number().int().min(1).max(99),
       survivorIds: z.array(z.number().int().positive()),
       wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
+      runesTriggered: z.array(z.string()).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid boss battle result.");
 
@@ -4102,6 +4161,7 @@ export const handlers = {
 
     // The report is accepted — walls took their damage, win or lose.
     applyWallDamage(ownerKey, parsed.data.wallState);
+    applyRunesTriggered(ownerKey, parsed.data.runesTriggered);
 
     if (!parsed.data.victory) {
       sqlite.prepare("UPDATE boss_state SET last_boss_at = ? WHERE owner_key = ?")
@@ -4194,6 +4254,141 @@ export const handlers = {
       badRequest("A wall already stands on that edge.");
     }
     return { ok: true as const, wall: { edgeKey, q: cq, r: cr, dir: cdir, hp: WALL_HP, maxHp: WALL_HP }, cost: WALL_COST };
+  },
+
+  // ── EDGE WORKS (War-Ground, Nigel 2026-10-15) ────────────────────
+  // The general placement law behind placeWall: ONE work per edge.
+  // Wards answer only to a Warding hand standing on the hex, runes
+  // only to a Runeing hand (the awoken_skills ledger is the gate).
+  async placeEdgeWork(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int(), dir: z.number().int().min(0).max(5),
+      kind: z.enum(["wall", "thorns", "ward", "rune"]),
+      runeKind: z.enum(["snare", "harm", "meld"]).optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The War-Ground needs a tile, an edge (0–5) and a work (wall, thorns, ward or rune).");
+    const { tileId, dir, kind, runeKind } = parsed.data;
+    if (kind === "rune" && !runeKind) badRequest("A rune is chosen at the casting — snare, harm or meld.");
+    const def = EDGE_WORK[kind];
+    const tileRows = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
+    const tile = tileRows[0] as any;
+    if (!tile) badRequest("That hex is not yours to work.");
+    if (tile.cursed) badRequest("The curse holds that hex — no work stands on cursed ground.");
+    const standing = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
+    if (standing.length === 0) badRequest("No Awoken stands on that hex — edge works are laid by the Awoken who stand there.");
+    const needSkill = SKILL_FOR_WORK[kind];
+    if (needSkill) {
+      const held = skillsHeldBy(ownerKey, standing.map((s: any) => s.awakenedId));
+      if (!held.has(needSkill)) {
+        badRequest(kind === "ward"
+          ? "No Warding hand stands on that hex — wards are cast only by an Awoken with the Warding skill."
+          : "No Runeing hand stands on that hex — runes are set only by an Awoken with the Runeing skill.");
+      }
+    }
+    const [dq, dr] = WALL_DIRS[dir];
+    const nq = tile.q + dq, nr = tile.r + dr;
+    const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
+    const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[dir] : dir;
+    const edgeKey = `${cq},${cr},${cdir}`;
+    const existing = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as { kind: string } | undefined;
+    if (existing) badRequest(`That edge already carries a ${EDGE_WORK[existing.kind]?.name ?? "work"} — one work per edge. Take it down before laying another.`);
+    if (!(await spendEnergy(ownerKey, def.cost))) badRequest(`Not enough energy — a ${def.name.toLowerCase()} costs ${def.cost}.`);
+    const hp = workMaxHp(kind, 1);
+    try {
+      sqlite.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(ownerKey, edgeKey, cq, cr, cdir, hp, hp, kind, 1, kind === "rune" ? runeKind : null, Date.now());
+    } catch {
+      badRequest("That edge already carries a work — one work per edge.");
+    }
+    return { ok: true as const, work: { edgeKey, q: cq, r: cr, dir: cdir, hp, maxHp: hp, kind, level: 1, runeKind: kind === "rune" ? runeKind : undefined }, cost: def.cost };
+  },
+
+  /** Strengthen a standing work: exponential energy, doubling
+   *  strength (barrier HP, rune bite). Thorns are growth, not craft —
+   *  they refuse. Wards and runes still answer to their skilled
+   *  hands: the strengthening is cast work too. */
+  async strengthenEdgeWork(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ tileId: z.number().int(), dir: z.number().int().min(0).max(5) }).safeParse(args);
+    if (!parsed.success) badRequest("The War-Ground needs a tile and an edge (0–5).");
+    const { tileId, dir } = parsed.data;
+    const tileRows = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
+    const tile = tileRows[0] as any;
+    if (!tile) badRequest("That hex is not yours to work.");
+    const [dq, dr] = WALL_DIRS[dir];
+    const nq = tile.q + dq, nr = tile.r + dr;
+    const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
+    const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[dir] : dir;
+    const edgeKey = `${cq},${cr},${cdir}`;
+    const row = sqlite.prepare("SELECT kind, level, hp, max_hp AS maxHp FROM hex_walls WHERE owner_key = ? AND edge_key = ?")
+      .get(ownerKey, edgeKey) as { kind: string; level: number; hp: number; maxHp: number } | undefined;
+    if (!row) badRequest("No work stands on that edge to strengthen.");
+    if (row.kind === "thorns") badRequest("Thorns are growth, not craft — they cannot be strengthened.");
+    const needSkill = SKILL_FOR_WORK[row.kind];
+    if (needSkill) {
+      const standing = await db.select().from(schema.fieldPlacements)
+        .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
+      const held = skillsHeldBy(ownerKey, standing.map((s: any) => s.awakenedId));
+      if (!held.has(needSkill)) badRequest(`Strengthening a ${row.kind} is cast work — a ${needSkill === "warding" ? "Warding" : "Runeing"} hand must stand on the hex.`);
+    }
+    const cost = strengthenCostFor(row.kind, row.level);
+    if (!(await spendEnergy(ownerKey, cost))) badRequest(`Not enough energy — the next strengthening costs ${cost}.`);
+    const newLevel = row.level + 1;
+    const newMax = workMaxHp(row.kind, newLevel);
+    // Strengthening pours energy in: HP rises by the new strength
+    // gained (damage already taken is not forgiven).
+    const newHp = newMax > 0 ? row.hp + (newMax - row.maxHp) : 0;
+    sqlite.prepare("UPDATE hex_walls SET level = ?, max_hp = ?, hp = ? WHERE owner_key = ? AND edge_key = ?")
+      .run(newLevel, newMax, newHp, ownerKey, edgeKey);
+    return { ok: true as const, work: { edgeKey, kind: row.kind, level: newLevel, hp: newHp, maxHp: newMax }, cost, nextCost: strengthenCostFor(row.kind, newLevel) };
+  },
+
+  /** Take a work down (the owner's own hand, free and instant). */
+  async removeEdgeWork(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ tileId: z.number().int(), dir: z.number().int().min(0).max(5) }).safeParse(args);
+    if (!parsed.success) badRequest("The War-Ground needs a tile and an edge (0–5).");
+    const { tileId, dir } = parsed.data;
+    const tileRows = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
+    const tile = tileRows[0] as any;
+    if (!tile) badRequest("That hex is not yours to work.");
+    const [dq, dr] = WALL_DIRS[dir];
+    const nq = tile.q + dq, nr = tile.r + dr;
+    const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
+    const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[dir] : dir;
+    const edgeKey = `${cq},${cr},${cdir}`;
+    const gone = sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ?").run(ownerKey, edgeKey);
+    if (!gone.changes) badRequest("No work stands on that edge.");
+    return { ok: true as const, edgeKey };
+  },
+
+  /** Teach an Awoken a skill (WARDING or RUNEING). Until the
+   *  milestone ability picks are built, teaching is the bridge: the
+   *  Tender teaches, the ledger records, the edge works obey. An
+   *  Awoken must have reached level 5 — skills are milestone
+   *  teachings (stems, War-Ground 2026-10-15). */
+  async teachSkill(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive(), skill: z.enum(["warding", "runeing"]) }).safeParse(args);
+    if (!parsed.success) badRequest("The War-Ground needs an Awoken and a skill (warding or runeing).");
+    const { awakenedId, skill } = parsed.data;
+    const rows = await db.select().from(schema.awakened)
+      .where(and(eq(schema.awakened.id, awakenedId), eq(schema.awakened.ownerKey, ownerKey))).limit(1);
+    const aw = rows[0] as any;
+    if (!aw) badRequest("That Awoken is not yours to teach.");
+    const level = awokenLevelOf(aw.experience ?? 0);
+    if (level < TEACH_MIN_LEVEL) badRequest(`${aw.name ?? "That Awoken"} has not reached level ${TEACH_MIN_LEVEL} — skills are milestone teachings, earned by seasons of war.`);
+    const known = sqlite.prepare("SELECT id FROM awoken_skills WHERE owner_key = ? AND awakened_id = ? AND skill = ?").get(ownerKey, awakenedId, skill);
+    if (known) badRequest(`${aw.name ?? "That Awoken"} already holds the ${skill === "warding" ? "Warding" : "Runeing"} skill.`);
+    if (!(await spendEnergy(ownerKey, TEACH_COST))) badRequest(`Not enough energy — a teaching costs ${TEACH_COST}.`);
+    sqlite.prepare("INSERT INTO awoken_skills (owner_key, awakened_id, skill, created_at) VALUES (?, ?, ?, ?)")
+      .run(ownerKey, awakenedId, skill, Date.now());
+    return { ok: true as const, awakenedId, skill, cost: TEACH_COST };
   },
 
   async getWave(args: unknown, ctx?: ActionContext) {
@@ -5211,6 +5406,7 @@ export const handlers = {
       continueWave: z.boolean().optional(),
       targetTileId: z.number().int().positive().optional(),
       wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
+      runesTriggered: z.array(z.string()).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle result.");
 
@@ -5280,6 +5476,7 @@ export const handlers = {
     // The report is accepted — the walls took what they took during
     // the fight, win or lose (reported HP only ever lowers a wall).
     applyWallDamage(ownerKey, parsed.data.wallState);
+    applyRunesTriggered(ownerKey, parsed.data.runesTriggered);
 
     // Unified XP (Nigel, 2026-10-13): the survivors stood in the battle
     // defense — a DEFENSE EVENT, +10 XP each, win or lose. (The hits

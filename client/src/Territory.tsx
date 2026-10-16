@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
+import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
@@ -328,7 +328,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [wgTileId, setWgTileId] = useState<number | null>(null); // War-Grounds fine-edit panel: the tile under the warden's hand
-  const [walls, setWalls] = useState<{ edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }[]>([]); // hex walls (server-canonical edges)
+  const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
+  const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
@@ -429,10 +430,48 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     (w.q === t.q && w.r === t.r) ||
     (w.q + WALL_DIR_DELTAS[w.dir][0] === t.q && w.r + WALL_DIR_DELTAS[w.dir][1] === t.r));
   const seedBattleWalls = () => {
-    battleWallHpRef.current = new Map(walls.map(w => [w.edgeKey, w.hp]));
+    // Only the barrier works (wall, ward) carry HP into the sim.
+    battleWallHpRef.current = new Map(
+      walls.filter(w => w.kind === "wall" || w.kind === "ward").map(w => [w.edgeKey, w.hp]));
+    simRunesTriggeredRef.current = [];
+    simRuneFiredRef.current = new Set();
+    simSkipRef.current = new Map();
   };
   const simWallState = (): { edgeKey: string; hp: number }[] =>
     [...battleWallHpRef.current.entries()].map(([edgeKey, hp]) => ({ edgeKey, hp }));
+  // Edge-work traps in the in-map sim (War-Ground, Nigel 2026-10-15):
+  // runes spring when an enemy ENTERS a runed tile or closes on a
+  // fighter standing on one; thorns cost an enemy its next action
+  // whenever it crosses or fights through them. Sprung runes are
+  // one-shot — reported at resolution and consumed by the server.
+  const simRunesTriggeredRef = useRef<string[]>([]);
+  const simRuneFiredRef = useRef<Set<string>>(new Set());
+  const simSkipRef = useRef<Map<string, number>>(new Map());
+  const simHoldUnit = (unitId: string, ticks: number) => {
+    simSkipRef.current.set(unitId, Math.max(simSkipRef.current.get(unitId) ?? 0, ticks));
+  };
+  const springRuneOnTile = (unitId: string, t: { q: number; r: number }): number => {
+    const rune = wallsTouchingTile(t).find(w => w.kind === "rune" && !simRuneFiredRef.current.has(w.edgeKey));
+    if (!rune) return 0;
+    simRuneFiredRef.current.add(rune.edgeKey);
+    simRunesTriggeredRef.current.push(rune.edgeKey);
+    const scale = Math.pow(2, (rune.level ?? 1) - 1);
+    if (rune.runeKind === "snare") {
+      simHoldUnit(unitId, 2);
+      showHexNotice("A snare rune springs — the Unraveling is held fast!");
+      return 0;
+    }
+    if (rune.runeKind === "meld") {
+      simHoldUnit(unitId, 1);
+      showHexNotice("A meld rune springs — the Unraveling is bitten and held!");
+      return 3 * scale;
+    }
+    showHexNotice("A harm rune springs — the Unraveling is torn!");
+    return 6 * scale;
+  };
+  const thornsDragUnit = (unitId: string, t: { q: number; r: number }) => {
+    if (wallsTouchingTile(t).some(w => w.kind === "thorns")) simHoldUnit(unitId, 1);
+  };
   // Boss resolution recorded at victory detection (before the victory
   // screen opens), so handleBattleEnd never resolves a boss twice;
   // bossAspectGrant is the server's rolled grant the screen displays.
@@ -539,8 +578,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   }, [placements]);
 
   useEffect(() => {
-    api.getTerritory().then(({ tiles, placements, walls }) => {
-      setTiles(tiles); setPlacements(placements); setWalls(walls ?? []);
+    api.getTerritory().then(({ tiles, placements, walls, skills }) => {
+      setTiles(tiles); setPlacements(placements); setWalls(walls ?? []); setSkills(skills ?? []);
     }).catch((e) => {
       console.error("[Territory] getTerritory failed:", e);
     }).finally(() => setTerritoryLoaded(true));
@@ -562,6 +601,62 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       showHexNotice("A wall rises on the hex edge — it will take the enemy's blows first.");
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "The wall would not rise.");
+    }
+  };
+
+  // ── Edge works (War-Ground, Nigel 2026-10-15) ────────────────────
+  // The War-Grounds panel lays any of the four works through the one
+  // server law (placeEdgeWork): wall, thorns, ward (Warding hands),
+  // rune (Runeing hands, kind chosen at casting). Standing works can
+  // be strengthened at exponential cost or taken down; skills are
+  // taught through teachSkill. Every refusal speaks.
+  const refreshWorks = async () => {
+    const refreshed = await api.getTerritory();
+    setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+    setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
+    onUpdate();
+  };
+  const WORK_NOTICE: Record<string, string> = {
+    wall: "A wall rises on the hex edge — passage closed, at no harm to any who test it.",
+    thorns: "Thorns take the hex edge — the crossing stays open, and dear in time.",
+    ward: "A ward is cast on the hex edge — a wall the sky cannot ignore.",
+    rune: "A rune is set on the hex edge — a trap, sleeping until it is sprung.",
+  };
+  const handlePlaceWork = async (tileId: number, dir: number, kind: "wall" | "thorns" | "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
+    try {
+      await api.placeEdgeWork({ tileId, dir, kind, runeKind });
+      await refreshWorks();
+      showHexNotice(WORK_NOTICE[kind]);
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "The work would not stand.");
+    }
+  };
+  const handleStrengthenWork = async (tileId: number, dir: number) => {
+    try {
+      const res = await api.strengthenEdgeWork({ tileId, dir });
+      await refreshWorks();
+      showHexNotice(`The ${res.work.kind} is strengthened to level ${res.work.level} — the next strengthening would cost ${res.nextCost}⚡.`);
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "The strengthening failed.");
+    }
+  };
+  const handleRemoveWork = async (tileId: number, dir: number) => {
+    try {
+      await api.removeEdgeWork({ tileId, dir });
+      await refreshWorks();
+      showHexNotice("The work comes down. The edge is open ground again.");
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "The work would not come down.");
+    }
+  };
+  const handleTeachSkill = async (awakenedId: number, skill: "warding" | "runeing") => {
+    try {
+      await api.teachSkill({ awakenedId, skill });
+      await refreshWorks();
+      const aw = tenderItems.find(a => a.id === awakenedId);
+      showHexNotice(`${aw?.name ?? "The Awoken"} learns the ${skill === "warding" ? "Warding" : "Runeing"} skill — the teaching holds.`);
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "The teaching failed.");
     }
   };
 
@@ -1118,6 +1213,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             updated = updated.map(u => u.id === best!.id ? { ...u, hp: u.hp - bestDmg } : u).filter(u => u.hp > 0);
           }
         } else {
+          // Held fast: a sprung snare, a meld's grip, or thorns crossed
+          // cost this enemy its action (War-Ground, 2026-10-15).
+          const heldTicks = simSkipRef.current.get(c.id) ?? 0;
+          if (heldTicks > 0) { simSkipRef.current.set(c.id, heldTicks - 1); continue; }
           // Enemy targeting: check for corruptible hex in reach first
           const uTile = getTile(c.tileId);
           if (!uTile) continue;
@@ -1148,7 +1247,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             );
             if (next) {
               const { cx, cy } = simTilePos(next);
-              updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) } : u).filter(u => u.hp > 0);
+              const runeDmg = springRuneOnTile(c.id, next);
+              thornsDragUnit(c.id, next);
+              updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : u).filter(u => u.hp > 0);
               // If reached the hex, attack purification
               if (next.id === targetHex.id) {
                 damageTile(next.id, c.power || 2);
@@ -1172,9 +1273,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             }
 
             if (bestTarget && bestDist <= 1) {
-              // Attack!
+              // Attack! Closing on a fighter springs its tile's rune
+              // first — the trap is on the crossing (War-Ground).
               if (bestTarget.type === "awoken") {
-                damageAwoken(bestTarget.awakenedId, c.power || 2);
+                const runeDmg = springRuneOnTile(c.id, bestTarget.tile);
+                if (runeDmg > 0) {
+                  updated = updated.map(u => u.id === c.id ? { ...u, hp: u.hp - runeDmg } : u).filter(u => u.hp > 0);
+                }
+                if (updated.some(u => u.id === c.id)) {
+                  damageAwoken(bestTarget.awakenedId, c.power || 2);
+                  thornsDragUnit(c.id, bestTarget.tile);
+                }
               }
               // Towers don't have HP yet — skip
             } else if (bestTarget) {
@@ -1187,7 +1296,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
               );
               if (next) {
                 const { cx, cy } = simTilePos(next);
-                updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) } : u).filter(u => u.hp > 0);
+                const runeDmg = springRuneOnTile(c.id, next);
+                thornsDragUnit(c.id, next);
+                updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : u).filter(u => u.hp > 0);
               }
             } else {
               // No targets: move toward center
@@ -1201,7 +1312,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 );
                 if (next) {
                   const { cx, cy } = simTilePos(next);
-                  updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) } : u).filter(u => u.hp > 0);
+                  const runeDmg = springRuneOnTile(c.id, next);
+                  thornsDragUnit(c.id, next);
+                  updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : u).filter(u => u.hp > 0);
                 }
               }
             }
@@ -1312,6 +1425,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
       setWalls(refreshed.walls ?? []);
+      setSkills(refreshed.skills ?? []);
     } catch (e) { console.error("Territory refresh after resolution failed", e); }
     try {
       const w = await api.getWave();
@@ -1342,6 +1456,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         survivorIds: survivors,
         targetTileId: waveTarget?.tile?.id,
         wallState: simWallState(),
+        runesTriggered: [...simRunesTriggeredRef.current],
       });
       if (res.bonusEligible && res.bonusEligible.length > 0) {
         setBonusTiles(res.bonusEligible);
@@ -1405,6 +1520,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         waveNumber: wave.waveNumber,
         survivorIds: [],
         wallState: simWallState(),
+        runesTriggered: [...simRunesTriggeredRef.current],
       });
     } catch (e) {
       console.error("Defeat resolution failed", e);
@@ -1419,7 +1535,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // rolls the aspect grant, so the screen shows the server's own roll —
   // and handleBattleEnd, which runs when the screen's buttons are
   // pressed, does not resolve the same victory twice.
-  const handleVictoryDetected = async (survivors: number[] = [], wallState?: { edgeKey: string; hp: number }[]) => {
+  const handleVictoryDetected = async (survivors: number[] = [], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[]) => {
     if (battleResolvedRef.current) return;
     battleResolvedRef.current = true;
     if (isBossFight && wave?.isBoss) {
@@ -1429,6 +1545,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           bossLevel: wave.bossLevel ?? bossLevel,
           survivorIds: survivors,
           wallState,
+          runesTriggered,
         });
         bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
         // The screen claims the OLDEST pending grant (the ledger pays
@@ -1443,7 +1560,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[] }) => {
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => {
     const wasBoss = isBossFight && !!wave?.isBoss;
     const bossLvl = wave?.bossLevel ?? bossLevel;
     setShowBattleground(false);
@@ -1458,7 +1575,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (result.victory) {
           if (!bossResolutionRef.current) {
             // Detection never resolved (screen closed early) — resolve now.
-            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState });
+            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState, runesTriggered: result.runesTriggered });
             bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
           }
           if (bossResolutionRef.current.victory) {
@@ -1473,7 +1590,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             } catch (e) { console.error("Boss newborn birth failed", e); }
           }
         } else if (!bossResolutionRef.current) {
-          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState });
+          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState, runesTriggered: result.runesTriggered });
         }
       } catch (e) {
         showHexNotice(refusalText(e, "The boss resolution was refused."));
@@ -1510,6 +1627,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         continueWave: result.continueWave,
         targetTileId: waveTarget?.tile?.id,
         wallState: result.wallState,
+        runesTriggered: result.runesTriggered,
       });
       if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
         setBonusTiles(battleRes.bonusEligible);
@@ -2155,6 +2273,40 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           const mlen = Math.hypot(mx, my) || 1;
           const ox = (mx / mlen) * size * 0.07, oy = (my / mlen) * size * 0.07;
           const frac = w.maxHp > 0 ? w.hp / w.maxHp : 0;
+          // Each work draws in its own grammar (War-Ground, 2026-10-15):
+          // walls timber, wards violet light, thorns green teeth,
+          // runes amber dashes with a sleeping diamond at the middle.
+          if (w.kind === "thorns") {
+            const seg = 7; const pts: string[] = [];
+            for (let i = 0; i <= seg; i++) {
+              const t = i / seg;
+              const bx = x1 + (x2 - x1) * t, by = y1 + (y2 - y1) * t;
+              const off = i % 2 === 0 ? 0 : size * 0.055;
+              pts.push(`${(bx + (mx / mlen) * off).toFixed(1)},${(by + (my / mlen) * off).toFixed(1)}`);
+            }
+            return (
+              <g key={w.edgeKey}>
+                <polyline points={pts.join(" ")} fill="none" stroke="#69a84f" strokeWidth={size * 0.045} strokeLinejoin="round" />
+              </g>
+            );
+          }
+          if (w.kind === "ward") {
+            return (
+              <g key={w.edgeKey}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(150,130,255,0.35)" strokeWidth={size * 0.12} strokeLinecap="round" />
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={frac > 0.5 ? "#b7a6ff" : frac > 0.25 ? "#8d7bd8" : "#5d4d99"} strokeWidth={size * 0.04} strokeLinecap="round" />
+              </g>
+            );
+          }
+          if (w.kind === "rune") {
+            const cxm = (x1 + x2) / 2, cym = (y1 + y2) / 2, dd = size * 0.07;
+            return (
+              <g key={w.edgeKey}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e8a13c" strokeWidth={size * 0.035} strokeDasharray="2 6" strokeLinecap="round" />
+                <polygon points={`${cxm},${cym - dd} ${cxm + dd},${cym} ${cxm},${cym + dd} ${cxm - dd},${cym}`} fill="#e8a13c" opacity={0.9} />
+              </g>
+            );
+          }
           return (
             <g key={w.edgeKey}>
               <line x1={x1 + ox} y1={y1 + oy} x2={x2 + ox} y2={y2 + oy} stroke="#4a3826" strokeWidth={size * 0.11} strokeLinecap="round" />
@@ -3272,8 +3424,17 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             mood={mood?.mood ?? null}
             wallsByTile={Object.fromEntries(tiles.map(t => [
               t.id,
-              wallsTouchingTile(t).map(w => ({ edgeKey: w.edgeKey, hp: w.hp })),
+              wallsTouchingTile(t)
+                .filter(w => w.kind === "wall" || w.kind === "ward")
+                .map(w => ({ edgeKey: w.edgeKey, hp: w.hp, kind: w.kind })),
             ]))}
+            runesByTile={Object.fromEntries(tiles.map(t => [
+              t.id,
+              wallsTouchingTile(t)
+                .filter(w => w.kind === "rune")
+                .map(w => ({ edgeKey: w.edgeKey, runeKind: (w.runeKind ?? "meld") as "snare" | "harm" | "meld", level: w.level ?? 1 })),
+            ]))}
+            edgeThornTiles={tiles.filter(t => wallsTouchingTile(t).some(w => w.kind === "thorns")).map(t => t.id)}
           />
         );
       })()}
@@ -3413,9 +3574,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           .filter(p => p.tileId === tile.id)
           .map(p => {
             const a = tenderItems.find(x => x.id === p.awakenedId);
-            return a ? { id: a.id, name: a.name, power: a.power, stance: p.stance } : null;
+            return a ? {
+              id: a.id, name: a.name, power: a.power, stance: p.stance, level: a.level,
+              skills: skills.filter(s => s.awakenedId === a.id).map(s => s.skill),
+            } : null;
           })
-          .filter(Boolean) as { id: number; name: string; power: number; stance: string }[];
+          .filter(Boolean) as { id: number; name: string; power: number; stance: string; level?: number; skills: string[] }[];
         return (
           <WarGrounds
             tile={tile}
@@ -3424,7 +3588,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             tileBuildings={buildings.filter(b => b.tileId === tile.id)}
             energy={energy}
             onClose={() => setWgTileId(null)}
-            onPlaceWall={(dir) => handlePlaceWall(tile.id, dir)}
+            onPlaceWork={(dir, kind, runeKind) => handlePlaceWork(tile.id, dir, kind, runeKind)}
+            onStrengthenWork={(dir) => handleStrengthenWork(tile.id, dir)}
+            onRemoveWork={(dir) => handleRemoveWork(tile.id, dir)}
+            onTeachSkill={(awakenedId, skill) => handleTeachSkill(awakenedId, skill)}
             onChooseBuilding={(def) => {
               setSelectedBuilding(def);
               setPendingTile(tile.id);

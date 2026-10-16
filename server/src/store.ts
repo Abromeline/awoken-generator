@@ -427,6 +427,38 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS hex_walls (
   UNIQUE(owner_key, edge_key)
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_hex_walls_owner ON hex_walls (owner_key);`);
+// Edge works (War-Ground, Nigel 2026-10-15): the hex_walls ledger
+// grows from walls alone to the four edge works — WALL (blocks, no
+// damage), THORNS (passage, slowed), WARD (a wall of the other kind;
+// blocks or traps every reach, fliers included; Warding hands only),
+// RUNE (a trap, not a barrier; Runeing hands only; kinds snare /
+// harm / meld chosen at casting). One work per edge, six per hex.
+// Walls, wards and runes may be STRENGTHENED at exponential energy
+// cost; thorns are growth, not craft, and cannot be strengthened.
+const hexWallCols = sqlite.prepare(`PRAGMA table_info(hex_walls)`).all() as { name: string }[];
+if (!hexWallCols.some((col) => col.name === "kind")) {
+  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN kind TEXT NOT NULL DEFAULT 'wall'`);
+}
+if (!hexWallCols.some((col) => col.name === "level")) {
+  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN level INTEGER NOT NULL DEFAULT 1`);
+}
+if (!hexWallCols.some((col) => col.name === "rune_kind")) {
+  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN rune_kind TEXT`);
+}
+// Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
+// holds WARDING and who holds RUNEING. Until the milestone ability
+// picks are built, skills are TEACHINGS: a Tender teaches an Awoken
+// of level 5+ for energy (teachSkill), and this ledger is the only
+// gate the edge works answer to.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_skills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  skill TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(owner_key, awakened_id, skill)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_awoken_skills_owner ON awoken_skills (owner_key);`);
 // Wave defense: the Unraveling attacks the bastion in waves.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   owner_key TEXT PRIMARY KEY,

@@ -2171,6 +2171,18 @@ body.defeat-flash {
 .wg-readings { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
 .wg-reading { background: rgba(255,255,255,0.05); border: 1px solid #444; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 .wg-standing-chip { border-color: #b89b5e; color: #e8d9a8; }
+.wg-chooser { border: 1px solid #b89b5e; border-radius: 8px; padding: 10px; margin: 8px 0 10px; background: rgba(184,155,94,0.06); }
+.wg-chooser h4 { margin: 0 0 8px; color: #e8d9a8; text-align: center; }
+.wg-works { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wg-work-btn { font-family: inherit; background: #26263a; color: #e9e2cf; border: 1px solid #55556a; border-radius: 6px; padding: 8px 10px; cursor: pointer; font-size: 13px; text-align: left; }
+.wg-work-btn:hover { border-color: #b89b5e; }
+.wg-work-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+.wg-work-btn small { display: block; color: #b8b0a0; font-size: 11.5px; margin-top: 2px; }
+.wg-cost { color: #ffcc88; }
+.wg-teach-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 8px; }
+.wg-teach-note { text-align: center; margin: 8px 4px 0; }
+.wg-sel-blurb { text-align: center; margin: 0 4px 8px; }
+.wg-sel-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .wg-spark { display: block; margin: 6px auto 2px; }
 .wg-buildings { margin-top: 14px; border-top: 1px solid #333; padding-top: 10px; }
 .wg-buildings h4 { margin: 0 0 8px; color: #b89b5e; text-align: center; }
