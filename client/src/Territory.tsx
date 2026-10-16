@@ -355,18 +355,60 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // are data; positions are derived. Setting state + the march clock.
   const [patrolSettingFor, setPatrolSettingFor] = useState<number | null>(null);
   const [patrolDraft, setPatrolDraft] = useState<number[]>([]);
+  const [marchUiFor, setMarchUiFor] = useState<number | null>(null);
+  const [marchQuote, setMarchQuote] = useState<{ tileId: number; road: number[]; steps: number; seconds: number; energy: number } | null>(null);
   const [marchNow, setMarchNow] = useState(() => Date.now());
   const anyPatrol = placements.some(p => !!p.patrolPath);
+  const anyMarch = placements.some(p => !!p.marchPath);
   useEffect(() => {
-    if (!anyPatrol && patrolSettingFor === null) return;
+    if (!anyPatrol && !anyMarch && patrolSettingFor === null && marchUiFor === null) return;
     const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
     return () => window.clearInterval(iv);
-  }, [anyPatrol, patrolSettingFor]);
+  }, [anyPatrol, anyMarch, patrolSettingFor, marchUiFor]);
   const patrolRoadOf = (p: { patrolPath?: string | null }): number[] => {
     try {
       const v = JSON.parse(p.patrolPath ?? "[]");
       return Array.isArray(v) ? v.filter((x: any) => typeof x === "number") : [];
     } catch { return []; }
+  };
+  const marchRoadOf = (p: { marchPath?: string | null }): number[] => {
+    try {
+      const v = JSON.parse(p.marchPath ?? "[]");
+      return Array.isArray(v) ? v.filter((x: any) => typeof x === "number") : [];
+    } catch { return []; }
+  };
+  // The road over the Tender's own uncursed ground — the client's
+  // mirror of the server's findRoad, for quoting a march before it is
+  // given. The server's road is the one the walker walks.
+  const findRoadClient = (fromId: number, toId: number): number[] | null => {
+    const byId = new Map(tiles.map(t => [t.id, t]));
+    const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+    const from = byId.get(fromId), to = byId.get(toId);
+    if (!from || !to || to.cursed) return null;
+    if (fromId === toId) return [fromId];
+    const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    const prev = new Map<number, number>([[fromId, fromId]]);
+    const queue = [from];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const [dq, dr] of DIRS) {
+        const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
+        if (!n || n.cursed || prev.has(n.id)) continue;
+        prev.set(n.id, cur.id);
+        if (n.id === toId) {
+          const road = [toId];
+          let walk = toId;
+          while (walk !== fromId) { walk = prev.get(walk)!; road.unshift(walk); }
+          return road;
+        }
+        queue.push(n);
+      }
+    }
+    return null;
+  };
+  const fmtMarchTime = (sec: number) => {
+    const s = Math.max(0, Math.round(sec));
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
@@ -856,6 +898,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // here while a flow is armed. Before this, covered hexes were simply
   // unreachable: their taps died in the covering element's own handler.
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
+    if (marchUiFor !== null) {
+      // March orders are open: a tap QUOTES the march — road, time and
+      // energy calculated and shown for the Tender's confirm.
+      const homeP = placements.find(p => p.awakenedId === marchUiFor);
+      const aw = tenderItems.find(a => a.id === marchUiFor);
+      if (!homeP || !aw) { setMarchUiFor(null); setMarchQuote(null); return; }
+      if (tile.id === homeP.tileId) { showHexNotice("It stands there already — tap the hex it should march to."); return; }
+      const dest = tiles.find(t => t.id === tile.id);
+      if (!dest || dest.cursed) { showHexNotice("No marching onto cursed land — that ground is taken by fighting, not by walking."); return; }
+      const road = findRoadClient(homeP.tileId, tile.id);
+      if (!road) { showHexNotice("No road of your own ground runs there — cursed land breaks the way."); return; }
+      const steps = road.length - 1;
+      setMarchQuote({
+        tileId: tile.id, road, steps,
+        seconds: steps * marchSecondsPerHex(aw),
+        energy: steps * moveCost(aw.power),
+      });
+      return;
+    }
     if (patrolSettingFor !== null) {
       // Laying a patrol road: taps name waypoints, nothing else.
       const homeId = placements.find(p => p.awakenedId === patrolSettingFor)?.tileId;
@@ -1766,9 +1827,29 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     };
     // The marching layer's derivation (lives here, beside tilePos —
     // the walker's place is read off the same geometry as everything
-    // else on this map): out along the road, back the same way,
-    // forever, from road + clock. Presentation only.
+    // else on this map): a MARCH runs its road once, by the fraction
+    // of its hour gone; a PATROL runs out along its road and back the
+    // same way, forever. Both from road + clock, on every screen.
     const patrolPositionOf = (p: FieldPlacement): { x: number; y: number } | null => {
+      const mRoad = marchRoadOf(p).map(id => tiles.find(t => t.id === id)).filter(Boolean) as TerritoryTile[];
+      if (mRoad.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
+        const centers = mRoad.map(t => tilePos(t));
+        const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number }[] = [];
+        let total = 0;
+        for (let i = 0; i < centers.length - 1; i++) {
+          const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy);
+          segs.push({ a: centers[i], b: centers[i + 1], len }); total += len;
+        }
+        if (total <= 0) return null;
+        const frac = Math.min(1, Math.max(0, (marchNow - p.marchSince) / (p.marchEnds - p.marchSince)));
+        let d = frac * total;
+        for (const s of segs) {
+          if (d <= s.len) { const k = s.len ? d / s.len : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
+          d -= s.len;
+        }
+        const last = centers[centers.length - 1];
+        return { x: last.cx, y: last.cy };
+      }
       const roadTiles = patrolRoadOf(p).map(id => tiles.find(t => t.id === id)).filter(Boolean) as TerritoryTile[];
       const home = tiles.find(t => t.id === p.tileId);
       if (!home || !roadTiles.length || !p.patrolSince) return null;
@@ -2014,7 +2095,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       e.stopPropagation();
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null || marchUiFor !== null) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -2490,6 +2571,21 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         </g>
       );
     })() : null;
+    // March trace: a quoted march draws its road dotted to the
+    // destination flag, so the Tender sees the way before confirming.
+    const marchGuideLayer = marchQuote ? (() => {
+      const pts = marchQuote.road.map(id => tiles.find(t => t.id === id)).filter(Boolean).map(t => tilePos(t as TerritoryTile));
+      if (pts.length < 2) return null;
+      const dest = pts[pts.length - 1];
+      return (
+        <g key="march-guide">
+          <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
+            stroke="rgba(255,215,0,0.85)" strokeWidth={2} strokeDasharray="1 6" strokeLinecap="round" />
+          <circle cx={dest.cx} cy={dest.cy} r={15} fill="rgba(255,215,0,0.08)" stroke="#ffd700" strokeWidth={2} strokeDasharray="3 4" />
+          <text x={dest.cx} y={dest.cy + 5} textAnchor="middle" fontSize={14} fill="#ffd700">⚑</text>
+        </g>
+      );
+    })() : null;
     return (
       <>
         {elements}
@@ -2498,6 +2594,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         {wallLayer}
         {wgGuideLayer}
         {patrolGuideLayer}
+        {marchGuideLayer}
         {hoverLayer}
         {mistLayer}
         {targetMarker}
@@ -3174,20 +3271,37 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             {moveTargeting && (
               <div className="attack-hint">Tap an adjacent purified tile to move ({moveCost(awoken.power)} energy)</div>
             )}
-            {!attackTargeting && !moveTargeting && (
+            {/* The marching systems live within Move (Nigel, 2026-10-16):
+                the button opens the march orders — a plain march from
+                A to B (quoted, confirmed, walked for real) or a patrol
+                road. On the march, the picker shows the road's state
+                and the recall instead. */}
+            {placement.marchPath ? (
+              <>
+                <span style={{ fontSize: 12, opacity: 0.9 }}>
+                  🚶 On the march — arrives in {fmtMarchTime(((placement.marchEnds ?? marchNow) - marchNow) / 1000)}
+                </span>
+                <button
+                  className="stance-btn"
+                  onClick={async () => {
+                    try {
+                      const r = await api.recallMarch({ awakenedId: selectedAwoken });
+                      await onUpdate();
+                      showHexNotice(r.stepsHome > 0 ? "Recalled — the warden turns for home." : "Recalled — it had barely left its post.");
+                    } catch (e) {
+                      showHexNotice(e instanceof Error ? e.message : "The recall failed.");
+                    }
+                  }}
+                  title="Call the marcher home: it turns where it stands and walks back. The march's energy is spent either way.">
+                  ↩ Recall
+                </button>
+              </>
+            ) : !attackTargeting && !moveTargeting && marchUiFor === null && patrolSettingFor === null && (
               <button
                 className="stance-btn"
-                onClick={() => { setMoveTargeting(true); setStanceMinimized(true); }}
-                title={`Move to an adjacent tile. Costs ${moveCost(awoken.power)} energy.`}>
-                ➤ Move ({moveCost(awoken.power)}⚡)
-              </button>
-            )}
-            {!attackTargeting && !moveTargeting && patrolSettingFor === null && (
-              <button
-                className="stance-btn"
-                onClick={() => { setPatrolDraft(patrolRoadOf(placement)); setPatrolSettingFor(selectedAwoken); setStanceMinimized(true); }}
-                title="Lay a patrol road: tap hexes, and this Awoken marches out along them and back, until you call it in. The march is the warden's rounds — in war its post remains its home hex.">
-                🚶 Patrol{placement.patrolPath ? ` — road set (${patrolRoadOf(placement).length})` : ""}
+                onClick={() => { setMarchUiFor(selectedAwoken); setMarchQuote(null); setStanceMinimized(true); }}
+                title="March orders: tap a hex and the march is quoted — the road traced, the time and energy calculated — then confirm and it walks. Or lay a patrol road instead.">
+                ➤ Move — march & patrol{placement.patrolPath ? ` (patrolling, ${patrolRoadOf(placement).length} waypoints)` : ""}
               </button>
             )}
             <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); clearHexConfirm(); setStanceMinimized(false); }}>
@@ -3796,6 +3910,52 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             }}
             onClaimSpark={tile.spark ? () => { setWgTileId(null); void handleSparkClick(tile.id); } : undefined}
           />
+        );
+      })()}
+      {/* The march bar — march orders from the Move button (Nigel,
+          2026-10-16): tap a hex and the march is QUOTED (road traced
+          on the map, time and energy calculated); hit confirm and —
+          boom — it moves. Patrol is reached from here too. */}
+      {marchUiFor !== null && (() => {
+        const who = tenderItems.find(a => a.id === marchUiFor);
+        const dest = marchQuote ? tiles.find(t => t.id === marchQuote.tileId) : null;
+        return (
+          <div className="patrol-bar">
+            {!marchQuote ? (
+              <>
+                <span className="patrol-bar-label">➤ March orders — {who?.name ?? "the warden"}: tap a hex to quote the march</span>
+                <button className="stance-btn" onClick={() => {
+                  const p = placements.find(p => p.awakenedId === marchUiFor);
+                  setPatrolDraft(p ? patrolRoadOf(p) : []);
+                  setPatrolSettingFor(marchUiFor);
+                  setMarchUiFor(null);
+                }}>🚶 Patrol road instead</button>
+                <button className="stance-btn" onClick={() => setMarchUiFor(null)}>✕ Close</button>
+              </>
+            ) : (
+              <>
+                <span className="patrol-bar-label">
+                  ⚑ March to {dest ? `(${dest.q}, ${dest.r})` : "the marked hex"} — {marchQuote.steps} hex{marchQuote.steps === 1 ? "" : "es"} · ~{fmtMarchTime(marchQuote.seconds)} · {marchQuote.energy}⚡
+                </span>
+                <button className="stance-btn" disabled={energy < marchQuote.energy}
+                  onClick={async () => {
+                    try {
+                      const r = await api.setMarch({ awakenedId: marchUiFor, tileId: marchQuote.tileId });
+                      setMarchUiFor(null);
+                      setMarchQuote(null);
+                      await onUpdate();
+                      showHexNotice(`The order is given — the march will take ~${fmtMarchTime(r.seconds)} and cost ${r.energy}⚡. Boom: it moves.`);
+                    } catch (e) {
+                      showHexNotice(e instanceof Error ? e.message : "The march could not be given.");
+                    }
+                  }}>
+                  ✓ March
+                </button>
+                <button className="stance-btn" onClick={() => setMarchQuote(null)}>↩ Pick again</button>
+                <button className="stance-btn" onClick={() => { setMarchUiFor(null); setMarchQuote(null); }}>✕ Cancel</button>
+              </>
+            )}
+          </div>
         );
       })()}
       {/* The patrol bar — while a road is being laid (War-Ground,

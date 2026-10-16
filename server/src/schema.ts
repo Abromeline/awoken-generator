@@ -393,6 +393,14 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // viewer; no system of law reads them. Placements remain the truth.
   patrolPath: text("patrol_path"),
   patrolSince: integer("patrol_since"),
+  // The MARCH (Nigel, 2026-10-16): a point-to-point order — the road
+  // (JSON tile ids, origin first, destination last), the hour it
+  // began and the hour it ends (raw ms). Unlike a patrol, a march
+  // LANDS: when the hour passes, the placement itself settles onto
+  // the destination (lazily, wherever the record is next read).
+  marchPath: text("march_path"),
+  marchSince: integer("march_since"),
+  marchEnds: integer("march_ends"),
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.

@@ -153,6 +153,51 @@ function strengthenCostFor(kind: string, level: number): number {
 function awokenLevelOf(experience: number): number {
   return Math.floor(Math.sqrt(Math.max(0, experience) / 100));
 }
+/** MARCH SPEED LAW (War-Ground, Nigel 2026-10-16) — the server's copy
+ *  of the law the client marches by (Territory's marchSecondsPerHex;
+ *  the two must agree, as wall law lives in both engines): seconds to
+ *  cross one hex — the element's gait, parts averaged by their sum,
+ *  unfilled parts voting the middle road — weighted by SIZE, and
+ *  size is LEVEL: the more powerful, the harder to move (÷√growth). */
+const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
+function marchSecondsPerHexFor(layers: { element?: string | null }[], experience: number): number {
+  let pace = MARCH_SECONDS_PER_HEX.neutral;
+  if (layers.length) {
+    pace = layers.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[l.element ?? "neutral"] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / layers.length;
+  }
+  const level = Math.max(1, awokenLevelOf(experience));
+  return pace * Math.sqrt(Math.pow(1.25, level - 1));
+}
+/** The road between two of the Tender's hexes, over their own
+ *  uncursed ground only (breadth-first; the grid makes every step
+ *  equal). Returns the tile ids, origin first, or null when no road
+ *  of home ground runs there. */
+function findRoad(tiles: { id: number; q: number; r: number; cursed: number }[], fromId: number, toId: number): number[] | null {
+  const byId = new Map(tiles.map(t => [t.id, t]));
+  const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+  const from = byId.get(fromId), to = byId.get(toId);
+  if (!from || !to || to.cursed) return null;
+  if (fromId === toId) return [fromId];
+  const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const prev = new Map<number, number>([[fromId, fromId]]);
+  const queue = [from];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const [dq, dr] of DIRS) {
+      const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
+      if (!n || n.cursed || prev.has(n.id)) continue;
+      prev.set(n.id, cur.id);
+      if (n.id === toId) {
+        const road = [toId];
+        let walk = toId;
+        while (walk !== fromId) { walk = prev.get(walk)!; road.unshift(walk); }
+        return road;
+      }
+      queue.push(n);
+    }
+  }
+  return null;
+}
 function skillsHeldBy(ownerKey: string, awakenedIds: number[]): Set<string> {
   if (awakenedIds.length === 0) return new Set();
   const marks = awakenedIds.map(() => "?").join(",");
@@ -3609,6 +3654,8 @@ export const handlers = {
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    // Marches land before the territory is read (War-Ground, 2026-10-16).
+    await this.settleMarches(ownerKey);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
@@ -4431,6 +4478,7 @@ export const handlers = {
    *  here, server-side, at the moment of victory. */
   async resolveBossBattle(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
     const parsed = z.object({
       victory: z.boolean(),
       bossLevel: z.number().int().min(1).max(99),
@@ -4725,8 +4773,36 @@ export const handlers = {
   // placement (the home hex) remains the whole legal truth — which
   // is the point: staying means something because marching exists.
   // An empty road calls the walker home (clears the patrol).
+  // MARCH SETTLEMENT (War-Ground, 2026-10-16): a march whose hour has
+  // come LANDS — the placement itself moves to the destination and
+  // the order clears. No ticker runs anywhere; the record settles
+  // wherever it is next read with authority (territory reads, battle
+  // resolutions, new orders). Until settlement the walker musters at
+  // its ORIGIN — a march is answered where it began until it ends.
+  async settleMarches(ownerKey: string) {
+    const now = Date.now();
+    const rows = sqlite.prepare(
+      "SELECT id, march_path, march_ends FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
+    ).all(ownerKey, now) as { id: number; march_path: string; march_ends: number }[];
+    for (const row of rows) {
+      let dest: number | null = null;
+      try {
+        const road = JSON.parse(row.march_path);
+        if (Array.isArray(road) && road.length) dest = road[road.length - 1];
+      } catch { /* a broken road settles nowhere — the order still clears */ }
+      if (dest !== null) {
+        sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, march_path = NULL, march_since = NULL, march_ends = NULL WHERE id = ?")
+          .run(dest, row.march_ends, row.id);
+      } else {
+        sqlite.prepare("UPDATE field_placements SET march_path = NULL, march_since = NULL, march_ends = NULL WHERE id = ?")
+          .run(row.id);
+      }
+    }
+  },
+
   async setPatrol(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
     const parsed = z.object({ awakenedId: z.number().int().positive(), tileIds: z.array(z.number().int().positive()).max(8) }).safeParse(args);
     if (!parsed.success) badRequest("A patrol road is an Awoken and up to eight hexes.");
     const { awakenedId, tileIds } = parsed.data;
@@ -4734,6 +4810,7 @@ export const handlers = {
       .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     const placement = rows[0] as any;
     if (!placement) badRequest("That Awoken does not stand on the field — only the stationed can patrol.");
+    if (placement.marchPath) badRequest("That Awoken is on the march — recall it, or let it arrive, before laying a patrol.");
     if (tileIds.length === 0) {
       await db.update(schema.fieldPlacements).set({ patrolPath: null, patrolSince: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
@@ -4747,6 +4824,117 @@ export const handlers = {
     await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now() } as any)
       .where(eq(schema.fieldPlacements.id, placement.id));
     return { ok: true as const, awakenedId, patrolling: true, waypoints: tileIds.length };
+  },
+
+  // SET MARCH (War-Ground, Nigel 2026-10-16): the plain move of the
+  // marching system — point A to point B, for real. The road is found
+  // over the Tender's own uncursed ground; the price and the duration
+  // are CALCULATED and spoken before the order is given: energy =
+  // hexes × the standing per-hex move cost (1 + ⌊(power−1)/3⌋, the
+  // moveAwoken law), time = hexes × the walker's own pace under the
+  // MARCH SPEED LAW. The energy is taken when the order is given; the
+  // walker then marches (its position derived from road + clock on
+  // every screen) and the placement settles on arrival. A march
+  // supersedes a patrol. One march at a time per Awoken.
+  async setMarch(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
+    const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("A march is an Awoken and the hex it marches to.");
+    const { awakenedId, tileId } = parsed.data;
+    const rows = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    const placement = rows[0] as any;
+    if (!placement) badRequest("That Awoken does not stand on the field — only the stationed can march.");
+    if (placement.marchPath) badRequest("That Awoken is already on the march — recall it, or let it arrive.");
+    if (placement.tileId === tileId) badRequest("It stands there already.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const dest = tiles.find(t => t.id === tileId) as any;
+    if (!dest) badRequest("That hex is not yours to march to.");
+    if (dest.cursed) badRequest("No marching onto cursed land — that ground is taken by fighting, not by walking.");
+    const road = findRoad(tiles as any, placement.tileId, tileId);
+    if (!road) badRequest("No road of your own ground runs there — the way is broken by cursed land.");
+    const steps = road.length - 1;
+    // Destination room: what stands there + what is already marching in.
+    const allPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    let inbound = 0;
+    for (const p of allPlacements as any[]) {
+      if (p.tileId === tileId && !p.marchPath) inbound++;
+      else if (p.marchPath) {
+        try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r[r.length - 1] === tileId) inbound++; } catch { /* broken roads hold no room */ }
+      }
+    }
+    if (inbound >= 4) badRequest("That hex will hold no more — four Awoken to a hex, standing or marching in.");
+    // The walker's true power and pace, from its own record.
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)).limit(1);
+    const aw = awRows[0] as any;
+    if (!aw) badRequest("That Awoken is not yours to march.");
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const r of assetRows) {
+      const rar = raritySchema.safeParse(r.rarity);
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
+    }
+    const layers = parseLayers(aw.compositionJson, assetStats);
+    const payload = await awakenedPayloadById(aw.id);
+    const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
+    const energy = steps * (1 + Math.floor((power - 1) / 3));
+    const seconds = steps * marchSecondsPerHexFor(layers, aw.experience ?? 0);
+    if (!(await spendEnergy(ownerKey, energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
+    const now = Date.now();
+    await db.update(schema.fieldPlacements).set({
+      marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000),
+      patrolPath: null, patrolSince: null,
+    } as any).where(eq(schema.fieldPlacements.id, placement.id));
+    return { ok: true as const, awakenedId, tileId, steps, seconds: Math.round(seconds * 10) / 10, energy };
+  },
+
+  // RECALL MARCH (War-Ground, 2026-10-16): the Tender calls a marcher
+  // home. The walker turns where it stands — the road home is the road
+  // out, walked back from the hex it has reached — at its own pace.
+  // The outbound energy is spent either way; a recall is free.
+  async recallMarch(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("A recall names the marching Awoken.");
+    const { awakenedId } = parsed.data;
+    const rows = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    const placement = rows[0] as any;
+    if (!placement) badRequest("That Awoken does not stand on the field.");
+    if (!placement.marchPath || !placement.marchSince || !placement.marchEnds) badRequest("That Awoken is not on the march.");
+    let road: number[] = [];
+    try { const r = JSON.parse(placement.marchPath); if (Array.isArray(r)) road = r.filter((x: any) => typeof x === "number"); } catch { /* broken below */ }
+    if (road.length < 2) {
+      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null } as any)
+        .where(eq(schema.fieldPlacements.id, placement.id));
+      return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
+    }
+    const steps = road.length - 1;
+    const frac = Math.min(1, Math.max(0, (Date.now() - placement.marchSince) / Math.max(1, placement.marchEnds - placement.marchSince)));
+    const reached = Math.floor(frac * steps); // whole hexes gained
+    if (reached <= 0) {
+      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null } as any)
+        .where(eq(schema.fieldPlacements.id, placement.id));
+      return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
+    }
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)).limit(1);
+    const aw = awRows[0] as any;
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const r of assetRows) {
+      const rar = raritySchema.safeParse(r.rarity);
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
+    }
+    const layers = aw ? parseLayers(aw.compositionJson, assetStats) : [];
+    const pace = marchSecondsPerHexFor(layers, aw?.experience ?? 0);
+    const homeRoad = road.slice(0, reached + 1).reverse();
+    const now = Date.now();
+    await db.update(schema.fieldPlacements).set({
+      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(reached * pace * 1000),
+    } as any).where(eq(schema.fieldPlacements.id, placement.id));
+    return { ok: true as const, awakenedId, recalled: true, stepsHome: reached };
   },
 
   async getWave(args: unknown, ctx?: ActionContext) {
@@ -5840,6 +6028,7 @@ export const handlers = {
 
   async resolveBattle(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
     const parsed = z.object({
       victory: z.boolean(),
       waveNumber: z.number().int().positive(),

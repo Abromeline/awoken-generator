@@ -122,6 +122,10 @@ export interface FieldPlacement {
   /** Marching layer: patrol road (tile ids, raw JSON from the server) + march start (ms). */
   patrolPath?: string | null;
   patrolSince?: number | null;
+  /** The march: road (tile ids, origin first) + begin/arrival hours (ms). */
+  marchPath?: string | null;
+  marchSince?: number | null;
+  marchEnds?: number | null;
 }
 
 export interface CreditInfo {
@@ -426,6 +430,10 @@ export const api = {
     post<{ ok: true; awakenedId: number; skill: string; cost: number }>("teachSkill", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
+  setMarch: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; awakenedId: number; tileId: number; steps: number; seconds: number; energy: number }>("setMarch", args),
+  recallMarch: (args: { awakenedId: number }) =>
+    post<{ ok: true; awakenedId: number; recalled: boolean; stepsHome: number }>("recallMarch", args),
   resolveBossBattle: (args: { victory: boolean; bossLevel: number; survivorIds: number[]; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) =>
     post<{ ok: true; victory: boolean; bossesDefeated: number; committedPower: number; bossPower: number; aspectElements?: string[]; newbornClaimed?: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveBossBattle", args),
   getPendingAspectGrant: () => post<{ grant: { elements: string[]; source: string } | null }>("getPendingAspectGrant", {}),

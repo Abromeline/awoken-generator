@@ -371,6 +371,15 @@ if (!placementCols.some((col) => col.name === "patrol_path")) {
 if (!placementCols.some((col) => col.name === "patrol_since")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN patrol_since INTEGER`);
 }
+if (!placementCols.some((col) => col.name === "march_path")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN march_path TEXT`);
+}
+if (!placementCols.some((col) => col.name === "march_since")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN march_since INTEGER`);
+}
+if (!placementCols.some((col) => col.name === "march_ends")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN march_ends INTEGER`);
+}
 // 4-hour birth cycle: tracks last free birth per Tender
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,
