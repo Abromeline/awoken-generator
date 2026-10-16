@@ -983,6 +983,83 @@ export function worldMoodReignMs(mood: WorldMood, firstReign = false): number {
 
 type WorldMoodState = { mood: WorldMood; description: string; endsAt: string };
 
+// -- The Voice's weather pathway (Phase 1 of her Instrument, DESIGN.md
+// §2; ordered by Nigel 2026-10-15 23:15, "using the same webhook") -----
+// The game server posts to the Voice's Discord channel when the sky
+// turns. The pipe is the SAME webhook the story-sending rides
+// (DISCORD_STORIES_WEBHOOK_URL — one channel, one herald, per Nigel's
+// word) and it FAILS CLOSED: unset, the Voice simply has no road and
+// nothing is posted, ever. She speaks ONCE per reign: the reign's
+// endsAt is claimed in settings before the post is attempted, so no
+// reign is ever announced twice — not across restarts, not across
+// readers — and a failed post is logged and forgotten, never retried
+// into chatter (the Voice does not chatter; Anti-Duolingo whole).
+// A workshop master switch (voice_weather_enabled) can still her.
+
+const VOICE_WEATHER_LINES: Record<WorldMood, string> = {
+  thickening: "The sky turns. The dark grows dense over the Bastion — cursed ground holds harder under this sky.",
+  thinning: "The sky turns. The veil thins — attunement runs swift, and the world feels briefly near.",
+  quiet: "The sky turns. A hush falls over the world — mist on the Bastion, and the Awoken dreaming vividly.",
+  storm: "The sky turns. A storm is gathering — the Unraveling rages, and Music is already tuning to it.",
+};
+const VOICE_WEATHER_COLORS: Record<WorldMood, number> = {
+  thickening: 0x4a3b2a,
+  thinning: 0x7f9bb3,
+  quiet: 0x8fa383,
+  storm: 0xb03a2e,
+};
+
+async function getVoiceSetting(key: string): Promise<string | null> {
+  const rows = await db.select().from(schema.settings).where(eq(schema.settings.key, key)).limit(1);
+  return rows.length ? rows[0].value : null;
+}
+
+async function setVoiceSetting(key: string, value: string): Promise<void> {
+  await db.insert(schema.settings).values({ key, value })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value } });
+}
+
+/** Post one message to the Voice's Discord channel through her one
+ *  webhook. Returns false (never throws) when she has no road or
+ *  Discord turns the message away — gameplay must never feel it. */
+async function postToVoiceChannel(payload: { embeds: unknown[] }): Promise<boolean> {
+  if (!DISCORD_STORIES_WEBHOOK_URL) return false;
+  try {
+    const response = await fetch(`${DISCORD_STORIES_WEBHOOK_URL}?wait=true`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "The Voice", ...payload }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Announce a freshly rolled reign, once. Fire-and-forget by design:
+ *  the caller (getWorldMood) never waits on Discord. */
+async function announceWeatherReign(mood: WorldMood, endsAt: string): Promise<void> {
+  try {
+    if ((await getVoiceSetting("voice_weather_last_announced")) === endsAt) return;
+    // Claim this reign before speaking, so she can never speak it twice.
+    await setVoiceSetting("voice_weather_last_announced", endsAt);
+    if ((await getVoiceSetting("voice_weather_enabled")) === "0") return;
+    const posted = await postToVoiceChannel({
+      embeds: [{
+        title: "The sky turns",
+        description: `${VOICE_WEATHER_LINES[mood]}\n\n*${MOOD_DESCRIPTIONS[mood]}*`,
+        color: VOICE_WEATHER_COLORS[mood],
+        footer: { text: "The Voice · the weather of the Awoken world" },
+      }],
+    });
+    if (!posted && DISCORD_STORIES_WEBHOOK_URL) {
+      console.warn(`[voice] weather post for the ${mood} reign was not delivered; it will not be retried.`);
+    }
+  } catch (err) {
+    console.warn("[voice] weather announcement failed quietly:", err);
+  }
+}
+
 async function storeWorldMood(data: WorldMoodState): Promise<WorldMoodState> {
   await db.insert(schema.settings).values({ key: "world_mood", value: JSON.stringify(data) })
     .onConflictDoUpdate({ target: schema.settings.key, set: { value: JSON.stringify(data) } });
@@ -1018,7 +1095,11 @@ async function getWorldMood(): Promise<WorldMoodState> {
   const firstReign = lastMood === null;
   const mood = firstReign ? "quiet" : rollWorldMood(lastMood);
   const endsAt = new Date(now + worldMoodReignMs(mood, firstReign)).toISOString();
-  return await storeWorldMood({ mood, description: MOOD_DESCRIPTIONS[mood], endsAt });
+  const stored = await storeWorldMood({ mood, description: MOOD_DESCRIPTIONS[mood], endsAt });
+  // A new reign is the one moment the Voice speaks the weather —
+  // fire-and-forget, so no reader ever waits on Discord.
+  void announceWeatherReign(mood, endsAt);
+  return stored;
 }
 
 // Weather's teeth (Nigel's order, the Sky's Terrace, 2026-10-15): the
@@ -1910,6 +1991,71 @@ export const handlers = {
     const sentAt = new Date();
     await db.update(schema.awokenStories).set({ sentAt }).where(eq(schema.awokenStories.id, story.id));
     return { ok: true as const, sentAt: sentAt.toISOString() };
+  },
+
+  // -- The Voice's channel (workshop-held; Nigel's orders 2026-10-15) ---
+  // Her weather pathway (above) runs on its own when the sky turns.
+  // These are her workshop doors: read her state, still or loose her
+  // weather voice, speak a test line, and post WORLD NEWS — the Ancient
+  // One's own words, carried unbent (she is a herald, not an author).
+  // All ride the same one webhook as the stories and fail closed
+  // honestly when it is unset. Gated in-handler by the workshop token
+  // (ctx.workshopAuthorized), as saveAwoken's workshop branch is.
+
+  async getVoiceState(_args: unknown, ctx?: ActionContext) {
+    if (!ctx?.workshopAuthorized) badRequest("The Voice's panel is the workshop's to hold.");
+    const mood = await getWorldMood();
+    return {
+      webhookConfigured: !!DISCORD_STORIES_WEBHOOK_URL,
+      weatherEnabled: (await getVoiceSetting("voice_weather_enabled")) !== "0",
+      lastAnnouncedEndsAt: await getVoiceSetting("voice_weather_last_announced"),
+      currentMood: mood.mood,
+      currentReignEndsAt: mood.endsAt,
+    };
+  },
+
+  async setVoiceWeatherEnabled(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.workshopAuthorized) badRequest("The Voice's panel is the workshop's to hold.");
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(args);
+    if (!parsed.success) badRequest("That switch is malformed.");
+    await setVoiceSetting("voice_weather_enabled", parsed.data.enabled ? "1" : "0");
+    return { ok: true as const, weatherEnabled: parsed.data.enabled };
+  },
+
+  async postVoiceTestLine(_args: unknown, ctx?: ActionContext) {
+    if (!ctx?.workshopAuthorized) badRequest("The Voice's panel is the workshop's to hold.");
+    if (!DISCORD_STORIES_WEBHOOK_URL) {
+      badRequest("The Voice has no road to Discord yet — the webhook is not set on the server (DISCORD_STORIES_WEBHOOK_URL in Railway). Nothing was posted.");
+    }
+    const posted = await postToVoiceChannel({
+      embeds: [{
+        title: "The Voice",
+        description: "A test line, spoken once, so the road itself can be heard. The sky will speak for itself from here.",
+        color: 0x8fa383,
+        footer: { text: "The Voice · a test of the road" },
+      }],
+    });
+    if (!posted) badRequest("Discord turned the test line away — it was not posted. Try again in a little while.");
+    return { ok: true as const };
+  },
+
+  async postWorldNews(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.workshopAuthorized) badRequest("World news is the Ancient One's to speak, through the workshop.");
+    const parsed = z.object({ text: z.string().trim().min(1).max(800) }).safeParse(args);
+    if (!parsed.success) badRequest("World news must be a few living words — between 1 and 800 characters.");
+    if (!DISCORD_STORIES_WEBHOOK_URL) {
+      badRequest("The Voice has no road to Discord yet — the webhook is not set on the server (DISCORD_STORIES_WEBHOOK_URL in Railway). Your news is unposted, and unlost — it waits in your hands.");
+    }
+    const posted = await postToVoiceChannel({
+      embeds: [{
+        title: "World news",
+        description: parsed.data.text,
+        color: 0xc9a227,
+        footer: { text: "The Voice · spoken for the Ancient One" },
+      }],
+    });
+    if (!posted) badRequest("Discord turned the news away — it was not posted. Try again in a little while.");
+    return { ok: true as const };
   },
 
   // -- Self-serve Tender accounts -------------------------------------------
@@ -3452,12 +3598,23 @@ export const handlers = {
         return counts;
       };
       const dominantOf = (sums: Record<string, number>, current: string): { el: string; pts: number } => {
-        let best = "", bestPts = 0;
-        for (const el of ["root", "sky", "stone", "tide"]) {
-          const pts = sums[el] || 0;
-          if (pts > bestPts || (pts === bestPts && pts > 0 && el === current)) { best = el; bestPts = pts; }
-        }
-        return { el: best, pts: bestPts };
+        // TIES HOLD (Nigel, 2026-10-15): a single leader presses at its
+        // tally. On a tie for the lead, the hex's current element
+        // presses if it stands among the leaders — the land holds what
+        // it is. A tie the current element is not part of presses
+        // NOTHING: no winner is crowned by list order. (The old scan
+        // walked ["root", "sky", "stone", "tide"] and kept the first
+        // strictly-greatest, so every leaderless tie fell to root by
+        // position — one quiet spring of the root flood. The pooled
+        // press itself stands, by the same ruling: all parts of all
+        // Awoken on the hex still pool before the dominant is read.)
+        let bestPts = 0;
+        for (const el of ["tide", "sky", "stone", "root"]) bestPts = Math.max(bestPts, sums[el] || 0);
+        if (bestPts <= 0) return { el: "", pts: 0 };
+        const leaders = ["tide", "sky", "stone", "root"].filter((el) => (sums[el] || 0) === bestPts);
+        if (leaders.length === 1) return { el: leaders[0], pts: bestPts };
+        if (leaders.includes(current)) return { el: current, pts: bestPts };
+        return { el: "", pts: 0 };
       };
       // Pour pressure into a tile's bank and resolve its 10-point
       // steps. Returns the fields to persist, or null when unmoved.
