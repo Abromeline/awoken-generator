@@ -4985,6 +4985,28 @@ export const handlers = {
     return { ok: true, refilled: count };
   },
 
+  // Admin: THE WORLD RESET (Nigel's ruling, via Land, 2026-10-16).
+  // Every UNCURSED tile on every Tender's map returns to flat,
+  // unclaimed ground: element neutral, Z1, trays zeroed, attunement
+  // bank emptied — the same clean state a purification is born in
+  // (PURIFIED_TILE_FIELDS). Cursed tiles are untouched, and so are
+  // buildings, walls, and the Awoken standing on the land: only the
+  // land's element and stack are laid down. Workshop-gated in
+  // index.ts like every admin action.
+  async adminResetWorldTiles(_args: unknown, _ctx?: ActionContext) {
+    const before = await db.select({ ownerKey: schema.territoryTiles.ownerKey })
+      .from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.cursed, 0));
+    await db.update(schema.territoryTiles)
+      .set({ element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+      .where(eq(schema.territoryTiles.cursed, 0));
+    return {
+      ok: true as const,
+      tilesReset: before.length,
+      tendersAffected: new Set(before.map(t => t.ownerKey)).size,
+    };
+  },
+
   async adminSetEnergy(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
     const parsed = z.object({ ownerKey: z.string() }).safeParse(args);

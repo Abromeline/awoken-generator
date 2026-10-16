@@ -44,6 +44,7 @@ const WORKSHOP_ACTIONS = new Set([
   "listTenders",
   "adminResetTender",
   "adminRefillAllEnergy",
+  "adminResetWorldTiles",
   "adminSetEnergy",
   "adminSetWave",
   "adminGetTenderDeck",

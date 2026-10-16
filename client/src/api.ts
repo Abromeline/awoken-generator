@@ -446,6 +446,7 @@ export const api = {
   adminResetTender: (args: { ownerKey: string }) => post<{ ok: true }>("adminResetTender", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
+  adminResetWorldTiles: () => post<{ ok: true; tilesReset: number; tendersAffected: number }>("adminResetWorldTiles", {}),
   adminClearTimers: (args: { ownerKey: string }) => post<{ ok: true }>("adminClearTimers", args),
   adminSetWave: (args: { ownerKey: string; waveNumber: number }) => post<{ ok: true; waveNumber: number }>("adminSetWave", args),
   adminGiftWake: (args: { ownerKey: string }) => post<{ ok: true; balance: number }>("adminGiftWake", args),

@@ -1484,6 +1484,7 @@ function TendersPanel() {
   const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
   const [resetName, setResetName] = useState("");
+  const [confirmWorldReset, setConfirmWorldReset] = useState(false);
   const [resetPw, setResetPw] = useState("");
   const [deckPopup, setDeckPopup] = useState<{ ownerKey: string; name: string; field: any[]; hand: any[]; waveNumber: number } | null>(null);
   const [waveEdit, setWaveEdit] = useState<{ ownerKey: string; current: number } | null>(null);
@@ -1522,6 +1523,36 @@ function TendersPanel() {
     <button className="abtn small" onClick={() => doAdmin(() => api.adminRefillAllEnergy(), "All refilled to max")} style={{ marginTop: 8 }}>
       ⚡ Refill All to Max
     </button>
+    {/* THE WORLD RESET (Nigel's ruling, via Land, 2026-10-16): every
+        uncursed tile on every Tender's map back to neutral Z1. Two
+        steps, always — a flattened world is not a misclick. */}
+    <div className="pw-reset-row" style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      {!confirmWorldReset ? (
+        <button className="abtn small" onClick={() => setConfirmWorldReset(true)}>
+          🌍 Reset the World’s Land
+        </button>
+      ) : (
+        <>
+          <span className="quiet">Flatten EVERY Tender’s purified land to neutral Z1? Cursed land, buildings, walls and Awoken stay.</span>
+          <button className="abtn small danger" onClick={async () => {
+            setConfirmWorldReset(false);
+            try {
+              const r = await api.adminResetWorldTiles();
+              setAdminMsg(`World land reset done — ${r.tilesReset} tiles across ${r.tendersAffected} Tender(s) returned to neutral Z1.`);
+              query.refetch();
+              setTimeout(() => setAdminMsg(null), 6000);
+            } catch (e) {
+              setAdminMsg("Failed: " + (e as Error).message);
+            }
+          }}>
+            Yes — flatten the world
+          </button>
+          <button className="abtn small" onClick={() => setConfirmWorldReset(false)}>
+            Keep the land
+          </button>
+        </>
+      )}
+    </div>
     <div className="pw-reset-row" style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       <input value={resetName} onChange={(e) => setResetName(e.target.value)} placeholder="Tender name" style={{ maxWidth: 200 }} />
       <input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="New password (8+ chars)" style={{ maxWidth: 200 }} autoComplete="new-password" />
