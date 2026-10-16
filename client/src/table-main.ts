@@ -103,7 +103,10 @@ async function boot(): Promise<void> {
     if (e instanceof Error && e.message.startsWith(STUCK)) {
       showError(`The Table got stuck at this step: “${e.message.slice(STUCK.length)}”.`);
     } else {
-      showError(e instanceof Error ? e.message : "The door to the Table would not open.");
+      // Discord's refusals arrive as plain objects with a message —
+      // print the actual words, never a generic curtain.
+      const words = (e as { message?: unknown } | null)?.message;
+      showError(typeof words === "string" && words ? words : "The door to the Table would not open.");
     }
   }
 }
