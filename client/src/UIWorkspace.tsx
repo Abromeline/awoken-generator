@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { setWheatStageOverride, setDreamWeedStageOverride, setEnemyOverride } from "./BuildingMenu";
+import { useQueryClient } from "@tanstack/react-query";
+import { setWheatStageOverride, setDreamWeedStageOverride } from "./BuildingMenu";
+import { useEnemyArt, ENEMY_ART_QUERY_KEY } from "./enemyArt";
 import { api } from "./api";
 import { ElementGlyph } from "./glyphs";
 import { ELEMENTS, ELEMENT_SCHEME, applyElementPalette, elementPalette, isHexColor, type ElementName } from "./palette";
@@ -165,6 +167,21 @@ const TABLE_GROUPS: { title: string; slots: TableSlot[] }[] = [
 
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
+  const queryClient = useQueryClient();
+  // The live enemy art, resolved server-side (pin > latest upload >
+  // bundled): the same answer every battle surface renders.
+  const { data: enemyArtData } = useEnemyArt();
+  const [swapping, setSwapping] = useState<string | null>(null);
+  const chooseEnemySprite = async (name: string, spriteId: number | null) => {
+    setSwapping(name);
+    try {
+      await api.setEnemySpriteSelection({ name, spriteId });
+      await queryClient.invalidateQueries({ queryKey: ENEMY_ART_QUERY_KEY });
+    } catch (e) {
+      console.error("Enemy sprite selection failed", e);
+    }
+    setSwapping(null);
+  };
   const [sprites, setSprites] = useState<UiSprite[]>([]);
   const [config, setConfig] = useState<Record<string, any>>({});
   const [uploading, setUploading] = useState<string | null>(null);
@@ -187,9 +204,6 @@ export default function UIWorkspace() {
         }
         if (s.category === "building" && s.name.startsWith("dream-weed")) {
           setDreamWeedStageOverride(s.name, s.url);
-        }
-        if (s.category === "enemy") {
-          setEnemyOverride(s.name, s.url);
         }
       }
     }).catch(() => {});
@@ -268,6 +282,8 @@ export default function UIWorkspace() {
       });
       const r: any = await api.call("listUiSprites", {});
       setSprites(r.sprites);
+      // A fresh upload may be the new live face (latest-upload rule).
+      await queryClient.invalidateQueries({ queryKey: ENEMY_ART_QUERY_KEY });
     } catch (err) {
       console.error("Upload failed", err);
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -297,20 +313,32 @@ export default function UIWorkspace() {
 
       {section === "enemies" && (
         <div className="workspace-grid">
-          {ENEMIES.map(name => (
+          {ENEMIES.map(name => {
+            const uploads = spritesFor("enemy", name);
+            const live = enemyArtData?.art?.[name] ?? null;
+            const pinned = enemyArtData?.selection?.[name];
+            const bundledPinned = pinned === 0;
+            return (
             <div key={name} className="workspace-card">
               <h3>{name.charAt(0).toUpperCase() + name.slice(1)}</h3>
               <div className="sprite-row">
-                {CURRENT_SPRITES.enemy[name] && (
-                  <div className="sprite-current">
-                    <img src={CURRENT_SPRITES.enemy[name]} alt={name} className="sprite-thumb" />
-                    <small>Current</small>
-                  </div>
-                )}
-                {spritesFor("enemy", name).map(s => (
+                <div className="sprite-current">
+                  <img src={live?.url || CURRENT_SPRITES.enemy[name]} alt={name} className="sprite-thumb" />
+                  <small>{live ? "Current: Uploaded" : bundledPinned && uploads.length ? "Current: Bundled (pinned)" : "Current: Bundled"}</small>
+                </div>
+                {uploads.map(s => (
                   <div key={s.id} className="sprite-uploaded">
                     <img src={s.url} alt={s.name} className="sprite-thumb" />
-                    <small>Uploaded</small>
+                    <small>{live?.spriteId === s.id ? "Uploaded · Live" : "Uploaded"}</small>
+                    {live?.spriteId !== s.id && (
+                      <button
+                        className="swap-btn"
+                        disabled={swapping === name}
+                        onClick={() => chooseEnemySprite(name, s.id)}
+                      >
+                        {swapping === name ? "..." : "Make current"}
+                      </button>
+                    )}
                   </div>
                 ))}
                 <button
@@ -321,12 +349,35 @@ export default function UIWorkspace() {
                   {uploading === name ? "..." : "+ Sprite"}
                 </button>
               </div>
+              {(live || (bundledPinned && uploads.length > 0)) && (
+                <div className="sprite-actions">
+                  {live && (
+                    <button
+                      className="swap-btn"
+                      disabled={swapping === name}
+                      onClick={() => chooseEnemySprite(name, 0)}
+                    >
+                      {swapping === name ? "..." : "Revert to bundled"}
+                    </button>
+                  )}
+                  {bundledPinned && uploads.length > 0 && (
+                    <button
+                      className="swap-btn"
+                      disabled={swapping === name}
+                      onClick={() => chooseEnemySprite(name, null)}
+                    >
+                      {swapping === name ? "..." : "Use latest upload"}
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="stat-rows">
                 <label>Power <input type="number" value={getVal(`enemy.${name}.power`)} onChange={e => setVal(`enemy.${name}.power`, +e.target.value)} /></label>
                 <label>HP <input type="number" value={getVal(`enemy.${name}.hp`)} onChange={e => setVal(`enemy.${name}.hp`, +e.target.value)} /></label>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

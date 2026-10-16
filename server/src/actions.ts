@@ -5015,6 +5015,67 @@ export const handlers = {
     return { ok: true };
   },
 
+  // Enemy sprite selection: which uploaded art is LIVE for each enemy.
+  // Stored in ui_config under one key as { [enemyName]: spriteId | 0 } —
+  // a sprite id pins that upload, 0 pins the bundled art, and no entry
+  // means the default rule: the most recent upload is live. Every enemy
+  // renderer resolves through getEnemyArt, so the choice is the same on
+  // every surface and survives reload and deploy.
+  async getEnemyArt() {
+    const sprites = await db.select().from(schema.uiSprites)
+      .where(eq(schema.uiSprites.category, "enemy"))
+      .orderBy(schema.uiSprites.createdAt, schema.uiSprites.id);
+    const [selRow] = await db.select().from(schema.uiConfig)
+      .where(eq(schema.uiConfig.key, "enemy.sprite.selection")).limit(1);
+    let selection: Record<string, number> = {};
+    if (selRow) { try { selection = JSON.parse(selRow.value) || {}; } catch {} }
+    const byName = new Map<string, typeof sprites>();
+    for (const s of sprites) {
+      const arr = byName.get(s.name) ?? [];
+      arr.push(s);
+      byName.set(s.name, arr);
+    }
+    const art: Record<string, { url: string; spriteId: number } | null> = {};
+    for (const [name, arr] of byName) {
+      const pinned = selection[name];
+      let live: (typeof sprites)[number] | null;
+      if (pinned === 0) live = null; // bundled art pinned
+      else if (typeof pinned === "number") live = arr.find(s => s.id === pinned) ?? arr[arr.length - 1];
+      else live = arr[arr.length - 1]; // default: latest upload
+      art[name] = live ? { url: blobUrl(live.blobKey), spriteId: live.id } : null;
+    }
+    return { art, selection };
+  },
+
+  async setEnemySpriteSelection(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({
+      name: z.string().min(1).max(100),
+      // sprite id pins that upload; 0 pins the bundled art; null clears
+      // the pin and returns the enemy to the latest-upload default.
+      spriteId: z.number().int().min(0).nullable(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid.");
+    const { name, spriteId } = parsed.data;
+    if (spriteId !== null && spriteId > 0) {
+      const [row] = await db.select().from(schema.uiSprites)
+        .where(eq(schema.uiSprites.id, spriteId)).limit(1);
+      if (!row || row.category !== "enemy" || row.name !== name) {
+        badRequest("That sprite is not an upload for this enemy.");
+      }
+    }
+    const key = "enemy.sprite.selection";
+    const [existing] = await db.select().from(schema.uiConfig)
+      .where(eq(schema.uiConfig.key, key)).limit(1);
+    let selection: Record<string, number> = {};
+    if (existing) { try { selection = JSON.parse(existing.value) || {}; } catch {} }
+    if (spriteId === null) delete selection[name];
+    else selection[name] = spriteId;
+    await db.insert(schema.uiConfig)
+      .values({ key, value: JSON.stringify(selection) })
+      .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(selection) } });
+    return { ok: true, selection };
+  },
+
   async getGameConfig() {
     return loadGameConfig();
   },

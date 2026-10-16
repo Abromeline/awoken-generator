@@ -12,22 +12,12 @@ import Friends from "./Friends";
 import { useCourtMarks } from "./courtMarks";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
-import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
+import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
 import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { elementPalette } from "./palette";
-import frayImg from "./assets/enemies/fray.png";
-import unravelerImg from "./assets/enemies/unraveler.png";
-import hollowImg from "./assets/enemies/hollow.png";
-import tangleImg from "./assets/enemies/tangle.png";
-
-const ENEMY_IMGS: Record<string, string> = {
-  fray: frayImg,
-  unraveler: unravelerImg,
-  hollow: hollowImg,
-  tangle: tangleImg,
-};
+import { useEnemyArt, enemyImgFor } from "./enemyArt";
 import Tutorial, { tutorialComplete } from "./Tutorial";
 import tideImg from "./assets/terrain-iso/tide-v3.png";
 import skyImg from "./assets/terrain-iso/sky-v3.png";
@@ -178,6 +168,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // The creator's uploaded stage art, shared cache with the workshop's
   // Terrain Stages section; tiles resolve through terrainImgFor below.
   const { data: terrainArt } = useTerrainArt();
+  // The creator's live enemy art (UI Workspace uploads/selection),
+  // resolved server-side; every enemy on the field wears it.
+  const { data: enemyArtData } = useEnemyArt();
   const fireAspectImg = assets.find(a => a.category === "aspect" && (a as any).element === "fire" && /II/.test(a.name))?.imageUrl
     ?? assets.find(a => a.category === "aspect" && (a as any).element === "fire")?.imageUrl
     ?? null;
@@ -3144,7 +3137,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           {renderGrid()}
           {/* Simulation units */}
           {battleUnits.map(u => {
-            const imgSrc = enemyImage(u.type) || ENEMY_IMGS[u.type] || "";
+            const imgSrc = enemyImgFor(u.type, enemyArtData?.art);
             return (
             <g key={`battle-${u.id}`} transform={`translate(${u.x},${u.y})`}>
               {imgSrc ? (

@@ -665,6 +665,13 @@ body.defeat-flash {
 }
 .upload-btn:hover { background: rgba(184,155,94,0.2); }
 .upload-btn:disabled { opacity: 0.5; }
+.swap-btn {
+  background: rgba(184,155,94,0.12); border: 1px solid #b89b5e; color: #ddc38b;
+  padding: 10px 14px; min-height: 44px; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.swap-btn:hover { background: rgba(184,155,94,0.25); }
+.swap-btn:disabled { opacity: 0.5; }
+.sprite-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .stat-rows { display: flex; flex-direction: column; gap: 8px; }
 .stat-rows label { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #aaa; }
 .stat-rows input[type="number"] {

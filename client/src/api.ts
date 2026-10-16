@@ -186,6 +186,14 @@ export interface UITheme {
  *  the bundled provided art (see client/src/terrainArt.ts). */
 export type TerrainArtMap = Partial<Record<string, Partial<Record<number, string>>>>;
 
+/** Enemy art resolution from the UI Workspace (see client/src/enemyArt.ts):
+ *  per enemy name, the uploaded sprite currently LIVE ({ url, spriteId }),
+ *  or null when the bundled art is live. `selection` is the creator's pin
+ *  map: sprite id = that upload pinned, 0 = bundled pinned, absent = the
+ *  latest upload is live by default. */
+export type EnemyArtMap = Partial<Record<string, { url: string; spriteId: number } | null>>;
+export type EnemySelection = Record<string, number>;
+
 export interface GroveStatus {
   centsAccrued: number;
   dollarsAccrued: string;
@@ -305,6 +313,9 @@ export const api = {
   uploadLayerAsset: (args: { category: Category; imageBase64: string; mimeType: "image/png" }) =>
     post<{ id: number; name: string }>("uploadLayerAsset", args),
   getTerrainArt: () => post<{ art: TerrainArtMap }>("getTerrainArt", {}),
+  getEnemyArt: () => post<{ art: EnemyArtMap; selection: EnemySelection }>("getEnemyArt", {}),
+  setEnemySpriteSelection: (args: { name: string; spriteId: number | null }) =>
+    post<{ ok: true; selection: EnemySelection }>("setEnemySpriteSelection", args),
   uploadTerrainArt: (args: { element: string; stage: 2 | 3; imageBase64: string; mimeType: "image/png" }) =>
     post<{ ok: true; element: string; stage: number; image_url: string }>("uploadTerrainArt", args),
   deleteTerrainArt: (args: { element: string; stage: 2 | 3 }) => post<{ ok: true }>("deleteTerrainArt", args),

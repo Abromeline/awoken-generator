@@ -56,6 +56,7 @@ const WORKSHOP_ACTIONS = new Set([
   "updateUITheme",
   "uploadUiSprite",
   "deleteUiSprite",
+  "setEnemySpriteSelection",
   "setSiteColor",
   "adminResetTenderPassword",
   "saveGlyph",

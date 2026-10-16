@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEnemyArt, enemyImgFor, ENEMY_NAMES } from "./enemyArt";
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -122,15 +123,21 @@ export default function Tutorial({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(0);
   const s = STEPS[step];
   const isLast = step === STEPS.length - 1;
+  // The Enemies step wears the creator's live enemy art, like every
+  // other surface; the bundled faces in STEPS are the fallback.
+  const { data: enemyArtData } = useEnemyArt();
+  const displayImages = s.enemyImages
+    ? ENEMY_NAMES.map(n => enemyImgFor(n, enemyArtData?.art))
+    : undefined;
 
   return (
     <div className="tutorial-overlay">
       <div className="tutorial-card">
         <p className="eyebrow">Tutorial {step + 1}/{STEPS.length}</p>
         <h2>{s.title}</h2>
-        {s.enemyImages ? (
+        {displayImages ? (
           <div className="tutorial-enemies">
-            {s.enemyImages.map((img, i) => (
+            {displayImages.map((img, i) => (
               <div key={i} className="tutorial-enemy">
                 <img src={img} alt={s.body[i]?.split(":")[0] || "Enemy"} />
                 <p>{s.body[i]}</p>

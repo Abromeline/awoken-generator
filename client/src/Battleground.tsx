@@ -22,8 +22,7 @@ const BATTLE_TRACKS = [
   { name: "Vanguard", url: "/music/vanguard.mp3" },
   { name: "Phoenix", url: "/music/phoenix.mp3" },
 ];
-import frayImg from "./assets/enemies/fray.png";
-import unravelerImg from "./assets/enemies/unraveler.png";
+import { useEnemyArt, enemyImgFor } from "./enemyArt";
 
 interface Defender {
   placementId: number;
@@ -205,6 +204,8 @@ function VictoryAspects({ grant }: { grant: string[] | null }) {
 }
 
 export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [] }: BattlegroundProps) {
+  // The creator's live enemy art (UI Workspace uploads/selection).
+  const { data: enemyArtData } = useEnemyArt();
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
   // Hex walls (War-Ground, 2026-10-15): live HP per wall edge during
@@ -887,7 +888,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
             }}
           >
             <img
-              src={e.img === "fray" ? frayImg : unravelerImg}
+              src={enemyImgFor(e.img === "fray" ? "fray" : "unraveler", enemyArtData?.art)}
               alt={e.name}
               style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
             />
