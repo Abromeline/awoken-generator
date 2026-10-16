@@ -226,6 +226,46 @@ export default function UIWorkspace() {
   const [compClasses, setCompClasses] = useState<CompendiumClass[]>([]);
   const [compEntries, setCompEntries] = useState<CompendiumEntry[]>([]);
   const [compLastSync, setCompLastSync] = useState<{ at: string; added: number; updated: number; removed: number; total: number } | null>(null);
+  const [compSyncPayload, setCompSyncPayload] = useState<any | null>(null);
+  const [compSyncName, setCompSyncName] = useState("");
+  const [compSyncMsg, setCompSyncMsg] = useState<string | null>(null);
+  const compSyncFileRef = useRef<HTMLInputElement>(null);
+
+  const pickCompSyncFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setCompSyncMsg(null);
+    setCompSyncPayload(null);
+    setCompSyncName("");
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || parsed.complete !== true || !Array.isArray(parsed.entries) || !Array.isArray(parsed.classes)) {
+        setCompSyncMsg("That file is not a Compendium roll — ask the Keeper to prepare a fresh one.");
+        return;
+      }
+      setCompSyncPayload(parsed);
+      setCompSyncName(file.name);
+    } catch {
+      setCompSyncMsg("That file could not be read as a Compendium roll.");
+    }
+    if (compSyncFileRef.current) compSyncFileRef.current.value = "";
+  };
+
+  const applyCompSync = async () => {
+    if (!compSyncPayload) return;
+    setCompSaving(true);
+    setCompSyncMsg(null);
+    try {
+      const r: any = await api.call("importCompendium", compSyncPayload);
+      setCompSyncMsg(`Synced: ${r.total} entries — ${r.added} added, ${r.updated} updated, ${r.removed} removed.`);
+      setCompSyncPayload(null);
+      setCompSyncName("");
+      await loadCompendium();
+    } catch (e) {
+      setCompSyncMsg(e instanceof Error ? e.message : "The sync failed.");
+    }
+    setCompSaving(false);
+  };
   const [compEditing, setCompEditing] = useState<number | "new" | null>(null);
   const [compDraft, setCompDraft] = useState<CompendiumDraft>(EMPTY_DRAFT);
   const [compSaving, setCompSaving] = useState(false);
@@ -797,13 +837,31 @@ export default function UIWorkspace() {
               📖 <strong>The Monsters Compendium</strong> — the standing roll of every enemy the heroes
               may face, kept by class. <strong>The Compendium app is the roll of record; this page is
               its mirror in the game.</strong> The Keeper carries the sync: say <em>"sync the
-              compendium"</em> in chat (here or in the Atelier) and this page is brought up to the app
-              exactly — new entries arrive, changed ones update, ones the app no longer holds are
-              removed. Edits made on this page are local, and a sync will overwrite them. Sprites are
-              not stored on an entry — an entry's slot key points at the workshop's Table slots, so
-              art uploaded here (or in the Discord Table section) shows on the entry; the canon four
-              wear the live art from the Enemies section.
+              compendium"</em> in chat and the Keeper reads the app and brings you its roll as a small
+              file — apply it with the sync panel below and this page is brought up to the app exactly:
+              new entries arrive, changed ones update, ones the app no longer holds are removed. The
+              last hop runs through your unlocked workshop because the game's writes are gated — the
+              Keeper never holds your workshop key. Edits made on this page are local, and a sync will
+              overwrite them. Sprites are not stored on an entry — an entry's slot key points at the
+              workshop's Table slots, so art uploaded here (or in the Discord Table section) shows on
+              the entry; the canon four wear the live art from the Enemies section.
             </p>
+            <div className="workspace-card" style={{ marginBottom: 16 }}>
+              <h3 style={{ textTransform: "none" }}>🔄 Sync from the Compendium app</h3>
+              <p className="quiet" style={{ margin: "0 0 8px" }}>
+                Pick the roll file the Keeper prepared from the app, then apply it. The app wins:
+                this page becomes its exact mirror.
+              </p>
+              <input ref={compSyncFileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={pickCompSyncFile} />
+              <div className="comp-form-actions">
+                <button className="swap-btn" onClick={() => compSyncFileRef.current?.click()}>Choose roll file…</button>
+                <button className="upload-btn" disabled={!compSyncPayload || compSaving} onClick={applyCompSync}>
+                  {compSaving ? "..." : "Apply sync"}
+                </button>
+                {compSyncName && <span className="quiet" style={{ alignSelf: "center" }}>{compSyncName}</span>}
+              </div>
+              {compSyncMsg && <p className="comp-text" style={{ marginTop: 8 }}>{compSyncMsg}</p>}
+            </div>
             <p className="quiet" style={{ marginTop: 0 }}>
               {compLastSync
                 ? <>Last synced from the Compendium app: {new Date(compLastSync.at).toLocaleString()} — {compLastSync.total} entries ({compLastSync.added} added, {compLastSync.updated} updated, {compLastSync.removed} removed in that sync).</>
