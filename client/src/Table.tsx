@@ -73,6 +73,7 @@ export default function Table() {
   const [notesDirty, setNotesDirty] = useState(false);
   const [packDraft, setPackDraft] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
+  const heardRef = useRef<string[]>([]);
   const lastJoinRef = useRef<Record<string, unknown> | null>(null);
   const taleRef = useRef<HTMLDivElement>(null);
 
@@ -89,14 +90,20 @@ export default function Table() {
     try {
       const q = new URLSearchParams(window.location.search);
       const embedded = window.parent !== window;
-      const referrer = document.referrer ? new URL(document.referrer).origin : "none";
-      return `Door record — framed by Discord: ${embedded ? "yes" : "NO"} · sent by: ${referrer} · door: ${window.location.host} · frame tag: ${q.has("frame_id") ? "present" : "MISSING"}`;
+      const heard = heardRef.current.length ? heardRef.current.join("  ·  ") : "silence — nothing came back";
+      return [
+        `Framed by Discord: ${embedded ? "yes" : "NO"}`,
+        `Sent by: ${document.referrer || "nothing"}`,
+        `Door: ${window.location.host}`,
+        `Frame tag: ${q.has("frame_id") ? "present" : "MISSING"}`,
+        `Heard back: ${heard}`,
+      ].join("\n");
     } catch { return "Door record unavailable."; }
   };
   useEffect(() => {
     if (phase !== "boot" && phase !== "connecting") return;
     const t = setTimeout(() => {
-      setError(`The Table got stuck at this step: “${bootStep}”. Tell the Keeper those exact words — they say where the door jammed. ${doorRecord()}`);
+      setError(`The Table got stuck at this step: “${bootStep}”.\n${doorRecord()}`);
       setPhase("error");
     }, 20000);
     return () => clearTimeout(t);
@@ -135,6 +142,21 @@ export default function Table() {
   // names. Outside Discord, show the door.
   useEffect(() => {
     let cancelled = false;
+    // The listening ear (2026-10-16): record every word spoken to
+    // this frame while the boot knocks, so a stuck door can report
+    // whether Discord answered in the new dialect (op tuples), the
+    // old one (DISPATCH objects), or not at all. Observe only.
+    const OP_NAMES: Record<number, string> = { 0: "HANDSHAKE", 1: "FRAME", 2: "CLOSE", 3: "HELLO (old greeting)" };
+    const ear = (ev: MessageEvent) => {
+      if (heardRef.current.length >= 8) return;
+      const d: any = ev.data;
+      let shape: string;
+      if (Array.isArray(d)) shape = `op ${OP_NAMES[Number(d[0])] ?? String(d[0])}`;
+      else if (d && typeof d === "object" && typeof d.cmd === "string") shape = `old-style ${d.cmd}${d.evt ? "/" + d.evt : ""}`;
+      else shape = typeof d;
+      heardRef.current.push(`${ev.origin} → ${shape}`);
+    };
+    window.addEventListener("message", ear);
     (async () => {
       if (!inDiscord) {
         try {
@@ -183,7 +205,7 @@ export default function Table() {
         }
       }
     })();
-    return () => { cancelled = true; try { wsRef.current?.close(); } catch {} };
+    return () => { cancelled = true; window.removeEventListener("message", ear); try { wsRef.current?.close(); } catch {} };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -220,7 +242,7 @@ export default function Table() {
       <div className="table-door-wrap">
         <div className="table-door">
           <h1>🕯️ The Table</h1>
-          <p className="error-line">{error}</p>
+          <p className="error-line" style={{ whiteSpace: "pre-wrap", textAlign: "left" }}>{error}</p>
           <button className="table-btn" onClick={() => window.location.reload()}>Try the door again</button>
         </div>
       </div>
