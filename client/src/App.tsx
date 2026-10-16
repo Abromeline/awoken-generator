@@ -43,7 +43,7 @@ import { BUNDLED_TERRAIN, TERRAIN_ART_ELEMENTS, TERRAIN_ART_QUERY_KEY, useTerrai
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
-type WorkshopView = "wake" | "pool" | "terrain" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors" | "feedback";
+type WorkshopView = "wake" | "pool" | "terrain" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors" | "feedback" | "voice";
 type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
@@ -1436,6 +1436,49 @@ function FeedbackPanel() {
   </section>;
 }
 
+function VoicePanel() {
+  const query = useQuery({ queryKey: ["voiceState"], queryFn: () => api.getVoiceState() });
+  const [msg, setMsg] = useState<string | null>(null);
+  const [news, setNews] = useState("");
+  const say = (text: string) => { setMsg(text); setTimeout(() => setMsg(null), 5000); };
+  const run = async (fn: () => Promise<any>, done: string) => {
+    try { await fn(); say(done); query.refetch(); }
+    catch (e) { say("Failed: " + (e as Error).message); }
+  };
+  if (query.isPending) return <p className="quiet">Listening for the road…</p>;
+  if (query.error || !query.data) return <p className="notice error" role="status">{mutationError(query.error)}</p>;
+  const v = query.data;
+  return <section className="tender-leaderboard">
+    <header>
+      <p className="eyebrow">The Voice</p>
+      <h1>Her road to Discord.</h1>
+      <p className="quiet">One webhook carries her — the same road the story-sending rides. She posts the weather when the sky turns, once per reign, and world news only when you speak it here. Nothing automatic, nothing repeated.</p>
+    </header>
+    {msg && <p className="notice">{msg}</p>}
+    {!v.webhookConfigured && <p className="notice error" role="status">The Voice has no road yet — the webhook is not set on the server (DISCORD_STORIES_WEBHOOK_URL in Railway). Everything below fails closed, honestly, until it is.</p>}
+    <p className="quiet">The sky now: <strong>{v.currentMood}</strong> · this reign ends {new Date(v.currentReignEndsAt).toLocaleTimeString([], { timeStyle: "short" })}{v.lastAnnouncedEndsAt ? <> · last weather spoken for the reign ending {new Date(v.lastAnnouncedEndsAt).toLocaleTimeString([], { timeStyle: "short" })}</> : " · no weather spoken yet"}</p>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+      <button className="abtn small" onClick={() => run(() => api.setVoiceWeatherEnabled({ enabled: !v.weatherEnabled }), v.weatherEnabled ? "Weather voice stilled. The sky will turn in silence." : "Weather voice loosed. She will speak when the sky turns.")}>
+        {v.weatherEnabled ? "🌦 Weather voice: ON — still her" : "🌦 Weather voice: OFF — loose her"}
+      </button>
+      <button className="abtn small" disabled={!v.webhookConfigured} onClick={() => run(() => api.postVoiceTestLine(), "Test line spoken. Look to the channel.")}>
+        Speak a test line
+      </button>
+    </div>
+    <div style={{ marginTop: 16 }}>
+      <p className="eyebrow">World news</p>
+      <p className="quiet">Your words, carried unbent and posted as the Voice. A few living words — up to 800 characters.</p>
+      <textarea value={news} onChange={(e) => setNews(e.target.value)} rows={4} maxLength={800} placeholder="Speak the news of the world…" style={{ width: "100%", marginTop: 8 }} />
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <button className="abtn small" disabled={!v.webhookConfigured || !news.trim()} onClick={() => run(async () => { await api.postWorldNews({ text: news.trim() }); setNews(""); }, "World news spoken. It is in the channel.")}>
+          Post as world news
+        </button>
+        <small className="quiet">{news.length}/800</small>
+      </div>
+    </div>
+  </section>;
+}
+
 function TendersPanel() {
   const query = useQuery({ queryKey: ["tenderLeaderboard"], queryFn: () => api.listTenders() });
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
@@ -1819,13 +1862,14 @@ export function App() {
   const wassets = toLayerAssets(wstudio.assets);
   const wWorkshopItems = wstudio.awakened.filter((item) => item.collection === "workshop");
   const wFocused = wstudio.awakened.find((item) => item.id === focusId);
-  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "terrain", label: "Terrain Stages" }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }, { id: "feedback", label: "Feedback" }];
+  const workshopTabs: { id: WorkshopView; label: string; count?: number }[] = [{ id: "wake", label: "Awaken" }, { id: "pool", label: "Layer Pool", count: wassets.length }, { id: "terrain", label: "Terrain Stages" }, { id: "collection", label: "Workshop Collection", count: wWorkshopItems.length }, { id: "compendium", label: "Compendium", count: wstudio.awakened.length }, { id: "tenders", label: "Tenders" }, { id: "tracks", label: "Battle Tracks" }, { id: "ui-workspace", label: "UI Workspace" }, { id: "glyphs", label: "Glyphs" }, { id: "text-colors", label: "Text Colors" }, { id: "feedback", label: "Feedback" }, { id: "voice", label: "The Voice" }];
   return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><header className="workshop-header"><div><p className="eyebrow">Nigel's workshop</p><span>The hidden machinery of waking</span></div><button onClick={() => { setFace("tender"); setShowDeck(false); }}>Return to Tender face</button></header><nav className="workshop-nav" aria-label="Workshop sections">{workshopTabs.map((tab) => <button className={workshopView === tab.id ? "active" : ""} key={tab.id} onClick={() => setWorkshopView(tab.id)}>{tab.label}{tab.count !== undefined && <small>{tab.count}</small>}</button>)}</nav><main>    {workshopView === "wake" && <><WakeRitual assets={wassets} collection="workshop" ownerName="Nigel" manual onSaved={saved} credits={null} /></>}
     {workshopView === "pool" && <PoolPanel assets={wassets} />}
     {workshopView === "terrain" && <TerrainArtPanel />}
     {workshopView === "collection" && <CollectionView items={wWorkshopItems} title="The workshop collection" note="Forms awakened at the creator's hand." allowDelete focusId={focusId} />}
     {workshopView === "compendium" && <CollectionView items={wstudio.awakened} title="The full compendium" note="Only the creator sees the whole species." allowDelete focusId={focusId} />}
     {workshopView === "tenders" && <TendersPanel />}
+    {workshopView === "voice" && <VoicePanel />}
     {workshopView === "feedback" && <FeedbackPanel />}
     {workshopView === "tracks" && <MusicLibrary />}
     {workshopView === "glyphs" && <GlyphPanel />}
