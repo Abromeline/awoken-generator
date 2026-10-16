@@ -397,6 +397,23 @@ function identityFor(layers: z.infer<typeof layerRefShape>[]) {
  *  from its name. The server keeps its own copy so it never trusts the
  *  client's claim about what a team is. */
 const ELEMENTS_5 = ["tide", "sky", "stone", "root", "fire"] as const;
+/** The stack law's two clean states (Nigel, via Land, 2026-10-16):
+ *  neutral land exists ONLY at Z1 and neutral tiles NEVER stack —
+ *  a stack belongs to an element. A tile that FALLS takes nothing
+ *  down with it: bank emptied, trays gone, height 0. A tile that is
+ *  PURIFIED is born clean at Z1: one growing tray, no bank, whatever
+ *  element the victory names. Until these field-sets rode on every
+ *  fall and purify path, a tile cursed by battle damage kept its
+ *  trays in the dark, and purification resurrected them wearing
+ *  neutral — neutral stacks, which the law forbids. */
+const FALLEN_TILE_FIELDS = {
+  attunePoints: 0, attuneElement: null,
+  sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
+} as const;
+const PURIFIED_TILE_FIELDS = {
+  attunePoints: 0, attuneElement: null,
+  sealedTrays: 0, growPoints: 0, topPoints: null, height: 1,
+} as const;
 type Element5 = (typeof ELEMENTS_5)[number];
 /** A part's element, from its own record alone. THE LAW (Nigel,
  *  2026-10-15): an Awoken's elements are ALWAYS read from the sum of
@@ -2322,7 +2339,7 @@ export const handlers = {
     const adjacent = dirs.some(([dq, dr]) => purified.has(`${tile[0].q + dq},${tile[0].r + dr}`));
     if (!adjacent) badRequest("Must be adjacent to your territory.");
     await db.update(schema.territoryTiles)
-      .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null })
+      .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
       .where(eq(schema.territoryTiles.id, tile[0].id));
     await expandFrontier(ownerKey, tile[0].q, tile[0].r);
     return { ok: true };
@@ -2545,7 +2562,7 @@ export const handlers = {
     if (parsed.data.victory) {
       // Purify!
       await db.update(schema.territoryTiles)
-        .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null })
+        .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
       await expandFrontier(ownerKey, tiles[0].q, tiles[0].r);
       for (const id of parsed.data.survivorIds) {
@@ -2909,7 +2926,7 @@ export const handlers = {
     let cursed = false;
     if (newHp === 0 && !tile[0].cursed) {
       await db.update(schema.territoryTiles)
-        .set({ cursed: 1 })
+        .set({ cursed: 1, ...FALLEN_TILE_FIELDS })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
       cursed = true;
     }
@@ -3572,6 +3589,22 @@ export const handlers = {
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    // Self-heal the stack law (Land, 2026-10-16): tiles cursed or
+    // purified before FALLEN/PURIFIED_TILE_FIELDS rode on those paths
+    // may carry a stack they have no right to — a stack on cursed
+    // land, or a stack (or any tray growth) on NEUTRAL or fire land,
+    // which exists only at Z1 and never stacks. Zero any such stack
+    // where it stands, once; the healed row then agrees with the law.
+    for (const t of tiles as any[]) {
+      const hasStack = (t.sealedTrays ?? 0) > 0 || (t.growPoints ?? 0) > 0 || t.topPoints != null;
+      const unlawful = t.cursed ? hasStack
+        : (t.element === "neutral" || t.element === "fire") ? hasStack
+        : false;
+      if (!unlawful) continue;
+      const clean = { sealedTrays: 0, growPoints: 0, topPoints: null, height: t.cursed ? 0 : 1 };
+      await db.update(schema.territoryTiles).set(clean as any).where(eq(schema.territoryTiles.id, t.id));
+      Object.assign(t, clean);
+    }
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     
     // Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
@@ -4174,7 +4207,7 @@ export const handlers = {
         }
         if (tie) element = "neutral";
         await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null })
+          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, tile[0].id));
         // The neighboring cursed land feels the shift — their 48h
         // passive timers start now (as directAttack does).
@@ -4721,7 +4754,7 @@ export const handlers = {
           )).limit(1);
         if (target.length) {
           await db.update(schema.territoryTiles)
-            .set({ cursed: 0, element: "neutral" })
+            .set({ cursed: 0, element: "neutral", ...PURIFIED_TILE_FIELDS })
             .where(eq(schema.territoryTiles.id, target[0].id));
           await expandFrontier(ownerKey, dq, dr);
           break;
@@ -4776,7 +4809,7 @@ export const handlers = {
         const fallRing = Math.max(Math.abs(victim.q), Math.abs(victim.r), Math.abs(victim.q + victim.r));
         const fallHp = curseHpFor(fallRing, mood);
         await db.update(schema.territoryTiles)
-          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp })
+          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp, ...FALLEN_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, victim.id));
       }
       // Wave number stays — you face it again.
@@ -5775,7 +5808,7 @@ export const handlers = {
           )).limit(1);
         if (target.length) {
           await db.update(schema.territoryTiles)
-            .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10 })
+            .set({ cursed: 0, spark: 0, curseHp: null, curseMaxHp: null, hp: 10, ...PURIFIED_TILE_FIELDS })
             .where(eq(schema.territoryTiles.id, target[0].id));
         }
       }
@@ -5866,7 +5899,7 @@ export const handlers = {
         const fallRing = Math.max(Math.abs(victim.q), Math.abs(victim.r), Math.abs(victim.q + victim.r));
         const fallHp = curseHpFor(fallRing, mood);
         await db.update(schema.territoryTiles)
-          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp })
+          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp, ...FALLEN_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, victim.id));
       }
       await db.update(schema.waveState)
@@ -6023,7 +6056,7 @@ export const handlers = {
         // The next Awoken born from this tile gets a random Fire aspect.
         const sparked = Math.random() < 0.05;
         await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0 })
+          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0, ...PURIFIED_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, tile[0].id));
         // The attacker advances onto the broken land — unless the thorns
         // took it as the curse broke, in which case it is back in hand.
@@ -6756,7 +6789,7 @@ export const handlers = {
     if (tie) element = "neutral";
     // Break the curse.
     await db.update(schema.territoryTiles)
-      .set({ cursed: 0, element })
+      .set({ cursed: 0, element, ...PURIFIED_TILE_FIELDS })
       .where(eq(schema.territoryTiles.id, tile[0].id));
     // Unified XP: each striker made an ATTACK EVENT (+10), and their
     // combined blow took the hex — HEX-TAKEN XP (+50) to each.
