@@ -109,15 +109,25 @@ const AWAKENING_LABELS: Record<string, string> = {
 // uploads persist in ui_sprites under category "table", keyed by slot name,
 // exactly like the other sections. The four classic enemies (Fray, Unraveler,
 // Hollow, Tangle) already live in the Enemies section and are NOT duplicated
-// here — only the Table's newer faces get slots.
+// here — only the Table's newer faces get slots. The Compendium group
+// (added 2026-10-16, same source) holds confirmed monsters' art as the
+// Compendium grows, one slot per approved design.
 interface TableSlot { name: string; label: string; canvas: string; note?: string }
-const TABLE_GROUPS: { title: string; slots: TableSlot[] }[] = [
+const TABLE_GROUPS: { title: string; caption?: string; slots: TableSlot[] }[] = [
   {
     title: "New faces for the Dark",
     slots: [
       { name: "enemy_thornrunner", label: "Thornrunner", canvas: "480×480" },
       { name: "enemy_hollow_choir", label: "The Hollow Choir", canvas: "480×480" },
       { name: "enemy_gloaming_stag", label: "Gloaming Stag", canvas: "480×480" },
+    ],
+  },
+  {
+    title: "The Compendium — Confirmed",
+    caption: "Monsters from the Compendium, confirmed by Nigel as their designs were approved. These are holding shelves for their art: uploads save here like everywhere else in the workshop, but nothing in the game draws from these slots yet — no battle or Table surface renders them until a consumer is built.",
+    slots: [
+      { name: "enemy_seamother", label: "The Seamother", canvas: "480×480", note: "Confirmed 2026-10-16. Stitch-walker; sews herself forward." },
+      { name: "enemy_long_parish", label: "The Long Parish", canvas: "480×480", note: "Confirmed 2026-10-16. The procession that never arrives." },
     ],
   },
   {
@@ -597,6 +607,9 @@ export default function UIWorkspace() {
           {TABLE_GROUPS.map(group => (
             <div key={group.title}>
               <h3 style={{ margin: "18px 0 8px" }}>{group.title}</h3>
+              {group.caption ? (
+                <p className="quiet" style={{ margin: "0 0 8px" }}>{group.caption}</p>
+              ) : null}
               <div className="workspace-grid">
                 {group.slots.map(slot => (
                   <div key={slot.name} className="workspace-card">
