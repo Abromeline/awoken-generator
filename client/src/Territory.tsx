@@ -2343,12 +2343,38 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         })()}
       </g>
     );
+    // War-Grounds guide (Nigel, 2026-10-16): while the dock stands
+    // open, every hex where a work may be laid — an Awoken standing,
+    // the ground uncursed — wears a dotted outline on the map, and
+    // tapping one moves the dock to that hex. The hex the dock
+    // currently holds is ringed solid.
+    const wgGuideLayer = wgTileId !== null ? (
+      <g key="wg-guide">
+        {tiles.filter(t => !t.cursed && placements.some(p => p.tileId === t.id)).map(t => {
+          const { cx, cy } = tilePos(t);
+          const pts = hexCellVertices(cx, cy, size).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+          const isOpen = t.id === wgTileId;
+          return (
+            <polygon key={t.id} points={pts}
+              fill={isOpen ? "rgba(255,215,0,0.10)" : "rgba(255,215,0,0.03)"}
+              stroke={isOpen ? "#ffd700" : "rgba(255,215,0,0.75)"}
+              strokeWidth={isOpen ? 2.5 : 2}
+              strokeDasharray={isOpen ? undefined : "1 6"}
+              strokeLinecap="round"
+              style={{ cursor: "pointer" }}
+              onClick={(e) => { e.stopPropagation(); setWgTileId(t.id); }}
+            />
+          );
+        })}
+      </g>
+    ) : null;
     return (
       <>
         {elements}
         {buildingElements}
         {awokenElements}
         {wallLayer}
+        {wgGuideLayer}
         {hoverLayer}
         {mistLayer}
         {targetMarker}
