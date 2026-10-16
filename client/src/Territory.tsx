@@ -159,6 +159,10 @@ interface Props {
 // parts average by their sum; a part with no filed element votes
 // the middle road (elementForPiece: the filing is the only judge).
 const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
+function hexDistanceAxial(aq: number, ar: number, bq: number, br: number): number {
+  return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs((aq + ar) - (bq + br))) / 2;
+}
+
 function marchSecondsPerHex(a: Awakened): number {
   const layers = a.layers ?? [];
   let pace = MARCH_SECONDS_PER_HEX.neutral;
@@ -357,6 +361,26 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [patrolDraft, setPatrolDraft] = useState<number[]>([]);
   const [marchUiFor, setMarchUiFor] = useState<number | null>(null);
   const [marchQuote, setMarchQuote] = useState<{ tileId: number; road: number[]; steps: number; seconds: number; energy: number } | null>(null);
+  // Drag-selection (War-Ground, Nigel 2026-10-16): a left-drag on the
+  // map draws a band; the wardens inside it are chosen together and
+  // can be given a company march. (Pan is right-drag, so the left
+  // hand was free for this.)
+  const [selectedGroup, setSelectedGroup] = useState<number[]>([]);
+  const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const bandRef = useRef<{ cx: number; cy: number; sx: number; sy: number; active: boolean } | null>(null);
+  const bandClosedAt = useRef(0);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [groupMarchUi, setGroupMarchUi] = useState(false);
+  const [groupQuote, setGroupQuote] = useState<{ destId: number; orders: { awakenedId: number; tileId: number; steps: number; road: number[]; alreadyThere: boolean }[]; totalEnergy: number; slowest: number; excluded: number } | null>(null);
+  const svgPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+    return { x: pt.x, y: pt.y };
+  };
+  const bandJustClosed = () => Date.now() - bandClosedAt.current < 300;
   const [marchNow, setMarchNow] = useState(() => Date.now());
   const anyPatrol = placements.some(p => !!p.patrolPath);
   const anyMarch = placements.some(p => !!p.marchPath);
@@ -898,6 +922,57 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // here while a flow is armed. Before this, covered hexes were simply
   // unreachable: their taps died in the covering element's own handler.
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
+    if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
+    if (groupMarchUi) {
+      // Company march quoting: the tapped hex is the muster point;
+      // the company forms up on it and the open hexes around it,
+      // nearest first, four to a hex, each by its own road.
+      const destTile = tiles.find(t => t.id === tile.id);
+      if (!destTile || destTile.cursed) { showHexNotice("The company cannot muster on cursed land."); return; }
+      const openTiles = tiles.filter(t => !t.cursed);
+      const candidates = [...openTiles].sort((a, b) =>
+        hexDistanceAxial(a.q, a.r, destTile.q, destTile.r) - hexDistanceAxial(b.q, b.r, destTile.q, destTile.r) || a.id - b.id);
+      const occupants = new Map<number, number>();
+      for (const p of placements) {
+        if (!p.marchPath) occupants.set(p.tileId, (occupants.get(p.tileId) ?? 0) + 1);
+        else { const r = marchRoadOf(p); if (r.length) occupants.set(r[r.length - 1], (occupants.get(r[r.length - 1]) ?? 0) + 1); }
+      }
+      const assigned = new Map<number, number>();
+      const leaving = new Map<number, number>();
+      const orders: NonNullable<typeof groupQuote>["orders"] = [];
+      let excluded = 0, totalEnergy = 0, slowest = 0;
+      for (const id of selectedGroup) {
+        const p = placements.find(p => p.awakenedId === id);
+        const aw = tenderItems.find(a => a.id === id);
+        if (!p || !aw || p.marchPath) { excluded++; continue; }
+        let done = false;
+        for (const cand of candidates) {
+          const room = 4 - ((occupants.get(cand.id) ?? 0) - (leaving.get(cand.id) ?? 0) + (assigned.get(cand.id) ?? 0));
+          if (room <= 0) continue;
+          if (cand.id === p.tileId) {
+            orders.push({ awakenedId: id, tileId: cand.id, steps: 0, road: [cand.id], alreadyThere: true });
+            assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
+            done = true; break;
+          }
+          const road = findRoadClient(p.tileId, cand.id);
+          if (!road) continue;
+          const steps = road.length - 1;
+          orders.push({ awakenedId: id, tileId: cand.id, steps, road, alreadyThere: false });
+          assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
+          leaving.set(p.tileId, (leaving.get(p.tileId) ?? 0) + 1);
+          totalEnergy += steps * moveCost(aw.power);
+          slowest = Math.max(slowest, steps * marchSecondsPerHex(aw));
+          done = true; break;
+        }
+        if (!done) excluded++;
+      }
+      if (!orders.some(o => !o.alreadyThere)) {
+        showHexNotice(excluded ? "None of the company can march there — no road, or no room." : "The company already stands there.");
+        return;
+      }
+      setGroupQuote({ destId: destTile.id, orders, totalEnergy, slowest, excluded });
+      return;
+    }
     if (marchUiFor !== null) {
       // March orders are open: a tap QUOTES the march — road, time and
       // energy calculated and shown for the Tender's confirm.
@@ -2081,7 +2156,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const driftDelay = (-(a.id % 7)).toFixed(1);
                 const isSelected = selectedAwoken === a.id;
                 return (
-                  <g key={a.id} className={pPos ? "field-patroller" : "field-drifter"}
+                  <g key={a.id} className={(pPos ? "field-patroller" : "field-drifter") + (selectedGroup.includes(a.id) ? " field-chosen" : "")}
                     style={{
                       ...(pPos
                         // The bob keeps time with the walker's own feet:
@@ -2093,9 +2168,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                     } as React.CSSProperties}
                     onClick={async (e) => {
                       e.stopPropagation();
+                      if (bandJustClosed()) return; // the band's release is not a tap
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null || marchUiFor !== null) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null || marchUiFor !== null || groupMarchUi) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -2120,6 +2196,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                         return;
                       }
                       setSelectedAwoken(isSelected ? null : a.id);
+                      setSelectedGroup([]); // a single choosing ends the company's
+                      setGroupMarchUi(false);
+                      setGroupQuote(null);
                       setAttackTargeting(false);
                       setMoveTargeting(false);
                       setStanceMinimized(false);
@@ -2573,19 +2652,37 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     })() : null;
     // March trace: a quoted march draws its road dotted to the
     // destination flag, so the Tender sees the way before confirming.
-    const marchGuideLayer = marchQuote ? (() => {
-      const pts = marchQuote.road.map(id => tiles.find(t => t.id === id)).filter(Boolean).map(t => tilePos(t as TerritoryTile));
-      if (pts.length < 2) return null;
-      const dest = pts[pts.length - 1];
+    // A quoted company march draws every warden's road the same way.
+    const marchGuideLayer = (marchQuote || groupQuote) ? (() => {
+      const roads: number[][] = marchQuote
+        ? [marchQuote.road]
+        : (groupQuote?.orders.filter(o => !o.alreadyThere).map(o => o.road) ?? []);
+      if (!roads.length) return null;
       return (
         <g key="march-guide">
-          <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
-            stroke="rgba(255,215,0,0.85)" strokeWidth={2} strokeDasharray="1 6" strokeLinecap="round" />
-          <circle cx={dest.cx} cy={dest.cy} r={15} fill="rgba(255,215,0,0.08)" stroke="#ffd700" strokeWidth={2} strokeDasharray="3 4" />
-          <text x={dest.cx} y={dest.cy + 5} textAnchor="middle" fontSize={14} fill="#ffd700">⚑</text>
+          {roads.map((road, i) => {
+            const pts = road.map(id => tiles.find(t => t.id === id)).filter(Boolean).map(t => tilePos(t as TerritoryTile));
+            if (pts.length < 2) return null;
+            const dest = pts[pts.length - 1];
+            return (
+              <g key={i}>
+                <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
+                  stroke="rgba(255,215,0,0.85)" strokeWidth={2} strokeDasharray="1 6" strokeLinecap="round" />
+                <circle cx={dest.cx} cy={dest.cy} r={15} fill="rgba(255,215,0,0.08)" stroke="#ffd700" strokeWidth={2} strokeDasharray="3 4" />
+                <text x={dest.cx} y={dest.cy + 5} textAnchor="middle" fontSize={14} fill="#ffd700">⚑</text>
+              </g>
+            );
+          })}
         </g>
       );
     })() : null;
+    // The drag band itself, while the hand is down.
+    const bandLayer = band ? (
+      <rect key="drag-band"
+        x={Math.min(band.x0, band.x1)} y={Math.min(band.y0, band.y1)}
+        width={Math.abs(band.x1 - band.x0)} height={Math.abs(band.y1 - band.y0)}
+        fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={1.2} strokeDasharray="5 4" pointerEvents="none" />
+    ) : null;
     return (
       <>
         {elements}
@@ -2595,6 +2692,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         {wgGuideLayer}
         {patrolGuideLayer}
         {marchGuideLayer}
+        {bandLayer}
         {hoverLayer}
         {mistLayer}
         {targetMarker}
@@ -3384,16 +3482,82 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           // raises mist + confirm; a mouse glows on hover and commits
           // on click. Pens count as touch — they tap like fingers.
           setTouchMode(e.pointerType !== "mouse");
+          // Drag-selection begins listening here (left hand only —
+          // the right hand pans). A drag past a thumb's width raises
+          // the band; a plain tap never does.
+          if (e.button !== 2) {
+            const p = svgPoint(e.clientX, e.clientY);
+            if (p) bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
+          }
+        }}
+        onPointerMove={(e) => {
+          const b = bandRef.current;
+          if (!b) return;
+          if (!b.active && Math.hypot(e.clientX - b.cx, e.clientY - b.cy) < 9) return;
+          b.active = true;
+          const p = svgPoint(e.clientX, e.clientY);
+          if (p) setBand({ x0: b.sx, y0: b.sy, x1: p.x, y1: p.y });
+        }}
+        onPointerUp={(e) => {
+          const b = bandRef.current;
+          bandRef.current = null;
+          if (!b?.active || !band) return;
+          const x0 = Math.min(band.x0, band.x1), x1 = Math.max(band.x0, band.x1);
+          const y0 = Math.min(band.y0, band.y1), y1 = Math.max(band.y0, band.y1);
+          setBand(null);
+          bandClosedAt.current = Date.now();
+          // The wardens inside the band are chosen. A MARCHER is
+          // caught by where it stands on its road (the same road +
+          // clock derivation the map draws); everyone else — the
+          // standing and the patrolling — by their post.
+          const chosen: number[] = [];
+          const bandSize = HEX_BASE_SIZE * zoom; // the render block's own measure
+          const centerOf = (t: TerritoryTile) => {
+            const { px, py } = isoOffset(t.q, t.r, bandSize);
+            return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * Math.round(bandSize * 0.2) };
+          };
+          for (const p of placements) {
+            const t = tiles.find(tt => tt.id === p.tileId);
+            if (!t) continue;
+            let anchor = centerOf(t);
+            const road = marchRoadOf(p).map(id => tiles.find(tt => tt.id === id)).filter(Boolean) as TerritoryTile[];
+            if (road.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
+              const centers = road.map(centerOf);
+              const total = centers.reduce((s, c, i) => i === 0 ? 0 : s + Math.hypot(c.cx - centers[i - 1].cx, c.cy - centers[i - 1].cy), 0);
+              if (total > 0) {
+                let d = Math.min(1, Math.max(0, (Date.now() - p.marchSince) / (p.marchEnds - p.marchSince))) * total;
+                for (let i = 0; i < centers.length - 1; i++) {
+                  const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy);
+                  if (d <= len) { const k = len ? d / len : 0; anchor = { cx: centers[i].cx + (centers[i + 1].cx - centers[i].cx) * k, cy: centers[i].cy + (centers[i + 1].cy - centers[i].cy) * k }; break; }
+                  d -= len;
+                  anchor = centers[centers.length - 1];
+                }
+              }
+            }
+            if (anchor.cx >= x0 && anchor.cx <= x1 && anchor.cy >= y0 && anchor.cy <= y1) chosen.push(p.awakenedId);
+          }
+          if (chosen.length === 1) {
+            setSelectedGroup([]);
+            setSelectedAwoken(chosen[0]);
+            setStanceMinimized(false);
+          } else if (chosen.length > 1) {
+            setSelectedAwoken(null);
+            setSelectedGroup(chosen);
+          }
         }}
         onClick={() => {
+        if (bandJustClosed()) return; // the band's own click is not a dismissal
         // Clicking empty map dismisses the stance box
         setSelectedAwoken(null);
+        setSelectedGroup([]);
+        setGroupMarchUi(false);
+        setGroupQuote(null);
         setAttackTargeting(false);
         setMoveTargeting(false);
         setTargetHexId(null);
         clearHexConfirm();
       }}>
-        <svg viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
+        <svg ref={svgRef} viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
           onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => {
             if (e.button === 2) { // Right click
@@ -3912,6 +4076,54 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           />
         );
       })()}
+      {/* The company bar — a drag-chosen company's orders (Nigel,
+          2026-10-16): one march for the whole band, quoted whole —
+          total energy, the slowest warden's arrival — then confirmed. */}
+      {selectedGroup.length > 0 && marchUiFor === null && patrolSettingFor === null && (
+        <div className="patrol-bar">
+          {!groupMarchUi ? (
+            <>
+              <span className="patrol-bar-label">⚔ {selectedGroup.length} wardens chosen</span>
+              <button className="stance-btn" onClick={() => { setGroupMarchUi(true); setGroupQuote(null); }}>➤ Company march</button>
+              <button className="stance-btn" onClick={() => setSelectedGroup([])}>✕ Clear</button>
+            </>
+          ) : !groupQuote ? (
+            <>
+              <span className="patrol-bar-label">➤ Company march — tap the hex the company musters on; it forms up around it</span>
+              <button className="stance-btn" onClick={() => setGroupMarchUi(false)}>✕ Done</button>
+            </>
+          ) : (
+            <>
+              <span className="patrol-bar-label">
+                ⚑ Company march — {groupQuote.orders.filter(o => !o.alreadyThere).length} on the road · {groupQuote.totalEnergy}⚡ · last in ~{fmtMarchTime(groupQuote.slowest)}
+                {groupQuote.excluded ? ` · ${groupQuote.excluded} cannot march` : ""}
+                {groupQuote.orders.some(o => o.alreadyThere) ? " · some already stand there" : ""}
+              </span>
+              <button className="stance-btn" disabled={energy < groupQuote.totalEnergy}
+                onClick={async () => {
+                  const q = groupQuote;
+                  let marched = 0, failed = 0;
+                  for (const o of q.orders) {
+                    if (o.alreadyThere) { marched++; continue; }
+                    try { await api.setMarch({ awakenedId: o.awakenedId, tileId: o.tileId }); marched++; }
+                    catch { failed++; }
+                  }
+                  setGroupMarchUi(false);
+                  setGroupQuote(null);
+                  setSelectedGroup([]);
+                  await onUpdate();
+                  showHexNotice(failed
+                    ? `${marched} of the company march — ${failed} were refused by the ground as the orders landed.`
+                    : `The company marches — ${marched} wardens on the road. Boom.`);
+                }}>
+                ✓ March
+              </button>
+              <button className="stance-btn" onClick={() => setGroupQuote(null)}>↩ Pick again</button>
+              <button className="stance-btn" onClick={() => { setGroupMarchUi(false); setGroupQuote(null); }}>✕ Cancel</button>
+            </>
+          )}
+        </div>
+      )}
       {/* The march bar — march orders from the Move button (Nigel,
           2026-10-16): tap a hex and the march is QUOTED (road traced
           on the map, time and energy calculated); hit confirm and —

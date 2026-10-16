@@ -646,6 +646,15 @@ body.defeat-flash {
   transform-origin: center;
   transform-box: fill-box;
 }
+/* A warden caught in the drag band carries the gold of choosing. */
+.field-chosen {
+  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.95)) drop-shadow(0 0 2px rgba(255, 215, 0, 0.9));
+}
+/* Drag-selection owns the drag on the map (pan is the compass and
+   the right hand); without this the browser would scroll instead. */
+.territory-svg {
+  touch-action: none;
+}
 .patrol-bar {
   position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
   z-index: 60; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
