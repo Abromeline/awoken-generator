@@ -225,6 +225,7 @@ export default function UIWorkspace() {
   const [sprites, setSprites] = useState<UiSprite[]>([]);
   const [compClasses, setCompClasses] = useState<CompendiumClass[]>([]);
   const [compEntries, setCompEntries] = useState<CompendiumEntry[]>([]);
+  const [compLastSync, setCompLastSync] = useState<{ at: string; added: number; updated: number; removed: number; total: number } | null>(null);
   const [compEditing, setCompEditing] = useState<number | "new" | null>(null);
   const [compDraft, setCompDraft] = useState<CompendiumDraft>(EMPTY_DRAFT);
   const [compSaving, setCompSaving] = useState(false);
@@ -235,6 +236,7 @@ export default function UIWorkspace() {
       const r: any = await api.call("getCompendium", {});
       setCompClasses(r.classes || []);
       setCompEntries(r.entries || []);
+      setCompLastSync(r.lastSync ?? null);
     } catch (e) { console.error("Compendium load failed", e); }
   };
 
@@ -793,11 +795,19 @@ export default function UIWorkspace() {
           <div>
             <p className="quiet" style={{ marginTop: 0 }}>
               📖 <strong>The Monsters Compendium</strong> — the standing roll of every enemy the heroes
-              may face, kept by class. This is the game's own living copy of the roll founded in the
-              Unseated's Atelier: it was seeded from the Compendium app's entries, and edits here are
-              kept in the game's store. Sprites are not stored on an entry — an entry's slot key points
-              at the workshop's Table slots, so art uploaded here (or in the Discord Table section)
-              shows on the entry; the canon four wear the live art from the Enemies section.
+              may face, kept by class. <strong>The Compendium app is the roll of record; this page is
+              its mirror in the game.</strong> The Keeper carries the sync: say <em>"sync the
+              compendium"</em> in chat (here or in the Atelier) and this page is brought up to the app
+              exactly — new entries arrive, changed ones update, ones the app no longer holds are
+              removed. Edits made on this page are local, and a sync will overwrite them. Sprites are
+              not stored on an entry — an entry's slot key points at the workshop's Table slots, so
+              art uploaded here (or in the Discord Table section) shows on the entry; the canon four
+              wear the live art from the Enemies section.
+            </p>
+            <p className="quiet" style={{ marginTop: 0 }}>
+              {compLastSync
+                ? <>Last synced from the Compendium app: {new Date(compLastSync.at).toLocaleString()} — {compLastSync.total} entries ({compLastSync.added} added, {compLastSync.updated} updated, {compLastSync.removed} removed in that sync).</>
+                : <>Seeded from the app's founding roll — not yet synced.</>}
             </p>
             {compError && (
               <p className="notice error" style={{ marginBottom: 12 }}>

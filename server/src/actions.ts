@@ -1771,13 +1771,14 @@ async function loadUITheme(): Promise<UITheme> {
 
 // ── THE MONSTERS COMPENDIUM ─────────────────────────────────────────
 // The game's living copy of the roll kept in the Unseated's Atelier
-// (the Monsters Compendium app + MONSTERS-COMPENDIUM.md). The two
-// stores are NOT wired together — this seed is a one-time copy of the
-// app's entries as they stood at the founding (2026-10-16); from here
-// the game's copy lives its own life in compendium_entries, edited
-// from the UI Workspace's Compendium page. Class blurbs/order are the
-// roll's own; a class invented in the editor simply sorts after the
-// known ones until it is given a place here.
+// (the Monsters Compendium app + MONSTERS-COMPENDIUM.md). This seed
+// is the founding copy of the app's entries as they stood at the
+// founding (2026-10-16); since the connection was ruled the same day,
+// the Keeper's syncs (importCompendium) keep compendium_entries the
+// app's mirror — the app is the roll of record. Class blurbs/order
+// below are the founding roll's own, used until the first sync's
+// class list lands; a class invented in the editor simply sorts
+// after the known ones until it is given a place here.
 const COMPENDIUM_CLASS_META: Record<string, { blurb: string; order: number }> = {
   "The Canon Dark": { blurb: "In the game, with art, stats, and law.", order: 10 },
   "The Stitchers": { blurb: "The Seamother is not alone. A whole kindred works the world's seams.", order: 20 },
@@ -5721,23 +5722,110 @@ export const handlers = {
   // listUiSprites; the writes are workshop-gated in index.ts. Sprites
   // resolve client-side through the ui_sprites slots (an entry's
   // slotKey) and getEnemyArt (the canon four) — never stored here.
+  //
+  // THE CONNECTION (Nigel, 2026-10-16: "i want the app and the workshop
+  // connected"): the Compendium APP is the roll of record. The game
+  // server cannot reach the app on its own — the app's actions run
+  // through the Keeper's runtime and expose no endpoint the game could
+  // poll — so the Keeper is the wire: on Nigel's word ("sync the
+  // compendium", here or in the Atelier) the Keeper reads the app's
+  // current roll and hands it to importCompendium below, which
+  // reconciles this copy to the app's exactly and stamps the sync.
+  // The app wins: entries edited only here are overwritten by a sync,
+  // and entries the app no longer holds are removed here.
   async getCompendium() {
     await ensureCompendiumSeeded();
     const rows = await db.select().from(schema.compendiumEntries);
+    // The class list (blurbs + order) travels with a sync; until the
+    // first sync, the founding roll's own meta stands in.
+    let storedClasses: { name: string; blurb: string; order: number }[] | null = null;
+    const [clsRow] = await db.select().from(schema.uiConfig)
+      .where(eq(schema.uiConfig.key, "compendium.classes")).limit(1);
+    if (clsRow) { try { storedClasses = JSON.parse(clsRow.value); } catch {} }
     const classNames = [...new Set(rows.map(r => r.className))];
     const classes = classNames
-      .map(name => ({
-        name,
-        blurb: COMPENDIUM_CLASS_META[name]?.blurb ?? "",
-        order: COMPENDIUM_CLASS_META[name]?.order ?? 900,
-      }))
+      .map(name => {
+        const stored = storedClasses?.find(c => c.name === name);
+        return {
+          name,
+          blurb: stored?.blurb ?? COMPENDIUM_CLASS_META[name]?.blurb ?? "",
+          order: stored?.order ?? COMPENDIUM_CLASS_META[name]?.order ?? 900,
+        };
+      })
       .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
     const orderOf = new Map(classes.map(c => [c.name, c.order]));
     const entries = [...rows].sort((a, b) =>
       (orderOf.get(a.className) ?? 900) - (orderOf.get(b.className) ?? 900)
       || a.sortOrder - b.sortOrder
       || a.id - b.id);
-    return { classes, entries };
+    let lastSync: unknown = null;
+    const [syncRow] = await db.select().from(schema.uiConfig)
+      .where(eq(schema.uiConfig.key, "compendium.lastSync")).limit(1);
+    if (syncRow) { try { lastSync = JSON.parse(syncRow.value); } catch {} }
+    return { classes, entries, lastSync };
+  },
+
+  /** One sync of the Compendium, handed in by the Keeper from the app
+   *  (see the connection note above getCompendium). A COMPLETE payload
+   *  reconciles exactly: matched by (class, name) — updated in place,
+   *  new entries added, entries the app no longer holds removed. The
+   *  class list and the sync stamp are stored alongside. Idempotent:
+   *  syncing an unchanged roll changes nothing. */
+  async importCompendium(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({
+      complete: z.literal(true),
+      classes: z.array(z.object({
+        name: z.string().min(1).max(80),
+        blurb: z.string().max(500).default(""),
+        order: z.number().int().min(0).max(9999),
+      })).max(100),
+      entries: z.array(compendiumEntryShape).max(500),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid compendium sync payload.");
+    await ensureCompendiumSeeded();
+    const { classes, entries } = parsed.data;
+    const keyOf = (className: string, name: string) => `${className}::${name}`;
+    const existing = await db.select().from(schema.compendiumEntries);
+    const byKey = new Map(existing.map(e => [keyOf(e.className, e.name), e]));
+    let added = 0, updated = 0, removed = 0;
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      const key = keyOf(entry.className, entry.name);
+      seen.add(key);
+      const current = byKey.get(key);
+      if (!current) {
+        await db.insert(schema.compendiumEntries).values({ ...entry });
+        added++;
+      } else {
+        const changed = current.status !== entry.status
+          || current.power !== entry.power || current.hp !== entry.hp
+          || current.story !== entry.story || current.typeNote !== entry.typeNote
+          || current.layers !== entry.layers || current.motion !== entry.motion
+          || current.slotKey !== entry.slotKey || current.sortOrder !== entry.sortOrder;
+        if (changed) {
+          await db.update(schema.compendiumEntries)
+            .set({ ...entry, updatedAt: new Date() })
+            .where(eq(schema.compendiumEntries.id, current.id));
+          updated++;
+        }
+      }
+    }
+    for (const e of existing) {
+      if (!seen.has(keyOf(e.className, e.name))) {
+        await db.delete(schema.compendiumEntries).where(eq(schema.compendiumEntries.id, e.id));
+        removed++;
+      }
+    }
+    const stamp = { at: new Date().toISOString(), added, updated, removed, total: entries.length };
+    for (const [key, value] of [
+      ["compendium.classes", JSON.stringify(classes)],
+      ["compendium.lastSync", JSON.stringify(stamp)],
+    ] as const) {
+      await db.insert(schema.uiConfig)
+        .values({ key, value })
+        .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value } });
+    }
+    return { ok: true, ...stamp };
   },
 
   async addCompendiumEntry(args: unknown, ctx?: ActionContext) {

@@ -62,6 +62,7 @@ const WORKSHOP_ACTIONS = new Set([
   "addCompendiumEntry",
   "updateCompendiumEntry",
   "deleteCompendiumEntry",
+  "importCompendium",
   "setSiteColor",
   "adminResetTenderPassword",
   "saveGlyph",
