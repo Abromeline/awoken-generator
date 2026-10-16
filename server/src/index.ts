@@ -207,6 +207,12 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, dataDir: DATA_DIR }))
 // listen (registerTableSocket, at the foot of this file).
 registerTableRoutes(app);
 
+// Legal pages — Discord requires a public Privacy Policy and Terms of
+// Service for the Activity's application. Plain pages, served before
+// the SPA fallback so /privacy and /terms are truly themselves.
+app.get("/privacy", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "privacy.html")));
+app.get("/terms", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "terms.html")));
+
 // Static client bundle (built by `npm run build:client` into client/dist).
 const clientDist = resolve(process.cwd(), "client", "dist");
 if (existsSync(join(clientDist, "index.html"))) {
