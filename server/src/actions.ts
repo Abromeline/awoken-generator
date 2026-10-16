@@ -3575,8 +3575,10 @@ export const handlers = {
     // Now: the Awoken on a hex pour the full combined weight of their
     // elements into that hex alone — point for point, exactly as
     // attunement counts (pieces 1 pt, aspects 1 pt per level, fire
-    // aside) — but only the DOMINANT element of the whole company
-    // presses; the rest are disregarded on terrain. The hex holds a
+    // aside) — and the company's press is the NET of that weight
+    // (Nigel, 2026-10-15, the net press: the leading element minus
+    // every mismatched point, which erode it; see netPressOf below).
+    // The hex holds a
     // 10-point bank: 10 points carry it from its element to neutral,
     // 10 more from neutral to the pressing element, and pressure that
     // matches its current element refills the bank — the shepherd's
@@ -3597,24 +3599,32 @@ export const handlers = {
         });
         return counts;
       };
-      const dominantOf = (sums: Record<string, number>, current: string): { el: string; pts: number } => {
-        // TIES HOLD (Nigel, 2026-10-15): a single leader presses at its
-        // tally. On a tie for the lead, the hex's current element
-        // presses if it stands among the leaders — the land holds what
-        // it is. A tie the current element is not part of presses
-        // NOTHING: no winner is crowned by list order. (The old scan
-        // walked ["root", "sky", "stone", "tide"] and kept the first
-        // strictly-greatest, so every leaderless tie fell to root by
-        // position — one quiet spring of the root flood. The pooled
-        // press itself stands, by the same ruling: all parts of all
-        // Awoken on the hex still pool before the dominant is read.)
-        let bestPts = 0;
-        for (const el of ["tide", "sky", "stone", "root"]) bestPts = Math.max(bestPts, sums[el] || 0);
-        if (bestPts <= 0) return { el: "", pts: 0 };
-        const leaders = ["tide", "sky", "stone", "root"].filter((el) => (sums[el] || 0) === bestPts);
-        if (leaders.length === 1) return { el: leaders[0], pts: bestPts };
-        if (leaders.includes(current)) return { el: current, pts: bestPts };
-        return { el: "", pts: 0 };
+      const netPressOf = (sums: Record<string, number>): { el: string; pts: number } => {
+        // THE NET PRESS (Nigel, 2026-10-15, superseding the plain
+        // pooled-dominant read an hour after it was ruled): no element
+        // ever contributes to a MISMATCHED attunement — it ERODES it.
+        // The leading element presses at its tally MINUS every
+        // mismatched point pooled on the hex: 3 tide + 1 stone + 1
+        // root + 1 sky cancels to nothing; 4 root + 2 tide presses
+        // root at 2. The dominant neither cancels the weaker elements
+        // nor takes their power — they spend it wearing its press
+        // down. Net of zero or less presses NOTHING: the company
+        // stands on the hex inert this beat — no bank movement, no
+        // tray growth, no erosion. (Ties hold, as before, but now by
+        // arithmetic rather than by rule: a tied lead always nets to
+        // zero or below.) The parts still pool across the whole
+        // company on the hex; only the press that leaves the pool
+        // changed. Fire and neutral never enter the sums (see
+        // elementPointsOf), so they erode nothing.
+        let leadEl = "", leadPts = 0, totalPts = 0;
+        for (const el of ["tide", "sky", "stone", "root"]) {
+          const pts = sums[el] || 0;
+          totalPts += pts;
+          if (pts > leadPts) { leadEl = el; leadPts = pts; }
+        }
+        const net = leadPts - (totalPts - leadPts);
+        if (!leadEl || net <= 0) return { el: "", pts: 0 };
+        return { el: leadEl, pts: net };
       };
       // Pour pressure into a tile's bank and resolve its 10-point
       // steps. Returns the fields to persist, or null when unmoved.
@@ -3763,7 +3773,7 @@ export const handlers = {
       for (const [tileId, company] of byTile) {
         const tile = tileById.get(tileId);
         if (!tile || tile.cursed) continue;
-        const dom = dominantOf(await companySums(company), tile.element);
+        const dom = netPressOf(await companySums(company));
         if (!dom.el || dom.pts <= 0) continue;
         (tile as any).attuneRatePts = dom.pts;
         const elementBefore = tile.element as string;
@@ -3813,7 +3823,7 @@ export const handlers = {
             const part = await companySums(byTile.get(rt.id) ?? []);
             for (const [el, n] of Object.entries(part)) sums[el] = (sums[el] || 0) + n;
           }
-          const voice = dominantOf(sums, home.element);
+          const voice = netPressOf(sums);
           if (!voice.el) continue;
           let anchor = sh.attuneAnchorAt ? new Date(sh.attuneAnchorAt as any).getTime() : 0;
           if (!anchor) {
