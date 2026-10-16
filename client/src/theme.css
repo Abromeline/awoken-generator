@@ -136,7 +136,7 @@
 .tc-watermark{position:absolute;bottom:26px;right:8px;z-index:1;font-size:60px;color:rgba(0,0,0,.07);font-family:var(--display);pointer-events:none}
 @media(min-width:760px){.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
 .tc-stories{text-align:center;font-size:10px;color:#b89b5e;letter-spacing:.2em;padding:2px 0 6px;position:relative;z-index:2}
-.deck-button{position:absolute;top:100%;left:16px;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:30}
+.deck-button{position:absolute;top:100%;right:16px;left:auto;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:30}
 .deck-button img{width:108px;height:108px;object-fit:contain;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.5))}
 .deck-button span{font-size:13px;font-weight:600;letter-spacing:0.05em;text-shadow:0 2px 8px #000}
 .decks-view{max-width:900px;margin:0 auto;padding:16px}
@@ -2065,18 +2065,21 @@ body.defeat-flash {
   .deck-button img { width: 20px; height: 20px; }
 }
 
-/* Terrain button above acorn - locked to acorn on desktop and mobile */
+/* Terrain Map button — the RIGHT side of the screen (Nigel,
+   2026-10-16: moved from above the acorn on the left). */
 .deck-button {
   position: fixed !important;
   bottom: 200px !important;
-  left: 90px !important;
+  right: 90px !important;
+  left: auto !important;
   top: auto !important;
   z-index: 1000 !important;
 }
 @media (max-width: 768px) {
   .deck-button {
     bottom: 140px !important;
-    left: 16px !important;
+    right: 16px !important;
+    left: auto !important;
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
