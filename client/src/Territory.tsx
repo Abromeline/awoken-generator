@@ -2089,13 +2089,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           {/* One info bar per hex (Nigel, 2026-10-15): the stack's
               facts ride in the tile's badge cluster — Z (its trays),
               the whole stack's power, and the top tray's HP, the
-              only skin erosion or an enemy can wound. It appears
-              once the land has begun to grow or to stack. */}
-          {!t.cursed && (((t as any).height ?? 1) >= 2 || ((t as any).growPoints ?? 0) > 0) && (
+              only skin erosion or an enemy can wound. Every purified
+              tile wears it (Nigel, 2026-10-16): ungrown land reads
+              Z1 · ⚔0 · ♥0 rather than staying silent, and the power
+              carries the crossed-swords mark — the same mark the
+              War-Grounds panel reads stack power by — never ⚡,
+              which is the Tender's energy and nothing else's. */}
+          {!t.cursed && (
             <g pointerEvents="none">
               <rect x={cx - s * 0.98} y={cy + s * 0.80} width={s * 1.96} height={s * 0.36} rx={s * 0.18} fill="rgba(8,6,10,0.82)" />
               <text x={cx} y={cy + s * 1.06} textAnchor="middle" fontSize={s * 0.26} fill="#f0e6cc">
-                {`Z${(t as any).height ?? 1} · ⚡${(((t as any).stackPower ?? 0) as number).toFixed(1).replace(/\.0$/, "")} · ♥${(t as any).topHp ?? 0}`}
+                {`Z${(t as any).height ?? 1} · ⚔${(((t as any).stackPower ?? 0) as number).toFixed(1).replace(/\.0$/, "")} · ♥${(t as any).topHp ?? 0}`}
               </text>
             </g>
           )}
