@@ -17,7 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
-import { takeTableBoot } from "./tableSdk";
+import { takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -165,6 +165,15 @@ export default function Table() {
           if (!cancelled) setDevMode(Boolean(cfg.devMode));
         } catch {}
         if (!cancelled) setPhase("door");
+        return;
+      }
+      // THE PREPARED SESSION (light front page, 2026-10-16): when
+      // this room was imported by table-main.tsx after Discord had
+      // already answered and vouched, there is nothing to knock
+      // for — the seat ticket is waiting. Take the seat directly.
+      const prepared = takeTableSession();
+      if (prepared) {
+        connect({ authToken: prepared.authToken, room: prepared.room });
         return;
       }
       try {
