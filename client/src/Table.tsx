@@ -60,6 +60,7 @@ const ROSTER = [
 
 export default function Table() {
   const [phase, setPhase] = useState<Phase>("boot");
+  const [bootStep, setBootStep] = useState("Waking the Table…");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [devMode, setDevMode] = useState(false);
@@ -77,9 +78,23 @@ export default function Table() {
 
   const inDiscord = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("frame_id");
 
+  // The boot names its step, and no step may hang silently: if the
+  // Table sits at one step for 20 seconds, the door says which step
+  // jammed instead of spinning forever (Nigel's stuck launch,
+  // 2026-10-16 — the candle burned with no word of where).
+  useEffect(() => {
+    if (phase !== "boot" && phase !== "connecting") return;
+    const t = setTimeout(() => {
+      setError(`The Table got stuck at this step: “${bootStep}”. Tell the Keeper those exact words — they say where the door jammed.`);
+      setPhase("error");
+    }, 20000);
+    return () => clearTimeout(t);
+  }, [phase, bootStep]);
+
   function connect(join: Record<string, unknown>) {
     lastJoinRef.current = join;
     setPhase("connecting");
+    setBootStep("Taking your seat…");
     setError("");
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${window.location.host}/table/ws`);
@@ -126,7 +141,9 @@ export default function Table() {
           return;
         }
         const sdk = new DiscordSDK(cfg.discordClientId);
+        setBootStep("Knocking on Discord's door…");
         await sdk.ready();
+        setBootStep("Asking Discord your name…");
         const { code } = await sdk.commands.authorize({
           client_id: cfg.discordClientId,
           response_type: "code",
@@ -134,6 +151,7 @@ export default function Table() {
           prompt: "none",
           scope: ["identify"],
         });
+        setBootStep("Proving your name to the Table…");
         const authRes = await fetch("/api/table/auth", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -144,6 +162,7 @@ export default function Table() {
           throw new Error(body.error || "Discord refused the sign-in.");
         }
         const auth = await authRes.json();
+        setBootStep("Discord is vouching for you…");
         await sdk.commands.authenticate({ access_token: auth.accessToken });
         if (!cancelled) connect({ authToken: auth.token, room: sdk.instanceId || "the-table" });
       } catch (e) {
@@ -179,6 +198,7 @@ export default function Table() {
         <div className="table-door">
           <h1>🕯️ The Table</h1>
           <p className="quiet">The Table is being set…</p>
+          <p className="quiet" style={{ fontSize: 12, opacity: 0.75 }}>{bootStep}</p>
         </div>
       </div>
     );
