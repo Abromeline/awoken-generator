@@ -10,6 +10,7 @@ import {
 import { tenderFromToken, tenderOwnerKey, tenderTokenFromHeader } from "./tenders.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
+import { registerTableRoutes, registerTableSocket } from "./table.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -200,11 +201,31 @@ app.post("/api/stripe/portal", async (req, res) => {
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, dataDir: DATA_DIR }));
 
+// THE TABLE (Discord Activity): config + sign-in routes — registered
+// before the static bundle below, whose SPA fallback would otherwise
+// answer /api/table/* with index.html. The room socket mounts after
+// listen (registerTableSocket, at the foot of this file).
+registerTableRoutes(app);
+
 // Static client bundle (built by `npm run build:client` into client/dist).
 const clientDist = resolve(process.cwd(), "client", "dist");
 if (existsSync(join(clientDist, "index.html"))) {
   app.use("/music", express.static("server/public/music", { maxAge: "7d" }));
   app.use(express.static(clientDist, { maxAge: "1d", index: false }));
+  // THE TABLE (Discord Activity) has its own page; every other path is
+  // the Awoken app. Discord launches an Activity at the app's URL root
+  // with ?frame_id=… in the query — that marker is the Table's door at
+  // the root, so the standard root URL mapping opens the room while
+  // the plain site root serves the Awoken app as ever.
+  app.get("/table", (_req, res) => {
+    const tablePage = join(clientDist, "table.html");
+    res.sendFile(existsSync(tablePage) ? tablePage : join(clientDist, "index.html"));
+  });
+  app.get("/", (req, res) => {
+    const tablePage = join(clientDist, "table.html");
+    if (req.query.frame_id && existsSync(tablePage)) res.sendFile(tablePage);
+    else res.sendFile(join(clientDist, "index.html"));
+  });
   app.get("*", (_req, res) => res.sendFile(join(clientDist, "index.html")));
 } else {
   app.get("/", (_req, res) => res.status(503).json({ error: "Client not built. Run `npm run build:client` first." }));
@@ -230,7 +251,7 @@ try {
 }
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Awoken Generator (standalone) listening on :${port}`);
   console.log(`Data directory: ${DATA_DIR}`);
   if (workshopLockEnabled()) {
@@ -242,3 +263,7 @@ app.listen(port, () => {
     );
   }
 });
+
+// THE TABLE (Discord Activity): the room socket rides the same server
+// — same roof, same database (design §6).
+registerTableSocket(server);

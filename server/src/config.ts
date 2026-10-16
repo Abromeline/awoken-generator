@@ -34,6 +34,15 @@ export const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
  *  this value to the client. */
 export const DISCORD_STORIES_WEBHOOK_URL = (process.env.DISCORD_STORIES_WEBHOOK_URL ?? "").trim();
 
+/** THE TABLE (Discord Activity): the Voice's single Discord application.
+ *  The client id is public by nature (the Activity page reads it through
+ *  /api/table/config); the client secret is server-only, exchanged for a
+ *  player's sign-in and never sent to any client. Both live as Railway
+ *  variables; while either is unset the Table runs in doorway-test mode
+ *  (named dev seats, no Discord sign-in) and says so plainly. */
+export const DISCORD_CLIENT_ID = (process.env.DISCORD_CLIENT_ID ?? "").trim();
+export const DISCORD_CLIENT_SECRET = (process.env.DISCORD_CLIENT_SECRET ?? "").trim();
+
 /**
  * Test mode only, always. A live key is refused outright — selling real
  * wakes requires Nigel's explicit go-ahead, never an accident.

@@ -649,6 +649,13 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS ui_config (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS table_profiles (
+  player_key TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  inventory TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL
+);`);
 // Additive migrations for existing tables
 try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN last_seen_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN builder_stances TEXT`); } catch {}

@@ -468,6 +468,18 @@ export const uiConfig = sqliteTable("ui_config", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// THE TABLE (Discord Activity): a Tender's own keeping at the Table —
+// personal notes and their typed inventory, keyed by who they are
+// ("discord:<id>" once binding lands; "dev:<name>" at the doorway test).
+// Private by construction: only ever sent to the player it belongs to.
+export const tableProfiles = sqliteTable("table_profiles", {
+  playerKey: text("player_key").primaryKey(),
+  displayName: text("display_name").notNull(),
+  notes: text("notes").notNull().default(""),
+  inventory: text("inventory").notNull().default("[]"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // Battle tracks: rotating 8-bit music for battlegrounds.
 export const battleTracks = sqliteTable("battle_tracks", {
   id: integer("id").primaryKey({ autoIncrement: true }),
