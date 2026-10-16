@@ -1957,7 +1957,17 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 const kx = pPos ? pPos.x : cx + ks.dx * s;
                 const ky = pPos ? pPos.y + 0.28 * s : cy + ks.dy * s;
                 const awScale = 0.8 + zoom * 0.5; // Grows with zoom for visibility
-                const aws = ws * awScale, ahs = hs * awScale;
+                // LEVEL PRESENCE (Nigel, 2026-10-16): a field Awoken's
+                // map size compounds ×1.25 for every level above 1 —
+                // Lv5 stands ~2.4× a Lv1, Lv10 ~7.5×: veterans tower
+                // over the field, exactly as ruled. The level is the
+                // card's own number (the experience fallback mirrors
+                // the card's math). Growth is grounded: the feet stay
+                // on today's ground line (baseAhs) and the size rises.
+                const awLevel = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
+                const lvlScale = Math.pow(1.25, awLevel - 1);
+                const baseAhs = hs * awScale;
+                const aws = ws * awScale * lvlScale, ahs = hs * awScale * lvlScale;
                 const isWhispering = whisper?.awakenedId === a.id;
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
                 const driftDur = (6 + (a.id % 5)).toFixed(1);
@@ -2016,15 +2026,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                         style={{ filter: "blur(8px)" }} />
                     )}
                     {isSelected && (
-                      <circle cx={kx} cy={ky} r={14 * awScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
+                      <circle cx={kx} cy={ky} r={14 * awScale * lvlScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
                     )}
                     <g style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))" }}>
                     <FieldAwoken awoken={a} assets={assets}
-                      x={kx - aws / 2} y={ky - ahs / 2}
+                      x={kx - aws / 2} y={ky + baseAhs / 2 - ahs}
                       width={aws} height={ahs} />
                     </g>
                     {placement && placement.stance !== "defense" && (
-                      <text x={kx} y={ky - ahs / 2 - 4} textAnchor="middle" fontSize={7}
+                      <text x={kx} y={ky + baseAhs / 2 - ahs - 4} textAnchor="middle" fontSize={7}
                         fill={placement.stance === "attack" ? "#ff6666" : "#66aaff"}>
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
@@ -2048,7 +2058,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       return (
                         <g className="whisper-bubble" opacity="0.9">
                           {lines.map((ln, i) => (
-                            <text key={i} x={kx} y={ky - ahs / 2 - 12 - (lines.length - 1 - i) * 9}
+                            <text key={i} x={kx} y={ky + baseAhs / 2 - ahs - 12 - (lines.length - 1 - i) * 9}
                               textAnchor="middle" fontSize="7.5" fontStyle="italic"
                               fill="#e8d5a8" className="whisper-text">
                               {ln}
