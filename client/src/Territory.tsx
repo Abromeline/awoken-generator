@@ -149,6 +149,26 @@ interface Props {
 }
 
 
+// MARCH SPEED LAW (War-Ground, Nigel 2026-10-16): a walker's pace is
+// its element's gait — sky quickest, stone slowest — weighted by
+// SIZE, and size is LEVEL (the ×1.25-per-level growth the map draws).
+// The trade-off is the law's heart: the more powerful an Awoken, the
+// harder it is to move — speed divides by the square root of its
+// growth, so a Lv10 sky veteran crosses a hex in ~4.3s where a Lv10
+// stone one needs ~12.2s, and the young outrun them both. Mixed
+// parts average by their sum; a part with no filed element votes
+// the middle road (elementForPiece: the filing is the only judge).
+const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
+function marchSecondsPerHex(a: Awakened): number {
+  const layers = a.layers ?? [];
+  let pace = MARCH_SECONDS_PER_HEX.neutral;
+  if (layers.length) {
+    pace = layers.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[elementForPiece(l.name, (l as any).element)] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / layers.length;
+  }
+  const level = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
+  return pace * Math.sqrt(Math.pow(1.25, level - 1));
+}
+
 // Dominant element of an Awoken, for corner motifs.
 function dominantElement(a: Awakened): Element {
   const counts: Record<Element, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
@@ -1762,7 +1782,13 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         segs.push({ a, b, len }); total += len;
       }
       if (total <= 0) return null;
-      let d = ((marchNow - p.patrolSince) / 1000 * PATROL_SPEED) % total;
+      // The walker's own pace (MARCH SPEED LAW): its element's gait
+      // over one hex-step of this map, weighted by its level's size.
+      const walker = tenderItems.find(x => x.id === p.awakenedId);
+      const stepVec = isoOffset(1, 0, size);
+      const stepPx = Math.hypot(stepVec.px, stepVec.py);
+      const pxPerSec = walker && stepPx > 0 ? stepPx / marchSecondsPerHex(walker) : PATROL_SPEED;
+      let d = ((marchNow - p.patrolSince) / 1000 * pxPerSec) % total;
       if (d < 0) d += total;
       for (const s of segs) {
         if (d <= s.len) { const k = s.len ? d / s.len : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
@@ -1976,7 +2002,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 return (
                   <g key={a.id} className={pPos ? "field-patroller" : "field-drifter"}
                     style={{
-                      ...(pPos ? {} : { "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` }),
+                      ...(pPos
+                        // The bob keeps time with the walker's own feet:
+                        // two strides a hex, by the MARCH SPEED LAW.
+                        ? { animationDuration: `${Math.min(2.2, Math.max(0.3, marchSecondsPerHex(a) / 2)).toFixed(2)}s` }
+                        : { "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` }),
                       cursor: selectedBuilding ? "pointer" : "pointer",
                       pointerEvents: selectedBuilding ? "none" : "auto",
                     } as React.CSSProperties}
