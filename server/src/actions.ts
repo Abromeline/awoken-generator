@@ -4716,6 +4716,39 @@ export const handlers = {
     return { ok: true as const, awakenedId, skill, cost: TEACH_COST };
   },
 
+  // SET PATROL (War-Ground, Nigel 2026-10-16): the marching layer's
+  // only law. A patrol road is DATA on the placement — tile ids the
+  // Tender tapped — and the hour the march began; every viewer
+  // derives the walker's position from road + clock, so all screens
+  // agree without a simulation. COSMETIC by Nigel's ruling: no
+  // system of war, works or attunement reads the road; the
+  // placement (the home hex) remains the whole legal truth — which
+  // is the point: staying means something because marching exists.
+  // An empty road calls the walker home (clears the patrol).
+  async setPatrol(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive(), tileIds: z.array(z.number().int().positive()).max(8) }).safeParse(args);
+    if (!parsed.success) badRequest("A patrol road is an Awoken and up to eight hexes.");
+    const { awakenedId, tileIds } = parsed.data;
+    const rows = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    const placement = rows[0] as any;
+    if (!placement) badRequest("That Awoken does not stand on the field — only the stationed can patrol.");
+    if (tileIds.length === 0) {
+      await db.update(schema.fieldPlacements).set({ patrolPath: null, patrolSince: null } as any)
+        .where(eq(schema.fieldPlacements.id, placement.id));
+      return { ok: true as const, awakenedId, patrolling: false };
+    }
+    if (new Set(tileIds).size !== tileIds.length) badRequest("A patrol road does not name the same hex twice.");
+    if (tileIds.includes(placement.tileId)) badRequest("The home hex is the road's beginning and end — it is not named among the waypoints.");
+    const mine = new Set((await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey))).map(t => t.id));
+    if (tileIds.some(id => !mine.has(id))) badRequest("A patrol road runs over your own ground only.");
+    await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now() } as any)
+      .where(eq(schema.fieldPlacements.id, placement.id));
+    return { ok: true as const, awakenedId, patrolling: true, waypoints: tileIds.length };
+  },
+
   async getWave(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     let state = await db.select().from(schema.waveState)

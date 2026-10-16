@@ -387,6 +387,12 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // Binding upkeep: last time the hourly 3-energy charge was applied.
   lastBindingChargeAt: integer("last_binding_charge_at", { mode: "timestamp_ms" }),
   hp: integer("hp"),
+  // The marching layer (War-Ground, Nigel 2026-10-16): a patrol road
+  // kept as data — a JSON array of tile ids — and the hour the march
+  // began (raw ms). Positions are DERIVED from road + clock by every
+  // viewer; no system of law reads them. Placements remain the truth.
+  patrolPath: text("patrol_path"),
+  patrolSince: integer("patrol_since"),
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.

@@ -119,6 +119,9 @@ export interface FieldPlacement {
   placedAt: string;
   lastMovedAt: string;
   stance: "attack" | "defense" | "binding";
+  /** Marching layer: patrol road (tile ids, raw JSON from the server) + march start (ms). */
+  patrolPath?: string | null;
+  patrolSince?: number | null;
 }
 
 export interface CreditInfo {
@@ -421,6 +424,8 @@ export const api = {
     post<{ ok: true; edgeKey: string }>("removeEdgeWork", args),
   teachSkill: (args: { awakenedId: number; skill: "warding" | "runeing" }) =>
     post<{ ok: true; awakenedId: number; skill: string; cost: number }>("teachSkill", args),
+  setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
+    post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   resolveBossBattle: (args: { victory: boolean; bossLevel: number; survivorIds: number[]; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) =>
     post<{ ok: true; victory: boolean; bossesDefeated: number; committedPower: number; bossPower: number; aspectElements?: string[]; newbornClaimed?: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveBossBattle", args),
   getPendingAspectGrant: () => post<{ grant: { elements: string[]; source: string } | null }>("getPendingAspectGrant", {}),

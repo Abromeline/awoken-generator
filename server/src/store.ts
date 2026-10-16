@@ -363,6 +363,14 @@ if (!tileCols.some((col) => col.name === "attune_anchor_at")) {
 if (!placementCols.some((col) => col.name === "last_binding_charge_at")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN last_binding_charge_at INTEGER`);
 }
+// The marching layer (War-Ground, Nigel 2026-10-16): patrol roads as
+// data on the placement. Pure presentation — no law reads these.
+if (!placementCols.some((col) => col.name === "patrol_path")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN patrol_path TEXT`);
+}
+if (!placementCols.some((col) => col.name === "patrol_since")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN patrol_since INTEGER`);
+}
 // 4-hour birth cycle: tracks last free birth per Tender
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
   owner_key TEXT PRIMARY KEY,

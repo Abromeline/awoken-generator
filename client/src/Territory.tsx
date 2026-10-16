@@ -331,6 +331,24 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [wgTileId, setWgTileId] = useState<number | null>(null); // War-Grounds fine-edit panel: the tile under the warden's hand
+  // The marching layer (War-Ground, Nigel 2026-10-16): patrol roads
+  // are data; positions are derived. Setting state + the march clock.
+  const [patrolSettingFor, setPatrolSettingFor] = useState<number | null>(null);
+  const [patrolDraft, setPatrolDraft] = useState<number[]>([]);
+  const [marchNow, setMarchNow] = useState(() => Date.now());
+  const anyPatrol = placements.some(p => !!p.patrolPath);
+  useEffect(() => {
+    if (!anyPatrol && patrolSettingFor === null) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
+    return () => window.clearInterval(iv);
+  }, [anyPatrol, patrolSettingFor]);
+  const patrolRoadOf = (p: { patrolPath?: string | null }): number[] => {
+    try {
+      const v = JSON.parse(p.patrolPath ?? "[]");
+      return Array.isArray(v) ? v.filter((x: any) => typeof x === "number") : [];
+    } catch { return []; }
+  };
+  const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
@@ -818,6 +836,15 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // here while a flow is armed. Before this, covered hexes were simply
   // unreachable: their taps died in the covering element's own handler.
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
+    if (patrolSettingFor !== null) {
+      // Laying a patrol road: taps name waypoints, nothing else.
+      const homeId = placements.find(p => p.awakenedId === patrolSettingFor)?.tileId;
+      if (tile.id === homeId) { showHexNotice("That is the patrol's home — the road begins and ends there on its own."); return; }
+      if (patrolDraft.includes(tile.id)) { showHexNotice("That hex is already on the road."); return; }
+      if (patrolDraft.length >= 8) { showHexNotice("A patrol road holds at most eight waypoints."); return; }
+      setPatrolDraft(d => [...d, tile.id]);
+      return;
+    }
     if (selectedBuilding && !tile.cursed) {
       setPendingTile(tile.id);
       setSelectedBuilders([]);
@@ -1717,6 +1744,32 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const cy = originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT;
       return { cx, cy };
     };
+    // The marching layer's derivation (lives here, beside tilePos —
+    // the walker's place is read off the same geometry as everything
+    // else on this map): out along the road, back the same way,
+    // forever, from road + clock. Presentation only.
+    const patrolPositionOf = (p: FieldPlacement): { x: number; y: number } | null => {
+      const roadTiles = patrolRoadOf(p).map(id => tiles.find(t => t.id === id)).filter(Boolean) as TerritoryTile[];
+      const home = tiles.find(t => t.id === p.tileId);
+      if (!home || !roadTiles.length || !p.patrolSince) return null;
+      const centers = [home, ...roadTiles].map(t => tilePos(t));
+      const route = [...centers, ...centers.slice(1, -1).reverse()];
+      const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number }[] = [];
+      let total = 0;
+      for (let i = 0; i < route.length; i++) {
+        const a = route[i], b = route[(i + 1) % route.length];
+        const len = Math.hypot(b.cx - a.cx, b.cy - a.cy);
+        segs.push({ a, b, len }); total += len;
+      }
+      if (total <= 0) return null;
+      let d = ((marchNow - p.patrolSince) / 1000 * PATROL_SPEED) % total;
+      if (d < 0) d += total;
+      for (const s of segs) {
+        if (d <= s.len) { const k = s.len ? d / s.len : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
+        d -= s.len;
+      }
+      return { x: route[0].cx, y: route[0].cy };
+    };
     // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
     // This ensures front tiles always overlap back tiles, regardless of lift.
     // Build a set of cursed tile IDs adjacent to Awoken-occupied tiles (passive aura)
@@ -1896,21 +1949,24 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 ];
                 const ks = keystones[idx];
                 const ws = 15, hs = 20;
-                const kx = cx + ks.dx * s;
-                const ky = cy + ks.dy * s;
+                const placement = tilePlacements.find(p => p.awakenedId === a.id);
+                // The marching layer: a patrolling Awoken is drawn at
+                // its DERIVED position on the road, not at its keystone
+                // — presentation only; its placement never moves.
+                const pPos = placement ? patrolPositionOf(placement) : null;
+                const kx = pPos ? pPos.x : cx + ks.dx * s;
+                const ky = pPos ? pPos.y + 0.28 * s : cy + ks.dy * s;
                 const awScale = 0.8 + zoom * 0.5; // Grows with zoom for visibility
                 const aws = ws * awScale, ahs = hs * awScale;
                 const isWhispering = whisper?.awakenedId === a.id;
                 // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
                 const driftDur = (6 + (a.id % 5)).toFixed(1);
                 const driftDelay = (-(a.id % 7)).toFixed(1);
-                const placement = tilePlacements.find(p => p.awakenedId === a.id);
                 const isSelected = selectedAwoken === a.id;
                 return (
-                  <g key={a.id} className="field-drifter"
+                  <g key={a.id} className={pPos ? "field-patroller" : "field-drifter"}
                     style={{
-                      "--drift-dur": `${driftDur}s`,
-                      "--drift-delay": `${driftDelay}s`,
+                      ...(pPos ? {} : { "--drift-dur": `${driftDur}s`, "--drift-delay": `${driftDelay}s` }),
                       cursor: selectedBuilding ? "pointer" : "pointer",
                       pointerEvents: selectedBuilding ? "none" : "auto",
                     } as React.CSSProperties}
@@ -1918,7 +1974,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                       e.stopPropagation();
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || battlePool.length > 0) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -2373,6 +2429,27 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         })}
       </g>
     ) : null;
+    // Patrol guide: while a road is being laid, the draft road is
+    // drawn dotted over the map, its waypoints numbered in order.
+    const patrolGuideLayer = patrolSettingFor !== null ? (() => {
+      const home = tiles.find(t => t.id === placements.find(p => p.awakenedId === patrolSettingFor)?.tileId);
+      if (!home) return null;
+      const pts = [home, ...patrolDraft.map(id => tiles.find(t => t.id === id)).filter(Boolean) as TerritoryTile[]].map(t => tilePos(t));
+      return (
+        <g key="patrol-guide">
+          {pts.length > 1 && (
+            <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
+              stroke="rgba(255,215,0,0.85)" strokeWidth={2} strokeDasharray="1 6" strokeLinecap="round" />
+          )}
+          {pts.slice(1).map((c, i) => (
+            <g key={i}>
+              <circle cx={c.cx} cy={c.cy} r={11} fill="rgba(20,20,35,0.92)" stroke="#ffd700" strokeWidth={1.5} />
+              <text x={c.cx} y={c.cy + 4} textAnchor="middle" fontSize={11} fill="#ffd700" fontWeight={700}>{i + 1}</text>
+            </g>
+          ))}
+        </g>
+      );
+    })() : null;
     return (
       <>
         {elements}
@@ -2380,6 +2457,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         {awokenElements}
         {wallLayer}
         {wgGuideLayer}
+        {patrolGuideLayer}
         {hoverLayer}
         {mistLayer}
         {targetMarker}
@@ -3064,6 +3142,14 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 ➤ Move ({moveCost(awoken.power)}⚡)
               </button>
             )}
+            {!attackTargeting && !moveTargeting && patrolSettingFor === null && (
+              <button
+                className="stance-btn"
+                onClick={() => { setPatrolDraft(patrolRoadOf(placement)); setPatrolSettingFor(selectedAwoken); setStanceMinimized(true); }}
+                title="Lay a patrol road: tap hexes, and this Awoken marches out along them and back, until you call it in. The march is the warden's rounds — in war its post remains its home hex.">
+                🚶 Patrol{placement.patrolPath ? ` — road set (${patrolRoadOf(placement).length})` : ""}
+              </button>
+            )}
             <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); clearHexConfirm(); setStanceMinimized(false); }}>
               ✕
             </button>
@@ -3670,6 +3756,38 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             }}
             onClaimSpark={tile.spark ? () => { setWgTileId(null); void handleSparkClick(tile.id); } : undefined}
           />
+        );
+      })()}
+      {/* The patrol bar — while a road is being laid (War-Ground,
+          2026-10-16): the road's state and its settling controls,
+          thumb-reachable at the screen's foot. */}
+      {patrolSettingFor !== null && (() => {
+        const who = tenderItems.find(a => a.id === patrolSettingFor);
+        const existing = placements.find(p => p.awakenedId === patrolSettingFor);
+        const settle = async (tileIds: number[], msg: string) => {
+          try {
+            await api.setPatrol({ awakenedId: patrolSettingFor, tileIds });
+            setPatrolSettingFor(null);
+            setPatrolDraft([]);
+            await onUpdate();
+            showHexNotice(msg);
+          } catch (e) {
+            showHexNotice(e instanceof Error ? e.message : "The patrol could not be set.");
+          }
+        };
+        return (
+          <div className="patrol-bar">
+            <span className="patrol-bar-label">🚶 Laying {who?.name ?? "the warden"}'s patrol — tap hexes ({patrolDraft.length}/8)</span>
+            <button className="stance-btn" disabled={!patrolDraft.length}
+              onClick={() => void settle(patrolDraft, "The patrol is set. The road will be walked, out and back, until the warden is called in.")}>
+              ✓ Set patrol
+            </button>
+            <button className="stance-btn" disabled={!patrolDraft.length} onClick={() => setPatrolDraft(d => d.slice(0, -1))}>↩ Undo</button>
+            {existing?.patrolPath && (
+              <button className="stance-btn" onClick={() => void settle([], "The patrol is called in — the warden stands home again.")}>🛑 End patrol</button>
+            )}
+            <button className="stance-btn" onClick={() => { setPatrolSettingFor(null); setPatrolDraft([]); }}>✕ Cancel</button>
+          </div>
         );
       })()}
       {/* Spark claim animation */}

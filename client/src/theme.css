@@ -635,6 +635,25 @@ body.defeat-flash {
 }
 .wg-toggle:hover { background: rgba(184,155,94,0.2); }
 .wg-toggle.open { background: rgba(184,155,94,0.3); border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.4); }
+/* The marching layer (War-Ground, 2026-10-16): a patrolling Awoken
+   bobs as it walks; the patrol bar rides the screen's foot. */
+@keyframes march-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2.5px); }
+}
+.field-patroller {
+  animation: march-bob 0.45s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.patrol-bar {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  z-index: 60; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  background: rgba(10,10,25,0.95); border: 2px solid #b89b5e; border-radius: 999px;
+  padding: 10px 16px; max-width: 94vw;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+.patrol-bar-label { font-size: 13px; color: #e8e0d0; }
 .building-side-panel {
   position: fixed; right: 0; top: 0; bottom: 0;
   width: 33.333vw; min-width: 320px; overflow-y: auto;
