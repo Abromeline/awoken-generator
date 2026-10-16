@@ -369,6 +369,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const bandRef = useRef<{ cx: number; cy: number; sx: number; sy: number; active: boolean } | null>(null);
   const bandClosedAt = useRef(0);
+  const panDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [groupMarchUi, setGroupMarchUi] = useState(false);
   const [groupQuote, setGroupQuote] = useState<{ destId: number; orders: { awakenedId: number; tileId: number; steps: number; road: number[]; alreadyThere: boolean }[]; totalEnergy: number; slowest: number; excluded: number } | null>(null);
@@ -684,6 +685,19 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       console.error("[Territory] getTerritory failed:", e);
     }).finally(() => setTerritoryLoaded(true));
   }, []);
+
+  // Marching orders change the placements themselves — and this
+  // screen keeps its OWN copy of them, so every marching handler
+  // must refresh it, or the order lands on the server while the map
+  // never learns of it (the first marching build's silence, found
+  // by the Ancient One's thumb 2026-10-16: orders relayed, nothing
+  // happened — the refresh was the missing half of the loop).
+  const refreshMarching = async () => {
+    const refreshed = await api.getTerritory();
+    setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+    setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
+    onUpdate();
+  };
 
   // ── Hex walls (War-Ground, Nigel 2026-10-15) ──────────────────────
   // An Awoken standing on a hex raises a wall on one of its six edges:
@@ -2422,7 +2436,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           )}
           {/* Spark: fire aspect waiting to be claimed */}
           {t.spark === 1 && (
-            <g onClick={(e) => { e.stopPropagation(); handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
+            <g onClick={(e) => { e.stopPropagation(); if (bandJustClosed()) return; handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
               {fireAspectImg ? (
                 <image href={fireAspectImg} x={cx - 30} y={cy - 40} width={60} height={60}
                   preserveAspectRatio="xMidYMid meet" opacity="0.95" />
@@ -3384,7 +3398,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   onClick={async () => {
                     try {
                       const r = await api.recallMarch({ awakenedId: selectedAwoken });
-                      await onUpdate();
+                      await refreshMarching();
                       showHexNotice(r.stepsHome > 0 ? "Recalled — the warden turns for home." : "Recalled — it had barely left its post.");
                     } catch (e) {
                       showHexNotice(e instanceof Error ? e.message : "The recall failed.");
@@ -3482,23 +3496,37 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           // raises mist + confirm; a mouse glows on hover and commits
           // on click. Pens count as touch — they tap like fingers.
           setTouchMode(e.pointerType !== "mouse");
-          // Drag-selection begins listening here (left hand only —
-          // the right hand pans). A drag past a thumb's width raises
-          // the band; a plain tap never does.
-          if (e.button !== 2) {
+          if (e.button === 2) return; // the right hand pans via the svg's own handlers, as ever
+          // THE DRAG LAW (Nigel, 2026-10-16): a drag MOVES THE SCREEN
+          // — until the War-Grounds are opened; while they are open,
+          // the same drag draws the choosing band instead.
+          if (wgTileId !== null) {
             const p = svgPoint(e.clientX, e.clientY);
             if (p) bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
+          } else {
+            panDragRef.current = { cx: e.clientX, cy: e.clientY, panX: pan.x, panY: pan.y, moved: false };
           }
         }}
         onPointerMove={(e) => {
           const b = bandRef.current;
-          if (!b) return;
-          if (!b.active && Math.hypot(e.clientX - b.cx, e.clientY - b.cy) < 9) return;
-          b.active = true;
-          const p = svgPoint(e.clientX, e.clientY);
-          if (p) setBand({ x0: b.sx, y0: b.sy, x1: p.x, y1: p.y });
+          if (b) {
+            if (!b.active && Math.hypot(e.clientX - b.cx, e.clientY - b.cy) < 9) return;
+            b.active = true;
+            const p = svgPoint(e.clientX, e.clientY);
+            if (p) setBand({ x0: b.sx, y0: b.sy, x1: p.x, y1: p.y });
+            return;
+          }
+          const pd = panDragRef.current;
+          if (pd) {
+            const dx = e.clientX - pd.cx, dy = e.clientY - pd.cy;
+            if (Math.hypot(dx, dy) > 3) pd.moved = true;
+            if (pd.moved) setPan({ x: pd.panX + dx, y: pd.panY + dy });
+          }
         }}
         onPointerUp={(e) => {
+          const pd = panDragRef.current;
+          panDragRef.current = null;
+          if (pd?.moved) bandClosedAt.current = Date.now(); // a screen-drag's release-click is not a tap
           const b = bandRef.current;
           bandRef.current = null;
           if (!b?.active || !band) return;
@@ -3904,6 +3932,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           const target = sel ?? placements[0];
           if (!target) { showHexNotice("Station an Awoken on the field first — the War-Grounds open on the hex an Awoken stands on."); return; }
           setWgTileId(target.tileId);
+          showHexNotice("The War-Grounds are open — while they are open, dragging on the map chooses wardens. Close them (⚔️) to drag the map again.");
         }}
         title={battleActive ? "The War-Grounds are shut while battle is joined" : "War-Grounds — fine work on one hex: edge works, buildings, readings"}
         disabled={battleActive}
@@ -4111,7 +4140,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   setGroupMarchUi(false);
                   setGroupQuote(null);
                   setSelectedGroup([]);
-                  await onUpdate();
+                  await refreshMarching();
                   showHexNotice(failed
                     ? `${marched} of the company march — ${failed} were refused by the ground as the orders landed.`
                     : `The company marches — ${marched} wardens on the road. Boom.`);
@@ -4155,7 +4184,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                       const r = await api.setMarch({ awakenedId: marchUiFor, tileId: marchQuote.tileId });
                       setMarchUiFor(null);
                       setMarchQuote(null);
-                      await onUpdate();
+                      await refreshMarching();
                       showHexNotice(`The order is given — the march will take ~${fmtMarchTime(r.seconds)} and cost ${r.energy}⚡. Boom: it moves.`);
                     } catch (e) {
                       showHexNotice(e instanceof Error ? e.message : "The march could not be given.");
@@ -4181,7 +4210,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             await api.setPatrol({ awakenedId: patrolSettingFor, tileIds });
             setPatrolSettingFor(null);
             setPatrolDraft([]);
-            await onUpdate();
+            await refreshMarching();
             showHexNotice(msg);
           } catch (e) {
             showHexNotice(e instanceof Error ? e.message : "The patrol could not be set.");
