@@ -1882,17 +1882,22 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         <g key={`awoken-${t.id}`} transform={`translate(0,${lift})`}>
             <g>
               {awokens.slice(0, 4).map((a, idx) => {
-                // 4 keystone points: middle-front (default), front-left, front-right, back-center
+                // 4 keystone points, REELED IN (Nigel, 2026-10-16): the
+                // old spread (offsets up to 0.7 of the hex size) set the
+                // company on the hex's outer perimeter — even a lone
+                // Awoken anchored below its hex's middle. They now
+                // cluster in the hex's heart, a slight front bias kept
+                // for the iso view.
                 const keystones = [
-                  { dx: 0, dy: 0.35 },      // middle-front (default)
-                  { dx: -0.35, dy: 0.18 }, // front-left
-                  { dx: 0.35, dy: 0.18 },  // front-right
-                  { dx: 0, dy: -0.28 },    // back-center
+                  { dx: 0, dy: 0.28 },      // middle-front (default)
+                  { dx: -0.30, dy: 0.14 }, // front-left
+                  { dx: 0.30, dy: 0.14 },  // front-right
+                  { dx: 0, dy: -0.24 },    // back-center
                 ];
                 const ks = keystones[idx];
                 const ws = 15, hs = 20;
-                const kx = cx + ks.dx * s * 2;
-                const ky = cy + ks.dy * s * 2;
+                const kx = cx + ks.dx * s;
+                const ky = cy + ks.dy * s;
                 const awScale = 0.8 + zoom * 0.5; // Grows with zoom for visibility
                 const aws = ws * awScale, ahs = hs * awScale;
                 const isWhispering = whisper?.awakenedId === a.id;
