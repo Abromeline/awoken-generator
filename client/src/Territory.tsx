@@ -313,10 +313,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [energy, setEnergy] = useState(10);
+  // The energy CAP is the server's word alone (calculateMaxEnergy:
+  // the doubled scale over everything owned, plus building bonuses).
+  // The client once kept its own tripled formula under a comment
+  // claiming the two agreed — they did not, and the battle screen
+  // promised room the server refused. (Nigel's retune was 2026-10-13;
+  // the client half of it was found and fixed 2026-10-16.) The cap
+  // now rides the same getEnergy reply the energy number already
+  // takes — EnergyTimer has always read it this way.
+  const [serverMaxEnergy, setServerMaxEnergy] = useState(10);
   const refreshEnergy = async () => {
     try {
-      const { energy: e } = await api.getEnergy();
+      const { energy: e, maxEnergy: m } = await api.getEnergy();
       setEnergy(e);
+      setServerMaxEnergy(m);
     } catch {}
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
@@ -492,16 +502,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   // Energy cap: 10 base + power-based bonus per Awoken (hand AND field).
   // TRIPLED 2026-10-13 (Nigel): 1-3 power: +3, 4-6: +6, 7-9: +9, 10+: +12.
-  // Stronger beings contribute more existence. Mirrors the server's
-  // calculateMaxEnergy — the two must agree.
-  // Defenders generate +1 max energy each — they hold the line and gather strength.
-  const energyBonus = (power: number) => 3 + 3 * Math.floor((power - 1) / 3);
-  const fieldAwoken = placements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
-  const defenderCount = placements.filter(p => p.stance === "defense").length;
-  const maxEnergy = 10
-    + hand.reduce((sum, a) => sum + energyBonus(a.power), 0)
-    + fieldAwoken.reduce((sum, a) => sum + energyBonus(a.power), 0)
-    + defenderCount;
+  // The cap itself is serverMaxEnergy (see refreshEnergy above) —
+  // no local formula remains to drift away from the server again.
+  const maxEnergy = serverMaxEnergy;
 
   // Deploy cost scales with power: 2 base + 1 per 3 power.
   // 1-3: 2, 4-6: 3, 7-9: 4, 10+: 5.
