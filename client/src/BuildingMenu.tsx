@@ -10,7 +10,6 @@ import skyBloomImg from "./assets/buildings/sky-bloom.png";
 import awakeningWellImg from "./assets/buildings/awakening-well.png";
 import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
 import wheatHalfImg from "./assets/buildings/wheat-half.png";
-import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
 // Wheat stage overrides from UI workspace uploads (set at runtime)
 const dreamWeedStageOverrides: Record<string, string> = {};
@@ -77,9 +76,12 @@ export function wheatStageImage(building: any): string {
   const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime() : readyAt;
   const elapsed = now - lastHarvest;
   const progress = Math.min(1, elapsed / growMs);
-  if (progress >= 1) return wheatStageOverrides["wheat-harvest"] || wheatHarvestImg;
-  if (progress >= 0.66) return wheatStageOverrides["wheat-full"] || wheatFullImg;
-  if (progress >= 0.33) return wheatStageOverrides["wheat-half"] || wheatHalfImg;
+  // THREE stages only — planted, half grown, harvest ready (Nigel,
+  // 2026-10-16, with the Glow Wheat art): the old fourth "full-grown"
+  // bucket is retired, its slot and bundled art removed; the cycle
+  // divides in thirds and the fruiting art is the harvest-ready stage.
+  if (progress >= 2 / 3) return wheatStageOverrides["wheat-harvest"] || wheatHarvestImg;
+  if (progress >= 1 / 3) return wheatStageOverrides["wheat-half"] || wheatHalfImg;
   return wheatStageOverrides["wheat-planted"] || wheatPlantedImg;
 }
 

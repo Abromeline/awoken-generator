@@ -14,7 +14,6 @@ import watchtowerImg from "./assets/buildings/watchtower.png";
 import dreamWheatImg from "./assets/buildings/dream-wheat.png";
 import wheatPlantedImg from "./assets/buildings/wheat-planted.png";
 import wheatHalfImg from "./assets/buildings/wheat-half.png";
-import wheatFullImg from "./assets/buildings/wheat-full.png";
 import wheatHarvestImg from "./assets/buildings/wheat-harvest.png";
 import attunementShrineImg from "./assets/buildings/attunement-shrine.png";
 import dreamWeedImg from "./assets/buildings/dream-weed.png";
@@ -37,7 +36,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   enemy: { fray: frayImg, unraveler: unravelerImg, hollow: hollowImg, tangle: tangleImg },
   building: {
     watchtower: watchtowerImg, "dream-wheat": dreamWheatImg,
-    "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-full": wheatFullImg, "wheat-harvest": wheatHarvestImg,
+    "wheat-planted": wheatPlantedImg, "wheat-half": wheatHalfImg, "wheat-harvest": wheatHarvestImg,
     "attunement-shrine": attunementShrineImg, "dream-weed": dreamWeedImg, "dream-weed-half": dreamWeedHalfImg, "dream-weed-planted": dreamWeedPlantedImg, "sky-bloom": skyBloomImg, "awakening-well": awakeningWellImg,
     "thorn-wall": thornWallImg, "binding-circle": bindingCircleImg, tree: treeImg,
     "hall-of-champions": hallOfChampionsImg,
@@ -123,7 +122,7 @@ const DEFAULTS: Record<string, any> = {
 };
 
 const ENEMIES = ["fray", "unraveler", "hollow", "tangle"];
-const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-full", "wheat-harvest", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree", "hall-of-champions"];
+const BUILDINGS = ["watchtower", "dream-wheat", "wheat-planted", "wheat-half", "wheat-harvest", "attunement-shrine", "dream-weed", "dream-weed-half", "dream-weed-planted", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree", "hall-of-champions"];
 // Real building types get stat knobs; growth-stage entries are sprite slots only.
 const CONFIG_BUILDINGS = new Set(["watchtower", "dream-wheat", "attunement-shrine", "dream-weed", "sky-bloom", "awakening-well", "thorn-wall", "binding-circle", "tree", "hall-of-champions"]);
 const TERRAINS = ["tide", "sky", "stone", "root", "neutral", "cursed"];
