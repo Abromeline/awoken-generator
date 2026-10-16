@@ -3461,9 +3461,10 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           selected Awoken's hex (or the first stationed Awoken's), the
           same panel the stance picker opens. Shut during battle. */}
       <button
-        className="wg-toggle"
+        className={`wg-toggle ${wgTileId !== null ? "open" : ""}`}
         onClick={() => {
           if (battleActive) return;
+          if (wgTileId !== null) { setWgTileId(null); return; }
           const sel = selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken) : undefined;
           const target = sel ?? placements[0];
           if (!target) { showHexNotice("Station an Awoken on the field first — the War-Grounds open on the hex an Awoken stands on."); return; }

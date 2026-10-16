@@ -153,8 +153,8 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
   };
 
   return (
-    <div className="admin-popup" onClick={onClose}>
-      <div className="admin-popup-inner wg-panel" onClick={e => e.stopPropagation()}>
+    <div className="wg-dock">
+      <div className="wg-panel">
         <button className="admin-popup-close" onClick={onClose} aria-label="Close">✕</button>
         <h3>⚔️ War-Grounds</h3>
         <p className="quiet wg-sub">
