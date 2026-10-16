@@ -228,6 +228,7 @@ export default function UIWorkspace() {
   const [compSyncPayload, setCompSyncPayload] = useState<any | null>(null);
   const [compSyncName, setCompSyncName] = useState("");
   const [compSyncMsg, setCompSyncMsg] = useState<string | null>(null);
+  const [doorNote, setDoorNote] = useState<string | null>(null);
   const compSyncFileRef = useRef<HTMLInputElement>(null);
 
   const pickCompSyncFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -729,6 +730,17 @@ export default function UIWorkspace() {
             Table: the Activity where Tenders will play the Awoken together. Uploads save here exactly
             like the other sections, ready for the Table to draw from. The four classic enemies keep
             their slots in the Enemies section above; only the Table's newer faces live here.
+          </p>
+          <p className="quiet" style={{ marginTop: 0 }}>
+            🚪 <strong>The door switch</strong> (handshake audit, 2026-10-16) — while the Table's launch
+            is being diagnosed, the Discord door can open the bare Control instrument instead of the
+            room: it does nothing but knock and listen, one knock variant per launch. Point the door
+            back at the Table when the diagnosis is done.
+            <span style={{ display: "inline-flex", gap: 8, marginLeft: 10 }}>
+              <button className="abtn small" onClick={async () => { try { await api.call("setUiConfig", { key: "table.doorMode", value: "table" }); setDoorNote("The door now opens the Table."); } catch { setDoorNote("The switch did not save — is the workshop unlocked?"); } }}>Door → the Table</button>
+              <button className="abtn small" onClick={async () => { try { await api.call("setUiConfig", { key: "table.doorMode", value: "control" }); setDoorNote("The door now opens the Control instrument."); } catch { setDoorNote("The switch did not save — is the workshop unlocked?"); } }}>Door → the Control</button>
+            </span>
+            {doorNote && <span style={{ marginLeft: 10 }}>{doorNote}</span>}
           </p>
           {uploadError && (
             <p className="notice error" style={{ marginBottom: 12 }}>

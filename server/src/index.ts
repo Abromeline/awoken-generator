@@ -10,7 +10,7 @@ import {
 import { tenderFromToken, tenderOwnerKey, tenderTokenFromHeader } from "./tenders.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
-import { registerTableRoutes, registerTableSocket } from "./table.js";
+import { registerTableRoutes, registerTableSocket, tableDoorMode } from "./table.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -229,12 +229,12 @@ if (existsSync(join(clientDist, "index.html"))) {
   // the root, so the standard root URL mapping opens the room while
   // the plain site root serves the Awoken app as ever.
   app.get("/table", (_req, res) => {
-    const tablePage = join(clientDist, "table.html");
-    res.sendFile(existsSync(tablePage) ? tablePage : join(clientDist, "index.html"));
+    const page = join(clientDist, tableDoorMode() === "control" ? "control.html" : "table.html");
+    res.sendFile(existsSync(page) ? page : join(clientDist, "index.html"));
   });
   app.get("/", (req, res) => {
-    const tablePage = join(clientDist, "table.html");
-    if (req.query.frame_id && existsSync(tablePage)) res.sendFile(tablePage);
+    const page = join(clientDist, tableDoorMode() === "control" ? "control.html" : "table.html");
+    if (req.query.frame_id && existsSync(page)) res.sendFile(page);
     else res.sendFile(join(clientDist, "index.html"));
   });
   app.get("*", (_req, res) => res.sendFile(join(clientDist, "index.html")));

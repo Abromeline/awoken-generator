@@ -19,6 +19,10 @@ export default defineConfig({
         // THE TABLE — the Discord Activity's page (its own entry so the
         // Activity loads the room, not the whole Awoken app).
         table: resolve(clientDir, "table.html"),
+        // THE TABLE CONTROL — the bare handshake instrument (audit,
+        // 2026-10-16); served at the door only while the workshop's
+        // door switch points at it.
+        control: resolve(clientDir, "control.html"),
       },
     },
   },

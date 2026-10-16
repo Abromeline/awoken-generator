@@ -288,6 +288,20 @@ function handleConnection(ws: WebSocket): void {
   ws.on("error", () => { try { ws.close(); } catch {} });
 }
 
+/** Which page the Discord door opens: "table" (the room itself, the
+ *  default) or "control" (the bare handshake instrument of the
+ *  2026-10-16 audit), switched from the UI Workshop via the generic
+ *  setUiConfig action, key "table.doorMode". Read fresh on every
+ *  door request so the switch needs no restart. */
+export function tableDoorMode(): string {
+  try {
+    const [row] = db.select().from(schema.uiConfig)
+      .where(eq(schema.uiConfig.key, "table.doorMode")).limit(1).all();
+    if (row && JSON.parse(row.value) === "control") return "control";
+  } catch {}
+  return "table";
+}
+
 /** Mount the Table's HTTP routes: config + sign-in exchange. These
  *  must be registered BEFORE the static bundle and its SPA fallback in
  *  index.ts, or the fallback answers /api/table/* with index.html.
