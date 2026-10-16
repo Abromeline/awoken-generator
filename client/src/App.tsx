@@ -1457,6 +1457,7 @@ function VoicePanel() {
     {msg && <p className="notice">{msg}</p>}
     {!v.webhookConfigured && <p className="notice error" role="status">The Voice has no road yet — the webhook is not set on the server (DISCORD_STORIES_WEBHOOK_URL in Railway). Everything below fails closed, honestly, until it is.</p>}
     <p className="quiet">The sky now: <strong>{v.currentMood}</strong> · this reign ends {new Date(v.currentReignEndsAt).toLocaleTimeString([], { timeStyle: "short" })}{v.lastAnnouncedEndsAt ? <> · last weather spoken for the reign ending {new Date(v.lastAnnouncedEndsAt).toLocaleTimeString([], { timeStyle: "short" })}</> : " · no weather spoken yet"}</p>
+    <p className="quiet">{v.weatherAudioMoods.length ? <>🔊 Her voice rides the weather posts — she has a recording for: {v.weatherAudioMoods.join(", ")}. The post carries the words and her voice together.</> : "Her weather posts ride as words alone — no recordings are bundled on this server."}</p>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
       <button className="abtn small" onClick={() => run(() => api.setVoiceWeatherEnabled({ enabled: !v.weatherEnabled }), v.weatherEnabled ? "Weather voice stilled. The sky will turn in silence." : "Weather voice loosed. She will speak when the sky turns.")}>
         {v.weatherEnabled ? "🌦 Weather voice: ON — still her" : "🌦 Weather voice: OFF — loose her"}

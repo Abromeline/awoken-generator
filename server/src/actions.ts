@@ -5,6 +5,9 @@
 // -> the curated naming/flavor pools in naming.ts.
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
@@ -1036,6 +1039,46 @@ async function postToVoiceChannel(payload: { embeds: unknown[] }): Promise<boole
   }
 }
 
+// Her voice, bundled (Nigel's word, 2026-10-15 23:30: "build the
+// voice into the weather pathway"). Discord voice messages proper
+// are a client-only feature — no webhook can send one — but a
+// webhook CAN carry an audio file that plays in the channel. The
+// weather is a finite tongue: four skies, four lines, so the Voice
+// pre-rendered each reign's line in her own voice (Delighted
+// Bellflower) and the recordings live with the server at
+// server/assets/voice/weather-<mood>.mp3 (the Dockerfile copies
+// server/ whole, so they ride every deploy). World news is
+// arbitrary text and cannot be pre-rendered — it rides as text.
+
+const VOICE_ASSET_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "voice");
+
+async function weatherAudioFor(mood: WorldMood): Promise<Buffer | null> {
+  try {
+    return await readFile(join(VOICE_ASSET_DIR, `weather-${mood}.mp3`));
+  } catch {
+    return null;
+  }
+}
+
+/** Post a weather telling, with the Voice's own voice attached when
+ *  her recording for this sky exists (multipart, the story-send's
+ *  shape); if the recording is missing the text still rides alone —
+ *  the news is never held hostage to the voice. */
+async function postWeatherToVoiceChannel(mood: WorldMood, embed: Record<string, unknown>): Promise<boolean> {
+  if (!DISCORD_STORIES_WEBHOOK_URL) return false;
+  const audio = await weatherAudioFor(mood);
+  if (!audio) return postToVoiceChannel({ embeds: [embed] });
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({ username: "The Voice", embeds: [embed] }));
+    form.append("files[0]", new Blob([new Uint8Array(audio)], { type: "audio/mpeg" }), `weather-${mood}.mp3`);
+    const response = await fetch(`${DISCORD_STORIES_WEBHOOK_URL}?wait=true`, { method: "POST", body: form });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Announce a freshly rolled reign, once. Fire-and-forget by design:
  *  the caller (getWorldMood) never waits on Discord. */
 async function announceWeatherReign(mood: WorldMood, endsAt: string): Promise<void> {
@@ -1044,13 +1087,11 @@ async function announceWeatherReign(mood: WorldMood, endsAt: string): Promise<vo
     // Claim this reign before speaking, so she can never speak it twice.
     await setVoiceSetting("voice_weather_last_announced", endsAt);
     if ((await getVoiceSetting("voice_weather_enabled")) === "0") return;
-    const posted = await postToVoiceChannel({
-      embeds: [{
-        title: "The sky turns",
-        description: `${VOICE_WEATHER_LINES[mood]}\n\n*${MOOD_DESCRIPTIONS[mood]}*`,
-        color: VOICE_WEATHER_COLORS[mood],
-        footer: { text: "The Voice · the weather of the Awoken world" },
-      }],
+    const posted = await postWeatherToVoiceChannel(mood, {
+      title: "The sky turns",
+      description: `${VOICE_WEATHER_LINES[mood]}\n\n*${MOOD_DESCRIPTIONS[mood]}*`,
+      color: VOICE_WEATHER_COLORS[mood],
+      footer: { text: "The Voice · the weather of the Awoken world" },
     });
     if (!posted && DISCORD_STORIES_WEBHOOK_URL) {
       console.warn(`[voice] weather post for the ${mood} reign was not delivered; it will not be retried.`);
@@ -2005,9 +2046,14 @@ export const handlers = {
   async getVoiceState(_args: unknown, ctx?: ActionContext) {
     if (!ctx?.workshopAuthorized) badRequest("The Voice's panel is the workshop's to hold.");
     const mood = await getWorldMood();
+    const weatherAudioMoods: string[] = [];
+    for (const m of MOODS) {
+      if (await weatherAudioFor(m)) weatherAudioMoods.push(m);
+    }
     return {
       webhookConfigured: !!DISCORD_STORIES_WEBHOOK_URL,
       weatherEnabled: (await getVoiceSetting("voice_weather_enabled")) !== "0",
+      weatherAudioMoods,
       lastAnnouncedEndsAt: await getVoiceSetting("voice_weather_last_announced"),
       currentMood: mood.mood,
       currentReignEndsAt: mood.endsAt,
