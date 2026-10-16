@@ -624,6 +624,16 @@ body.defeat-flash {
 }
 .castle-toggle:hover { background: rgba(184,155,94,0.2); }
 .castle-toggle.open { background: rgba(184,155,94,0.3); border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.4); }
+/* War-Grounds toggle — sits above the castle button, same family */
+.wg-toggle {
+  position: fixed; right: 16px; top: calc(50% - 76px); transform: translateY(-50%);
+  width: 56px; height: 56px; border-radius: 50%;
+  background: rgba(20,20,35,0.9); border: 2px solid #b89b5e;
+  font-size: 26px; cursor: pointer; z-index: 41;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.wg-toggle:hover { background: rgba(184,155,94,0.2); }
 .building-side-panel {
   position: fixed; right: 0; top: 0; bottom: 0;
   width: 33.333vw; min-width: 320px; overflow-y: auto;

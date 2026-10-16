@@ -3449,6 +3449,26 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         🏰
       </button>
 
+      {/* War-Grounds button — the fine-edit panel from the map screen
+          itself (Nigel, 2026-10-16): one tap opens the panel on the
+          selected Awoken's hex (or the first stationed Awoken's), the
+          same panel the stance picker opens. Shut during battle. */}
+      <button
+        className="wg-toggle"
+        onClick={() => {
+          if (battleActive) return;
+          const sel = selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken) : undefined;
+          const target = sel ?? placements[0];
+          if (!target) { showHexNotice("Station an Awoken on the field first — the War-Grounds open on the hex an Awoken stands on."); return; }
+          setWgTileId(target.tileId);
+        }}
+        title={battleActive ? "The War-Grounds are shut while battle is joined" : "War-Grounds — fine work on one hex: edge works, buildings, readings"}
+        disabled={battleActive}
+        style={battleActive ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+      >
+        ⚔️
+      </button>
+
       {/* Right-side building panel */}
       {!tutorialDone && !objectivesMet && (
         <Tutorial onComplete={() => setTutorialDone(true)} />
