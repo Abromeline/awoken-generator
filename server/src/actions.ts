@@ -238,9 +238,11 @@ type AspectElement = "tide" | "sky" | "stone" | "root";
  * Add ONE attunement point to an element for an owner — the exact arithmetic
  * aspect grants have always run: +1 point (insert or update, updatedAt
  * touched), and at >= 10 points an aspect is born into the inventory when a
- * "<Element> I" layer asset exists (10 points are then spent; without the
- * asset the points stay). Lifetime gains are never touched. Returns true
- * when an aspect spawned.
+ * level piece FILED as this element exists (10 points are then spent;
+ * without such a piece the points stay). The birth chooses by the filed
+ * element, never by a name pattern (Nigel, 2026-10-16 — the same law the
+ * getTerritory pool birth already kept). Lifetime gains are never
+ * touched. Returns true when an aspect spawned.
  */
 async function addAspectPoint(ownerKey: string, element: AspectElement): Promise<boolean> {
   const row = await db.select().from(schema.aspectAttunement)
@@ -263,15 +265,13 @@ async function addAspectPoint(ownerKey: string, element: AspectElement): Promise
   }
   // Check threshold (10) — spawn aspect if reached
   if (newPoints >= 10) {
-    const elementName = element.charAt(0).toUpperCase() + element.slice(1);
-    const asset = await db.select().from(schema.layerAssets)
-      .where(and(
-        eq(schema.layerAssets.category, "aspect"),
-        like(schema.layerAssets.name, `${elementName} I`)
-      )).limit(1);
-    if (asset.length) {
+    const pool = await db.select().from(schema.layerAssets)
+      .where(eq(schema.layerAssets.category, "aspect"));
+    const matches = pool.filter(a => storedElement((a as any).element) === element);
+    if (matches.length) {
+      const pick = matches[Math.floor(Math.random() * matches.length)];
       await db.insert(schema.aspectInventory)
-        .values({ ownerKey, aspectAssetId: asset[0].id });
+        .values({ ownerKey, aspectAssetId: pick.id });
       await db.update(schema.aspectAttunement)
         .set({ points: newPoints - 10 })
         .where(and(
@@ -352,11 +352,19 @@ const storedLayerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable().optional(), toughness: statSchema.nullable().optional(),
   element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
+  // An equipped aspect's own record (Nigel, 2026-10-16): these rode
+  // in the composition all along but were stripped at this gate, so
+  // no served layer could ever show its aspect's level or element —
+  // surfaces fell back to guessing from names. They pass now.
+  aspectLevel: z.number().int().min(1).max(3).optional(),
+  aspectElement: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
 });
 export const layerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable(), toughness: statSchema.nullable(),
   element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
+  aspectLevel: z.number().int().min(1).max(3).optional(),
+  aspectElement: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
 });
 const assetShape = z.object({
   id: z.number(), name: z.string(), category: layerCategorySchema, rarity: raritySchema,
@@ -384,7 +392,7 @@ function parseLayers(value: string, assetStats: Map<number, AssetStats>): z.infe
       if (!result.success) return [];
       const id = parseDbId(result.data.source_id);
       const current = id === null ? undefined : assetStats.get(id);
-      return [{ ...result.data, name: current?.name ?? result.data.name, rarity: current?.rarity ?? result.data.rarity, power: current?.power ?? result.data.power ?? null, toughness: current?.toughness ?? result.data.toughness ?? null, element: (current as any)?.element ?? (result.data as any).element ?? null }];
+      return [{ ...result.data, name: current?.name ?? result.data.name, rarity: current?.rarity ?? result.data.rarity, power: current?.power ?? result.data.power ?? null, toughness: current?.toughness ?? result.data.toughness ?? null, element: (current as any)?.element ?? (result.data as any).element ?? (result.data as any).aspectElement ?? null }];
     });
   } catch { return []; }
 }
@@ -2813,6 +2821,7 @@ export const handlers = {
       id: schema.aspectInventory.id,
       name: schema.layerAssets.name,
       imageBlobKey: schema.layerAssets.imageBlobKey,
+      element: schema.layerAssets.element,
     }).from(schema.aspectInventory)
       .innerJoin(schema.layerAssets, eq(schema.aspectInventory.aspectAssetId, schema.layerAssets.id))
       .where(and(
@@ -2821,12 +2830,20 @@ export const handlers = {
       )).limit(1);
     const aspect = inv[0];
     if (!aspect) badRequest("Aspect not found.");
-    // Infer element from name
-    const element = /fire|ember|flame|ash|inferno/i.test(aspect.name) ? "fire"
-      : /tide|water|ocean|sea|river|rain/i.test(aspect.name) ? "tide"
-      : /sky|wind|storm|cloud|air/i.test(aspect.name) ? "sky"
-      : /stone|rock|mountain|earth|crystal/i.test(aspect.name) ? "stone"
-      : "root";
+    // The element is the piece's own FILED truth — never its name
+    // (the sum-of-the-parts law, Nigel 2026-10-15). A name-guessing
+    // regex lived here until 2026-10-16: it read keywords out of the
+    // piece's name and so made applied aspects count as whatever
+    // their names suggested — a piece named for crystal counted
+    // stone whatever element it truly held. Combining, the inventory
+    // list, and the pool births all read the filed element; this was
+    // the last surface still guessing. An aspect whose element has
+    // not been filed has no element to give — say so honestly rather
+    // than invent one.
+    const element = storedElement((aspect as any).element);
+    if (element === "neutral") {
+      badRequest("That aspect's element is not filed yet — file it on the piece in the workshop, then apply it.");
+    }
     // Get the Awoken
     const aw = await db.select().from(schema.awakened)
       .where(and(
@@ -2850,14 +2867,19 @@ export const handlers = {
       if (currentLevel >= 3) badRequest("Aspect is already at max level.");
       const newLevel = currentLevel + 1;
       const roman = ["", "I", "II", "III"][newLevel];
-      // Find the level-specific artwork (e.g. "Tide II")
+      // Find the level-specific artwork (e.g. "Tide II"). The swap
+      // is art only: once the layer points at that asset, the tally
+      // reads the element from the ASSET's record — so the swap may
+      // happen only when the candidate's filed element is the
+      // aspect's own. A name-match filed as another element keeps
+      // the old art and the level still rises.
       const elementName = existingEl.charAt(0).toUpperCase() + existingEl.slice(1);
       const levelAsset = await db.select().from(schema.layerAssets)
         .where(and(
           eq(schema.layerAssets.category, "aspect"),
           like(schema.layerAssets.name, `${elementName} ${roman}`)
         )).limit(1);
-      if (levelAsset.length) {
+      if (levelAsset.length && storedElement((levelAsset[0] as any).element) === existingEl) {
         existing.name = levelAsset[0].name;
         existing.imageBlobKey = levelAsset[0].imageBlobKey;
         existing.source_id = `db:${levelAsset[0].id}`;
@@ -3256,20 +3278,20 @@ export const handlers = {
       for (const [el, gain] of gains) {
         const current = attunement.get(el)!;
         let newPoints = current.points + gain;
-        // Spawn aspect if threshold reached
+        // Spawn aspect if threshold reached. The birth chooses a
+        // piece FILED as this element (never a name pattern), and
+        // the points are spent only when a birth truly happens —
+        // until today this loop spent them even when its name-match
+        // found nothing and no aspect was born.
         while (newPoints >= THRESHOLD) {
+          const pool = await db.select().from(schema.layerAssets)
+            .where(eq(schema.layerAssets.category, "aspect"));
+          const matches = pool.filter(a => storedElement((a as any).element) === el);
+          if (!matches.length) break;
           newPoints -= THRESHOLD;
-          // Find a level I aspect of this element to award
-          const elementName = el.charAt(0).toUpperCase() + el.slice(1);
-          const asset = await db.select().from(schema.layerAssets)
-            .where(and(
-              eq(schema.layerAssets.category, "aspect"),
-              like(schema.layerAssets.name, `${elementName} I`)
-            )).limit(1);
-          if (asset.length) {
-            await db.insert(schema.aspectInventory)
-              .values({ ownerKey, aspectAssetId: asset[0].id });
-          }
+          const pick = matches[Math.floor(Math.random() * matches.length)];
+          await db.insert(schema.aspectInventory)
+            .values({ ownerKey, aspectAssetId: pick.id });
         }
         attunement.set(el, { points: newPoints, updatedAt: new Date(now) });
         await db.update(schema.aspectAttunement)
