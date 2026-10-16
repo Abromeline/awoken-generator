@@ -46,7 +46,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table";
 
 interface UiSprite {
   id: number;
@@ -101,6 +101,67 @@ const AWAKENING_LABELS: Record<string, string> = {
   "wake-ready": "Free Wake Crystal",
   "gather-wakes": "Gather Wakes Button",
 };
+
+// Discord Table art slots (Nigel, via the Unseated's Atelier, 2026-10-15).
+// These are the workshop's holding shelves for the Table's replaceable art:
+// uploads persist in ui_sprites under category "table", keyed by slot name,
+// exactly like the other sections. The four classic enemies (Fray, Unraveler,
+// Hollow, Tangle) already live in the Enemies section and are NOT duplicated
+// here — only the Table's newer faces get slots.
+interface TableSlot { name: string; label: string; canvas: string; note?: string }
+const TABLE_GROUPS: { title: string; slots: TableSlot[] }[] = [
+  {
+    title: "New faces for the Dark",
+    slots: [
+      { name: "enemy_thornrunner", label: "Thornrunner", canvas: "480×480" },
+      { name: "enemy_hollow_choir", label: "The Hollow Choir", canvas: "480×480" },
+      { name: "enemy_gloaming_stag", label: "Gloaming Stag", canvas: "480×480" },
+    ],
+  },
+  {
+    title: "The star-seed & the Bastion",
+    slots: [
+      { name: "seed_ground", label: "Cracked ground disc", canvas: "512×512", note: "The cracked earth the bulb grows from — the seed's bed on the centre hex." },
+      { name: "seed_bulb_1", label: "Star-seed bulb — young", canvas: "360×360", note: "The bulb at the pool's smallest. It grows as the pool grows." },
+      { name: "seed_bulb_2", label: "Star-seed bulb — grown", canvas: "360×360" },
+      { name: "seed_bulb_3", label: "Star-seed bulb — swollen", canvas: "360×360", note: "The bulb at the pool's fullest, before the tally." },
+      { name: "bastion_lvl_1", label: "Bastion — Level 1", canvas: "640×512", note: "What the Awoken build around a held seed. Level = holders' level ÷ 3." },
+      { name: "bastion_lvl_2", label: "Bastion — Level 2", canvas: "640×512" },
+      { name: "bastion_lvl_3", label: "Bastion — Level 3", canvas: "640×512" },
+    ],
+  },
+  {
+    title: "Stage sets — the Storytender's screens",
+    slots: [
+      { name: "stage_gate_lamplight", label: "The Gate at Lamplight", canvas: "1280×720", note: "Full-bleed stage backdrops. PNG or JPEG." },
+      { name: "stage_road_falls", label: "The Road Between Falls", canvas: "1280×720", note: "PNG or JPEG." },
+      { name: "stage_ring_ground", label: "The Ring of Ground", canvas: "1280×720", note: "PNG or JPEG." },
+      { name: "stage_blank_slate", label: "Blank Slate — map grid", canvas: "1280×720", note: "PNG or JPEG." },
+    ],
+  },
+  {
+    title: "Item sprites — the typed inventory",
+    slots: [
+      { name: "item_flask", label: "Flask", canvas: "128×128", note: "Small icons that ride beside typed inventory entries, matched by the item's name." },
+      { name: "item_rope", label: "Rope", canvas: "128×128" },
+      { name: "item_candle", label: "Candle", canvas: "128×128" },
+      { name: "item_key", label: "Key", canvas: "128×128" },
+      { name: "item_crystal", label: "Crystal", canvas: "128×128" },
+      { name: "item_ration", label: "Ration", canvas: "128×128" },
+      { name: "item_chalk", label: "Chalk", canvas: "128×128" },
+      { name: "item_satchel", label: "Satchel", canvas: "128×128", note: "The fallback sprite when no name matches." },
+    ],
+  },
+  {
+    title: "Abilities & table signs",
+    slots: [
+      { name: "ability_ward", label: "Ward", canvas: "128×128", note: "Tab II marks: every Tender casts Lvl 1 wards and runes; Awoken-borne ones ride here too." },
+      { name: "ability_rune", label: "Rune", canvas: "128×128" },
+      { name: "sign_dice", label: "Dice sign", canvas: "128×128", note: "The mark that opens the dice pop-up on the hand." },
+      { name: "sign_kindred", label: "Kindred sign", canvas: "128×128", note: "The twin-flame mark of the Kindred pool." },
+    ],
+  },
+];
 
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
@@ -225,9 +286,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : "🌿 Elements"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : "🎲 Discord Table"}
           </button>
         ))}
       </div>
@@ -465,6 +526,54 @@ export default function UIWorkspace() {
             </div>
           ))}
         </div>
+        </div>
+      )}
+
+      {section === "table" && (
+        <div>
+          <p className="quiet" style={{ marginTop: 0 }}>
+            🎲 <strong>Discord Table</strong> — these shelves hold the replaceable art for the Discord
+            Table: the Activity where Tenders will play the Awoken together. Uploads save here exactly
+            like the other sections, ready for the Table to draw from. The four classic enemies keep
+            their slots in the Enemies section above; only the Table's newer faces live here.
+          </p>
+          {uploadError && (
+            <p className="notice error" style={{ marginBottom: 12 }}>
+              Upload failed: {uploadError}
+              <button className="abtn small" onClick={() => setUploadError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+            </p>
+          )}
+          {TABLE_GROUPS.map(group => (
+            <div key={group.title}>
+              <h3 style={{ margin: "18px 0 8px" }}>{group.title}</h3>
+              <div className="workspace-grid">
+                {group.slots.map(slot => (
+                  <div key={slot.name} className="workspace-card">
+                    <h3>{slot.label}</h3>
+                    <div className="sprite-row">
+                      {spritesFor("table", slot.name).map(s => (
+                        <div key={s.id} className="sprite-uploaded">
+                          <img src={s.url} alt={s.name} className="sprite-thumb" />
+                          <small>Uploaded</small>
+                        </div>
+                      ))}
+                      <button
+                        className="upload-btn"
+                        disabled={uploading === slot.name}
+                        onClick={() => { setUploadTarget({ category: "table", name: slot.name }); fileRef.current?.click(); }}
+                      >
+                        {uploading === slot.name ? "..." : "+ Sprite"}
+                      </button>
+                    </div>
+                    <p className="quiet" style={{ fontSize: 11, marginTop: 8 }}>
+                      Canvas {slot.canvas} · slot <code>{slot.name}</code>
+                      {slot.note ? <><br />{slot.note}</> : null}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
