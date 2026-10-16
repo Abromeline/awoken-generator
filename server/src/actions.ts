@@ -401,9 +401,12 @@ function identityFor(layers: z.infer<typeof layerRefShape>[]) {
   return ["arms", "body", "head"].map((category) => layers.find((layer) => layer.category === category)?.source_id ?? "none").join("|");
 }
 
-/** Mirror of the client's element keyword read (App.tsx): a piece's element
- *  from its name. The server keeps its own copy so it never trusts the
- *  client's claim about what a team is. */
+/** THE LAW (Nigel, 2026-10-15, re-ruled 2026-10-16): a piece's element
+ *  is judged ONLY by the element filed on it — the Elements tab — and
+ *  an Awoken's element is the sum of its parts' filed elements. No
+ *  system, server or client, reads an element out of a name; the
+ *  keyword reads that once lived on both sides are abolished, and an
+ *  unfiled piece is neutral — it counts as nothing until it is filed. */
 const ELEMENTS_5 = ["tide", "sky", "stone", "root", "fire"] as const;
 /** The stack law's two clean states (Nigel, via Land, 2026-10-16):
  *  neutral land exists ONLY at Z1 and neutral tiles NEVER stack —

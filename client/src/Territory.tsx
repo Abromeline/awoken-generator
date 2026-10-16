@@ -2939,9 +2939,13 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 // Check if this Awoken has Fire III aspect
                 const layers = awoken.layers || [];
                 const aspect = layers.find((l: any) => l.category === "aspect");
-                const isFireIII = aspect && 
-                  (/fire/i.test(aspect.name || "") || (aspect as any).aspectElement === "fire") && 
-                  ((aspect as any).aspectLevel === 3 || /III/.test(aspect.name || ""));
+                // Judged by the aspect's own record alone — its
+                // filed element and its level — never by its name
+                // (Nigel, 2026-10-16; the name tests that stood here
+                // could crown a fire-named level-I aspect as Fire III).
+                const isFireIII = aspect &&
+                  ((aspect as any).aspectElement === "fire" || (aspect as any).element === "fire") &&
+                  (aspect as any).aspectLevel === 3;
                 if (!isFireIII) return null;
                 return (
                   <button

@@ -88,11 +88,11 @@ function chooseWeighted(options: LayerAsset[], lucky = false) {
   return options[options.length - 1];
 }
 /** Gather one piece per layer, weighted by rarity (or fixed choices in the workshop). */
-/** Fire aspects are map-exclusive: only from wildfire sparks, never from wakes. */
-function isFireAspect(asset: LayerAsset): boolean {
-  if (asset.category !== "aspect") return false;
-  return /fire|ember|flame|ash|inferno/i.test(asset.name);
-}
+/* Fire aspects are map-exclusive: only from wildfire sparks, never
+   from wakes. Whether a piece IS fire is judged by its filed element
+   (the Elements tab) alone — never by its name. A name-guessing
+   helper that once lived here was removed under that law
+   (Nigel, 2026-10-16); wakes exclude every aspect regardless. */
 
 function pickLayerSet(assets: LayerAsset[], choices?: Record<Category, string>, lucky = false): LayerAsset[] {
   return categories.flatMap((category) => {
@@ -901,7 +901,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
             <span>🪨 Stone: {counts.stone}</span>
             <span>🌿 Root: {counts.root}</span>
             <span>🔥 Fire: {counts.fire}</span>
-            <span>❓ Auto: {counts.auto}</span>
+            <span>❓ Unfiled: {counts.auto}</span>
           </div>
         );
       })()}
@@ -919,7 +919,7 @@ function PoolPanel({ assets }: { assets: LayerAsset[] }) {
             <select aria-label={`Element for ${asset.name}`} value={(asset as any).element || ""} onChange={(e) => {
               setElement.mutate({ id: asset.serverId ?? 0, element: e.target.value || null });
             }}>
-              <option value="">Auto (from name)</option>
+              <option value="">Not filed — counts as no element</option>
               <option value="tide">🌊 Tide</option>
               <option value="sky">🌀 Sky</option>
               <option value="stone">🪨 Stone</option>
