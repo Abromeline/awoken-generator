@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
+import { takeTableBoot } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -167,44 +168,41 @@ export default function Table() {
         return;
       }
       try {
-        // KNOCK FIRST, FETCH LATER (audit, 2026-10-16): Discord's
-        // answer to the handshake is effectively single-use and
-        // swift, and this boot used to wait on a config fetch
-        // through Discord's proxy — clocked at over a second — before
-        // constructing the SDK and knocking, plausibly after the
-        // client's window had closed. Inside Discord the app id
-        // needs no fetch: it is our own hostname,
-        // <clientId>.discordsays.com. The config fetch remains only
-        // as the fallback for a framed launch off the proxy host.
-        const hostId = window.location.hostname.endsWith(".discordsays.com") ? window.location.hostname.split(".")[0] : "";
-        let clientId = /^\d+$/.test(hostId) ? hostId : "";
-        if (!clientId) {
+        // THE EARLY KNOCK (audit verdict, 2026-10-16): the SDK was
+        // already constructed and the knock sent at module scope in
+        // table-main.tsx (see tableSdk.ts) — Discord answered the
+        // bare Control's identical knock there, while the knock from
+        // inside this effect, however early, came after a bundle
+        // load and a React mount and heard silence. Consume that
+        // boot when it exists; only a framed launch off the proxy
+        // host (no app id in the hostname) falls back to building
+        // the SDK here, config-fetched, with the same re-aim.
+        setBootStep("Knocking on Discord's door…");
+        const early = takeTableBoot();
+        let sdk: DiscordSDK;
+        let clientId: string;
+        if (early) {
+          sdk = early.sdk;
+          clientId = early.clientId;
+          await early.ready;
+        } else {
           const cfg = await (await fetch("/api/table/config")).json();
           clientId = typeof cfg.discordClientId === "string" ? cfg.discordClientId : "";
-        }
-        if (!clientId) {
-          setError("Discord is not configured on the server yet, so the Table cannot check your name. The Ancient One holds the keys that finish this door.");
-          setPhase("error");
-          return;
-        }
-        const sdk = new DiscordSDK(clientId);
-        setBootStep("Knocking on Discord's door…");
-        // THE MISADDRESSED KNOCK (proven by the door record,
-        // 2026-10-16): Discord's launcher delivers this page through
-        // its proxy, so document.referrer is the discordsays.com
-        // address — and the SDK aims its handshake at the referrer.
-        // The client lives at discord.com, so the browser silently
-        // drops a knock addressed to the proxy, and ready() waits
-        // forever over a silent ear. If the SDK's aim is not at a
-        // Discord origin, re-aim it at the client and knock again.
-        try {
-          const s = sdk as unknown as { sourceOrigin?: string; handshake?: () => void };
-          if (s.sourceOrigin && !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com/.test(s.sourceOrigin) && typeof s.handshake === "function") {
-            s.sourceOrigin = "https://discord.com";
-            s.handshake();
+          if (!clientId) {
+            setError("Discord is not configured on the server yet, so the Table cannot check your name. The Ancient One holds the keys that finish this door.");
+            setPhase("error");
+            return;
           }
-        } catch {}
-        await sdk.ready();
+          sdk = new DiscordSDK(clientId);
+          try {
+            const s = sdk as unknown as { sourceOrigin?: string; handshake?: () => void };
+            if (s.sourceOrigin && !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com/.test(s.sourceOrigin) && typeof s.handshake === "function") {
+              s.sourceOrigin = "https://discord.com";
+              s.handshake();
+            }
+          } catch {}
+          await sdk.ready();
+        }
         setBootStep("Asking Discord your name…");
         const { code } = await sdk.commands.authorize({
           client_id: clientId,
