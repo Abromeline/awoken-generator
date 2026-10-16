@@ -3664,6 +3664,12 @@ export const handlers = {
     // hold. No Awoken on the hex, no change: the land is locked in
     // its state of flux until one is near. Surrounding tiles are NOT
     // attuned by presence — that reach belongs to the shrine alone.
+    // AMENDED (Nigel, 2026-10-16, the day-long quest): the pour is
+    // settled by the clock, not by the reading — the press accrues
+    // at one-eighth strength per hour of standing (see THE DAY-LONG
+    // QUEST at the company loop below). The tally math itself — the
+    // net press, the 10-point bank, the witness rule — is unchanged;
+    // only its tempo is the land's now, not the glance's.
     try {
       const tileById = new Map(tiles.map(t => [t.id, t]));
       const elementPointsOf = async (aw: any): Promise<Record<string, number>> => {
@@ -3849,31 +3855,79 @@ export const handlers = {
         }
         return sums;
       };
+      // THE DAY-LONG QUEST (Nigel, 2026-10-16): the company's press
+      // is no longer poured whole at every reading of the map — that
+      // made attunement a matter of glances, with trays sealing
+      // between one look and the next. The press is now a RATE,
+      // settled by the clock the way the shrine's pour already was:
+      // while a company stands on a hex, the land drinks its net
+      // press at one-eighth strength per hour, so a full company
+      // (net ~8) carries a hex through one 10-point stage in about
+      // ten hours and turns it fully in about a day, and a 30-point
+      // tray seals after about a day and a quarter of standing.
+      // Each settled hour is one beat, so the witness rule keeps its
+      // meaning — no stage completes in the beat its bank starts.
+      // Catch-up settles at most a day per reading (the backlog then
+      // drains a day at a time, as the shrine's does), and an empty
+      // hex keeps no clock: its anchor clears when the company
+      // leaves, and a returning company starts its own day.
+      const PRESS_DIVISOR = 8;
+      const QUEST_STEP_MS = 3600 * 1000;
+      const QUEST_MAX_STEPS = 24;
       for (const [tileId, company] of byTile) {
         const tile = tileById.get(tileId);
         if (!tile || tile.cursed) continue;
         const dom = netPressOf(await companySums(company));
-        if (!dom.el || dom.pts <= 0) continue;
-        (tile as any).attuneRatePts = dom.pts;
-        const elementBefore = tile.element as string;
-        const upd = pour(tile, dom.el, dom.pts);
-        if (upd) {
-          await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, tile.id));
-          Object.assign(tile, upd);
+        (tile as any).attuneRatePts = dom.pts > 0 ? Math.round((dom.pts / PRESS_DIVISOR) * 100) / 100 : 0;
+        const nowMs = Date.now();
+        let anchor = tile.attuneAnchorAt ? new Date(tile.attuneAnchorAt as any).getTime() : 0;
+        if (!anchor) {
+          // The company has just taken its stand: the clock starts
+          // now, and nothing pours yet.
+          await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(nowMs) } as any)
+            .where(eq(schema.territoryTiles.id, tile.id));
+          tile.attuneAnchorAt = new Date(nowMs) as any;
+          continue;
         }
-        // Trays ride the same beat (Nigel, 2026-10-15).
-        if ((tile.element as string) !== elementBefore) {
-          // The land turned: the old stack belonged to the old
-          // element. A single growing tray of the new element
-          // remains — one stack, one element, always.
-          tile.sealedTrays = 0;
-          tile.growPoints = 0;
-          tile.topPoints = null;
-          await persistTray(tile);
-        } else if (tile.element !== "neutral" && tile.element !== "fire") {
-          if (dom.el === tile.element) await growStack(tile, dom.pts);
-          else await damageTopTray(tile, dom.pts);
+        let steps = Math.floor((nowMs - anchor) / QUEST_STEP_MS);
+        if (steps <= 0) continue;
+        steps = Math.min(steps, QUEST_MAX_STEPS);
+        const perStep = dom.pts / PRESS_DIVISOR;
+        for (let s = 0; s < steps; s++) {
+          anchor += QUEST_STEP_MS;
+          // An inert company (net of zero or less) pours nothing,
+          // but its standing still holds the clock honest.
+          if (!dom.el || perStep <= 0) continue;
+          const elementBefore = tile.element as string;
+          const upd = pour(tile, dom.el, perStep);
+          if (upd) {
+            await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, tile.id));
+            Object.assign(tile, upd);
+          }
+          // Trays ride the same beat (Nigel, 2026-10-15).
+          if ((tile.element as string) !== elementBefore) {
+            // The land turned: the old stack belonged to the old
+            // element. A single growing tray of the new element
+            // remains — one stack, one element, always.
+            tile.sealedTrays = 0;
+            tile.growPoints = 0;
+            tile.topPoints = null;
+            await persistTray(tile);
+          } else if (tile.element !== "neutral" && tile.element !== "fire") {
+            if (dom.el === tile.element) await growStack(tile, perStep);
+            else await damageTopTray(tile, perStep);
+          }
         }
+        await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(anchor) } as any)
+          .where(eq(schema.territoryTiles.id, tile.id));
+        tile.attuneAnchorAt = new Date(anchor) as any;
+      }
+      // Empty hexes keep no clock (see the quest note above).
+      for (const t of tiles as any[]) {
+        if (t.cursed || byTile.has(t.id) || !t.attuneAnchorAt) continue;
+        await db.update(schema.territoryTiles).set({ attuneAnchorAt: null } as any)
+          .where(eq(schema.territoryTiles.id, t.id));
+        t.attuneAnchorAt = null;
       }
       // The Attunement Shrine turned to the LAND (Nigel, 2026-10-14):
       // the one reach beyond a single hex. While turned, its blessing

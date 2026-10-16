@@ -327,6 +327,12 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   // the land is locked in its flux until one is near.
   attunePoints: real("attune_points").notNull().default(0),
   attuneElement: text("attune_element"),
+  // The day-long quest clock (Nigel, 2026-10-16): when the standing
+  // company's press was last settled on this tile. The press accrues
+  // by the hour while the company stands (see the settle in
+  // getTerritory); null while no company stands — no presence, no
+  // accrual, and the clock restarts when a company returns.
+  attuneAnchorAt: integer("attune_anchor_at", { mode: "timestamp_ms" }),
   // Terraforming trays (Nigel, 2026-10-15): a purified hex is a STACK
   // of trays, Z = total trays, cap 6. sealedTrays counts the trays
   // that filled to 30 and sealed as the hex's element; growPoints is

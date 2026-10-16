@@ -2069,7 +2069,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             const remaining = 10 - ((t as any).attunePoints ?? 0);
             const rate = (t as any).attuneRatePts ?? 0;
             let etaSec: number | null = null;
-            if (rate > 0) etaSec = Math.ceil(remaining / rate) * 30;
+            // attuneRatePts is points per HOUR (the day-long quest,
+            // 2026-10-16): the wait is the remaining points at that
+            // hourly rate.
+            if (rate > 0) etaSec = Math.ceil((remaining / rate) * 3600);
             else if ((t as any).attuneShrineNextSec != null) etaSec = Math.max(30, (t as any).attuneShrineNextSec);
             const eta = etaSec == null ? `${Math.floor((t as any).attunePoints ?? 0)}/10` : etaSec < 90 ? `~${etaSec}s` : etaSec < 5400 ? `~${Math.round(etaSec / 60)}m` : `~${Math.round(etaSec / 360) / 10}h`;
             const col = nextStage === "neutral" ? "#9a958c" : (elementPalette[nextStage as keyof typeof elementPalette] ?? "#d4af6a");

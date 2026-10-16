@@ -356,6 +356,9 @@ if (!tileCols.some((col) => col.name === "grow_points")) {
 if (!tileCols.some((col) => col.name === "top_points")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN top_points REAL`);
 }
+if (!tileCols.some((col) => col.name === "attune_anchor_at")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN attune_anchor_at INTEGER`);
+}
 // Binding upkeep tracking.
 if (!placementCols.some((col) => col.name === "last_binding_charge_at")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN last_binding_charge_at INTEGER`);
