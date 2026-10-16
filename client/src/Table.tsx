@@ -28,6 +28,9 @@ interface TableCard {
   power: number;
   toughness: number;
   element: string;
+  art?: string;
+  level?: number;
+  awokenId?: number;
 }
 
 interface SharedState {
@@ -46,6 +49,7 @@ interface YouState {
   hand: TableCard[];
   notes: string;
   inventory: string[];
+  bound?: string | null;
 }
 
 type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
@@ -76,6 +80,50 @@ export default function Table() {
   const wsRef = useRef<WebSocket | null>(null);
   const heardRef = useRef<string[]>([]);
   const lastJoinRef = useRef<Record<string, unknown> | null>(null);
+  const [bindCode, setBindCode] = useState("");
+  const [bindCodeMsg, setBindCodeMsg] = useState("");
+  const [bindInput, setBindInput] = useState("");
+  const [bindMsg, setBindMsg] = useState("");
+
+  // The binding code (door): minted by the game for the Tender this
+  // browser is signed in as — the same session the game itself uses.
+  async function fetchBindCode() {
+    setBindCodeMsg("");
+    try {
+      const token = window.localStorage.getItem("awoken-tender-token") ?? "";
+      const res = await fetch("/api/getTableBindCode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Tender-Token": token },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "The game would not mint a code.");
+      setBindCode(String(data.code));
+    } catch (e) {
+      setBindCodeMsg(e instanceof Error ? e.message : "The game would not mint a code.");
+    }
+  }
+
+  // Spend a code at the Table (room): this seat's proven Discord
+  // token names who is binding; the code names the Tender. On
+  // success the seat is re-taken so the real deck is dealt.
+  async function submitBind() {
+    setBindMsg("");
+    const token = String(lastJoinRef.current?.authToken ?? takeTableSession()?.authToken ?? "");
+    if (!token) { setBindMsg("This seat was not Discord-proven, so it has nothing to bind with."); return; }
+    try {
+      const res = await fetch("/api/table/bind", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, code: bindInput.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "The binding did not take.");
+      setBindMsg(`Bound${data.tenderName ? ` to ${data.tenderName}` : ""}. Re-seat to draw your real deck:`);
+    } catch (e) {
+      setBindMsg(e instanceof Error ? e.message : "The binding did not take.");
+    }
+  }
   const taleRef = useRef<HTMLDivElement>(null);
 
   const inDiscord = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("frame_id");
@@ -346,6 +394,20 @@ export default function Table() {
               </button>
             </>
           )}
+          <div className="bind-code-panel">
+            <h4>🎲 Your Table binding code</h4>
+            <p className="quiet">
+              Signed in here as your Tender? Take a one-time code, then spend it at the
+              Table in Discord (the bind strip above your hand) — your Discord name is
+              tied to this Tender, and the Table deals your real deck from then on.
+            </p>
+            {bindCode ? (
+              <p className="bind-code-shown">Your code: <strong>{bindCode}</strong> — it fades in fifteen minutes and works once.</p>
+            ) : (
+              <button className="table-btn" onClick={() => void fetchBindCode()}>Show my binding code</button>
+            )}
+            {bindCodeMsg && <p className="quiet small">{bindCodeMsg}</p>}
+          </div>
         </div>
       </div>
     );
@@ -507,14 +569,39 @@ export default function Table() {
                     <div key={card.id} className="tcard">
                       <div className="tcard-banner">
                         <span className="tcard-name">{card.name}</span>
-                        <span className="tcard-mark">{ROMAN[i] ?? ""}</span>
+                        <span className="tcard-mark">{card.level ? `Lv ${card.level}` : (ROMAN[i] ?? "")}</span>
                       </div>
-                      <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
+                      {card.art ? (
+                        <div className="tcard-art real"><img src={card.art} alt={`${card.name}, your Awoken`} /></div>
+                      ) : (
+                        <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
+                      )}
                       <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span></div>
                     </div>
                   ))}
                 </div>
-                <p className="quiet small">Your hand — sent to you alone; no other seat at this Table has seen it. Test hand: your real deck is dealt once your Discord name is bound to your Tender (P1).</p>
+                {you.bound ? (
+                  <p className="quiet small">Your hand — sent to you alone; no other seat at this Table has seen it. Dealt from the collection of <strong>{you.bound}</strong>, your bound Tender.</p>
+                ) : (
+                  <div className="bind-strip">
+                    <p className="quiet small">Your hand — sent to you alone. These are stand-in cards: bind your Tender and the Table deals your real deck, your own Awoken with their true faces. Take a code in the game (the Table's door page on the site), then spend it here.</p>
+                    <div className="bind-row">
+                      <input
+                        className="door-input"
+                        value={bindInput}
+                        onChange={(e) => setBindInput(e.target.value.toUpperCase())}
+                        maxLength={6}
+                        placeholder="Binding code"
+                        aria-label="Binding code"
+                      />
+                      <button className="table-btn primary" disabled={bindInput.trim().length < 6} onClick={() => void submitBind()}>Bind my Tender</button>
+                      {bindMsg.startsWith("Bound") && (
+                        <button className="table-btn" onClick={() => window.location.reload()}>Re-seat now</button>
+                      )}
+                    </div>
+                    {bindMsg && <p className="quiet small">{bindMsg}</p>}
+                  </div>
+                )}
               </>
             )}
             {tab === "II" && (

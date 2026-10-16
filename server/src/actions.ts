@@ -2180,6 +2180,23 @@ export const handlers = {
     return { ok: true as const, sentAt: sentAt.toISOString() };
   },
 
+  /** A Table binding code (Nigel's word, 2026-10-16): a signed-in
+   *  Tender mints a one-time code here in the game, then spends it
+   *  at the Table (POST /api/table/bind) to tie their Discord name
+   *  to this Tender — from then on the Table deals their REAL deck,
+   *  their own Awoken with their true card faces. One live code per
+   *  Tender: minting fades any unspent predecessor. Fifteen minutes. */
+  async getTableBindCode(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Sign in as your Tender to take a binding code.");
+    const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    let code = "";
+    for (let i = 0; i < 6; i++) code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+    await db.delete(schema.tableBindCodes).where(eq(schema.tableBindCodes.tenderId, ctx.tender.id));
+    await db.insert(schema.tableBindCodes).values({ code, tenderId: ctx.tender.id, expiresAt, usedAt: null });
+    return { ok: true as const, code, expiresAt: new Date(expiresAt).toISOString() };
+  },
+
   // -- The Voice's channel (workshop-held; Nigel's orders 2026-10-15) ---
   // Her weather pathway (above) runs on its own when the sky turns.
   // These are her workshop doors: read her state, still or loose her

@@ -359,6 +359,17 @@ button { font-family: inherit; }
   border-top: 1px solid var(--ash-3);
   font-size: 13px;
 }
+/* A real Awoken's face in the hand: the composed card image the
+   site serves, held in the same art window as the glyph face. */
+.tcard-art.real { padding: 0; background: #000; }
+.tcard-art.real img { display: block; width: 100%; height: 118px; object-fit: cover; object-position: top center; }
+.bind-strip { margin-top: 10px; border-top: 1px dashed var(--ash-3); padding-top: 10px; }
+.bind-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.bind-row .door-input { max-width: 150px; text-transform: uppercase; letter-spacing: 2px; }
+.bind-code-panel { margin-top: 18px; border-top: 1px dashed var(--ash-3); padding-top: 12px; }
+.bind-code-panel h4 { margin: 0 0 6px; color: var(--gold-bright); }
+.bind-code-shown { font-size: 16px; letter-spacing: 1px; }
+.bind-code-shown strong { color: var(--gold-bright); letter-spacing: 3px; }
 
 .arts-list { max-width: 640px; }
 .art-row {

@@ -500,6 +500,26 @@ export const tableProfiles = sqliteTable("table_profiles", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// THE TABLE'S BINDING (2026-10-16, Nigel's word): a Discord name tied
+// to a Tender, so the Table can deal that Tender's REAL deck — their
+// own Awoken with their true card faces — instead of the P0 stand-in
+// hand. One Discord identity binds one Tender at a time.
+export const tableBindings = sqliteTable("table_bindings", {
+  discordId: text("discord_id").primaryKey(),
+  tenderId: integer("tender_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// One-time binding codes, minted in the game by a signed-in Tender
+// (getTableBindCode) and spent at the Table (POST /api/table/bind).
+// Fifteen minutes to live, one spend, then faded.
+export const tableBindCodes = sqliteTable("table_bind_codes", {
+  code: text("code").primaryKey(),
+  tenderId: integer("tender_id").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  usedAt: integer("used_at"),
+});
+
 // THE MONSTERS COMPENDIUM (the game's living copy of the Atelier's roll,
 // seeded from the Compendium app's entries at first read, 2026-10-16):
 // every enemy the heroes may face, kept by class. Sprites are NOT stored

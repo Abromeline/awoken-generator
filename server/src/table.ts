@@ -28,6 +28,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { eq } from "drizzle-orm";
 import { db, schema } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
+import { tenderOwnerKey } from "./tenders.js";
+import { awakenedPayloadById } from "./actions.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -39,6 +41,12 @@ interface TableCard {
   power: number;
   toughness: number;
   element: string;
+  /** Real-deck cards only: the Awoken's true card face, exactly as
+   *  the site serves it, plus its level and ledger id. Stand-in
+   *  cards carry none of these and show their glyph face. */
+  art?: string;
+  level?: number;
+  awokenId?: number;
 }
 
 /** The P0 test pool. Test cards only — real decks arrive with account
@@ -63,6 +71,11 @@ interface Player {
   hand: TableCard[];
   notes: string;
   inventory: string[];
+  /** The Tender this seat is bound to (display name), or null when
+   *  the seat holds a stand-in hand. deck: the rest of their real
+   *  deck, beneath the dealt hand. */
+  bound?: string | null;
+  deck?: TableCard[];
 }
 
 interface TaleEntry {
@@ -97,6 +110,74 @@ function shuffledShoe(): TableCard[] {
 function dealHand(room: Room): TableCard[] {
   if (room.shoe.length < 5) room.shoe = shuffledShoe();
   return room.shoe.splice(0, 5);
+}
+
+// ── The real deck (Nigel's word, 2026-10-16) ─────────────────────
+// A bound seat is dealt from its Tender's own collection: their
+// Awoken, with the true card faces the site serves, the stats the
+// game's own payload builder computes, and the element the sum of
+// the parts declares. The binding is one Discord name ↔ one Tender.
+
+async function bindingFor(discordId: string): Promise<number | null> {
+  try {
+    const rows = await db.select().from(schema.tableBindings)
+      .where(eq(schema.tableBindings.discordId, discordId)).limit(1);
+    return rows.length ? rows[0].tenderId : null;
+  } catch { return null; }
+}
+
+async function tenderDisplayName(tenderId: number): Promise<string | null> {
+  try {
+    const rows = await db.select().from(schema.tenders)
+      .where(eq(schema.tenders.id, tenderId)).limit(1);
+    return rows.length ? (rows[0].tenderName ?? null) : null;
+  } catch { return null; }
+}
+
+const ELEMENT_ORDER = ["tide", "sky", "stone", "root", "fire"];
+
+/** An Awoken's element for the Table's one-glyph face: the dominant
+ *  filed element across its parts (the sum-of-the-parts law), ties
+ *  broken by the canonical order, no tally at all → neutral. */
+function dominantElement(layers: { element?: string | null }[]): string {
+  const tally = new Map<string, number>();
+  for (const layer of layers) {
+    const el = layer.element ?? null;
+    if (el && el !== "neutral") tally.set(el, (tally.get(el) ?? 0) + 1);
+  }
+  let best = "neutral";
+  let bestCount = 0;
+  for (const el of ELEMENT_ORDER) {
+    const count = tally.get(el) ?? 0;
+    if (count > bestCount) { best = el; bestCount = count; }
+  }
+  return best;
+}
+
+async function deckForTender(tenderId: number): Promise<TableCard[]> {
+  const ownerKey = tenderOwnerKey(tenderId);
+  const rows = await db.select().from(schema.awakened)
+    .where(eq(schema.awakened.ownerKey, ownerKey));
+  const cards: TableCard[] = [];
+  for (const row of rows.slice(0, 120)) {
+    const payload = await awakenedPayloadById(row.id).catch(() => null);
+    if (!payload) continue;
+    cards.push({
+      id: randomUUID(),
+      name: payload.name,
+      power: payload.power,
+      toughness: payload.toughness,
+      element: dominantElement(payload.layers as { element?: string | null }[]),
+      art: payload.image_url,
+      level: payload.level,
+      awokenId: payload.id,
+    });
+  }
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cards[i], cards[j]] = [cards[j], cards[i]];
+  }
+  return cards;
 }
 
 async function currentSky(): Promise<Room["sky"]> {
@@ -174,6 +255,7 @@ function sendState(room: Room): void {
         hand: player.hand,
         notes: player.notes,
         inventory: player.inventory,
+        bound: player.bound ?? null,
       },
     }));
   }
@@ -238,7 +320,26 @@ function handleConnection(ws: WebSocket): void {
       const seatedCount = [...room.players.values()].filter(p => !p.watcher).length;
       if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no sixth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
-      player = { key, name, watcher, hand: watcher ? [] : dealHand(room), notes: profile.notes, inventory: profile.inventory };
+      // A bound Discord seat is dealt its Tender's real deck; every
+      // other seat takes the stand-in shoe. A small collection is
+      // topped up with stand-ins so the hand still holds five.
+      let hand: TableCard[] = [];
+      let bound: string | null = null;
+      let deck: TableCard[] | undefined;
+      if (!watcher && key.startsWith("discord:")) {
+        const tenderId = await bindingFor(key.slice("discord:".length));
+        if (tenderId !== null) {
+          const cards = await deckForTender(tenderId).catch(() => [] as TableCard[]);
+          if (cards.length) {
+            deck = cards;
+            hand = deck.splice(0, 5);
+            bound = await tenderDisplayName(tenderId);
+          }
+        }
+      }
+      if (!watcher && !deck) hand = dealHand(room);
+      else if (!watcher && hand.length < 5) hand = [...hand, ...dealHand(room).slice(0, 5 - hand.length)];
+      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, deck };
       room.players.set(ws, player);
       if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);
@@ -302,6 +403,15 @@ export function tableDoorMode(): string {
   return "table";
 }
 
+/** Mint a seat token for a Discord-proven user (the auth route's
+ *  last step, shared so a seat token means the same thing wherever
+ *  it is issued). */
+export function issueTableToken(user: { id: string; name: string }): string {
+  const token = randomUUID();
+  authTokens.set(token, user);
+  return token;
+}
+
 /** Mount the Table's HTTP routes: config + sign-in exchange. These
  *  must be registered BEFORE the static bundle and its SPA fallback in
  *  index.ts, or the fallback answers /api/table/* with index.html.
@@ -309,6 +419,33 @@ export function tableDoorMode(): string {
 export function registerTableRoutes(app: Express): void {
   app.get("/api/table/config", (_req: Request, res: Response) => {
     res.json({ discordClientId: DISCORD_CLIENT_ID || null, devMode: !TABLE_CONFIGURED });
+  });
+
+  // Spend a binding code (minted in the game by getTableBindCode):
+  // the seat's proven Discord token names who is binding; the code
+  // names the Tender. One Discord name ↔ one Tender: binding moves
+  // the Tender's bond wholesale and replaces this name's old bond.
+  app.post("/api/table/bind", async (req: Request, res: Response) => {
+    const token = String(req.body?.token ?? "");
+    const code = String(req.body?.code ?? "").trim().toUpperCase();
+    const user = authTokens.get(token);
+    if (!user) { res.status(401).json({ error: "That seat is not signed in — reopen the Table from Discord." }); return; }
+    if (!code) { res.status(400).json({ error: "Give the binding code from the game." }); return; }
+    const rows = await db.select().from(schema.tableBindCodes)
+      .where(eq(schema.tableBindCodes.code, code)).limit(1);
+    const row = rows[0];
+    if (!row || row.usedAt !== null || row.expiresAt < Date.now()) {
+      res.status(400).json({ error: "That code has faded or was already spent. Take a fresh one in the game." });
+      return;
+    }
+    await db.update(schema.tableBindCodes).set({ usedAt: Date.now() })
+      .where(eq(schema.tableBindCodes.code, code));
+    await db.delete(schema.tableBindings)
+      .where(eq(schema.tableBindings.tenderId, row.tenderId));
+    await db.insert(schema.tableBindings)
+      .values({ discordId: user.id, tenderId: row.tenderId })
+      .onConflictDoUpdate({ target: schema.tableBindings.discordId, set: { tenderId: row.tenderId } });
+    res.json({ ok: true, tenderName: await tenderDisplayName(row.tenderId) });
   });
 
   app.post("/api/table/auth", async (req: Request, res: Response) => {
@@ -334,8 +471,7 @@ export function registerTableRoutes(app: Express): void {
       if (!userRes.ok) { res.status(401).json({ error: "Discord would not name you." }); return; }
       const user = (await userRes.json()) as { id: string; username: string; global_name?: string | null };
       const name = user.global_name || user.username;
-      const token = randomUUID();
-      authTokens.set(token, { id: String(user.id), name });
+      const token = issueTableToken({ id: String(user.id), name });
       res.json({ token, accessToken: tok.access_token, user: { id: String(user.id), name } });
     } catch {
       res.status(502).json({ error: "Discord could not be reached." });

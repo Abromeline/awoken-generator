@@ -676,6 +676,17 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS table_profiles (
   inventory TEXT NOT NULL DEFAULT '[]',
   updated_at INTEGER NOT NULL
 );`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS table_bindings (
+  discord_id TEXT PRIMARY KEY,
+  tender_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS table_bind_codes (
+  code TEXT PRIMARY KEY,
+  tender_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS compendium_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   class_name TEXT NOT NULL,
