@@ -13,6 +13,7 @@ import { useCourtMarks } from "./courtMarks";
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage, enemyImage } from "./BuildingMenu";
+import WarGrounds from "./WarGrounds";
 import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { elementPalette } from "./palette";
@@ -326,6 +327,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     } catch {}
   };
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
+  const [wgTileId, setWgTileId] = useState<number | null>(null); // War-Grounds fine-edit panel: the tile under the warden's hand
   const [walls, setWalls] = useState<{ edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }[]>([]); // hex walls (server-canonical edges)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
@@ -2812,6 +2814,13 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 🧱 {wallTargeting ? "Tap an edge…" : "Raise wall (2⚡)"}
               </button>
               <button
+                className="stance-btn"
+                disabled={battleActive}
+                onClick={() => { setWgTileId(placement.tileId); setWallTargeting(false); setAttackTargeting(false); setMoveTargeting(false); }}
+                title="Open the War-Grounds for this hex: one enlarged hex for fine work — raise walls on fat edges, seat or demolish buildings, and read the tile's state plainly.">
+                ⚔️ War-Grounds
+              </button>
+              <button
                 className="stance-btn dissipate"
                 onClick={async () => {
                   if (confirm("Dissipate this Awoken? It will enter 8h re-coalescence.")) {
@@ -3392,6 +3401,49 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               </div>
             </div>
           </div>
+        );
+      })()}
+      {/* War-Grounds fine-edit panel (War-Ground, Nigel 2026-10-15):
+          one hex enlarged — fat edges for walls, the building seat,
+          the tile's readings. All actions ride existing server law. */}
+      {wgTileId !== null && !battleActive && (() => {
+        const tile = tiles.find(t => t.id === wgTileId);
+        if (!tile) return null;
+        const standing = placements
+          .filter(p => p.tileId === tile.id)
+          .map(p => {
+            const a = tenderItems.find(x => x.id === p.awakenedId);
+            return a ? { id: a.id, name: a.name, power: a.power, stance: p.stance } : null;
+          })
+          .filter(Boolean) as { id: number; name: string; power: number; stance: string }[];
+        return (
+          <WarGrounds
+            tile={tile}
+            walls={walls}
+            standing={standing}
+            tileBuildings={buildings.filter(b => b.tileId === tile.id)}
+            energy={energy}
+            onClose={() => setWgTileId(null)}
+            onPlaceWall={(dir) => handlePlaceWall(tile.id, dir)}
+            onChooseBuilding={(def) => {
+              setSelectedBuilding(def);
+              setPendingTile(tile.id);
+              setSelectedBuilders([]);
+              setWgTileId(null);
+            }}
+            onDemolish={async (buildingId) => {
+              try {
+                await api.demolishBuilding({ buildingId });
+                const rb = await api.getBuildings();
+                setBuildings(rb.buildings);
+                onUpdate();
+                showHexNotice("The building comes down. The hex keeps the ground it stood on.");
+              } catch (e) {
+                showHexNotice(e instanceof Error ? e.message : "The building would not come down.");
+              }
+            }}
+            onClaimSpark={tile.spark ? () => { setWgTileId(null); void handleSparkClick(tile.id); } : undefined}
+          />
         );
       })()}
       {/* Spark claim animation */}

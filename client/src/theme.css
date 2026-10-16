@@ -2160,6 +2160,25 @@ body.defeat-flash {
 .story-form-foot button{min-height:40px;padding:8px 16px;cursor:pointer}
 .story-card-stage{position:fixed;left:-10000px;top:0;width:340px;pointer-events:none}
 
+/* The War-Grounds fine-edit panel (War-Ground, Nigel 2026-10-15):
+   one enlarged hex — fat edges for walls, the building seat, the
+   tile's readings written plainly. */
+.wg-panel { max-width: 560px; width: 94vw; max-height: 92vh; overflow-y: auto; }
+.wg-panel h3 { text-align: center; }
+.wg-sub { text-align: center; margin: -6px 0 6px; }
+.wg-hex-wrap { display: flex; justify-content: center; }
+.wg-note { text-align: center; margin: 4px 0 10px; }
+.wg-readings { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+.wg-reading { background: rgba(255,255,255,0.05); border: 1px solid #444; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.wg-standing-chip { border-color: #b89b5e; color: #e8d9a8; }
+.wg-spark { display: block; margin: 6px auto 2px; }
+.wg-buildings { margin-top: 14px; border-top: 1px solid #333; padding-top: 10px; }
+.wg-buildings h4 { margin: 0 0 8px; color: #b89b5e; text-align: center; }
+.wg-building-row { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.04); border: 1px solid #444; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.wg-building-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.wg-building-info small { color: #b8b8b8; }
+.wg-picker { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+
 /* Lore's seed: the Awoken's own prompt, opening its Stories tab. */
 .story-prompt{margin:0 0 16px;padding:12px 14px;border-left:3px solid #b89b5e;background:rgba(184,155,94,.10);border-radius:0 6px 6px 0}
 .story-prompt-label{display:block;font-size:.78em;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.75;margin-bottom:4px}
