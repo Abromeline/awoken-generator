@@ -175,6 +175,21 @@ export default function Table() {
         }
         const sdk = new DiscordSDK(cfg.discordClientId);
         setBootStep("Knocking on Discord's door…");
+        // THE MISADDRESSED KNOCK (proven by the door record,
+        // 2026-10-16): Discord's launcher delivers this page through
+        // its proxy, so document.referrer is the discordsays.com
+        // address — and the SDK aims its handshake at the referrer.
+        // The client lives at discord.com, so the browser silently
+        // drops a knock addressed to the proxy, and ready() waits
+        // forever over a silent ear. If the SDK's aim is not at a
+        // Discord origin, re-aim it at the client and knock again.
+        try {
+          const s = sdk as unknown as { sourceOrigin?: string; handshake?: () => void };
+          if (s.sourceOrigin && !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com/.test(s.sourceOrigin) && typeof s.handshake === "function") {
+            s.sourceOrigin = "https://discord.com";
+            s.handshake();
+          }
+        } catch {}
         await sdk.ready();
         setBootStep("Asking Discord your name…");
         const { code } = await sdk.commands.authorize({
