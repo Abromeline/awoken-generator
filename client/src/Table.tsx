@@ -22,18 +22,15 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import battlegroundBg from "./assets/battleground-bg.jpg";
 import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
-import glyphSeal from "./assets/glyphs/seal.png";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
-import glyphTrees from "./assets/glyphs/trees.png";
 import glyphBeacon from "./assets/glyphs/beacon.png";
-import glyphLattice from "./assets/glyphs/lattice.png";
 import glyphBlade from "./assets/glyphs/blade.png";
 import glyphBlades from "./assets/glyphs/blades.png";
-import glyphShard from "./assets/glyphs/shard.png";
 import glyphCoil from "./assets/glyphs/coil.png";
+import { ANIMATED_GLYPH } from "./effects";
 
-const GLYPHS: Record<string, string> = { seal: glyphSeal, engine: glyphEngine, standard: glyphStandard, trees: glyphTrees, beacon: glyphBeacon, lattice: glyphLattice, blade: glyphBlade, blades: glyphBlades, shard: glyphShard, coil: glyphCoil };
+const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil };
 
 /** A spell as the Table reads it — from the Grimoire (Nigel,
  *  2026-10-17): the workshop's book is the data of record now;

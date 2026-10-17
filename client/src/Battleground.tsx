@@ -5,6 +5,7 @@ import { elementForPiece, type Element } from "./App";
 import FieldAwoken from "./FieldAwoken";
 import { api, type Awakened } from "./api";
 import { elementPalette } from "./palette";
+import { PROJECTILE_GIF, BEAM_GIF } from "./effects";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -119,6 +120,7 @@ interface Projectile {
   fx: number; fy: number;  // start (px, relative to .battle-field)
   tx: number; ty: number;  // target (px)
   glyph: string; color: string;
+  img?: string;            // dreamed sprite (effects.ts) — rendered instead of the glyph when set
   arc?: boolean;           // tower arrows fly an arc
   duration: number;        // ms of flight
 }
@@ -315,13 +317,20 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     return { x: r.left - fr.left + r.width / 2, y: r.top - fr.top + r.height / 2 };
   };
 
-  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; arc?: boolean; duration: number; onImpact?: () => void }) => {
+  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; img?: string; arc?: boolean; duration: number; onImpact?: () => void }) => {
     const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setProjectiles(prev => [...prev, { ...p, id }]);
     later(p.duration, () => {
       setProjectiles(prev => prev.filter(x => x.id !== id));
       p.onImpact?.();
     });
+  };
+
+  // The towers' searing light: a beam strikes at (x, y) and fades.
+  const strikeBeam = (x: number, y: number) => {
+    const id = `beam-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setBeams(prev => [...prev, { id, x, y }]);
+    later(950, () => setBeams(prev => prev.filter(b => b.id !== id)));
   };
 
   // Keep latest snapshots for mid-sequence targeting; clear timeouts on unmount.
@@ -400,6 +409,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const [towerVolley, setTowerVolley] = useState(false);
   const [hitFlash, setHitFlash] = useState<string | null>(null);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
+  const [beams, setBeams] = useState<{ id: string; x: number; y: number }[]>([]);
   const [windUp, setWindUp] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dmgNumbers, setDmgNumbers] = useState<{id: string, fighterId: string, dmg: number, crit: boolean}[]>([]);
@@ -478,12 +488,13 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     fightersRef.current = aw;
     enemiesRef.current = en;
 
-    // Watchtower opening volley: towers loose visible arrows, staggered, arcing onto random enemies
+    // Watchtower opening volley (Nigel, 2026-10-17): the towers no
+    // longer loose arrows — each calls down a beam of searing light
+    // onto a random enemy, staggered tower by tower.
     if (watchtowerTiles.length > 0 && en.length > 0) {
       setTowerVolley(true);
-      addLog(`🗼 Watchtowers loose their volley!`);
+      addLog(`🗼 Watchtowers call down their searing light!`);
       const staggerMs = 200;
-      const flightMs = 750;
       watchtowerTiles.forEach((tileId, i) => {
         later(1000 + i * staggerMs, () => {
           const from = towerCenter(tileId);
@@ -492,22 +503,17 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const target = alive[Math.floor(Math.random() * alive.length)];
           const to = fighterCenter(target.id);
           if (!to) return;
-          spawnProjectile({
-            fx: from.x, fy: from.y, tx: to.x, ty: to.y,
-            glyph: "\u27B9", color: "#ffd700", arc: true, duration: flightMs,
-            onImpact: () => {
-              setHitFlash(target.id);
-              later(400, () => setHitFlash(null));
-              const numId = `tower-${Date.now()}-${i}`;
-              setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
-              later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
-              setEnemies(prev => prev.map(e => e.id === target.id ? { ...e, hp: Math.max(0, e.hp - towerDamage) } : e));
-              addLog(`🗼 Tower arrow strikes ${target.name} for ${towerDamage}!`);
-            },
-          });
+          strikeBeam(to.x, to.y);
+          setHitFlash(target.id);
+          later(400, () => setHitFlash(null));
+          const numId = `tower-${Date.now()}-${i}`;
+          setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
+          later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
+          setEnemies(prev => prev.map(e => e.id === target.id ? { ...e, hp: Math.max(0, e.hp - towerDamage) } : e));
+          addLog(`🗼 Tower light sears ${target.name} for ${towerDamage}!`);
         });
       });
-      later(1000 + watchtowerTiles.length * staggerMs + flightMs + 500, () => setTowerVolley(false));
+      later(1000 + watchtowerTiles.length * staggerMs + 950, () => setTowerVolley(false));
     }
 
     // Random battle track
@@ -850,6 +856,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       spawnProjectile({
         fx: from.x, fy: from.y, tx: to.x, ty: to.y,
         glyph: shot.glyph, color: shot.color,
+        img: atk.side === "aw" ? PROJECTILE_GIF[shotEl] ?? PROJECTILE_GIF.unaligned : undefined,
         duration: FLIGHT_MS, onImpact: impact,
       });
     });
@@ -993,7 +1000,12 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
                 "--mx": `${(p.tx - p.fx) / 2}px`,
                 "--my": `${(p.ty - p.fy) / 2 - 70}px`,
               } as CSSProperties}
-            >{p.glyph}</div>
+            >{p.img ? <img className="proj-img" src={p.img} alt="" style={{ transform: `rotate(${Math.atan2(p.ty - p.fy, p.tx - p.fx)}rad)` }} /> : p.glyph}</div>
+          ))}
+          {beams.map(b => (
+            <div key={b.id} className="beam-strike" style={{ left: b.x, top: b.y }}>
+              <img src={BEAM_GIF} alt="" />
+            </div>
           ))}
         </div>
         <div className="battle-row defenders-row">

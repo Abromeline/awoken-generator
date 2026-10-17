@@ -16,17 +16,14 @@ import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
 import type { MapWorking, GrimoireState } from "./api";
-import grimGlyphSeal from "./assets/glyphs/seal.png";
 import grimGlyphEngine from "./assets/glyphs/engine.png";
 import grimGlyphStandard from "./assets/glyphs/standard.png";
-import grimGlyphTrees from "./assets/glyphs/trees.png";
 import grimGlyphBeacon from "./assets/glyphs/beacon.png";
-import grimGlyphLattice from "./assets/glyphs/lattice.png";
 import grimGlyphBlade from "./assets/glyphs/blade.png";
 import grimGlyphBlades from "./assets/glyphs/blades.png";
-import grimGlyphShard from "./assets/glyphs/shard.png";
 import grimGlyphCoil from "./assets/glyphs/coil.png";
-const GRIM_BUNDLED: Record<string, string> = { seal: grimGlyphSeal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: grimGlyphTrees, beacon: grimGlyphBeacon, lattice: grimGlyphLattice, blade: grimGlyphBlade, blades: grimGlyphBlades, shard: grimGlyphShard, coil: grimGlyphCoil };
+import { ANIMATED_GLYPH } from "./effects";
+const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
 /** The hues of the Written Light — the grimoire's filter recipes,
  *  the same as the Table's (Table.tsx). */
 const GRIM_HUE_FILTERS: Record<string, string> = {
