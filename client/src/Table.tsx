@@ -33,14 +33,32 @@ interface TableCard {
   awokenId?: number;
 }
 
+interface FieldUnitView {
+  hex: string;
+  name: string;
+  art: string | null;
+  element: string;
+  power: number;
+  toughness: number;
+  hp: number;
+  maxHp: number;
+  level: number | null;
+  ownerKey: string;
+  ownerName: string;
+}
+
+interface EnemyView { name: string; label: string; note: string; art: string | null }
+
 interface SharedState {
   room: string;
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
+  field: FieldUnitView[];
+  enemies: EnemyView[];
 }
 
 interface YouState {
@@ -48,6 +66,8 @@ interface YouState {
   name: string;
   hand: TableCard[];
   notes: string;
+  energy?: number;
+  maxEnergy?: number;
   inventory: string[];
   bound?: string | null;
 }
@@ -56,6 +76,12 @@ type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+const FIELD_HEXES: { id: string; x: number; y: number; center?: boolean }[] = [
+  { id: "center", x: 150, y: 130, center: true },
+  { id: "ring-0", x: 150, y: 52 }, { id: "ring-1", x: 218, y: 91 }, { id: "ring-2", x: 218, y: 169 },
+  { id: "ring-3", x: 150, y: 208 }, { id: "ring-4", x: 82, y: 169 }, { id: "ring-5", x: 82, y: 91 },
+];
+
 const ROSTER = [
   { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
   { name: "unraveler", label: "Unraveler", note: "Looming ink mass. Hunts the strongest standing." },
@@ -74,6 +100,7 @@ export default function Table() {
   const [you, setYou] = useState<YouState | null>(null);
   const [tab, setTab] = useState<"I" | "II" | "III" | "IV">("I");
   const [diceOpen, setDiceOpen] = useState(false);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
   const [packDraft, setPackDraft] = useState("");
@@ -415,6 +442,7 @@ export default function Table() {
   }
 
   const sky = shared.sky;
+  const selectedCard = you && selectedCardId ? you.hand.find(c => c.id === selectedCardId) ?? null : null;
   return (
     <div className="table-room">
       <header className="skybar">
@@ -434,7 +462,7 @@ export default function Table() {
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
               <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}</span>
-              <span className="party-meta">🂠 {p.handCount} in hand</span>
+              <span className="party-meta">⚡ {p.energy} · 🂠 {p.handCount} in roster</span>
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
@@ -475,30 +503,62 @@ export default function Table() {
         <section className="panel field-panel">
           <div className="field-wrap">
             <img className="field-bg" src={battlegroundBg} alt="" aria-hidden="true" />
-            <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six empty hexes">
-              {[
-                { x: 150, y: 130, center: true },
-                { x: 150, y: 52 }, { x: 218, y: 91 }, { x: 218, y: 169 },
-                { x: 150, y: 208 }, { x: 82, y: 169 }, { x: 82, y: 91 },
-              ].map((h, i) => (
-                <g key={i} transform={`translate(${h.x},${h.y})`}>
-                  <polygon
-                    className={h.center ? "hex center" : "hex"}
-                    points="0,-34 30,-17 30,17 0,34 -30,17 -30,-17"
-                  />
-                  {h.center && (
-                    <>
-                      <circle className="seed-ground" r="17" />
-                      <circle className="seed-bulb" r="8" />
-                    </>
-                  )}
-                </g>
-              ))}
+            <div className="field-board">
+            <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six hexes where Awoken may stand">
+              {FIELD_HEXES.map((h) => {
+                const unit = shared.field.find(u => u.hex === h.id);
+                return (
+                  <g
+                    key={h.id}
+                    transform={`translate(${h.x},${h.y})`}
+                    onClick={() => {
+                      if (h.center) return;
+                      if (unit && you && unit.ownerKey === you.key) { send({ type: "recall", hex: h.id }); return; }
+                      if (selectedCard && !unit) send({ type: "summon", cardId: selectedCard.id, hex: h.id });
+                    }}
+                    style={{ cursor: !h.center && (selectedCard || (unit && you && unit.ownerKey === you.key)) ? "pointer" : "default" }}
+                  >
+                    <polygon
+                      className={`${h.center ? "hex center" : "hex"}${unit ? " stood" : ""}${!h.center && selectedCard && !unit ? " open" : ""}`}
+                      points="0,-34 30,-17 30,17 0,34 -30,17 -30,-17"
+                    />
+                    {h.center && (
+                      <>
+                        <circle className="seed-ground" r="17" />
+                        <circle className="seed-bulb" r="8" />
+                      </>
+                    )}
+                  </g>
+                );
+              })}
             </svg>
+            <div className="field-units" aria-hidden={false}>
+              {shared.field.map((u) => {
+                const h = FIELD_HEXES.find(x => x.id === u.hex);
+                if (!h) return null;
+                const mine = you && u.ownerKey === you.key;
+                return (
+                  <div
+                    key={u.hex}
+                    className={`field-unit${mine ? " mine" : ""}`}
+                    style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }}
+                    title={mine ? `${u.name} — yours. Tap its hex to recall it.` : `${u.name} — stands for ${u.ownerName}.`}
+                  >
+                    {u.art
+                      ? <img src={u.art} alt={u.name} />
+                      : <ElementGlyph element={u.element as GlyphElement} width={30} height={30} />}
+                    <span className="unit-name">{u.name}</span>
+                    <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (u.hp / Math.max(1, u.maxHp)) * 100))}%` }} /></span>
+                    <span className="unit-stats">⚔{u.power} ❤{u.hp}/{u.maxHp}</span>
+                  </div>
+                );
+              })}
+            </div>
+            </div>
             <div className="field-caption">
               <strong>The star-seed</strong> — fallen light, rooted in cracked ground.
-              The Bastion is what the party will build around it. In this first
-              room the field is at rest: the dealing begins with P1.
+              The Bastion is what the party will build around it. Cast from your
+              roster onto the ring; what stands here will answer when the dark is dealt.
             </div>
           </div>
           <div className="tale" ref={taleRef} aria-label="The Tale — the session's log">
@@ -514,9 +574,9 @@ export default function Table() {
         <aside className="panel dark-panel">
           <h3>The Dark</h3>
           <div className="roster">
-            {ROSTER.map((r) => (
+            {(shared.enemies.length ? shared.enemies : ROSTER.map(r => ({ ...r, art: null }))).map((r) => (
               <div key={r.name} className="roster-row">
-                <img src={BUNDLED_ENEMIES[r.name]} alt={r.label} />
+                <img src={r.art ?? BUNDLED_ENEMIES[r.name as keyof typeof BUNDLED_ENEMIES]} alt={r.label} />
                 <div>
                   <strong>{r.label}</strong>
                   <p>{r.note}</p>
@@ -560,32 +620,47 @@ export default function Table() {
                   </button>
                 ))}
               </div>
+              <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law">⚡ {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
               <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice">🎲 Your dice</button>
             </div>
             {notice && <p className="notice-line">{notice}</p>}
             {tab === "I" && (
               <>
                 <div className="hand-cards">
-                  {you.hand.map((card, i) => (
-                    <div key={card.id} className="tcard">
-                      <div className="tcard-banner">
-                        <span className="tcard-name">{card.name}</span>
-                        <span className="tcard-mark">{card.level ? `Lv ${card.level}` : (ROMAN[i] ?? "")}</span>
+                  {you.hand.map((card) => {
+                    const cost = Math.max(1, card.power);
+                    const afford = (you.energy ?? 0) >= cost;
+                    const selected = selectedCardId === card.id;
+                    return (
+                      <div
+                        key={card.id}
+                        className={`tcard castable${selected ? " selected" : ""}${afford ? "" : " dim"}`}
+                        role="button"
+                        aria-pressed={selected}
+                        title={afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a ring hex.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
+                        onClick={() => setSelectedCardId(selected ? null : card.id)}
+                      >
+                        <div className="tcard-banner">
+                          <span className="tcard-name">{card.name}</span>
+                          <span className="tcard-mark">{card.level ? `Lv ${card.level}` : ""}</span>
+                        </div>
+                        {card.art ? (
+                          <div className="tcard-art real"><img src={card.art} alt={`${card.name}, your Awoken`} /></div>
+                        ) : (
+                          <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
+                        )}
+                        <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span><span className="cost-chip">⚡{cost}</span></div>
                       </div>
-                      {card.art ? (
-                        <div className="tcard-art real"><img src={card.art} alt={`${card.name}, your Awoken`} /></div>
-                      ) : (
-                        <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
-                      )}
-                      <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span></div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                {you.bound ? (
-                  <p className="quiet small">Your hand — sent to you alone; no other seat at this Table has seen it. Dealt from the collection of <strong>{you.bound}</strong>, your bound Tender.</p>
+                {selectedCard ? (
+                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap an open ring hex on the field to set it standing (⚡{Math.max(1, selectedCard.power)}). Tap its hex again later to recall it; the energy spent is not returned.</p>
+                ) : you.bound ? (
+                  <p className="quiet small">Your roster — every Awoken of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (
                   <div className="bind-strip">
-                    <p className="quiet small">Your hand — sent to you alone. These are stand-in cards: bind your Tender and the Table deals your real deck, your own Awoken with their true faces. Take a code in the game (the Table's door page on the site), then spend it here.</p>
+                    <p className="quiet small">Your roster — sent to you alone. These are stand-in cards: bind your Tender and your own Awoken take their places, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
                     <div className="bind-row">
                       <input
                         className="door-input"

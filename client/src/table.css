@@ -209,7 +209,8 @@ button { font-family: inherit; }
   from { transform: translate(-1.5%, -1%); }
   to { transform: translate(1.5%, 1%); }
 }
-.field-hexes { position: relative; width: min(340px, 80%); height: auto; }
+.field-board { position: relative; width: min(340px, 80%); margin: 0 auto; }
+.field-hexes { position: relative; width: 100%; height: auto; display: block; }
 .hex { fill: rgba(20, 16, 13, 0.55); stroke: var(--bone-dim); stroke-width: 1; opacity: 0.8; }
 .hex.center { fill: rgba(20, 16, 13, 0.7); stroke: var(--gold); }
 .seed-ground { fill: #0d0906; stroke: #000; stroke-width: 2; }
@@ -430,3 +431,23 @@ button { font-family: inherit; }
   .panel { overflow-y: visible; }
   .sky-threat { margin-left: 0; }
 }
+
+/* Casting (P1, on the original face): the roster is tappable, the
+   field takes what is cast, and standing Awoken wear their faces. */
+.my-energy { color: var(--gold-bright); font-size: 15px; align-self: center; margin-left: auto; }
+.my-energy-max { opacity: .6; font-size: 12.5px; }
+.tcard.castable { cursor: pointer; }
+.tcard.castable:hover { border-color: var(--gold-bright); }
+.tcard.selected { outline: 2px solid var(--gold-bright); outline-offset: 1px; }
+.tcard.dim { opacity: .45; }
+.cost-chip { color: var(--gold-bright); font-weight: 600; }
+.cast-hint { color: var(--gold-bright); font-size: 13.5px; margin: 8px 0 0; }
+.field-units { position: absolute; inset: 0; pointer-events: none; }
+.field-unit { position: absolute; transform: translate(-50%, -50%); width: 74px; text-align: center; pointer-events: none; }
+.field-unit img { width: 44px; height: 44px; object-fit: cover; object-position: top center; border-radius: 8px; border: 1px solid var(--gold); display: block; margin: 0 auto; background: #000; }
+.field-unit .unit-name { display: block; font-size: 9.5px; line-height: 1.15; color: #f3e9d2; text-shadow: 0 1px 4px #000; margin-top: 2px; max-height: 22px; overflow: hidden; }
+.field-unit .unit-hp { display: block; height: 4px; background: rgba(0,0,0,.65); border-radius: 2px; margin: 2px 6px 0; overflow: hidden; }
+.field-unit .unit-hp-fill { display: block; height: 100%; background: #b8433a; }
+.field-unit .unit-stats { display: block; font-size: 9.5px; color: #e8dcc3; text-shadow: 0 1px 4px #000; }
+.hex.stood { fill: rgba(201, 162, 39, 0.20); }
+.hex.open { stroke: var(--gold-bright); stroke-dasharray: 4 3; }

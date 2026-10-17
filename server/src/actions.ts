@@ -910,7 +910,7 @@ async function grantBirthEnergy(ownerKey: string, power: number): Promise<number
   return bonus;
 }
 
-async function calculateMaxEnergy(ownerKey: string): Promise<number> {
+export async function calculateMaxEnergy(ownerKey: string): Promise<number> {
   // 10 base + power-scaled bonus per Awoken owned (hand and deployed —
   // holding Awoken feeds the cap; Nigel, 2026-10-13: the contribution
   // DOUBLED so holding is rewarding — the tripled scale ran too high and
@@ -1841,6 +1841,37 @@ const compendiumEntryShape = z.object({
   slotKey: z.string().regex(/^[a-z0-9_]+$/).max(80).nullable(),
   sortOrder: z.number().int().min(0).max(9999),
 });
+
+/** The current enemy art, resolved under the game's one law (the
+ *  enemy-swap build, 2026-10-15): a pinned upload wins, pin 0 means
+ *  the bundled art, otherwise the latest upload. Shared by the
+ *  game's getEnemyArt and the Table's room state, so an enemy
+ *  wears the same face in both worlds. */
+export async function resolveCurrentEnemyArt(): Promise<{ art: Record<string, { url: string; spriteId: number } | null>; selection: Record<string, number> }> {
+  const sprites = await db.select().from(schema.uiSprites)
+    .where(eq(schema.uiSprites.category, "enemy"))
+    .orderBy(schema.uiSprites.createdAt, schema.uiSprites.id);
+  const [selRow] = await db.select().from(schema.uiConfig)
+    .where(eq(schema.uiConfig.key, "enemy.sprite.selection")).limit(1);
+  let selection: Record<string, number> = {};
+  if (selRow) { try { selection = JSON.parse(selRow.value) || {}; } catch {} }
+  const byName = new Map<string, typeof sprites>();
+  for (const sp of sprites) {
+    const arr = byName.get(sp.name) ?? [];
+    arr.push(sp);
+    byName.set(sp.name, arr);
+  }
+  const art: Record<string, { url: string; spriteId: number } | null> = {};
+  for (const [name, arr] of byName) {
+    const pinned = selection[name];
+    let live: (typeof sprites)[number] | null;
+    if (pinned === 0) live = null;
+    else if (typeof pinned === "number") live = arr.find(sp => sp.id === pinned) ?? arr[arr.length - 1];
+    else live = arr[arr.length - 1];
+    art[name] = live ? { url: blobUrl(live.blobKey), spriteId: live.id } : null;
+  }
+  return { art, selection };
+}
 
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
@@ -5680,28 +5711,7 @@ export const handlers = {
   // renderer resolves through getEnemyArt, so the choice is the same on
   // every surface and survives reload and deploy.
   async getEnemyArt() {
-    const sprites = await db.select().from(schema.uiSprites)
-      .where(eq(schema.uiSprites.category, "enemy"))
-      .orderBy(schema.uiSprites.createdAt, schema.uiSprites.id);
-    const [selRow] = await db.select().from(schema.uiConfig)
-      .where(eq(schema.uiConfig.key, "enemy.sprite.selection")).limit(1);
-    let selection: Record<string, number> = {};
-    if (selRow) { try { selection = JSON.parse(selRow.value) || {}; } catch {} }
-    const byName = new Map<string, typeof sprites>();
-    for (const s of sprites) {
-      const arr = byName.get(s.name) ?? [];
-      arr.push(s);
-      byName.set(s.name, arr);
-    }
-    const art: Record<string, { url: string; spriteId: number } | null> = {};
-    for (const [name, arr] of byName) {
-      const pinned = selection[name];
-      let live: (typeof sprites)[number] | null;
-      if (pinned === 0) live = null; // bundled art pinned
-      else if (typeof pinned === "number") live = arr.find(s => s.id === pinned) ?? arr[arr.length - 1];
-      else live = arr[arr.length - 1]; // default: latest upload
-      art[name] = live ? { url: blobUrl(live.blobKey), spriteId: live.id } : null;
-    }
+    const { art, selection } = await resolveCurrentEnemyArt();
     return { art, selection };
   },
 

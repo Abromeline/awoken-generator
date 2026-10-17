@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -49,8 +49,8 @@ interface TableCard {
   awokenId?: number;
 }
 
-/** The P0 test pool. Test cards only — real decks arrive with account
- *  binding in P1; the Table says so on its face. */
+/** The stand-in pool: the roster an UNBOUND seat brings. Bound
+ *  seats bring their Tender's whole collection instead. */
 const TEST_POOL: Omit<TableCard, "id">[] = [
   { name: "Warden of Small Rains", power: 3, toughness: 4, element: "tide" },
   { name: "Keeper of the Low Bell", power: 2, toughness: 5, element: "stone" },
@@ -68,15 +68,45 @@ interface Player {
   key: string;
   name: string;
   watcher: boolean;
+  /** The seat's roster — every card available to cast. For a bound
+   *  seat that is the Tender's whole collection (Nigel, 2026-10-16:
+   *  the full roster stands at the Table, not a dealt five). */
   hand: TableCard[];
   notes: string;
   inventory: string[];
   /** The Tender this seat is bound to (display name), or null when
-   *  the seat holds a stand-in hand. deck: the rest of their real
-   *  deck, beneath the dealt hand. */
+   *  the seat holds stand-in cards. */
   bound?: string | null;
-  deck?: TableCard[];
+  /** This sitting's energy: for a bound seat, the game's own max
+   *  energy for that Tender, calculated from their whole roster by
+   *  the one law (calculateMaxEnergy) — all of it, as ruled. */
+  energy: number;
+  maxEnergy: number;
 }
+
+/** An Awoken standing on the field. The card rides inside it whole,
+ *  so a recall returns exactly what was cast. */
+interface FieldUnit {
+  hex: string;
+  card: TableCard;
+  hp: number;
+  maxHp: number;
+  ownerKey: string;
+  ownerName: string;
+}
+
+/** The ring hexes of the instance field — the center is the
+ *  star-seed and is never stood upon. */
+const RING_HEXES = ["ring-0", "ring-1", "ring-2", "ring-3", "ring-4", "ring-5"];
+
+/** The Dark roster the room shows — names and tellings; the faces
+ *  resolve live from the game's current enemy art. */
+const ENEMY_ROSTER = [
+  { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
+  { name: "unraveler", label: "Unraveler", note: "Looming ink mass. Hunts the strongest standing." },
+  { name: "hollow", label: "Hollow", note: "Pure void. Drains energy instead of blood." },
+  { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awoken where it stands." },
+] as const;
 
 interface TaleEntry {
   at: number;
@@ -87,30 +117,14 @@ interface Room {
   id: string;
   players: Map<WebSocket, Player>;
   tale: TaleEntry[];
-  shoe: TableCard[];
   sky: { mood: string; description: string; endsAt: string | null };
+  field: Map<string, FieldUnit>;
+  enemies: { name: string; label: string; note: string; art: string | null }[];
 }
 
 const rooms = new Map<string, Room>();
 /** Sign-in tokens issued by /api/table/auth: token → Discord user. */
 const authTokens = new Map<string, { id: string; name: string }>();
-
-function shuffledShoe(): TableCard[] {
-  const cards: TableCard[] = [];
-  for (let copy = 0; copy < 3; copy++) {
-    for (const c of TEST_POOL) cards.push({ ...c, id: randomUUID() });
-  }
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-  }
-  return cards;
-}
-
-function dealHand(room: Room): TableCard[] {
-  if (room.shoe.length < 5) room.shoe = shuffledShoe();
-  return room.shoe.splice(0, 5);
-}
 
 // ── The real deck (Nigel's word, 2026-10-16) ─────────────────────
 // A bound seat is dealt from its Tender's own collection: their
@@ -233,9 +247,15 @@ function sharedState(room: Room) {
     sky: room.sky,
     round: 0,
     threat: 0,
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length })),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: p.energy, maxEnergy: p.maxEnergy })),
     watcherCount: room.players.size - seated.length,
     tale: room.tale.slice(-TALE_CAP),
+    field: [...room.field.values()].map(u => ({
+      hex: u.hex, name: u.card.name, art: u.card.art ?? null, element: u.card.element,
+      power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
+      level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
+    })),
+    enemies: room.enemies,
   };
 }
 
@@ -256,6 +276,8 @@ function sendState(room: Room): void {
         notes: player.notes,
         inventory: player.inventory,
         bound: player.bound ?? null,
+        energy: player.energy,
+        maxEnergy: player.maxEnergy,
       },
     }));
   }
@@ -269,7 +291,14 @@ function tell(room: Room, text: string): void {
 async function getRoom(id: string): Promise<Room> {
   let room = rooms.get(id);
   if (!room) {
-    room = { id, players: new Map(), tale: [], shoe: shuffledShoe(), sky: await currentSky() };
+    // The Dark's faces resolve once, at the room's making, under
+    // the game's current-art law; null means the bundled face.
+    const { art } = await resolveCurrentEnemyArt().catch(() => ({ art: {} as Record<string, { url: string } | null> }));
+    room = {
+      id, players: new Map(), tale: [], sky: await currentSky(),
+      field: new Map(),
+      enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
+    };
     rooms.set(id, room);
   }
   return room;
@@ -320,26 +349,33 @@ function handleConnection(ws: WebSocket): void {
       const seatedCount = [...room.players.values()].filter(p => !p.watcher).length;
       if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no sixth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
-      // A bound Discord seat is dealt its Tender's real deck; every
-      // other seat takes the stand-in shoe. A small collection is
-      // topped up with stand-ins so the hand still holds five.
+      // The full roster stands at the Table (Nigel, 2026-10-16):
+      // a bound seat brings its Tender's whole collection, and
+      // its energy is that roster's own calculation by the game's
+      // one law — all of it. An unbound seat brings the whole
+      // stand-in pool and a stand-in's portion of energy.
       let hand: TableCard[] = [];
       let bound: string | null = null;
-      let deck: TableCard[] | undefined;
+      let energy = 12;
+      let maxEnergy = 12;
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
           const cards = await deckForTender(tenderId).catch(() => [] as TableCard[]);
           if (cards.length) {
-            deck = cards;
-            hand = deck.splice(0, 5);
+            hand = cards;
             bound = await tenderDisplayName(tenderId);
+            maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
+            energy = maxEnergy;
           }
         }
       }
-      if (!watcher && !deck) hand = dealHand(room);
-      else if (!watcher && hand.length < 5) hand = [...hand, ...dealHand(room).slice(0, 5 - hand.length)];
-      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, deck };
+      if (!watcher && !bound) {
+        hand = TEST_POOL.map(c => ({ ...c, id: randomUUID() }));
+        energy = 12;
+        maxEnergy = 12;
+      }
+      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy };
       room.players.set(ws, player);
       if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);
@@ -358,6 +394,63 @@ function handleConnection(ws: WebSocket): void {
       const sides = [4, 6, 8, 10, 12, 20, 100].includes(msg.sides) ? msg.sides : 20;
       const result = 1 + Math.floor(Math.random() * sides);
       tell(room, `${player.name} rolled d${sides} → ${result}.`);
+      sendState(room);
+      return;
+    }
+
+    // CASTING (P1, 2026-10-16): a card leaves the roster and
+    // stands on a ring hex, at a cost of its power in energy.
+    // The center hex is the star-seed and is never stood upon.
+    if (msg.type === "summon") {
+      if (player.watcher) {
+        ws.send(JSON.stringify({ type: "error", message: "Watchers hold no hand to cast from." }));
+        return;
+      }
+      const hex = String(msg.hex ?? "");
+      const cardId = String(msg.cardId ?? "");
+      const card = player.hand.find(c => c.id === cardId);
+      if (!RING_HEXES.includes(hex)) {
+        ws.send(JSON.stringify({ type: "error", message: "An Awoken stands on a ring hex — the center is the star-seed's." }));
+        return;
+      }
+      if (room.field.has(hex)) {
+        ws.send(JSON.stringify({ type: "error", message: "That hex is already stood upon." }));
+        return;
+      }
+      if (!card) {
+        ws.send(JSON.stringify({ type: "error", message: "That Awoken is not in your roster." }));
+        return;
+      }
+      const cost = Math.max(1, card.power);
+      if (player.energy < cost) {
+        ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
+        return;
+      }
+      player.energy -= cost;
+      player.hand = player.hand.filter(c => c.id !== cardId);
+      room.field.set(hex, {
+        hex, card, hp: card.toughness, maxHp: card.toughness,
+        ownerKey: player.key, ownerName: player.name,
+      });
+      tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}).`);
+      sendState(room);
+      return;
+    }
+
+    // RECALL: your own standing Awoken steps back into the
+    // roster. The energy spent casting is not returned — what
+    // was spent was spent.
+    if (msg.type === "recall") {
+      const hex = String(msg.hex ?? "");
+      const unit = room.field.get(hex);
+      if (!unit) return;
+      if (unit.ownerKey !== player.key) {
+        ws.send(JSON.stringify({ type: "error", message: "That Awoken answers to another Tender." }));
+        return;
+      }
+      room.field.delete(hex);
+      player.hand = [...player.hand, unit.card];
+      tell(room, `${player.name} recalls ${unit.card.name} from the field.`);
       sendState(room);
       return;
     }
