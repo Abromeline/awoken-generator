@@ -356,6 +356,8 @@
 .cosmic-layer{position:absolute;width:160%;height:160%;left:-30%;top:-30%;background-size:cover;background-position:center;background-repeat:no-repeat}
 .cosmic-dark{opacity:0.85;animation:cosmic-rotate 180s linear infinite, cosmic-breathe 14s ease-in-out infinite}
 .cosmic-light{opacity:0.35;animation:cosmic-rotate-rev 240s linear infinite, cosmic-breathe 18s ease-in-out infinite reverse;mix-blend-mode:screen}
+/* The Negative (Nigel's image, seated 2026-10-16): the pale second nebula, screen-blended over the dark one, turning the SAME way 13% slower by his law — the dark layer turns in 180s, so the Negative turns in 207s (180 / 0.87). */
+.cosmic-negative{opacity:0.35;animation:cosmic-rotate 207s linear infinite, cosmic-breathe 18s ease-in-out infinite reverse;mix-blend-mode:screen}
 @keyframes cosmic-rotate{from{transform:rotate(0deg) scale(1)}to{transform:rotate(360deg) scale(1)}}
 @keyframes cosmic-rotate-rev{from{transform:rotate(360deg) scale(1)}to{transform:rotate(0deg) scale(1)}}
 @keyframes cosmic-breathe{0%,100%{scale:1}50%{scale:1.04}}

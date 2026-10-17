@@ -3,6 +3,7 @@ import { setCourtMarks, useCourtMarks } from "./courtMarks";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/terrain-mountain.png";
 import debrisDark from "./assets/debris-dark.jpg";
+import nebulaNegative from "./assets/nebula-negative.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
@@ -1712,6 +1713,7 @@ function CosmicBackground() {
     <>
       <div className="cosmic-bg" aria-hidden="true">
         <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
+        <div className="cosmic-layer cosmic-negative" style={{ backgroundImage: `url(${nebulaNegative})` }} />
       </div>
       <MeteorRain />
       <MainPageMusic />
