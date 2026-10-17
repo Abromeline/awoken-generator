@@ -2401,10 +2401,14 @@ body.defeat-flash {
 .card-border-frame.fit-morning{width:283.3%;height:156.6%;left:-91.6%;top:-26.8%;max-width:none;filter:drop-shadow(0 0 10px rgba(255,214,130,.35))}
 /* The wake ceremony keeps its own birth frame — never both. */
 /* The wake ceremony (Nigel's ruling, 2026-10-17): the revealed
-   card wears the LIVE card border — the exclusion that hid it
-   here is lifted, so this screen answers to the same border
-   read and fit as every other card. It lands on the birth
-   frame's old beat, as the code rails fade; the corner burns
-   (z-index 7) burn on the face above it. When no border is
+   card wears the LIVE card border — read and fit as every other
+   card wears it — but seated on the STAGE, at the front of all
+   elements, framing the card: inside the card its percentages
+   resolve against the padding box and the frame tucks inside
+   the card's own border, clipped (Nigel's eye, 2026-10-17).
+   So the card's own copy sleeps here, and the stage carries
+   the live border as its front-most child, on the birth
+   frame's old beat as the code rails fade. When no border is
    chosen, the stage's own birth-frame art still arrives. */
-.ceremony-card-stage .card-border-frame{animation:birthFrameIn 1.1s ease 1.15s both}
+.ceremony-card-stage .trading-card .card-border-frame{display:none}
+.ceremony-card-stage .ceremony-live-frame{animation:birthFrameIn 1.1s ease 1.15s both;z-index:8}
