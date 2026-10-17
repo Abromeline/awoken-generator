@@ -31,7 +31,8 @@ import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
-import { WORKING_DEFS, HUE_ORDER } from "./workings.js";
+import { HUE_ORDER } from "./workings.js";
+import { grimoireNow, refreshGrimoire, spellByKey, healSpell } from "./grimoire.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -140,6 +141,11 @@ interface Working {
   id: string;
   kind: "ward" | "rune";
   root: string;
+  /** The Grimoire spell's engine and its numbers, snapshotted
+   *  at the cast (Nigel, 2026-10-17): tuning the book changes
+   *  the NEXT cast, never a working already standing. */
+  engine: string;
+  nums: Record<string, number>;
   name: string;
   hue: string;
   ownerKey: string;
@@ -463,7 +469,7 @@ function neighborsOf(hex: string): string[] {
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
-  return room.workings.some(w => w.root === "engine" && w.ownerKey === ownerKey);
+  return room.workings.some(w => w.engine === "engine" && w.ownerKey === ownerKey);
 }
 
 function beaconReach(w: Working): Set<string> {
@@ -490,18 +496,18 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
   fired.add(rune.id);
   const caster = seatByKey(room, rune.ownerKey) ?? null;
   const bright = caster && engineBright(room, caster.key) ? 1 : 0;
-  if (rune.root === "lattice") {
-    for (const e of darkHere) e.pinned = Math.max(e.pinned, 2);
+  if (rune.engine === "lattice") {
+    for (const e of darkHere) e.pinned = Math.max(e.pinned, rune.nums.pinRounds ?? 2);
     tell(room, `${rune.name} springs — the whole floor is the snare, and the dark stands bound in light.`);
     room.workings = room.workings.filter(w => w !== rune);
-  } else if (rune.root === "blade" || rune.root === "blades") {
-    const power = (rune.root === "blade" ? 6 : 3) + bright;
+  } else if (rune.engine === "blade" || rune.engine === "blades") {
+    const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
     tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
     for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) fellDark(room, e, caster); }
     rune.charges--;
     if (rune.charges <= 0) room.workings = room.workings.filter(w => w !== rune);
     else tell(room, `${rune.name} hums on, waiting for one more.`);
-  } else if (rune.root === "coil") {
+  } else if (rune.engine === "coil") {
     const free = SUMMONABLE_HEXES.filter(hx => hx !== hex && !room.field.has(hx) && !room.dark.has(hx));
     let moved = 0;
     for (const e of darkHere) {
@@ -512,13 +518,13 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       room.dark.set(spot, e);
       moved++;
     }
-    if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(3, moved));
+    if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(rune.nums.energyCap ?? 3, moved * (rune.nums.energyPerDark ?? 1)));
     tell(room, `${rune.name} turns the dark aside — ${moved} thrown back to far ground, their strikes forgotten.`);
     room.workings = room.workings.filter(w => w !== rune);
-  } else if (rune.root === "shard") {
+  } else if (rune.engine === "shard") {
     const greatest = Math.max(...darkHere.map(e => e.power));
-    if (greatest >= 5) {
-      const dmg = greatest * 2;
+    if (greatest >= (rune.nums.minPower ?? 5)) {
+      const dmg = greatest * (rune.nums.multiplier ?? 2);
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
       for (const e of darkHere) { e.hp -= dmg; if (e.hp <= 0) fellDark(room, e, caster); }
       room.workings = room.workings.filter(w => w !== rune);
@@ -530,11 +536,11 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
  *  written light fades — it was written for this battle. */
 function settleShardsAndFade(room: Room): void {
   for (const w of [...room.workings]) {
-    if (w.root !== "shard") continue;
+    if (w.engine !== "shard") continue;
     const mine = [...room.field.values()].filter(u => u.ownerKey === w.ownerKey);
     if (mine.length) {
       const strongest = mine.reduce((a, b) => (b.card.power > a.card.power ? b : a));
-      const dmg = strongest.card.power * 2;
+      const dmg = strongest.card.power * (w.nums.multiplier ?? 2);
       strongest.hp -= dmg;
       tell(room, `${w.name} went unfed — a doom owed is a doom paid: it falls on ${strongest.card.name}, ${dmg} harm.`);
       if (strongest.hp <= 0) {
@@ -587,14 +593,15 @@ async function runRound(room: Room): Promise<void> {
   if (!room.battle.active || room.battle.ticking) return;
   room.battle.ticking = true;
   try {
+    await refreshGrimoire().catch(() => {});
     room.roundNo++;
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
     for (const w of room.workings) {
-      if (w.root === "trees" && w.hp > 0 && w.hp < 8) w.hp = Math.min(8, w.hp + 2);
-      if (w.root === "engine") {
+      if (w.engine === "trees" && w.hp > 0 && w.hp < (w.nums.hp ?? 8)) w.hp = Math.min(w.nums.hp ?? 8, w.hp + (w.nums.regrow ?? 2));
+      if (w.engine === "engine") {
         const owner = seatByKey(room, w.ownerKey);
-        if (owner && !owner.fallen) owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 1);
+        if (owner && !owner.fallen) owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + (w.nums.energyPerRound ?? 1));
       }
     }
     // The standing strike first.
@@ -609,9 +616,11 @@ async function runRound(room: Room): Promise<void> {
         if (d < best) { best = d; target = e; }
       }
       if (!target) break;
+      const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey && (w.hexA === unit.hex || w.hexB === unit.hex));
+      const bcnWard = room.workings.find(w => w.engine === "beacon" && w.ownerKey === unit.ownerKey && beaconReach(w).has(target.hex));
       const strikePower = unit.card.power
-        + (room.workings.some(w => w.root === "standard" && w.ownerKey === unit.ownerKey && (w.hexA === unit.hex || w.hexB === unit.hex)) ? 1 : 0)
-        + (room.workings.some(w => w.root === "beacon" && w.ownerKey === unit.ownerKey && beaconReach(w).has(target.hex)) ? 1 : 0);
+        + (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0)
+        + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
       target.hp -= strikePower;
       if (target.hp <= 0) {
         room.dark.delete(target.hex);
@@ -643,10 +652,10 @@ async function runRound(room: Room): Promise<void> {
         let blow = enemy.power;
         const edgeWards = room.workings.filter(w => w.kind === "ward" && w.ownerKey === victim.ownerKey &&
           ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
-        const seal = edgeWards.find(w => w.root === "seal");
+        const seal = edgeWards.find(w => w.engine === "seal");
         if (seal && blow > 0) {
           blow = 0;
-          enemy.hp -= 3 + (engineBright(room, victim.ownerKey) ? 1 : 0);
+          enemy.hp -= (seal.nums.riposte ?? 3) + (engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) : 0);
           seal.stops++;
           tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
           if (enemy.hp <= 0) {
@@ -658,12 +667,12 @@ async function runRound(room: Room): Promise<void> {
               await payBattleExp(room, owner, 2, "The dark pays for its felling.");
             }
           }
-          if (seal.stops >= 3) {
+          if (seal.stops >= (seal.nums.stops ?? 3)) {
             room.workings = room.workings.filter(w => w !== seal);
             tell(room, `${seal.name} has stopped its third strike; its light goes out, spent and honored.`);
           }
         }
-        const trees = edgeWards.find(w => w.root === "trees");
+        const trees = edgeWards.find(w => w.engine === "trees");
         if (blow > 0 && trees) {
           trees.hp -= blow;
           blow = 0;
@@ -727,6 +736,9 @@ function handleConnection(ws: WebSocket): void {
   };
 
   ws.on("message", async (raw) => {
+    // The Grimoire is a living book: a tuning saved in the
+    // workshop is in the referee's hands by the next message.
+    await refreshGrimoire().catch(() => {});
     let msg: any;
     try { msg = JSON.parse(String(raw)); } catch { return; }
     if (!msg || typeof msg.type !== "string") return;
@@ -903,8 +915,9 @@ function handleConnection(ws: WebSocket): void {
       const unit = room.field.get(String(msg.hex || ""));
       if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awoken." })); return; }
       if (unit.hp >= unit.maxHp) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already.` })); return; }
-      if (player.energy < 2) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡2 — you hold ⚡${player.energy}.` })); return; }
-      player.energy -= 2;
+      const healCost = healSpell()?.cost ?? 2;
+      if (player.energy < healCost) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — you hold ⚡${player.energy}.` })); return; }
+      player.energy -= healCost;
       const healed = Math.min(player.healAmount, unit.maxHp - unit.hp);
       unit.hp += healed;
       tell(room, `${player.name} mends ${unit.card.name} — ${healed} HP restored (Heal, Tier ${player.healTier}).`);
@@ -916,7 +929,7 @@ function handleConnection(ws: WebSocket): void {
       if (!player) return;
       const caster = player;
       if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers raise no wards — bind in the game to cast." })); return; }
-      const def = (WORKING_DEFS as Record<string, any>)[String(msg.root || "")];
+      const def = spellByKey(String(msg.root || ""));
       if (!def || def.kind !== "ward") { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
@@ -926,15 +939,15 @@ function handleConnection(ws: WebSocket): void {
       if (!mine || mine.ownerKey !== caster.key) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a hex your own Awoken holds." })); return; }
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two hexes must share a side." })); return; }
       if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
-      if (def.key === "standard" && room.workings.some(w => w.root === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
-      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.root} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
+      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
       caster.energy -= def.cost;
       room.workings.push({
-        id: randomUUID(), kind: "ward", root: def.key, name: def.forms[hue], hue,
+        id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: { ...def.numbers }, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
-        hp: def.key === "trees" ? 8 + (engineBright(room, caster.key) ? 2 : 0) : 0, stops: 0, charges: 0,
+        hp: def.engine === "trees" ? (def.numbers.hp ?? 8) + (engineBright(room, caster.key) ? (def.numbers.brightHpBonus ?? 2) : 0) : 0, stops: 0, charges: 0,
       });
-      tell(room, `${caster.name} raises ${def.forms[hue]} on the edge of ${mine.card.name}'s hex.`);
+      tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge of ${mine.card.name}'s hex.`);
       sendState(room);
       return;
     }
@@ -943,30 +956,31 @@ function handleConnection(ws: WebSocket): void {
       if (!player) return;
       const caster = player;
       if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers write no runes — bind in the game to cast." })); return; }
-      const def = (WORKING_DEFS as Record<string, any>)[String(msg.root || "")];
-      if (!def || def.kind !== "rune") { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
+      const def = spellByKey(String(msg.root || ""));
+      if (!def || (def.kind !== "rune" && def.kind !== "spell")) { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
-      const hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 3) : [];
-      if (def.key === "blades") {
-        if (hexes.length < 1) { ws.send(JSON.stringify({ type: "error", message: "The Three Blades are planted on one to three hexes." })); return; }
+      const hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 12) : [];
+      if (def.engine === "blades") {
+        const maxT = def.numbers.maxTargets ?? 3;
+        if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is planted on one to ${maxT} hexes.` })); return; }
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
         if (!SUMMONABLE_HEXES.includes(hx)) { ws.send(JSON.stringify({ type: "error", message: "Runes are written on the field's ground — not on the star-seed's hex." })); return; }
         if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
-      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.root} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
       caster.energy -= def.cost;
       for (const hx of hexes) {
         room.workings.push({
-          id: randomUUID(), kind: "rune", root: def.key, name: def.forms[hue], hue,
+          id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: { ...def.numbers }, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp: 0, stops: 0, charges: def.key === "blade" ? 2 : 1,
+          hp: 0, stops: 0, charges: def.engine === "blade" ? (def.numbers.charges ?? 2) : 1,
         });
       }
       tell(room, hexes.length > 1
-        ? `${caster.name} writes ${def.forms[hue]} across ${hexes.length} hexes.`
-        : `${caster.name} writes ${def.forms[hue]} on the ground of the field.`);
+        ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`
+        : `${caster.name} writes ${def.forms[hue] ?? def.name} on the ground of the field.`);
       for (const hx of hexes) springHex(room, hx, new Set());
       sendState(room);
       return;
@@ -1111,6 +1125,7 @@ export function registerTableRoutes(app: Express): void {
 
 /** Mount the Table's realtime room socket on the HTTP server. */
 export function registerTableSocket(server: Server): void {
+  void refreshGrimoire();
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
     let pathname = "";

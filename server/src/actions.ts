@@ -22,6 +22,7 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
+import { refreshGrimoire, saveGrimoire, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -5839,6 +5840,157 @@ export const handlers = {
       await writeUiConfigJson("card.border.selection", { kind: "none" });
     }
     return cardBorderState();
+  },
+
+  // ── The Grimoire (Nigel, 2026-10-17) ──────────────────
+  // The Written Light as a living book: glyphs sorted and
+  // assigned, spells listed with their numbers, all tuned in
+  // the workshop and read by the world (the Table's referee,
+  // the territory map). getGrimoire is the public read every
+  // surface consumes; the writers are workshop-gated in
+  // index.ts. State: server/src/grimoire.ts (ui_config).
+  async getGrimoire(_args: unknown) {
+    return refreshGrimoire();
+  },
+
+  async uploadGrimoireGlyph(args: unknown) {
+    const parsed = z.object({
+      name: z.string().min(1).max(80),
+      imageBase64: z.string().min(100).max(16_000_000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid glyph upload.");
+    const bytes = Buffer.from(parsed.data.imageBase64, "base64");
+    assertPngBytes(bytes);
+    const state = await refreshGrimoire();
+    const id = `glyph-${randomUUID().slice(0, 8)}`;
+    const blobKey = `grimoire-glyph/${id}.png`;
+    blobs.put(blobKey, bytes, "image/png");
+    state.glyphs.push({
+      id, name: parsed.data.name, assetKey: null,
+      imageUrl: blobUrl(blobKey), sort: "unsorted", spellKey: null, builtin: false,
+    });
+    await saveGrimoire(state);
+    return state;
+  },
+
+  async setGlyphSort(args: unknown) {
+    const parsed = z.object({
+      glyphId: z.string().min(1).max(80),
+      sort: z.enum(["ward", "rune", "binding", "spell", "unsorted"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid glyph sort.");
+    const state = await refreshGrimoire();
+    const glyph = state.glyphs.find((g) => g.id === parsed.data.glyphId);
+    if (!glyph) badRequest("That glyph is not in the book.");
+    glyph.sort = parsed.data.sort;
+    await saveGrimoire(state);
+    return state;
+  },
+
+  async setGlyphSpell(args: unknown) {
+    const parsed = z.object({
+      glyphId: z.string().min(1).max(80),
+      spellKey: z.string().max(80).nullable(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid glyph assignment.");
+    const state = await refreshGrimoire();
+    const glyph = state.glyphs.find((g) => g.id === parsed.data.glyphId);
+    if (!glyph) badRequest("That glyph is not in the book.");
+    const spell = parsed.data.spellKey
+      ? state.spells.find((s) => s.key === parsed.data.spellKey)
+      : null;
+    if (parsed.data.spellKey && !spell) badRequest("That spell is not in the book.");
+    // One display glyph per spell: the previous bearer steps back.
+    if (spell && spell.glyphId && spell.glyphId !== glyph.id) {
+      const prev = state.glyphs.find((g) => g.id === spell.glyphId);
+      if (prev && prev.spellKey === spell.key) prev.spellKey = null;
+    }
+    // If this glyph was another spell's face, that spell loses it.
+    if (glyph.spellKey && glyph.spellKey !== parsed.data.spellKey) {
+      const old = state.spells.find((s) => s.key === glyph.spellKey);
+      if (old && old.glyphId === glyph.id) old.glyphId = null;
+    }
+    glyph.spellKey = parsed.data.spellKey;
+    if (spell) spell.glyphId = glyph.id;
+    await saveGrimoire(state);
+    return state;
+  },
+
+  async deleteGrimoireGlyph(args: unknown) {
+    const parsed = z.object({ glyphId: z.string().min(1).max(80) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid glyph delete.");
+    const state = await refreshGrimoire();
+    const glyph = state.glyphs.find((g) => g.id === parsed.data.glyphId);
+    if (!glyph) badRequest("That glyph is not in the book.");
+    if (glyph.builtin) badRequest("The Written Light's own glyphs cannot be torn out — reassign or re-sort them instead.");
+    for (const s of state.spells) if (s.glyphId === glyph.id) s.glyphId = null;
+    state.glyphs = state.glyphs.filter((g) => g.id !== glyph.id);
+    await saveGrimoire(state);
+    return state;
+  },
+
+  async upsertGrimoireSpell(args: unknown) {
+    const parsed = z.object({
+      spell: z.object({
+        key: z.string().max(80).optional(),
+        name: z.string().min(1).max(120),
+        kind: z.enum(["ward", "rune", "binding", "spell"]),
+        engine: z.string().max(40),
+        glyphId: z.string().max(80).nullable().optional(),
+        cost: z.number().int().min(0).max(99),
+        blurb: z.string().max(600).default(""),
+        numbers: z.record(z.string(), z.number().min(0).max(999)).default({}),
+        forms: z.record(z.string(), z.string().max(120)).default({}),
+      }),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid spell.");
+    const incoming = parsed.data.spell;
+    if (!ENGINE_KEYS.includes(incoming.engine) && incoming.engine !== "none") {
+      badRequest("That engine is not one the world knows.");
+    }
+    const state: GrimoireState = await refreshGrimoire();
+    let key = incoming.key ?? "";
+    let existing: GrimoireSpell | undefined = key
+      ? state.spells.find((s) => s.key === key)
+      : undefined;
+    if (!existing) {
+      const base = incoming.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "spell";
+      key = base;
+      let n = 2;
+      while (state.spells.some((s) => s.key === key)) key = `${base}-${n++}`;
+    }
+    const spell: GrimoireSpell = {
+      key,
+      name: incoming.name,
+      kind: incoming.kind,
+      engine: incoming.engine,
+      glyphId: incoming.glyphId ?? existing?.glyphId ?? null,
+      cost: incoming.cost,
+      blurb: incoming.blurb,
+      numbers: incoming.numbers,
+      forms: incoming.forms,
+      builtin: existing?.builtin ?? false,
+    };
+    if (existing) Object.assign(existing, spell);
+    else state.spells.push(spell);
+    // Keep the glyph assignment mirror true both ways.
+    for (const g of state.glyphs) {
+      if (g.spellKey === key && g.id !== spell.glyphId) g.spellKey = null;
+      if (spell.glyphId && g.id === spell.glyphId) g.spellKey = key;
+    }
+    await saveGrimoire(state);
+    return state;
+  },
+
+  async deleteGrimoireSpell(args: unknown) {
+    const parsed = z.object({ key: z.string().min(1).max(80) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid spell delete.");
+    const state = await refreshGrimoire();
+    if (!state.spells.some((s) => s.key === parsed.data.key)) badRequest("That spell is not in the book.");
+    state.spells = state.spells.filter((s) => s.key !== parsed.data.key);
+    for (const g of state.glyphs) if (g.spellKey === parsed.data.key) g.spellKey = null;
+    await saveGrimoire(state);
+    return state;
   },
 
   // The Monsters Compendium — the game's living copy of the Atelier's

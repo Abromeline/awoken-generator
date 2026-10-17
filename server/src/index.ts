@@ -30,6 +30,12 @@ const actionNames = Object.keys(handlers) as ActionName[];
 // Everything the workshop touches but the Tender ritual doesn't: gated by
 // the workshop token when WORKSHOP_PASSWORD is set.
 const WORKSHOP_ACTIONS = new Set([
+  "uploadGrimoireGlyph",
+  "setGlyphSort",
+  "setGlyphSpell",
+  "deleteGrimoireGlyph",
+  "upsertGrimoireSpell",
+  "deleteGrimoireSpell",
   "uploadCardBorder",
   "setCardBorderSelection",
   "setCardBorderFit",

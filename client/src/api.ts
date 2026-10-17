@@ -211,6 +211,45 @@ export interface CardBorderState {
   uploads: { id: string; name: string; imageUrl: string; fit: CardBorderFitName }[];
 }
 
+export type GrimoireGlyphSort = "ward" | "rune" | "binding" | "spell" | "unsorted";
+export type GrimoireSpellKind = "ward" | "rune" | "binding" | "spell";
+export interface GrimoireGlyph {
+  id: string;
+  name: string;
+  assetKey: string | null;
+  imageUrl: string | null;
+  sort: GrimoireGlyphSort;
+  spellKey: string | null;
+  builtin: boolean;
+}
+export interface GrimoireSpell {
+  key: string;
+  name: string;
+  kind: GrimoireSpellKind;
+  engine: string;
+  glyphId: string | null;
+  cost: number;
+  blurb: string;
+  numbers: Record<string, number>;
+  forms: Record<string, string>;
+  builtin: boolean;
+}
+export interface GrimoireSpellInput {
+  key?: string;
+  name: string;
+  kind: GrimoireSpellKind;
+  engine: string;
+  glyphId?: string | null;
+  cost: number;
+  blurb: string;
+  numbers: Record<string, number>;
+  forms: Record<string, string>;
+}
+export interface GrimoireState {
+  glyphs: GrimoireGlyph[];
+  spells: GrimoireSpell[];
+}
+
 export interface GroveStatus {
   centsAccrued: number;
   dollarsAccrued: string;
@@ -342,6 +381,17 @@ export const api = {
   setCardBorderFit: (args: { target: string; fit: CardBorderFitName }) =>
     post<CardBorderState>("setCardBorderFit", args),
   deleteCardBorder: (args: { id: string }) => post<CardBorderState>("deleteCardBorder", args),
+  getGrimoire: () => post<GrimoireState>("getGrimoire", {}),
+  uploadGrimoireGlyph: (args: { name: string; imageBase64: string }) =>
+    post<GrimoireState>("uploadGrimoireGlyph", args),
+  setGlyphSort: (args: { glyphId: string; sort: GrimoireGlyphSort }) =>
+    post<GrimoireState>("setGlyphSort", args),
+  setGlyphSpell: (args: { glyphId: string; spellKey: string | null }) =>
+    post<GrimoireState>("setGlyphSpell", args),
+  deleteGrimoireGlyph: (args: { glyphId: string }) => post<GrimoireState>("deleteGrimoireGlyph", args),
+  upsertGrimoireSpell: (args: { spell: GrimoireSpellInput }) =>
+    post<GrimoireState>("upsertGrimoireSpell", args),
+  deleteGrimoireSpell: (args: { key: string }) => post<GrimoireState>("deleteGrimoireSpell", args),
   uploadTerrainArt: (args: { element: string; stage: 2 | 3; imageBase64: string; mimeType: "image/png" }) =>
     post<{ ok: true; element: string; stage: number; image_url: string }>("uploadTerrainArt", args),
   deleteTerrainArt: (args: { element: string; stage: 2 | 3 }) => post<{ ok: true }>("deleteTerrainArt", args),
