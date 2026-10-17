@@ -54,11 +54,13 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   field: FieldUnitView[];
   enemies: EnemyView[];
+  dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number }[];
+  battle: { active: boolean; wave: number };
 }
 
 interface YouState {
@@ -485,7 +487,7 @@ export default function Table() {
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
               <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}</span>
-              <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>
+              {p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>}
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
@@ -576,12 +578,35 @@ export default function Table() {
                   </div>
                 );
               })}
+              {shared.dark.map((e) => {
+                const h = FIELD_HEXES.find(x => x.id === e.hex);
+                if (!h) return null;
+                return (
+                  <div key={e.hex} className="field-unit dark" style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }} title={`${e.label} — ⚔${e.power}, ❤${e.hp}/${e.maxHp}`}>
+                    {e.art
+                      ? <img src={e.art} alt={e.label} />
+                      : <span className="dark-glyph">🕳️</span>}
+                    <span className="unit-name">{e.label}</span>
+                    <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (e.hp / Math.max(1, e.maxHp)) * 100))}%` }} /></span>
+                    <span className="unit-stats">⚔{e.power} ❤{e.hp}/{e.maxHp}</span>
+                  </div>
+                );
+              })}
             </div>
             </div>
             <div className="field-caption">
               <strong>The star-seed</strong> — fallen light, rooted in cracked ground.
               The Bastion is what the party will build around it. Cast from your
-              roster onto the ring; what stands here will answer when the dark is dealt.
+              roster onto the field; when the party stands ready, begin the Unraveling.
+            </div>
+            <div className="battle-bar">
+              {shared.battle.active ? (
+                <span className="battle-status">🌑 Wave {shared.battle.wave} — {shared.dark.length} of the dark stand · round {shared.round}</span>
+              ) : you ? (
+                <button className="table-btn primary battle-btn" onClick={() => send({ type: "startWave" })}>⚔ Begin the Unraveling — Wave {shared.battle.wave}</button>
+              ) : (
+                <span className="battle-status">The field is at rest. A seated Tender may begin the Unraveling.</span>
+              )}
             </div>
           </div>
           <div className="tale" ref={taleRef} aria-label="The Tale — the session's log">
@@ -658,6 +683,7 @@ export default function Table() {
                       <div
                         key={card.id}
                         className={`tcard castable${selected ? " selected" : ""}${afford ? "" : " dim"}`}
+                        data-element={card.element}
                         role="button"
                         aria-pressed={selected}
                         title={afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a ring hex.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}

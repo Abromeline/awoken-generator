@@ -30,7 +30,7 @@ import { db, schema } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
-import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel } from "./tenderExp.js";
+import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -89,6 +89,11 @@ interface Player {
    *  referee deals damage; by level, per the HP law. */
   tenderHp: number;
   maxTenderHp: number;
+  /** True once this seat's Tender has fallen in the battle. */
+  fallen: boolean;
+  /** The tender-progress owner key for bound seats — where
+   *  battle EXP is paid. Null for stand-in seats. */
+  expKey: string | null;
   /** This sitting's energy: for a bound seat, the game's own max
    *  energy for that Tender, calculated from their whole roster by
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
@@ -105,7 +110,29 @@ interface FieldUnit {
   maxHp: number;
   ownerKey: string;
   ownerName: string;
+  /** Rounds of striking this unit must still sit out (a pin). */
+  pinned: number;
 }
+
+/** One of the dark, standing on the field. Damage is its filed
+ *  Power, health its filed HP — the Compendium's canon numbers,
+ *  no hidden tables (Nigel, 2026-10-16). */
+interface EnemyUnit {
+  hex: string;
+  kind: string;
+  label: string;
+  art: string | null;
+  power: number;
+  hp: number;
+  maxHp: number;
+}
+
+const ENEMY_STATS: Record<string, { power: number; hp: number }> = {
+  fray: { power: 1, hp: 3 },
+  unraveler: { power: 4, hp: 6 },
+  hollow: { power: 0, hp: 5 },
+  tangle: { power: 3, hp: 8 },
+};
 
 /** The instance field: a full honeycomb filling the battlefield
  *  (Nigel, 2026-10-16). Generated, not listed — the client draws
@@ -153,6 +180,9 @@ interface Room {
   sky: { mood: string; description: string; endsAt: string | null };
   field: Map<string, FieldUnit>;
   enemies: { name: string; label: string; note: string; art: string | null }[];
+  dark: Map<string, EnemyUnit>;
+  battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean };
+  roundNo: number;
 }
 
 const rooms = new Map<string, Room>();
@@ -278,11 +308,13 @@ function sharedState(room: Room) {
   return {
     room: room.id,
     sky: room.sky,
-    round: 0,
-    threat: 0,
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: p.energy, maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp })),
+    round: room.roundNo,
+    threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: p.energy, maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen })),
     watcherCount: room.players.size - seated.length,
     tale: room.tale.slice(-TALE_CAP),
+    dark: [...room.dark.values()].map(e => ({ ...e })),
+    battle: { active: room.battle.active, wave: room.battle.wave },
     field: [...room.field.values()].map(u => ({
       hex: u.hex, name: u.card.name, art: u.card.art ?? null, element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
@@ -337,10 +369,166 @@ async function getRoom(id: string): Promise<Room> {
       id, players: new Map(), tale: [], sky: await currentSky(),
       field: new Map(),
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
+      dark: new Map(),
+      battle: { active: false, wave: 1, timer: null, ticking: false },
+      roundNo: 0,
     };
     rooms.set(id, room);
   }
   return room;
+}
+
+// ── The Referee (P1, 2026-10-16) ────────────────────────
+// The battle loop, run by the room itself. Damage is always
+// the attacker's filed Power; Tenders are shielded by their
+// standing company and hurt only when nothing stands (or by
+// the Hollow, which drains energy instead of blood). Class
+// flavor lives in targeting, exactly as the Compendium files
+// it: the Unraveler hunts the strongest standing, the Fray
+// swarm the weakest, the Tangle pins.
+
+function hexDist(a: string, b: string): number {
+  const ha = FIELD_HEXES_SERVER.find(h => h.id === a);
+  const hb = FIELD_HEXES_SERVER.find(h => h.id === b);
+  if (!ha || !hb) return 999;
+  return Math.hypot(ha.x - hb.x, ha.y - hb.y);
+}
+
+function seatByKey(room: Room, key: string): Player | undefined {
+  for (const p of room.players.values()) if (p.key === key) return p;
+  return undefined;
+}
+
+/** Pay battle EXP to a seat's Tender (bound seats) and keep
+ *  the seat's standing true when a level is crossed. */
+async function payBattleExp(room: Room, seat: Player, amount: number, why: string): Promise<void> {
+  if (!seat.expKey || amount <= 0) return;
+  const before = seat.tenderLevel;
+  const view = await awardTenderExp(seat.expKey, amount).catch(() => null);
+  if (!view) return;
+  if (view.level > before) {
+    const gained = view.level - before;
+    seat.tenderLevel = view.level;
+    seat.healTier = view.healTier;
+    seat.healAmount = view.healAmount;
+    seat.wardRuneUnlocked = view.wardRuneUnlocked;
+    seat.maxTenderHp = view.maxTenderHp;
+    seat.tenderHp = Math.min(view.maxTenderHp, seat.tenderHp + 5 * gained);
+    tell(room, `${seat.name} has reached Tender Lv ${view.level} — ${why} The party feels it.`);
+  }
+}
+
+function dealWave(room: Room): void {
+  const wave = room.battle.wave;
+  const free = SUMMONABLE_HEXES.filter(h => !room.field.has(h) && !room.dark.has(h));
+  const kinds = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
+  const count = Math.min(free.length, 3 + (wave - 1) * 2);
+  const spots = [...free].sort(() => Math.random() - 0.5).slice(0, count);
+  for (const hex of spots) {
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const base = ENEMY_STATS[kind];
+    const rosterFace = room.enemies.find(e => e.name === kind);
+    const hp = base.hp + (wave - 1);
+    room.dark.set(hex, {
+      hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
+      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp,
+    });
+  }
+  room.battle.active = true;
+  room.roundNo = 0;
+  tell(room, `Wave ${wave} is dealt — ${count} of the dark take the field.`);
+  if (!room.battle.timer) {
+    room.battle.timer = setInterval(() => { void runRound(room); }, 2800);
+  }
+}
+
+function endBattle(room: Room): void {
+  room.battle.active = false;
+  if (room.battle.timer) { clearInterval(room.battle.timer); room.battle.timer = null; }
+}
+
+async function runRound(room: Room): Promise<void> {
+  if (!room.battle.active || room.battle.ticking) return;
+  room.battle.ticking = true;
+  try {
+    room.roundNo++;
+    // The standing strike first.
+    for (const unit of [...room.field.values()]) {
+      if (!room.field.has(unit.hex)) continue;
+      if (room.dark.size === 0) break;
+      if (unit.pinned > 0) { unit.pinned--; continue; }
+      let target: EnemyUnit | null = null;
+      let best = Infinity;
+      for (const e of room.dark.values()) {
+        const d = hexDist(unit.hex, e.hex) - e.hp * 0.01;
+        if (d < best) { best = d; target = e; }
+      }
+      if (!target) break;
+      target.hp -= unit.card.power;
+      if (target.hp <= 0) {
+        room.dark.delete(target.hex);
+        tell(room, `${unit.card.name} unravels the ${target.label}!`);
+        const owner = seatByKey(room, unit.ownerKey);
+        if (owner && !owner.fallen) {
+          owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
+          await payBattleExp(room, owner, 2, "The dark pays for its felling.");
+        }
+      }
+    }
+    // The dark answers.
+    for (const enemy of [...room.dark.values()]) {
+      const standing = [...room.field.values()];
+      if (enemy.kind === "hollow") {
+        for (const p of room.players.values()) {
+          if (!p.watcher && !p.fallen) p.energy = Math.max(0, p.energy - 2);
+        }
+        continue;
+      }
+      if (standing.length > 0) {
+        let victim: FieldUnit;
+        if (enemy.kind === "unraveler") victim = standing.reduce((a, b) => (b.card.power > a.card.power ? b : a));
+        else if (enemy.kind === "fray") victim = standing.reduce((a, b) => (b.hp < a.hp ? b : a));
+        else victim = standing[Math.floor(Math.random() * standing.length)];
+        victim.hp -= enemy.power;
+        if (enemy.kind === "tangle") victim.pinned = Math.max(victim.pinned, 1);
+        if (victim.hp <= 0) {
+          room.field.delete(victim.hex);
+          const owner = seatByKey(room, victim.ownerKey);
+          if (owner) owner.hand = [...owner.hand, victim.card];
+          tell(room, `The ${enemy.label} unravels ${victim.card.name} — it dissipates to its Tender's roster.`);
+        }
+      } else {
+        // Nothing stands: the shield law leaves the Tenders bare.
+        const bare = [...room.players.values()].filter(p => !p.watcher && !p.fallen);
+        if (bare.length === 0) break;
+        const tender = bare[Math.floor(Math.random() * bare.length)];
+        tender.tenderHp -= enemy.power;
+        if (tender.tenderHp <= 0) {
+          tender.tenderHp = 0;
+          tender.fallen = true;
+          tell(room, `${tender.name} has fallen. The Bastion mourns — and fights on.`);
+        }
+      }
+    }
+    // Endings.
+    const seatedAlive = [...room.players.values()].filter(p => !p.watcher && !p.fallen);
+    if (room.dark.size === 0 && room.battle.active) {
+      endBattle(room);
+      tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
+      for (const p of seatedAlive) {
+        p.energy = Math.min(p.maxEnergy + 10, p.energy + 5);
+        await payBattleExp(room, p, 5, "A wave broken together pays together.");
+      }
+      room.battle.wave++;
+    } else if (seatedAlive.length === 0 && room.battle.active) {
+      endBattle(room);
+      tell(room, `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
+      room.dark.clear();
+    }
+    sendState(room);
+  } finally {
+    room.battle.ticking = false;
+  }
 }
 
 function handleConnection(ws: WebSocket): void {
@@ -402,6 +590,7 @@ function handleConnection(ws: WebSocket): void {
       let healAmount = healAmountForLevel(1);
       let wardRuneUnlocked = false;
       let maxTenderHp = tenderMaxHpForLevel(1);
+      let expKey: string | null = null;
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
@@ -411,6 +600,7 @@ function handleConnection(ws: WebSocket): void {
             bound = await tenderDisplayName(tenderId);
             maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
             energy = maxEnergy;
+            expKey = tenderOwnerKey(tenderId);
             const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
             if (progress) {
               tenderLevel = progress.level;
@@ -427,7 +617,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp };
+      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey };
       room.players.set(ws, player);
       if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);
@@ -454,6 +644,10 @@ function handleConnection(ws: WebSocket): void {
     // stands on a ring hex, at a cost of its power in energy.
     // The center hex is the star-seed and is never stood upon.
     if (msg.type === "summon") {
+      if (player.fallen) {
+        ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." }));
+        return;
+      }
       if (player.watcher) {
         ws.send(JSON.stringify({ type: "error", message: "Watchers hold no hand to cast from." }));
         return;
@@ -482,7 +676,7 @@ function handleConnection(ws: WebSocket): void {
       player.hand = player.hand.filter(c => c.id !== cardId);
       room.field.set(hex, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
-        ownerKey: player.key, ownerName: player.name,
+        ownerKey: player.key, ownerName: player.name, pinned: 0,
       });
       tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}).`);
       sendState(room);
@@ -493,6 +687,7 @@ function handleConnection(ws: WebSocket): void {
     // roster. The energy spent casting is not returned — what
     // was spent was spent.
     if (msg.type === "recall") {
+      if (player.fallen) return;
       const hex = String(msg.hex ?? "");
       const unit = room.field.get(hex);
       if (!unit) return;
@@ -503,6 +698,28 @@ function handleConnection(ws: WebSocket): void {
       room.field.delete(hex);
       player.hand = [...player.hand, unit.card];
       tell(room, `${player.name} recalls ${unit.card.name} from the field.`);
+      sendState(room);
+      return;
+    }
+
+    // BEGIN THE UNRAVELING: any standing seat may call the
+    // wave down. The referee deals and the rounds begin.
+    if (msg.type === "startWave") {
+      if (player.watcher || player.fallen) {
+        ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
+        return;
+      }
+      if (room.battle.active) {
+        ws.send(JSON.stringify({ type: "error", message: "The wave is already on the field." }));
+        return;
+      }
+      if (room.dark.size > 0) room.dark.clear();
+      // The fallen rise again between waves, at half their ward.
+      for (const p of room.players.values()) {
+        if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
+      }
+      dealWave(room);
+      tell(room, `${player.name} begins the Unraveling.`);
       sendState(room);
       return;
     }
@@ -527,7 +744,7 @@ function handleConnection(ws: WebSocket): void {
     if (room && player) {
       room.players.delete(ws);
       if (!player.watcher) tell(room, `${player.name} leaves the Table.`);
-      if (room.players.size === 0) rooms.delete(room.id);
+      if (room.players.size === 0) { endBattle(room); rooms.delete(room.id); }
       else sendState(room);
     }
   });
