@@ -479,3 +479,33 @@ button { font-family: inherit; }
 .field-unit.dark img { border-color: #7a2e22; filter: saturate(.8) brightness(.9); }
 .field-unit.dark .unit-name { color: #f0b8a6; }
 .dark-glyph { font-size: 26px; display: block; }
+
+/* ── The Written Light at the Table (2026-10-17) ─────────── */
+.pour-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 12px; }
+.pour-label { font-size: 12.5px; color: var(--bone-dim); letter-spacing: .04em; margin-right: 2px; }
+.hue-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid #4a3a1e; border-radius: 20px; background: #171208; color: #e8dfc8; font-size: 12.5px; cursor: pointer; }
+.hue-chip.active { border-color: var(--gold-bright); color: #ffd98a; box-shadow: 0 0 8px rgba(255, 210, 110, .25); }
+.hue-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+.working-card { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 10px; background: #14100a; border: 1px solid #4a3a1e; border-radius: 10px; cursor: pointer; color: #e8dfc8; }
+.working-card:hover { border-color: #8a6f3a; }
+.working-card.selected { border-color: var(--gold-bright); box-shadow: 0 0 12px rgba(255, 210, 110, .30); }
+.working-card:disabled { opacity: .55; cursor: default; }
+.working-card img { width: 56px; height: 56px; object-fit: contain; flex: 0 0 56px; }
+.heal-medal { flex: 0 0 56px; width: 56px; height: 56px; border: 1px solid var(--gold); border-radius: 50%; color: #ffd98a; font-size: 26px; display: flex; align-items: center; justify-content: center; text-shadow: 0 0 10px rgba(255, 210, 110, .6); }
+.working-text { display: grid; gap: 2px; }
+.working-text strong { color: #ffd98a; font-size: 15.5px; }
+.working-text em { color: var(--bone-dim); font-style: normal; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+.working-text span { font-size: 13px; line-height: 1.45; color: #d9cfb2; }
+.placing-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--gold); border-radius: 10px; background: rgba(23, 18, 8, .92); }
+.placing-text { flex: 1 1 260px; font-size: 13.5px; line-height: 1.5; }
+.placing-text strong { color: #ffd98a; }
+.field-workings { position: absolute; inset: 0; pointer-events: none; }
+.field-working { position: absolute; transform: translate(-50%, -50%); width: 46px; text-align: center; }
+.field-working img { width: 36px; height: 36px; object-fit: contain; display: block; margin: 0 auto; }
+.field-working.ward img { width: 42px; height: 42px; }
+.field-working.rune img { animation: workingBreath 2.8s ease-in-out infinite; }
+@keyframes workingBreath { 0%, 100% { opacity: .82; } 50% { opacity: 1; } }
+.working-tag { display: block; font-size: 9.5px; color: #ffe9b0; text-shadow: 0 1px 4px #000; margin-top: 1px; }
+.hex.pickable { fill: rgba(255, 217, 138, 0.16); stroke: var(--gold-bright); stroke-dasharray: 4 3; }
+.hex.anchor { fill: rgba(255, 217, 138, 0.30); stroke: var(--gold-bright); stroke-width: 2; }
+.hex.picked { fill: rgba(255, 122, 51, 0.30); stroke: #ff7a33; }

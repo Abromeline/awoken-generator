@@ -21,6 +21,44 @@ import { takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import battlegroundBg from "./assets/battleground-bg.jpg";
+import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
+import glyphSeal from "./assets/glyphs/seal.png";
+import glyphEngine from "./assets/glyphs/engine.png";
+import glyphStandard from "./assets/glyphs/standard.png";
+import glyphTrees from "./assets/glyphs/trees.png";
+import glyphBeacon from "./assets/glyphs/beacon.png";
+import glyphLattice from "./assets/glyphs/lattice.png";
+import glyphBlade from "./assets/glyphs/blade.png";
+import glyphBlades from "./assets/glyphs/blades.png";
+import glyphShard from "./assets/glyphs/shard.png";
+import glyphCoil from "./assets/glyphs/coil.png";
+
+const GLYPHS: Record<string, string> = { seal: glyphSeal, engine: glyphEngine, standard: glyphStandard, trees: glyphTrees, beacon: glyphBeacon, lattice: glyphLattice, blade: glyphBlade, blades: glyphBlades, shard: glyphShard, coil: glyphCoil };
+/** The hues of the Written Light: filter recipes turn the gold
+ *  master into the poured element (the grimoire's own recipes). */
+const HUE_FILTERS: Record<string, string> = {
+  unaligned: "none",
+  tide: "hue-rotate(155deg) saturate(1.25)",
+  sky: "hue-rotate(212deg) saturate(.5) brightness(1.3)",
+  stone: "hue-rotate(-8deg) saturate(1.45) brightness(.97)",
+  root: "hue-rotate(74deg) saturate(1.15)",
+  fire: "hue-rotate(-30deg) saturate(1.6) brightness(1.06)",
+};
+const HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#57c8ff", sky: "#cdb9ff", stone: "#e8a33d", root: "#7dd069", fire: "#ff7a33" };
+const HUE_LABELS: Record<string, string> = { unaligned: "Unaligned", tide: "Tide", sky: "Sky", stone: "Stone", root: "Root", fire: "Fire" };
+
+interface WorkingView {
+  id: string; kind: "ward" | "rune"; root: string; name: string; hue: string;
+  ownerKey: string; ownerName: string;
+  hex: string | null; hexA: string | null; hexB: string | null;
+  hp: number; stops: number; charges: number;
+}
+
+function hexNeighbors(id: string): string[] {
+  const h = FIELD_HEXES.find(x => x.id === id);
+  if (!h) return [];
+  return FIELD_HEXES.filter(x => x.id !== id && Math.hypot(x.x - h.x, x.y - h.y) <= 52).map(x => x.id);
+}
 
 interface TableCard {
   id: string;
@@ -59,7 +97,8 @@ interface SharedState {
   tale: { at: number; text: string }[];
   field: FieldUnitView[];
   enemies: EnemyView[];
-  dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number }[];
+  dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinned: number }[];
+  workings: WorkingView[];
   battle: { active: boolean; wave: number };
 }
 
@@ -114,6 +153,19 @@ const ROSTER = [
   { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awoken where it stands." },
 ] as const;
 
+function PourRow({ hue, setHue }: { hue: string; setHue: (h: string) => void }) {
+  return (
+    <div className="pour-row">
+      <span className="pour-label">Pour the light as:</span>
+      {HUE_ORDER.map((hu) => (
+        <button key={hu} className={`hue-chip${hue === hu ? " active" : ""}`} onClick={() => setHue(hu)} title={`Pour ${HUE_LABELS[hu]}`}>
+          <span className="hue-dot" style={{ background: HUE_GLOWS[hu] }} />{HUE_LABELS[hu]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Table() {
   const [phase, setPhase] = useState<Phase>("boot");
   const [bootStep, setBootStep] = useState("Waking the Table…");
@@ -124,6 +176,13 @@ export default function Table() {
   const [shared, setShared] = useState<SharedState | null>(null);
   const [you, setYou] = useState<YouState | null>(null);
   const [tab, setTab] = useState<"I" | "II" | "III" | "IV">("I");
+  // The Written Light: what is being laid, in which poured hue,
+  // and the placement steps (a ward wants an anchor hex, then a
+  // neighbour; the Three Blades gather up to three hexes).
+  const [pourHue, setPourHue] = useState<string>("unaligned");
+  const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
+  const [wardAnchor, setWardAnchor] = useState<string | null>(null);
+  const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [diceOpen, setDiceOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
@@ -532,19 +591,50 @@ export default function Table() {
             <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six hexes where Awoken may stand">
               {FIELD_HEXES.map((h) => {
                 const unit = shared.field.find(u => u.hex === h.id);
+                const myUnit = !!(unit && you && unit.ownerKey === you.key);
+                let pickable = false;
+                if (placing && !h.center) {
+                  if (placing.kind === "heal") pickable = myUnit;
+                  else if (placing.kind === "rune") pickable = !shared.workings.some(w => w.kind === "rune" && w.hex === h.id);
+                  else if (!wardAnchor) pickable = myUnit;
+                  else pickable = hexNeighbors(wardAnchor).includes(h.id);
+                }
                 return (
                   <g
                     key={h.id}
                     transform={`translate(${h.x},${h.y})`}
                     onClick={() => {
                       if (h.center) return;
+                      if (placing && you) {
+                        if (placing.kind === "heal") {
+                          if (myUnit) { send({ type: "castHeal", hex: h.id }); setPlacing(null); }
+                          return;
+                        }
+                        if (placing.kind === "rune") {
+                          if (placing.root === "blades") {
+                            setBladePicks(prev => prev.includes(h.id) ? prev.filter(x => x !== h.id) : prev.length >= 3 ? prev : [...prev, h.id]);
+                            return;
+                          }
+                          if (!shared.workings.some(w => w.kind === "rune" && w.hex === h.id)) {
+                            send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [h.id] });
+                            setPlacing(null);
+                          }
+                          return;
+                        }
+                        if (!wardAnchor) { if (myUnit) setWardAnchor(h.id); return; }
+                        if (hexNeighbors(wardAnchor).includes(h.id)) {
+                          send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: h.id });
+                          setPlacing(null); setWardAnchor(null);
+                        } else if (h.id === wardAnchor) setWardAnchor(null);
+                        return;
+                      }
                       if (unit && you && unit.ownerKey === you.key) { send({ type: "recall", hex: h.id }); return; }
                       if (selectedCard && !unit) send({ type: "summon", cardId: selectedCard.id, hex: h.id });
                     }}
-                    style={{ cursor: !h.center && (selectedCard || (unit && you && unit.ownerKey === you.key)) ? "pointer" : "default" }}
+                    style={{ cursor: !h.center && (pickable || selectedCard || myUnit) ? "pointer" : "default" }}
                   >
                     <polygon
-                      className={`${h.center ? "hex center" : "hex"}${unit ? " stood" : ""}${!h.center && selectedCard && !unit ? " open" : ""}`}
+                      className={`${h.center ? "hex center" : "hex"}${unit ? " stood" : ""}${!h.center && selectedCard && !unit ? " open" : ""}${pickable ? " pickable" : ""}${wardAnchor === h.id ? " anchor" : ""}${bladePicks.includes(h.id) ? " picked" : ""}`}
                       points="0,-26 22.52,-13 22.52,13 0,26 -22.52,13 -22.52,-13"
                     />
                     {h.center && (
@@ -588,17 +678,63 @@ export default function Table() {
                       : <span className="dark-glyph">🕳️</span>}
                     <span className="unit-name">{e.label}</span>
                     <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (e.hp / Math.max(1, e.maxHp)) * 100))}%` }} /></span>
-                    <span className="unit-stats">⚔{e.power} ❤{e.hp}/{e.maxHp}</span>
+                    <span className="unit-stats">⚔{e.power} ❤{e.hp}/{e.maxHp}{e.pinned > 0 ? ` · ⛓${e.pinned}` : ""}</span>
                   </div>
                 );
               })}
             </div>
+            </div>
+            <div className="field-workings">
+              {shared.workings.map((w) => {
+                const img = GLYPHS[w.root];
+                if (!img) return null;
+                const filter = `${HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 6px ${HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
+                if (w.kind === "rune" && w.hex) {
+                  const h = FIELD_HEXES.find(x => x.id === w.hex);
+                  if (!h) return null;
+                  return (
+                    <div key={w.id} className="field-working rune" style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }} title={`${w.name} — written by ${w.ownerName}`}>
+                      <img src={img} alt={w.name} style={{ filter }} />
+                      {w.root === "blade" && <span className="working-tag">{w.charges}✦</span>}
+                    </div>
+                  );
+                }
+                if (w.kind === "ward" && w.hexA && w.hexB) {
+                  const a = FIELD_HEXES.find(x => x.id === w.hexA);
+                  const b = FIELD_HEXES.find(x => x.id === w.hexB);
+                  if (!a || !b) return null;
+                  const deg = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 90;
+                  return (
+                    <div key={w.id} className="field-working ward" style={{ left: `${(((a.x + b.x) / 2) / 300) * 100}%`, top: `${(((a.y + b.y) / 2) / 260) * 100}%`, transform: `translate(-50%, -50%) rotate(${deg}deg)` }} title={`${w.name} — raised by ${w.ownerName}`}>
+                      <img src={img} alt={w.name} style={{ filter }} />
+                      {w.root === "trees" && <span className="working-tag">❤{w.hp}</span>}
+                      {w.root === "seal" && <span className="working-tag">{3 - w.stops}✦</span>}
+                    </div>
+                  );
+                }
+                return null;
+              })}
             </div>
             <div className="field-caption">
               <strong>The star-seed</strong> — fallen light, rooted in cracked ground.
               The Bastion is what the party will build around it. Cast from your
               roster onto the field; when the party stands ready, begin the Unraveling.
             </div>
+            {placing && (
+              <div className="placing-bar">
+                <span className="placing-text">
+                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awoken</strong> to restore {you?.healAmount ?? 5} HP (⚡2).</>}
+                  {placing.kind === "rune" && placing.root !== "blades" && <>Writing the <strong>{(WORKING_DEFS as Record<string, any>)[placing.root]?.forms[pourHue]}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
+                  {placing.kind === "rune" && placing.root === "blades" && <>Planting the <strong>{(WORKING_DEFS as Record<string, any>)[placing.root]?.forms[pourHue]}</strong> — tap up to three hexes ({bladePicks.length}/3 chosen), then lay them.</>}
+                  {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{(WORKING_DEFS as Record<string, any>)[placing.root]?.forms[pourHue]}</strong> — tap a hex <strong>your Awoken holds</strong>: the ward will stand on one of its edges.</>}
+                  {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
+                </span>
+                {placing.kind === "rune" && placing.root === "blades" && bladePicks.length > 0 && (
+                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: "blades", hue: pourHue, hexes: bladePicks }); setPlacing(null); setBladePicks([]); }}>Lay the blades · ⚡4</button>
+                )}
+                <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); }}>Set the light down</button>
+              </div>
+            )}
             <div className="battle-bar">
               {shared.battle.active ? (
                 <span className="battle-status">🌑 Wave {shared.battle.wave} — {shared.dark.length} of the dark stand · round {shared.round}</span>
@@ -731,24 +867,56 @@ export default function Table() {
             )}
             {tab === "II" && (
               <div className="arts-list">
-                {you.wardRuneUnlocked ? (
-                  <>
-                    <div className="art-row"><strong>Ward</strong><span>Your own warding hand — unlocked at Tender Lv 3, and yours at Lv {you.tenderLevel ?? 1}.</span></div>
-                    <div className="art-row"><strong>Rune</strong><span>Your own runing hand — unlocked at Tender Lv 3, and yours at Lv {you.tenderLevel ?? 1}.</span></div>
-                  </>
-                ) : (
-                  <>
-                    <div className="art-row"><strong>🔒 Ward</strong><span>Wakes at Tender Lv 3 — you stand at Lv {you.tenderLevel ?? 1}. Grow by waking, battling, and raising your Awoken.</span></div>
-                    <div className="art-row"><strong>🔒 Rune</strong><span>Wakes at Tender Lv 3 — you stand at Lv {you.tenderLevel ?? 1}.</span></div>
-                  </>
-                )}
-                <p className="quiet small">Wards and runes are cast when the fighting begins — the referee's pass. Awoken-borne wards and runes will ride here too, labeled by whose power casts them.</p>
+                <PourRow hue={pourHue} setHue={setPourHue} />
+                {Object.values(WORKING_DEFS).filter(d => d.kind === "ward").map(d => {
+                  const formName = (d.forms as Record<string, string>)[pourHue];
+                  const locked = !you.wardRuneUnlocked;
+                  return (
+                    <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
+                      onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, choose the hex your Awoken holds, then its neighbour.`}>
+                      <img src={GLYPHS[d.key]} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} />
+                      <span className="working-text">
+                        <strong>{locked ? "🔒 " : ""}{formName}</strong>
+                        <em>{d.root} · Ward · ⚡{d.cost}</em>
+                        <span>{d.blurb}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                <p className="quiet small">Wards are walls: they stand on a hex's edge and answer what crosses it. A ward is written for one battle — when the wave breaks, the light fades. The hue names and dresses the working in this first seating; its elemental twists wake with your attunement.</p>
               </div>
             )}
             {tab === "III" && (
               <div className="arts-list">
-                <div className="art-row"><strong>Heal · Tier {you.healTier ?? 1}</strong><span>Restore {you.healAmount ?? 5} HP to an Awoken or a Tender · ⚡2 · yours from Tender Lv 1, strengthening every 3 levels. In our lore, the healers are the Binders.</span></div>
-                <p className="quiet small">The mending is cast when the fighting begins — the referee's pass.</p>
+                <PourRow hue={pourHue} setHue={setPourHue} />
+                <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
+                  onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
+                  title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awoken · ⚡2`}>
+                  <span className="heal-medal">✚</span>
+                  <span className="working-text">
+                    <strong>Heal · Tier {you.healTier ?? 1}</strong>
+                    <em>The mending art · ⚡2 · yours from Tender Lv 1</em>
+                    <span>Restore {you.healAmount ?? 5} HP to one of your standing Awoken. In our lore, the healers are the Binders.</span>
+                  </span>
+                </button>
+                {Object.values(WORKING_DEFS).filter(d => d.kind === "rune").map(d => {
+                  const formName = (d.forms as Record<string, string>)[pourHue];
+                  const locked = !you.wardRuneUnlocked;
+                  return (
+                    <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
+                      onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, then write it on a hex's ground.`}>
+                      <img src={GLYPHS[d.key]} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} />
+                      <span className="working-text">
+                        <strong>{locked ? "🔒 " : ""}{formName}</strong>
+                        <em>{d.root} · Rune · ⚡{d.cost}</em>
+                        <span>{d.blurb}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                <p className="quiet small">Runes are ground-writing: they wait in a hex's floor and spring when the dark stands on them — binding everything on the hex at once. One writing per hex; a rune is spent when it springs (the Blade hums on for one more).</p>
               </div>
             )}
             {tab === "IV" && (

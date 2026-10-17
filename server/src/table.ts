@@ -31,6 +31,7 @@ import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
+import { WORKING_DEFS, HUE_ORDER } from "./workings.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -125,6 +126,30 @@ interface EnemyUnit {
   power: number;
   hp: number;
   maxHp: number;
+  /** Rounds this dark thing must still sit out (a rune's pin). */
+  pinned: number;
+}
+
+/** A working of the Written Light on the field (Nigel, 2026-10-17:
+ *  the glyphs and their functions come to the Table). WARDS stand
+ *  on the edge between two hexes (hexA/hexB); RUNES are written
+ *  on a hex's ground (hex). Written for one battle: when the
+ *  battle ends, the light fades — after the Crown Shard, if any
+ *  hangs unfed, has fallen where it must. */
+interface Working {
+  id: string;
+  kind: "ward" | "rune";
+  root: string;
+  name: string;
+  hue: string;
+  ownerKey: string;
+  ownerName: string;
+  hex: string | null;
+  hexA: string | null;
+  hexB: string | null;
+  hp: number;
+  stops: number;
+  charges: number;
 }
 
 const ENEMY_STATS: Record<string, { power: number; hp: number }> = {
@@ -179,6 +204,7 @@ interface Room {
   tale: TaleEntry[];
   sky: { mood: string; description: string; endsAt: string | null };
   field: Map<string, FieldUnit>;
+  workings: Working[];
   enemies: { name: string; label: string; note: string; art: string | null }[];
   dark: Map<string, EnemyUnit>;
   battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean };
@@ -314,6 +340,7 @@ function sharedState(room: Room) {
     watcherCount: room.players.size - seated.length,
     tale: room.tale.slice(-TALE_CAP),
     dark: [...room.dark.values()].map(e => ({ ...e })),
+    workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
     field: [...room.field.values()].map(u => ({
       hex: u.hex, name: u.card.name, art: u.card.art ?? null, element: u.card.element,
@@ -368,6 +395,7 @@ async function getRoom(id: string): Promise<Room> {
     room = {
       id, players: new Map(), tale: [], sky: await currentSky(),
       field: new Map(),
+      workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
       battle: { active: false, wave: 1, timer: null, ticking: false },
@@ -418,6 +446,113 @@ async function payBattleExp(room: Room, seat: Player, amount: number, why: strin
   }
 }
 
+
+// ── The Written Light at the Table (2026-10-17) ─────────
+// Nigel's ruling brought the glyphs and their functions to
+// the Table: WARDS stand on the edge between two hexes,
+// RUNES are written on a hex's ground, and BINDING covers
+// the whole hex — a sprung rune holds everything standing
+// on it, never a chosen one. Workings are written for one
+// battle; when the battle ends the light fades (after any
+// unfed Crown Shard has fallen where it must).
+
+function neighborsOf(hex: string): string[] {
+  const h = FIELD_HEXES_SERVER.find(x => x.id === hex);
+  if (!h) return [];
+  return FIELD_HEXES_SERVER.filter(x => x.id !== hex && Math.hypot(x.x - h.x, x.y - h.y) <= 52).map(x => x.id);
+}
+
+function engineBright(room: Room, ownerKey: string): boolean {
+  return room.workings.some(w => w.root === "engine" && w.ownerKey === ownerKey);
+}
+
+function beaconReach(w: Working): Set<string> {
+  const out = new Set<string>();
+  for (const hx of [w.hexA, w.hexB]) if (hx) { out.add(hx); for (const n of neighborsOf(hx)) out.add(n); }
+  return out;
+}
+
+function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
+  room.dark.delete(enemy.hex);
+  tell(room, `The ${enemy.label} unravels!`);
+  if (killer && !killer.fallen) {
+    killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
+    void payBattleExp(room, killer, 2, "The dark pays for its felling.");
+  }
+}
+
+/** Spring the rune written on a hex, if the dark stands on it. */
+function springHex(room: Room, hex: string, fired: Set<string>): void {
+  const darkHere = [...room.dark.values()].filter(e => e.hex === hex);
+  if (!darkHere.length) return;
+  const rune = room.workings.find(w => w.kind === "rune" && w.hex === hex && !fired.has(w.id));
+  if (!rune) return;
+  fired.add(rune.id);
+  const caster = seatByKey(room, rune.ownerKey) ?? null;
+  const bright = caster && engineBright(room, caster.key) ? 1 : 0;
+  if (rune.root === "lattice") {
+    for (const e of darkHere) e.pinned = Math.max(e.pinned, 2);
+    tell(room, `${rune.name} springs — the whole floor is the snare, and the dark stands bound in light.`);
+    room.workings = room.workings.filter(w => w !== rune);
+  } else if (rune.root === "blade" || rune.root === "blades") {
+    const power = (rune.root === "blade" ? 6 : 3) + bright;
+    tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
+    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) fellDark(room, e, caster); }
+    rune.charges--;
+    if (rune.charges <= 0) room.workings = room.workings.filter(w => w !== rune);
+    else tell(room, `${rune.name} hums on, waiting for one more.`);
+  } else if (rune.root === "coil") {
+    const free = SUMMONABLE_HEXES.filter(hx => hx !== hex && !room.field.has(hx) && !room.dark.has(hx));
+    let moved = 0;
+    for (const e of darkHere) {
+      if (!free.length) break;
+      const spot = free.splice(Math.floor(Math.random() * free.length), 1)[0];
+      room.dark.delete(e.hex);
+      e.hex = spot;
+      room.dark.set(spot, e);
+      moved++;
+    }
+    if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(3, moved));
+    tell(room, `${rune.name} turns the dark aside — ${moved} thrown back to far ground, their strikes forgotten.`);
+    room.workings = room.workings.filter(w => w !== rune);
+  } else if (rune.root === "shard") {
+    const greatest = Math.max(...darkHere.map(e => e.power));
+    if (greatest >= 5) {
+      const dmg = greatest * 2;
+      tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
+      for (const e of darkHere) { e.hp -= dmg; if (e.hp <= 0) fellDark(room, e, caster); }
+      room.workings = room.workings.filter(w => w !== rune);
+    }
+  }
+}
+
+/** Battle's end: unfed Shards fall where they must; then all
+ *  written light fades — it was written for this battle. */
+function settleShardsAndFade(room: Room): void {
+  for (const w of [...room.workings]) {
+    if (w.root !== "shard") continue;
+    const mine = [...room.field.values()].filter(u => u.ownerKey === w.ownerKey);
+    if (mine.length) {
+      const strongest = mine.reduce((a, b) => (b.card.power > a.card.power ? b : a));
+      const dmg = strongest.card.power * 2;
+      strongest.hp -= dmg;
+      tell(room, `${w.name} went unfed — a doom owed is a doom paid: it falls on ${strongest.card.name}, ${dmg} harm.`);
+      if (strongest.hp <= 0) {
+        room.field.delete(strongest.hex);
+        const owner = seatByKey(room, strongest.ownerKey);
+        if (owner) owner.hand = [...owner.hand, strongest.card];
+        tell(room, `${strongest.card.name} dissipates to its Tender's roster.`);
+      }
+    } else {
+      tell(room, `${w.name} went unfed, and falls on empty ground — the Balance accepts the smaller price.`);
+    }
+  }
+  if (room.workings.length) {
+    tell(room, "The written light fades from the field — it was written for this battle.");
+    room.workings = [];
+  }
+}
+
 function dealWave(room: Room): void {
   const wave = room.battle.wave;
   const free = SUMMONABLE_HEXES.filter(h => !room.field.has(h) && !room.dark.has(h));
@@ -431,9 +566,10 @@ function dealWave(room: Room): void {
     const hp = base.hp + (wave - 1);
     room.dark.set(hex, {
       hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
-      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp,
+      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinned: 0,
     });
   }
+  for (const hex of spots) springHex(room, hex, new Set());
   room.battle.active = true;
   room.roundNo = 0;
   tell(room, `Wave ${wave} is dealt — ${count} of the dark take the field.`);
@@ -452,6 +588,15 @@ async function runRound(room: Room): Promise<void> {
   room.battle.ticking = true;
   try {
     room.roundNo++;
+    // The written light tends itself: living walls regrow,
+    // and a standing Engine sings energy to its Tender.
+    for (const w of room.workings) {
+      if (w.root === "trees" && w.hp > 0 && w.hp < 8) w.hp = Math.min(8, w.hp + 2);
+      if (w.root === "engine") {
+        const owner = seatByKey(room, w.ownerKey);
+        if (owner && !owner.fallen) owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 1);
+      }
+    }
     // The standing strike first.
     for (const unit of [...room.field.values()]) {
       if (!room.field.has(unit.hex)) continue;
@@ -464,7 +609,10 @@ async function runRound(room: Room): Promise<void> {
         if (d < best) { best = d; target = e; }
       }
       if (!target) break;
-      target.hp -= unit.card.power;
+      const strikePower = unit.card.power
+        + (room.workings.some(w => w.root === "standard" && w.ownerKey === unit.ownerKey && (w.hexA === unit.hex || w.hexB === unit.hex)) ? 1 : 0)
+        + (room.workings.some(w => w.root === "beacon" && w.ownerKey === unit.ownerKey && beaconReach(w).has(target.hex)) ? 1 : 0);
+      target.hp -= strikePower;
       if (target.hp <= 0) {
         room.dark.delete(target.hex);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
@@ -478,6 +626,7 @@ async function runRound(room: Room): Promise<void> {
     // The dark answers.
     for (const enemy of [...room.dark.values()]) {
       const standing = [...room.field.values()];
+      if (enemy.pinned > 0) { enemy.pinned--; continue; }
       if (enemy.kind === "hollow") {
         for (const p of room.players.values()) {
           if (!p.watcher && !p.fallen) p.energy = Math.max(0, p.energy - 2);
@@ -489,8 +638,43 @@ async function runRound(room: Room): Promise<void> {
         if (enemy.kind === "unraveler") victim = standing.reduce((a, b) => (b.card.power > a.card.power ? b : a));
         else if (enemy.kind === "fray") victim = standing.reduce((a, b) => (b.hp < a.hp ? b : a));
         else victim = standing[Math.floor(Math.random() * standing.length)];
-        victim.hp -= enemy.power;
-        if (enemy.kind === "tangle") victim.pinned = Math.max(victim.pinned, 1);
+        // The written light answers first: a ward on the edge
+        // between the striker and its mark may stop the blow.
+        let blow = enemy.power;
+        const edgeWards = room.workings.filter(w => w.kind === "ward" && w.ownerKey === victim.ownerKey &&
+          ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
+        const seal = edgeWards.find(w => w.root === "seal");
+        if (seal && blow > 0) {
+          blow = 0;
+          enemy.hp -= 3 + (engineBright(room, victim.ownerKey) ? 1 : 0);
+          seal.stops++;
+          tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
+          if (enemy.hp <= 0) {
+            room.dark.delete(enemy.hex);
+            tell(room, `The ${enemy.label} unravels on the Seal's light!`);
+            const owner = seatByKey(room, seal.ownerKey);
+            if (owner && !owner.fallen) {
+              owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3);
+              await payBattleExp(room, owner, 2, "The dark pays for its felling.");
+            }
+          }
+          if (seal.stops >= 3) {
+            room.workings = room.workings.filter(w => w !== seal);
+            tell(room, `${seal.name} has stopped its third strike; its light goes out, spent and honored.`);
+          }
+        }
+        const trees = edgeWards.find(w => w.root === "trees");
+        if (blow > 0 && trees) {
+          trees.hp -= blow;
+          blow = 0;
+          tell(room, `${trees.name} take the blow meant for ${victim.card.name}.`);
+          if (trees.hp <= 0) {
+            room.workings = room.workings.filter(w => w !== trees);
+            tell(room, `${trees.name} are broken — for this battle. The seed remembers them.`);
+          }
+        }
+        victim.hp -= blow;
+        if (enemy.kind === "tangle" && blow > 0) victim.pinned = Math.max(victim.pinned, 1);
         if (victim.hp <= 0) {
           room.field.delete(victim.hex);
           const owner = seatByKey(room, victim.ownerKey);
@@ -513,6 +697,7 @@ async function runRound(room: Room): Promise<void> {
     // Endings.
     const seatedAlive = [...room.players.values()].filter(p => !p.watcher && !p.fallen);
     if (room.dark.size === 0 && room.battle.active) {
+      settleShardsAndFade(room);
       endBattle(room);
       tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
       for (const p of seatedAlive) {
@@ -521,6 +706,7 @@ async function runRound(room: Room): Promise<void> {
       }
       room.battle.wave++;
     } else if (seatedAlive.length === 0 && room.battle.active) {
+      settleShardsAndFade(room);
       endBattle(room);
       tell(room, `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
       room.dark.clear();
@@ -704,6 +890,88 @@ function handleConnection(ws: WebSocket): void {
 
     // BEGIN THE UNRAVELING: any standing seat may call the
     // wave down. The referee deals and the rounds begin.
+    // THE WRITTEN LIGHT (2026-10-17): wards raised on edges,
+    // runes written on ground, heal by a Tender's tier. Priced in
+    // energy, gated by Tender level (wards & runes at Lv 3+), and
+    // refused plainly when the Table cannot honor them. The hue
+    // is chosen at the pour: in this first seating it names and
+    // dresses the working; the attunement twists ride the
+    // Tender's own elemental tree when that is built.
+    if (msg.type === "castHeal") {
+      if (!player) return;
+      if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no mending — bind in the game to cast." })); return; }
+      const unit = room.field.get(String(msg.hex || ""));
+      if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awoken." })); return; }
+      if (unit.hp >= unit.maxHp) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already.` })); return; }
+      if (player.energy < 2) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡2 — you hold ⚡${player.energy}.` })); return; }
+      player.energy -= 2;
+      const healed = Math.min(player.healAmount, unit.maxHp - unit.hp);
+      unit.hp += healed;
+      tell(room, `${player.name} mends ${unit.card.name} — ${healed} HP restored (Heal, Tier ${player.healTier}).`);
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "castWard") {
+      if (!player) return;
+      const caster = player;
+      if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers raise no wards — bind in the game to cast." })); return; }
+      const def = (WORKING_DEFS as Record<string, any>)[String(msg.root || "")];
+      if (!def || def.kind !== "ward") { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
+      if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
+      const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
+      const hexA = String(msg.hexA || "");
+      const hexB = String(msg.hexB || "");
+      const mine = room.field.get(hexA);
+      if (!mine || mine.ownerKey !== caster.key) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a hex your own Awoken holds." })); return; }
+      if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two hexes must share a side." })); return; }
+      if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
+      if (def.key === "standard" && room.workings.some(w => w.root === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
+      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.root} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      caster.energy -= def.cost;
+      room.workings.push({
+        id: randomUUID(), kind: "ward", root: def.key, name: def.forms[hue], hue,
+        ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
+        hp: def.key === "trees" ? 8 + (engineBright(room, caster.key) ? 2 : 0) : 0, stops: 0, charges: 0,
+      });
+      tell(room, `${caster.name} raises ${def.forms[hue]} on the edge of ${mine.card.name}'s hex.`);
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "castRune") {
+      if (!player) return;
+      const caster = player;
+      if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers write no runes — bind in the game to cast." })); return; }
+      const def = (WORKING_DEFS as Record<string, any>)[String(msg.root || "")];
+      if (!def || def.kind !== "rune") { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
+      if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
+      const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
+      const hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 3) : [];
+      if (def.key === "blades") {
+        if (hexes.length < 1) { ws.send(JSON.stringify({ type: "error", message: "The Three Blades are planted on one to three hexes." })); return; }
+      } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
+      for (const hx of hexes) {
+        if (!SUMMONABLE_HEXES.includes(hx)) { ws.send(JSON.stringify({ type: "error", message: "Runes are written on the field's ground — not on the star-seed's hex." })); return; }
+        if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
+      }
+      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.root} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      caster.energy -= def.cost;
+      for (const hx of hexes) {
+        room.workings.push({
+          id: randomUUID(), kind: "rune", root: def.key, name: def.forms[hue], hue,
+          ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
+          hp: 0, stops: 0, charges: def.key === "blade" ? 2 : 1,
+        });
+      }
+      tell(room, hexes.length > 1
+        ? `${caster.name} writes ${def.forms[hue]} across ${hexes.length} hexes.`
+        : `${caster.name} writes ${def.forms[hue]} on the ground of the field.`);
+      for (const hx of hexes) springHex(room, hx, new Set());
+      sendState(room);
+      return;
+    }
+
     if (msg.type === "startWave") {
       if (player.watcher || player.fallen) {
         ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
