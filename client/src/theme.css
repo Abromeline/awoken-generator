@@ -1200,7 +1200,12 @@ body.defeat-flash {
   padding:4px;cursor:pointer;text-align:center;position:relative;
   transition:transform 0.15s;
 }
-.dock-card:hover{transform:translateY(-4px);border-color:#b8b8b8;}
+.dock-card:hover{transform:translateY(-10px) scale(1.06);border-color:#b8b8b8;z-index:30;}
+/* The fanned hand (Nigel, 2026-10-17): the dock's cards overlap
+   like the hand in the app — each card tucks behind the next, and
+   a touched card rises out of the fan. */
+.dock-hand .dock-card{margin-left:-26px;}
+.dock-hand .dock-card:first-child{margin-left:0;}
 .dock-card.in-pool{border-color:#ffd700;box-shadow:0 0 10px rgba(255,215,0,0.5);}
 .dock-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;display:block;}
 .dock-card-name{font-size:9px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
