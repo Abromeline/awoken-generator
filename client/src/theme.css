@@ -2357,7 +2357,10 @@ body.defeat-flash {
 100%{transform:translate3d(var(--drift,0px),128vh,0);opacity:.25}
 }
 .meteor-body{display:block}
-@media (prefers-reduced-motion: reduce){ .meteor-rain{display:none} }
+/* The rain ignores the reduced-motion setting (Nigel's ruling,
+   2026-10-17): a PC with animation effects off reported
+   prefers-reduced-motion and the rule that hid the rain under it
+   left his title screen rainless while the iPad rained. Forced. */
 
 
 /* Card borders (Nigel, 2026-10-17): the workshop-chosen frame wraps
