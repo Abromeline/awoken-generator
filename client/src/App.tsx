@@ -6,6 +6,7 @@ import debrisDark from "./assets/debris-dark.jpg";
 import nebulaNegative from "./assets/nebula-negative.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
 import birthFrame from "./assets/birth-frame.png";
+import { useCardBorder } from "./cardBorder";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
 import MarginGuide from "./MarginGuide";
@@ -238,6 +239,7 @@ function creatureRarity(power: number): string {
 
 export function TradingCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
   const queryClient = useQueryClient();
+  const cardBorder = useCardBorder();
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const roman = toRoman(item.id);
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
@@ -280,6 +282,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
         ×
       </button>
     )}
+    {cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
   </article>;
 }
 

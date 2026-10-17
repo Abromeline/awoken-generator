@@ -509,3 +509,10 @@ button { font-family: inherit; }
 .hex.pickable { fill: rgba(255, 217, 138, 0.16); stroke: var(--gold-bright); stroke-dasharray: 4 3; }
 .hex.anchor { fill: rgba(255, 217, 138, 0.30); stroke: var(--gold-bright); stroke-width: 2; }
 .hex.picked { fill: rgba(255, 122, 51, 0.30); stroke: #ff7a33; }
+
+/* Card borders at the Table (Nigel, 2026-10-17): the same chosen
+   frame the game wraps — hug stretches to the card's edge; morning
+   is the birth frame's measured window fit. */
+.tcard .card-border-frame { position: absolute; pointer-events: none; z-index: 6; }
+.tcard .card-border-frame.fit-hug { inset: 0; width: 100%; height: 100%; }
+.tcard .card-border-frame.fit-morning { width: 283.3%; height: 156.6%; left: -91.6%; top: -26.8%; max-width: none; }

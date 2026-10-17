@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { setWheatStageOverride, setDreamWeedStageOverride } from "./BuildingMenu";
 import { useEnemyArt, ENEMY_ART_QUERY_KEY } from "./enemyArt";
 import { api } from "./api";
@@ -47,7 +47,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium" | "border";
 
 // The Monsters Compendium (the game's living copy of the Atelier's roll):
 // entries live in the game's own store (compendium_entries, seeded from
@@ -203,6 +203,97 @@ const TABLE_GROUPS: { title: string; caption?: string; slots: TableSlot[] }[] = 
     ],
   },
 ];
+
+
+// ── Card Border section (Nigel, 2026-10-17): the shelf of card-frame
+// art. One border is live at a time and wraps every Awoken card in
+// the game and at the Table; the wake ceremony always keeps its own
+// birth frame. Fits: "hug" stretches art drawn as a full-card frame
+// to the card's edge; "morning" is the birth frame's measured fit,
+// for art drawn as an ornament surround with a window in the middle.
+function CardBorderSection() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ["cardBorder"], queryFn: () => api.getCardBorder() });
+  const [name, setName] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["cardBorder"] });
+  const select = useMutation({
+    mutationFn: (args: { kind: "none" | "birth" | "upload"; id?: string }) => api.setCardBorderSelection(args),
+    onSuccess: refresh, onError: (e: any) => alert(e?.message || "Could not set the border."),
+  });
+  const fit = useMutation({
+    mutationFn: (args: { target: string; fit: "hug" | "morning" }) => api.setCardBorderFit(args),
+    onSuccess: refresh, onError: (e: any) => alert(e?.message || "Could not set the fit."),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteCardBorder({ id }),
+    onSuccess: refresh, onError: (e: any) => alert(e?.message || "Could not remove that border."),
+  });
+  const upload = useMutation({
+    mutationFn: (args: { name: string; imageBase64: string }) => api.uploadCardBorder(args),
+    onSuccess: () => { setName(""); refresh(); },
+    onError: (e: any) => alert(e?.message || "That upload did not land — PNG only, please."),
+  });
+  const onFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result || "");
+      const base64 = url.split(",")[1] || "";
+      upload.mutate({ name: name.trim() || file.name.replace(/\.png$/i, ""), imageBase64: base64 });
+    };
+    reader.readAsDataURL(file);
+  };
+  const sel = data?.selection;
+  const liveLabel = !data ? "…" : sel?.kind === "none" ? "No border is live"
+    : sel?.kind === "birth" ? "The Birth Frame is live"
+    : `“${data.uploads.find((u) => u.id === sel?.id)?.name ?? "An uploaded border"}” is live`;
+  const fitSelect = (target: string, value: "hug" | "morning") => (
+    <select value={value} disabled={fit.isPending} onChange={(e) => fit.mutate({ target, fit: e.target.value as "hug" | "morning" })} title="How this art seats on a card">
+      <option value="hug">Hug the edge</option>
+      <option value="morning">Morning fit (window)</option>
+    </select>
+  );
+  const row = (key: string, title: string, sub: string, active: boolean, controls: React.ReactNode) => (
+    <div key={key} className="stat-rows" style={{ borderTop: "1px solid rgba(184,155,94,.35)", paddingTop: 10, marginTop: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div><strong>{title}</strong> {active && <span style={{ color: "#b89b5e" }}>· live on every card</span>}<br /><small>{sub}</small></div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>{controls}</div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="workspace-grid">
+      <div className="workspace-card wide">
+        <h3>🖼️ Card Border</h3>
+        <p className="quiet">Add border art here and the live one wraps <strong>every Awoken card</strong> — in the collection, on the card's own page, and in your hand at the Table. Upload a PNG drawn with a transparent middle. <em>Hug the edge</em> suits art drawn as a full-card frame; <em>Morning fit</em> suits art drawn like the birth frame — an ornament surround whose window should land on the card. The wake ceremony always keeps its own birth frame.</p>
+        <div style={{ display: "flex", gap: 26, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ position: "relative", width: 150, aspectRatio: "750 / 971", margin: "34px auto 8px", background: "linear-gradient(160deg,#2a2118,#171208)", border: "2px solid #141414", boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>
+              <div style={{ position: "absolute", inset: 10, border: "1px solid #b89b5e" }} />
+              <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#e8d5a0", fontSize: 12, letterSpacing: 2 }}>CARD</span>
+              {data?.imageUrl && <img className={`card-border-frame fit-${data.fit ?? "hug"}`} src={data.imageUrl} alt="" aria-hidden="true" />}
+            </div>
+            <small>{liveLabel}</small>
+          </div>
+          <div style={{ flex: "1 1 320px", minWidth: 280 }}>
+            {row("none", "No border", "Cards stand bare, as they were first drawn.", sel?.kind === "none",
+              <button disabled={select.isPending || sel?.kind === "none"} onClick={() => select.mutate({ kind: "none" })}>Make live</button>)}
+            {row("birth", "The Birth Frame", "Built in — the gold frame from this morning's wake ceremony.", sel?.kind === "birth",
+              <>{fitSelect("birth", data?.birthFit ?? "morning")}<button disabled={select.isPending || sel?.kind === "birth"} onClick={() => select.mutate({ kind: "birth" })}>Make live</button></>)}
+            {(data?.uploads ?? []).map((u) => row(u.id, u.name, "Your uploaded border art.", sel?.kind === "upload" && sel?.id === u.id,
+              <>{fitSelect(u.id, u.fit)}<button disabled={select.isPending || (sel?.kind === "upload" && sel?.id === u.id)} onClick={() => select.mutate({ kind: "upload", id: u.id })}>Make live</button><button disabled={remove.isPending} onClick={() => { if (confirm(`Remove “${u.name}” from the shelf?`)) remove.mutate(u.id); }}>Remove</button></>))}
+            <div className="stat-rows" style={{ borderTop: "1px solid rgba(184,155,94,.35)", paddingTop: 10, marginTop: 10 }}>
+              <label>Border name <input type="text" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="e.g. Thornwood Frame" /></label>
+              <input ref={fileRef} type="file" accept="image/png" style={{ display: "none" }} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
+              <button disabled={upload.isPending} onClick={() => fileRef.current?.click()}>{upload.isPending ? "Adding…" : "＋ Add border art (PNG)"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
@@ -445,9 +536,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium", "border"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : "📖 Compendium"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : s === "compendium" ? "📖 Compendium" : "🖼️ Card Border"}
           </button>
         ))}
       </div>
@@ -620,6 +711,8 @@ export default function UIWorkspace() {
           ))}
         </div>
       )}
+
+      {section === "border" && <CardBorderSection />}
 
       {section === "timers" && (
         <div className="workspace-grid">

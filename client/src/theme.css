@@ -2337,3 +2337,14 @@ body.defeat-flash {
 .meteor-body{display:block}
 @media (prefers-reduced-motion: reduce){ .meteor-rain{display:none} }
 
+
+/* Card borders (Nigel, 2026-10-17): the workshop-chosen frame wraps
+   every card. Two fits: "hug" stretches the art to the card's own
+   edge; "morning" is the birth frame's measured fit — the image is
+   scaled so its inner window lands exactly on the card, ornament
+   spilling past the edges as it did at this morning's ceremony. */
+.card-border-frame{position:absolute;pointer-events:none;z-index:6}
+.card-border-frame.fit-hug{inset:0;width:100%;height:100%}
+.card-border-frame.fit-morning{width:283.3%;height:156.6%;left:-91.6%;top:-26.8%;max-width:none;filter:drop-shadow(0 0 10px rgba(255,214,130,.35))}
+/* The wake ceremony keeps its own birth frame — never both. */
+.ceremony-card-stage .card-border-frame{display:none}

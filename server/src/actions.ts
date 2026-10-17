@@ -1874,6 +1874,42 @@ export async function resolveCurrentEnemyArt(): Promise<{ art: Record<string, { 
   return { art, selection };
 }
 
+
+// ── Card borders (Nigel, 2026-10-17): a workshop shelf of card-frame
+// art; the chosen one wraps every card on every page and app. State
+// lives in ui_config (uploads list, selection, the birth frame's fit);
+// uploaded art lives in the blob store. The birth frame — this
+// morning's wake-ceremony frame — is the built-in first citizen,
+// served at /card-border/birth.png with the fit measured for it.
+type CardBorderFit = "hug" | "morning";
+interface CardBorderUpload { id: string; name: string; blobKey: string; fit: CardBorderFit; createdAt: number }
+async function readUiConfigJson(key: string): Promise<any> {
+  const [row] = await db.select().from(schema.uiConfig).where(eq(schema.uiConfig.key, key)).limit(1);
+  if (!row) return null;
+  try { return JSON.parse(row.value); } catch { return null; }
+}
+async function writeUiConfigJson(key: string, value: unknown): Promise<void> {
+  const text = JSON.stringify(value);
+  await db.insert(schema.uiConfig).values({ key, value: text })
+    .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: text } });
+}
+async function cardBorderState() {
+  const uploads: CardBorderUpload[] = (await readUiConfigJson("card.border.uploads")) ?? [];
+  const selection = (await readUiConfigJson("card.border.selection")) ?? { kind: "birth" as const };
+  const birthFit: CardBorderFit = (await readUiConfigJson("card.border.birthFit")) ?? "morning";
+  let imageUrl: string | null = null;
+  let fit: CardBorderFit | null = null;
+  if (selection.kind === "birth") { imageUrl = "/card-border/birth.png"; fit = birthFit; }
+  else if (selection.kind === "upload") {
+    const u = uploads.find((x) => x.id === selection.id);
+    if (u) { imageUrl = blobUrl(u.blobKey); fit = u.fit; }
+  }
+  return {
+    imageUrl, fit, selection, birthFit,
+    uploads: uploads.map((u) => ({ id: u.id, name: u.name, imageUrl: blobUrl(u.blobKey), fit: u.fit })),
+  };
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -5768,6 +5804,77 @@ export const handlers = {
       .values({ key, value: JSON.stringify(selection) })
       .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(selection) } });
     return { ok: true, selection };
+  },
+
+  // Card borders — the public read every card surface consumes
+  // (TradingCard in the game, the hand cards at the Table, the
+  // workshop section itself). Writers are workshop-gated in index.ts.
+  async getCardBorder(_args: unknown) {
+    return cardBorderState();
+  },
+
+  async uploadCardBorder(args: unknown) {
+    const parsed = z.object({
+      name: z.string().min(1).max(80),
+      imageBase64: z.string().min(100).max(16_000_000),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid card border upload.");
+    const bytes = Buffer.from(parsed.data.imageBase64, "base64");
+    assertPngBytes(bytes);
+    const uploads: CardBorderUpload[] = (await readUiConfigJson("card.border.uploads")) ?? [];
+    const id = randomUUID();
+    const blobKey = `card-border/${id}.png`;
+    blobs.put(blobKey, bytes, "image/png");
+    uploads.push({ id, name: parsed.data.name, blobKey, fit: "hug", createdAt: Date.now() });
+    await writeUiConfigJson("card.border.uploads", uploads);
+    return cardBorderState();
+  },
+
+  async setCardBorderSelection(args: unknown) {
+    const parsed = z.object({
+      kind: z.enum(["none", "birth", "upload"]),
+      id: z.string().max(80).optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid card border selection.");
+    if (parsed.data.kind === "upload") {
+      const uploads: CardBorderUpload[] = (await readUiConfigJson("card.border.uploads")) ?? [];
+      if (!uploads.some((u) => u.id === parsed.data.id)) badRequest("That border is not on the shelf.");
+    }
+    await writeUiConfigJson("card.border.selection",
+      parsed.data.kind === "upload" ? { kind: "upload", id: parsed.data.id } : { kind: parsed.data.kind });
+    return cardBorderState();
+  },
+
+  async setCardBorderFit(args: unknown) {
+    const parsed = z.object({
+      target: z.string().min(1).max(80),
+      fit: z.enum(["hug", "morning"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid card border fit.");
+    if (parsed.data.target === "birth") {
+      await writeUiConfigJson("card.border.birthFit", parsed.data.fit);
+    } else {
+      const uploads: CardBorderUpload[] = (await readUiConfigJson("card.border.uploads")) ?? [];
+      const u = uploads.find((x) => x.id === parsed.data.target);
+      if (!u) badRequest("That border is not on the shelf.");
+      u.fit = parsed.data.fit;
+      await writeUiConfigJson("card.border.uploads", uploads);
+    }
+    return cardBorderState();
+  },
+
+  async deleteCardBorder(args: unknown) {
+    const parsed = z.object({ id: z.string().min(1).max(80) }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid card border delete.");
+    const uploads: CardBorderUpload[] = (await readUiConfigJson("card.border.uploads")) ?? [];
+    const next = uploads.filter((u) => u.id !== parsed.data.id);
+    if (next.length === uploads.length) badRequest("That border is not on the shelf.");
+    await writeUiConfigJson("card.border.uploads", next);
+    const selection = (await readUiConfigJson("card.border.selection")) ?? { kind: "birth" };
+    if (selection.kind === "upload" && selection.id === parsed.data.id) {
+      await writeUiConfigJson("card.border.selection", { kind: "none" });
+    }
+    return cardBorderState();
   },
 
   // The Monsters Compendium — the game's living copy of the Atelier's

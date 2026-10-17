@@ -176,6 +176,17 @@ export default function Table() {
   const [shared, setShared] = useState<SharedState | null>(null);
   const [you, setYou] = useState<YouState | null>(null);
   const [tab, setTab] = useState<"I" | "II" | "III" | "IV">("I");
+  // The workshop-chosen card border (Nigel, 2026-10-17) wraps the
+  // hand cards here too — the same public read the game consumes.
+  const [cardBorder, setCardBorder] = useState<{ imageUrl: string | null; fit: string | null }>({ imageUrl: null, fit: null });
+  useEffect(() => {
+    let live = true;
+    fetch("/api/getCardBorder", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then((r) => r.json())
+      .then((d) => { if (live && d && typeof d === "object") setCardBorder({ imageUrl: d.imageUrl ?? null, fit: d.fit ?? null }); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
   // The Written Light: what is being laid, in which poured hue,
   // and the placement steps (a ward wants an anchor hex, then a
   // neighbour; the Three Blades gather up to three hexes).
@@ -835,6 +846,7 @@ export default function Table() {
                           <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
                         )}
                         <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span><span className="cost-chip">⚡{cost}</span></div>
+                        {cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
                       </div>
                     );
                   })}

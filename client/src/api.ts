@@ -202,6 +202,14 @@ export type TerrainArtMap = Partial<Record<string, Partial<Record<number, string
  *  latest upload is live by default. */
 export type EnemyArtMap = Partial<Record<string, { url: string; spriteId: number } | null>>;
 export type EnemySelection = Record<string, number>;
+export type CardBorderFitName = "hug" | "morning";
+export interface CardBorderState {
+  imageUrl: string | null;
+  fit: CardBorderFitName | null;
+  selection: { kind: "none" | "birth" | "upload"; id?: string };
+  birthFit: CardBorderFitName;
+  uploads: { id: string; name: string; imageUrl: string; fit: CardBorderFitName }[];
+}
 
 export interface GroveStatus {
   centsAccrued: number;
@@ -326,6 +334,14 @@ export const api = {
   getEnemyArt: () => post<{ art: EnemyArtMap; selection: EnemySelection }>("getEnemyArt", {}),
   setEnemySpriteSelection: (args: { name: string; spriteId: number | null }) =>
     post<{ ok: true; selection: EnemySelection }>("setEnemySpriteSelection", args),
+  getCardBorder: () => post<CardBorderState>("getCardBorder", {}),
+  uploadCardBorder: (args: { name: string; imageBase64: string }) =>
+    post<CardBorderState>("uploadCardBorder", args),
+  setCardBorderSelection: (args: { kind: "none" | "birth" | "upload"; id?: string }) =>
+    post<CardBorderState>("setCardBorderSelection", args),
+  setCardBorderFit: (args: { target: string; fit: CardBorderFitName }) =>
+    post<CardBorderState>("setCardBorderFit", args),
+  deleteCardBorder: (args: { id: string }) => post<CardBorderState>("deleteCardBorder", args),
   uploadTerrainArt: (args: { element: string; stage: 2 | 3; imageBase64: string; mimeType: "image/png" }) =>
     post<{ ok: true; element: string; stage: number; image_url: string }>("uploadTerrainArt", args),
   deleteTerrainArt: (args: { element: string; stage: 2 | 3 }) => post<{ ok: true }>("deleteTerrainArt", args),

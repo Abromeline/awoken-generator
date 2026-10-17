@@ -30,6 +30,10 @@ const actionNames = Object.keys(handlers) as ActionName[];
 // Everything the workshop touches but the Tender ritual doesn't: gated by
 // the workshop token when WORKSHOP_PASSWORD is set.
 const WORKSHOP_ACTIONS = new Set([
+  "uploadCardBorder",
+  "setCardBorderSelection",
+  "setCardBorderFit",
+  "deleteCardBorder",
   "uploadLayerAsset",
   "uploadTerrainArt",
   "deleteTerrainArt",
@@ -217,6 +221,7 @@ registerTableRoutes(app);
 // the SPA fallback so /privacy and /terms are truly themselves.
 app.get("/privacy", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "privacy.html")));
 app.get("/terms", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "terms.html")));
+app.get("/card-border/birth.png", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "card-border-birth.png")));
 
 // Static client bundle (built by `npm run build:client` into client/dist).
 const clientDist = resolve(process.cwd(), "client", "dist");
