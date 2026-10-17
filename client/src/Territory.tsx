@@ -2912,6 +2912,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
 function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect, targetAwokenId, onDeepenAspect }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void; targetAwokenId?: number | null; onDeepenAspect?: (wornAspect: any) => void }) {
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
   if (!visible) return null;
   const { data } = useQuery({
     queryKey: ["aspectAttunement"],
@@ -2971,18 +2972,31 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             <div className="celestial-title" style={{ fontSize: 12 }}>Worn by {wornEntry.name} — tap an orb above to STACK another (up to 3), or deepen one with an attunement point:</div>
             {wornEntry.aspects.map((wa: any) => {
               const pool = Math.floor((data.levels && data.levels[wa.element]) ?? 0);
-              const maxed = (wa.level ?? 1) >= 3;
+              const maxed = (wa.level ?? 1) >= 4;
+              const cost = wa.level ?? 1;
+              const confirming = confirmKey === wa.key;
               return (
-                <div key={wa.key} className="celestial-row" style={{ marginTop: 4 }}>
-                  <span style={{ fontSize: 12, color: "#e8d5a0", flex: 1 }}>{wa.name} · {wa.element} · Lv {wa.level}</span>
-                  <button
-                    className="abtn small"
-                    disabled={maxed || pool < 1}
-                    title={maxed ? "Already at max level" : pool >= 1 ? `Give one ${wa.element} attunement point: ${wa.name} rises to Lv ${(wa.level ?? 1) + 1} and takes the level's artwork` : `No ${wa.element} attunement points to give yet`}
-                    onClick={() => onDeepenAspect(wa)}
-                  >
-                    {maxed ? "Max" : `Give a ${wa.element} point`}
-                  </button>
+                <div key={wa.key} style={{ marginTop: 4 }}>
+                  <div className="celestial-row">
+                    <span style={{ fontSize: 12, color: "#e8d5a0", flex: 1 }}>{wa.name} · {wa.element} · Lv {wa.level}</span>
+                    {!confirming && (
+                      <button
+                        className="abtn small"
+                        disabled={maxed}
+                        title={maxed ? "Already at max level" : `Raise ${wa.name} to Lv ${(wa.level ?? 1) + 1} — costs ${cost} ${wa.element} attunement point${cost > 1 ? "s" : ""} (the pool holds ${pool})`}
+                        onClick={() => setConfirmKey(wa.key)}
+                      >
+                        {maxed ? "Max" : `Upgrade · ${cost} ${wa.element} pt${cost > 1 ? "s" : ""}`}
+                      </button>
+                    )}
+                  </div>
+                  {confirming && !maxed && (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0 2px", fontSize: 12, color: "#e8d5a0" }}>
+                      <span style={{ flex: 1 }}>Raise {wa.name} to Lv {(wa.level ?? 1) + 1} for {cost} {wa.element} point{cost > 1 ? "s" : ""}? (Pool: {pool})</span>
+                      <button className="abtn small" disabled={pool < cost} onClick={() => { setConfirmKey(null); onDeepenAspect(wa); }}>Confirm</button>
+                      <button className="abtn small" onClick={() => setConfirmKey(null)}>Cancel</button>
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -37,7 +37,7 @@ export default function AspectCelebration({ awoken, aspect, element, newLevel, o
 
   const color = elementPalette[element as ElementName] || "#d4af6a";
   const glyphs = ELEMENT_PARTICLES[element] || ["✦"];
-  const roman = ["", "I", "II", "III"][newLevel] || newLevel;
+  const roman = ["", "I", "II", "III", "IV"][newLevel] || newLevel;
 
   // Phase 1: spawn burst particles
   useEffect(() => {

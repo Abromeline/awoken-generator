@@ -402,14 +402,14 @@ const storedLayerRefShape = z.object({
   // in the composition all along but were stripped at this gate, so
   // no served layer could ever show its aspect's level or element —
   // surfaces fell back to guessing from names. They pass now.
-  aspectLevel: z.number().int().min(1).max(3).optional(),
+  aspectLevel: z.number().int().min(1).max(4).optional(),
   aspectElement: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
 });
 export const layerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: statSchema.nullable(), toughness: statSchema.nullable(),
   element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
-  aspectLevel: z.number().int().min(1).max(3).optional(),
+  aspectLevel: z.number().int().min(1).max(4).optional(),
   aspectElement: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
 });
 const assetShape = z.object({
@@ -2882,7 +2882,13 @@ export const handlers = {
     const target = wornAspects.find((l: any) => l.source_id === parsed.data.targetAspectKey);
     if (!target) badRequest("That aspect is not worn by this Awoken.");
     const currentLevel = target.aspectLevel ?? 1;
-    if (currentLevel >= 3) badRequest(`"${target.name}" is already at max level.`);
+    // The ladder (Nigel, 2026-10-17): raising FROM a level costs that
+    // level's number of points — 1=1, 2=2, 3=3, 4=4 — so I->II costs
+    // 1, II->III costs 2, III->IV costs 3; three given points carry an
+    // aspect to III, six to IV. Aspects stand to IV.
+    const ASPECT_MAX_LEVEL = 4;
+    if (currentLevel >= ASPECT_MAX_LEVEL) badRequest(`"${target.name}" is already at max level.`);
+    const cost = currentLevel;
     const element = target.aspectElement || (await compositionElements([target]))[0];
     if (!element || element === "neutral") badRequest("That aspect's element is not filed yet.");
     // The point comes from the tender's own pool of that element.
@@ -2892,11 +2898,11 @@ export const handlers = {
         eq(schema.aspectAttunement.element, element as any)
       )).limit(1);
     const points = pool.length ? (pool[0].points ?? 0) : 0;
-    if (points < 1) {
-      badRequest(`No ${element} attunement points to give — let your companies attune the land, and the pool will fill.`);
+    if (points < cost) {
+      badRequest(`Raising "${target.name}" to level ${currentLevel + 1} costs ${cost} ${element} attunement point${cost > 1 ? "s" : ""} — the pool holds ${Math.floor(points)}. Let your companies attune the land, and the pool will fill.`);
     }
     await db.update(schema.aspectAttunement)
-      .set({ points: points - 1, updatedAt: new Date() })
+      .set({ points: points - cost, updatedAt: new Date() })
       .where(and(
         eq(schema.aspectAttunement.ownerKey, ownerKey),
         eq(schema.aspectAttunement.element, element as any)
@@ -2905,7 +2911,7 @@ export const handlers = {
     // "<Element> <Roman>" is FILED as this element (art only).
     const newLevel = currentLevel + 1;
     target.aspectLevel = newLevel;
-    const roman = ["", "I", "II", "III"][newLevel];
+    const roman = ["", "I", "II", "III", "IV"][newLevel];
     const elementName = element.charAt(0).toUpperCase() + element.slice(1);
     const levelAsset = await db.select().from(schema.layerAssets)
       .where(and(
@@ -2924,7 +2930,7 @@ export const handlers = {
         bonusToughness: (aw[0].bonusToughness ?? 0) + 1,
       })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
-    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, pointsLeft: Math.floor((points - 1) * 10) / 10 };
+    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, cost, pointsLeft: Math.floor((points - cost) * 10) / 10 };
   },
 
   async listGlyphs(args: unknown) {
