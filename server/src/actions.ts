@@ -2858,10 +2858,15 @@ export const handlers = {
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       inventoryAspectId: z.number().int().positive(),
+      targetAspectKey: z.string().min(1).max(160).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid request.");
 
-    // Get the Awoken and its equipped aspect
+    // Get the Awoken and the ONE worn aspect the donor deepens. Under
+    // stacking (Nigel, 2026-10-17) an Awoken may wear several aspects;
+    // the caller names the one to deepen by its layer key. Without a
+    // key, the first worn aspect receives it (the old single-aspect
+    // behavior, kept for any older caller).
     const aw = await db.select().from(schema.awakened)
       .where(and(
         eq(schema.awakened.id, parsed.data.awakenedId),
@@ -2871,10 +2876,14 @@ export const handlers = {
     let layers: any[];
     try { layers = JSON.parse(aw[0].compositionJson || "[]"); }
     catch { badRequest("Invalid composition."); layers = []; }
-    const equipped = layers.find((l: any) => l.category === "aspect");
-    if (!equipped) badRequest("This Awoken has no aspect equipped.");
+    const wornAspects = layers.filter((l: any) => l.category === "aspect");
+    if (!wornAspects.length) badRequest("This Awoken has no aspect equipped.");
+    const equipped = parsed.data.targetAspectKey
+      ? wornAspects.find((l: any) => l.source_id === parsed.data.targetAspectKey)
+      : wornAspects[0];
+    if (!equipped) badRequest("That aspect is not worn by this Awoken.");
     const currentLevel = equipped.aspectLevel ?? 1;
-    if (currentLevel >= 3) badRequest("Aspect is already at max level.");
+    if (currentLevel >= 3) badRequest(`"${equipped.name}" is already at max level.`);
 
     // Get the inventory aspect
     const inv = await db.select().from(schema.aspectInventory)
@@ -2892,15 +2901,37 @@ export const handlers = {
     const donorEl = storedElement((donorAsset[0] as any).element);
     if (equippedEl !== donorEl) badRequest(`Cannot combine ${donorEl} with ${equippedEl}. Aspects must match.`);
 
-    // Level up the equipped aspect, consume the donor
-    equipped.aspectLevel = currentLevel + 1;
+    // Level up the chosen aspect, consume the donor. The deepening
+    // strengthens the Awoken (+1/+1), as the old merged apply-upgrade
+    // granted. The level's artwork swap (a piece named "<Element>
+    // <Roman>" whose FILED element matches) moves here from that
+    // branch: art only, and only when the candidate truly holds the
+    // aspect's element.
+    const newLevel = currentLevel + 1;
+    equipped.aspectLevel = newLevel;
+    const roman = ["", "I", "II", "III"][newLevel];
+    const elementName = equippedEl.charAt(0).toUpperCase() + equippedEl.slice(1);
+    const levelAsset = await db.select().from(schema.layerAssets)
+      .where(and(
+        eq(schema.layerAssets.category, "aspect"),
+        like(schema.layerAssets.name, `${elementName} ${roman}`)
+      )).limit(1);
+    if (levelAsset.length && storedElement((levelAsset[0] as any).element) === equippedEl) {
+      equipped.name = levelAsset[0].name;
+      equipped.imageBlobKey = levelAsset[0].imageBlobKey;
+      equipped.source_id = `db:${levelAsset[0].id}`;
+    }
     await db.update(schema.awakened)
-      .set({ compositionJson: JSON.stringify(layers) })
+      .set({
+        compositionJson: JSON.stringify(layers),
+        bonusPower: (aw[0].bonusPower ?? 0) + 1,
+        bonusToughness: (aw[0].bonusToughness ?? 0) + 1,
+      })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
     await db.delete(schema.aspectInventory)
       .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
 
-    return { ok: true as const, newLevel: currentLevel + 1, element: equippedEl };
+    return { ok: true as const, newLevel, element: equippedEl, targetName: equipped.name, targetKey: equipped.source_id };
   },
 
   async listGlyphs(args: unknown) {
@@ -3025,49 +3056,21 @@ export const handlers = {
       )).limit(1);
     const awakened = aw[0];
     if (!awakened) badRequest("Awoken not found.");
-    // Check if already has an aspect
     let layers: any[];
     try { layers = JSON.parse(awakened.compositionJson); }
     catch { layers = []; }
-    const existing = layers.find((l: any) => l.category === "aspect");
-    if (existing) {
-      // Upgrade path: elements must match
-      const existingEl = existing.aspectElement || (await compositionElements([existing]))[0];
-      if (existingEl !== element) {
-        badRequest(`Cannot combine ${element} with ${existingEl}. Aspects must match.`);
-      }
-      const currentLevel = existing.aspectLevel ?? 1;
-      if (currentLevel >= 3) badRequest("Aspect is already at max level.");
-      const newLevel = currentLevel + 1;
-      const roman = ["", "I", "II", "III"][newLevel];
-      // Find the level-specific artwork (e.g. "Tide II"). The swap
-      // is art only: once the layer points at that asset, the tally
-      // reads the element from the ASSET's record — so the swap may
-      // happen only when the candidate's filed element is the
-      // aspect's own. A name-match filed as another element keeps
-      // the old art and the level still rises.
-      const elementName = existingEl.charAt(0).toUpperCase() + existingEl.slice(1);
-      const levelAsset = await db.select().from(schema.layerAssets)
-        .where(and(
-          eq(schema.layerAssets.category, "aspect"),
-          like(schema.layerAssets.name, `${elementName} ${roman}`)
-        )).limit(1);
-      if (levelAsset.length && storedElement((levelAsset[0] as any).element) === existingEl) {
-        existing.name = levelAsset[0].name;
-        existing.imageBlobKey = levelAsset[0].imageBlobKey;
-        existing.source_id = `db:${levelAsset[0].id}`;
-      }
-      existing.aspectLevel = newLevel;
-      await db.update(schema.awakened)
-        .set({
-          compositionJson: JSON.stringify(layers),
-          bonusPower: (awakened.bonusPower ?? 0) + 1,
-          bonusToughness: (awakened.bonusToughness ?? 0) + 1,
-        })
-        .where(eq(schema.awakened.id, parsed.data.awakenedId));
-      await db.delete(schema.aspectInventory)
-        .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
-      return { ok: true as const, element, newLevel, upgraded: true as const };
+    // Aspects STACK (Nigel, 2026-10-17: "its not stacking aspects on
+    // the awoken"). Every applied aspect stands on the Awoken as its
+    // own layer, with its own filed element and its own level. This
+    // action used to switch silently into an upgrade once one aspect
+    // was worn — the tap "leveled the button instead of stacking" —
+    // that hijack is gone. Deepening ONE worn aspect is the labeled
+    // job of combineAspects. The stack is capped at three so a card
+    // stays readable and the sum-of-the-parts stays sane.
+    const ASPECT_STACK_MAX = 3;
+    const worn = layers.filter((l: any) => l.category === "aspect");
+    if (worn.length >= ASPECT_STACK_MAX) {
+      badRequest(`This Awoken already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Combine aspects to deepen one instead.`);
     }
     // New aspect: add to composition (renders behind body), +1/+1
     layers.push({
@@ -3091,7 +3094,7 @@ export const handlers = {
     // Consume the inventory aspect
     await db.delete(schema.aspectInventory)
       .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
-    return { ok: true as const, element, newLevel: 1, upgraded: false as const };
+    return { ok: true as const, element, newLevel: 1, upgraded: false as const, stacked: worn.length + 1 };
   },
 
   // grantAspectPoint is GONE (War-Ground fix, 2026-10-15): it minted a
@@ -3539,7 +3542,24 @@ export const handlers = {
         rates[r.element] = r.displayRate ?? 0;
       }
     }
-    return { levels, threshold: 10, inventoryCount: inventory.length, inventory, rates };
+    // The worn stacks (for the panel's Combine surface): every Awoken
+    // of this tender that wears aspects, with each aspect's layer key,
+    // filed element and level — so a combine can name its target.
+    const wornRows = await db.select({ id: schema.awakened.id, name: schema.awakened.name, compositionJson: schema.awakened.compositionJson })
+      .from(schema.awakened).where(eq(schema.awakened.ownerKey, ownerKey));
+    const wornAspects: any[] = [];
+    for (const w of wornRows) {
+      let wLayers: any[] = [];
+      try { wLayers = JSON.parse(w.compositionJson || "[]"); } catch { wLayers = []; }
+      const aspects = wLayers.filter((l: any) => l.category === "aspect").map((l: any) => ({
+        key: l.source_id,
+        name: l.name,
+        element: l.aspectElement ?? null,
+        level: l.aspectLevel ?? 1,
+      }));
+      if (aspects.length) wornAspects.push({ awakenedId: w.id, name: w.name, aspects });
+    }
+    return { levels, threshold: 10, inventoryCount: inventory.length, inventory, rates, wornAspects };
   },
 
   // Assign a random aspect to every Awoken missing one (workshop only).

@@ -190,6 +190,12 @@ function dominantElement(a: Awakened): Element {
 }
 
 export default function Territory({ tenderItems, assets, onUpdate }: Props) {
+  const queryClient = useQueryClient();
+  // The attunement panel works from this query's cache; the moment an
+  // aspect is spent (applied or combined away), the cache must die —
+  // a stale panel once offered already-consumed aspects and the server
+  // answered "Aspect not found." (Nigel's report, 2026-10-17.)
+  const refreshAspects = () => { queryClient.invalidateQueries({ queryKey: ["aspectAttunement"] }); };
   // The creator's uploaded stage art, shared cache with the workshop's
   // Terrain Stages section; tiles resolve through terrainImgFor below.
   const { data: terrainArt } = useTerrainArt();
@@ -2194,6 +2200,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                           const awoken = tenderItems.find(x => x.id === a.id);
                           const oldP = awoken?.power ?? 0, oldT = awoken?.toughness ?? 0;
                           const result: any = await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                          refreshAspects();
                           setApplyingAspect(null);
                           await onUpdate();
                           // Fetch updated Awoken for celebration
@@ -2904,12 +2911,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 }
 
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
-function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void }) {
+function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect, targetAwokenId, onCombineAspect }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void; targetAwokenId?: number | null; onCombineAspect?: (wornAspect: any, donor: any) => void }) {
   if (!visible) return null;
   const { data } = useQuery({
     queryKey: ["aspectAttunement"],
     queryFn: () => api.getAspectAttunement(),
     refetchInterval: 30000,
+    staleTime: 0,
   });
   if (!data) return null;
 
@@ -2955,6 +2963,32 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           </div>
         );
       })}
+      {targetAwokenId && onCombineAspect && (() => {
+        const wornEntry = (data.wornAspects || []).find((w: any) => w.awakenedId === targetAwokenId);
+        if (!wornEntry) return null;
+        return (
+          <div style={{ marginTop: 10, borderTop: "1px solid rgba(232,213,160,0.25)", paddingTop: 8 }}>
+            <div className="celestial-title" style={{ fontSize: 12 }}>Worn by {wornEntry.name} — tap an orb above to STACK another (up to 3), or deepen one:</div>
+            {wornEntry.aspects.map((wa: any) => {
+              const donor = (data.inventory || []).find((i: any) => i.element === wa.element);
+              const maxed = (wa.level ?? 1) >= 3;
+              return (
+                <div key={wa.key} className="celestial-row" style={{ marginTop: 4 }}>
+                  <span style={{ fontSize: 12, color: "#e8d5a0", flex: 1 }}>{wa.name} · {wa.element} · Lv {wa.level}</span>
+                  <button
+                    className="abtn small"
+                    disabled={maxed || !donor}
+                    title={maxed ? "Already at max level" : donor ? `Deepen ${wa.name} to Lv ${(wa.level ?? 1) + 1}, consuming one ${wa.element} aspect` : `No ${wa.element} aspect in inventory to deepen with`}
+                    onClick={() => donor && onCombineAspect(wa, donor)}
+                  >
+                    {maxed ? "Max" : "Combine"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3100,13 +3134,35 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         </div>
         </>
       )}
-      <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToTarget(null); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} onApplyAspect={async (aspect) => {
+      <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToTarget(null); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} targetAwokenId={applyingToTarget} onCombineAspect={async (wornAspect: any, donor: any) => {
+        if (!applyingToTarget) return;
+        try {
+          const awoken = tenderItems.find(x => x.id === applyingToTarget);
+          const oldP = awoken?.power ?? 0, oldT = awoken?.toughness ?? 0;
+          const result: any = await api.call("combineAspects", { awakenedId: applyingToTarget, inventoryAspectId: donor.id, targetAspectKey: wornAspect.key });
+          refreshAspects();
+          await onUpdate();
+          setShowAspects(false);
+          setCelebration({
+            awoken: awoken,
+            aspect: donor,
+            element: result.element,
+            newLevel: result.newLevel,
+            oldPower: oldP, oldToughness: oldT,
+            newPower: oldP + 1, newToughness: oldT + 1,
+          });
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Failed to combine");
+        }
+        setApplyingToTarget(null);
+      }} onApplyAspect={async (aspect) => {
         setShowAspects(false);
         if (applyingToTarget) {
           try {
             const awoken = tenderItems.find(x => x.id === applyingToTarget);
             const oldP = awoken?.power ?? 0, oldT = awoken?.toughness ?? 0;
             const result: any = await api.call("applyAspect", { awakenedId: applyingToTarget, inventoryAspectId: aspect.id });
+            refreshAspects();
             await onUpdate();
             setCelebration({
               awoken: awoken,
@@ -3737,6 +3793,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   try {
                     const oldP = a.power ?? 0, oldT = a.toughness ?? 0;
                     const result: any = await api.call("applyAspect", { awakenedId: a.id, inventoryAspectId: applyingAspect.id });
+                          refreshAspects();
                     setApplyingAspect(null);
                     await onUpdate();
                     setCelebration({
