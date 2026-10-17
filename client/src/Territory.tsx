@@ -171,6 +171,11 @@ interface Props {
   tenderItems: Awakened[];
   assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
   onUpdate: () => void;
+  /** The First Patrol (Wake, Nigel 2026-10-17): Awoken ids sent from the
+   *  wake screen's patrol banner. They arrive gathered — as the first
+   *  claim's company when no ground is held yet, or readied for battle
+   *  when ground already stands. */
+  initialPatrolIds?: number[];
 }
 
 
@@ -213,7 +218,7 @@ function dominantElement(a: Awakened): Element {
   return best;
 }
 
-export default function Territory({ tenderItems, assets, onUpdate }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -844,6 +849,25 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       console.error("[Territory] getTerritory failed:", e);
     }).finally(() => setTerritoryLoaded(true));
   }, []);
+
+  // The First Patrol arrives gathered (Wake, Nigel 2026-10-17): seed the
+  // patrol ONCE, when the territory's true state is known. No ground yet
+  // → they become the first claim's company, and claimFirstTile makes
+  // the first ground they take PURIFIED with them standing on it.
+  // Ground already held → they are simply readied in the battle pool.
+  const patrolSeededRef = useRef(false);
+  useEffect(() => {
+    if (patrolSeededRef.current || !territoryLoaded) return;
+    if (!initialPatrolIds || initialPatrolIds.length === 0) return;
+    patrolSeededRef.current = true;
+    const mine = initialPatrolIds.filter(id => tenderItems.some(a => a.id === id));
+    if (mine.length === 0) return;
+    if (tiles.length === 0) {
+      setFirstTeam(mine.slice(0, 6));
+    } else {
+      setBattlePool(mine.filter(id => !placements.some(p => p.awakenedId === id)).slice(0, 4));
+    }
+  }, [territoryLoaded, tiles, placements, initialPatrolIds, tenderItems]);
 
   useEffect(() => {
     api.getGrimoire().then(setGrim).catch(() => {});
@@ -3385,6 +3409,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             <p className="eyebrow">The Last Bastion</p>
             <h2>No ground is held — yet.</h2>
             <p>The Unraveler waits in the wilds at power 7. Gather a company of up to six of your Awoken whose combined power reaches 7, and face it together. The first four named will stand upon the bastion when the dark breaks. Purification frees no newborn — only the Boss, when it falls, frees one.</p>
+            {initialPatrolIds && initialPatrolIds.length > 0 && firstTeam.length > 0 && (
+              <p className="patrol-arrived">🚶 Your patrol from the spark is gathered below — the first three you woke, already named to the company. Face the Unraveler together, and the first ground they take will be purified, with the patrol standing upon it.</p>
+            )}
             {eligible.length === 0 ? (
               <p className="quiet">Your deck is empty — wake Awoken at the spark first, then return to claim your ground.</p>
             ) : (

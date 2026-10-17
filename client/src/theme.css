@@ -320,6 +320,16 @@
 
 /* First-tile claim (fix list #3): the empty-territory step where a new
    Tender gathers the company that faces the Unraveler. */
+/* The First Patrol banner (Wake, Nigel 2026-10-17): the bigger, faster
+   portal from the waking to the land. It lives on the wake screen from
+   the third waking until the patrol takes its first ground. */
+.patrol-banner{margin:12px auto;max-width:640px;padding:18px 16px;background:#0d0d0d;border:2px solid #b89b5e;border-radius:10px;text-align:center;box-shadow:0 0 24px rgba(255,215,0,0.25)}
+.patrol-banner h2{margin:4px 0 10px}
+.patrol-banner-faces{display:flex;gap:10px;justify-content:center;margin:10px 0}
+.patrol-banner-faces img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #ffd700;box-shadow:0 0 10px rgba(255,215,0,0.45)}
+.patrol-banner-send{margin:10px 0 6px;padding:14px 28px;font-size:18px;font-weight:700;letter-spacing:0.03em;background:linear-gradient(180deg,#e8c96a,#b89b5e);color:#171207;border:none;border-radius:8px;cursor:pointer;min-height:52px}
+.patrol-banner-send:active{transform:scale(0.98)}
+.patrol-arrived{color:#ffd700;font-size:14px;line-height:1.5;margin:8px 0}
 .first-claim{margin:12px auto;max-width:640px;padding:16px;background:#0d0d0d;border:1px solid #b89b5e;border-radius:8px;text-align:center}
 .first-claim h2{margin:4px 0 8px}
 .first-claim-team{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}
