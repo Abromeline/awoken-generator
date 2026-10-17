@@ -2475,7 +2475,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                           const updated = tenderItems.find(x => x.id === a.id);
                           setCelebration({
                             awoken: updated || awoken,
-                            aspect: applyingAspect,
+                            aspect: result.upgraded ? { name: result.targetName, imageUrl: result.imageUrl } : applyingAspect,
                             element: result.element,
                             newLevel: result.newLevel,
                             oldPower: oldP, oldToughness: oldT,
@@ -3303,7 +3303,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         if (!wornEntry) return null;
         return (
           <div style={{ marginTop: 10, borderTop: "1px solid rgba(232,213,160,0.25)", paddingTop: 8 }}>
-            <div className="celestial-title" style={{ fontSize: 12 }}>Worn by {wornEntry.name} — tap an orb above to STACK another (up to 3), or deepen one with an attunement point:</div>
+            <div className="celestial-title" style={{ fontSize: 12 }}>Worn by {wornEntry.name} — tap an orb above: a new element stacks (up to 3); one already worn rises a level at the normal cost, if the pool can pay. Or deepen one here:</div>
             {wornEntry.aspects.map((wa: any) => {
               const pool = Math.floor((data.levels && data.levels[wa.element]) ?? 0);
               const maxed = (wa.level ?? 1) >= 4;
@@ -3493,7 +3493,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           setShowAspects(false);
           setCelebration({
             awoken: awoken,
-            aspect: { name: result.targetName || wornAspect.name, imageUrl: wornAspect.imageUrl },
+            aspect: { name: result.targetName || wornAspect.name, imageUrl: result.imageUrl || wornAspect.imageUrl },
             element: result.element,
             newLevel: result.newLevel,
             oldPower: oldP, oldToughness: oldT,
@@ -3514,7 +3514,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             await onUpdate();
             setCelebration({
               awoken: awoken,
-              aspect: aspect,
+              aspect: result.upgraded ? { name: result.targetName, imageUrl: result.imageUrl } : aspect,
               element: result.element,
               newLevel: result.newLevel,
               oldPower: oldP, oldToughness: oldT,
@@ -4197,7 +4197,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                     await onUpdate();
                     setCelebration({
                       awoken: a,
-                      aspect: applyingAspect,
+                      aspect: result.upgraded ? { name: result.targetName, imageUrl: result.imageUrl } : applyingAspect,
                       element: result.element,
                       newLevel: result.newLevel,
                       oldPower: oldP, oldToughness: oldT,

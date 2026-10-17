@@ -2971,7 +2971,7 @@ export const handlers = {
         bonusToughness: (aw[0].bonusToughness ?? 0) + 1,
       })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
-    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, cost, pointsLeft: Math.floor((points - cost) * 10) / 10 };
+    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, imageUrl: `/blobs/${target.imageBlobKey}`, cost, pointsLeft: Math.floor((points - cost) * 10) / 10 };
   },
 
   async listGlyphs(args: unknown) {
@@ -3101,14 +3101,73 @@ export const handlers = {
     catch { layers = []; }
     // Aspects STACK (Nigel, 2026-10-17: "its not stacking aspects on
     // the awoken"). Every applied aspect stands on the Awoken as its
-    // own layer, with its own filed element and its own level. This
-    // action used to switch silently into an upgrade once one aspect
-    // was worn — the tap "leveled the button instead of stacking" —
-    // that hijack is gone. Deepening ONE worn aspect is the labeled
-    // job of deepenAspect. The stack is capped at three so a card
-    // stays readable and the sum-of-the-parts stays sane.
+    // own layer, with its own filed element and its own level. The
+    // stack is capped at three so a card stays readable and the
+    // sum-of-the-parts stays sane.
     const ASPECT_STACK_MAX = 3;
     const worn = layers.filter((l: any) => l.category === "aspect");
+    // ADD-TO-UPGRADE (Nigel, 2026-10-17, from the attunement menu):
+    // adding an aspect whose element the Awoken ALREADY wears raises
+    // the worn one a level instead of stacking a twin — at the normal
+    // ladder cost in points of that element (raising FROM level L
+    // costs L), and only when the pool can pay; a short pool refuses
+    // honestly and nothing is spent or consumed. The stored aspect is
+    // NOT consumed by an upgrade-add: the points are the price,
+    // exactly as deepenAspect charges. A NEW element still stacks as
+    // its own layer, and a worn aspect already at IV lets the add
+    // place fresh beside it (when the stack has room).
+    const ASPECT_MAX_LEVEL = 4;
+    let match: any = null;
+    for (const l of worn) {
+      const el = l.aspectElement || (await compositionElements([l]))[0];
+      if (el === element && (l.aspectLevel ?? 1) < ASPECT_MAX_LEVEL) {
+        if (!match || (l.aspectLevel ?? 1) < (match.aspectLevel ?? 1)) match = l;
+      }
+    }
+    if (match) {
+      const currentLevel = match.aspectLevel ?? 1;
+      const cost = currentLevel;
+      const pool = await db.select().from(schema.aspectAttunement)
+        .where(and(
+          eq(schema.aspectAttunement.ownerKey, ownerKey),
+          eq(schema.aspectAttunement.element, element as any)
+        )).limit(1);
+      const points = pool.length ? (pool[0].points ?? 0) : 0;
+      if (points < cost) {
+        badRequest(`Adding ${element} would raise "${match.name}" to level ${currentLevel + 1} — the normal cost is ${cost} ${element} attunement point${cost > 1 ? "s" : ""}, and the pool holds ${Math.floor(points)}. Nothing was spent.`);
+      }
+      await db.update(schema.aspectAttunement)
+        .set({ points: points - cost, updatedAt: new Date() })
+        .where(and(
+          eq(schema.aspectAttunement.ownerKey, ownerKey),
+          eq(schema.aspectAttunement.element, element as any)
+        ));
+      const newLevel = currentLevel + 1;
+      match.aspectLevel = newLevel;
+      // Take the level's artwork when a piece named "<Element>
+      // <Roman>" is FILED as this element — the same swap
+      // deepenAspect makes (art only; the level rises either way).
+      const roman = ["", "I", "II", "III", "IV"][newLevel];
+      const elementName = element.charAt(0).toUpperCase() + element.slice(1);
+      const levelAsset = await db.select().from(schema.layerAssets)
+        .where(and(
+          eq(schema.layerAssets.category, "aspect"),
+          like(schema.layerAssets.name, `${elementName} ${roman}`)
+        )).limit(1);
+      if (levelAsset.length && storedElement((levelAsset[0] as any).element) === element) {
+        match.name = levelAsset[0].name;
+        match.imageBlobKey = levelAsset[0].imageBlobKey;
+        match.source_id = `db:${levelAsset[0].id}`;
+      }
+      await db.update(schema.awakened)
+        .set({
+          compositionJson: JSON.stringify(layers),
+          bonusPower: (awakened.bonusPower ?? 0) + 1,
+          bonusToughness: (awakened.bonusToughness ?? 0) + 1,
+        })
+        .where(eq(schema.awakened.id, parsed.data.awakenedId));
+      return { ok: true as const, element, newLevel, upgraded: true as const, cost, targetName: match.name, targetKey: match.source_id, imageUrl: `/blobs/${match.imageBlobKey}`, stacked: worn.length };
+    }
     if (worn.length >= ASPECT_STACK_MAX) {
       badRequest(`This Awoken already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one with attunement points instead.`);
     }
@@ -3134,7 +3193,7 @@ export const handlers = {
     // Consume the inventory aspect
     await db.delete(schema.aspectInventory)
       .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
-    return { ok: true as const, element, newLevel: 1, upgraded: false as const, stacked: worn.length + 1 };
+    return { ok: true as const, element, newLevel: 1, upgraded: false as const, targetName: aspect.name, targetKey: `aspect-inv:${aspect.id}`, imageUrl: `/blobs/${aspect.imageBlobKey}`, stacked: worn.length + 1 };
   },
 
   // grantAspectPoint is GONE (War-Ground fix, 2026-10-15): it minted a
