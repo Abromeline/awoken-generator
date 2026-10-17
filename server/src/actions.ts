@@ -2853,20 +2853,21 @@ export const handlers = {
     };
   },
 
-  async combineAspects(args: unknown, ctx?: ActionContext) {
+  // Aspects deepen by ATTUNEMENT POINTS, never by combining
+  // (Nigel, 2026-10-17): "aspects upgrade as you give an awoken
+  // another attunement point... elements should not combine because
+  // they would erode each other." So there is no combine action at
+  // all. Give one point from the tender's pool of the aspect's own
+  // element: the aspect rises a level (I -> II -> III) and takes the
+  // level's artwork, and the Awoken strengthens (+1/+1), as a
+  // deepening has always granted.
+  async deepenAspect(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
-      inventoryAspectId: z.number().int().positive(),
-      targetAspectKey: z.string().min(1).max(160).optional(),
+      targetAspectKey: z.string().min(1).max(160),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid request.");
-
-    // Get the Awoken and the ONE worn aspect the donor deepens. Under
-    // stacking (Nigel, 2026-10-17) an Awoken may wear several aspects;
-    // the caller names the one to deepen by its layer key. Without a
-    // key, the first worn aspect receives it (the old single-aspect
-    // behavior, kept for any older caller).
     const aw = await db.select().from(schema.awakened)
       .where(and(
         eq(schema.awakened.id, parsed.data.awakenedId),
@@ -2878,48 +2879,43 @@ export const handlers = {
     catch { badRequest("Invalid composition."); layers = []; }
     const wornAspects = layers.filter((l: any) => l.category === "aspect");
     if (!wornAspects.length) badRequest("This Awoken has no aspect equipped.");
-    const equipped = parsed.data.targetAspectKey
-      ? wornAspects.find((l: any) => l.source_id === parsed.data.targetAspectKey)
-      : wornAspects[0];
-    if (!equipped) badRequest("That aspect is not worn by this Awoken.");
-    const currentLevel = equipped.aspectLevel ?? 1;
-    if (currentLevel >= 3) badRequest(`"${equipped.name}" is already at max level.`);
-
-    // Get the inventory aspect
-    const inv = await db.select().from(schema.aspectInventory)
+    const target = wornAspects.find((l: any) => l.source_id === parsed.data.targetAspectKey);
+    if (!target) badRequest("That aspect is not worn by this Awoken.");
+    const currentLevel = target.aspectLevel ?? 1;
+    if (currentLevel >= 3) badRequest(`"${target.name}" is already at max level.`);
+    const element = target.aspectElement || (await compositionElements([target]))[0];
+    if (!element || element === "neutral") badRequest("That aspect's element is not filed yet.");
+    // The point comes from the tender's own pool of that element.
+    const pool = await db.select().from(schema.aspectAttunement)
       .where(and(
-        eq(schema.aspectInventory.id, parsed.data.inventoryAspectId),
-        eq(schema.aspectInventory.ownerKey, ownerKey)
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, element as any)
       )).limit(1);
-    if (!inv.length) badRequest("Aspect not found in inventory.");
-    const donorAsset = await db.select().from(schema.layerAssets)
-      .where(eq(schema.layerAssets.id, inv[0].aspectAssetId)).limit(1);
-    if (!donorAsset.length) badRequest("Aspect asset not found.");
-
-    // Elements must match — no mixing
-    const equippedEl = (await compositionElements([equipped]))[0];
-    const donorEl = storedElement((donorAsset[0] as any).element);
-    if (equippedEl !== donorEl) badRequest(`Cannot combine ${donorEl} with ${equippedEl}. Aspects must match.`);
-
-    // Level up the chosen aspect, consume the donor. The deepening
-    // strengthens the Awoken (+1/+1), as the old merged apply-upgrade
-    // granted. The level's artwork swap (a piece named "<Element>
-    // <Roman>" whose FILED element matches) moves here from that
-    // branch: art only, and only when the candidate truly holds the
-    // aspect's element.
+    const points = pool.length ? (pool[0].points ?? 0) : 0;
+    if (points < 1) {
+      badRequest(`No ${element} attunement points to give — let your companies attune the land, and the pool will fill.`);
+    }
+    await db.update(schema.aspectAttunement)
+      .set({ points: points - 1, updatedAt: new Date() })
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, element as any)
+      ));
+    // Rise a level; take the level's artwork when a piece named
+    // "<Element> <Roman>" is FILED as this element (art only).
     const newLevel = currentLevel + 1;
-    equipped.aspectLevel = newLevel;
+    target.aspectLevel = newLevel;
     const roman = ["", "I", "II", "III"][newLevel];
-    const elementName = equippedEl.charAt(0).toUpperCase() + equippedEl.slice(1);
+    const elementName = element.charAt(0).toUpperCase() + element.slice(1);
     const levelAsset = await db.select().from(schema.layerAssets)
       .where(and(
         eq(schema.layerAssets.category, "aspect"),
         like(schema.layerAssets.name, `${elementName} ${roman}`)
       )).limit(1);
-    if (levelAsset.length && storedElement((levelAsset[0] as any).element) === equippedEl) {
-      equipped.name = levelAsset[0].name;
-      equipped.imageBlobKey = levelAsset[0].imageBlobKey;
-      equipped.source_id = `db:${levelAsset[0].id}`;
+    if (levelAsset.length && storedElement((levelAsset[0] as any).element) === element) {
+      target.name = levelAsset[0].name;
+      target.imageBlobKey = levelAsset[0].imageBlobKey;
+      target.source_id = `db:${levelAsset[0].id}`;
     }
     await db.update(schema.awakened)
       .set({
@@ -2928,10 +2924,7 @@ export const handlers = {
         bonusToughness: (aw[0].bonusToughness ?? 0) + 1,
       })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
-    await db.delete(schema.aspectInventory)
-      .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
-
-    return { ok: true as const, newLevel, element: equippedEl, targetName: equipped.name, targetKey: equipped.source_id };
+    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, pointsLeft: Math.floor((points - 1) * 10) / 10 };
   },
 
   async listGlyphs(args: unknown) {
@@ -3065,12 +3058,12 @@ export const handlers = {
     // action used to switch silently into an upgrade once one aspect
     // was worn — the tap "leveled the button instead of stacking" —
     // that hijack is gone. Deepening ONE worn aspect is the labeled
-    // job of combineAspects. The stack is capped at three so a card
+    // job of deepenAspect. The stack is capped at three so a card
     // stays readable and the sum-of-the-parts stays sane.
     const ASPECT_STACK_MAX = 3;
     const worn = layers.filter((l: any) => l.category === "aspect");
     if (worn.length >= ASPECT_STACK_MAX) {
-      badRequest(`This Awoken already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Combine aspects to deepen one instead.`);
+      badRequest(`This Awoken already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one with attunement points instead.`);
     }
     // New aspect: add to composition (renders behind body), +1/+1
     layers.push({
@@ -3556,6 +3549,7 @@ export const handlers = {
         name: l.name,
         element: l.aspectElement ?? null,
         level: l.aspectLevel ?? 1,
+        imageUrl: l.imageBlobKey ? `/blobs/${l.imageBlobKey}` : null,
       }));
       if (aspects.length) wornAspects.push({ awakenedId: w.id, name: w.name, aspects });
     }
