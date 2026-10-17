@@ -1759,10 +1759,12 @@ function MeteorRain() {
         <span
           key={d.id}
           className="meteor"
-          style={{ left: `${d.left}%`, width: d.width, animationDuration: `${d.duration}s`, ["--drift" as string]: `${d.drift}px`, ["--o" as string]: d.opacity.toFixed(2) }}
+          style={{ left: `${d.left}%`, width: d.width, animationDuration: `${d.duration}s`, ["--drift" as string]: `${d.drift}px` }}
           onAnimationEnd={() => setDrops((cur) => cur.filter((x) => x.id !== d.id))}
         >
-          <img src={meteorGif} alt="" />
+          <span className="meteor-body" style={{ opacity: d.opacity }}>
+            <img src={meteorGif} alt="" />
+          </span>
         </span>
       ))}
     </div>
