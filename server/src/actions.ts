@@ -4297,7 +4297,7 @@ export const handlers = {
       (t as any).topHp = t.cursed ? 0 : Math.round(sealed > 0 ? ((t as any).topPoints ?? 30) : grow);
       (t as any).stackPower = Math.round(((sealed * 30 + grow) / 10) * 10) / 10;
     }
-    const walls = sqlite.prepare("SELECT edge_key AS edgeKey, q, r, dir, hp, max_hp AS maxHp, kind, level, rune_kind AS runeKind FROM hex_walls WHERE owner_key = ? ORDER BY id")
+    const walls = sqlite.prepare("SELECT edge_key AS edgeKey, q, r, dir, hp, max_hp AS maxHp, kind, level, rune_kind AS runeKind, style FROM hex_walls WHERE owner_key = ? ORDER BY id")
       .all(ownerKey);
     const skills = sqlite.prepare("SELECT awakened_id AS awakenedId, skill FROM awoken_skills WHERE owner_key = ? ORDER BY id")
       .all(ownerKey);
@@ -4764,9 +4764,11 @@ export const handlers = {
       tileId: z.number().int(), dir: z.number().int().min(0).max(5),
       kind: z.enum(["wall", "thorns", "ward", "rune"]),
       runeKind: z.enum(["snare", "harm", "meld"]).optional(),
+      style: z.enum(["stone", "spire"]).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("The War-Ground needs a tile, an edge (0–5) and a work (wall, thorns, ward or rune).");
     const { tileId, dir, kind, runeKind } = parsed.data;
+    const style = kind === "wall" ? (parsed.data.style ?? "stone") : "stone";
     if (kind === "rune" && !runeKind) badRequest("A rune is chosen at the casting — snare, harm or meld.");
     const def = EDGE_WORK[kind];
     const tileRows = await db.select().from(schema.territoryTiles)
@@ -4796,12 +4798,12 @@ export const handlers = {
     if (!(await spendEnergy(ownerKey, def.cost))) badRequest(`Not enough energy — a ${def.name.toLowerCase()} costs ${def.cost}.`);
     const hp = workMaxHp(kind, 1);
     try {
-      sqlite.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(ownerKey, edgeKey, cq, cr, cdir, hp, hp, kind, 1, kind === "rune" ? runeKind : null, Date.now());
+      sqlite.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, style, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(ownerKey, edgeKey, cq, cr, cdir, hp, hp, kind, 1, kind === "rune" ? runeKind : null, style, Date.now());
     } catch {
       badRequest("That edge already carries a work — one work per edge.");
     }
-    return { ok: true as const, work: { edgeKey, q: cq, r: cr, dir: cdir, hp, maxHp: hp, kind, level: 1, runeKind: kind === "rune" ? runeKind : undefined }, cost: def.cost };
+    return { ok: true as const, work: { edgeKey, q: cq, r: cr, dir: cdir, hp, maxHp: hp, kind, level: 1, runeKind: kind === "rune" ? runeKind : undefined, style }, cost: def.cost };
   },
 
   /** Strengthen a standing work: exponential energy, doubling
@@ -7272,27 +7274,6 @@ export const handlers = {
     return getTenderProgress(ownerKeyFor(ctx));
   },
 
-  /** The Tender's wall style — a SKIN, ruled by Nigel
-   *  (2026-10-16): one wall mechanic, and the walls wear the
-   *  Tender's preference, stone or spires. Kept per-Tender
-   *  so it follows them between devices. */
-  async getWallStyle(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const [row] = await db.select().from(schema.tenderPreferences)
-      .where(and(eq(schema.tenderPreferences.ownerKey, ownerKey), eq(schema.tenderPreferences.prefKey, "wallStyle"))).limit(1);
-    return { style: row?.value === "spire" ? "spire" : "stone" };
-  },
-
-  async setWallStyle(args: unknown, ctx?: ActionContext) {
-    const parsed = z.object({ style: z.enum(["stone", "spire"]) }).safeParse(args);
-    if (!parsed.success) badRequest("A wall wears stone or spires — nothing else yet.");
-    const style = parsed.data.style;
-    const ownerKey = ownerKeyFor(ctx);
-    await db.insert(schema.tenderPreferences)
-      .values({ ownerKey, prefKey: "wallStyle", value: style, updatedAt: new Date() })
-      .onConflictDoUpdate({ target: [schema.tenderPreferences.ownerKey, schema.tenderPreferences.prefKey], set: { value: style, updatedAt: new Date() } });
-    return { style };
-  },
 
   async getTenderRank(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

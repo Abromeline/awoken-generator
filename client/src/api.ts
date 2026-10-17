@@ -82,6 +82,8 @@ export interface EdgeWork {
   hp: number; maxHp: number;
   kind: "wall" | "thorns" | "ward" | "rune";
   level: number; runeKind?: "snare" | "harm" | "meld" | null;
+  /** A wall's SKIN, chosen per edge at the building (Nigel, 2026-10-16). */
+  style?: "stone" | "spire" | null;
 }
 
 export interface TerritoryTile {
@@ -389,8 +391,6 @@ export const api = {
   claimSpark: (value: { tileId: number }) => post<{ ok: boolean; fireLevel: number }>("claimSpark", value),
   getTenderRank: () => post<{ ok: boolean; myRank: number; myCount: number; totalTenders: number; nearby: { rank: number; name: string; count: number; isMe: boolean }[] }>("getTenderRank", {}),
   getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number }>("getTenderExp", {}),
-  getWallStyle: () => post<{ style: "stone" | "spire" }>("getWallStyle", {}),
-  setWallStyle: (style: "stone" | "spire") => post<{ style: "stone" | "spire" }>("setWallStyle", { style }),
   setTenderPassword: (value: { password: string }) => post<{ ok: boolean }>("setTenderPassword", value),
   getSiteColors: () => post<{ ok: boolean; colors: Record<string, string> }>("getSiteColors", {}),
   setSiteColor: (value: { key: string; value: string }) => post<{ ok: boolean }>("setSiteColor", value),
@@ -424,7 +424,7 @@ export const api = {
   getBossState: () => post<{ bossesDefeated: number; nextBossLevel: number; eligible: boolean; wavesDefeated: number; cycleProgress: number }>("getBossState", {}),
   placeWall: (args: { tileId: number; dir: number }) =>
     post<{ ok: true; wall: { edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }; cost: number }>("placeWall", args),
-  placeEdgeWork: (args: { tileId: number; dir: number; kind: "wall" | "thorns" | "ward" | "rune"; runeKind?: "snare" | "harm" | "meld" }) =>
+  placeEdgeWork: (args: { tileId: number; dir: number; kind: "wall" | "thorns" | "ward" | "rune"; runeKind?: "snare" | "harm" | "meld"; style?: "stone" | "spire" }) =>
     post<{ ok: true; work: EdgeWork; cost: number }>("placeEdgeWork", args),
   strengthenEdgeWork: (args: { tileId: number; dir: number }) =>
     post<{ ok: true; work: { edgeKey: string; kind: string; level: number; hp: number; maxHp: number }; cost: number; nextCost: number }>("strengthenEdgeWork", args),

@@ -80,20 +80,16 @@ interface Props {
   tileBuildings: any[];
   energy: number;
   onClose: () => void;
-  onPlaceWork: (dir: number, kind: WorkKind, runeKind?: RuneKind) => Promise<void>;
+  onPlaceWork: (dir: number, kind: WorkKind, runeKind?: RuneKind, style?: "stone" | "spire") => Promise<void>;
   onStrengthenWork: (dir: number) => Promise<void>;
   onRemoveWork: (dir: number) => Promise<void>;
   onTeachSkill: (awakenedId: number, skill: "warding" | "runeing") => Promise<void>;
   onChooseBuilding: (def: BuildingDef) => void;
   onDemolish: (buildingId: number) => Promise<void>;
   onClaimSpark?: () => void;
-  /** The Tender's wall SKIN (Nigel, 2026-10-16): one wall
-   *  mechanic; the walls wear stone or spires by preference. */
-  wallStyle: "stone" | "spire";
-  onSetWallStyle: (style: "stone" | "spire") => void;
 }
 
-export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark, wallStyle, onSetWallStyle }: Props) {
+export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark }: Props) {
   const [defs, setDefs] = useState<BuildingDef[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pickDir, setPickDir] = useState<number | null>(null);
@@ -268,21 +264,11 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
               : pickDir !== null
                 ? `The ${DIR_NAMES[pickDir]} edge is bare. Choose its work below — one work per edge.`
                 : selWork
-                  ? `The ${DIR_NAMES[selDir!]} edge carries a ${WORK_DEFS[selWork.kind].name}. Its law is below.`
+                  ? `The ${DIR_NAMES[selDir!]} edge carries a ${selWork.kind === "wall" ? (selWork.style === "spire" ? "Spire Wall" : "Stone Wall") : WORK_DEFS[selWork.kind].name}. Its law is below.`
                   : workByDir.size >= 6
                     ? "Every edge carries a work. This hex is a fist."
                     : "Tap a gold edge to lay a work there; tap a standing work to strengthen or take it down. A border shared with the next hex is one work, never two."}
         </p>
-
-        {/* ── The wall's dress: a Tender's preference ─────────── */}
-        {!cursed && (
-          <div className="wg-style-row">
-            <span className="wg-style-label">Your walls wear</span>
-            <button className={`wg-style-btn${wallStyle === "stone" ? " active" : ""}`} onClick={() => onSetWallStyle("stone")}>🧱 Stone</button>
-            <button className={`wg-style-btn${wallStyle === "spire" ? " active" : ""}`} onClick={() => onSetWallStyle("spire")}>🗼 Spires</button>
-            <span className="wg-style-note">a style, not a strength — every wall you own redresses at once</span>
-          </div>
-        )}
 
         {/* ── The chooser: lay one work on the picked edge ─────── */}
         {pickDir !== null && !pickWork && canWork && (
@@ -290,21 +276,32 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
             <h4>The {DIR_NAMES[pickDir]} edge — lay one work</h4>
             {!runePick ? (
               <div className="wg-works">
-                {(Object.keys(WORK_DEFS) as WorkKind[]).map(kind => {
+                {(Object.keys(WORK_DEFS) as WorkKind[]).flatMap(kind => {
                   const def = WORK_DEFS[kind];
                   const needsSkill = kind === "ward" ? !wardingHere : kind === "rune" ? !runeingHere : false;
-                  return (
-                    <button key={kind} className="wg-work-btn" disabled={energy < def.cost || busyKey !== null}
+                  // A WALL is built by choice, edge by edge (Nigel,
+                  // 2026-10-16): two dresses for the one work —
+                  // stone, or spires — picked as it is laid, and
+                  // the edge keeps the face it was built with.
+                  const choices: { key: string; style?: "stone" | "spire"; icon: string; name: string; blurb: string }[] =
+                    kind === "wall"
+                      ? [
+                          { key: "wall-stone", style: "stone", icon: "🧱", name: "Stone Wall", blurb: def.blurb },
+                          { key: "wall-spire", style: "spire", icon: "🗼", name: "Spire Wall", blurb: "The same wall, dressed in spires. A style, chosen as it is laid." },
+                        ]
+                      : [{ key: kind, icon: def.icon, name: def.name, blurb: def.blurb }];
+                  return choices.map(choice => (
+                    <button key={choice.key} className="wg-work-btn" disabled={energy < def.cost || busyKey !== null}
                       onClick={() => {
                         if (kind === "rune") { if (!needsSkill) setRunePick(true); return; }
                         if (needsSkill) return;
-                        act(`place-${pickDir}-${kind}`, () => onPlaceWork(pickDir, kind));
+                        act(`place-${pickDir}-${choice.key}`, () => onPlaceWork(pickDir, kind, undefined, choice.style));
                       }}
-                      title={def.blurb}>
-                      <strong>{def.icon} {def.name} <span className="wg-cost">· {def.cost}⚡</span></strong>
-                      <small>{needsSkill ? (kind === "ward" ? "Needs the Warding skill — no hand standing here holds it. Teach it below." : "Needs the Runeing skill — no hand standing here holds it. Teach it below.") : def.blurb}</small>
+                      title={choice.blurb}>
+                      <strong>{choice.icon} {choice.name} <span className="wg-cost">· {def.cost}⚡</span></strong>
+                      <small>{needsSkill ? (kind === "ward" ? "Needs the Warding skill — no hand standing here holds it. Teach it below." : "Needs the Runeing skill — no hand standing here holds it. Teach it below.") : choice.blurb}</small>
                     </button>
-                  );
+                  ));
                 })}
               </div>
             ) : (

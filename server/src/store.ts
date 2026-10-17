@@ -465,6 +465,11 @@ if (!hexWallCols.some((col) => col.name === "level")) {
 if (!hexWallCols.some((col) => col.name === "rune_kind")) {
   sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN rune_kind TEXT`);
 }
+// A wall's SKIN (Nigel, 2026-10-16): chosen per edge at the
+// building — stone or spires. Older walls wear stone.
+if (!hexWallCols.some((col) => col.name === "style")) {
+  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN style TEXT NOT NULL DEFAULT 'stone'`);
+}
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
 // holds WARDING and who holds RUNEING. Until the milestone ability
 // picks are built, skills are TEACHINGS: a Tender teaches an Awoken
@@ -506,13 +511,6 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_progress (
   total_exp INTEGER NOT NULL DEFAULT 0,
   lifetime_wakes INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
-);`);
-sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_preferences (
-  owner_key TEXT NOT NULL,
-  pref_key TEXT NOT NULL,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (owner_key, pref_key)
 );`);
 // Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
 // Migration: add pages column to battle_tracks. The ALTER must run AFTER

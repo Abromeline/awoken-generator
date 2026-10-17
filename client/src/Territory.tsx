@@ -438,9 +438,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
-  const wallStyleQueryClient = useQueryClient();
-  const wallStyleQuery = useQuery({ queryKey: ["wallStyle"], queryFn: () => api.getWallStyle() });
-  const wallStyle: "stone" | "spire" = wallStyleQuery.data?.style ?? "stone";
+
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
@@ -740,9 +738,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     ward: "A ward is cast on the hex edge — a wall the sky cannot ignore.",
     rune: "A rune is set on the hex edge — a trap, sleeping until it is sprung.",
   };
-  const handlePlaceWork = async (tileId: number, dir: number, kind: "wall" | "thorns" | "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
+  const handlePlaceWork = async (tileId: number, dir: number, kind: "wall" | "thorns" | "ward" | "rune", runeKind?: "snare" | "harm" | "meld", style?: "stone" | "spire") => {
     try {
-      await api.placeEdgeWork({ tileId, dir, kind, runeKind });
+      await api.placeEdgeWork({ tileId, dir, kind, runeKind, style });
       await refreshWorks();
       showHexNotice(WORK_NOTICE[kind]);
     } catch (e) {
@@ -2576,10 +2574,11 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             // Nigel's pieces (2026-10-16): the drawn segment for
             // this edge, seated corner-to-corner by similarity —
             // one wall of a hex, built at a time, as he layered
-            // them. The set they wear is the Tender's STYLE
-            // (stone or spires) — a preference, not a strength.
-            // Wear shows as fading, the drawing intact.
-            const piece = WALL_STYLES[wallStyle][w.dir];
+            // them. Which set a wall wears was chosen when it
+            // was built, edge by edge (Nigel, 2026-10-16):
+            // stone, or spires. Wear shows as fading, the
+            // drawing intact.
+            const piece = WALL_STYLES[w.style === "spire" ? "spire" : "stone"][w.dir];
             const pdx = piece.x2 - piece.x1, pdy = piece.y2 - piece.y1;
             const mdx = x2 - x1, mdy = y2 - y1;
             const sc = Math.hypot(mdx, mdy) / Math.max(1, Math.hypot(pdx, pdy));
@@ -4102,9 +4101,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             tileBuildings={buildings.filter(b => b.tileId === tile.id)}
             energy={energy}
             onClose={() => setWgTileId(null)}
-            wallStyle={wallStyle}
-            onSetWallStyle={async (style) => { await api.setWallStyle(style).catch(() => null); wallStyleQueryClient.invalidateQueries({ queryKey: ["wallStyle"] }); }}
-            onPlaceWork={(dir, kind, runeKind) => handlePlaceWork(tile.id, dir, kind, runeKind)}
+            onPlaceWork={(dir, kind, runeKind, style) => handlePlaceWork(tile.id, dir, kind, runeKind, style)}
             onStrengthenWork={(dir) => handleStrengthenWork(tile.id, dir)}
             onRemoveWork={(dir) => handleRemoveWork(tile.id, dir)}
             onTeachSkill={(awakenedId, skill) => handleTeachSkill(awakenedId, skill)}

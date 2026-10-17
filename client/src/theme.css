@@ -2325,9 +2325,3 @@ body.defeat-flash {
 }
 @media (prefers-reduced-motion: reduce){ .meteor-rain{display:none} }
 
-/* The wall's dress (Nigel, 2026-10-16): the style toggle in the War-Grounds panel. */
-.wg-style-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; }
-.wg-style-label { color: #e8d9a8; font-size: 13px; }
-.wg-style-btn { background: rgba(184,155,94,0.08); border: 1px solid rgba(184,155,94,0.45); color: #e8e2d2; border-radius: 8px; padding: 7px 14px; font-size: 14px; min-height: 40px; }
-.wg-style-btn.active { border-color: #ffd700; background: rgba(255,215,0,0.14); color: #ffe98a; }
-.wg-style-note { color: rgba(230,220,190,0.55); font-size: 12px; }
