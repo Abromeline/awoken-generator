@@ -68,6 +68,10 @@ interface YouState {
   notes: string;
   energy?: number;
   maxEnergy?: number;
+  tenderLevel?: number;
+  healTier?: number;
+  healAmount?: number;
+  wardRuneUnlocked?: boolean;
   inventory: string[];
   bound?: string | null;
 }
@@ -76,15 +80,28 @@ type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
-// One honeycomb, not seven islands (Nigel, 2026-10-16): the
-// ring centers sit exactly sqrt(3)*R from the center and from
-// each other (R = 40), so every hex shares its edges with its
-// neighbors and the field reads as a single map.
-const FIELD_HEXES: { id: string; x: number; y: number; center?: boolean }[] = [
-  { id: "center", x: 150, y: 130, center: true },
-  { id: "ring-0", x: 150, y: 60.72 }, { id: "ring-1", x: 210, y: 95.36 }, { id: "ring-2", x: 210, y: 164.64 },
-  { id: "ring-3", x: 150, y: 199.28 }, { id: "ring-4", x: 90, y: 164.64 }, { id: "ring-5", x: 90, y: 95.36 },
-];
+// The field fills the battlefield (Nigel, 2026-10-16): a
+// generated honeycomb, edge to edge — the server owns the
+// identical field from the identical constants; the two
+// generators must stay in step. The hex nearest the middle
+// holds the star-seed and is never stood upon.
+const FIELD_HEXES: { id: string; x: number; y: number; center?: boolean }[] = (() => {
+  const R = 26, dx = Math.sqrt(3) * R, dy = 1.5 * R;
+  const out: { id: string; x: number; y: number; center?: boolean }[] = [];
+  for (let r = 0; r < 6; r++) {
+    const y = 26 + r * dy;
+    const off = (r % 2) * (dx / 2);
+    for (let c = 0; ; c++) {
+      const x = 28 + off + c * dx;
+      if (x > 276) break;
+      out.push({ id: `hex-${r}-${c}`, x, y });
+    }
+  }
+  let best = out[0], bd = Infinity;
+  for (const h of out) { const d = (h.x - 150) ** 2 + (h.y - 130) ** 2; if (d < bd) { bd = d; best = h; } }
+  best.center = true;
+  return out;
+})();
 
 const ROSTER = [
   { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
@@ -524,12 +541,12 @@ export default function Table() {
                   >
                     <polygon
                       className={`${h.center ? "hex center" : "hex"}${unit ? " stood" : ""}${!h.center && selectedCard && !unit ? " open" : ""}`}
-                      points="0,-40 34.64,-20 34.64,20 0,40 -34.64,20 -34.64,-20"
+                      points="0,-26 22.52,-13 22.52,13 0,26 -22.52,13 -22.52,-13"
                     />
                     {h.center && (
                       <>
-                        <circle className="seed-ground" r="17" />
-                        <circle className="seed-bulb" r="8" />
+                        <circle className="seed-ground" r="13" />
+                        <circle className="seed-bulb" r="6" />
                       </>
                     )}
                   </g>
@@ -686,15 +703,24 @@ export default function Table() {
             )}
             {tab === "II" && (
               <div className="arts-list">
-                <div className="art-row"><strong>Ward · Lvl 1</strong><span>Your own warding hand — every Tender holds the first rung from the start.</span></div>
-                <div className="art-row"><strong>Rune · Lvl 1</strong><span>Your own runing hand — upgrades are earned by levels, never granted early.</span></div>
-                <p className="quiet small">Wards and runes are cast when the standing begins (P1). Awoken-borne wards and runes will ride here too, labeled by whose power casts them.</p>
+                {you.wardRuneUnlocked ? (
+                  <>
+                    <div className="art-row"><strong>Ward</strong><span>Your own warding hand — unlocked at Tender Lv 3, and yours at Lv {you.tenderLevel ?? 1}.</span></div>
+                    <div className="art-row"><strong>Rune</strong><span>Your own runing hand — unlocked at Tender Lv 3, and yours at Lv {you.tenderLevel ?? 1}.</span></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="art-row"><strong>🔒 Ward</strong><span>Wakes at Tender Lv 3 — you stand at Lv {you.tenderLevel ?? 1}. Grow by waking, battling, and raising your Awoken.</span></div>
+                    <div className="art-row"><strong>🔒 Rune</strong><span>Wakes at Tender Lv 3 — you stand at Lv {you.tenderLevel ?? 1}.</span></div>
+                  </>
+                )}
+                <p className="quiet small">Wards and runes are cast when the fighting begins — the referee's pass. Awoken-borne wards and runes will ride here too, labeled by whose power casts them.</p>
               </div>
             )}
             {tab === "III" && (
               <div className="arts-list">
-                <div className="art-row"><strong>Heal</strong><span>Restore 5 HP to an Awoken or a Tender · ⚡2 · from level 1. In our lore, the healers are the Binders.</span></div>
-                <p className="quiet small">The mending is cast when the standing begins (P1).</p>
+                <div className="art-row"><strong>Heal · Tier {you.healTier ?? 1}</strong><span>Restore {you.healAmount ?? 5} HP to an Awoken or a Tender · ⚡2 · yours from Tender Lv 1, strengthening every 3 levels. In our lore, the healers are the Binders.</span></div>
+                <p className="quiet small">The mending is cast when the fighting begins — the referee's pass.</p>
               </div>
             )}
             {tab === "IV" && (

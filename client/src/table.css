@@ -443,8 +443,8 @@ button { font-family: inherit; }
 .cost-chip { color: var(--gold-bright); font-weight: 600; }
 .cast-hint { color: var(--gold-bright); font-size: 13.5px; margin: 8px 0 0; }
 .field-units { position: absolute; inset: 0; pointer-events: none; }
-.field-unit { position: absolute; transform: translate(-50%, -50%); width: 74px; text-align: center; pointer-events: none; }
-.field-unit img { width: 44px; height: 44px; object-fit: cover; object-position: top center; border-radius: 8px; border: 1px solid var(--gold); display: block; margin: 0 auto; background: #000; }
+.field-unit { position: absolute; transform: translate(-50%, -50%); width: 56px; text-align: center; pointer-events: none; }
+.field-unit img { width: 32px; height: 32px; object-fit: cover; object-position: top center; border-radius: 8px; border: 1px solid var(--gold); display: block; margin: 0 auto; background: #000; }
 .field-unit .unit-name { display: block; font-size: 9.5px; line-height: 1.15; color: #f3e9d2; text-shadow: 0 1px 4px #000; margin-top: 2px; max-height: 22px; overflow: hidden; }
 .field-unit .unit-hp { display: block; height: 4px; background: rgba(0,0,0,.65); border-radius: 2px; margin: 2px 6px 0; overflow: hidden; }
 .field-unit .unit-hp-fill { display: block; height: 100%; background: #b8433a; }

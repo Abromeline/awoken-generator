@@ -30,6 +30,7 @@ import { db, schema } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
+import { getTenderProgress, healTierForLevel, healAmountForLevel } from "./tenderExp.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -77,6 +78,13 @@ interface Player {
   /** The Tender this seat is bound to (display name), or null when
    *  the seat holds stand-in cards. */
   bound?: string | null;
+  /** The seat's Tender standing (Tender EXP, 2026-10-16): a
+   *  bound seat carries its Tender's true level and what it
+   *  unlocks; a stand-in seat stands at Lv 1. */
+  tenderLevel: number;
+  healTier: number;
+  healAmount: number;
+  wardRuneUnlocked: boolean;
   /** This sitting's energy: for a bound seat, the game's own max
    *  energy for that Tender, calculated from their whole roster by
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
@@ -95,9 +103,30 @@ interface FieldUnit {
   ownerName: string;
 }
 
-/** The ring hexes of the instance field — the center is the
- *  star-seed and is never stood upon. */
-const RING_HEXES = ["ring-0", "ring-1", "ring-2", "ring-3", "ring-4", "ring-5"];
+/** The instance field: a full honeycomb filling the battlefield
+ *  (Nigel, 2026-10-16). Generated, not listed — the client draws
+ *  the identical field from the identical constants; the two
+ *  generators must stay in step. The hex nearest the middle is
+ *  the star-seed's and is never stood upon. */
+function buildFieldHexes(): { id: string; x: number; y: number; center: boolean }[] {
+  const R = 26, dx = Math.sqrt(3) * R, dy = 1.5 * R;
+  const out: { id: string; x: number; y: number; center: boolean }[] = [];
+  for (let r = 0; r < 6; r++) {
+    const y = 26 + r * dy;
+    const off = (r % 2) * (dx / 2);
+    for (let c = 0; ; c++) {
+      const x = 28 + off + c * dx;
+      if (x > 276) break;
+      out.push({ id: `hex-${r}-${c}`, x, y, center: false });
+    }
+  }
+  let best = out[0], bd = Infinity;
+  for (const h of out) { const d = (h.x - 150) ** 2 + (h.y - 130) ** 2; if (d < bd) { bd = d; best = h; } }
+  best.center = true;
+  return out;
+}
+const FIELD_HEXES_SERVER = buildFieldHexes();
+const SUMMONABLE_HEXES = FIELD_HEXES_SERVER.filter(h => !h.center).map(h => h.id);
 
 /** The Dark roster the room shows — names and tellings; the faces
  *  resolve live from the game's current enemy art. */
@@ -278,6 +307,10 @@ function sendState(room: Room): void {
         bound: player.bound ?? null,
         energy: player.energy,
         maxEnergy: player.maxEnergy,
+        tenderLevel: player.tenderLevel,
+        healTier: player.healTier,
+        healAmount: player.healAmount,
+        wardRuneUnlocked: player.wardRuneUnlocked,
       },
     }));
   }
@@ -358,6 +391,10 @@ function handleConnection(ws: WebSocket): void {
       let bound: string | null = null;
       let energy = 12;
       let maxEnergy = 12;
+      let tenderLevel = 1;
+      let healTier = healTierForLevel(1);
+      let healAmount = healAmountForLevel(1);
+      let wardRuneUnlocked = false;
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
@@ -367,6 +404,13 @@ function handleConnection(ws: WebSocket): void {
             bound = await tenderDisplayName(tenderId);
             maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
             energy = maxEnergy;
+            const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
+            if (progress) {
+              tenderLevel = progress.level;
+              healTier = progress.healTier;
+              healAmount = progress.healAmount;
+              wardRuneUnlocked = progress.wardRuneUnlocked;
+            }
           }
         }
       }
@@ -375,7 +419,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy };
+      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked };
       room.players.set(ws, player);
       if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);
@@ -409,8 +453,8 @@ function handleConnection(ws: WebSocket): void {
       const hex = String(msg.hex ?? "");
       const cardId = String(msg.cardId ?? "");
       const card = player.hand.find(c => c.id === cardId);
-      if (!RING_HEXES.includes(hex)) {
-        ws.send(JSON.stringify({ type: "error", message: "An Awoken stands on a ring hex — the center is the star-seed's." }));
+      if (!SUMMONABLE_HEXES.includes(hex)) {
+        ws.send(JSON.stringify({ type: "error", message: "An Awoken stands on a field hex — the center hex is the star-seed's." }));
         return;
       }
       if (room.field.has(hex)) {
