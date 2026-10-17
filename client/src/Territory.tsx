@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
-import { WALL_PIECES } from "./wallArt";
+import { WALL_STYLES } from "./wallArt";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 
@@ -438,6 +438,9 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
+  const wallStyleQueryClient = useQueryClient();
+  const wallStyleQuery = useQuery({ queryKey: ["wallStyle"], queryFn: () => api.getWallStyle() });
+  const wallStyle: "stone" | "spire" = wallStyleQuery.data?.style ?? "stone";
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
@@ -2555,12 +2558,28 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           // Each work draws in its own grammar (War-Ground, 2026-10-15):
           // walls timber, wards violet light, thorns green teeth,
           // runes amber dashes with a sleeping diamond at the middle.
-          if (w.kind === "thorns" || w.kind === "wall") {
+          if (w.kind === "thorns") {
+            const seg = 7; const pts: string[] = [];
+            for (let i = 0; i <= seg; i++) {
+              const t = i / seg;
+              const bx = x1 + (x2 - x1) * t, by = y1 + (y2 - y1) * t;
+              const off = i % 2 === 0 ? 0 : size * 0.055;
+              pts.push(`${(bx + (mx / mlen) * off).toFixed(1)},${(by + (my / mlen) * off).toFixed(1)}`);
+            }
+            return (
+              <g key={w.edgeKey}>
+                <polyline points={pts.join(" ")} fill="none" stroke="#69a84f" strokeWidth={size * 0.045} strokeLinejoin="round" />
+              </g>
+            );
+          }
+          if (w.kind === "wall") {
             // Nigel's pieces (2026-10-16): the drawn segment for
             // this edge, seated corner-to-corner by similarity —
             // one wall of a hex, built at a time, as he layered
-            // them. Wear shows as fading, the drawing intact.
-            const piece = WALL_PIECES[w.kind][w.dir];
+            // them. The set they wear is the Tender's STYLE
+            // (stone or spires) — a preference, not a strength.
+            // Wear shows as fading, the drawing intact.
+            const piece = WALL_STYLES[wallStyle][w.dir];
             const pdx = piece.x2 - piece.x1, pdy = piece.y2 - piece.y1;
             const mdx = x2 - x1, mdy = y2 - y1;
             const sc = Math.hypot(mdx, mdy) / Math.max(1, Math.hypot(pdx, pdy));
@@ -4083,6 +4102,8 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             tileBuildings={buildings.filter(b => b.tileId === tile.id)}
             energy={energy}
             onClose={() => setWgTileId(null)}
+            wallStyle={wallStyle}
+            onSetWallStyle={async (style) => { await api.setWallStyle(style).catch(() => null); wallStyleQueryClient.invalidateQueries({ queryKey: ["wallStyle"] }); }}
             onPlaceWork={(dir, kind, runeKind) => handlePlaceWork(tile.id, dir, kind, runeKind)}
             onStrengthenWork={(dir) => handleStrengthenWork(tile.id, dir)}
             onRemoveWork={(dir) => handleRemoveWork(tile.id, dir)}

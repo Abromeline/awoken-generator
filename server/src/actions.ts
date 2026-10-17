@@ -7272,6 +7272,28 @@ export const handlers = {
     return getTenderProgress(ownerKeyFor(ctx));
   },
 
+  /** The Tender's wall style — a SKIN, ruled by Nigel
+   *  (2026-10-16): one wall mechanic, and the walls wear the
+   *  Tender's preference, stone or spires. Kept per-Tender
+   *  so it follows them between devices. */
+  async getWallStyle(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const [row] = await db.select().from(schema.tenderPreferences)
+      .where(and(eq(schema.tenderPreferences.ownerKey, ownerKey), eq(schema.tenderPreferences.prefKey, "wallStyle"))).limit(1);
+    return { style: row?.value === "spire" ? "spire" : "stone" };
+  },
+
+  async setWallStyle(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ style: z.enum(["stone", "spire"]) }).safeParse(args);
+    if (!parsed.success) badRequest("A wall wears stone or spires — nothing else yet.");
+    const style = parsed.data.style;
+    const ownerKey = ownerKeyFor(ctx);
+    await db.insert(schema.tenderPreferences)
+      .values({ ownerKey, prefKey: "wallStyle", value: style, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: [schema.tenderPreferences.ownerKey, schema.tenderPreferences.prefKey], set: { value: style, updatedAt: new Date() } });
+    return { style };
+  },
+
   async getTenderRank(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // Count Awoken per tender (tender collection only)

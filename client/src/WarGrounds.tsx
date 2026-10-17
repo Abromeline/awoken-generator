@@ -87,9 +87,13 @@ interface Props {
   onChooseBuilding: (def: BuildingDef) => void;
   onDemolish: (buildingId: number) => Promise<void>;
   onClaimSpark?: () => void;
+  /** The Tender's wall SKIN (Nigel, 2026-10-16): one wall
+   *  mechanic; the walls wear stone or spires by preference. */
+  wallStyle: "stone" | "spire";
+  onSetWallStyle: (style: "stone" | "spire") => void;
 }
 
-export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark }: Props) {
+export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark, wallStyle, onSetWallStyle }: Props) {
   const [defs, setDefs] = useState<BuildingDef[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pickDir, setPickDir] = useState<number | null>(null);
@@ -269,6 +273,16 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
                     ? "Every edge carries a work. This hex is a fist."
                     : "Tap a gold edge to lay a work there; tap a standing work to strengthen or take it down. A border shared with the next hex is one work, never two."}
         </p>
+
+        {/* ── The wall's dress: a Tender's preference ─────────── */}
+        {!cursed && (
+          <div className="wg-style-row">
+            <span className="wg-style-label">Your walls wear</span>
+            <button className={`wg-style-btn${wallStyle === "stone" ? " active" : ""}`} onClick={() => onSetWallStyle("stone")}>🧱 Stone</button>
+            <button className={`wg-style-btn${wallStyle === "spire" ? " active" : ""}`} onClick={() => onSetWallStyle("spire")}>🗼 Spires</button>
+            <span className="wg-style-note">a style, not a strength — every wall you own redresses at once</span>
+          </div>
+        )}
 
         {/* ── The chooser: lay one work on the picked edge ─────── */}
         {pickDir !== null && !pickWork && canWork && (

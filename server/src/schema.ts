@@ -441,6 +441,19 @@ export const tenderProgress = sqliteTable("tender_progress", {
     .$defaultFn(() => new Date()),
 });
 
+/** Per-Tender preferences (owner_key + key) — the small
+ *  personal settings that follow the Tender between devices:
+ *  first of them, the wall style (Nigel, 2026-10-16: skins are
+ *  a preference, stone or spires). */
+export const tenderPreferences = sqliteTable("tender_preferences", {
+  ownerKey: text("owner_key").notNull(),
+  prefKey: text("pref_key").notNull(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (t) => ({ pk: primaryKey({ columns: [t.ownerKey, t.prefKey] }) }));
+
 export const tenderResources = sqliteTable("tender_resources", {
   ownerKey: text("owner_key").primaryKey(),
   energy: integer("energy").notNull().default(5),
