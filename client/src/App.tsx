@@ -1379,11 +1379,11 @@ function FeedbackWidget() {
     <button
       onClick={() => setOpen(v => !v)}
       aria-label="Bug reports, questions and suggestions"
-      style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", writingMode: "vertical-rl", zIndex: 900, background: "rgba(20,16,10,0.85)", color: "#e8d5a0", border: "1px solid rgba(232,213,160,0.4)", borderRight: "none", borderRadius: "8px 0 0 8px", padding: "12px 5px", fontSize: 12, letterSpacing: 1, cursor: "pointer" }}
+      style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", zIndex: 900, background: "rgba(20,16,10,0.85)", color: "#e8d5a0", border: "1px solid rgba(232,213,160,0.4)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "7px 16px", fontSize: 12, letterSpacing: 1, cursor: "pointer", whiteSpace: "nowrap" }}
     >
       ✎ Report · Ask · Suggest
     </button>
-    {open && <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "min(360px, 92vw)", zIndex: 950, background: "var(--bg, #14100a)", borderLeft: "1px solid rgba(232,213,160,0.35)", padding: 16, overflowY: "auto", boxShadow: "-8px 0 24px rgba(0,0,0,0.5)" }}>
+    {open && <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "min(430px, 94vw)", maxHeight: "86vh", zIndex: 950, background: "var(--bg, #14100a)", border: "1px solid rgba(232,213,160,0.35)", borderTop: "none", borderRadius: "0 0 12px 12px", padding: 16, overflowY: "auto", boxShadow: "0 10px 28px rgba(0,0,0,0.55)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ margin: 0 }}>Speak to the workshop</h3>
         <button className="quiet-link" onClick={() => setOpen(false)}>✕</button>
@@ -1727,7 +1727,7 @@ function CosmicBackground() {
  *  random places, random sizes, random pacing, never two
  *  showers alike. It falls behind the world's face and
  *  answers no clicks. */
-interface MeteorDrop { id: number; left: number; width: number; duration: number; drift: number }
+interface MeteorDrop { id: number; left: number; width: number; duration: number; drift: number; opacity: number }
 function MeteorRain() {
   const [drops, setDrops] = useState<MeteorDrop[]>([]);
   const idRef = useRef(0);
@@ -1737,14 +1737,15 @@ function MeteorRain() {
     const spawn = () => {
       if (!live) return;
       setDrops((cur) => {
-        if (cur.length >= 6) return cur;
+        if (cur.length >= 8) return cur;
         const id = ++idRef.current;
         return [...cur, {
           id,
           left: 2 + Math.random() * 92,
-          width: 26 + Math.random() * 54,
-          duration: 5.5 + Math.random() * 6.5,
+          width: 14 + Math.random() * 104,
+          duration: 3.2 + Math.random() * 10.3,
           drift: -30 + Math.random() * 60,
+          opacity: 0.3 + Math.random() * 0.7,
         }];
       });
       timer = setTimeout(spawn, 1200 + Math.random() * 2600);
@@ -1758,7 +1759,7 @@ function MeteorRain() {
         <span
           key={d.id}
           className="meteor"
-          style={{ left: `${d.left}%`, width: d.width, animationDuration: `${d.duration}s`, ["--drift" as string]: `${d.drift}px` }}
+          style={{ left: `${d.left}%`, width: d.width, animationDuration: `${d.duration}s`, ["--drift" as string]: `${d.drift}px`, ["--o" as string]: d.opacity.toFixed(2) }}
           onAnimationEnd={() => setDrops((cur) => cur.filter((x) => x.id !== d.id))}
         >
           <img src={meteorGif} alt="" />
