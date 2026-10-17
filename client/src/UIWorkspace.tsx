@@ -2,10 +2,21 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { setWheatStageOverride, setDreamWeedStageOverride } from "./BuildingMenu";
 import { useEnemyArt, ENEMY_ART_QUERY_KEY } from "./enemyArt";
-import { api } from "./api";
+import { api, GRIMOIRE_ENGINE_FIELDS, GRIMOIRE_HUES, type GrimoireGlyph, type GrimoireSpell, type GrimoireSpellInput, type GrimoireGlyphSort, type GrimoireSpellKind } from "./api";
 import { ElementGlyph } from "./glyphs";
 import { ELEMENTS, ELEMENT_SCHEME, applyElementPalette, elementPalette, isHexColor, type ElementName } from "./palette";
 // Current default sprites (bundled with the app)
+import glyphSealImg from "./assets/glyphs/seal.png";
+import glyphEngineImg from "./assets/glyphs/engine.png";
+import glyphStandardImg from "./assets/glyphs/standard.png";
+import glyphTreesImg from "./assets/glyphs/trees.png";
+import glyphBeaconImg from "./assets/glyphs/beacon.png";
+import glyphLatticeImg from "./assets/glyphs/lattice.png";
+import glyphBladeImg from "./assets/glyphs/blade.png";
+import glyphBladesImg from "./assets/glyphs/blades.png";
+import glyphShardImg from "./assets/glyphs/shard.png";
+import glyphCoilImg from "./assets/glyphs/coil.png";
+
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -47,7 +58,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium" | "border";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium" | "border" | "grimoire";
 
 // The Monsters Compendium (the game's living copy of the Atelier's roll):
 // entries live in the game's own store (compendium_entries, seeded from
@@ -295,6 +306,223 @@ function CardBorderSection() {
   );
 }
 
+const GRIMOIRE_BUNDLED: Record<string, string> = { seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg, trees: glyphTreesImg, beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg, coil: glyphCoilImg };
+const grimoireGlyphImg = (g: GrimoireGlyph): string | null => g.imageUrl ?? (g.assetKey ? GRIMOIRE_BUNDLED[g.assetKey] ?? null : null);
+const ENGINE_LABELS: Record<string, string> = {
+  seal: "Seal engine — an edge-wall that stops strikes and answers them",
+  engine: "Engine engine — sings energy each round, brightens its tender's workings",
+  standard: "Standard engine — an edge-banner that strengthens strikes beside it",
+  trees: "Trees engine — a living edge-wall that takes blows and regrows",
+  beacon: "Beacon engine — an edge-light that strengthens strikes against the dark near it",
+  lattice: "Lattice engine — a floor-rune that pins everything on its hex",
+  blade: "Blade engine — a floor-rune that harms everything on its hex, more than once",
+  blades: "Blades engine — floor-runes planted on several hexes at once",
+  shard: "Shard engine — a floor-rune that waits for great power, then falls on the whole hex",
+  coil: "Coil engine — a floor-rune that throws the dark back and returns energy",
+  heal: "Heal engine — the mending art (amount is the Tender's heal tier, by law)",
+  none: "Not yet seated — the spell is named and numbered in the book, but no referee runs it yet",
+};
+
+function SpellEditor({ spell, glyphs, saving, onSave, onDelete, onClose }: {
+  spell: GrimoireSpell | null;
+  glyphs: GrimoireGlyph[];
+  saving: boolean;
+  onSave: (input: GrimoireSpellInput) => void;
+  onDelete: (key: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(spell?.name ?? "");
+  const [kind, setKind] = useState<GrimoireSpellKind>(spell?.kind ?? "rune");
+  const [engine, setEngine] = useState(spell?.engine ?? "none");
+  const [cost, setCost] = useState(spell?.cost ?? 2);
+  const [blurb, setBlurb] = useState(spell?.blurb ?? "");
+  const [glyphId, setGlyphId] = useState<string | null>(spell?.glyphId ?? null);
+  const [numbers, setNumbers] = useState<Record<string, number>>(spell?.numbers ?? {});
+  const [forms, setForms] = useState<Record<string, string>>(spell?.forms ?? {});
+  const fields = GRIMOIRE_ENGINE_FIELDS[engine] ?? [];
+  const pickEngine = (e: string) => {
+    setEngine(e);
+    const seeded: Record<string, number> = {};
+    for (const f of GRIMOIRE_ENGINE_FIELDS[e] ?? []) seeded[f.key] = numbers[f.key] ?? f.def;
+    setNumbers(seeded);
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(6,4,2,.72)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div className="workspace-card" style={{ maxWidth: 560, width: "100%", maxHeight: "88vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <h3>{spell ? `📖 ${spell.name}` : "📖 A new spell"}</h3>
+        <p className="quiet">What you save here is live in the world: the Table's referee and the territory map read this book. A standing working keeps the numbers it was cast with — the next cast takes the new page.</p>
+        <div style={{ display: "grid", gap: 10 }}>
+          <label>Name <input type="text" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Amber Brand" /></label>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <label>Sort&nbsp;
+              <select value={kind} onChange={(e) => setKind(e.target.value as GrimoireSpellKind)}>
+                <option value="ward">Ward (stands on an edge)</option>
+                <option value="rune">Rune (written on the ground)</option>
+                <option value="binding">Binding (covers a hex / mends)</option>
+                <option value="spell">Spell (cast)</option>
+              </select>
+            </label>
+            <label>Cost ⚡ <input type="number" min={0} max={99} value={cost} onChange={(e) => setCost(Math.max(0, Math.min(99, Number(e.target.value) || 0)))} style={{ width: 70 }} /></label>
+            <label>Its glyph&nbsp;
+              <select value={glyphId ?? ""} onChange={(e) => setGlyphId(e.target.value || null)}>
+                <option value="">— none yet —</option>
+                {glyphs.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label>Engine — the mechanic this spell runs<br />
+            <select value={engine} onChange={(e) => pickEngine(e.target.value)} style={{ width: "100%" }}>
+              {Object.keys(GRIMOIRE_ENGINE_FIELDS).map((e) => <option key={e} value={e}>{ENGINE_LABELS[e] ?? e}</option>)}
+            </select>
+          </label>
+          {fields.length > 0 && (
+            <fieldset style={{ border: "1px solid rgba(184,155,94,.4)", borderRadius: 8, padding: "10px 12px" }}>
+              <legend>Its numbers</legend>
+              <div style={{ display: "grid", gap: 8 }}>
+                {fields.map((f) => (
+                  <label key={f.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <span>{f.label}</span>
+                    <input type="number" min={0} max={999} value={numbers[f.key] ?? f.def} onChange={(e) => setNumbers({ ...numbers, [f.key]: Math.max(0, Math.min(999, Number(e.target.value) || 0)) })} style={{ width: 80 }} />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+          {engine === "heal" && <p className="quiet">Heal carries no numbers of its own: the amount mended is the Tender's heal tier (5 × tier), by standing law. The book holds only its price.</p>}
+          {engine === "none" && <p className="quiet">A spell with no engine is written in the book — named, priced, numbered — but no referee runs it yet. Give it an engine when its mechanic should live in the world.</p>}
+          <label>What it does (shown on its card)<br />
+            <textarea value={blurb} maxLength={600} rows={3} onChange={(e) => setBlurb(e.target.value)} style={{ width: "100%" }} placeholder="Describe the working as its card should speak it…" />
+          </label>
+          <fieldset style={{ border: "1px solid rgba(184,155,94,.4)", borderRadius: 8, padding: "10px 12px" }}>
+            <legend>Its names by hue (the pour names the casting)</legend>
+            <div style={{ display: "grid", gap: 6 }}>
+              {GRIMOIRE_HUES.map((h) => (
+                <label key={h} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <span style={{ textTransform: "capitalize" }}>{h}</span>
+                  <input type="text" value={forms[h] ?? ""} maxLength={120} onChange={(e) => setForms({ ...forms, [h]: e.target.value })} placeholder={name || "Its name in this hue"} style={{ flex: 1 }} />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div style={{ display: "flex", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button disabled={saving || !name.trim()} onClick={() => onSave({ key: spell?.key, name: name.trim(), kind, engine, glyphId, cost, blurb, numbers, forms })}>{saving ? "Saving…" : spell ? "Save the page" : "Write it in the book"}</button>
+              <button onClick={onClose}>Close</button>
+            </div>
+            {spell && <button disabled={saving} onClick={() => { if (confirm(`Tear “${spell.name}” out of the book? Its casts will be refused everywhere.`)) onDelete(spell.key); }}>Tear out this spell</button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GrimoireSection() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ["grimoire"], queryFn: () => api.getGrimoire() });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["grimoire"] });
+  const [glyphName, setGlyphName] = useState("");
+  const glyphFileRef = useRef<HTMLInputElement>(null);
+  const [editing, setEditing] = useState<GrimoireSpell | "new" | null>(null);
+  const err = (e: any) => alert(e?.message || "The book refused that.");
+  const sortM = useMutation({ mutationFn: (a: { glyphId: string; sort: GrimoireGlyphSort }) => api.setGlyphSort(a), onSuccess: refresh, onError: err });
+  const assignM = useMutation({ mutationFn: (a: { glyphId: string; spellKey: string | null }) => api.setGlyphSpell(a), onSuccess: refresh, onError: err });
+  const delGlyphM = useMutation({ mutationFn: (glyphId: string) => api.deleteGrimoireGlyph({ glyphId }), onSuccess: refresh, onError: err });
+  const uploadM = useMutation({ mutationFn: (a: { name: string; imageBase64: string }) => api.uploadGrimoireGlyph(a), onSuccess: () => { setGlyphName(""); refresh(); }, onError: err });
+  const upsertM = useMutation({ mutationFn: (spell: GrimoireSpellInput) => api.upsertGrimoireSpell({ spell }), onSuccess: () => { setEditing(null); refresh(); }, onError: err });
+  const delSpellM = useMutation({ mutationFn: (key: string) => api.deleteGrimoireSpell({ key }), onSuccess: () => { setEditing(null); refresh(); }, onError: err });
+  const onGlyphFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = String(reader.result || "").split(",")[1] || "";
+      uploadM.mutate({ name: glyphName.trim() || file.name.replace(/\.png$/i, ""), imageBase64: base64 });
+    };
+    reader.readAsDataURL(file);
+  };
+  const spells = data?.spells ?? [];
+  const glyphs = data?.glyphs ?? [];
+  const spellName = (key: string | null) => spells.find((sp) => sp.key === key)?.name ?? "—";
+  const SORTS: { v: GrimoireGlyphSort; label: string }[] = [
+    { v: "ward", label: "Ward" }, { v: "rune", label: "Rune" }, { v: "binding", label: "Binding" }, { v: "spell", label: "Spell" }, { v: "unsorted", label: "Unsorted" },
+  ];
+  return (
+    <div className="workspace-grid">
+      <div className="workspace-card wide">
+        <h3>📖 The Grimoire — glyphs</h3>
+        <p className="quiet">Every glyph image in the book. <strong>Sort</strong> each one — ward, rune, binding, or spell — and <strong>assign</strong> it to the spell whose face it is. Upload new glyph art as PNGs with transparent ground; the Written Light is drawn in one colour so a hue can dress it. The book's own glyphs can be re-sorted and reassigned but never torn out.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
+          {glyphs.map((g) => {
+            const img = grimoireGlyphImg(g);
+            return (
+              <div key={g.id} style={{ border: "1px solid rgba(184,155,94,.35)", borderRadius: 10, padding: 10, background: "rgba(0,0,0,.25)" }}>
+                <div style={{ height: 92, display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle at 50% 45%, rgba(255,217,138,.10), rgba(0,0,0,.35))", borderRadius: 8 }}>
+                  {img ? <img src={img} alt={g.name} style={{ maxHeight: 84, maxWidth: "82%", objectFit: "contain" }} /> : <span style={{ fontSize: 30, color: "#ffd98a" }}>✦</span>}
+                </div>
+                <div style={{ marginTop: 8 }}><strong>{g.name}</strong>{g.builtin ? <small> · of the Written Light</small> : <small> · your upload</small>}</div>
+                <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                  <label style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>Sort
+                    <select value={g.sort} disabled={sortM.isPending} onChange={(e) => sortM.mutate({ glyphId: g.id, sort: e.target.value as GrimoireGlyphSort })}>
+                      {SORTS.map((so) => <option key={so.v} value={so.v}>{so.label}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>Spell
+                    <select value={g.spellKey ?? ""} disabled={assignM.isPending} onChange={(e) => assignM.mutate({ glyphId: g.id, spellKey: e.target.value || null })}>
+                      <option value="">— unassigned —</option>
+                      {spells.map((sp) => <option key={sp.key} value={sp.key}>{sp.name}</option>)}
+                    </select>
+                  </label>
+                  {!g.builtin && <button disabled={delGlyphM.isPending} onClick={() => { if (confirm(`Remove the glyph “${g.name}” from the book?`)) delGlyphM.mutate(g.id); }}>Remove glyph</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="stat-rows" style={{ borderTop: "1px solid rgba(184,155,94,.35)", paddingTop: 10, marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <label>Glyph name <input type="text" value={glyphName} maxLength={80} onChange={(e) => setGlyphName(e.target.value)} placeholder="e.g. The Amber Brand" /></label>
+          <input ref={glyphFileRef} type="file" accept="image/png" style={{ display: "none" }} onChange={(e) => { onGlyphFile(e.target.files?.[0]); e.target.value = ""; }} />
+          <button disabled={uploadM.isPending} onClick={() => glyphFileRef.current?.click()}>{uploadM.isPending ? "Adding…" : "＋ Add glyph art (PNG)"}</button>
+        </div>
+      </div>
+
+      <div className="workspace-card wide">
+        <h3>📖 The Grimoire — spells</h3>
+        <p className="quiet">The workings of the Written Light, and every spell written since. Tap a spell to open its page: its price, its engine, and <strong>its numbers</strong> — tuned here, they are law at the Table and on the territory map by the next cast. The remaining five glyphs of the fifteen, when they arrive, take their places as new pages.</p>
+        <div style={{ display: "grid", gap: 8 }}>
+          {spells.map((sp) => {
+            const g = glyphs.find((x) => x.id === sp.glyphId);
+            const img = g ? grimoireGlyphImg(g) : null;
+            return (
+              <button key={sp.key} onClick={() => setEditing(sp)} style={{ display: "flex", gap: 12, alignItems: "center", textAlign: "left", padding: "8px 12px" }}>
+                {img ? <img src={img} alt="" style={{ width: 40, height: 40, objectFit: "contain" }} /> : <span style={{ fontSize: 24, width: 40, textAlign: "center" }}>✦</span>}
+                <span style={{ flex: 1 }}>
+                  <strong>{sp.name}</strong> <small>· {sp.kind} · ⚡{sp.cost}{sp.engine === "none" ? " · not yet seated" : ""}</small><br />
+                  <small>{sp.blurb}</small>
+                </span>
+                <span>{spellName(sp.key) === sp.name ? "✎" : ""}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button onClick={() => setEditing("new")}>＋ Write a new spell</button>
+        </div>
+      </div>
+
+      {editing && (
+        <SpellEditor
+          spell={editing === "new" ? null : editing}
+          glyphs={glyphs}
+          saving={upsertM.isPending || delSpellM.isPending}
+          onSave={(input) => upsertM.mutate(input)}
+          onDelete={(key) => delSpellM.mutate(key)}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
   const queryClient = useQueryClient();
@@ -536,9 +764,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium", "border"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium", "border", "grimoire"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : s === "compendium" ? "📖 Compendium" : "🖼️ Card Border"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : s === "compendium" ? "📖 Compendium" : s === "grimoire" ? "📖 Grimoire" : "🖼️ Card Border"}
           </button>
         ))}
       </div>
@@ -713,6 +941,7 @@ export default function UIWorkspace() {
       )}
 
       {section === "border" && <CardBorderSection />}
+      {section === "grimoire" && <GrimoireSection />}
 
       {section === "timers" && (
         <div className="workspace-grid">

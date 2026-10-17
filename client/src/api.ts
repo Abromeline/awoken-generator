@@ -249,6 +249,46 @@ export interface GrimoireState {
   glyphs: GrimoireGlyph[];
   spells: GrimoireSpell[];
 }
+/** The number fields each engine carries — the client mirror of
+ *  server/src/grimoire.ts ENGINE_NUMBER_FIELDS (labels + defaults
+ *  for the workshop editor and for new spells). */
+export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string; def: number }[]> = {
+  seal: [
+    { key: "riposte", label: "Riposte power (harm answered to the striker)", def: 3 },
+    { key: "brightBonus", label: "Extra riposte while an Engine burns", def: 1 },
+    { key: "stops", label: "Strikes stopped before the Seal goes out", def: 3 },
+  ],
+  engine: [{ key: "energyPerRound", label: "Energy to its tender each round", def: 1 }],
+  standard: [{ key: "strikeBonus", label: "Strike bonus on either hex it divides", def: 1 }],
+  trees: [
+    { key: "hp", label: "Health the Trees take before breaking", def: 8 },
+    { key: "brightHpBonus", label: "Extra health while an Engine burns", def: 2 },
+    { key: "regrow", label: "Health regrown each round", def: 2 },
+  ],
+  beacon: [{ key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 }],
+  lattice: [{ key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 }],
+  blade: [
+    { key: "power", label: "Harm to everything on its ground", def: 6 },
+    { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
+    { key: "charges", label: "Times it springs before it is spent", def: 2 },
+  ],
+  blades: [
+    { key: "power", label: "Harm on each planted hex", def: 3 },
+    { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
+    { key: "maxTargets", label: "Hexes it may be planted on at once", def: 3 },
+  ],
+  shard: [
+    { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
+    { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
+  ],
+  coil: [
+    { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
+    { key: "energyCap", label: "Most energy one Coil returns", def: 3 },
+  ],
+  heal: [],
+  none: [],
+};
+export const GRIMOIRE_HUES = ["unaligned", "tide", "sky", "stone", "root", "fire"] as const;
 
 export interface GroveStatus {
   centsAccrued: number;
