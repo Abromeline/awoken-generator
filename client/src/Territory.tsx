@@ -4,6 +4,7 @@ import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeW
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
 import { WALL_STYLES } from "./wallArt";
 import EnergyTimer from "./EnergyTimer";
+import { useCardBorder } from "./cardBorder";
 import hallBanner from "./assets/hall-of-champions.jpg";
 
 import FieldAwoken from "./FieldAwoken";
@@ -486,6 +487,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // hue fed into the working at its cast, chosen here in the bar.
   const [castPour, setCastPour] = useState(0);
   const grimPoolsQ = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement(), staleTime: 0 });
+  // The chosen card border (Nigel, 2026-10-17): the hand in the dock
+  // wears the same frame as the arena and the Table.
+  const cardBorder = useCardBorder();
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
   const [fadePick, setFadePick] = useState<number | null>(null);
 
@@ -4296,6 +4300,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   </div>
                 )
               )}
+              {cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
             </button>
             );
           })}

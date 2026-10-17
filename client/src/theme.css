@@ -1191,7 +1191,9 @@ body.defeat-flash {
 }
 .dock-hand{
   display:flex;gap:8px;overflow-x:auto;flex:1;align-items:flex-end;
-  padding-bottom:4px;min-height:80px;
+  /* Headroom for the card border's spill (the morning fit's crown
+     and book-base overhang each dock card by ~30px). */
+  padding-top:30px;padding-bottom:34px;min-height:80px;
 }
 .dock-card{
   width:64px;flex-shrink:0;background:#161616;border:2px solid #444;border-radius:6px;
