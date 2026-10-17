@@ -22,7 +22,7 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -5058,19 +5058,23 @@ export const handlers = {
     }
 
     // The Pour (Nigel, 2026-10-17): elemental points of the
-    // poured hue, fed into the working at its cast — checked
-    // against the book's cap and the pool BEFORE anything is
-    // spent, so a refused cast costs nothing. Heal never reaches
-    // here: binding healing requires energy only.
+    // poured hue, fed into the working at its cast. The depth is
+    // capped by the Tender's attunement LEVEL in the poured
+    // element (the depth band: ten points per level, L3 at 30+)
+    // — the level alone governs, and everything is checked
+    // BEFORE anything is spent, so a refused cast costs nothing.
+    // Heal never reaches here: binding healing requires energy
+    // only.
     const pourWanted = parsed.data.pour ?? 0;
-    const cap = pourCapFor(spell);
     let pour = 0;
     if (pourWanted > 0) {
-      if (cap === 0) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
+      if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
       if (hue === "unaligned") badRequest("An unaligned cast has no element to pour — choose a hue, and its pool feeds the working.");
-      if (pourWanted > cap) badRequest(`${spell.name} is capped at ${cap} poured points — the book will not let more in.`);
-      const held = (await attunementPools(ownerKey))[hue] ?? 0;
-      if (held < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${held}. Let your companies attune the land, and the pool will fill.`);
+      const pools = await attunementPools(ownerKey);
+      const cap = pourCapFor(spell, pools, hue);
+      if (pourWanted > cap) badRequest(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement. Grow the ${hue} pool past the next ten to deepen it.`);
+      const held = pools[hue] ?? 0;
+      if (held < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${held}.`);
       pour = pourWanted;
     }
 
@@ -5149,6 +5153,46 @@ export const handlers = {
     const gone = sqlite.prepare("DELETE FROM territory_workings WHERE owner_key = ? AND id = ?").run(ownerKey, parsed.data.id);
     if (!gone.changes) badRequest("No such working stands on your land.");
     return { ok: true as const };
+  },
+
+  /** PUSH A NEUTRAL RUNE (Nigel, 2026-10-17): a neutral rune
+   *  that already stands may be pushed either way — pour an
+   *  element into it and it takes that hue — but only a rune
+   *  already cast (here, your own on your own land; at the
+   *  Table, an ally's as well). The pour obeys the cast's law:
+   *  your attunement level in the pushed element is the depth
+   *  cap, the points are truly spent, and the working gains the
+   *  pour's measure of health as if fed at its raising. Runes
+   *  that take no pour cannot be pushed. */
+  async pourMapWorking(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      id: z.number().int().positive(),
+      hue: z.enum(["tide", "sky", "stone", "root", "fire"]),
+      pour: z.number().int().min(1).max(99),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name the standing rune, the element to push it toward, and the depth to pour.");
+    const { id, hue, pour: pourWanted } = parsed.data;
+    const row = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND id = ?").get(ownerKey, id) as any;
+    if (!row) badRequest("No such working stands on your land.");
+    if (row.kind !== "rune") badRequest("Only a rune can be pushed — a ward's hue is chosen at its raising.");
+    if (row.hue !== "unaligned") badRequest(`That rune already burns ${row.hue} — its way is chosen.`);
+    await refreshGrimoire();
+    const spell = spellByKey(row.spell_key);
+    if (!spell) badRequest("That rune's spell is no longer in the book.");
+    if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) badRequest(`“${spell.name}” takes no pour — there is nothing to push it with.`);
+    const pools = await attunementPools(ownerKey);
+    const cap = attunementLevel(pools[hue] ?? 0);
+    if (pourWanted > cap) badRequest(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.`);
+    if ((pools[hue] ?? 0) < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${pools[hue] ?? 0}.`);
+    const spent = await spendAttunement(ownerKey, hue, pourWanted);
+    if (!spent.ok) badRequest(`The ${hue} pool holds ${spent.held} — the push fails, and nothing is spent.`);
+    const gained = Math.floor((spell.numbers.hpPerPoint ?? 0) * pourWanted);
+    const maxHp = (row.max_hp ?? 0) + gained;
+    const hp = (row.hp ?? 0) + gained;
+    sqlite.prepare("UPDATE territory_workings SET hue = ?, pour = ?, hp = ?, max_hp = ? WHERE id = ?")
+      .run(hue, pourWanted, hp, maxHp, id);
+    return { ok: true as const, id, hue, pour: pourWanted, hp, maxHp };
   },
 
   /** Teach an Awoken a skill (WARDING or RUNEING). Until the

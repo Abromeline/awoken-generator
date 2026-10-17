@@ -492,6 +492,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const cardBorder = useCardBorder();
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
   const [fadePick, setFadePick] = useState<number | null>(null);
+  const [pushHue, setPushHue] = useState<string>("root");
+  const [pushPour, setPushPour] = useState(0);
 
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
@@ -3971,9 +3973,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               })}
               {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
             </div>
-            {castSpell && (castSpell.numbers.pourCap ?? 0) > 0 && castHue !== "unaligned" && (() => {
-              const cap = Math.floor(castSpell.numbers.pourCap ?? 0);
+            {castSpell && ["seal", "trees", "lattice", "shard"].includes(castSpell.engine) && castHue !== "unaligned" && (() => {
               const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[castHue] ?? 0);
+              const cap = Math.min(3, Math.floor(pool / 10));
               const maxPour = Math.min(cap, pool);
               const n = castSpell.numbers;
               const hpPreview = castSpell.engine === "shard" ? null
@@ -3984,7 +3986,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                   <strong style={{ color: "#e6ddff" }}>Feed it:</strong>
                   <button className="abtn" disabled={castPour <= 0} onClick={() => setCastPour((p) => Math.max(0, p - 1))}>−</button>
                   <span style={{ color: "#cfc4f5", minWidth: 150, textAlign: "center" }}>
-                    Pour {castPour} {castHue} pt{castPour === 1 ? "" : "s"} <span style={{ opacity: 0.75 }}>(pool {pool} · cap {cap})</span>
+                    Pour {castPour} {castHue} pt{castPour === 1 ? "" : "s"} <span style={{ opacity: 0.75 }}>(pool {pool} · your {castHue} Lv {cap})</span>
                   </span>
                   <button className="abtn" disabled={castPour >= maxPour} onClick={() => setCastPour((p) => Math.min(maxPour, p + 1))}>+</button>
                   <span style={{ color: "#ffd98a" }}>
@@ -4016,6 +4018,27 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 }}>Fade it</button>
               </div>
             )}
+            {(() => {
+              const picked = workings.find((w) => w.id === fadePick);
+              if (!picked || picked.kind !== "rune" || picked.hue !== "unaligned" || !["lattice", "shard"].includes(picked.engine)) return null;
+              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[pushHue] ?? 0);
+              const lvl = Math.min(3, Math.floor(pool / 10));
+              return (
+                <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ color: "#cfc4f5" }}>That rune stands neutral — <strong>push it either way:</strong></span>
+                  <select value={pushHue} onChange={(e) => { setPushHue(e.target.value); setPushPour(0); }}>
+                    {["tide", "sky", "stone", "root", "fire"].map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                  <button className="abtn" disabled={pushPour <= 0} onClick={() => setPushPour((p) => Math.max(0, p - 1))}>−</button>
+                  <span style={{ color: "#cfc4f5" }}>Pour {pushPour} (your {pushHue} Lv {lvl})</span>
+                  <button className="abtn" disabled={pushPour >= lvl} onClick={() => setPushPour((p) => Math.min(lvl, p + 1))}>+</button>
+                  <button className="abtn" disabled={pushPour <= 0} onClick={async () => {
+                    try { await api.pourMapWorking({ id: picked.id, hue: pushHue, pour: pushPour }); setPushPour(0); await refreshWorkings(); showHexNotice(`The rune takes the ${pushHue} — pushed, and burning with it.`); }
+                    catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not be pushed."); }
+                  }}>Push it</button>
+                </div>
+              );
+            })()}
           </div>
         )}
         {wavesCleared >= 3 && wave && (

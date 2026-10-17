@@ -32,7 +32,7 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
-import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools } from "./grimoire.js";
+import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -980,14 +980,15 @@ function handleConnection(ws: WebSocket): void {
       // and checked before anything is spent, so a refused cast
       // costs nothing.
       const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
-      const cap = pourCapFor(def);
       let pour = 0;
       if (pourWanted > 0) {
-        if (cap === 0) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
+        if (!(POUR_ENGINES as readonly string[]).includes(def.engine)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
         if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
-        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is capped at ${cap} poured points — the book will not let more in.` })); return; }
         if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
-        const held = (await attunementPools(caster.expKey))[hue] ?? 0;
+        const pools = await attunementPools(caster.expKey);
+        const cap = pourCapFor(def, pools, hue);
+        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.` })); return; }
+        const held = pools[hue] ?? 0;
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
@@ -1030,14 +1031,15 @@ function handleConnection(ws: WebSocket): void {
       // The Pour, as at the ward's raising — one pour feeds the
       // whole cast (the Three Blades drink once, not per hex).
       const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
-      const cap = pourCapFor(def);
       let pour = 0;
       if (pourWanted > 0) {
-        if (cap === 0) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
+        if (!(POUR_ENGINES as readonly string[]).includes(def.engine)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
         if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
-        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is capped at ${cap} poured points — the book will not let more in.` })); return; }
         if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
-        const held = (await attunementPools(caster.expKey))[hue] ?? 0;
+        const pools = await attunementPools(caster.expKey);
+        const cap = pourCapFor(def, pools, hue);
+        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.` })); return; }
+        const held = pools[hue] ?? 0;
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
@@ -1058,6 +1060,43 @@ function handleConnection(ws: WebSocket): void {
         ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`
         : `${caster.name} writes ${def.forms[hue] ?? def.name} on the ground of the field.`);
       for (const hx of hexes) springHex(room, hx, new Set());
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "pourWorking") {
+      // PUSH A NEUTRAL RUNE (Nigel, 2026-10-17): a neutral rune
+      // already standing on the field — your own OR AN ALLY'S —
+      // may be pushed either way: pour an element into it and it
+      // takes that hue. The pour obeys the cast's law (your
+      // attunement level in the pushed element is the depth cap,
+      // the points are truly spent) and the rune gains the
+      // pour's measure of health, as if fed at its raising.
+      // Runes that take no pour cannot be pushed.
+      const caster = player;
+      const fail = (message: string) => { ws.send(JSON.stringify({ type: "error", message })); };
+      const w = room.workings.find(x => x.id === String(msg.workingId));
+      if (!w) { fail("No such working stands on the field."); return; }
+      if (w.kind !== "rune") { fail("Only a rune can be pushed — a ward's hue is chosen at its raising."); return; }
+      if (w.hue !== "unaligned") { fail(`That rune already burns ${w.hue} — its way is chosen.`); return; }
+      const def = spellByKey(w.root);
+      if (!def) { fail("That rune's spell is no longer in the book."); return; }
+      if (!(POUR_ENGINES as readonly string[]).includes(def.engine)) { fail(`${def.name} takes no pour — there is nothing to push it with.`); return; }
+      const hue = String(msg.hue ?? "");
+      if (!(HUE_ORDER as readonly string[]).includes(hue) || hue === "unaligned") { fail("Name the element to push the rune toward."); return; }
+      const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
+      if (pourWanted < 1) { fail("Name the depth to pour."); return; }
+      if (!caster.expKey) { fail("Pouring draws on your attunement pools — bind your Tender at the Table to pour."); return; }
+      const pools = await attunementPools(caster.expKey);
+      const cap = attunementLevel(pools[hue] ?? 0);
+      if (pourWanted > cap) { fail(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.`); return; }
+      if ((pools[hue] ?? 0) < pourWanted) { fail(`Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${pools[hue] ?? 0}.`); return; }
+      await spendAttunement(caster.expKey, hue, pourWanted);
+      if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pourWanted);
+      const gained = Math.floor((def.numbers.hpPerPoint ?? 0) * pourWanted);
+      w.hue = hue; w.pour = (w.pour ?? 0) + pourWanted; w.name = def.forms[hue] ?? w.name;
+      w.hp += gained; w.maxHp += gained;
+      tell(room, `${caster.name} pushes ${def.name} toward ${hue} — poured ${pourWanted} deep, and the rune takes the hue.`);
       sendState(room);
       return;
     }

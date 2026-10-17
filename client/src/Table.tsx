@@ -236,6 +236,9 @@ export default function Table() {
   // working being placed, chosen in the placing bar.
   const [pourPts, setPourPts] = useState(0);
   const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
+  const [pushTargetId, setPushTargetId] = useState<string | null>(null);
+  const [pushHue, setPushHue] = useState<string>("root");
+  const [pushPts, setPushPts] = useState(0);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [diceOpen, setDiceOpen] = useState(false);
@@ -776,6 +779,35 @@ export default function Table() {
               The Bastion is what the party will build around it. Cast from your
               roster onto the field; when the party stands ready, begin the Unraveling.
             </div>
+            {(() => {
+              const neutrals = shared.workings.filter(w => w.kind === "rune" && w.hue === "unaligned" && ["lattice", "shard"].includes(defs[w.root]?.engine ?? ""));
+              if (!neutrals.length) return null;
+              const target = neutrals.find(w => w.id === pushTargetId) ?? null;
+              const pool = Math.floor(you?.pools?.[pushHue] ?? 0);
+              const lvl = Math.min(3, Math.floor(pool / 10));
+              return (
+                <div className="placing-bar">
+                  <span className="placing-text">
+                    {neutrals.map(w => (
+                      <button key={w.id} className="table-btn" onClick={() => { setPushTargetId(target?.id === w.id ? null : w.id); setPushPts(0); }}>
+                        ✦ {w.name} — {w.ownerName}&rsquo;s neutral rune{(target?.id === w.id) ? " (pushing)" : " — push it"}
+                      </button>
+                    ))}
+                    {target && (
+                      <>
+                        <select value={pushHue} onChange={(e) => { setPushHue(e.target.value); setPushPts(0); }}>
+                          {["tide", "sky", "stone", "root", "fire"].map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                        <button className="table-btn" disabled={pushPts <= 0} onClick={() => setPushPts(p => Math.max(0, p - 1))}>−</button>
+                        <span>Pour {pushPts} (your {pushHue} Lv {lvl})</span>
+                        <button className="table-btn" disabled={pushPts >= lvl} onClick={() => setPushPts(p => Math.min(lvl, p + 1))}>+</button>
+                        <button className="table-btn primary" disabled={pushPts <= 0} onClick={() => { send({ type: "pourWorking", workingId: target.id, hue: pushHue, pour: pushPts }); setPushTargetId(null); setPushPts(0); }}>Push it toward {pushHue}</button>
+                      </>
+                    )}
+                  </span>
+                </div>
+              );
+            })()}
             {placing && (
               <div className="placing-bar">
                 <span className="placing-text">
@@ -785,11 +817,11 @@ export default function Table() {
                   {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>your Awoken holds</strong>: the ward will stand on one of its edges.</>}
                   {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
                 </span>
-                {placing.kind !== "heal" && (defs[placing.root]?.numbers.pourCap ?? 0) > 0 && pourHue !== "unaligned" && you?.pools && (() => {
+                {placing.kind !== "heal" && ["seal", "trees", "lattice", "shard"].includes(defs[placing.root]?.engine ?? "") && pourHue !== "unaligned" && you?.pools && (() => {
                   const def = defs[placing.root];
                   const n = def?.numbers ?? {};
-                  const cap = Math.floor(n.pourCap ?? 0);
                   const pool = Math.floor(you.pools[pourHue] ?? 0);
+                  const cap = Math.min(3, Math.floor(pool / 10));
                   const maxPour = Math.min(cap, pool);
                   const bright = shared?.workings.some(w => defs[w.root]?.engine === "engine" && w.ownerKey === you.key) ? 1 : 0;
                   const hpPreview = def?.engine === "shard" ? null
@@ -797,7 +829,7 @@ export default function Table() {
                   return (
                     <span className="placing-pour">
                       <button className="table-btn" disabled={pourPts <= 0} onClick={() => setPourPts(p => Math.max(0, p - 1))}>−</button>
-                      <span>Pour {pourPts} {pourHue} pt{pourPts === 1 ? "" : "s"} (pool {pool} · cap {cap})</span>
+                      <span>Pour {pourPts} {pourHue} pt{pourPts === 1 ? "" : "s"} (pool {pool} · your {pourHue} Lv {cap})</span>
                       <button className="table-btn" disabled={pourPts >= maxPour} onClick={() => setPourPts(p => Math.min(maxPour, p + 1))}>+</button>
                       <span className="placing-pour-effect">{def?.engine === "shard" ? `→ +${pourPts * (n.harmPerPoint ?? 1)} harm when it falls` : `→ raised with ❤${hpPreview}`}</span>
                     </span>

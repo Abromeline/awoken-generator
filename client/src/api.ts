@@ -274,7 +274,6 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "hp", label: "Health rating (base) — each stopped blow costs the blow's power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
     { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
-    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   engine: [{ key: "energyPerRound", label: "Energy to its tender each round", def: 1 }],
   standard: [{ key: "strikeBonus", label: "Strike bonus on either hex it divides", def: 1 }],
@@ -284,7 +283,6 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "regrow", label: "Health regrown each round", def: 2 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
     { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
-    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   beacon: [{ key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 }],
   lattice: [
@@ -292,7 +290,6 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "hp", label: "Health rating (base) — pinning a dark costs its power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
     { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
-    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   blade: [
     { key: "power", label: "Harm to everything on its ground", def: 6 },
@@ -308,7 +305,6 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
     { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
     { key: "harmPerPoint", label: "Extra harm per elemental point poured in at the cast (the gated working's pour is capped)", def: 1 },
-    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 6 },
   ],
   coil: [
     { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
@@ -491,6 +487,8 @@ export const api = {
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; pour?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number }>("castMapWorking", args),
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
+  pourMapWorking: (args: { id: number; hue: string; pour: number }) =>
+    post<{ ok: true; id: number; hue: string; pour: number; hp: number; maxHp: number }>("pourMapWorking", args),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
