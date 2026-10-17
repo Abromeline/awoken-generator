@@ -366,6 +366,9 @@ button { font-family: inherit; }
 .bind-strip { margin-top: 10px; border-top: 1px dashed var(--ash-3); padding-top: 10px; }
 .bind-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .bind-row .door-input { max-width: 150px; text-transform: uppercase; letter-spacing: 2px; }
+.door-back { margin: 0 0 8px; }
+.door-back a { color: var(--gold); text-decoration: none; font-size: 14px; }
+.door-back a:hover { text-decoration: underline; }
 .bind-code-panel { margin-top: 18px; border-top: 1px dashed var(--ash-3); padding-top: 12px; }
 .bind-code-panel h4 { margin: 0 0 6px; color: var(--gold-bright); }
 .bind-code-shown { font-size: 16px; letter-spacing: 1px; }

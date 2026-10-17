@@ -349,6 +349,7 @@ export default function Table() {
     return (
       <div className="table-door-wrap">
         <div className="table-door">
+          <p className="door-back"><a href="/">← Back to the Awoken</a></p>
           <h1>🕯️ The Table</h1>
           <p>
             A table for Tenders, played together. Awoken never fight each other here —
