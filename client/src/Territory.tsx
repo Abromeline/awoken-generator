@@ -648,6 +648,31 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const d = WALL_DIR_DELTAS[w.dir ?? 0];
     return [a, { q: a.q + d[0], r: a.r + d[1] }];
   };
+  /** The overlay referee's lookups, precomputed from the map's
+   *  geometry: each ward's two tiles, the tiles its Standard and
+   *  Beacon light, and every standing's poured name. */
+  const grimBattleProps = () => {
+    const wardTiles: Record<number, [number, number]> = {};
+    const wardsByTile: Record<number, number[]> = {};
+    const stdTiles: Record<number, number> = {};
+    const bcnTiles: Record<number, number> = {};
+    const names: Record<number, string> = {};
+    const tileAt = (q: number, r: number) => tiles.find((t) => t.q === q && t.r === r);
+    for (const w of workings) {
+      names[w.id] = grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey;
+      if (w.kind !== "ward") continue;
+      const [ea, eb] = grimEdgeTiles(w);
+      const ta = tileAt(ea.q, ea.r)?.id ?? w.tileId ?? -1;
+      const tb = tileAt(eb.q, eb.r)?.id ?? (ta === w.tileId ? -1 : (w.tileId ?? -1));
+      wardTiles[w.id] = [ta, tb];
+      for (const tid of [ta, tb]) if (tid >= 0) (wardsByTile[tid] ??= []).push(w.id);
+      if (w.engine === "standard") for (const tid of [ta, tb]) if (tid >= 0) stdTiles[tid] = Math.max(stdTiles[tid] ?? 0, w.nums.strikeBonus ?? 1);
+      if (w.engine === "beacon") {
+        for (const e of [ea, eb]) for (const t of tiles) if (hexDist({ q: e.q, r: e.r } as any, t) <= 1) bcnTiles[t.id] = Math.max(bcnTiles[t.id] ?? 0, w.nums.darkBonus ?? 1);
+      }
+    }
+    return { wardTiles, wardsByTile, stdTiles, bcnTiles, names };
+  };
   const grimReport = () => ({
     grimState: [...grimBattleRef.current.entries()].map(([id, st]) => ({ id, hp: st.hp, stops: st.stops, charges: st.charges, spent: st.spent })),
     grimEnergy: grimYieldRef.current,
@@ -1858,6 +1883,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setPlacements(refreshed.placements);
       setWalls(refreshed.walls ?? []);
       setSkills(refreshed.skills ?? []);
+      setWorkings(refreshed.workings ?? []);
     } catch (e) { console.error("Territory refresh after resolution failed", e); }
     try {
       const w = await api.getWave();
@@ -1973,7 +1999,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // rolls the aspect grant, so the screen shows the server's own roll —
   // and handleBattleEnd, which runs when the screen's buttons are
   // pressed, does not resolve the same victory twice.
-  const handleVictoryDetected = async (survivors: number[] = [], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[]) => {
+  const handleVictoryDetected = async (survivors: number[] = [], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[], grim?: { grimState: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy: number }) => {
     if (battleResolvedRef.current) return;
     battleResolvedRef.current = true;
     if (isBossFight && wave?.isBoss) {
@@ -1984,6 +2010,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           survivorIds: survivors,
           wallState,
           runesTriggered,
+          grimState: grim?.grimState,
+          grimEnergy: grim?.grimEnergy,
         });
         bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
         // The screen claims the OLDEST pending grant (the ledger pays
@@ -1998,7 +2026,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => {
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => {
     const wasBoss = isBossFight && !!wave?.isBoss;
     const bossLvl = wave?.bossLevel ?? bossLevel;
     setShowBattleground(false);
@@ -2013,7 +2041,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         if (result.victory) {
           if (!bossResolutionRef.current) {
             // Detection never resolved (screen closed early) — resolve now.
-            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState, runesTriggered: result.runesTriggered });
+            const res = await api.resolveBossBattle({ victory: true, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState, runesTriggered: result.runesTriggered, grimState: result.grimState, grimEnergy: result.grimEnergy });
             bossResolutionRef.current = { victory: true, bossesDefeated: res.bossesDefeated };
           }
           if (bossResolutionRef.current.victory) {
@@ -2028,7 +2056,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             } catch (e) { console.error("Boss newborn birth failed", e); }
           }
         } else if (!bossResolutionRef.current) {
-          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState, runesTriggered: result.runesTriggered });
+          await api.resolveBossBattle({ victory: false, bossLevel: bossLvl, survivorIds: result.survivors, wallState: result.wallState, runesTriggered: result.runesTriggered, grimState: result.grimState, grimEnergy: result.grimEnergy });
         }
       } catch (e) {
         showHexNotice(refusalText(e, "The boss resolution was refused."));
@@ -2066,6 +2094,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         targetTileId: waveTarget?.tile?.id,
         wallState: result.wallState,
         runesTriggered: result.runesTriggered,
+        grimState: result.grimState,
+        grimEnergy: result.grimEnergy,
       });
       if (battleRes.bonusEligible && battleRes.bonusEligible.length > 0) {
         setBonusTiles(battleRes.bonusEligible);
@@ -2081,6 +2111,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
       setWalls(refreshed.walls ?? []);
+      setWorkings(refreshed.workings ?? []);
       const w = await api.getWave();
       setWave(w);
       await refreshEnergy();
@@ -4351,6 +4382,14 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 .map(w => ({ edgeKey: w.edgeKey, runeKind: (w.runeKind ?? "meld") as "snare" | "harm" | "meld", level: w.level ?? 1 })),
             ]))}
             edgeThornTiles={tiles.filter(t => wallsTouchingTile(t).some(w => w.kind === "thorns")).map(t => t.id)}
+            grimWorkings={workings}
+            grimRunesByTile={Object.fromEntries(workings.filter(w => (w.kind === "rune" || w.kind === "spell") && w.tileId != null).map(w => [w.tileId!, w]))}
+            grimWardsByTile={grimBattleProps().wardsByTile}
+            grimWardTiles={grimBattleProps().wardTiles}
+            grimStdTiles={grimBattleProps().stdTiles}
+            grimBcnTiles={grimBattleProps().bcnTiles}
+            grimCoilTiles={tiles.filter(t => !t.cursed).map(t => t.id)}
+            grimNames={grimBattleProps().names}
           />
         );
       })()}

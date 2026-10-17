@@ -56,10 +56,10 @@ interface BattlegroundProps {
   assets: FieldAsset[];
   energy: number;
   maxEnergy: number;
-  onBattleEnd: (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => void;
+  onBattleEnd: (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => void;
   onClose: () => void;
   bonusTiles?: { id: number; q: number; r: number }[];
-  onVictoryDetected?: (survivors: number[], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[]) => Promise<void>;
+  onVictoryDetected?: (survivors: number[], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[], grim?: { grimState: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy: number }) => Promise<void>;
   // Hex walls standing on the defenders' tiles (War-Ground, 2026-10-15):
   // tileId → the walls on that tile's edges. Enemy strikes against a
   // fighter land on its tile's walls first; the walls' remaining HP is
@@ -72,6 +72,24 @@ interface BattlegroundProps {
   // attackers, costing each its next strike.
   runesByTile?: Record<number, { edgeKey: string; runeKind: "snare" | "harm" | "meld"; level: number }[]>;
   edgeThornTiles?: number[];
+  // The Written Light standing on this battle's ground (the
+  // Grimoire, Nigel 2026-10-17): the Tender's map castings whose
+  // hexes and edges this battle touches, with the lookups the
+  // referee needs precomputed by the Territory (which knows the
+  // map's geometry): floor runes by tile, ward ids touching each
+  // tile, each ward's two tiles, the Standard/Beacon aura ledgers
+  // by tile, the poured form names, and the purified tiles a
+  // Coil may throw the dark to. Their engines run in
+  // applyEnemyStrike / applyStrike by the book's numbers; the
+  // battle mirror is reported back in the battle's result.
+  grimWorkings?: import("./api").MapWorking[];
+  grimRunesByTile?: Record<number, import("./api").MapWorking>;
+  grimWardsByTile?: Record<number, number[]>;
+  grimWardTiles?: Record<number, [number, number]>;
+  grimStdTiles?: Record<number, number>;
+  grimBcnTiles?: Record<number, number>;
+  grimCoilTiles?: number[];
+  grimNames?: Record<number, string>;
   // The server's rolled aspect grant for a boss victory (resolved at
   // detection, before this screen opens) — null when no grant waits.
   aspectGrant?: string[] | null;
@@ -204,7 +222,7 @@ function VictoryAspects({ grant }: { grant: string[] | null }) {
   );
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [] }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [], grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {} }: BattlegroundProps) {
   // The creator's live enemy art (UI Workspace uploads/selection).
   const { data: enemyArtData } = useEnemyArt();
   const [fighters, setFighters] = useState<Fighter[]>([]);
@@ -251,6 +269,19 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const fighterRefs = useRef(new Map<string, HTMLDivElement>());
   const towerRefs = useRef(new Map<number, HTMLDivElement>());
   const fieldRef = useRef<HTMLDivElement>(null);
+  // The Written Light's battle mirror (the Grimoire): live state
+  // per standing, seeded from the castings; yields bank as the
+  // Engines sing per exchange (doAttack). Reported at the end.
+  const grimRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean }>>(
+    new Map(grimWorkings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false }])),
+  );
+  const grimYieldRef = useRef(0);
+  const grimBrightBg = () => grimWorkings.some((w) => w.engine === "engine" && !(grimRef.current.get(w.id)?.spent));
+  const grimName = (w: import("./api").MapWorking) => grimNames[w.id] ?? w.spellKey;
+  const grimReportBg = () => ({
+    grimState: [...grimRef.current.entries()].map(([id, st]) => ({ id, hp: st.hp, stops: st.stops, charges: st.charges, spent: st.spent })),
+    grimEnergy: grimYieldRef.current,
+  });
   const fightersRef = useRef<Fighter[]>([]);
   const enemiesRef = useRef<Fighter[]>([]);
   const busyRef = useRef(false);
@@ -524,9 +555,15 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const SETTLE_MS = 500;
 
   const applyStrike = (atk: Fighter, def: Fighter) => {
-    const dmg = Math.max(1, atk.power - def.tough);
+    // The Written Light's auras (the Grimoire): a Standard over
+    // the striker's ground lends its bonus; a Beacon lends its
+    // bonus against dark standing in its light.
+    const aura = atk.side !== "en" && def.side === "en"
+      ? (atk.tileId != null ? grimStdTiles[atk.tileId] ?? 0 : 0) + (def.tileId != null ? grimBcnTiles[def.tileId] ?? 0 : 0)
+      : 0;
+    const dmg = Math.max(1, atk.power + aura - def.tough);
     const isCrit = dmg >= atk.power * 1.5;
-    addLog(`${atk.name} strikes ${def.name} for ${dmg}!`);
+    addLog(`${atk.name} strikes ${def.name} for ${dmg}!${aura > 0 ? " The Written Light lends its strength." : ""}`);
     setHitFlash(def.id);
     later(400, () => setHitFlash(null));
     const numId = `dmg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -589,6 +626,81 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       // Thorns slow the crossing: this strike lands, the next is owed.
       if (edgeThornTiles.includes(target.tileId)) {
         skipStrikesRef.current.set(attacker.id, Math.max(skipStrikesRef.current.get(attacker.id) ?? 0, 1));
+      }
+    }
+    // The Written Light answers on this ground (the Grimoire):
+    // a floor rune springs as the dark closes on its hex, a Seal
+    // across the very crossing stops the blow and answers it,
+    // and the Trees take the blow into their own health — all
+    // before the walls are tested, by the book's numbers.
+    if (target.tileId != null) {
+      const grune = grimRunesByTile[target.tileId];
+      const gst = grune ? grimRef.current.get(grune.id) : undefined;
+      if (grune && gst && !gst.spent) {
+        const bright = grimBrightBg() ? 1 : 0;
+        if (grune.engine === "lattice") {
+          skipStrikesRef.current.set(attacker.id, (skipStrikesRef.current.get(attacker.id) ?? 0) + (grune.nums.pinRounds ?? 2));
+          gst.spent = true;
+          addLog(`${grimName(grune)} springs — ${attacker.name} is pinned in the lattice of light, and its strike never comes!`);
+          return;
+        }
+        if (grune.engine === "blade" || grune.engine === "blades") {
+          const power = (grune.nums.power ?? (grune.engine === "blade" ? 6 : 3)) + bright * (grune.nums.brightBonus ?? 1);
+          setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - power) } : e));
+          gst.charges--;
+          if (gst.charges <= 0) gst.spent = true;
+          addLog(`${grimName(grune)} springs — ${power} harm to everything dark on its ground!`);
+        }
+        if (grune.engine === "coil") {
+          const dests = grimCoilTiles.filter(t => t !== target.tileId && t !== attacker.tileId);
+          if (dests.length) {
+            const dest = dests[Math.floor(Math.random() * dests.length)];
+            setEnemies(prev => prev.map(e => e.id === attacker.id ? { ...e, tileId: dest } : e));
+            grimYieldRef.current += Math.min(grune.nums.energyCap ?? 3, grune.nums.energyPerDark ?? 1);
+          }
+          gst.spent = true;
+          addLog(`${grimName(grune)} turns ${attacker.name} aside — hurled to far ground, its strike lost in the turning!`);
+          return;
+        }
+        if (grune.engine === "shard") {
+          const here = enemiesRef.current.filter(e => e.tileId === target.tileId || e.id === attacker.id);
+          const greatest = here.length ? Math.max(...here.map(e => e.power)) : 0;
+          if (greatest >= (grune.nums.minPower ?? 5)) {
+            const dmg = greatest * (grune.nums.multiplier ?? 2);
+            setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
+            gst.spent = true;
+            addLog(`${grimName(grune)} FALLS on the whole hex — ${dmg} harm, measured by the greatest dark standing there!`);
+          }
+        }
+      }
+      // Seals first — a blow stopped cold never reaches the trees.
+      for (const wid of grimWardsByTile[target.tileId] ?? []) {
+        const w = grimWorkings.find(x => x.id === wid);
+        const st = grimRef.current.get(wid);
+        if (!w || !st || st.spent || w.engine !== "seal") continue;
+        const [ta, tb] = grimWardTiles[wid] ?? [-1, -1];
+        const other = ta === target.tileId ? tb : tb === target.tileId ? ta : null;
+        if (other === null || attacker.tileId !== other) continue;
+        st.stops++;
+        if (st.stops >= (w.nums.stops ?? 3)) st.spent = true;
+        const rip = (w.nums.riposte ?? 3) + (grimBrightBg() ? (w.nums.brightBonus ?? 1) : 0);
+        setEnemies(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rip) } : e));
+        addLog(`${grimName(w)} stops ${attacker.name}'s strike cold — and answers it (${rip})!`);
+        return;
+      }
+      // Then the Trees take what crosses their edge.
+      for (const wid of grimWardsByTile[target.tileId] ?? []) {
+        const w = grimWorkings.find(x => x.id === wid);
+        const st = grimRef.current.get(wid);
+        if (!w || !st || st.spent || w.engine !== "trees" || st.hp <= 0) continue;
+        st.hp = Math.max(0, st.hp - Math.max(1, attacker.power));
+        if (st.hp <= 0) st.spent = true;
+        addLog(st.hp > 0
+          ? `${grimName(w)} take the blow meant for ${target.name} — the trees hold at ${st.hp}.`
+          : `${grimName(w)} are broken bringing ${attacker.name}'s strike down — for this battle. The seed remembers them.`);
+        setHitFlash(target.id);
+        later(400, () => setHitFlash(null));
+        return;
       }
     }
     // Hex walls block the crossing (War-Ground, 2026-10-15): while a
@@ -698,6 +810,11 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const doAttack = (atk: Fighter, def: Fighter) => {
     if (busyRef.current) return;
     runBindingMend();
+    // The Written Light's Engines sing per exchange (the Grimoire).
+    for (const w of grimWorkings) {
+      const st = grimRef.current.get(w.id);
+      if (w.engine === "engine" && st && !st.spent) grimYieldRef.current += w.nums.energyPerRound ?? 1;
+    }
     setBusyBoth(true);
     setSelected(null);
 
@@ -745,7 +862,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setTimeout(async () => {
         if (onVictoryDetected) {
           const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!).filter(Boolean);
-          await onVictoryDetected(survivors, currentWallState(), currentRunesTriggered());
+          await onVictoryDetected(survivors, currentWallState(), currentRunesTriggered(), grimReportBg());
         }
         setShowVictoryScreen(true);
       }, 1500);
@@ -755,7 +872,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setSimRunning(false);
       trackPlayer.stop();
       addLog("THE LINE FALLS...");
-      setTimeout(() => onBattleEnd({ victory: false, survivors: [], wallState: currentWallState(), runesTriggered: currentRunesTriggered() }), 2500);
+      setTimeout(() => onBattleEnd({ victory: false, survivors: [], wallState: currentWallState(), runesTriggered: currentRunesTriggered(), ...grimReportBg() }), 2500);
     }
   }, [fighters, enemies]);
 
@@ -1008,13 +1125,13 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           <div className="victory-buttons">
             <button className="abtn raise-binding" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered() });
+              onBattleEnd({ victory: true, survivors, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered(), ...grimReportBg() });
             }}>
               ✦ Rest — end the run
             </button>
             <button className="abtn continue-wave" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered() });
+              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered(), ...grimReportBg() });
             }}>
               Continue →
             </button>
