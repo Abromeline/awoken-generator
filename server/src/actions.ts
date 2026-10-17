@@ -794,43 +794,10 @@ function corruptionToughness(q: number, r: number): number {
 
 
 
-/** Binding bonus: Awoken in binding stance channel power into the land.
- *  Their own tile gets +3, adjacent tiles get +1. The energy cost is
- *  tracked client-side (2 to enter, 1 per hour). */
-async function bindingBonuses(ownerKey: string): Promise<Map<number, number>> {
-  const bonuses = new Map<number, number>();
-  const binders = await db.select({
-    tileId: schema.fieldPlacements.tileId,
-  }).from(schema.fieldPlacements)
-    .where(and(
-      eq(schema.fieldPlacements.ownerKey, ownerKey),
-      eq(schema.fieldPlacements.stance, "binding")
-    ));
-  if (!binders.length) return bonuses;
-  const tiles = await db.select({
-    id: schema.territoryTiles.id,
-    q: schema.territoryTiles.q,
-    r: schema.territoryTiles.r,
-  }).from(schema.territoryTiles)
-    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
-  const tileById = new Map(tiles.map(t => [t.id, t]));
-  const tileByCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
-  for (const b of binders) {
-    const tile = tileById.get(b.tileId);
-    if (!tile) continue;
-    // Own tile gets +3
-    bonuses.set(tile.id, (bonuses.get(tile.id) ?? 0) + 3);
-    // Neighbors get +1
-    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-    for (const [dq, dr] of dirs) {
-      const neighbor = tileByCoord.get(`${tile.q + dq},${tile.r + dr}`);
-      if (neighbor) {
-        bonuses.set(neighbor.id, (bonuses.get(neighbor.id) ?? 0) + 1);
-      }
-    }
-  }
-  return bonuses;
-}
+// (bindingBonuses — a +3/+1 defense bonus for binding tiles — was
+// deleted 2026-10-17 on Nigel's order: it had no caller, and under
+// his law Binding is attunement and healing only. The copy that
+// promised it was corrected the same day.)
 
 /** Expand the frontier: when a tile is purified, cursed wilds push outward.
  *  Any missing neighbor of (q,r) becomes a new cursed tile. */
@@ -5257,21 +5224,18 @@ export const handlers = {
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {
       // Defeat: a random purified border tile becomes cursed.
-      // The bastion never falls. Tiles held by binding Awoken are protected.
+      // The bastion (center) never falls — that exclusion is its own
+      // standing law. No stance shields a tile from falling: the old
+      // binding-shield doctrine was struck (Nigel, 2026-10-16 —
+      // Binding is attunement and healing only) and its exemption
+      // here was deleted on his order, 2026-10-17.
       const purified = await db.select().from(schema.territoryTiles)
         .where(and(
           eq(schema.territoryTiles.ownerKey, ownerKey),
           eq(schema.territoryTiles.cursed, 0)
         ));
-      const binders = await db.select({ tileId: schema.fieldPlacements.tileId })
-        .from(schema.fieldPlacements)
-        .where(and(
-          eq(schema.fieldPlacements.ownerKey, ownerKey),
-          eq(schema.fieldPlacements.stance, "binding")
-        ));
-      const protectedIds = new Set(binders.map(b => b.tileId));
       const border = purified.filter(t =>
-        !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id)
+        !(t.q === 0 && t.r === 0)
       );
       if (border.length) {
         const victim = border[Math.floor(Math.random() * border.length)];
@@ -6356,24 +6320,19 @@ export const handlers = {
 
   async getWaveTarget(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
-    // The wave targets a random border tile (purified, non-center, non-binding)
-    // If no border tiles, targets the bastion.
+    // The wave targets a random border tile (purified, non-center).
+    // If no border tiles, targets the bastion. No stance exempts a
+    // tile from being chosen — the binding shield is struck law
+    // (Nigel, 2026-10-16; exemption deleted 2026-10-17).
     const tiles = await db.select().from(schema.territoryTiles)
       .where(and(
         eq(schema.territoryTiles.ownerKey, ownerKey),
         eq(schema.territoryTiles.cursed, 0)
       ));
-    const binders = await db.select({ tileId: schema.fieldPlacements.tileId })
-      .from(schema.fieldPlacements)
-      .where(and(
-        eq(schema.fieldPlacements.ownerKey, ownerKey),
-        eq(schema.fieldPlacements.stance, "binding")
-      ));
-    const protectedIds = new Set(binders.map(b => b.tileId));
     // Wildfire: ignited tiles draw out enemies first
     const ignited = tiles.filter(t => t.spark === 2);
-    // Border = purified, not center, not protected by binding
-    const border = tiles.filter(t => !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id));
+    // Border = purified, not center
+    const border = tiles.filter(t => !(t.q === 0 && t.r === 0));
     let target;
     if (ignited.length > 0) {
       target = ignited[Math.floor(Math.random() * ignited.length)];
@@ -6562,20 +6521,16 @@ export const handlers = {
         })
         .where(eq(schema.waveState.ownerKey, ownerKey));
     } else {
-      // Defeat: unbound border tile falls, Awoken disperse
+      // Defeat: a border tile falls, Awoken disperse. Only the
+      // bastion (center) is exempt, by its own law — no stance
+      // shields a tile (binding shield struck, Nigel, 2026-10-16;
+      // exemption deleted 2026-10-17).
       const purified = await db.select().from(schema.territoryTiles)
         .where(and(
           eq(schema.territoryTiles.ownerKey, ownerKey),
           eq(schema.territoryTiles.cursed, 0)
         ));
-      const binders = await db.select({ tileId: schema.fieldPlacements.tileId })
-        .from(schema.fieldPlacements)
-        .where(and(
-          eq(schema.fieldPlacements.ownerKey, ownerKey),
-          eq(schema.fieldPlacements.stance, "binding")
-        ));
-      const protectedIds = new Set(binders.map(b => b.tileId));
-      const border = purified.filter(t => !(t.q === 0 && t.r === 0) && !protectedIds.has(t.id));
+      const border = purified.filter(t => !(t.q === 0 && t.r === 0));
       if (border.length) {
         const victim = border[Math.floor(Math.random() * border.length)];
         const victims = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })

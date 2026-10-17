@@ -42,7 +42,7 @@ const STEPS: Step[] = [
     body: [
       "⚔ Attack (1 energy): Strike adjacent cursed tiles. Each attack dwindles curse HP by the Awoken's power.",
       "🛡 Defense (1 energy): Hold ground. Guards the tile and blocks enemies.",
-      "✦ Binding (1 energy + 3/hr): Heals wounded defenders. The ONLY shield against tile loss.",
+      "✦ Binding (1 energy + 3/hr): Heals wounded defenders and channels attunement into the land.",
     ],
     lore: "Binding is attention made manifest. It costs 3 energy per hour to maintain — unpaid binding drops to defense.",
   },

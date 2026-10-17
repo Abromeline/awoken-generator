@@ -39,7 +39,7 @@ const MESSAGES = [
   // Lore: Energy from attention, binding, ritual
   "Your attention IS energy, Tender. When you look at us, truly look — we grow stronger.",
   "Binding is ritual, Tender. When you set an Awoken to Binding stance, you weave attention into the land.",
-  "The Binding ritual channels your focus into the earth — +3 to its tile, +1 to neighbors. That is energy made visible.",
+  "The Binding ritual channels your focus into the earth — feeding its attunement, and mending wounded Awoken. That is energy made visible.",
   "We are held together by your attention. Every moment you spend with us generates the light you spend.",
   "Ritual is not repetition, Tender. It is intention. Wake one with care, and feel the energy return.",
   "When you name an Awoken, you bind a thread of your attention to them. That thread hums with energy.",

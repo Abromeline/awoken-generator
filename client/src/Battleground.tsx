@@ -56,7 +56,7 @@ interface BattlegroundProps {
   assets: FieldAsset[];
   energy: number;
   maxEnergy: number;
-  onBattleEnd: (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => void;
+  onBattleEnd: (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => void;
   onClose: () => void;
   bonusTiles?: { id: number; q: number; r: number }[];
   onVictoryDetected?: (survivors: number[], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[]) => Promise<void>;
@@ -92,6 +92,7 @@ interface Fighter {
   field: boolean;  // True if field defender, false if reinforcement
   awoken?: Awakened;  // For FieldAwoken rendering
   tileId?: number;  // For building effects (thorn wall)
+  stance?: string;  // The defender's stance — the binding mend reads it
 }
 
 /** A visible projectile flying across the battlefield. */
@@ -397,7 +398,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       power: basePower, tough: baseTough,
       hp: baseTough, maxHp: baseTough,
       name: d.awoken.name + (d.stance === "attack" ? " ⚔+2" : d.stance === "defense" ? " 🛡+2" : "") + (towerBonus ? " 🗼+2" : ""),
-      side: "aw", field: true,
+      side: "aw", field: true, stance: d.stance,
       awoken: d.awoken,
     }});
     const en: Fighter[] = [];
@@ -437,21 +438,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         name: "Tangle", side: "en", field: false,
       });
     }
-    // Binding Awoken heals: total power split among wounded defenders
-    const binders = defenders.filter(d => d.stance === "binding");
-    if (binders.length > 0) {
-      const totalHeal = binders.reduce((sum, d) => sum + d.awoken.power, 0);
-      const wounded = aw.filter(f => f.hp < f.maxHp);
-      if (wounded.length > 0 && totalHeal > 0) {
-        const healEach = Math.floor(totalHeal / wounded.length);
-        const remainder = totalHeal % wounded.length;
-        wounded.forEach((w, idx) => {
-          const heal = healEach + (idx < remainder ? 1 : 0);
-          w.hp = Math.min(w.maxHp, w.hp + heal);
-        });
-        addLog(`✦ Binding light mends the wounded (+${totalHeal} total)`);
-      }
-    }
+    // The binding mend does NOT run here: at setup no one is wounded
+    // yet, so for years it fired into an empty set and Binding's
+    // in-battle heal never happened at all (Law's audit, Obs. 2).
+    // It lives in runBindingMend now, called between exchanges.
     setFighters(aw);
     setEnemies(en);
     fightersRef.current = aw;
@@ -677,8 +667,37 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     });
   };
 
+  // Binding mend (kept law, re-timed 2026-10-17 on Nigel's order):
+  // once between exchanges, each living binding-stance defender's
+  // power joins a pool split among the living wounded — the heal the
+  // law always promised, at a moment when wounds exist.
+  const runBindingMend = () => {
+    const current = fightersRef.current;
+    const binders = current.filter(f => f.side === "aw" && f.hp > 0 && f.stance === "binding");
+    if (!binders.length) return;
+    const totalHeal = binders.reduce((sum, f) => sum + (f.awoken?.power ?? f.power), 0);
+    const wounded = current.filter(f => f.side === "aw" && f.hp > 0 && f.hp < f.maxHp);
+    if (!wounded.length || totalHeal <= 0) return;
+    const healEach = Math.floor(totalHeal / wounded.length);
+    const remainder = totalHeal % wounded.length;
+    let applied = 0;
+    const mended = current.map(f => {
+      const idx = wounded.findIndex(w => w.id === f.id);
+      if (idx < 0) return f;
+      const heal = healEach + (idx < remainder ? 1 : 0);
+      const hp = Math.min(f.maxHp, f.hp + heal);
+      applied += hp - f.hp;
+      return { ...f, hp };
+    });
+    if (applied <= 0) return;
+    fightersRef.current = mended;
+    setFighters(mended);
+    addLog(`✦ Binding light mends the wounded (+${applied} total)`);
+  };
+
   const doAttack = (atk: Fighter, def: Fighter) => {
     if (busyRef.current) return;
+    runBindingMend();
     setBusyBoth(true);
     setSelected(null);
 
@@ -989,9 +1008,9 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           <div className="victory-buttons">
             <button className="abtn raise-binding" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, raiseBinding: true, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered() });
+              onBattleEnd({ victory: true, survivors, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered() });
             }}>
-              ✦ Raise Binding
+              ✦ Rest — end the run
             </button>
             <button className="abtn continue-wave" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);

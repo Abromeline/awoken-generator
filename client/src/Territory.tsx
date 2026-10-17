@@ -529,7 +529,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const simRef = useRef<{ units: typeof simUnits; timer: any } | null>(null);
   const battleRef = useRef<{ timer: any } | null>(null);
   const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
-  const [showBindingPrompt, setShowBindingPrompt] = useState(false);
   const [showBattleground, setShowBattleground] = useState(false);
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
@@ -656,10 +655,6 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         // server's wavesDefeated, so it survives a reload (War-Ground
         // fix, 2026-10-15) instead of evaporating with local state.
         setWavesCleared(cycleFromDefeated(w.wavesDefeated));
-        // After 3 victories, prompt the binding — it protects tiles from waves.
-        if (w.wavesDefeated >= 3 && !localStorage.getItem("bindingPromptSeen")) {
-          setShowBindingPrompt(true);
-        }
       }).catch((e) => {
         console.error("[Territory] getWave failed:", e);
       });
@@ -1688,8 +1683,12 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           if (!pTile) continue;
           if (hexDist(bTile, pTile) <= 1) {
             const hp = next.get(p.awakenedId) ?? 6;
-            const maxHp = (tenderItems.find(a => a.id === p.awakenedId)?.power || 3) +
-                          (tenderItems.find(a => a.id === p.awakenedId)?.toughness || 3);
+            // Woundedness is judged on the same basis the heal caps
+            // at — toughness, the field health the map itself shows
+            // (❤ hp/toughness). The power+toughness test that stood
+            // here counted full-health Awoken as wounded and diluted
+            // the split (Law's audit, Obs. 4; fixed 2026-10-17).
+            const maxHp = (tenderItems.find(a => a.id === p.awakenedId)?.toughness || 3);
             if (hp < maxHp) wounded.push(p.awakenedId);
           }
         }
@@ -1761,7 +1760,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     }
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; raiseBinding?: boolean; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => {
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[] }) => {
     const wasBoss = isBossFight && !!wave?.isBoss;
     const bossLvl = wave?.bossLevel ?? bossLevel;
     setShowBattleground(false);
@@ -3381,7 +3380,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               <button
                 className={`stance-btn ${placement.stance === "binding" ? "active" : ""}`}
                 onClick={() => handleSetStance(selectedAwoken, "binding")}
-                title="Channel power into the land. +3 to own tile, +1 to neighbors. Costs 2 energy.">
+                title="Channel power into the land: feeds attunement and mends the wounded. Costs 2 energy.">
                 ✦ Binding
               </button>
               {(() => {

@@ -39,7 +39,7 @@ const PAGES: Page[] = [
     body: [
       "Every stance costs 1 energy to enter. Choose well — energy is precious.",
       "⚔ Attack: strike adjacent cursed tiles. 🛡 Defense: hold ground and guard.",
-      "✦ Binding: heals wounded defenders in battle and shields the tile from falling. Costs 3 energy per hour to maintain.",
+      "✦ Binding: heals wounded defenders in battle and channels attunement into the land. Costs 3 energy per hour to maintain.",
       "Buildings cost 2 energy to raise. Watchtowers volley at waves, thorn walls wound attackers, wheat harvests energy.",
     ],
   },
@@ -48,7 +48,7 @@ const PAGES: Page[] = [
     body: [
       "Unravelings assault your territory. Survive, and the Unraveling breaks.",
       "Victory brings a spinning golden hex — and a choice. Pick one new territory from the map as your reward.",
-      "Then decide: ✦ Raise Binding to bank your progress and rest, or Continue → for +6 energy, fresh cards, and a harder wave.",
+      "Then decide: ✦ Rest to bank your progress and end the run, or Continue → for +6 energy, fresh cards, and a harder wave.",
       "An Awoken's presence slowly attunes neutral land toward its element — 13 minutes to take root.",
     ],
     diagram: "attune",
