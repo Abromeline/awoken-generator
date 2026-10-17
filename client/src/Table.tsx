@@ -54,7 +54,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   field: FieldUnitView[];
@@ -72,6 +72,8 @@ interface YouState {
   healTier?: number;
   healAmount?: number;
   wardRuneUnlocked?: boolean;
+  tenderHp?: number;
+  maxTenderHp?: number;
   inventory: string[];
   bound?: string | null;
 }
@@ -483,7 +485,7 @@ export default function Table() {
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
               <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}</span>
-              <span className="party-meta">⚡ {p.energy} · 🂠 {p.handCount} in roster</span>
+              <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}

@@ -30,7 +30,7 @@ import { db, schema } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
-import { getTenderProgress, healTierForLevel, healAmountForLevel } from "./tenderExp.js";
+import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel } from "./tenderExp.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -85,6 +85,10 @@ interface Player {
   healTier: number;
   healAmount: number;
   wardRuneUnlocked: boolean;
+  /** The Tender's HP for this sitting — full until the
+   *  referee deals damage; by level, per the HP law. */
+  tenderHp: number;
+  maxTenderHp: number;
   /** This sitting's energy: for a bound seat, the game's own max
    *  energy for that Tender, calculated from their whole roster by
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
@@ -276,7 +280,7 @@ function sharedState(room: Room) {
     sky: room.sky,
     round: 0,
     threat: 0,
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: p.energy, maxEnergy: p.maxEnergy })),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: p.energy, maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp })),
     watcherCount: room.players.size - seated.length,
     tale: room.tale.slice(-TALE_CAP),
     field: [...room.field.values()].map(u => ({
@@ -311,6 +315,8 @@ function sendState(room: Room): void {
         healTier: player.healTier,
         healAmount: player.healAmount,
         wardRuneUnlocked: player.wardRuneUnlocked,
+        tenderHp: player.tenderHp,
+        maxTenderHp: player.maxTenderHp,
       },
     }));
   }
@@ -395,6 +401,7 @@ function handleConnection(ws: WebSocket): void {
       let healTier = healTierForLevel(1);
       let healAmount = healAmountForLevel(1);
       let wardRuneUnlocked = false;
+      let maxTenderHp = tenderMaxHpForLevel(1);
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
@@ -410,6 +417,7 @@ function handleConnection(ws: WebSocket): void {
               healTier = progress.healTier;
               healAmount = progress.healAmount;
               wardRuneUnlocked = progress.wardRuneUnlocked;
+              maxTenderHp = progress.maxTenderHp;
             }
           }
         }
@@ -419,7 +427,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked };
+      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp };
       room.players.set(ws, player);
       if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);

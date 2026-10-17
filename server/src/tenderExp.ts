@@ -39,6 +39,17 @@ export function wakeExpFor(lifetimeWakesBefore: number): number {
   return 1;
 }
 
+/** A Tender's HP, by level (Nigel, 2026-10-16): 20 + 5 per
+ *  level. And the shield law that governs how it is ever
+ *  spent: a Tender's standing Awoken shield them — enemies
+ *  strike the field first, and a Tender is hurt only when
+ *  nothing stands, or by things whose nature names Tenders
+ *  directly (the Hollow drains instead of wounding). The
+ *  referee implements targeting by this law. */
+export function tenderMaxHpForLevel(level: number): number {
+  return 20 + 5 * level;
+}
+
 /** Heal strengthens every 3 levels: Lv 1–2 tier 1, Lv 3–5 tier 2, Lv 6–8 tier 3… */
 export function healTierForLevel(level: number): number {
   return 1 + Math.floor(level / 3);
@@ -56,6 +67,7 @@ export interface TenderProgressView {
   healTier: number;
   healAmount: number;
   wardRuneUnlocked: boolean;
+  maxTenderHp: number;
 }
 
 function view(totalExp: number, lifetimeWakes: number): TenderProgressView {
@@ -71,6 +83,7 @@ function view(totalExp: number, lifetimeWakes: number): TenderProgressView {
     healTier: healTierForLevel(level),
     healAmount: healAmountForLevel(level),
     wardRuneUnlocked: level >= 3,
+    maxTenderHp: tenderMaxHpForLevel(level),
   };
 }
 
