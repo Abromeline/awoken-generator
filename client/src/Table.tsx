@@ -76,10 +76,14 @@ type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+// One honeycomb, not seven islands (Nigel, 2026-10-16): the
+// ring centers sit exactly sqrt(3)*R from the center and from
+// each other (R = 40), so every hex shares its edges with its
+// neighbors and the field reads as a single map.
 const FIELD_HEXES: { id: string; x: number; y: number; center?: boolean }[] = [
   { id: "center", x: 150, y: 130, center: true },
-  { id: "ring-0", x: 150, y: 52 }, { id: "ring-1", x: 218, y: 91 }, { id: "ring-2", x: 218, y: 169 },
-  { id: "ring-3", x: 150, y: 208 }, { id: "ring-4", x: 82, y: 169 }, { id: "ring-5", x: 82, y: 91 },
+  { id: "ring-0", x: 150, y: 60.72 }, { id: "ring-1", x: 210, y: 95.36 }, { id: "ring-2", x: 210, y: 164.64 },
+  { id: "ring-3", x: 150, y: 199.28 }, { id: "ring-4", x: 90, y: 164.64 }, { id: "ring-5", x: 90, y: 95.36 },
 ];
 
 const ROSTER = [
@@ -520,7 +524,7 @@ export default function Table() {
                   >
                     <polygon
                       className={`${h.center ? "hex center" : "hex"}${unit ? " stood" : ""}${!h.center && selectedCard && !unit ? " open" : ""}`}
-                      points="0,-34 30,-17 30,17 0,34 -30,17 -30,-17"
+                      points="0,-40 34.64,-20 34.64,20 0,40 -34.64,20 -34.64,-20"
                     />
                     {h.center && (
                       <>
