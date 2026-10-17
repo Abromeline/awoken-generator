@@ -470,6 +470,33 @@ if (!hexWallCols.some((col) => col.name === "rune_kind")) {
 if (!hexWallCols.some((col) => col.name === "style")) {
   sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN style TEXT NOT NULL DEFAULT 'stone'`);
 }
+// The Written Light on the land (the Grimoire, Nigel 2026-10-17):
+// workings the Tender casts personally from the book — WARDS on
+// hex edges, RUNES on hex floors — standing on the map until
+// spent, broken, or faded by their Tender's hand. Their numbers
+// are snapshotted from the book at the cast (nums JSON), exactly
+// as at the Table. Beside the edge works, never confused with
+// them: edge works are laid by skilled Awoken hands; these are
+// the Tender's own castings, woken at Tender Lv 3.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_workings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  spell_key TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  hue TEXT NOT NULL DEFAULT 'unaligned',
+  tile_id INTEGER,
+  edge_key TEXT,
+  q INTEGER,
+  r INTEGER,
+  dir INTEGER,
+  nums TEXT NOT NULL DEFAULT '{}',
+  hp INTEGER NOT NULL DEFAULT 0,
+  stops INTEGER NOT NULL DEFAULT 0,
+  charges INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_territory_workings_owner ON territory_workings (owner_key);`);
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
 // holds WARDING and who holds RUNEING. Until the milestone ability
 // picks are built, skills are TEACHINGS: a Tender teaches an Awoken

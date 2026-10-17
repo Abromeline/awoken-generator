@@ -22,7 +22,7 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -116,6 +116,43 @@ function applyWallDamage(ownerKey: string, wallState: unknown): void {
     if (next === row.hp) continue;
     if (next <= 0) sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ?").run(ownerKey, edgeKey);
     else sqlite.prepare("UPDATE hex_walls SET hp = ? WHERE owner_key = ? AND edge_key = ?").run(next, ownerKey, edgeKey);
+  }
+}
+
+/** The map's Written Light, reckoned at a battle's resolution
+ *  (the Grimoire, Nigel 2026-10-17): the sims report the state of
+ *  every standing working the fight touched — hp / stops /
+ *  charges only ever move as their engine allows, and a working
+ *  reported spent is lifted from the land. Energy the workings
+ *  yielded (an Engine's song, a Coil's returns) is granted here,
+ *  capped by the Tender's own max, and never invented: no
+ *  report, no yield. */
+async function applyGrimoireState(ownerKey: string, grimState: unknown, grimEnergy: unknown): Promise<void> {
+  if (Array.isArray(grimState)) {
+    for (const g of grimState.slice(0, 200)) {
+      const id = (g as any)?.id;
+      if (typeof id !== "number" || !Number.isFinite(id)) continue;
+      const row = sqlite.prepare("SELECT id, hp, stops, charges FROM territory_workings WHERE owner_key = ? AND id = ?").get(ownerKey, id) as any;
+      if (!row) continue;
+      if ((g as any)?.spent === true) {
+        sqlite.prepare("DELETE FROM territory_workings WHERE owner_key = ? AND id = ?").run(ownerKey, id);
+        continue;
+      }
+      const clamp = (v: unknown, cur: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100000, Math.floor(v))) : cur);
+      sqlite.prepare("UPDATE territory_workings SET hp = ?, stops = ?, charges = ? WHERE owner_key = ? AND id = ?")
+        .run(clamp((g as any)?.hp, row.hp), clamp((g as any)?.stops, row.stops), clamp((g as any)?.charges, row.charges), ownerKey, id);
+    }
+  }
+  if (typeof grimEnergy === "number" && Number.isFinite(grimEnergy) && grimEnergy > 0) {
+    const gain = Math.min(500, Math.floor(grimEnergy));
+    const current = await getEnergyFor(ownerKey);
+    const max = await calculateMaxEnergy(ownerKey);
+    const next = Math.min(max, current + gain);
+    if (next > current) {
+      await db.update(schema.tenderResources)
+        .set({ energy: next, updatedAt: new Date() })
+        .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    }
   }
 }
 
@@ -4325,7 +4362,9 @@ export const handlers = {
       .all(ownerKey);
     const skills = sqlite.prepare("SELECT awakened_id AS awakenedId, skill FROM awoken_skills WHERE owner_key = ? ORDER BY id")
       .all(ownerKey);
-    return { tiles, placements, buildings, mood, walls, skills };
+    const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges FROM territory_workings WHERE owner_key = ? ORDER BY id")
+      .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
+    return { tiles, placements, buildings, mood, walls, skills, workings };
   },
 
   async deployAwoken(args: unknown, ctx?: ActionContext) {
@@ -4634,6 +4673,12 @@ export const handlers = {
       survivorIds: z.array(z.number().int().positive()),
       wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
       runesTriggered: z.array(z.string()).optional(),
+      grimState: z.array(z.object({
+        id: z.number().int().positive(),
+        hp: z.number().optional(), stops: z.number().optional(), charges: z.number().optional(),
+        spent: z.boolean().optional(),
+      })).optional(),
+      grimEnergy: z.number().int().min(0).max(500).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid boss battle result.");
 
@@ -4684,6 +4729,7 @@ export const handlers = {
     // The report is accepted — walls took their damage, win or lose.
     applyWallDamage(ownerKey, parsed.data.wallState);
     applyRunesTriggered(ownerKey, parsed.data.runesTriggered);
+    await applyGrimoireState(ownerKey, parsed.data.grimState, parsed.data.grimEnergy);
 
     if (!parsed.data.victory) {
       sqlite.prepare("UPDATE boss_state SET last_boss_at = ? WHERE owner_key = ?")
@@ -4889,6 +4935,135 @@ export const handlers = {
     const gone = sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ?").run(ownerKey, edgeKey);
     if (!gone.changes) badRequest("No work stands on that edge.");
     return { ok: true as const, edgeKey };
+  },
+
+  // ── The Written Light on the land (the Grimoire, Nigel
+  // 2026-10-17) ─────────────────────────────────────────
+  // The Tender casts from the book PERSONALLY (wards and runes
+  // wake at Tender Lv 3; Heal is the Lv 1 art) — beside the edge
+  // works, which remain the skilled Awoken hands' craft. A ward
+  // stands on the edge of a hex the Tender's own Awoken holds;
+  // a rune is written on a hex's floor (cursed ground included —
+  // the light is sown ahead of the march); Heal mends a standing
+  // Awoken by the tier law. Numbers snapshot from the book at
+  // the cast. Workings stand until spent, broken, or faded here.
+  async castMapWorking(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      spellKey: z.string().min(1).max(80),
+      hue: z.string().max(20).optional(),
+      tileId: z.number().int().positive().optional(),
+      dir: z.number().int().min(0).max(5).optional(),
+      awakenedId: z.number().int().positive().optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awoken to receive it.");
+    const { spellKey, tileId, dir, awakenedId } = parsed.data;
+    const hue = ["unaligned", "tide", "sky", "stone", "root", "fire"].includes(parsed.data.hue ?? "") ? parsed.data.hue! : "unaligned";
+    await refreshGrimoire();
+    const spell = spellByKey(spellKey);
+    if (!spell) badRequest("That spell is not in the book.");
+    if (spell.engine === "none") badRequest(`“${spell.name}” is written in the book but not yet seated — give it an engine in the workshop before it can be cast.`);
+    const progress = await getTenderProgress(ownerKey);
+
+    // HEAL — the binding art, cast on one of your own standing.
+    if (spell.engine === "heal" || spell.kind === "binding") {
+      if (!awakenedId) badRequest("Heal reaches one of your own standing Awoken — name it.");
+      const placements = await db.select().from(schema.fieldPlacements)
+        .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.awakenedId, awakenedId)));
+      const placement = placements[0] as any;
+      if (!placement) badRequest("That Awoken does not stand on your field.");
+      const payload = await awakenedPayloadById(awakenedId);
+      const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const tileById = new Map(tiles.map((t) => [t.id, t]));
+      const towerRows = await db.select().from(schema.territoryBuildings)
+        .where(and(eq(schema.territoryBuildings.ownerKey, ownerKey), eq(schema.territoryBuildings.buildingType, "watchtower"), eq(schema.territoryBuildings.status, "active")));
+      const towerTiles = towerRows.map((b) => tileById.get(b.tileId)).filter(Boolean) as any[];
+      const cfg = await loadGameConfig();
+      const towerBonus = cfg.buildings["watchtower"]?.powerBonus ?? 2;
+      const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+      const myTile = tileById.get(placement.tileId);
+      const maxHp = (payload?.toughness ?? 3) + (myTile && towerTiles.some((tt) => hexDist(myTile, tt) <= 1) ? towerBonus : 0);
+      const curHp = placement.hp ?? maxHp;
+      if (curHp >= maxHp) badRequest(`${payload?.name ?? "That Awoken"} stands whole already.`);
+      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      const healed = Math.min(progress.healAmount, maxHp - curHp);
+      await db.update(schema.fieldPlacements).set({ hp: curHp + healed })
+        .where(eq(schema.fieldPlacements.id, placement.id));
+      return { ok: true as const, healed, hp: curHp + healed, maxHp, cost: spell.cost };
+    }
+
+    // Wards and runes wake at Tender Lv 3 (the standing law).
+    if (!progress.wardRuneUnlocked) {
+      badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
+    }
+
+    if (spell.kind === "ward") {
+      if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awoken holds and the edge (0–5).");
+      const tileRows = await db.select().from(schema.territoryTiles)
+        .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
+      const tile = tileRows[0] as any;
+      if (!tile) badRequest("That hex is not yours to ward.");
+      const standing = await db.select().from(schema.fieldPlacements)
+        .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
+      if (!standing.length) badRequest("A ward stands on the edge of a hex your own Awoken holds — none stands there.");
+      const [dq, dr] = WALL_DIRS[dir];
+      const nq = tile.q + dq, nr = tile.r + dr;
+      const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
+      const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[dir] : dir;
+      const edgeKey = `${cq},${cr},${cdir}`;
+      const wallRow = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as any;
+      if (wallRow) badRequest(`That edge already carries a ${EDGE_WORK[wallRow.kind]?.name ?? "work"} — one work per edge.`);
+      const wardRow = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND edge_key = ? AND kind = 'ward'").get(ownerKey, edgeKey) as any;
+      if (wardRow) badRequest("A ward of the Written Light already stands on that edge.");
+      if (spell.engine === "standard") {
+        const flying = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'standard'").get(ownerKey) as any;
+        if (flying) badRequest("One Standard per Tender — yours already flies on the map.");
+      }
+      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      // Bright: an Engine of yours standing anywhere on the map
+      // lifts a new Trees at its raising, as at the Table.
+      let hp = 0;
+      if (spell.engine === "trees") {
+        const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
+        hp = (spell.numbers.hp ?? 8) + (bright ? (spell.numbers.brightHpBonus ?? 2) : 0);
+      }
+      const info = sqlite.prepare(`INSERT INTO territory_workings
+        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, created_at)
+        VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`)
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(spell.numbers ?? {}), hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: spell.cost };
+    }
+
+    if (spell.kind === "rune" || spell.kind === "spell") {
+      if (tileId == null) badRequest("A rune is written on a hex's ground — name the hex.");
+      const tileRows = await db.select().from(schema.territoryTiles)
+        .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
+      const tile = tileRows[0] as any;
+      if (!tile) badRequest("That hex is not on your map to write upon.");
+      const existing = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell')").get(ownerKey, tileId) as any;
+      if (existing) badRequest("That ground is already written — one writing per hex.");
+      if (spell.engine === "blades") badRequest("The Three Blades are planted a hex at a time on the map — cast once per hex here.");
+      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) : 1;
+      const info = sqlite.prepare(`INSERT INTO territory_workings
+        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, ?, ?)`)
+        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(spell.numbers ?? {}), charges, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost };
+    }
+
+    badRequest("That page of the book cannot be cast on the land.");
+  },
+
+  /** Fade one of your own workings from the land — free, instant,
+   *  the Tender's own hand (mirrors removeEdgeWork). */
+  async fadeMapWorking(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the working to fade.");
+    const gone = sqlite.prepare("DELETE FROM territory_workings WHERE owner_key = ? AND id = ?").run(ownerKey, parsed.data.id);
+    if (!gone.changes) badRequest("No such working stands on your land.");
+    return { ok: true as const };
   },
 
   /** Teach an Awoken a skill (WARDING or RUNEING). Until the
@@ -6519,6 +6694,12 @@ export const handlers = {
       targetTileId: z.number().int().positive().optional(),
       wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
       runesTriggered: z.array(z.string()).optional(),
+      grimState: z.array(z.object({
+        id: z.number().int().positive(),
+        hp: z.number().optional(), stops: z.number().optional(), charges: z.number().optional(),
+        spent: z.boolean().optional(),
+      })).optional(),
+      grimEnergy: z.number().int().min(0).max(500).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle result.");
 
@@ -6589,6 +6770,7 @@ export const handlers = {
     // the fight, win or lose (reported HP only ever lowers a wall).
     applyWallDamage(ownerKey, parsed.data.wallState);
     applyRunesTriggered(ownerKey, parsed.data.runesTriggered);
+    await applyGrimoireState(ownerKey, parsed.data.grimState, parsed.data.grimEnergy);
 
     // Unified XP (Nigel, 2026-10-13): the survivors stood in the battle
     // defense — a DEFENSE EVENT, +10 XP each, win or lose. (The hits

@@ -86,6 +86,19 @@ export interface EdgeWork {
   style?: "stone" | "spire" | null;
 }
 
+/** A Written Light working standing on the land (the Grimoire):
+ *  a ward on an edge (edgeKey/q/r/dir) or a rune on a floor
+ *  (tileId). Its numbers were snapshotted from the book at the
+ *  cast. */
+export interface MapWorking {
+  id: number; spellKey: string; engine: string;
+  kind: "ward" | "rune" | "binding" | "spell"; hue: string;
+  tileId: number | null; edgeKey: string | null;
+  q: number | null; r: number | null; dir: number | null;
+  nums: Record<string, number>;
+  hp: number; stops: number; charges: number;
+}
+
 export interface TerritoryTile {
   id: number;
   q: number;
@@ -458,7 +471,10 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[] }>("getTerritory", {}),
+  castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number }) =>
+    post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number }>("castMapWorking", args),
+  fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
