@@ -2304,3 +2304,9 @@ body.defeat-flash {
 .table-bind-shown{font-size:16px}
 .table-bind-shown strong{letter-spacing:3px;color:var(--gold-bright,#e9c979)}
 .table-panel-note{font-size:12px;opacity:.75}
+
+/* Tender level chip (Tender EXP, 2026-10-16): the Tender's own
+   growth, worn beside their name — level and the road to next. */
+.tender-level{display:inline-flex;align-items:center;gap:6px;margin-left:10px;font-size:12.5px;font-weight:600;color:var(--gold-bright,#e9c979)}
+.tender-level-bar{display:inline-block;width:52px;height:5px;border-radius:3px;background:rgba(255,255,255,.14);overflow:hidden}
+.tender-level-bar span{display:block;height:100%;background:var(--gold,#c9a227)}

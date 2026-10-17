@@ -501,6 +501,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_resources (
   energy INTEGER NOT NULL DEFAULT 5,
   updated_at INTEGER NOT NULL
 );`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_progress (
+  owner_key TEXT PRIMARY KEY,
+  total_exp INTEGER NOT NULL DEFAULT 0,
+  lifetime_wakes INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);`);
 // Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
 // Migration: add pages column to battle_tracks. The ALTER must run AFTER
 // the CREATE as well as before it: on a fresh database the pre-CREATE

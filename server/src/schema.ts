@@ -428,6 +428,19 @@ export const waveState = sqliteTable("wave_state", {
 });
 
 // Tender energy: server-authoritative. Admin can refill.
+// A Tender's own growth (2026-10-16): EXP earned by waking,
+// battling, and raising Awoken; the level it buys gates the
+// Tender's arts — Heal from Lv 1 (strengthening every 3
+// levels), Ward and Rune at Lv 3.
+export const tenderProgress = sqliteTable("tender_progress", {
+  ownerKey: text("owner_key").primaryKey(),
+  totalExp: integer("total_exp").notNull().default(0),
+  lifetimeWakes: integer("lifetime_wakes").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const tenderResources = sqliteTable("tender_resources", {
   ownerKey: text("owner_key").primaryKey(),
   energy: integer("energy").notNull().default(5),

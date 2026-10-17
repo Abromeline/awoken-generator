@@ -13,6 +13,7 @@ import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
 import { creditBalance, grantCredits, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
+import { awardWakeExp, getTenderProgress } from "./tenderExp.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd, DISCORD_STORIES_WEBHOOK_URL } from "./config.js";
 import { stripeReady } from "./stripe.js";
 import {
@@ -2086,6 +2087,9 @@ export const handlers = {
     if (ownerKey && collection === "tender") {
       const power = plan.canonicalLayers.reduce((sum, l) => sum + (l.power ?? 0), 0);
       await grantBirthEnergy(ownerKey, power);
+      // A wake is a work of tending: the Tender grows by it
+      // (Tender EXP, 2026-10-16 — the rate slows as wakes mount).
+      await awardWakeExp(ownerKey).catch(() => null);
     }
     return { id: (row as { id: number }).id, name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
   },
@@ -7260,6 +7264,12 @@ export const handlers = {
     // naming flow it just completed.
     await destroyTenderSessions(ctx.tender.id, ctx.tenderToken ?? null);
     return { ok: true };
+  },
+
+  /** The caller's Tender standing: EXP, level, and what the
+   *  level unlocks (Tender EXP, 2026-10-16). */
+  async getTenderExp(args: unknown, ctx?: ActionContext) {
+    return getTenderProgress(ownerKeyFor(ctx));
   },
 
   async getTenderRank(args: unknown, ctx?: ActionContext) {
