@@ -988,7 +988,67 @@ async function spendEnergy(ownerKey: string, amount: number): Promise<boolean> {
   await db.update(schema.tenderResources)
     .set({ energy: current - amount, updatedAt: new Date() })
     .where(eq(schema.tenderResources.ownerKey, ownerKey));
+  noteEnergySpent(ownerKey, amount);
   return true;
+}
+
+/* ── THE CURSE'S EYE (Nigel, 2026-10-17, the columns) ──────────
+   The true measure is ENERGY SPENT: every point a Tender spends
+   opens the Eye a point wider, and the Eye — with the pool and
+   its gain — sizes, speeds, and times the columns it sends.
+   Time closes the Eye again (a point every two minutes). While
+   the Eye stands lit (25+) and no column walks, one is coming:
+   the curse always keeps at least one attack in flight against
+   a lit Tender. Fully open (100+), the column is a SIEGE, and
+   even a 2-energy spend feeds it. Beating a column buys a
+   12-minute break before the next timer may start. */
+const EYE_SPAWN_THRESHOLD = 25;
+const EYE_SIEGE_THRESHOLD = 100;
+const EYE_DECAY_PER_MIN = 0.5;
+const EYE_SPAWN_RELIEF = 40;
+const COLUMN_MIN_TRAVEL_MIN = 12;
+const INCURSION_BREAK_MS = 12 * 60 * 1000;
+
+function decayedEye(row: { eye: number; updated_at: number } | undefined, nowMs: number): number {
+  if (!row) return 0;
+  const mins = Math.max(0, (nowMs - Number(row.updated_at || 0)) / 60000);
+  return Math.max(0, Number(row.eye || 0) - mins * EYE_DECAY_PER_MIN);
+}
+
+/** Every spend anywhere in the world feeds the spender's Eye.
+    Fail-silent by law: attention must never break a purchase. */
+function noteEnergySpent(ownerKey: string, amount: number) {
+  if (!ownerKey || !(amount > 0)) return;
+  try {
+    const now = Date.now();
+    const row = sqlite.prepare("SELECT eye, updated_at FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
+    const eye = decayedEye(row, now) + amount;
+    sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(owner_key) DO UPDATE SET eye = excluded.eye, updated_at = excluded.updated_at, total_spent = tender_attention.total_spent + excluded.total_spent`)
+      .run(ownerKey, eye, now, amount);
+  } catch { /* the Eye blinks; the spend stands */ }
+}
+
+/** A column's force, from the Compendium's canon numbers,
+    hardened by the hosting Tender's level (incursions scale
+    with Tender level). */
+function incursionRoster(size: number, powerTier: number) {
+  const bonus = Math.max(0, powerTier - 1);
+  const kinds = [
+    { kind: "fray", share: 0.5, power: 1, hp: 3 },
+    { kind: "unraveler", share: 0.25, power: 4, hp: 6 },
+    { kind: "tangle", share: 0.15, power: 3, hp: 8 },
+    { kind: "hollow", share: 0.1, power: 0, hp: 5 },
+  ];
+  const out: { kind: string; count: number; power: number; hp: number }[] = [];
+  let left = size;
+  kinds.forEach((k, i) => {
+    const n = i === kinds.length - 1 ? left : Math.min(left, Math.round(size * k.share));
+    if (n > 0) out.push({ kind: k.kind, count: n, power: k.power + Math.floor(bonus / 2), hp: k.hp + bonus });
+    left -= Math.max(0, n);
+  });
+  return out.filter(r => r.count > 0);
 }
 
 // Record a deed for the Hall of Legends
@@ -3901,6 +3961,9 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     // Marches land before the territory is read (War-Ground, 2026-10-16).
     await this.settleMarches(ownerKey);
+    // Columns land and launch before the territory is read
+    // (the Columns, 2026-10-17): the Eye is settled here.
+    await this.settleIncursions(ownerKey);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
@@ -5264,6 +5327,146 @@ export const handlers = {
           .run(row.id);
       }
     }
+  },
+
+  /** THE COLUMNS SETTLE (Nigel, 2026-10-17): arrivals land,
+      unheld seeds are CORRUPTED, and a lit Eye with no column
+      walking sends one. Lazy, like the marches — the world
+      moves when it is read. The column is only a traced line:
+      it never crosses purified land; on arrival its force
+      appears on the hexes beside the target at the fog's edge. */
+  async settleIncursions(ownerKey: string) {
+    const now = Date.now();
+    // Arrivals.
+    const arriving = sqlite.prepare(
+      "SELECT id, target_tile_id, target_kind FROM incursion_columns WHERE owner_key = ? AND state = 'marching' AND arrives_at <= ?"
+    ).all(ownerKey, now) as any[];
+    for (const col of arriving) {
+      sqlite.prepare("UPDATE incursion_columns SET state = 'arrived' WHERE id = ?").run(col.id);
+      if (col.target_kind === "seed" && col.target_tile_id != null) {
+        // Q4 RULED (Nigel, 2026-10-17): an unheld seed a column
+        // reaches is CORRUPTED — it becomes theirs, a cursed
+        // bastion, and the column stands as its guard: a siege.
+        const seed = sqlite.prepare(
+          "SELECT id FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'fallen'"
+        ).get(ownerKey, col.target_tile_id) as any;
+        if (seed) {
+          sqlite.prepare("UPDATE star_seeds SET state = 'corrupted' WHERE id = ?").run(seed.id);
+          sqlite.prepare("UPDATE incursion_columns SET kind = 'siege' WHERE id = ?").run(col.id);
+        }
+      }
+    }
+    // The Eye: spawn when lit, unanswered, and the break has run.
+    const att = sqlite.prepare("SELECT eye, updated_at, break_until FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
+    const eye = decayedEye(att, now);
+    const active = sqlite.prepare(
+      "SELECT COUNT(*) AS n FROM incursion_columns WHERE owner_key = ? AND state IN ('marching','arrived')"
+    ).get(ownerKey) as any;
+    if (att && Number(active?.n ?? 0) === 0 && now >= Number(att.break_until || 0) && eye >= EYE_SPAWN_THRESHOLD) {
+      const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      if (tiles.length) {
+        const tileById = new Map(tiles.map(t => [t.id, t]));
+        // Targets, in the curse's hunger: a fallen seed first,
+        // then a built edge hex, then any fog-edge hex.
+        let target: any = null; let targetKind = "hex";
+        const seed = sqlite.prepare(
+          "SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state = 'fallen' ORDER BY created_at ASC LIMIT 1"
+        ).get(ownerKey) as any;
+        if (seed && tileById.has(seed.tile_id)) { target = tileById.get(seed.tile_id); targetKind = "seed"; }
+        if (!target) {
+          const keyOf = (q: number, r: number) => `${q},${r}`;
+          const byQR = new Map(tiles.map(t => [keyOf(t.q as number, t.r as number), t]));
+          const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+          const edge = tiles.filter(t => !t.cursed && DIRS.some(([dq, dr]) => {
+            const n = byQR.get(keyOf((t.q as number) + dq, (t.r as number) + dr));
+            return !n || n.cursed;
+          }));
+          if (edge.length) {
+            const built = sqlite.prepare(
+              "SELECT DISTINCT tile_id FROM territory_buildings WHERE owner_key = ? AND status = 'active'"
+            ).all(ownerKey) as any[];
+            const builtIds = new Set(built.map(b => b.tile_id));
+            const builtEdge = edge.filter(t => builtIds.has(t.id));
+            const pool = builtEdge.length ? builtEdge : edge;
+            target = pool[Math.floor(Math.random() * pool.length)];
+          }
+        }
+        if (target) {
+          const size = eye < 50 ? 3 + Math.floor((eye - 25) / 8)
+            : eye < 100 ? 6 + Math.floor((eye - 50) / 10)
+            : Math.min(20, 11 + Math.floor((eye - 100) / 15));
+          const progress = await getTenderProgress(ownerKey).catch(() => null) as any;
+          const powerTier = 1 + Math.floor(((progress?.level ?? 1) - 1) / 3);
+          const kind = eye >= EYE_SIEGE_THRESHOLD ? "siege" : "raid";
+          const travelMin = Math.min(1440, Math.max(COLUMN_MIN_TRAVEL_MIN, COLUMN_MIN_TRAVEL_MIN + size * 8));
+          // The line traces from OUTSIDE the map: from the
+          // territory's heart through the target, nine hexes
+          // beyond its edge.
+          const cq = tiles.reduce((a, t) => a + (t.q as number), 0) / tiles.length;
+          const cr = tiles.reduce((a, t) => a + (t.r as number), 0) / tiles.length;
+          let dq = (target.q as number) - cq, dr = (target.r as number) - cr;
+          const len = Math.hypot(dq, dr) || 1; dq /= len; dr /= len;
+          sqlite.prepare(`INSERT INTO incursion_columns
+            (owner_key, target_tile_id, target_kind, kind, size, power, state, origin_q, origin_r, spawned_at, arrives_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'marching', ?, ?, ?, ?)`)
+            .run(ownerKey, target.id, targetKind, kind, size, powerTier,
+              Math.round(((target.q as number) + dq * 9) * 10) / 10,
+              Math.round(((target.r as number) + dr * 9) * 10) / 10,
+              now, now + travelMin * 60000);
+          sqlite.prepare("UPDATE tender_attention SET eye = ?, updated_at = ? WHERE owner_key = ?")
+            .run(Math.max(0, eye - EYE_SPAWN_RELIEF), now, ownerKey);
+        }
+      }
+    }
+  },
+
+  /** The Eye and its columns, for the map's face. */
+  async getIncursions(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await this.settleIncursions(ownerKey);
+    const now = Date.now();
+    const att = sqlite.prepare("SELECT eye, updated_at, break_until, total_spent FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
+    const eye = decayedEye(att, now);
+    const cols = sqlite.prepare(
+      "SELECT * FROM incursion_columns WHERE owner_key = ? AND state IN ('marching','arrived') ORDER BY spawned_at ASC"
+    ).all(ownerKey) as any[];
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tileById = new Map(tiles.map(t => [t.id, t]));
+    return {
+      eye: Math.floor(eye),
+      eyeFull: eye >= EYE_SIEGE_THRESHOLD,
+      breakUntil: Number(att?.break_until || 0),
+      totalSpent: Number(att?.total_spent || 0),
+      columns: cols.map(c => {
+        const t = c.target_tile_id != null ? tileById.get(c.target_tile_id) : null;
+        return {
+          id: c.id, kind: c.kind, state: c.state, size: c.size, power: c.power,
+          targetKind: c.target_kind, targetTileId: c.target_tile_id,
+          targetQ: t ? t.q : null, targetR: t ? t.r : null,
+          originQ: c.origin_q, originR: c.origin_r,
+          spawnedAt: c.spawned_at, arrivesAt: c.arrives_at,
+          roster: incursionRoster(c.size, c.power),
+        };
+      }),
+    };
+  },
+
+  /** A column beaten — by whatever battle beat it. Buys the
+      ruled 12-minute break before the next timer may start. */
+  async defeatIncursion(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const columnId = Math.floor(Number((args as any)?.columnId ?? 0));
+    if (!columnId) badRequest("Which column was beaten?");
+    const col = sqlite.prepare("SELECT id, state FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
+    if (!col) badRequest("No such column walks your land.");
+    if (col.state === "defeated") return { ok: true, already: true };
+    const now = Date.now();
+    sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE id = ?").run(now, columnId);
+    sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent)
+      VALUES (?, 0, ?, ?, 0)
+      ON CONFLICT(owner_key) DO UPDATE SET break_until = excluded.break_until`)
+      .run(ownerKey, now, now + INCURSION_BREAK_MS);
+    return { ok: true, breakUntil: now + INCURSION_BREAK_MS };
   },
 
   async setPatrol(args: unknown, ctx?: ActionContext) {

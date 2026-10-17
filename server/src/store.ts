@@ -502,6 +502,46 @@ sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_territory_workings_owner ON territor
 // raised with (its health rating's full measure — hp wears down
 // from here; regrow returns toward it, never past it).
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN pour INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+
+// THE COLUMNS (Nigel, 2026-10-17): the Curse's attention and the
+// incursions it sends. tender_attention is the Eye's ledger —
+// opened by energy spent, closed by time, answered by columns.
+// incursion_columns are the traced lines themselves: a target,
+// a travel time, a force. star_seeds are the fallen prizes the
+// columns hunt (their falling is seeded by starfall's own pass;
+// an unheld seed a column reaches is CORRUPTED — it becomes
+// theirs, a cursed bastion to besiege: Nigel's ruling, Q4).
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_attention (
+  owner_key TEXT PRIMARY KEY,
+  eye REAL NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  break_until INTEGER NOT NULL DEFAULT 0,
+  total_spent INTEGER NOT NULL DEFAULT 0
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS incursion_columns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  target_tile_id INTEGER,
+  target_kind TEXT NOT NULL DEFAULT 'hex',
+  kind TEXT NOT NULL DEFAULT 'raid',
+  size INTEGER NOT NULL DEFAULT 3,
+  power INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL DEFAULT 'marching',
+  origin_q REAL NOT NULL DEFAULT 0,
+  origin_r REAL NOT NULL DEFAULT 0,
+  spawned_at INTEGER NOT NULL,
+  arrives_at INTEGER NOT NULL,
+  resolved_at INTEGER
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_incursion_columns_owner ON incursion_columns (owner_key, state);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seeds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tile_id INTEGER NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL DEFAULT 'fallen',
+  created_at INTEGER NOT NULL
+);`);
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
 // holds WARDING and who holds RUNEING. Until the milestone ability
