@@ -2310,3 +2310,17 @@ body.defeat-flash {
 .tender-level{display:inline-flex;align-items:center;gap:6px;margin-left:10px;font-size:12.5px;font-weight:600;color:var(--gold-bright,#e9c979)}
 .tender-level-bar{display:inline-block;width:52px;height:5px;border-radius:3px;background:rgba(255,255,255,.14);overflow:hidden}
 .tender-level-bar span{display:block;height:100%;background:var(--gold,#c9a227)}
+
+/* The meteor rain (Nigel, 2026-10-16): his green meteors,
+   multiplied over the title sky. Screen blending keys the
+   black away; only the fall shows. */
+.meteor-rain{position:fixed;inset:0;overflow:hidden;z-index:0;pointer-events:none}
+.meteor{position:absolute;top:-34vh;display:block;animation-name:meteor-fall;animation-timing-function:linear;animation-fill-mode:forwards;will-change:transform,opacity}
+.meteor img{display:block;width:100%;height:auto;mix-blend-mode:screen}
+@keyframes meteor-fall{
+  0%{transform:translate3d(0,0,0);opacity:0}
+  7%{opacity:1}
+  82%{opacity:1}
+  100%{transform:translate3d(var(--drift,0px),128vh,0);opacity:.25}
+}
+@media (prefers-reduced-motion: reduce){ .meteor-rain{display:none} }

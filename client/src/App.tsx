@@ -3,6 +3,7 @@ import { setCourtMarks, useCourtMarks } from "./courtMarks";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import deckButtonImg from "./assets/terrain-mountain.png";
 import debrisDark from "./assets/debris-dark.jpg";
+import meteorGif from "./assets/meteor-rain.gif";
 import { DecksView } from "./Decks";
 import Territory from "./Territory";
 import MarginGuide from "./MarginGuide";
@@ -1712,8 +1713,58 @@ function CosmicBackground() {
       <div className="cosmic-bg" aria-hidden="true">
         <div className="cosmic-layer cosmic-dark" style={{ backgroundImage: `url(${debrisDark})` }} />
       </div>
+      <MeteorRain />
       <MainPageMusic />
     </>
+  );
+}
+
+/** The meteor rain (Nigel, 2026-10-16): his animated meteor,
+ *  multiplied and rained at random over the title sky — the
+ *  sprite is his drawing (a green fall with a sparkling tail
+ *  on black, cropped from Dream 5), the black keyed away by
+ *  screen blending, and the code only gives it gravity:
+ *  random places, random sizes, random pacing, never two
+ *  showers alike. It falls behind the world's face and
+ *  answers no clicks. */
+interface MeteorDrop { id: number; left: number; width: number; duration: number; drift: number }
+function MeteorRain() {
+  const [drops, setDrops] = useState<MeteorDrop[]>([]);
+  const idRef = useRef(0);
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const spawn = () => {
+      if (!live) return;
+      setDrops((cur) => {
+        if (cur.length >= 6) return cur;
+        const id = ++idRef.current;
+        return [...cur, {
+          id,
+          left: 2 + Math.random() * 92,
+          width: 26 + Math.random() * 54,
+          duration: 5.5 + Math.random() * 6.5,
+          drift: -30 + Math.random() * 60,
+        }];
+      });
+      timer = setTimeout(spawn, 1200 + Math.random() * 2600);
+    };
+    timer = setTimeout(spawn, 600);
+    return () => { live = false; clearTimeout(timer); };
+  }, []);
+  return (
+    <div className="meteor-rain" aria-hidden="true">
+      {drops.map((d) => (
+        <span
+          key={d.id}
+          className="meteor"
+          style={{ left: `${d.left}%`, width: d.width, animationDuration: `${d.duration}s`, ["--drift" as string]: `${d.drift}px` }}
+          onAnimationEnd={() => setDrops((cur) => cur.filter((x) => x.id !== d.id))}
+        >
+          <img src={meteorGif} alt="" />
+        </span>
+      ))}
+    </div>
   );
 }
 
