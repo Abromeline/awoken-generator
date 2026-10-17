@@ -2393,4 +2393,11 @@ body.defeat-flash {
 .card-border-frame.fit-hug{inset:0;width:100%;height:100%}
 .card-border-frame.fit-morning{width:283.3%;height:156.6%;left:-91.6%;top:-26.8%;max-width:none;filter:drop-shadow(0 0 10px rgba(255,214,130,.35))}
 /* The wake ceremony keeps its own birth frame — never both. */
-.ceremony-card-stage .card-border-frame{display:none}
+/* The wake ceremony (Nigel's ruling, 2026-10-17): the revealed
+   card wears the LIVE card border — the exclusion that hid it
+   here is lifted, so this screen answers to the same border
+   read and fit as every other card. It lands on the birth
+   frame's old beat, as the code rails fade; the corner burns
+   (z-index 7) burn on the face above it. When no border is
+   chosen, the stage's own birth-frame art still arrives. */
+.ceremony-card-stage .card-border-frame{animation:birthFrameIn 1.1s ease 1.15s both}
