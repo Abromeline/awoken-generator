@@ -495,6 +495,14 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   function clearCardTimers() { cardTimers.current.forEach((t) => window.clearTimeout(t)); cardTimers.current = []; }
   function cardLater(ms: number, fn: () => void) { cardTimers.current.push(window.setTimeout(fn, ms)); }
   function finishCardCeremony() { clearCardTimers(); setCardPhase("done"); }
+  // Naming the newborn from its card (Nigel, 2026-10-17): the Name
+  // button beside Keep opens a small popup inside the ceremony; its
+  // confirm button (labeled Keep) renames the creature when the name
+  // changed, then concludes the moment exactly as Keep does.
+  const [namePopup, setNamePopup] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   function startCeremony() {
     if (collection !== "tender") return;
     clearCeremonyTimers();
@@ -526,6 +534,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
     const concludedId = cardId;
     clearCeremonyTimers();
     clearCardTimers();
+    setNamePopup(false);
     setCardOpen(false);
     setWantCard(false);
     setCardId(null);
@@ -543,7 +552,39 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   }
   // Dismissing an unclaimed waiting creature's card leaves it waiting —
   // the spark-claim row below stays its door.
-  function dismissWaitingCard() { clearCardTimers(); setCardOpen(false); setWantCard(false); }
+  function dismissWaitingCard() { clearCardTimers(); setNamePopup(false); setCardOpen(false); setWantCard(false); }
+  // Open the Name popup with the newborn's current name in hand.
+  function openNamePopup() {
+    if (!presentedItem) return;
+    setNameDraft(presentedItem.name);
+    setNameError(null);
+    setNamePopup(true);
+  }
+  // The popup's Keep: rename first (only a real change is sent), and
+  // only then take the exact door the matching Keep path takes — the
+  // claim for a waiting free wake, the plain conclusion for a card
+  // already in the deck. A failed rename stays in the popup as an
+  // error and concludes nothing.
+  async function confirmNameAndKeep() {
+    if (!presentedItem || nameBusy) return;
+    const next = nameDraft.trim();
+    setNameBusy(true);
+    setNameError(null);
+    try {
+      if (next && next !== presentedItem.name) {
+        await api.renameAwoken({ id: presentedItem.id, name: next });
+        invalidateStudios(queryClient);
+      }
+    } catch (e) {
+      setNameError(mutationError(e));
+      setNameBusy(false);
+      return;
+    }
+    setNameBusy(false);
+    setNamePopup(false);
+    if (waitingCard) void claimWaitingFree(true);
+    else concludeMoment();
+  }
   useEffect(() => () => { clearCeremonyTimers(); clearCardTimers(); }, []);
   const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awoken received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setCardId(data.id); onSaved(data.id); }, onError: (error) => { abortCeremony(); if (collection === "tender" && isClaimGateError(error)) onNeedClaim?.(); } });
   const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => { if (isClaimGateError(error) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(error)); } });
@@ -690,7 +731,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
       </p>
     )}
     <div className="ritual-copy"><p className="eyebrow">Matter · Binding · Memory</p><h1>Every form begins as scattered matter.</h1><p>Wake what has been waiting between thought and ink.</p><p className="ritual-intro">The Awoken are matter held together by a binding force — each one drawn by hand in ink, shaped by nature and nurture. No two are ever the same.</p></div>
-    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}${cardOpen && presentedItem ? " card-presented" : ""}`} onClick={skipCeremony}><div className="canvas-frame-bg" aria-hidden="true" style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} /><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={cardPhase !== "done" ? finishCardCeremony : waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><div className="ceremony-card-stage" data-phase={cardPhase}><TradingCard item={presentedItem} />{burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": elementColors[burnBody], "--burn-delay": "0s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={elementColors[burnBody]} dotColor={elementColors[burnBody]} width={54} height={22} /></span>)}{burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": elementColors[burnArms], "--burn-delay": "2.05s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={elementColors[burnArms]} dotColor={elementColors[burnArms]} width={54} height={22} /></span>)}{burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": elementColors[burnHead], "--burn-delay": "4.1s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={elementColors[burnHead]} dotColor={elementColors[burnHead]} width={54} height={22} /></span>)}<span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": "6.15s" } as CSSProperties} aria-hidden="true">{presentedItem.power}/{presentedItem.toughness}</span><img className="birth-frame" src={birthFrame} alt="" aria-hidden="true" /></div>{cardPhase === "done" && (waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>joins your deck</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>))}</div></div>)}</div>
+    <div className="ritual-grid"><div className="stage-column"><div className={`canvas-frame ${composition.length ? "has-form" : ""}${cardOpen && presentedItem ? " card-presented" : ""}`} onClick={skipCeremony}><div className="canvas-frame-bg" aria-hidden="true" style={{ backgroundImage: `url(${awakening.wakeSlot})`, backgroundSize: "cover", backgroundPosition: "center" }} /><canvas ref={canvasRef} className={canvasClass || undefined} width={750} height={971} aria-label="Awoken awakening canvas" />{ceremonyActive && <div className="ceremony-dim" aria-hidden="true" />}{(ceremony === "flare" || ceremony === "grow") && <div className="ceremony-flare" aria-hidden="true" />}{ceremony === "crystal" && <img className="ceremony-crystal" src={awakening.wakeReady} alt="" aria-hidden="true" />}{collection === "tender" && freeWakeAvailable && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={() => void wakeFreeAtSpark()} disabled={freeBusy || save.isPending} aria-label="Wake One — a free wake is ready"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>a free wake is ready</small></button>)}{collection === "tender" && !freeWakeAvailable && nextFreeWakeAt && !composition.length && (<button type="button" className="wake-ready-overlay" onClick={onWakeButton} disabled={save.isPending || checkout.isPending} aria-label="Wake One"><img src={awakening.wakeReady} alt="" /><span>Wake One</span><small>Next free wake {inAbout(nextFreeWakeAt)}</small></button>)}<span className="canvas-whisper">{composition.length ? "THE BINDING HOLDS" : "SCATTERED MATTER ... ... ... AWOKEN HEART"}</span>{cardOpen && presentedItem && (<div className="ceremony-card-layer"><div className="ceremony-card-backdrop" onClick={cardPhase !== "done" ? finishCardCeremony : waitingCard ? dismissWaitingCard : concludeMoment} /><div className="ceremony-card-wrap ceremony-card-form"><div className="ceremony-card-stage" data-phase={cardPhase}><TradingCard item={presentedItem} />{burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": elementColors[burnBody], "--burn-delay": "0s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={elementColors[burnBody]} dotColor={elementColors[burnBody]} width={54} height={22} /></span>)}{burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": elementColors[burnArms], "--burn-delay": "2.05s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={elementColors[burnArms]} dotColor={elementColors[burnArms]} width={54} height={22} /></span>)}{burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": elementColors[burnHead], "--burn-delay": "4.1s" } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={elementColors[burnHead]} dotColor={elementColors[burnHead]} width={54} height={22} /></span>)}<span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": "6.15s" } as CSSProperties} aria-hidden="true">{presentedItem.power}/{presentedItem.toughness}</span><img className="birth-frame" src={birthFrame} alt="" aria-hidden="true" /></div>{cardPhase === "done" && (<div className="ceremony-done-actions">{waitingCard ? (<div className="waiting-actions"><button className="wake-button" type="button" onClick={() => void claimWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Joining…" : "Add to deck"}</span><small>joins your deck</small></button>{waitingCard.respinsRemaining > 0 ? <button className="waiting-respin" type="button" onClick={() => void reconstituteWaitingFree(true)} disabled={freeBusy}><span>{freeBusy ? "Reconstituting…" : "Reconstitute matter"}</span><small>one free re-weaving</small></button> : <p className="quiet">The matter has settled into this form.</p>}</div>) : (<button type="button" className="abtn" onClick={concludeMoment}>Keep</button>)}<button type="button" className="abtn" onClick={openNamePopup}>Name</button>{namePopup && (<div className="name-popup" role="dialog" aria-label="Name this Awoken"><form onSubmit={(event) => { event.preventDefault(); void confirmNameAndKeep(); }}><label htmlFor="ceremony-name-input">Name this Awoken</label><input id="ceremony-name-input" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} autoFocus maxLength={80} disabled={nameBusy} />{nameError && <p className="name-popup-error">{nameError}</p>}<div className="name-popup-buttons"><button type="submit" className="abtn" disabled={nameBusy || !nameDraft.trim()}>{nameBusy ? "Keeping…" : "Keep"}</button><button type="button" className="abtn" onClick={() => setNamePopup(false)} disabled={nameBusy}>Cancel</button></div></form></div>)}</div>)}</div></div>)}</div>
       {collection === "tender" && waitingFree?.awakened && (
         <div className="spark-claim">
           <p className="spark-claim-line">✨ {waitingFree.awakened.name} waits at the spark — a free wake, already gathered.</p>
