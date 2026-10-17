@@ -589,6 +589,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     simRunesTriggeredRef.current = [];
     simRuneFiredRef.current = new Set();
     simSkipRef.current = new Map();
+    grimBattleRef.current = new Map(workings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false }]));
+    grimYieldRef.current = 0;
   };
   const simWallState = (): { edgeKey: string; hp: number }[] =>
     [...battleWallHpRef.current.entries()].map(([edgeKey, hp]) => ({ edgeKey, hp }));
@@ -624,6 +626,83 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const thornsDragUnit = (unitId: string, t: { q: number; r: number }) => {
     if (wallsTouchingTile(t).some(w => w.kind === "thorns")) simHoldUnit(unitId, 1);
+  };
+  // ── The Written Light in the in-map sim (the Grimoire, Nigel
+  // 2026-10-17) ─────────────────────────────────────────────
+  // The standings fight by the same engines as at the Table,
+  // tracked in a battle mirror seeded at the battle's start and
+  // reported at its resolution (grimState / grimEnergy ride
+  // resolveBattle beside wallState / runesTriggered, and the
+  // server reckons them onto territory_workings). Runes spring
+  // where the edge-runes spring — when the dark ENTERS their
+  // hex; wards answer inside damageAwoken, the one funnel every
+  // enemy blow to a fighter passes through.
+  const grimBattleRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean }>>(new Map());
+  const grimYieldRef = useRef(0);
+  const grimUnitsRef = useRef<any[]>([]);
+  useEffect(() => { grimUnitsRef.current = battleUnits; }, [battleUnits]);
+  const grimBright = () => workings.some((w) => w.engine === "engine" && !(grimBattleRef.current.get(w.id)?.spent));
+  const grimFormName = (w: MapWorking) => grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey;
+  const grimEdgeTiles = (w: MapWorking): [{ q: number; r: number }, { q: number; r: number }] => {
+    const a = { q: w.q ?? 0, r: w.r ?? 0 };
+    const d = WALL_DIR_DELTAS[w.dir ?? 0];
+    return [a, { q: a.q + d[0], r: a.r + d[1] }];
+  };
+  const grimReport = () => ({
+    grimState: [...grimBattleRef.current.entries()].map(([id, st]) => ({ id, hp: st.hp, stops: st.stops, charges: st.charges, spent: st.spent })),
+    grimEnergy: grimYieldRef.current,
+  });
+  /** A floor-rune springs as the dark enters its hex. Returns
+   *  the units after the spring, and whether the entering unit
+   *  was relocated (the Coil) — its own move then does not run. */
+  const applyGrimoireEntry = (unit: any, tile: { id: number; q: number; r: number }, updated: any[]): { updated: any[]; moved: boolean } => {
+    const rune = workings.find((w) => (w.kind === "rune" || w.kind === "spell") && w.tileId === tile.id);
+    const st = rune ? grimBattleRef.current.get(rune.id) : undefined;
+    if (!rune || !st || st.spent) return { updated, moved: false };
+    const bright = grimBright() ? 1 : 0;
+    let moved = false;
+    if (rune.engine === "lattice") {
+      simHoldUnit(unit.id, rune.nums.pinRounds ?? 2);
+      st.spent = true;
+      showHexNotice(`${grimFormName(rune)} springs — the whole floor is the snare.`);
+    } else if (rune.engine === "blade" || rune.engine === "blades") {
+      const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
+      updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - power } : u).filter((u) => u.hp > 0);
+      st.charges--;
+      if (st.charges <= 0) st.spent = true;
+      showHexNotice(`${grimFormName(rune)} springs — ${power} harm to everything standing on its ground.`);
+    } else if (rune.engine === "coil") {
+      const free = tiles.filter((t) => !t.cursed && t.id !== tile.id && !updated.some((u) => u.tileId === t.id) && !placements.some((p) => p.tileId === t.id));
+      const dest = free.length ? free[Math.floor(Math.random() * free.length)] : null;
+      if (dest && updated.some((u) => u.id === unit.id)) {
+        const { cx, cy } = simTilePos(dest);
+        updated = updated.map((u) => u.id === unit.id ? { ...u, tileId: dest.id, x: cx, y: cy } : u);
+        grimYieldRef.current += Math.min(rune.nums.energyCap ?? 3, rune.nums.energyPerDark ?? 1);
+        moved = true;
+      }
+      st.spent = true;
+      showHexNotice(`${grimFormName(rune)} turns the dark aside — thrown back to far ground.`);
+    } else if (rune.engine === "shard") {
+      const here = updated.filter((u) => u.tileId === tile.id);
+      const greatest = here.length ? Math.max(...here.map((u) => u.power || 2)) : 0;
+      if (greatest >= (rune.nums.minPower ?? 5)) {
+        const dmg = greatest * (rune.nums.multiplier ?? 2);
+        updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - dmg } : u).filter((u) => u.hp > 0);
+        st.spent = true;
+        showHexNotice(`${grimFormName(rune)} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
+      }
+    }
+    return { updated, moved };
+  };
+  /** Each turn: Engines sing their yield into the report, and
+   *  the Trees regrow toward the health they were raised with. */
+  const grimRoundTick = () => {
+    for (const w of workings) {
+      const st = grimBattleRef.current.get(w.id);
+      if (!st || st.spent) continue;
+      if (w.engine === "engine") grimYieldRef.current += w.nums.energyPerRound ?? 1;
+      if (w.engine === "trees") st.hp = Math.min(w.nums.hp ?? 8, st.hp + (w.nums.regrow ?? 2));
+    }
   };
   // Boss resolution recorded at victory detection (before the victory
   // screen opens), so handleBattleEnd never resolves a boss twice;
@@ -1450,6 +1529,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   /** Phase 2: Awoken and enemies act in initiative order (lower toughness = faster). */
   const doInitiativePhase = () => {
     if (battlePaused) { setTimeout(() => doInitiativePhase(), 500); return; }
+    grimRoundTick();
 
     const fighters = placements
       .filter(p => p.stance === "attack" || p.stance === "defense")
@@ -1502,7 +1582,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             if (!uTile) continue;
             const d = hexDist(c.tile, uTile);
             // Exponential falloff: damage = power * 0.65^distance (min 1)
-            const effPower = (c.aw.power || 3) + (towerAura.has(c.tile.id) ? towerBonus : 0);
+            // The Written Light's auras (the Grimoire): a Standard
+            // on an edge of the striker's hex lends its bonus; a
+            // Beacon lends its bonus against dark standing on or
+            // beside the hexes it lights.
+            const stdBonus = workings.filter((w) => w.engine === "standard").reduce((best, w) => {
+              const [ea, eb] = grimEdgeTiles(w);
+              return (c.tile.q === ea.q && c.tile.r === ea.r) || (c.tile.q === eb.q && c.tile.r === eb.r) ? Math.max(best, w.nums.strikeBonus ?? 1) : best;
+            }, 0);
+            const bcnBonus = workings.filter((w) => w.engine === "beacon").reduce((best, w) => {
+              const [ea, eb] = grimEdgeTiles(w);
+              const reach = [ea, eb, ...[ea, eb].flatMap((e) => WALL_DIR_DELTAS.map((d) => ({ q: e.q + d[0], r: e.r + d[1] })))];
+              return reach.some((e) => uTile.q === e.q && uTile.r === e.r) ? Math.max(best, w.nums.darkBonus ?? 1) : best;
+            }, 0);
+            const effPower = (c.aw.power || 3) + (towerAura.has(c.tile.id) ? towerBonus : 0) + stdBonus + bcnBonus;
             const dmg = Math.max(1, Math.round(effPower * Math.pow(0.65, d)));
             if (dmg > bestDmg) { bestDmg = dmg; best = u; }
           }
@@ -1545,8 +1638,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
             if (next) {
               const { cx, cy } = simTilePos(next);
               const runeDmg = springRuneOnTile(c.id, next);
+              const gr = applyGrimoireEntry(c, next, updated);
+              updated = gr.updated;
               thornsDragUnit(c.id, next);
-              updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : u).filter(u => u.hp > 0);
+              updated = updated.map(u => u.id === c.id ? (gr.moved ? { ...u, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg }) : u).filter(u => u.hp > 0);
               // If reached the hex, attack purification
               if (next.id === targetHex.id) {
                 damageTile(next.id, c.power || 2);
@@ -1577,6 +1672,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
                 if (runeDmg > 0) {
                   updated = updated.map(u => u.id === c.id ? { ...u, hp: u.hp - runeDmg } : u).filter(u => u.hp > 0);
                 }
+                updated = applyGrimoireEntry(c, bestTarget.tile, updated).updated;
                 if (updated.some(u => u.id === c.id)) {
                   damageAwoken(bestTarget.awakenedId, c.power || 2);
                   thornsDragUnit(c.id, bestTarget.tile);
@@ -1648,11 +1744,50 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
 
   /** Damage an Awoken (defends tile first). Syncs to server. */
   const damageAwoken = async (awakenedId: number, dmg: number) => {
-    // Hex walls absorb first (War-Ground, 2026-10-15): damage meant
-    // for a fighter standing on a walled tile chews through that
-    // tile's walls before it reaches the Awoken.
+    // The Written Light answers first (the Grimoire, Nigel
+    // 2026-10-17): a Seal on the edge between the striker and
+    // this fighter stops the blow cold and answers it; the
+    // Trees take what crosses their edge into their own health.
     const placement = placements.find(p => p.awakenedId === awakenedId);
     const tile = placement ? tiles.find(t => t.id === placement.tileId) : null;
+    if (tile) {
+      for (const w of workings) {
+        if (w.kind !== "ward" || w.engine !== "seal") continue;
+        const st = grimBattleRef.current.get(w.id);
+        if (!st || st.spent) continue;
+        const [ea, eb] = grimEdgeTiles(w);
+        const victimSide = (tile.q === ea.q && tile.r === ea.r) ? eb : (tile.q === eb.q && tile.r === eb.r) ? ea : null;
+        if (!victimSide) continue;
+        const attacker = grimUnitsRef.current.find((u) => {
+          const ut = tiles.find((t) => t.id === u.tileId);
+          return ut && ut.q === victimSide.q && ut.r === victimSide.r;
+        });
+        if (!attacker) continue;
+        st.stops++;
+        if (st.stops >= (w.nums.stops ?? 3)) st.spent = true;
+        const rip = (w.nums.riposte ?? 3) + (grimBright() ? (w.nums.brightBonus ?? 1) : 0);
+        setBattleUnits((prev) => prev.map((u) => u.id === attacker.id ? { ...u, hp: u.hp - rip } : u).filter((u) => u.hp > 0));
+        showHexNotice(`${grimFormName(w)} stops the strike cold — and answers it (${rip}).`);
+        return;
+      }
+      for (const w of workings) {
+        if (dmg <= 0) break;
+        if (w.kind !== "ward" || w.engine !== "trees") continue;
+        const st = grimBattleRef.current.get(w.id);
+        if (!st || st.spent || st.hp <= 0) continue;
+        const [ea, eb] = grimEdgeTiles(w);
+        if (!(tile.q === ea.q && tile.r === ea.r) && !(tile.q === eb.q && tile.r === eb.r)) continue;
+        const absorbed = Math.min(st.hp, dmg);
+        st.hp -= absorbed;
+        dmg -= absorbed;
+        if (st.hp <= 0) { st.spent = true; showHexNotice(`${grimFormName(w)} are broken — for this battle. The seed remembers them.`); }
+        else showHexNotice(`${grimFormName(w)} take the blow meant for their Tender's own.`);
+      }
+      if (dmg <= 0) return;
+    }
+    // Hex walls absorb next (War-Ground, 2026-10-15): damage meant
+    // for a fighter standing on a walled tile chews through that
+    // tile's walls before it reaches the Awoken.
     if (tile) {
       let remaining = dmg;
       for (const w of wallsTouchingTile(tile)) {
@@ -1754,6 +1889,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         targetTileId: waveTarget?.tile?.id,
         wallState: simWallState(),
         runesTriggered: [...simRunesTriggeredRef.current],
+        ...grimReport(),
       });
       if (res.bonusEligible && res.bonusEligible.length > 0) {
         setBonusTiles(res.bonusEligible);
@@ -1822,6 +1958,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         survivorIds: [],
         wallState: simWallState(),
         runesTriggered: [...simRunesTriggeredRef.current],
+        ...grimReport(),
       });
     } catch (e) {
       console.error("Defeat resolution failed", e);
