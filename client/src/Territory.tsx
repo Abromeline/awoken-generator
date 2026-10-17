@@ -15,6 +15,30 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
+import type { MapWorking, GrimoireState } from "./api";
+import grimGlyphSeal from "./assets/glyphs/seal.png";
+import grimGlyphEngine from "./assets/glyphs/engine.png";
+import grimGlyphStandard from "./assets/glyphs/standard.png";
+import grimGlyphTrees from "./assets/glyphs/trees.png";
+import grimGlyphBeacon from "./assets/glyphs/beacon.png";
+import grimGlyphLattice from "./assets/glyphs/lattice.png";
+import grimGlyphBlade from "./assets/glyphs/blade.png";
+import grimGlyphBlades from "./assets/glyphs/blades.png";
+import grimGlyphShard from "./assets/glyphs/shard.png";
+import grimGlyphCoil from "./assets/glyphs/coil.png";
+const GRIM_BUNDLED: Record<string, string> = { seal: grimGlyphSeal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: grimGlyphTrees, beacon: grimGlyphBeacon, lattice: grimGlyphLattice, blade: grimGlyphBlade, blades: grimGlyphBlades, shard: grimGlyphShard, coil: grimGlyphCoil };
+/** The hues of the Written Light — the grimoire's filter recipes,
+ *  the same as the Table's (Table.tsx). */
+const GRIM_HUE_FILTERS: Record<string, string> = {
+  unaligned: "none",
+  tide: "hue-rotate(155deg) saturate(1.25)",
+  sky: "hue-rotate(212deg) saturate(.5) brightness(1.3)",
+  stone: "hue-rotate(-8deg) saturate(1.45) brightness(.97)",
+  root: "hue-rotate(74deg) saturate(1.15)",
+  fire: "hue-rotate(-30deg) saturate(1.6) brightness(1.06)",
+};
+const GRIM_HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#57c8ff", sky: "#cdb9ff", stone: "#e8a33d", root: "#7dd069", fire: "#ff7a33" };
+const GRIM_HUES = ["unaligned", "tide", "sky", "stone", "root", "fire"];
 import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { elementPalette } from "./palette";
@@ -444,6 +468,20 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
+  // ── The Written Light on the land (the Grimoire, Nigel 2026-10-17) ──
+  // The Tender's own castings from the book: standings served by
+  // getTerritory, the book itself by getGrimoire, the Lv 3 gate by
+  // getTenderExp. Casting mode turns hex taps into castings: a ward
+  // wants an anchor hex (mine standing on it) then one of its edges;
+  // a rune wants a hex's floor; Heal wants a hex my wounded stand on.
+  const [workings, setWorkings] = useState<MapWorking[]>([]);
+  const [grim, setGrim] = useState<GrimoireState | null>(null);
+  const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
+  const [castMode, setCastMode] = useState(false);
+  const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
+  const [castHue, setCastHue] = useState<string>("unaligned");
+  const [castAnchor, setCastAnchor] = useState<number | null>(null);
+  const [fadePick, setFadePick] = useState<number | null>(null);
 
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
@@ -682,12 +720,26 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   }, [placements]);
 
   useEffect(() => {
-    api.getTerritory().then(({ tiles, placements, walls, skills }) => {
+    api.getTerritory().then(({ tiles, placements, walls, skills, workings }) => {
       setTiles(tiles); setPlacements(placements); setWalls(walls ?? []); setSkills(skills ?? []);
+      setWorkings(workings ?? []);
     }).catch((e) => {
       console.error("[Territory] getTerritory failed:", e);
     }).finally(() => setTerritoryLoaded(true));
   }, []);
+
+  useEffect(() => {
+    api.getGrimoire().then(setGrim).catch(() => {});
+    api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount })).catch(() => {});
+  }, []);
+
+  const refreshWorkings = async () => {
+    const refreshed = await api.getTerritory();
+    setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+    setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
+    setWorkings(refreshed.workings ?? []);
+    onUpdate();
+  };
 
   // Marching orders change the placements themselves — and this
   // screen keeps its OWN copy of them, so every marching handler
@@ -938,8 +990,57 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // building standing on it, an Awoken standing on it — routes its taps
   // here while a flow is armed. Before this, covered hexes were simply
   // unreachable: their taps died in the covering element's own handler.
+  // ── Casting from the book (the Grimoire, Nigel 2026-10-17) ──
+  const castSpell = grim?.spells.find((sp) => sp.key === castSpellKey) ?? null;
+  const grimGlyphImg = (spellKey: string): string | null => {
+    const sp = grim?.spells.find((x) => x.key === spellKey);
+    const g = sp ? grim?.glyphs.find((x) => x.id === sp.glyphId) : null;
+    return g?.imageUrl ?? (g?.assetKey ? GRIM_BUNDLED[g.assetKey] ?? null : null) ?? GRIM_BUNDLED[spellKey] ?? null;
+  };
+  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number }) => {
+    if (!castSpell) return;
+    try {
+      const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, ...args });
+      const formName = castSpell.forms[castHue] ?? castSpell.name;
+      showHexNotice(castSpell.engine === "heal"
+        ? `${formName} mends ${res.healed ?? 0} HP — the binding light, at your word.`
+        : castSpell.kind === "ward"
+          ? `${formName} rises on the edge — the Written Light stands on your land.`
+          : `${formName} is written into the ground — it waits for the dark to stand on it.`);
+      setCastAnchor(null);
+      await refreshWorkings();
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "The casting would not take.");
+    }
+  };
+  const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
+    if (!castSpell) { showHexNotice("Choose a working from the book first."); return; }
+    if (castSpell.engine === "heal" || castSpell.kind === "binding") {
+      const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
+        const a = tenderItems.find((x) => x.id === p.awakenedId);
+        return { id: p.awakenedId, hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
+      }).filter((x) => x.max > 0 && x.hp < x.max).sort((x, y) => (x.hp / x.max) - (y.hp / y.max));
+      if (!wounded.length) { showHexNotice("No wounded Awoken stands on that hex."); return; }
+      void doCastMap({ awakenedId: wounded[0].id });
+      return;
+    }
+    if (castSpell.kind === "ward") {
+      if (castAnchor === null) {
+        if (!placements.some((p) => p.tileId === tile.id)) { showHexNotice("A ward stands on the edge of a hex your own Awoken holds — tap such a hex first."); return; }
+        setCastAnchor(tile.id);
+        showHexNotice("Now tap one of the glowing edges of that hex.");
+        return;
+      }
+      if (tile.id === castAnchor) { setCastAnchor(null); return; }
+      showHexNotice("Tap one of the glowing edges — or the anchor hex again to choose another.");
+      return;
+    }
+    void doCastMap({ tileId: tile.id });
+  };
+
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
+    if (castMode && castSpellKey) { handleCastTap(tile); return; }
     if (groupMarchUi) {
       // Company march quoting: the tapped hex is the muster point;
       // the company forms up on it and the open hexes around it,
@@ -2547,6 +2648,70 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     // edges — a gold guide line plus a FAT invisible hit-strip along
     // each free edge, so one tap (finger or mouse) picks exactly one
     // side. Edges already walled show grey and take no tap.
+    // The Written Light standing on the land (the Grimoire):
+    // wards burn along their edge with their glyph at its heart,
+    // runes sleep on their hex's floor. A Trees pales as it is
+    // spent, like a wall. In casting mode, the anchor hex's free
+    // edges glow violet and take the tap that raises the ward.
+    const workingsLayer = (
+      <g key="workings">
+        {workings.map((w) => {
+          const img = grimGlyphImg(w.spellKey);
+          const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 5px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
+          const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
+          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}`;
+          if (w.kind === "ward" && w.q != null && w.r != null && w.dir != null) {
+            const wt = tiles.find((tt) => tt.q === w.q && tt.r === w.r);
+            const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px + pan.x, cy: originY + py + pan.y }; })();
+            const verts = hexCellVertices(c.cx, c.cy, size);
+            const [x1, y1] = verts[w.dir];
+            const [x2, y2] = verts[(w.dir + 1) % 6];
+            const frac = w.engine === "trees" ? Math.max(0, Math.min(1, w.hp / Math.max(1, w.nums.hp ?? 8))) : 1;
+            return (
+              <g key={w.id} opacity={(0.35 + 0.65 * frac).toFixed(2)}>
+                <title>{title}</title>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(183,166,255,0.30)" strokeWidth={size * 0.13} strokeLinecap="round" />
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"} strokeWidth={size * 0.045} strokeLinecap="round" opacity={0.85} />
+                {img && <image href={img} x={(x1 + x2) / 2 - size * 0.21} y={(y1 + y2) / 2 - size * 0.21} width={size * 0.42} height={size * 0.42} style={{ filter }} pointerEvents="none" />}
+              </g>
+            );
+          }
+          const t = w.tileId != null ? tiles.find((tt) => tt.id === w.tileId) : null;
+          if (!t) return null;
+          const { cx, cy } = tilePos(t);
+          return (
+            <g key={w.id} opacity={0.92}>
+              <title>{title}</title>
+              {img && <image href={img} x={cx - size * 0.30} y={cy - size * 0.30} width={size * 0.60} height={size * 0.60} style={{ filter }} pointerEvents="none" />}
+            </g>
+          );
+        })}
+      </g>
+    );
+    const castEdgeLayer = castMode && castSpell?.kind === "ward" && castAnchor !== null ? (() => {
+      const t = tiles.find((tt) => tt.id === castAnchor);
+      if (!t) return null;
+      const { cx, cy } = tilePos(t);
+      const verts = hexCellVertices(cx, cy, size);
+      return (
+        <g key="cast-edges">
+          {verts.map((v, d) => {
+            const n = verts[(d + 1) % 6];
+            const taken = walls.some((w) => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d))
+              || workings.some((w) => w.kind === "ward" && w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d));
+            return (
+              <g key={d}>
+                <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3} strokeDasharray="6 4" pointerEvents="none" />
+                {!taken && (
+                  <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26} strokeLinecap="round" style={{ cursor: "pointer" }}
+                    onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d }); }} />
+                )}
+              </g>
+            );
+          })}
+        </g>
+      );
+    })() : null;
     const wallLayer = (
       <g key="walls">
         {walls.map(w => {
@@ -2730,6 +2895,8 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         {buildingElements}
         {awokenElements}
         {wallLayer}
+        {workingsLayer}
+        {castEdgeLayer}
         {wgGuideLayer}
         {patrolGuideLayer}
         {marchGuideLayer}
@@ -3563,6 +3730,57 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             </button>
           );
         })()}
+        <button className="abtn" onClick={() => { setCastMode((c) => !c); setCastSpellKey(null); setCastAnchor(null); }} style={{ marginLeft: 8, borderColor: castMode ? "#b7a6ff" : "#8d7bd8" }} title="Open the Grimoire on the land: cast wards on hex edges, write runes on hex floors, mend with the binding light. The numbers are the book's, tuned in the workshop.">
+          ✎ {castMode ? "Close the Written Light" : "Written Light"}
+        </button>
+        {castMode && (
+          <div style={{ margin: "10px 0", padding: "10px 12px", border: "1px solid rgba(183,166,255,.5)", borderRadius: 10, background: "rgba(24,18,44,.88)" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <strong style={{ color: "#e6ddff" }}>Pour:</strong>
+              {GRIM_HUES.map((h) => (
+                <button key={h} onClick={() => setCastHue(h)} className="abtn" style={{ borderColor: castHue === h ? (GRIM_HUE_GLOWS[h]) : "#555", color: castHue === h ? GRIM_HUE_GLOWS[h] : "#ccc", textTransform: "capitalize" }}>{h}</button>
+              ))}
+              <span style={{ marginLeft: "auto", color: "#cfc4f5" }}>⚡{energy} · Tender Lv {grimGate.level}</span>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              {(grim?.spells ?? []).map((sp) => {
+                const locked = sp.kind !== "binding" && sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
+                const img = grimGlyphImg(sp.key);
+                const sel = castSpellKey === sp.key;
+                return (
+                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); }}
+                    className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
+                    title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ⚡${sp.cost}. ${sp.blurb}`}>
+                    {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
+                    {locked ? "🔒 " : ""}{(sp.forms[castHue] ?? sp.name)} · ⚡{sp.cost}
+                  </button>
+                );
+              })}
+              {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
+            </div>
+            <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
+              {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
+              {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}
+              {castSpell?.kind === "ward" && castAnchor === null && <>Tap a hex <strong>your Awoken holds</strong> — then tap one of its glowing edges.</>}
+              {castSpell?.kind === "ward" && castAnchor !== null && <>Tap a <strong>glowing edge</strong> of the anchor hex — or the hex again to choose another.</>}
+              {castSpell && (castSpell.kind === "rune" || castSpell.kind === "spell") && <>Tap a hex's <strong>ground</strong> to write it there — cursed ground takes the light too, ahead of the march. One writing per hex.</>}
+            </div>
+            {workings.length > 0 && (
+              <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ color: "#cfc4f5" }}>{workings.length} working{workings.length === 1 ? "" : "s"} standing:</span>
+                <select value={fadePick ?? ""} onChange={(e) => setFadePick(e.target.value ? Number(e.target.value) : null)} style={{ maxWidth: 260 }}>
+                  <option value="">— choose one to fade —</option>
+                  {workings.map((w) => <option key={w.id} value={w.id}>{grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey} ({w.kind})</option>)}
+                </select>
+                <button className="abtn" disabled={fadePick === null} onClick={async () => {
+                  if (fadePick === null) return;
+                  try { await api.fadeMapWorking({ id: fadePick }); setFadePick(null); await refreshWorkings(); showHexNotice("The light fades from the land — the page rests."); }
+                  catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not fade."); }
+                }}>Fade it</button>
+              </div>
+            )}
+          </div>
+        )}
         {wavesCleared >= 3 && wave && (
           <span style={{ marginLeft: 12, color: "#ffd700", fontWeight: "bold" }}>
             All Unravelings broken — Boss awaits!
