@@ -4188,7 +4188,12 @@ export const handlers = {
       // drains a day at a time, as the shrine's does), and an empty
       // hex keeps no clock: its anchor clears when the company
       // leaves, and a returning company starts its own day.
-      const PRESS_DIVISOR = 8;
+      // Attunement quickened (Nigel, 2026-10-17): the time a
+      // hex takes to attune is reduced by a third — the land
+      // drinks the press at two-thirds the old divisor (8 -> 16/3),
+      // so every stage lands in two-thirds the hours. The bank,
+      // the trays, and the served rate all ride this one number.
+      const PRESS_DIVISOR = 8 * 2 / 3;
       const QUEST_STEP_MS = 3600 * 1000;
       const QUEST_MAX_STEPS = 24;
       for (const [tileId, company] of byTile) {
@@ -4196,6 +4201,12 @@ export const handlers = {
         if (!tile || tile.cursed) continue;
         const dom = netPressOf(await companySums(company));
         (tile as any).attuneRatePts = dom.pts > 0 ? Math.round((dom.pts / PRESS_DIVISOR) * 100) / 100 : 0;
+        // The War-Grounds readout (Nigel, 2026-10-17): the hex's
+        // dominant element and the net points of it influencing
+        // the hex's attunement right now — the same net press the
+        // settle pours by, served on the tile for the label.
+        (tile as any).pressEl = dom.el || null;
+        (tile as any).pressPts = dom.pts;
         const nowMs = Date.now();
         let anchor = tile.attuneAnchorAt ? new Date(tile.attuneAnchorAt as any).getTime() : 0;
         if (!anchor) {

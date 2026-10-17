@@ -3047,6 +3047,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     ) : null;
+    // Attunement labels (Nigel, 2026-10-17): while the
+    // War-Grounds stand open, every hex its company is attuning
+    // wears a label above it — the dominant element's glyph and
+    // the net points of that element influencing its attunement,
+    // served by the same net press that pours the bank.
+    const wgAttuneLayer = wgTileId !== null ? (
+      <g key="wg-attune" pointerEvents="none">
+        {tiles.filter(t => !t.cursed && ((t as any).pressPts ?? 0) > 0).map(t => {
+          const { cx, cy } = tilePos(t);
+          const el = (t as any).pressEl as string;
+          const pts = (t as any).pressPts as number;
+          const col = elementPalette[el as keyof typeof elementPalette] ?? "#d4af6a";
+          return (
+            <g key={t.id}>
+              <rect x={cx - size * 0.62} y={cy - size * 1.36} width={size * 1.24} height={size * 0.46} rx={size * 0.23} fill="rgba(8,6,10,0.88)" stroke={col} strokeWidth={1.4} />
+              <g transform={`translate(${cx - size * 0.55}, ${cy - size * 1.215})`}><ElementGlyph element={el as GlyphElement} color={col} width={size * 0.42} height={size * 0.168} /></g>
+              <text x={cx + size * 0.24} y={cy - size * 1.02} textAnchor="middle" fontSize={size * 0.30} fill="#f0e6cc">{pts}</text>
+            </g>
+          );
+        })}
+      </g>
+    ) : null;
     // Patrol guide: while a road is being laid, the draft road is
     // drawn dotted over the map, its waypoints numbered in order.
     const patrolGuideLayer = patrolSettingFor !== null ? (() => {
@@ -3110,6 +3132,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {workingsLayer}
         {castEdgeLayer}
         {wgGuideLayer}
+        {wgAttuneLayer}
         {patrolGuideLayer}
         {marchGuideLayer}
         {bandLayer}
