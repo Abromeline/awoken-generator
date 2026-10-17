@@ -480,6 +480,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const [castMode, setCastMode] = useState(false);
   const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
   const [castHue, setCastHue] = useState<string>("unaligned");
+  // The Pour (Nigel, 2026-10-17): elemental points of the poured
+  // hue fed into the working at its cast, chosen here in the bar.
+  const [castPour, setCastPour] = useState(0);
+  const grimPoolsQ = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement(), staleTime: 0 });
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
   const [fadePick, setFadePick] = useState<number | null>(null);
 
@@ -589,7 +593,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     simRunesTriggeredRef.current = [];
     simRuneFiredRef.current = new Set();
     simSkipRef.current = new Map();
-    grimBattleRef.current = new Map(workings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false }]));
+    grimBattleRef.current = new Map(workings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false, maxHp: w.maxHp, pour: w.pour }]));
     grimYieldRef.current = 0;
   };
   const simWallState = (): { edgeKey: string; hp: number }[] =>
@@ -637,7 +641,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   // where the edge-runes spring — when the dark ENTERS their
   // hex; wards answer inside damageAwoken, the one funnel every
   // enemy blow to a fighter passes through.
-  const grimBattleRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean }>>(new Map());
+  const grimBattleRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean; maxHp: number; pour: number }>>(new Map());
   const grimYieldRef = useRef(0);
   const grimUnitsRef = useRef<any[]>([]);
   useEffect(() => { grimUnitsRef.current = battleUnits; }, [battleUnits]);
@@ -687,9 +691,18 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
     const bright = grimBright() ? 1 : 0;
     let moved = false;
     if (rune.engine === "lattice") {
-      simHoldUnit(unit.id, rune.nums.pinRounds ?? 2);
-      st.spent = true;
-      showHexNotice(`${grimFormName(rune)} springs — the whole floor is the snare.`);
+      // The Lattice holds with its health rating (Nigel,
+      // 2026-10-17): pinning costs the entering dark's power,
+      // and the writing stands on while health remains.
+      const strain = Math.max(1, unit.power || 2);
+      if (st.hp >= strain) {
+        st.hp -= strain;
+        simHoldUnit(unit.id, rune.nums.pinRounds ?? 2);
+        showHexNotice(`${grimFormName(rune)} springs — the whole floor is the snare.`);
+        if (st.hp <= 0) { st.spent = true; showHexNotice(`${grimFormName(rune)} is worn through and goes out, spent and honored.`); }
+      } else {
+        showHexNotice(`${grimFormName(rune)} strains to hold — its light is too worn (❤${Math.max(0, st.hp)}).`);
+      }
     } else if (rune.engine === "blade" || rune.engine === "blades") {
       const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
       updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - power } : u).filter((u) => u.hp > 0);
@@ -711,7 +724,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const here = updated.filter((u) => u.tileId === tile.id);
       const greatest = here.length ? Math.max(...here.map((u) => u.power || 2)) : 0;
       if (greatest >= (rune.nums.minPower ?? 5)) {
-        const dmg = greatest * (rune.nums.multiplier ?? 2);
+        const dmg = greatest * (rune.nums.multiplier ?? 2) + (rune.pour ?? 0) * (rune.nums.harmPerPoint ?? 1);
         updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - dmg } : u).filter((u) => u.hp > 0);
         st.spent = true;
         showHexNotice(`${grimFormName(rune)} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
@@ -726,7 +739,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
       const st = grimBattleRef.current.get(w.id);
       if (!st || st.spent) continue;
       if (w.engine === "engine") grimYieldRef.current += w.nums.energyPerRound ?? 1;
-      if (w.engine === "trees") st.hp = Math.min(w.nums.hp ?? 8, st.hp + (w.nums.regrow ?? 2));
+      if (w.engine === "trees") st.hp = Math.min(st.maxHp || (w.nums.hp ?? 8), st.hp + (w.nums.regrow ?? 2));
     }
   };
   // Boss resolution recorded at victory detection (before the victory
@@ -1104,7 +1117,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
   const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number }) => {
     if (!castSpell) return;
     try {
-      const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, ...args });
+      const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, pour: castSpell.engine === "heal" ? undefined : castPour, ...args });
       const formName = castSpell.forms[castHue] ?? castSpell.name;
       showHexNotice(castSpell.engine === "heal"
         ? `${formName} mends ${res.healed ?? 0} HP — the binding light, at your word.`
@@ -1112,6 +1125,7 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           ? `${formName} rises on the edge — the Written Light stands on your land.`
           : `${formName} is written into the ground — it waits for the dark to stand on it.`);
       setCastAnchor(null);
+      if (castPour > 0) { setCastPour(0); refreshAspects(); }
       await refreshWorkings();
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "The casting would not take.");
@@ -1789,7 +1803,10 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
         });
         if (!attacker) continue;
         st.stops++;
-        if (st.stops >= (w.nums.stops ?? 3)) st.spent = true;
+        // The Seal's health rating: the stopped blow's power
+        // comes out of the Seal's own health.
+        st.hp -= dmg;
+        if (st.stops >= (w.nums.stops ?? 3) || st.hp <= 0) st.spent = true;
         const rip = (w.nums.riposte ?? 3) + (grimBright() ? (w.nums.brightBonus ?? 1) : 0);
         setBattleUnits((prev) => prev.map((u) => u.id === attacker.id ? { ...u, hp: u.hp - rip } : u).filter((u) => u.hp > 0));
         showHexNotice(`${grimFormName(w)} stops the strike cold — and answers it (${rip}).`);
@@ -2827,14 +2844,14 @@ export default function Territory({ tenderItems, assets, onUpdate }: Props) {
           const img = grimGlyphImg(w.spellKey);
           const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 5px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
           const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
-          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}`;
+          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · poured ${w.pour}` : ""}`;
           if (w.kind === "ward" && w.q != null && w.r != null && w.dir != null) {
             const wt = tiles.find((tt) => tt.q === w.q && tt.r === w.r);
             const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px + pan.x, cy: originY + py + pan.y }; })();
             const verts = hexCellVertices(c.cx, c.cy, size);
             const [x1, y1] = verts[w.dir];
             const [x2, y2] = verts[(w.dir + 1) % 6];
-            const frac = w.engine === "trees" ? Math.max(0, Math.min(1, w.hp / Math.max(1, w.nums.hp ?? 8))) : 1;
+            const frac = w.engine === "trees" ? Math.max(0, Math.min(1, w.hp / Math.max(1, w.maxHp || (w.nums.hp ?? 8)))) : w.engine === "seal" ? Math.max(0, Math.min(1, w.hp / Math.max(1, w.maxHp || 6))) : 1;
             return (
               <g key={w.id} opacity={(0.35 + 0.65 * frac).toFixed(2)}>
                 <title>{title}</title>
@@ -3906,7 +3923,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               <strong style={{ color: "#e6ddff" }}>Pour:</strong>
               {GRIM_HUES.map((h) => (
-                <button key={h} onClick={() => setCastHue(h)} className="abtn" style={{ borderColor: castHue === h ? (GRIM_HUE_GLOWS[h]) : "#555", color: castHue === h ? GRIM_HUE_GLOWS[h] : "#ccc", textTransform: "capitalize" }}>{h}</button>
+                <button key={h} onClick={() => { setCastHue(h); setCastPour(0); }} className="abtn" style={{ borderColor: castHue === h ? (GRIM_HUE_GLOWS[h]) : "#555", color: castHue === h ? GRIM_HUE_GLOWS[h] : "#ccc", textTransform: "capitalize" }}>{h}</button>
               ))}
               <span style={{ marginLeft: "auto", color: "#cfc4f5" }}>⚡{energy} · Tender Lv {grimGate.level}</span>
             </div>
@@ -3916,7 +3933,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 const img = grimGlyphImg(sp.key);
                 const sel = castSpellKey === sp.key;
                 return (
-                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); }}
+                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); setCastPour(0); }}
                     className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
                     title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ⚡${sp.cost}. ${sp.blurb}`}>
                     {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
@@ -3926,6 +3943,30 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               })}
               {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
             </div>
+            {castSpell && (castSpell.numbers.pourCap ?? 0) > 0 && castHue !== "unaligned" && (() => {
+              const cap = Math.floor(castSpell.numbers.pourCap ?? 0);
+              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[castHue] ?? 0);
+              const maxPour = Math.min(cap, pool);
+              const n = castSpell.numbers;
+              const hpPreview = castSpell.engine === "shard" ? null
+                : Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * grimGate.level + (n.hpPerPoint ?? 2) * castPour
+                  + (castSpell.engine === "trees" && workings.some((w) => w.engine === "engine") ? (n.brightHpBonus ?? 2) : 0)));
+              return (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                  <strong style={{ color: "#e6ddff" }}>Feed it:</strong>
+                  <button className="abtn" disabled={castPour <= 0} onClick={() => setCastPour((p) => Math.max(0, p - 1))}>−</button>
+                  <span style={{ color: "#cfc4f5", minWidth: 150, textAlign: "center" }}>
+                    Pour {castPour} {castHue} pt{castPour === 1 ? "" : "s"} <span style={{ opacity: 0.75 }}>(pool {pool} · cap {cap})</span>
+                  </span>
+                  <button className="abtn" disabled={castPour >= maxPour} onClick={() => setCastPour((p) => Math.min(maxPour, p + 1))}>+</button>
+                  <span style={{ color: "#ffd98a" }}>
+                    {castSpell.engine === "shard"
+                      ? `→ +${castPour * (n.harmPerPoint ?? 1)} harm when it falls`
+                      : `→ raised with ❤${hpPreview}`}
+                  </span>
+                </div>
+              );
+            })()}
             <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
               {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
               {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}

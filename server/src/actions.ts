@@ -22,7 +22,7 @@ import {
   type TenderRow,
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -4421,7 +4421,7 @@ export const handlers = {
       .all(ownerKey);
     const skills = sqlite.prepare("SELECT awakened_id AS awakenedId, skill FROM awoken_skills WHERE owner_key = ? ORDER BY id")
       .all(ownerKey);
-    const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges FROM territory_workings WHERE owner_key = ? ORDER BY id")
+    const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges, pour, max_hp AS maxHp FROM territory_workings WHERE owner_key = ? ORDER BY id")
       .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
     return { tiles, placements, buildings, mood, walls, skills, workings };
   },
@@ -5014,6 +5014,7 @@ export const handlers = {
       tileId: z.number().int().positive().optional(),
       dir: z.number().int().min(0).max(5).optional(),
       awakenedId: z.number().int().positive().optional(),
+      pour: z.number().int().min(0).max(500).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awoken to receive it.");
     const { spellKey, tileId, dir, awakenedId } = parsed.data;
@@ -5056,6 +5057,23 @@ export const handlers = {
       badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
     }
 
+    // The Pour (Nigel, 2026-10-17): elemental points of the
+    // poured hue, fed into the working at its cast — checked
+    // against the book's cap and the pool BEFORE anything is
+    // spent, so a refused cast costs nothing. Heal never reaches
+    // here: binding healing requires energy only.
+    const pourWanted = parsed.data.pour ?? 0;
+    const cap = pourCapFor(spell);
+    let pour = 0;
+    if (pourWanted > 0) {
+      if (cap === 0) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
+      if (hue === "unaligned") badRequest("An unaligned cast has no element to pour — choose a hue, and its pool feeds the working.");
+      if (pourWanted > cap) badRequest(`${spell.name} is capped at ${cap} poured points — the book will not let more in.`);
+      const held = (await attunementPools(ownerKey))[hue] ?? 0;
+      if (held < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${held}. Let your companies attune the land, and the pool will fill.`);
+      pour = pourWanted;
+    }
+
     if (spell.kind === "ward") {
       if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awoken holds and the edge (0–5).");
       const tileRows = await db.select().from(schema.territoryTiles)
@@ -5079,18 +5097,22 @@ export const handlers = {
         if (flying) badRequest("One Standard per Tender — yours already flies on the map.");
       }
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
-      // Bright: an Engine of yours standing anywhere on the map
-      // lifts a new Trees at its raising, as at the Table.
+      if (pour > 0) await spendAttunement(ownerKey, hue, pour);
+      // The health rating (Nigel, 2026-10-17): holding wards are
+      // raised with health grown from the book's base, the
+      // caster's Tender level, and the pour. Bright: an Engine of
+      // yours standing anywhere on the map lifts a new Trees at
+      // its raising, as at the Table.
       let hp = 0;
-      if (spell.engine === "trees") {
+      if (spell.engine === "trees" || spell.engine === "seal") {
         const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
-        hp = (spell.numbers.hp ?? 8) + (bright ? (spell.numbers.brightHpBonus ?? 2) : 0);
+        hp = hpForCast(spell, progress.level, pour, !!bright);
       }
       const info = sqlite.prepare(`INSERT INTO territory_workings
-        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, created_at)
-        VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`)
-        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(spell.numbers ?? {}), hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: spell.cost };
+        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+        VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(spell.numbers ?? {}), hp, pour, hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: spell.cost, pour, hp };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -5103,12 +5125,16 @@ export const handlers = {
       if (existing) badRequest("That ground is already written — one writing per hex.");
       if (spell.engine === "blades") badRequest("The Three Blades are planted a hex at a time on the map — cast once per hex here.");
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      if (pour > 0) await spendAttunement(ownerKey, hue, pour);
       const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) : 1;
+      // The Lattice holds its ground with a health rating, like
+      // the holding wards; harm and snare runes carry none.
+      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pour, false) : 0;
       const info = sqlite.prepare(`INSERT INTO territory_workings
-        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(spell.numbers ?? {}), charges, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost };
+        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
+        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(spell.numbers ?? {}), hp, charges, pour, hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, pour, hp };
     }
 
     badRequest("That page of the book cannot be cast on the land.");

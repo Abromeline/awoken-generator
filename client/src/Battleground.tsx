@@ -272,8 +272,8 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   // The Written Light's battle mirror (the Grimoire): live state
   // per standing, seeded from the castings; yields bank as the
   // Engines sing per exchange (doAttack). Reported at the end.
-  const grimRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean }>>(
-    new Map(grimWorkings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false }])),
+  const grimRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean; maxHp: number; pour: number }>>(
+    new Map(grimWorkings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false, maxHp: w.maxHp, pour: w.pour }])),
   );
   const grimYieldRef = useRef(0);
   const grimBrightBg = () => grimWorkings.some((w) => w.engine === "engine" && !(grimRef.current.get(w.id)?.spent));
@@ -639,10 +639,18 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       if (grune && gst && !gst.spent) {
         const bright = grimBrightBg() ? 1 : 0;
         if (grune.engine === "lattice") {
-          skipStrikesRef.current.set(attacker.id, (skipStrikesRef.current.get(attacker.id) ?? 0) + (grune.nums.pinRounds ?? 2));
-          gst.spent = true;
-          addLog(`${grimName(grune)} springs — ${attacker.name} is pinned in the lattice of light, and its strike never comes!`);
-          return;
+          // The Lattice holds with its health rating (Nigel,
+          // 2026-10-17): pinning costs the striker's power; the
+          // writing stands on while health remains.
+          const strain = Math.max(1, attacker.power);
+          if (gst.hp >= strain) {
+            gst.hp -= strain;
+            if (gst.hp <= 0) gst.spent = true;
+            skipStrikesRef.current.set(attacker.id, (skipStrikesRef.current.get(attacker.id) ?? 0) + (grune.nums.pinRounds ?? 2));
+            addLog(`${grimName(grune)} springs — ${attacker.name} is pinned in the lattice of light, and its strike never comes!`);
+            return;
+          }
+          addLog(`${grimName(grune)} strains to hold ${attacker.name} — its light is too worn (❤${Math.max(0, gst.hp)}).`);
         }
         if (grune.engine === "blade" || grune.engine === "blades") {
           const power = (grune.nums.power ?? (grune.engine === "blade" ? 6 : 3)) + bright * (grune.nums.brightBonus ?? 1);
@@ -666,7 +674,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const here = enemiesRef.current.filter(e => e.tileId === target.tileId || e.id === attacker.id);
           const greatest = here.length ? Math.max(...here.map(e => e.power)) : 0;
           if (greatest >= (grune.nums.minPower ?? 5)) {
-            const dmg = greatest * (grune.nums.multiplier ?? 2);
+            const dmg = greatest * (grune.nums.multiplier ?? 2) + (grune.pour ?? 0) * (grune.nums.harmPerPoint ?? 1);
             setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
             gst.spent = true;
             addLog(`${grimName(grune)} FALLS on the whole hex — ${dmg} harm, measured by the greatest dark standing there!`);
@@ -682,7 +690,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         const other = ta === target.tileId ? tb : tb === target.tileId ? ta : null;
         if (other === null || attacker.tileId !== other) continue;
         st.stops++;
-        if (st.stops >= (w.nums.stops ?? 3)) st.spent = true;
+        // The Seal's health rating: the stopped blow's power
+        // comes out of the Seal's own health.
+        st.hp -= Math.max(1, attacker.power);
+        if (st.stops >= (w.nums.stops ?? 3) || st.hp <= 0) st.spent = true;
         const rip = (w.nums.riposte ?? 3) + (grimBrightBg() ? (w.nums.brightBonus ?? 1) : 0);
         setEnemies(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rip) } : e));
         addLog(`${grimName(w)} stops ${attacker.name}'s strike cold — and answers it (${rip})!`);

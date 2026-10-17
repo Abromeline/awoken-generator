@@ -97,6 +97,7 @@ export interface MapWorking {
   q: number | null; r: number | null; dir: number | null;
   nums: Record<string, number>;
   hp: number; stops: number; charges: number;
+  pour: number; maxHp: number;
 }
 
 export interface TerritoryTile {
@@ -270,16 +271,29 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "riposte", label: "Riposte power (harm answered to the striker)", def: 3 },
     { key: "brightBonus", label: "Extra riposte while an Engine burns", def: 1 },
     { key: "stops", label: "Strikes stopped before the Seal goes out", def: 3 },
+    { key: "hp", label: "Health rating (base) — each stopped blow costs the blow's power", def: 6 },
+    { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
+    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   engine: [{ key: "energyPerRound", label: "Energy to its tender each round", def: 1 }],
   standard: [{ key: "strikeBonus", label: "Strike bonus on either hex it divides", def: 1 }],
   trees: [
-    { key: "hp", label: "Health the Trees take before breaking", def: 8 },
+    { key: "hp", label: "Health rating (base) the Trees take before breaking", def: 8 },
     { key: "brightHpBonus", label: "Extra health while an Engine burns", def: 2 },
     { key: "regrow", label: "Health regrown each round", def: 2 },
+    { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
+    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   beacon: [{ key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 }],
-  lattice: [{ key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 }],
+  lattice: [
+    { key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 },
+    { key: "hp", label: "Health rating (base) — pinning a dark costs its power", def: 6 },
+    { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
+    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
+  ],
   blade: [
     { key: "power", label: "Harm to everything on its ground", def: 6 },
     { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
@@ -293,6 +307,8 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
   shard: [
     { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
     { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
+    { key: "harmPerPoint", label: "Extra harm per elemental point poured in at the cast (the gated working's pour is capped)", def: 1 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 6 },
   ],
   coil: [
     { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
@@ -472,8 +488,8 @@ export const api = {
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[] }>("getTerritory", {}),
-  castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number }) =>
-    post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number }>("castMapWorking", args),
+  castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; pour?: number }) =>
+    post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number }>("castMapWorking", args),
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),

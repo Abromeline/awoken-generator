@@ -131,6 +131,7 @@ interface YouState {
   wardRuneUnlocked?: boolean;
   tenderHp?: number;
   maxTenderHp?: number;
+  pools?: Record<string, number> | null;
   inventory: string[];
   bound?: string | null;
 }
@@ -234,6 +235,9 @@ export default function Table() {
   // and the placement steps (a ward wants an anchor hex, then a
   // neighbour; the Three Blades gather up to three hexes).
   const [pourHue, setPourHue] = useState<string>("unaligned");
+  // The Pour (Nigel, 2026-10-17): elemental points fed into the
+  // working being placed, chosen in the placing bar.
+  const [pourPts, setPourPts] = useState(0);
   const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
@@ -671,15 +675,15 @@ export default function Table() {
                             return;
                           }
                           if (!shared.workings.some(w => w.kind === "rune" && w.hex === h.id)) {
-                            send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [h.id] });
-                            setPlacing(null);
+                            send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [h.id], pour: pourPts });
+                            setPlacing(null); setPourPts(0);
                           }
                           return;
                         }
                         if (!wardAnchor) { if (myUnit) setWardAnchor(h.id); return; }
                         if (hexNeighbors(wardAnchor).includes(h.id)) {
-                          send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: h.id });
-                          setPlacing(null); setWardAnchor(null);
+                          send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: h.id, pour: pourPts });
+                          setPlacing(null); setWardAnchor(null); setPourPts(0);
                         } else if (h.id === wardAnchor) setWardAnchor(null);
                         return;
                       }
@@ -750,6 +754,7 @@ export default function Table() {
                     <div key={w.id} className="field-working rune" style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }} title={`${w.name} — written by ${w.ownerName}`}>
                       {img ? <img src={img} alt={w.name} style={{ filter }} /> : <span className="working-glyph-fallback" style={{ filter }}>✦</span>}
                       {defs[w.root]?.engine === "blade" && <span className="working-tag">{w.charges}✦</span>}
+                      {defs[w.root]?.engine === "lattice" && <span className="working-tag">❤{w.hp}</span>}
                     </div>
                   );
                 }
@@ -762,7 +767,7 @@ export default function Table() {
                     <div key={w.id} className="field-working ward" style={{ left: `${(((a.x + b.x) / 2) / 300) * 100}%`, top: `${(((a.y + b.y) / 2) / 260) * 100}%`, transform: `translate(-50%, -50%) rotate(${deg}deg)` }} title={`${w.name} — raised by ${w.ownerName}`}>
                       {img ? <img src={img} alt={w.name} style={{ filter }} /> : <span className="working-glyph-fallback" style={{ filter }}>✦</span>}
                       {defs[w.root]?.engine === "trees" && <span className="working-tag">❤{w.hp}</span>}
-                      {defs[w.root]?.engine === "seal" && <span className="working-tag">{(defs[w.root]?.numbers.stops ?? 3) - w.stops}✦</span>}
+                      {defs[w.root]?.engine === "seal" && <span className="working-tag">❤{w.hp} · {(defs[w.root]?.numbers.stops ?? 3) - w.stops}✦</span>}
                     </div>
                   );
                 }
@@ -783,8 +788,26 @@ export default function Table() {
                   {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>your Awoken holds</strong>: the ward will stand on one of its edges.</>}
                   {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
                 </span>
+                {placing.kind !== "heal" && (defs[placing.root]?.numbers.pourCap ?? 0) > 0 && pourHue !== "unaligned" && you?.pools && (() => {
+                  const def = defs[placing.root];
+                  const n = def?.numbers ?? {};
+                  const cap = Math.floor(n.pourCap ?? 0);
+                  const pool = Math.floor(you.pools[pourHue] ?? 0);
+                  const maxPour = Math.min(cap, pool);
+                  const bright = shared?.workings.some(w => defs[w.root]?.engine === "engine" && w.ownerKey === you.key) ? 1 : 0;
+                  const hpPreview = def?.engine === "shard" ? null
+                    : Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * (you.tenderLevel ?? 1) + (n.hpPerPoint ?? 2) * pourPts + (def?.engine === "trees" ? bright * (n.brightHpBonus ?? 2) : 0)));
+                  return (
+                    <span className="placing-pour">
+                      <button className="table-btn" disabled={pourPts <= 0} onClick={() => setPourPts(p => Math.max(0, p - 1))}>−</button>
+                      <span>Pour {pourPts} {pourHue} pt{pourPts === 1 ? "" : "s"} (pool {pool} · cap {cap})</span>
+                      <button className="table-btn" disabled={pourPts >= maxPour} onClick={() => setPourPts(p => Math.min(maxPour, p + 1))}>+</button>
+                      <span className="placing-pour-effect">{def?.engine === "shard" ? `→ +${pourPts * (n.harmPerPoint ?? 1)} harm when it falls` : `→ raised with ❤${hpPreview}`}</span>
+                    </span>
+                  );
+                })()}
                 {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && bladePicks.length > 0 && (
-                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks }); setPlacing(null); setBladePicks([]); }}>Lay them · ⚡{defs[placing.root]?.cost ?? 4}</button>
+                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); setPlacing(null); setBladePicks([]); setPourPts(0); }}>Lay them · ⚡{defs[placing.root]?.cost ?? 4}</button>
                 )}
                 <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); }}>Set the light down</button>
               </div>
@@ -922,7 +945,7 @@ export default function Table() {
             )}
             {tab === "II" && (
               <div className="arts-list">
-                <PourRow hue={pourHue} setHue={setPourHue} />
+                <PourRow hue={pourHue} setHue={(h) => { setPourHue(h); setPourPts(0); }} />
                 {Object.values(defs).filter(d => d.kind === "ward").map(d => {
                   const formName = d.forms[pourHue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;
@@ -944,7 +967,7 @@ export default function Table() {
             )}
             {tab === "III" && (
               <div className="arts-list">
-                <PourRow hue={pourHue} setHue={setPourHue} />
+                <PourRow hue={pourHue} setHue={(h) => { setPourHue(h); setPourPts(0); }} />
                 <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
                   onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
                   title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awoken · ⚡${healDef?.cost ?? 2}`}>

@@ -10,7 +10,7 @@
 // Written Light exactly as it was first seated: ten roots and
 // Heal, their numbers the ones the game already played by.
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "./store.js";
 import { WORKING_DEFS } from "./workings.js";
 
@@ -53,6 +53,10 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "riposte", label: "Riposte power (harm answered to the striker)", def: 3 },
     { key: "brightBonus", label: "Extra riposte while an Engine burns", def: 1 },
     { key: "stops", label: "Strikes stopped before the Seal goes out", def: 3 },
+    { key: "hp", label: "Health rating (base) — each stopped blow costs the blow's power", def: 6 },
+    { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
+    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   engine: [
     { key: "energyPerRound", label: "Energy to its tender each round", def: 1 },
@@ -61,15 +65,22 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "strikeBonus", label: "Strike bonus on either hex it divides", def: 1 },
   ],
   trees: [
-    { key: "hp", label: "Health the Trees take before breaking", def: 8 },
+    { key: "hp", label: "Health rating (base) the Trees take before breaking", def: 8 },
     { key: "brightHpBonus", label: "Extra health while an Engine burns", def: 2 },
     { key: "regrow", label: "Health regrown each round", def: 2 },
+    { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
+    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   beacon: [
     { key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 },
   ],
   lattice: [
     { key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 },
+    { key: "hp", label: "Health rating (base) — pinning a dark costs its power", def: 6 },
+    { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
+    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 20 },
   ],
   blade: [
     { key: "power", label: "Harm to everything on its ground", def: 6 },
@@ -84,6 +95,8 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
   shard: [
     { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
     { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
+    { key: "harmPerPoint", label: "Extra harm per elemental point poured in at the cast (the gated working's pour is capped)", def: 1 },
+    { key: "pourCap", label: "Most elemental points that may be poured in at the cast", def: 6 },
   ],
   coil: [
     { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
@@ -144,6 +157,25 @@ export function defaultGrimoire(): GrimoireState {
     forms: { unaligned: "Heal", tide: "Heal", sky: "Heal", stone: "Heal", root: "Heal", fire: "Heal" },
     builtin: true,
   });
+  // The Springleaf Ward (Nigel, 2026-10-17) — written into the
+  // book ahead of its referee: it stands in a marching column's
+  // path, stops it, and turns it back three hexes in a random
+  // direction, before the column re-roads for its original goal.
+  // Columns do not march yet, so no engine runs it; the book says
+  // so plainly (engine "none") and it wakes when the marching pass
+  // is built. Its glyph is owed — one of the five undrawn roots.
+  spells.push({
+    key: "springleaf",
+    name: "The Springleaf Ward",
+    kind: "ward",
+    engine: "none",
+    glyphId: null,
+    cost: 3,
+    blurb: "Stands in the path of an incoming column of enemies, stops it, and redirects it back three hexes in a random direction — before the column reroutes to its original goal. Written ahead of its referee: columns do not march yet.",
+    numbers: {},
+    forms: { unaligned: "The Springleaf Ward", tide: "Tide Springleaf", sky: "Sky Springleaf", stone: "Stone Springleaf", root: "Root Springleaf", fire: "Fire Springleaf" },
+    builtin: true,
+  });
   return { glyphs, spells };
 }
 
@@ -164,8 +196,73 @@ export function healSpell(): GrimoireSpell | null {
   return grimoireNow().spells.find(s => s.engine === "heal") ?? null;
 }
 
+// ── The Pour and the Health Rating (Nigel, 2026-10-17) ──────
+// At the cast of a ward or rune, the Tender may pour elemental
+// points of the poured hue into the working. The pour is the
+// limiting hand: points spent into workings are points not
+// spent birthing or deepening aspects. Binding healing is
+// exempt — it requires energy only. Wards and runes that HOLD
+// BACK enemies carry a health rating grown from the book's
+// base, the caster's Tender level, and the pour; the gated
+// Shard takes a capped pour that feeds its harm instead.
+export const POUR_ENGINES = ["seal", "trees", "lattice", "shard"] as const;
+
+export function pourCapFor(spell: GrimoireSpell): number {
+  if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) return 0;
+  return Math.max(0, Math.floor(spell.numbers.pourCap ?? 0));
+}
+
+/** The health a holding working is raised with, snapshotted at
+ *  the cast: the book's base + a measure per Tender level + a
+ *  measure per point poured. 0 for workings that do not hold. */
+export function hpForCast(spell: GrimoireSpell, tenderLevel: number, pour: number, bright: boolean): number {
+  const n = spell.numbers ?? {};
+  if (spell.engine === "seal" || spell.engine === "lattice") {
+    return Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * tenderLevel + (n.hpPerPoint ?? 2) * pour));
+  }
+  if (spell.engine === "trees") {
+    return Math.max(1, Math.floor((n.hp ?? 8) + (bright ? (n.brightHpBonus ?? 2) : 0) + (n.hpPerLevel ?? 1) * tenderLevel + (n.hpPerPoint ?? 2) * pour));
+  }
+  return 0;
+}
+
+/** Spend attunement points of one element from a Tender's pool
+ *  (the same pools that birth and deepen aspects). Returns the
+ *  points the pool held when it could not pay. */
+export async function spendAttunement(ownerKey: string, element: string, points: number): Promise<{ ok: boolean; held: number }> {
+  if (points <= 0) return { ok: true, held: 0 };
+  const rows = await db.select().from(schema.aspectAttunement)
+    .where(and(
+      eq(schema.aspectAttunement.ownerKey, ownerKey),
+      eq(schema.aspectAttunement.element, element as any)
+    )).limit(1);
+  const held = rows.length ? (rows[0].points ?? 0) : 0;
+  if (held < points) return { ok: false, held };
+  await db.update(schema.aspectAttunement)
+    .set({ points: held - points, updatedAt: new Date() })
+    .where(and(
+      eq(schema.aspectAttunement.ownerKey, ownerKey),
+      eq(schema.aspectAttunement.element, element as any)
+    ));
+  return { ok: true, held };
+}
+
+/** Read a Tender's attunement pools (for cast surfaces). */
+export async function attunementPools(ownerKey: string): Promise<Record<string, number>> {
+  const rows = await db.select().from(schema.aspectAttunement)
+    .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
+  const out: Record<string, number> = {};
+  for (const r of rows as any[]) out[r.element] = Math.floor(r.points ?? 0);
+  return out;
+}
+
 /** Load the stored book into the cache (or the seed, if the
- *  workshop has never saved). Never writes on a read. */
+ *  workshop has never saved). Never writes on a read. A stored
+ *  book is brought current in memory: number traits the book has
+ *  grown since it was saved (the pour and health traits, Nigel
+ *  2026-10-17) arrive at their defaults without touching a single
+ *  tuned value, and built-in spells written since (the Springleaf)
+ *  are appended by key. The workshop's next save persists both. */
 export async function refreshGrimoire(): Promise<GrimoireState> {
   try {
     const rows = await db.select().from(schema.uiConfig).where(eq(schema.uiConfig.key, CONFIG_KEY));
@@ -173,6 +270,20 @@ export async function refreshGrimoire(): Promise<GrimoireState> {
     if (raw) {
       const parsed = JSON.parse(raw) as GrimoireState;
       if (parsed && Array.isArray(parsed.glyphs) && Array.isArray(parsed.spells)) {
+        const seed = defaultGrimoire();
+        for (const spell of parsed.spells) {
+          spell.numbers = spell.numbers ?? {};
+          for (const f of ENGINE_NUMBER_FIELDS[spell.engine] ?? []) {
+            if (typeof spell.numbers[f.key] !== "number" || !Number.isFinite(spell.numbers[f.key])) {
+              spell.numbers[f.key] = f.def;
+            }
+          }
+        }
+        for (const seedSpell of seed.spells) {
+          if (seedSpell.builtin && !parsed.spells.some(s => s.key === seedSpell.key)) {
+            parsed.spells.push(seedSpell);
+          }
+        }
         cache = parsed;
         return cache;
       }

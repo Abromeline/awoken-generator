@@ -497,6 +497,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_workings (
   created_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_territory_workings_owner ON territory_workings (owner_key);`);
+// The Pour (Nigel, 2026-10-17): how many elemental points were
+// poured into the working at its cast, and the health it was
+// raised with (its health rating's full measure — hp wears down
+// from here; regrow returns toward it, never past it).
+try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN pour INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
 // holds WARDING and who holds RUNEING. Until the milestone ability
 // picks are built, skills are TEACHINGS: a Tender teaches an Awoken

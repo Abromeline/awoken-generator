@@ -32,7 +32,7 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
-import { grimoireNow, refreshGrimoire, spellByKey, healSpell } from "./grimoire.js";
+import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools } from "./grimoire.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -96,6 +96,10 @@ interface Player {
   /** The tender-progress owner key for bound seats — where
    *  battle EXP is paid. Null for stand-in seats. */
   expKey: string | null;
+  /** The seat's attunement pools (whole points), for the pour
+   *  stepper — refreshed at the cast; the referee re-reads the
+   *  pool itself before any point is spent. Null unbound. */
+  pools: Record<string, number> | null;
   /** This sitting's energy: for a bound seat, the game's own max
    *  energy for that Tender, calculated from their whole roster by
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
@@ -154,6 +158,11 @@ interface Working {
   hexA: string | null;
   hexB: string | null;
   hp: number;
+  /** The health the working was raised with (its rating's full
+   *  measure) and the elemental points poured into it at the cast
+   *  (the Pour, Nigel 2026-10-17) — both snapshotted at the cast. */
+  maxHp: number;
+  pour: number;
   stops: number;
   charges: number;
 }
@@ -382,6 +391,7 @@ function sendState(room: Room): void {
         wardRuneUnlocked: player.wardRuneUnlocked,
         tenderHp: player.tenderHp,
         maxTenderHp: player.maxTenderHp,
+        pools: player.pools ?? null,
       },
     }));
   }
@@ -497,9 +507,26 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
   const caster = seatByKey(room, rune.ownerKey) ?? null;
   const bright = caster && engineBright(room, caster.key) ? 1 : 0;
   if (rune.engine === "lattice") {
-    for (const e of darkHere) e.pinned = Math.max(e.pinned, rune.nums.pinRounds ?? 2);
-    tell(room, `${rune.name} springs — the whole floor is the snare, and the dark stands bound in light.`);
-    room.workings = room.workings.filter(w => w !== rune);
+    // The Lattice holds with a health rating (Nigel, 2026-10-17):
+    // pinning a dark costs the Lattice that dark's power from its
+    // health — it holds what it can afford, and stands on while
+    // health remains instead of spending itself in one spring.
+    let heldCount = 0;
+    for (const e of darkHere) {
+      const strain = Math.max(1, e.power);
+      if (rune.hp >= strain) {
+        rune.hp -= strain;
+        e.pinned = Math.max(e.pinned, rune.nums.pinRounds ?? 2);
+        heldCount++;
+      }
+    }
+    if (heldCount) tell(room, `${rune.name} springs — the floor is the snare, and ${heldCount} of the dark stand bound in light.`);
+    if (rune.hp <= 0) {
+      room.workings = room.workings.filter(w => w !== rune);
+      tell(room, `${rune.name} is worn through and goes out, spent and honored.`);
+    } else if (heldCount) {
+      tell(room, `${rune.name} holds on — ❤${rune.hp} of its light remains.`);
+    }
   } else if (rune.engine === "blade" || rune.engine === "blades") {
     const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
     tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
@@ -524,7 +551,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
   } else if (rune.engine === "shard") {
     const greatest = Math.max(...darkHere.map(e => e.power));
     if (greatest >= (rune.nums.minPower ?? 5)) {
-      const dmg = greatest * (rune.nums.multiplier ?? 2);
+      const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour * (rune.nums.harmPerPoint ?? 1);
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
       for (const e of darkHere) { e.hp -= dmg; if (e.hp <= 0) fellDark(room, e, caster); }
       room.workings = room.workings.filter(w => w !== rune);
@@ -540,7 +567,7 @@ function settleShardsAndFade(room: Room): void {
     const mine = [...room.field.values()].filter(u => u.ownerKey === w.ownerKey);
     if (mine.length) {
       const strongest = mine.reduce((a, b) => (b.card.power > a.card.power ? b : a));
-      const dmg = strongest.card.power * (w.nums.multiplier ?? 2);
+      const dmg = strongest.card.power * (w.nums.multiplier ?? 2) + w.pour * (w.nums.harmPerPoint ?? 1);
       strongest.hp -= dmg;
       tell(room, `${w.name} went unfed — a doom owed is a doom paid: it falls on ${strongest.card.name}, ${dmg} harm.`);
       if (strongest.hp <= 0) {
@@ -598,7 +625,7 @@ async function runRound(room: Room): Promise<void> {
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
     for (const w of room.workings) {
-      if (w.engine === "trees" && w.hp > 0 && w.hp < (w.nums.hp ?? 8)) w.hp = Math.min(w.nums.hp ?? 8, w.hp + (w.nums.regrow ?? 2));
+      if (w.engine === "trees" && w.hp > 0 && w.hp < (w.maxHp || (w.nums.hp ?? 8))) w.hp = Math.min(w.maxHp || (w.nums.hp ?? 8), w.hp + (w.nums.regrow ?? 2));
       if (w.engine === "engine") {
         const owner = seatByKey(room, w.ownerKey);
         if (owner && !owner.fallen) owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + (w.nums.energyPerRound ?? 1));
@@ -657,6 +684,9 @@ async function runRound(room: Room): Promise<void> {
           blow = 0;
           enemy.hp -= (seal.nums.riposte ?? 3) + (engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) : 0);
           seal.stops++;
+          // The Seal's health rating (Nigel, 2026-10-17): every
+          // blow it stops costs it that blow's power in health.
+          seal.hp -= enemy.power;
           tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
           if (enemy.hp <= 0) {
             room.dark.delete(enemy.hex);
@@ -670,6 +700,9 @@ async function runRound(room: Room): Promise<void> {
           if (seal.stops >= (seal.nums.stops ?? 3)) {
             room.workings = room.workings.filter(w => w !== seal);
             tell(room, `${seal.name} has stopped its third strike; its light goes out, spent and honored.`);
+          } else if (seal.hp <= 0) {
+            room.workings = room.workings.filter(w => w !== seal);
+            tell(room, `${seal.name} is worn through by the blows it stopped; its light goes out, spent and honored.`);
           }
         }
         const trees = edgeWards.find(w => w.engine === "trees");
@@ -815,7 +848,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey };
+      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
       room.players.set(ws, player);
       if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);
@@ -941,11 +974,35 @@ function handleConnection(ws: WebSocket): void {
       if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
       if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      // The Pour (Nigel, 2026-10-17): elemental points of the
+      // poured hue, fed into the working at its cast — capped by
+      // the book, drawn from the caster's own attunement pool,
+      // and checked before anything is spent, so a refused cast
+      // costs nothing.
+      const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
+      const cap = pourCapFor(def);
+      let pour = 0;
+      if (pourWanted > 0) {
+        if (cap === 0) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
+        if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
+        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is capped at ${cap} poured points — the book will not let more in.` })); return; }
+        if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
+        const held = (await attunementPools(caster.expKey))[hue] ?? 0;
+        if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
+        pour = pourWanted;
+      }
       caster.energy -= def.cost;
+      if (pour > 0 && caster.expKey) {
+        await spendAttunement(caster.expKey, hue, pour);
+        if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
+      }
+      // The health rating: holding wards are raised with health
+      // grown from the book's base, the caster's level, the pour.
+      const hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
       room.workings.push({
         id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: { ...def.numbers }, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
-        hp: def.engine === "trees" ? (def.numbers.hp ?? 8) + (engineBright(room, caster.key) ? (def.numbers.brightHpBonus ?? 2) : 0) : 0, stops: 0, charges: 0,
+        hp, maxHp: hp, pour, stops: 0, charges: 0,
       });
       tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge of ${mine.card.name}'s hex.`);
       sendState(room);
@@ -970,12 +1027,31 @@ function handleConnection(ws: WebSocket): void {
         if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
       if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      // The Pour, as at the ward's raising — one pour feeds the
+      // whole cast (the Three Blades drink once, not per hex).
+      const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
+      const cap = pourCapFor(def);
+      let pour = 0;
+      if (pourWanted > 0) {
+        if (cap === 0) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
+        if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
+        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is capped at ${cap} poured points — the book will not let more in.` })); return; }
+        if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
+        const held = (await attunementPools(caster.expKey))[hue] ?? 0;
+        if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
+        pour = pourWanted;
+      }
       caster.energy -= def.cost;
+      if (pour > 0 && caster.expKey) {
+        await spendAttunement(caster.expKey, hue, pour);
+        if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
+      }
+      const hp = hpForCast(def, caster.tenderLevel, pour, false);
       for (const hx of hexes) {
         room.workings.push({
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: { ...def.numbers }, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp: 0, stops: 0, charges: def.engine === "blade" ? (def.numbers.charges ?? 2) : 1,
+          hp, maxHp: hp, pour, stops: 0, charges: def.engine === "blade" ? (def.numbers.charges ?? 2) : 1,
         });
       }
       tell(room, hexes.length > 1
