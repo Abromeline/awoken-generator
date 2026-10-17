@@ -769,6 +769,34 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [showFriends, setShowFriends] = useState(false);
   const [wavePullTile, setWavePullTile] = useState<number | null>(null);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
+  // THE COLUMNS (2026-10-17): the Curse's Eye and its traced
+  // lines — read from the server, refreshed as the land is.
+  const incursionsQ = useQuery({ queryKey: ["incursions"], queryFn: () => api.getIncursions(), refetchInterval: 30000 });
+  const [battleColumnId, setBattleColumnId] = useState<number | null>(null);
+  const startColumnBattle = (col: import("./api").IncursionColumn) => {
+    const count = (k: string) => col.roster.find(r => r.kind === k)?.count ?? 0;
+    const totalPower = col.roster.reduce((acc, r) => acc + r.count * r.power, 0);
+    setWave({
+      waveNumber: 1, wavesDefeated: 0,
+      frayCount: count("fray"), unravelers: count("unraveler"),
+      totalPower, hollows: count("hollow"), tangles: count("tangle"),
+    });
+    const t = tiles.find(t => t.id === col.targetTileId);
+    setWaveTarget(t ? {
+      tile: { id: t.id, q: t.q, r: t.r },
+      defenderIds: placements.filter(p => p.tileId === t.id).map(p => p.awakenedId),
+    } : null);
+    setBattleColumnId(col.id);
+    setShowBattleground(true);
+  };
+  const fmtCountdown = (ms: number) => {
+    const mins = Math.max(0, Math.round(ms / 60000));
+    if (mins < 2) return "moments";
+    if (mins < 90) return `~${mins}m`;
+    const h = Math.floor(mins / 60), m = mins % 60;
+    if (h < 30) return m ? `~${h}h ${m}m` : `~${h}h`;
+    return `~${Math.round(h / 24 * 10) / 10}d`;
+  };
   const [showTargetMap, setShowTargetMap] = useState(false);
 
   // Hand = Awoken not on field
@@ -1329,25 +1357,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setWave(w);
       }
     }
-    // Phase 1: Try to get the targeted territory (with 5s timeout)
-    try {
-      const targetPromise = api.getWaveTarget();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("getWaveTarget timeout")), 5000)
-      );
-      const target = await Promise.race([targetPromise, timeoutPromise]) as Awaited<ReturnType<typeof api.getWaveTarget>>;
-      if (target.tile) {
-        setWaveTarget(target);
-        setShowTargetMap(true);
-      } else {
-        // No territory — open battleground directly with client fallback
-        console.warn("No target tile, using client fallback");
-        setWaveTarget(null);
-        setShowBattleground(true);
-      }
-    } catch (e) {
-      console.error("Failed to get wave target, opening battleground directly", e);
-      // Fallback: open battleground — client will pick a target tile
+    // The target is read from the land itself (the Columns pass,
+    // 2026-10-17): getWaveTarget is retired — a boss strikes a
+    // standing edge of the light, picked here the way the
+    // Battleground's own fallback always could.
+    const nonBastion = tiles.filter(t => !(t.q === 0 && t.r === 0) && !t.cursed);
+    const pick = nonBastion.length
+      ? nonBastion[Math.floor(Math.random() * nonBastion.length)]
+      : tiles.find(t => t.q === 0 && t.r === 0);
+    if (pick) {
+      setWaveTarget({
+        tile: { id: pick.id, q: pick.q, r: pick.r },
+        defenderIds: placements.filter(p => p.tileId === pick.id).map(p => p.awakenedId),
+      });
+      setShowTargetMap(true);
+    } else {
       setWaveTarget(null);
       setShowBattleground(true);
     }
@@ -2125,6 +2149,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         await refreshEnergy();
         onUpdate();
       } catch (e) { console.error("Wave-pull resolve failed", e); }
+      return;
+    }
+    // Column battle (the Columns, 2026-10-17): a victory is
+    // reported to the Eye — the column falls and the ruled
+    // 12-minute break begins. The Unraveling ladder is not
+    // touched: a column is not a wave.
+    if (battleColumnId !== null) {
+      const columnId = battleColumnId;
+      setBattleColumnId(null);
+      try {
+        if (result.victory) await api.defeatIncursion({ columnId });
+        await refreshAfterResolution();
+        void incursionsQ.refetch();
+      } catch (e) { console.error("Column resolution failed", e); }
       return;
     }
     if (!wave) return;
@@ -3069,6 +3107,55 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     ) : null;
+    // THE COLUMNS ON THE MAP (2026-10-17): a marching column is
+    // only a traced dotted line from outside the map to its
+    // target, with the warning mark at the threatened hex; an
+    // arrived column's force STANDS on the cursed hexes beside
+    // the target, lettered by kind.
+    const axialPos = (q: number, r: number) => {
+      const { px, py } = isoOffset(q, r, size);
+      return { cx: originX + px + pan.x, cy: originY + py + pan.y };
+    };
+    const columnsLayer = (
+      <g key="columns" pointerEvents="none">
+        {(incursionsQ.data?.columns ?? []).map(col => {
+          const target = tiles.find(t => t.id === col.targetTileId);
+          if (!target) return null;
+          const tp = tilePos(target);
+          if (col.state === "marching") {
+            const op = axialPos(col.originQ, col.originR);
+            return (
+              <g key={col.id}>
+                <line x1={op.cx} y1={op.cy} x2={tp.cx} y2={tp.cy} stroke="#b04df0" strokeWidth={2.5} strokeDasharray="1 8" strokeLinecap="round" opacity={0.85} />
+                <circle cx={tp.cx} cy={tp.cy} r={size * 0.95} fill="none" stroke="#ff5340" strokeWidth={2} opacity={0.8} />
+                <text x={tp.cx} y={tp.cy - size * 1.12} textAnchor="middle" fontSize={size * 0.42}>⚠</text>
+              </g>
+            );
+          }
+          const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+          const cursedAdj = dirs
+            .map(([dq, dr]) => tiles.find(t => t.q === target.q + dq && t.r === target.r + dr))
+            .filter(t => t && t.cursed) as any[];
+          const kinds = col.roster.flatMap(r => Array(r.count).fill(r.kind)) as string[];
+          const marks = kinds.slice(0, 8).map((k, i) => {
+            const host = cursedAdj.length ? cursedAdj[i % cursedAdj.length] : target;
+            const hp = tilePos(host);
+            return { x: hp.cx + (i % 3 - 1) * size * 0.34, y: hp.cy + (Math.floor(i / 3) % 2 ? size * 0.3 : -size * 0.1), k };
+          });
+          return (
+            <g key={col.id}>
+              <circle cx={tp.cx} cy={tp.cy} r={size * 1.0} fill="rgba(176,77,240,0.10)" stroke="#ff5340" strokeWidth={2.5} />
+              {marks.map((m, i) => (
+                <g key={i}>
+                  <circle cx={m.x} cy={m.y} r={size * 0.30} fill="#160b20" stroke="#b04df0" strokeWidth={1.6} />
+                  <text x={m.x} y={m.y + size * 0.13} textAnchor="middle" fontSize={size * 0.32} fill="#e8c8ff">{m.k === "fray" ? "F" : m.k === "unraveler" ? "U" : m.k === "tangle" ? "T" : "H"}</text>
+                </g>
+              ))}
+            </g>
+          );
+        })}
+      </g>
+    );
     // Patrol guide: while a road is being laid, the draft road is
     // drawn dotted over the map, its waypoints numbered in order.
     const patrolGuideLayer = patrolSettingFor !== null ? (() => {
@@ -3133,6 +3220,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {castEdgeLayer}
         {wgGuideLayer}
         {wgAttuneLayer}
+        {columnsLayer}
         {patrolGuideLayer}
         {marchGuideLayer}
         {bandLayer}
@@ -3918,6 +4006,37 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           </div>
         );
       })()}
+      {incursionsQ.data && (() => {
+        const inc = incursionsQ.data;
+        const nowMs = Date.now();
+        const eyeWord = inc.eye >= 100 ? "WIDE OPEN" : inc.eye >= 60 ? "Open" : inc.eye >= 25 ? "Stirring" : "Shut";
+        return (
+          <div className="curse-eye-panel">
+            <div className="curse-eye-head">
+              <span className="curse-eye-glyph">👁</span>
+              <span className="curse-eye-name">The Curse's Eye — {eyeWord}</span>
+              <div className="curse-eye-bar"><div className="curse-eye-fill" style={{ width: `${Math.min(100, inc.eye)}%` }} /></div>
+              <span className="curse-eye-num">{inc.eye}</span>
+            </div>
+            {inc.columns.map(col => col.state === "marching" ? (
+              <div key={col.id} className="curse-eye-line warn">
+                ⚠ ATTACK INCOMING — a {col.kind === "siege" ? "SIEGE" : "raid"} of {col.size} walks for your {col.targetKind === "seed" ? "fallen seed" : "edge"} — here in {fmtCountdown(col.arrivesAt - nowMs)}. Move your companies to meet it.
+              </div>
+            ) : (
+              <div key={col.id} className="curse-eye-line here">
+                🔥 THE {col.kind === "siege" ? "SIEGE" : "RAID"} IS HERE — {col.size} dark stand at your {col.targetKind === "seed" ? "seed" : "edge"}.
+                <button className="abtn small" onClick={() => startColumnBattle(col)}>⚔ Face them</button>
+              </div>
+            ))}
+            {inc.columns.length === 0 && inc.breakUntil > nowMs && (
+              <div className="curse-eye-line rest">The land rests — the Eye cannot send another for {fmtCountdown(inc.breakUntil - nowMs)}.</div>
+            )}
+            {inc.columns.length === 0 && inc.breakUntil <= nowMs && inc.eye >= 25 && (
+              <div className="curse-eye-line warn">The Eye is lit — a column is gathering beyond the edge.</div>
+            )}
+          </div>
+        );
+      })()}
       <div className="territory-battle-trigger">
         {wavesCleared >= 3 && (
           <button className="abtn battle-cta" onClick={() => {
@@ -4480,7 +4599,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             energy={energy}
             maxEnergy={maxEnergy}
             onBattleEnd={handleBattleEnd}
-            onClose={() => setShowBattleground(false)}
+            onClose={() => { setShowBattleground(false); setBattleColumnId(null); }}
             bonusTiles={bonusTiles}
             onVictoryDetected={handleVictoryDetected}
             aspectGrant={bossAspectGrant}

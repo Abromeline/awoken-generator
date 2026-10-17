@@ -429,6 +429,18 @@ async function post<T>(name: string, args: unknown): Promise<T> {
   return data as T;
 }
 
+export interface IncursionColumn {
+  id: number; kind: "raid" | "siege"; state: "marching" | "arrived";
+  size: number; power: number; targetKind: string; targetTileId: number | null;
+  targetQ: number | null; targetR: number | null;
+  originQ: number; originR: number;
+  spawnedAt: number; arrivesAt: number;
+  roster: { kind: string; count: number; power: number; hp: number }[];
+}
+export interface IncursionsView {
+  eye: number; eyeFull: boolean; breakUntil: number; totalSpent: number;
+  columns: IncursionColumn[];
+}
 export const api = {
   getStudio: () => post<Studio>("getStudio", {}),
   getTableBindCode: () => post<{ ok: true; code: string; expiresAt: string }>("getTableBindCode", {}),
@@ -504,11 +516,6 @@ export const api = {
     nextWaveAt: string | null;
     mood: string;
   }>("getWave", {}),
-  defendWave: () => post<{
-    victory: boolean; wavePower: number; defensePower: number; waveNumber: number;
-    nextWaveAt?: string | null;
-    defenderXp?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[];
-  }>("defendWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
   assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
   setChampion: (args: { awakenedId: number }) => post<{ ok: boolean }>("setChampion", args),
@@ -623,7 +630,8 @@ export const api = {
     post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[]; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[]; committedPower?: number; wavePower?: number }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),
-  getWaveTarget: () => post<{ tile: { id: number; q: number; r: number; element: string } | null; defenderIds: number[] }>("getWaveTarget", {}),
+  getIncursions: () => post<IncursionsView>("getIncursions", {}),
+  defeatIncursion: (args: { columnId: number }) => post<{ ok: boolean; breakUntil?: number }>("defeatIncursion", args),
   dissipateAwoken: (args: { awakenedId: number }) => post<{ ok: true }>("dissipateAwoken", args),
   birthNewbornToHand: (args: { tileId?: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   claimFirstTile: (args: { teamIds: number[] }) => post<{ ok: true }>("claimFirstTile", args),
