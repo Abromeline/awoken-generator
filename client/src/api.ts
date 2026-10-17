@@ -317,6 +317,7 @@ async function post<T>(name: string, args: unknown): Promise<T> {
 
 export const api = {
   getStudio: () => post<Studio>("getStudio", {}),
+  getTableBindCode: () => post<{ ok: true; code: string; expiresAt: string }>("getTableBindCode", {}),
   uploadLayerAsset: (args: { category: Category; imageBase64: string; mimeType: "image/png" }) =>
     post<{ id: number; name: string }>("uploadLayerAsset", args),
   getTerrainArt: () => post<{ art: TerrainArtMap }>("getTerrainArt", {}),

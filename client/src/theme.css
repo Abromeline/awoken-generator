@@ -2282,3 +2282,25 @@ body.defeat-flash {
 .story-prompt{margin:0 0 16px;padding:12px 14px;border-left:3px solid #b89b5e;background:rgba(184,155,94,.10);border-radius:0 6px 6px 0}
 .story-prompt-label{display:block;font-size:.78em;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.75;margin-bottom:4px}
 .story-prompt p{margin:0;font-style:italic}
+
+/* Side docks (Nigel, 2026-10-16): My Deck and The Table moved out
+   of the top shelf to their own sides of the screen — deck left,
+   Table right — as standing edge tabs any thumb can find. */
+.side-dock{position:fixed;top:50%;transform:translateY(-50%);z-index:45;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 8px;min-width:46px;background:rgba(16,12,8,.82);border:1px solid rgba(201,162,39,.45);color:var(--ink,#e8dcc3);cursor:pointer;backdrop-filter:blur(3px)}
+.side-dock.left{left:0;border-left:none;border-radius:0 12px 12px 0}
+.side-dock.right{right:0;border-right:none;border-radius:12px 0 0 12px}
+.side-dock-icon{font-size:19px;line-height:1}
+.side-dock-label{writing-mode:vertical-rl;font-size:12.5px;font-weight:600;letter-spacing:.14em}
+.side-dock.active{background:rgba(64,46,16,.92);border-color:var(--gold,#c9a227)}
+
+/* The Table's side panel: the doorway and the binding code, in-game. */
+.table-panel{position:fixed;right:54px;top:50%;transform:translateY(-50%);z-index:46;width:min(320px,84vw);max-height:82vh;overflow:auto;background:rgba(20,15,10,.97);border:1px solid rgba(201,162,39,.5);border-radius:14px;padding:18px 18px 12px;color:var(--ink,#e8dcc3);box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.table-panel h3{margin:0 24px 8px 0;color:var(--gold-bright,#e9c979)}
+.table-panel h4{margin:14px 0 6px;color:var(--gold-bright,#e9c979);font-size:14px}
+.table-panel p{font-size:13.5px;line-height:1.5;margin:0 0 8px}
+.table-panel a{color:var(--gold,#c9a227)}
+.table-panel-close{position:absolute;top:8px;right:12px;background:none;border:none;color:inherit;font-size:20px;cursor:pointer;opacity:.7}
+.table-panel-btn{background:none;border:1px solid rgba(201,162,39,.6);color:var(--gold-bright,#e9c979);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+.table-bind-shown{font-size:16px}
+.table-bind-shown strong{letter-spacing:3px;color:var(--gold-bright,#e9c979)}
+.table-panel-note{font-size:12px;opacity:.75}
