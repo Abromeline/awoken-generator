@@ -1764,7 +1764,7 @@ body.defeat-flash {
    top-left the body's glyph, top-right the arms', bottom-left the
    head's, bottom-right the power/toughness in a warm ember. While the
    card forms, the corners wait invisible; in the burn act each kindles
-   over ~1.9s on its stagger (--burn-delay), the glow swelling tight to
+   over ~0.95s on its stagger (--burn-delay), the glow swelling tight to
    the glyph itself; the finished card keeps a soft elemental
    glow/drop-shadow, so the monotone card quietly carries its colors —
    and a new Tender can read what a creature is made of at a glance. */
@@ -1774,10 +1774,17 @@ body.defeat-flash {
 .ceremony-burn.burn-tr{top:5px;right:9px}
 .ceremony-burn.burn-bl{bottom:5px;left:9px}
 .ceremony-burn.burn-br{bottom:5px;right:9px}
+/* The settle (Nigel, 2026-10-17): each mark enters at twice its
+   size and eases down into its seat — the origin is the seat's
+   own corner, so it lands exactly where it always rested. */
+.ceremony-burn.burn-tl{transform-origin:top left}
+.ceremony-burn.burn-tr{transform-origin:top right}
+.ceremony-burn.burn-bl{transform-origin:bottom left}
+.ceremony-burn.burn-br{transform-origin:bottom right}
 .ceremony-burn-pt{font-family:var(--display);font-size:17px;font-weight:700;letter-spacing:.04em;color:#3a2410;line-height:1;padding:3px 2px}
-.ceremony-card-stage[data-phase="burning"] .ceremony-burn{animation:ceremonyBurnIn 1.9s cubic-bezier(.35,.6,.4,1) both;animation-delay:var(--burn-delay,0s)}
+.ceremony-card-stage[data-phase="burning"] .ceremony-burn{animation:ceremonyBurnIn .95s cubic-bezier(.35,.6,.4,1) both;animation-delay:var(--burn-delay,0s)}
 .ceremony-card-stage[data-phase="done"] .ceremony-burn{opacity:1;filter:drop-shadow(0 0 3px var(--elem)) drop-shadow(0 0 7px var(--elem))}
-@keyframes ceremonyBurnIn{0%{opacity:0;filter:brightness(2.8) saturate(1.6) drop-shadow(0 0 12px var(--elem)) drop-shadow(0 0 24px var(--elem))}30%{opacity:1}55%{filter:brightness(1.7) saturate(1.3) drop-shadow(0 0 8px var(--elem)) drop-shadow(0 0 15px var(--elem))}100%{opacity:1;filter:brightness(1) saturate(1) drop-shadow(0 0 3px var(--elem)) drop-shadow(0 0 7px var(--elem))}}
+@keyframes ceremonyBurnIn{0%{opacity:0;transform:scale(2);filter:brightness(2.8) saturate(1.6) drop-shadow(0 0 24px var(--elem)) drop-shadow(0 0 48px var(--elem))}30%{opacity:1}55%{transform:scale(1.12);filter:brightness(1.7) saturate(1.3) drop-shadow(0 0 16px var(--elem)) drop-shadow(0 0 30px var(--elem))}100%{opacity:1;transform:scale(1);filter:brightness(1) saturate(1) drop-shadow(0 0 3px var(--elem)) drop-shadow(0 0 7px var(--elem))}}
 /* Reduced motion: the ceremony's timed beats keep their real-second
    durations (they ARE the ceremony); only the ambient loops simplify. */
 @media (prefers-reduced-motion: reduce){
@@ -1795,7 +1802,7 @@ body.defeat-flash {
   .ceremony-card-form .tc-watermark{animation-duration:.9s}
   .ceremony-card-form .trading-card::before,.ceremony-card-form .trading-card::after{animation-duration:1s}
   .ceremony-card-stage::before,.ceremony-card-stage::after{animation-duration:1.6s}
-  .ceremony-card-stage[data-phase="burning"] .ceremony-burn{animation-duration:1.9s}
+  .ceremony-card-stage[data-phase="burning"] .ceremony-burn{animation-duration:.95s}
   .canvas-frame.card-presented .canvas-frame-bg{animation-duration:1s}
 }
 
