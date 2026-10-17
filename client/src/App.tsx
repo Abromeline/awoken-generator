@@ -346,6 +346,18 @@ function CreatureCard({ item, allowDelete = false, storyteller = false }: { item
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
   const litany = item.layers.filter((layer) => statCategories.includes(layer.category));
   const powerParts = litany.map((layer) => layer.power ?? 0).join(" + "); const toughnessParts = litany.map((layer) => layer.toughness ?? 0).join(" + ");
+  // Every +1/+1 with its source (Nigel, 2026-10-17): the bonus columns
+  // hold stat-point growth (tracked exactly by spent_*) plus aspect
+  // gifts — and each worn aspect has given exactly its level, once
+  // when placed and once per attunement point that raised it. What is
+  // left after both are named is an older gift, shown as itself.
+  const aspectLayers = item.layers.filter((layer) => layer.category === "aspect");
+  const aspectGiftPower = (item.bonus_power ?? 0) - (item.spent_power ?? 0);
+  const aspectGiftToughness = (item.bonus_toughness ?? 0) - (item.spent_toughness ?? 0);
+  const aspectLevelSum = aspectLayers.reduce((sum, layer) => sum + ((layer as any).aspectLevel ?? 1), 0);
+  const olderGiftPower = aspectGiftPower - aspectLevelSum;
+  const olderGiftToughness = aspectGiftToughness - aspectLevelSum;
+  const giftWord = aspectLayers.length ? "aspect gifts" : "gifts";
   return <article className="creature-card">
     <div className="creature-image"><img src={item.image_url} alt={`${item.name}, a layered ink-wash Awoken`} />{item.iteration > 0 && <span className="iteration-mark">{ordinal(item.iteration)}</span>}</div>
     <div className="creature-copy">
@@ -357,9 +369,11 @@ function CreatureCard({ item, allowDelete = false, storyteller = false }: { item
       <div className="total-stats"><div><span>Power</span><strong>{item.power}</strong></div><i aria-hidden="true" /><div><span>Toughness</span><strong>{item.toughness}</strong></div></div>
       {item.empowerment > 0 && <p className="empowerment"><strong>Shared awakening +{item.empowerment}/+{item.empowerment}</strong><span>Every copy of this form has grown stronger.</span></p>}
       {((item.spent_power ?? 0) > 0 || (item.spent_toughness ?? 0) > 0) && <p className="empowerment"><strong>Growth +{item.spent_power ?? 0}/+{item.spent_toughness ?? 0}</strong><span>Levels made flesh — stat points spent into this Awoken, permanent in every battle.</span></p>}
+      {aspectLayers.map((layer) => { const lvl = (layer as any).aspectLevel ?? 1; const el = (layer as any).aspectElement; return <p className="empowerment" key={`${item.id}-aspect-${(layer as any).source_id}`}><strong>{layer.name} +{lvl}/+{lvl}</strong><span>Aspect Lv {lvl}{el ? ` · ${el}` : ""} — placed at I, and every attunement point given raised it: each rise is +1/+1, counted in the totals above.</span></p>; })}
+      {(olderGiftPower !== 0 || olderGiftToughness !== 0) && <p className="empowerment"><strong>Older gifts +{olderGiftPower}/+{olderGiftToughness}</strong><span>Strength kept from before aspects recorded their levels.</span></p>}
       {(item.stat_points ?? 0) > 0 && <div className="growth-spend"><span>{item.stat_points} stat point{(item.stat_points ?? 0) > 1 ? "s" : ""} waiting — growth is a choice:</span><button disabled={spend.isPending} onClick={() => spend.mutate("power")}>+1 Power</button><button disabled={spend.isPending} onClick={() => spend.mutate("toughness")}>+1 Toughness</button></div>}
       <section className="litany" aria-label="Stat litany"><header><span>The stat litany</span><small>the parts become the whole</small></header>{litany.map((layer) => <div className="litany-row" key={`${item.id}-${layer.category}`}><span>{layer.category}</span><strong>{layer.name}</strong><b>{layer.power}/{layer.toughness}</b></div>)}
-        <div className="arithmetic"><span>Power</span><strong>{powerParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""}{item.bonus_power ? ` + ${item.bonus_power} gifts` : ""} = {item.power}</strong><span>Toughness</span><strong>{toughnessParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""}{item.bonus_toughness ? ` + ${item.bonus_toughness} gifts` : ""} = {item.toughness}</strong></div>
+        <div className="arithmetic"><span>Power</span><strong>{powerParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""}{(item.spent_power ?? 0) ? ` + ${item.spent_power} growth` : ""}{aspectGiftPower ? ` + ${aspectGiftPower} ${giftWord}` : ""} = {item.power}</strong><span>Toughness</span><strong>{toughnessParts || "0"}{item.empowerment ? ` + ${item.empowerment} blessing` : ""}{(item.spent_toughness ?? 0) ? ` + ${item.spent_toughness} growth` : ""}{aspectGiftToughness ? ` + ${aspectGiftToughness} ${giftWord}` : ""} = {item.toughness}</strong></div>
       </section>
       <div className="card-foot"><span>{ordinal(item.iteration)}</span><time>{new Date(item.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time></div>
       {allowDelete && <button className="release-button" onClick={() => remove.mutate()} disabled={remove.isPending}>Release from collection</button>}
