@@ -87,9 +87,59 @@ interface Props {
   onChooseBuilding: (def: BuildingDef) => void;
   onDemolish: (buildingId: number) => Promise<void>;
   onClaimSpark?: () => void;
+  // THE SEEDS (the Columns, 2026-10-17): this tile's star seed,
+  // the field party for a fetch, and the mission calls.
+  seed?: { id: number; state: string; level: number; defenses: number; tileCursed: boolean } | null;
+  fieldParty?: { awakenedId: number; name: string; marching: boolean }[];
+  onFetchSeed?: (seedId: number, awakenedIds: number[]) => Promise<void>;
+  onHoldSeed?: (seedId: number) => Promise<void>;
 }
 
-export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark }: Props) {
+/** The seed's choices (the Columns, 2026-10-17): FETCH it with
+    a riding party, or HOLD it with a bastion — the War-Grounds
+    face of the seed missions. */
+function SeedMissions({ tile, seed, fieldParty, onFetchSeed, onHoldSeed }: {
+  tile: TerritoryTile;
+  seed: { id: number; state: string; level: number; defenses: number; tileCursed: boolean };
+  fieldParty: { awakenedId: number; name: string; marching: boolean }[];
+  onFetchSeed?: (seedId: number, awakenedIds: number[]) => Promise<void>;
+  onHoldSeed?: (seedId: number) => Promise<void>;
+}) {
+  const [party, setParty] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const toggle = (id: number) =>
+    setParty(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 4 ? p : [...p, id]);
+  return (
+    <div className="wg-seed">
+      <h4>⭐ A star seed lies here — Lv {seed.level}</h4>
+      <p>{seed.tileCursed
+        ? "It fell in cursed ground. No bastion can rise here — but a party may ride THROUGH the curse to fetch it, if they can survive there and back."
+        : "Its hex is purified: fetch its energy home, or raise a bastion and HOLD it — a held seed can grow into the heart of a new city."}</p>
+      {!seed.tileCursed && onHoldSeed && (
+        <button className="abtn" disabled={busy} onClick={async () => { setBusy(true); try { await onHoldSeed(seed.id); } finally { setBusy(false); } }}>
+          🏯 HOLD — raise a bastion (6⚡)
+        </button>
+      )}
+      {onFetchSeed && (
+        <div className="wg-fetch">
+          <p className="wg-fetch-label">🧺 The fetch party (rides from the home bastion; pick up to 4):</p>
+          {fieldParty.length === 0 && <p className="quiet">No Awoken stand in your field.</p>}
+          {fieldParty.map(m => (
+            <label key={m.awakenedId} className="wg-fetch-row">
+              <input type="checkbox" disabled={m.marching || busy} checked={party.includes(m.awakenedId)} onChange={() => toggle(m.awakenedId)} />
+              {m.name}{m.marching ? " — on the march" : ""}
+            </label>
+          ))}
+          <button className="abtn" disabled={busy || party.length === 0} onClick={async () => { setBusy(true); try { await onFetchSeed(seed.id, party); } finally { setBusy(false); } }}>
+            🧺 FETCH — ride for the seed
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark, seed, fieldParty, onFetchSeed, onHoldSeed }: Props) {
   const [defs, setDefs] = useState<BuildingDef[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pickDir, setPickDir] = useState<number | null>(null);
@@ -157,6 +207,21 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
       <div className="wg-panel">
         <button className="admin-popup-close" onClick={onClose} aria-label="Close">✕</button>
         <h3>⚔️ War-Grounds</h3>
+        {seed && seed.state === "fallen" && (
+          <SeedMissions tile={tile} seed={seed} fieldParty={fieldParty ?? []} onFetchSeed={onFetchSeed} onHoldSeed={onHoldSeed} />
+        )}
+        {seed && seed.state === "held" && (
+          <div className="wg-seed held">
+            <h4>⭐🏯 A held seed — Lv {seed.level}</h4>
+            <p>The bastion stands and the seed grows in its keeping. Defenses held: {seed.defenses} — every third raises its level and banks a new tile of light, for good.</p>
+          </div>
+        )}
+        {seed && seed.state === "corrupted" && (
+          <div className="wg-seed corrupted">
+            <h4>💀 A cursed bastion</h4>
+            <p>The seed is theirs now — a fortress of the dark on your land. One day, with friends at your side, you may besiege it. The invitations ride with the Table.</p>
+          </div>
+        )}
         <p className="quiet wg-sub">
           {el.emoji} {tile.element} hex · ({tile.q}, {tile.r})
           {cursed ? " · 💀 cursed ground" : " · held ground"}

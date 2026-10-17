@@ -534,6 +534,19 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS incursion_columns (
   resolved_at INTEGER
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_incursion_columns_owner ON incursion_columns (owner_key, state);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS seed_missions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  seed_id INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'fetch',
+  party TEXT NOT NULL DEFAULT '[]',
+  phase TEXT NOT NULL DEFAULT 'out',
+  depart_at INTEGER NOT NULL,
+  arrive_at INTEGER NOT NULL,
+  return_at INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0
+);`);
+try { sqlite.exec("ALTER TABLE tender_attention ADD COLUMN starfall_anchor_at INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seeds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_key TEXT NOT NULL,
@@ -542,6 +555,10 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seeds (
   state TEXT NOT NULL DEFAULT 'fallen',
   created_at INTEGER NOT NULL
 );`);
+// Seed growth columns (the hold's reckoning, 2026-10-17).
+try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN defenses INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN bastion_building_id INTEGER"); } catch { /* exists */ }
+
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
 // holds WARDING and who holds RUNEING. Until the milestone ability

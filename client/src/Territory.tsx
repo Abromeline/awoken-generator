@@ -772,6 +772,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // THE COLUMNS (2026-10-17): the Curse's Eye and its traced
   // lines — read from the server, refreshed as the land is.
   const incursionsQ = useQuery({ queryKey: ["incursions"], queryFn: () => api.getIncursions(), refetchInterval: 30000 });
+  const seedsQ = useQuery({ queryKey: ["seeds"], queryFn: () => api.getSeeds(), refetchInterval: 30000 });
+  const handleFetchSeed = async (seedId: number, awakenedIds: number[]) => {
+    try {
+      await api.fetchSeed({ seedId, awakenedIds });
+      showHexNotice("The fetch party rides — may they come home heavy.");
+      void seedsQ.refetch();
+    } catch (e) { showHexNotice(refusalText(e, "The fetch could not ride.")); }
+  };
+  const handleHoldSeed = async (seedId: number) => {
+    try {
+      await api.holdSeed({ seedId });
+      showHexNotice("The bastion rises — the seed is HELD.");
+      void seedsQ.refetch();
+      const rb = await api.getBuildings();
+      setBuildings(rb.buildings);
+    } catch (e) { showHexNotice(refusalText(e, "The hold could not be raised.")); }
+  };
   const [battleColumnId, setBattleColumnId] = useState<number | null>(null);
   const startColumnBattle = (col: import("./api").IncursionColumn) => {
     const count = (k: string) => col.roster.find(r => r.kind === k)?.count ?? 0;
@@ -2160,8 +2177,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setBattleColumnId(null);
       try {
         if (result.victory) await api.defeatIncursion({ columnId });
+        else await api.failIncursion({ columnId }).catch(() => {});
         await refreshAfterResolution();
         void incursionsQ.refetch();
+        void seedsQ.refetch();
       } catch (e) { console.error("Column resolution failed", e); }
       return;
     }
@@ -3156,6 +3175,29 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
+    // THE SEEDS ON THE MAP (the Columns, 2026-10-17): a fallen
+    // seed burns gold on its hex; a held seed wears its ring
+    // and its growth; a corrupted seed is a skull on cursed
+    // ground — the dark's bastion, waiting for a siege.
+    const seedLayer = (
+      <g key="seeds" pointerEvents="none">
+        {(seedsQ.data?.seeds ?? []).map(sd => {
+          const t = tiles.find(t => t.id === sd.tileId);
+          if (!t) return null;
+          const { cx, cy } = tilePos(t);
+          if (sd.state === "corrupted") {
+            return (<g key={sd.id}><text x={cx} y={cy - size * 0.4} textAnchor="middle" fontSize={size * 0.52}>💀</text></g>);
+          }
+          return (
+            <g key={sd.id}>
+              <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(20,14,4,0.85)" stroke={sd.state === "held" ? "#ffd700" : "#e8b64c"} strokeWidth={sd.state === "held" ? 2.4 : 1.4} />
+              <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
+              {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Lv {sd.level} · held {sd.defenses}/3</text>}
+            </g>
+          );
+        })}
+      </g>
+    );
     // Patrol guide: while a road is being laid, the draft road is
     // drawn dotted over the map, its waypoints numbered in order.
     const patrolGuideLayer = patrolSettingFor !== null ? (() => {
@@ -3221,6 +3263,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {wgGuideLayer}
         {wgAttuneLayer}
         {columnsLayer}
+        {seedLayer}
         {patrolGuideLayer}
         {marchGuideLayer}
         {bandLayer}
@@ -4034,6 +4077,9 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             {inc.columns.length === 0 && inc.breakUntil <= nowMs && inc.eye >= 25 && (
               <div className="curse-eye-line warn">The Eye is lit — a column is gathering beyond the edge.</div>
             )}
+            {seedsQ.data && seedsQ.data.seeds.some(sd => sd.state === "fallen") && (
+              <div className="curse-eye-line">⭐ {seedsQ.data.seeds.filter(sd => sd.state === "fallen").length} seed{seedsQ.data.seeds.filter(sd => sd.state === "fallen").length > 1 ? "s lie" : " lies"} fallen on your land — fetch or hold them before the dark does. Open a seed's hex in the War-Grounds to choose.</div>
+            )}
           </div>
         );
       })()}
@@ -4794,6 +4840,13 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           .filter(Boolean) as { id: number; name: string; power: number; stance: string; level?: number; skills: string[] }[];
         return (
           <WarGrounds
+            seed={seedsQ.data?.seeds.find(sd => sd.tileId === tile.id) ?? null}
+            fieldParty={placements.map(p => {
+              const a = tenderItems.find(x => x.id === p.awakenedId);
+              return a ? { awakenedId: a.id, name: a.name, marching: !!(p as any).marchPath } : null;
+            }).filter(Boolean) as { awakenedId: number; name: string; marching: boolean }[]}
+            onFetchSeed={handleFetchSeed}
+            onHoldSeed={handleHoldSeed}
             tile={tile}
             walls={walls}
             standing={standing}

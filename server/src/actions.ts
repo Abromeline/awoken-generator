@@ -211,6 +211,37 @@ function marchSecondsPerHexFor(layers: { element?: string | null }[], experience
  *  uncursed ground only (breadth-first; the grid makes every step
  *  equal). Returns the tile ids, origin first, or null when no road
  *  of home ground runs there. */
+/** A road that dares cursed ground (the seed missions, 2026-10-17):
+    patrols may enter cursed tiles by ruling — a fetch party rides
+    where the march of settlement may not. Same breadth-first walk
+    as findRoad, with the curse filter lifted. */
+function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number }[], fromId: number, toId: number): number[] | null {
+  const byId = new Map(tiles.map(t => [t.id, t]));
+  const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+  const from = byId.get(fromId), to = byId.get(toId);
+  if (!from || !to) return null;
+  if (fromId === toId) return [fromId];
+  const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const prev = new Map<number, number>([[fromId, fromId]]);
+  const queue = [from];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const [dq, dr] of DIRS) {
+      const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
+      if (!n || prev.has(n.id)) continue;
+      prev.set(n.id, cur.id);
+      if (n.id === toId) {
+        const road = [toId];
+        let walk = toId;
+        while (walk !== fromId) { walk = prev.get(walk)!; road.unshift(walk); }
+        return road;
+      }
+      queue.push(n);
+    }
+  }
+  return null;
+}
+
 function findRoad(tiles: { id: number; q: number; r: number; cursed: number }[], fromId: number, toId: number): number[] | null {
   const byId = new Map(tiles.map(t => [t.id, t]));
   const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
@@ -1030,6 +1061,16 @@ function noteEnergySpent(ownerKey: string, amount: number) {
   } catch { /* the Eye blinks; the spend stands */ }
 }
 
+/** A SEED FALLS TO THE CURSE (Nigel, 2026-10-17 — Q4 and the
+    failed-seed law): however it is lost — unheld when a column
+    arrives, unfetched, its hold broken — the seed becomes a
+    CURSED BASTION: the seed corrupts, and its hex is cursed
+    ground again, the dark's fortress where the light failed. */
+function corruptSeed(ownerKey: string, seed: { id: number; tile_id: number }) {
+  sqlite.prepare("UPDATE star_seeds SET state = 'corrupted' WHERE id = ?").run(seed.id);
+  sqlite.prepare("UPDATE territory_tiles SET cursed = 1 WHERE id = ? AND owner_key = ?").run(seed.tile_id, ownerKey);
+}
+
 /** A column's force, from the Compendium's canon numbers,
     hardened by the hosting Tender's level (incursions scale
     with Tender level). */
@@ -1760,6 +1801,7 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
   "tree": { name: "Dream Tree", cost: 2, buildMinutes: 15, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
+  "bastion": { name: "Bastion", cost: 6, buildMinutes: 20, desc: "A fortress of the light and a beacon for friends: columns besiege bastions first, and allies muster here when the call goes out. Raise one upon a fallen seed's purified hex to HOLD the seed.", icon: "🏯" },
   "hall-of-champions": { name: "Hall of Champions", cost: 10, buildMinutes: 30, desc: "A castle haunted by the spirits of ancient Awoken. House champions in its dwellings to feed and level them. Upgrade to level 10 — each level opens a new room. One per tender; stands alone on its tile.", icon: "🏰" },
 };
 
@@ -3363,6 +3405,12 @@ export const handlers = {
     if (!b.length) badRequest("Building not found.");
     await db.delete(schema.territoryBuildings)
       .where(eq(schema.territoryBuildings.id, parsed.data.buildingId));
+    // A bastion torn down breaks the hold it anchored (the failed
+    // seed law, 2026-10-17): the seed it held is the curse's now.
+    if (b[0].buildingType === "bastion") {
+      const seed = sqlite.prepare("SELECT id, tile_id FROM star_seeds WHERE owner_key = ? AND bastion_building_id = ? AND state = 'held'").get(ownerKey, parsed.data.buildingId) as any;
+      if (seed) corruptSeed(ownerKey, seed);
+    }
     return { ok: true as const };
   },
 
@@ -5337,6 +5385,38 @@ export const handlers = {
       appears on the hexes beside the target at the fog's edge. */
   async settleIncursions(ownerKey: string) {
     const now = Date.now();
+    // STARFALL (ruled 2026-10-16): a 13% roll each settled hour
+    // drops 1–3 seeds anywhere on the map, the cursed ring
+    // included. At most five lie fallen at once.
+    {
+      const attRow = sqlite.prepare("SELECT starfall_anchor_at FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
+      let anchor = Number(attRow?.starfall_anchor_at || 0);
+      if (!anchor) {
+        sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent, starfall_anchor_at)
+          VALUES (?, 0, ?, 0, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET starfall_anchor_at = excluded.starfall_anchor_at`)
+          .run(ownerKey, now, now);
+        anchor = now;
+      }
+      const hours = Math.min(24, Math.floor((now - anchor) / 3600000));
+      if (hours > 0) {
+        const tilesAll = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+        for (let h = 0; h < hours; h++) {
+          if (Math.random() >= 0.13) continue;
+          const fallen = sqlite.prepare("SELECT COUNT(*) AS n FROM star_seeds WHERE owner_key = ? AND state = 'fallen'").get(ownerKey) as any;
+          if (Number(fallen?.n ?? 0) >= 5) break;
+          const seededTiles = new Set((sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted')").all(ownerKey) as any[]).map(r => r.tile_id));
+          const spots = tilesAll.filter(t => !(t.q === 0 && t.r === 0) && !seededTiles.has(t.id));
+          const drop = 1 + Math.floor(Math.random() * 3);
+          for (let d = 0; d < drop && spots.length; d++) {
+            const spot = spots.splice(Math.floor(Math.random() * spots.length), 1)[0];
+            sqlite.prepare("INSERT INTO star_seeds (owner_key, tile_id, level, state, created_at) VALUES (?, ?, 1, 'fallen', ?)").run(ownerKey, spot.id, now);
+          }
+        }
+        sqlite.prepare("UPDATE tender_attention SET starfall_anchor_at = ? WHERE owner_key = ?").run(anchor + hours * 3600000, ownerKey);
+      }
+    }
+    // Fetch parties land, gather, and ride home.
+    await this.settleSeedMissions(ownerKey);
     // Arrivals.
     const arriving = sqlite.prepare(
       "SELECT id, target_tile_id, target_kind FROM incursion_columns WHERE owner_key = ? AND state = 'marching' AND arrives_at <= ?"
@@ -5383,11 +5463,15 @@ export const handlers = {
           }));
           if (edge.length) {
             const built = sqlite.prepare(
-              "SELECT DISTINCT tile_id FROM territory_buildings WHERE owner_key = ? AND status = 'active'"
+              "SELECT tile_id, building_type FROM territory_buildings WHERE owner_key = ? AND status = 'active'"
             ).all(ownerKey) as any[];
             const builtIds = new Set(built.map(b => b.tile_id));
+            const bastionIds = new Set(built.filter(b => b.building_type === "bastion").map(b => b.tile_id));
+            // Bastions are besieged first — they are the beacons
+            // the curse most wants dark (the Columns, 2026-10-17).
+            const bastionEdge = edge.filter(t => bastionIds.has(t.id));
             const builtEdge = edge.filter(t => builtIds.has(t.id));
-            const pool = builtEdge.length ? builtEdge : edge;
+            const pool = bastionEdge.length ? bastionEdge : builtEdge.length ? builtEdge : edge;
             target = pool[Math.floor(Math.random() * pool.length)];
           }
         }
@@ -5418,6 +5502,173 @@ export const handlers = {
         }
       }
     }
+  },
+
+  /** A column battle LOST (the Columns, 2026-10-17): the
+      column stands undefeated — and if it had come for a HELD
+      seed, the hold BREAKS: the bastion falls, and by the
+      failed-seed law the seed becomes a cursed bastion with
+      the column as its guard. */
+  async failIncursion(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const columnId = Math.floor(Number((args as any)?.columnId ?? 0));
+    if (!columnId) badRequest("Which column was faced?");
+    const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
+    if (!col) badRequest("No such column walks your land.");
+    if (col.state !== "arrived") badRequest("That column has not landed — there is no battle to lose yet.");
+    let broken = false;
+    if (col.target_tile_id != null) {
+      const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'held'").get(ownerKey, col.target_tile_id) as any;
+      if (seed) {
+        if (seed.bastion_building_id) {
+          await db.delete(schema.territoryBuildings).where(eq(schema.territoryBuildings.id, seed.bastion_building_id));
+        }
+        corruptSeed(ownerKey, seed);
+        sqlite.prepare("UPDATE incursion_columns SET kind = 'siege' WHERE id = ?").run(columnId);
+        broken = true;
+      }
+    }
+    return { ok: true, broken };
+  },
+
+  /** Fetch parties settle (the seed missions, 2026-10-17):
+      the outward leg lands (settleMarches puts the walkers on
+      the seed's hex), the gather is reckoned, and the party
+      rides the same road home. If the seed was taken first,
+      the party rides home empty — its fate was never theirs
+      to fail; the corruption law speaks for the seed itself. */
+  async settleSeedMissions(ownerKey: string) {
+    const now = Date.now();
+    const rows = sqlite.prepare("SELECT * FROM seed_missions WHERE owner_key = ? AND phase IN ('out','back')").all(ownerKey) as any[];
+    if (!rows.length) return;
+    const tilesAll = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const home = tilesAll.find(t => t.q === 0 && t.r === 0) ?? tilesAll[0];
+    for (const m of rows) {
+      let party: number[] = [];
+      try { party = JSON.parse(m.party); } catch { party = []; }
+      if (m.phase === "out" && now >= Number(m.arrive_at)) {
+        const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(m.seed_id, ownerKey) as any;
+        let failed = 0;
+        if (seed && seed.state === "fallen") {
+          sqlite.prepare("UPDATE star_seeds SET state = 'fetched' WHERE id = ?").run(seed.id);
+          const grant = 15 * Number(seed.level || 1);
+          const cur = await getEnergyFor(ownerKey);
+          let max = cur + grant;
+          try { max = await calculateMaxEnergy(ownerKey); } catch { /* keep the generous bound */ }
+          await db.update(schema.tenderResources)
+            .set({ energy: Math.min(max, cur + grant), updatedAt: new Date() })
+            .where(eq(schema.tenderResources.ownerKey, ownerKey));
+        } else {
+          failed = 1;
+        }
+        const travelBack = Math.max(1000, Number(m.arrive_at) - Number(m.depart_at));
+        const returnAt = now + travelBack;
+        if (seed && home) {
+          const roadHome = findAnyRoad(tilesAll as any, seed.tile_id, home.id);
+          if (roadHome && roadHome.length > 1) {
+            for (const awId of party) {
+              sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ? WHERE owner_key = ? AND awakened_id = ?")
+                .run(JSON.stringify(roadHome), now, returnAt, ownerKey, awId);
+            }
+          }
+        }
+        sqlite.prepare("UPDATE seed_missions SET phase = 'back', return_at = ?, failed = ? WHERE id = ?").run(returnAt, failed, m.id);
+        m.phase = "back"; m.return_at = returnAt; m.failed = failed;
+      }
+      if (m.phase === "back" && now >= Number(m.return_at)) {
+        sqlite.prepare("UPDATE seed_missions SET phase = ? WHERE id = ?").run(m.failed ? "failed" : "done", m.id);
+      }
+    }
+  },
+
+  /** The fallen seeds and their fates, for the map's face. */
+  async getSeeds(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await this.settleIncursions(ownerKey);
+    const seeds = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted') ORDER BY created_at ASC").all(ownerKey) as any[];
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tileById = new Map(tiles.map(t => [t.id, t]));
+    const missions = sqlite.prepare("SELECT * FROM seed_missions WHERE owner_key = ? AND phase IN ('out','back')").all(ownerKey) as any[];
+    return {
+      seeds: seeds.map(sd => {
+        const t = tileById.get(sd.tile_id);
+        return {
+          id: sd.id, tileId: sd.tile_id, q: t ? t.q : null, r: t ? t.r : null,
+          level: sd.level, state: sd.state, defenses: sd.defenses ?? 0,
+          tileCursed: t ? !!t.cursed : false,
+        };
+      }),
+      missions: missions.map(m => ({ id: m.id, seedId: m.seed_id, phase: m.phase, arriveAt: m.arrive_at, returnAt: m.return_at })),
+    };
+  },
+
+  /** THE FETCH (Nigel, 2026-10-17): a party rides out from the
+      home bastion to a far seed — through cursed land, which
+      patrols may dare — gathers its energy, and rides back.
+      No reinforcements follow through the curse: the party
+      that goes is the party that must survive there and back. */
+  async fetchSeed(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const seedId = Math.floor(Number((args as any)?.seedId ?? 0));
+    const awakenedIds = (Array.isArray((args as any)?.awakenedIds) ? (args as any).awakenedIds : []).map((n: any) => Math.floor(Number(n))).filter((n: number) => n > 0).slice(0, 4);
+    if (!seedId) badRequest("Which seed?");
+    if (!awakenedIds.length) badRequest("A fetch party needs at least one Awoken.");
+    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(seedId, ownerKey) as any;
+    if (!seed) badRequest("No such seed lies on your land.");
+    if (seed.state !== "fallen") badRequest("That seed can no longer be fetched.");
+    const busy = sqlite.prepare("SELECT COUNT(*) AS n FROM seed_missions WHERE owner_key = ? AND seed_id = ? AND phase IN ('out','back')").get(ownerKey, seedId) as any;
+    if (Number(busy?.n ?? 0) > 0) badRequest("A party already rides for that seed.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const home = tiles.find(t => t.q === 0 && t.r === 0);
+    if (!home) badRequest("No home bastion stands to ride from.");
+    const road = findAnyRoad(tiles as any, home.id, seed.tile_id);
+    if (!road) badRequest("No road runs to that seed, even through the curse.");
+    // The party: my field Awoken, not already marching.
+    const partyRows: any[] = [];
+    for (const awId of awakenedIds) {
+      const p = sqlite.prepare("SELECT * FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awId) as any;
+      if (!p) badRequest("One of the party is not standing in your field.");
+      if (p.march_path) badRequest("One of the party is already on the march.");
+      partyRows.push(p);
+    }
+    // The company rides at its slowest walker's pace (march law).
+    let slowest = 0;
+    for (const p of partyRows) {
+      const aw = sqlite.prepare("SELECT composition_json, experience FROM awakened WHERE id = ? AND owner_key = ?").get(p.awakened_id, ownerKey) as any;
+      let layers: any[] = [];
+      try { layers = JSON.parse(aw?.composition_json || "[]"); } catch { layers = []; }
+      const pace = marchSecondsPerHexFor(layers, Number(aw?.experience ?? 0));
+      if (pace > slowest) slowest = pace;
+    }
+    const now = Date.now();
+    const travelMs = Math.max(5000, Math.round((road.length - 1) * slowest * 1000));
+    const arriveAt = now + travelMs;
+    const ins = sqlite.prepare(`INSERT INTO seed_missions (owner_key, seed_id, kind, party, phase, depart_at, arrive_at)
+      VALUES (?, ?, 'fetch', ?, 'out', ?, ?)`).run(ownerKey, seedId, JSON.stringify(awakenedIds), now, arriveAt) as any;
+    for (const p of partyRows) {
+      sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ? WHERE id = ?")
+        .run(JSON.stringify(road), now, arriveAt, p.id);
+    }
+    return { ok: true, missionId: Number(ins.lastInsertRowid), arriveAt, travelMs };
+  },
+
+  /** THE HOLD (Nigel, 2026-10-17): raise a bastion upon the
+      seed's purified hex and the seed is held — the heart of
+      a place that may one day be a city. The seed's own energy
+      is spent into the ground it will grow from. */
+  async holdSeed(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const seedId = Math.floor(Number((args as any)?.seedId ?? 0));
+    if (!seedId) badRequest("Which seed?");
+    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(seedId, ownerKey) as any;
+    if (!seed) badRequest("No such seed lies on your land.");
+    if (seed.state !== "fallen") badRequest("That seed's fate is already chosen.");
+    const tile = sqlite.prepare("SELECT cursed FROM territory_tiles WHERE id = ? AND owner_key = ?").get(seed.tile_id, ownerKey) as any;
+    if (!tile) badRequest("The seed's hex is not yours to build on.");
+    if (tile.cursed) badRequest("The seed lies in cursed ground — a patrol must purify its hex before a bastion can rise.");
+    const res = await this.placeBuilding({ tileId: seed.tile_id, buildingType: "bastion" }, ctx);
+    sqlite.prepare("UPDATE star_seeds SET state = 'held', bastion_building_id = ? WHERE id = ?").run((res as any).building.id, seedId);
+    return { ok: true, building: (res as any).building };
   },
 
   /** The Eye and its columns, for the map's face. */
@@ -5462,6 +5713,31 @@ export const handlers = {
     if (col.state === "defeated") return { ok: true, already: true };
     const now = Date.now();
     sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE id = ?").run(now, columnId);
+    // A HELD SEED DEFENDED (the personal bastion settlement,
+    // ruled 2026-10-16): when the beaten column had come for a
+    // held seed's hex, the hold is reckoned — every third
+    // defense, the seed grows a level and an adjacent tile is
+    // BANKED FOR GOOD (purified free, the light's expansion).
+    const colRow = sqlite.prepare("SELECT target_tile_id FROM incursion_columns WHERE id = ?").get(columnId) as any;
+    if (colRow?.target_tile_id != null) {
+      const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'held'").get(ownerKey, colRow.target_tile_id) as any;
+      if (seed) {
+        const defenses = Number(seed.defenses || 0) + 1;
+        if (defenses % 3 === 0) {
+          sqlite.prepare("UPDATE star_seeds SET defenses = ?, level = level + 1 WHERE id = ?").run(defenses, seed.id);
+          const home = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(colRow.target_tile_id) as any;
+          if (home) {
+            const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+            for (const [dq, dr] of DIRS) {
+              const n = sqlite.prepare("SELECT id FROM territory_tiles WHERE owner_key = ? AND q = ? AND r = ? AND cursed = 1").get(ownerKey, home.q + dq, home.r + dr) as any;
+              if (n) { sqlite.prepare("UPDATE territory_tiles SET cursed = 0, element = 'neutral' WHERE id = ?").run(n.id); break; }
+            }
+          }
+        } else {
+          sqlite.prepare("UPDATE star_seeds SET defenses = ? WHERE id = ?").run(defenses, seed.id);
+        }
+      }
+    }
     sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent)
       VALUES (?, 0, ?, ?, 0)
       ON CONFLICT(owner_key) DO UPDATE SET break_until = excluded.break_until`)
@@ -6029,6 +6305,7 @@ export const handlers = {
     await db.update(schema.tenderResources)
       .set({ energy: energyRes.energy - def.cost })
       .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    noteEnergySpent(ownerKey, def.cost);
     const readyAt = new Date(Date.now() + actualBuildMinutes * 60 * 1000);
     // Builders enter build mode - remember their previous stance
     const stanceMemory: { placementId: number; stance: string }[] = [];

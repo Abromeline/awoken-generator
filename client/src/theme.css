@@ -2428,3 +2428,12 @@ body.defeat-flash {
 .curse-eye-line.here{color:#ffb0a3}
 .curse-eye-line.rest{color:#b8a8cc}
 .curse-eye-line button{margin-left:10px}
+
+/* THE SEED MISSIONS in the War-Grounds (the Columns, 2026-10-17) */
+.wg-seed{border:1px solid #6e5a1e;background:rgba(24,18,4,.65);border-radius:6px;padding:10px 12px;margin:10px 0}
+.wg-seed.corrupted{border-color:#4a2a6e;background:rgba(16,8,26,.65)}
+.wg-seed p{font-size:13px;line-height:1.5;margin:6px 0}
+.wg-fetch{margin-top:8px}
+.wg-fetch-label{font-size:12px;color:#cbbd8a}
+.wg-fetch-row{display:block;font-size:13px;margin:4px 0}
+.wg-fetch-row input{margin-right:8px}

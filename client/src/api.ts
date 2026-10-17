@@ -437,6 +437,14 @@ export interface IncursionColumn {
   spawnedAt: number; arrivesAt: number;
   roster: { kind: string; count: number; power: number; hp: number }[];
 }
+export interface StarSeed {
+  id: number; tileId: number; q: number | null; r: number | null;
+  level: number; state: "fallen" | "held" | "corrupted"; defenses: number; tileCursed: boolean;
+}
+export interface SeedsView {
+  seeds: StarSeed[];
+  missions: { id: number; seedId: number; phase: string; arriveAt: number; returnAt: number }[];
+}
 export interface IncursionsView {
   eye: number; eyeFull: boolean; breakUntil: number; totalSpent: number;
   columns: IncursionColumn[];
@@ -631,6 +639,10 @@ export const api = {
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),
   getIncursions: () => post<IncursionsView>("getIncursions", {}),
+  getSeeds: () => post<SeedsView>("getSeeds", {}),
+  fetchSeed: (args: { seedId: number; awakenedIds: number[] }) => post<{ ok: boolean; missionId: number; arriveAt: number; travelMs: number }>("fetchSeed", args),
+  holdSeed: (args: { seedId: number }) => post<{ ok: boolean; building: any }>("holdSeed", args),
+  failIncursion: (args: { columnId: number }) => post<{ ok: boolean; broken: boolean }>("failIncursion", args),
   defeatIncursion: (args: { columnId: number }) => post<{ ok: boolean; breakUntil?: number }>("defeatIncursion", args),
   dissipateAwoken: (args: { awakenedId: number }) => post<{ ok: true }>("dissipateAwoken", args),
   birthNewbornToHand: (args: { tileId?: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
