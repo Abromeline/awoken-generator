@@ -1534,7 +1534,7 @@ body.defeat-flash {
 .music-skip-btn:hover{background:rgba(184,155,94,0.15);color:#b89b5e;border-color:#b89b5e}
 
 .aspect-attunement.celestial{
-  position:fixed;top:12px;left:12px;z-index:50;
+  position:fixed;top:12px;left:12px;z-index:66;
   background:rgba(10,10,10,0.82);border-radius:12px;
   padding:10px 12px;min-width:160px;max-width:200px;backdrop-filter:blur(6px);
   border:1px solid rgba(212,175,106,0.25);
@@ -1610,6 +1610,12 @@ body.defeat-flash {
   transition:all 0.2s;
 }
 .aspect-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(212,175,106,0.5)}
+/* While a newborn's card stands on the birth screen, the
+   attunement button rises above the ceremony window
+   (Nigel, 2026-10-18): the window covered it, and a
+   Tender could not reach the aspect menu to grant to
+   the newborn — the very thing the birth screen is for. */
+.aspect-fab.above-ceremony{z-index:65}
 /* The tree door stands ABOVE the attunement market's orb
    (Nigel's directive via Law, 2026-10-17). */
 /* The stack, truly named (Nigel's corrections,
@@ -2518,14 +2524,14 @@ body.defeat-flash {
    the front page carries no extra attunement bar of its
    own; the bar behind the button is the bar, the same as
    the Territory map's. */
-.aspect-deepen-door{position:fixed;left:16px;bottom:24px;z-index:55;padding:9px 14px;background:rgba(16,13,26,0.92);border:1px solid rgba(184,155,94,0.55);border-radius:999px;color:#e8d5a0;font-size:12.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4)}
+.aspect-deepen-door{position:fixed;left:16px;bottom:24px;z-index:67;padding:9px 14px;background:rgba(16,13,26,0.92);border:1px solid rgba(184,155,94,0.55);border-radius:999px;color:#e8d5a0;font-size:12.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4)}
 .aspect-deepen-door:hover{background:rgba(184,155,94,0.2)}
 /* The deepen door on the front page (Nigel, 2026-10-18):
    it stands only while the attunement panel stands open —
    the front page carries no extra attunement bar of its
    own; the bar behind the button is the bar, the same as
    the Territory map's. */
-.aspect-deepen-door{position:fixed;left:16px;bottom:24px;z-index:55;padding:9px 14px;background:rgba(16,13,26,0.92);border:1px solid rgba(184,155,94,0.55);border-radius:999px;color:#e8d5a0;font-size:12.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4)}
+.aspect-deepen-door{position:fixed;left:16px;bottom:24px;z-index:67;padding:9px 14px;background:rgba(16,13,26,0.92);border:1px solid rgba(184,155,94,0.55);border-radius:999px;color:#e8d5a0;font-size:12.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4)}
 .aspect-deepen-door:hover{background:rgba(184,155,94,0.2)}
 /* The birth-screen grant strip (Nigel, 2026-10-17). */
 .birth-grant{margin-top:10px;padding:9px 11px;background:rgba(16,13,26,0.8);border:1px solid rgba(184,155,94,0.45);border-radius:10px;text-align:left}
