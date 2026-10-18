@@ -2589,155 +2589,15 @@ body.defeat-flash {
 .dock-spells{flex:1;min-width:0;max-height:44vh;overflow-y:auto}
 
 /* ════════════════════════════════════════════════════════════════
-   THE BUTTON SKIN — the Torn Stack & the Wax Seal (Nigel's
-   direction, dreamed on the Button Dreams page and approved
-   2026-10-18: "push these to all buttons on the site").
-   Box buttons are scraps of ONE treasure map (paper-map.jpg),
-   torn at the fine irregular edge, bold ink, pockmarks over
-   the skin; the text-bearing sheet is never warped — the
-   roughness lives in the silhouette and the under-layers,
-   never in the words (readability law). Round buttons are
-   dark wax seals, worked and melting, their pictures struck
-   as pale GLYPHS — never emoji. Colour law: tree = forest
-   green, droplet = teal, deck = Prussian blue, star = dark
-   violet, eye = lit crimson, acorn = gold. Positions, sizes
-   and behaviour are untouched; this section only re-dresses
-   what already stands.
+   THE WAX SEALS REMAIN (Nigel’s re-ruling, 2026-10-18): the
+   torn-paper skin that dressed every box button this morning
+   is REVERTED — paper translated badly, and every box button
+   wears its earlier face again. The round wax seals below,
+   dreamed the same morning, stay exactly as struck: dark
+   worked wax, stamped rings, the colour law (tree forest
+   green, droplet teal, deck Prussian blue, star dark violet,
+   eye lit crimson, acorn gold).
    ════════════════════════════════════════════════════════════════ */
-:root{
-  --map-paper:url("./assets/paper-map.jpg");
-  --torn:polygon(1% 9%, 6% 3%, 13% 6%, 21% 2%, 30% 5%, 38% 1.5%, 47% 5%, 55% 2%, 63% 6%, 71% 3%, 79% 6%, 87% 2.5%, 93% 7%, 98.5% 4%, 96% 14%, 99% 24%, 95.5% 35%, 99.5% 46%, 96% 57%, 99% 68%, 94.5% 78%, 97.5% 88%, 92% 95%, 95% 98.5%, 84% 95%, 73% 98%, 63% 94.5%, 52% 98.5%, 42% 94%, 31% 97.5%, 21% 93.5%, 13% 97%, 5% 93%, 7.5% 84%, 2% 74%, 5.5% 63%, 1% 52%, 4.5% 41%, 0.5% 30%, 4% 20%, 0.8% 13%);
-  --paper-light:radial-gradient(125% 135% at 50% 42%, rgba(246,232,192,0.34), rgba(246,232,192,0) 62%), linear-gradient(180deg, rgba(58,38,10,0.05), rgba(38,24,6,0.13));
-  --paper-light-on:radial-gradient(125% 135% at 50% 42%, rgba(250,238,200,0.46), rgba(250,238,200,0) 62%), linear-gradient(180deg, rgba(58,38,10,0.03), rgba(38,24,6,0.08));
-  --paper-rolls:linear-gradient(90deg, rgba(30,18,4,0.40), rgba(255,240,200,0.15) 5%, rgba(40,24,6,0.10) 9%, transparent 15%, transparent 85%, rgba(40,24,6,0.10) 91%, rgba(255,240,200,0.15) 95%, rgba(20,12,2,0.42));
-  --paper-pocks:radial-gradient(19px 14px at 10% 20%, rgba(54,32,10,0.5), transparent 70%), radial-gradient(13px 10px at 88% 14%, rgba(48,28,8,0.52), transparent 70%), radial-gradient(16px 12px at 94% 70%, rgba(56,33,10,0.48), transparent 70%), radial-gradient(11px 9px at 20% 82%, rgba(58,34,10,0.5), transparent 70%), radial-gradient(8px 7px at 66% 86%, rgba(58,34,10,0.5), transparent 70%), radial-gradient(7px 5px at 40% 12%, rgba(58,34,10,0.46), transparent 70%), radial-gradient(5px 5px at 56% 60%, rgba(58,34,10,0.44), transparent 70%), radial-gradient(4px 3px at 30% 44%, rgba(58,34,10,0.42), transparent 70%), radial-gradient(21px 15px at 3% 92%, rgba(50,30,10,0.4), transparent 70%), radial-gradient(17px 12px at 99% 94%, rgba(50,30,10,0.38), transparent 70%), radial-gradient(3px 3px at 76% 42%, rgba(58,34,10,0.4), transparent 70%), radial-gradient(6px 4px at 48% 90%, rgba(58,34,10,0.44), transparent 70%), radial-gradient(2.5px 2.5px at 62% 26%, rgba(58,34,10,0.42), transparent 70%), radial-gradient(4px 4px at 82% 52%, rgba(58,34,10,0.4), transparent 70%);
-  --paper-inset:inset 0 0 0 1px rgba(74,50,20,0.4), inset 0 0 26px rgba(74,48,18,0.5), inset 0 -12px 16px rgba(60,40,12,0.35), inset 7px 0 15px rgba(74,48,18,0.28);
-  --paper-drop:drop-shadow(0 4px 4px rgba(0,0,0,0.55)) drop-shadow(0 1px 1px rgba(0,0,0,0.5));
-}
-
-/* — The torn paper: the standard weight, worn by every box
-   button family in the app. Each family keeps its own size,
-   padding and place; only the skin changes. — */
-.abtn, .zodiac-btn, .workspace-tabs button, .workshop-nav button, .hand-tab,
-.packet-nav button, .gate-tabs button, .invite-tabs button, .page-toggle,
-.glyph-cats button, .stance-btn, .wg-work-btn, .table-panel-btn,
-.aspect-deepen-door, .aspect-apply-option, .workshop-header button,
-.tender-tools .workshop-door, .music-skip-btn, .friends-btn, .dock-stat-points,
-.deck-add-card button, .story-form-foot button, .growth-spend button,
-.dock-spend-open button, .rename-form button, .code-actions button,
-.naming-actions button, .tender-gate form>button, .tender-naming form>button,
-.workshop-lock form button, .trait-copy form button, .swap-btn, .upload-btn,
-.file-button, .music-upload-btn{
-  position:relative;
-  --bpos:78% 30%; --bsz:1020px;
-  background-image:var(--paper-rolls), var(--paper-light), var(--map-paper);
-  background-size:auto, auto, auto, var(--bsz);
-  background-position:center, center, center, var(--bpos);
-  background-repeat:no-repeat;
-  border:none; border-radius:2px;
-  clip-path:var(--torn);
-  color:#2a1f10; font-weight:700;
-  text-shadow:0 1px 0 rgba(255,246,220,0.55), 0 0 14px rgba(246,232,192,0.4);
-  box-shadow:var(--paper-inset);
-  filter:var(--paper-drop);
-}
-/* Variety: repeated siblings show different scraps of the one map. */
-button.abtn:nth-of-type(2n){--bpos:66% 42%; --bsz:980px}
-button.abtn:nth-of-type(3n){--bpos:11% 47%; --bsz:1040px}
-button.abtn:nth-of-type(4n){--bpos:93% 46%; --bsz:940px}
-/* Pockmarks, not lines: foxing spots lying over the map skin. */
-.abtn::after, .zodiac-btn::after, .workspace-tabs button::after, .workshop-nav button::after, .hand-tab::after,
-.packet-nav button::after, .gate-tabs button::after, .invite-tabs button::after, .page-toggle::after,
-.glyph-cats button::after, .stance-btn::after, .wg-work-btn::after, .table-panel-btn::after,
-.aspect-deepen-door::after, .aspect-apply-option::after, .workshop-header button::after,
-.tender-tools .workshop-door::after, .music-skip-btn::after, .friends-btn::after, .dock-stat-points::after,
-.deck-add-card button::after, .story-form-foot button::after, .growth-spend button::after,
-.dock-spend-open button::after, .rename-form button::after, .code-actions button::after,
-.naming-actions button::after, .tender-gate form>button::after, .tender-naming form>button::after,
-.workshop-lock form button::after, .trait-copy form button::after, .swap-btn::after, .upload-btn::after,
-.file-button::after, .music-upload-btn::after{
-  content:""; position:absolute; inset:0; clip-path:inherit; pointer-events:none;
-  mix-blend-mode:multiply; opacity:0.95; background:var(--paper-pocks);
-}
-/* Hover: the scrap brightens; families whose old hover painted
-   a flat background keep the paper and take the brighter light. */
-.abtn:hover, .zodiac-btn:hover, .workspace-tabs button:hover, .hand-tab:hover,
-.packet-nav button:hover, .stance-btn:hover, .table-panel-btn:hover,
-.music-skip-btn:hover, .friends-btn:hover, .file-button:hover,
-.aspect-deepen-door:hover, .aspect-apply-option:hover, .wg-work-btn:hover,
-.growth-spend button:hover:not(:disabled), .dock-stat-points:hover,
-.swap-btn:hover, .upload-btn:hover{
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-}
-/* The chosen tab / active toggle: the demo's lit scrap, the
-   same ink as its quieter sibling (Nigel's word on the demo). */
-.workspace-tabs button.active, .workshop-nav button.active, .hand-tab.active,
-.page-toggle.on, .glyph-cats button.active, .invite-tabs button.active,
-.gate-tabs button.active, .abtn.active{
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  color:#241a0e;
-}
-/* The primary weight: the coastline scrap, the brightest light. */
-.abtn.primary, .abtn.twin-claim, .zodiac-btn.take, .packet-nav button.packet-done{
-  --bpos:50% 88%; --bsz:1120px;
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  color:#241a0e;
-}
-.abtn.twin-claim:hover{
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  filter:brightness(1.07) var(--paper-drop);
-}
-/* The great Wake button wears the primary paper too. */
-.wake-button{
-  position:relative; border:none; clip-path:var(--torn); color:#241a0e;
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  background-size:auto, auto, auto, 1120px;
-  background-position:center, center, center, 50% 88%;
-  background-repeat:no-repeat;
-  box-shadow:var(--paper-inset); filter:var(--paper-drop);
-  text-shadow:0 1px 0 rgba(255,246,220,0.55), 0 0 14px rgba(246,232,192,0.4);
-}
-.wake-button small{color:#57462c}
-.wake-button::after{
-  content:""; position:absolute; inset:0; clip-path:inherit; pointer-events:none;
-  mix-blend-mode:multiply; opacity:0.95; background:var(--paper-pocks);
-}
-/* Victory's pair keep their distinction as washes over the paper. */
-.victory-buttons .raise-binding{
-  background-image:linear-gradient(rgba(212,175,106,0.28), rgba(212,175,106,0.28)), var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  background-size:auto, auto, auto, auto, 1120px; background-position:center, center, center, center, 50% 88%; background-repeat:no-repeat;
-  border:none; color:#241a0e;
-}
-.victory-buttons .continue-wave{
-  background-image:linear-gradient(rgba(102,170,255,0.22), rgba(102,170,255,0.22)), var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  background-size:auto, auto, auto, auto, 1120px; background-position:center, center, center, center, 50% 88%; background-repeat:no-repeat;
-  border:none; color:#241a0e;
-}
-/* Danger wears the corrupted paper: the stain become the dark. */
-.abtn.danger, .abtn.small.danger{
-  color:#e2d0a2; text-shadow:0 0 4px rgba(24,8,44,0.8), 0 1px 0 rgba(0,0,0,0.45);
-  background-image:
-    radial-gradient(120px 92px at 94% 92%, rgba(16,6,30,0.95) 22%, rgba(22,10,42,0.72) 52%, transparent 74%),
-    radial-gradient(70px 54px at 4% 6%, rgba(18,8,34,0.66), transparent 70%),
-    linear-gradient(rgba(14,7,26,0.42), rgba(9,4,18,0.5)),
-    var(--map-paper);
-  background-size:auto, auto, auto, var(--bsz, 1000px);
-  background-position:center, center, center, var(--bpos, 50% 45%);
-  box-shadow:inset 0 0 0 1px rgba(16,8,28,0.6), inset 0 0 30px rgba(8,3,18,0.85), inset 0 -12px 18px rgba(5,2,12,0.7);
-}
-/* Spent: one grey sheet, nothing left in it — but the ink
-   stays legible (the demo's disabled law). */
-.abtn:disabled, .zodiac-btn:disabled, .wg-work-btn:disabled, .swap-btn:disabled,
-.upload-btn:disabled, .packet-nav button:disabled, .stance-btn:disabled,
-.wake-button:disabled, .abtn.twin-claim:disabled{
-  background-image:linear-gradient(rgba(150,138,110,0.34), rgba(150,138,110,0.34)), var(--map-paper);
-  background-size:auto, var(--bsz, 920px);
-  background-position:center, var(--bpos, 34% 26%);
-  color:#43331b; text-shadow:0 1px 0 rgba(246,234,200,0.65), 0 0 10px rgba(246,234,200,0.4);
-  box-shadow:inset 0 0 18px rgba(70,54,26,0.4);
-  opacity:1; filter:drop-shadow(0 2px 2px rgba(0,0,0,0.45));
-}
-
 /* — The Wax Seal: dark worked wax, pitted, swirled, grainy at
    the rim, stamped hard and melting — one drip escaping.
    Colour rides three variables; the base wax is crimson. — */
@@ -2845,51 +2705,12 @@ button.abtn:nth-of-type(4n){--bpos:93% 46%; --bsz:940px}
 .aspect-close:hover, .zodiac-close:hover, .packet-close:hover,
 .admin-popup-close:hover, .table-panel-close:hover{filter:brightness(1.12)}
 
-/* — The Terrain button: a torn slip of the map itself, the
-   mountain still drawn on it, in its locked seat. — */
-.deck-button{
-  background-image:var(--paper-light), var(--map-paper);
-  background-size:auto, auto, 1000px;
-  background-position:center, center, 11% 47%;
-  background-repeat:no-repeat;
-  clip-path:var(--torn);
-  filter:drop-shadow(0 6px 6px rgba(0,0,0,0.55));
-}
-.deck-button span{color:#2a1f10; text-shadow:0 1px 0 rgba(255,246,220,0.55), 0 0 10px rgba(246,232,192,0.5)}
-.deck-button::after{
-  content:""; position:absolute; inset:0; clip-path:inherit; pointer-events:none;
-  mix-blend-mode:multiply; opacity:0.95; background:var(--paper-pocks);
-}
-
-/* — The Table's dock: a tall torn tab of the map. — */
-.side-dock{
-  background-image:var(--paper-rolls), var(--paper-light), var(--map-paper);
-  background-size:auto, auto, auto, 960px;
-  background-position:center, center, center, 30% 38%;
-  background-repeat:no-repeat;
-  border:none; clip-path:var(--torn); color:#2a1f10;
-  box-shadow:var(--paper-inset);
-}
-.side-dock-label{color:#2a1f10; text-shadow:0 1px 0 rgba(255,246,220,0.55)}
-.side-dock.active{
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-}
-.side-dock::after{
-  content:""; position:absolute; inset:0; clip-path:inherit; pointer-events:none;
-  mix-blend-mode:multiply; opacity:0.95; background:var(--paper-pocks);
-}
-
-/* — The Eye at the battle row: paper like its neighbours,
-   the eye itself struck in lit crimson line-work. — */
-.eye-toggle.warn{
-  box-shadow:inset 0 0 0 1px rgba(160,40,30,0.55), inset 0 0 22px rgba(160,40,30,0.35), 0 0 10px rgba(255,83,64,0.35);
-}
-/* Drawn glyphs inside paper buttons: fine ink line-work. */
+/* Drawn glyphs inside buttons: fine pale line-work. */
 svg.ink-glyph{
   width:1.15em; height:1.15em; vertical-align:-0.22em;
-  fill:none; stroke:#2a1f10; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;
+  fill:none; stroke:#e8d5a0; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;
 }
-svg.ink-glyph .pip{fill:#2a1f10; stroke:none}
+svg.ink-glyph .pip{fill:#e8d5a0; stroke:none}
 svg.eye-glyph{
   width:22px; height:22px; vertical-align:-5px;
   fill:none; stroke:#8e3a28; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round;
