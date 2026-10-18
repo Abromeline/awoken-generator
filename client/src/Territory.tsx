@@ -492,6 +492,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [grim, setGrim] = useState<GrimoireState | null>(null);
   const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
   const [castMode, setCastMode] = useState(false);
+  // The hand's two faces (Nigel, 2026-10-18): a tab above
+  // the hand switches it between the Awoken cards and
+  // Spells & Glyphs, as the Table's satchel does. The
+  // Spells face IS the Written Light — castMode follows
+  // the tab, and the old Written Light button is gone.
+  const [handTab, setHandTab] = useState<"awoken" | "spells">("awoken");
   const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
   const [castHue, setCastHue] = useState<string>("unaligned");
   // The Pour (Nigel, 2026-10-17): elemental points of the poured
@@ -509,6 +515,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
+  // An aspect looking for a card brings the Awoken face forward.
+  useEffect(() => { if (applyingAspect) { setHandTab("awoken"); setCastMode(false); } }, [applyingAspect]);
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
   const [celebration, setCelebration] = useState<any | null>(null);
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
@@ -4145,102 +4153,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </button>
           );
         })()}
-        <button className="abtn" onClick={() => { setCastMode((c) => !c); setCastSpellKey(null); setCastAnchor(null); }} style={{ marginLeft: 8, borderColor: castMode ? "#b7a6ff" : "#8d7bd8" }} title="Open the Grimoire on the land: cast wards on hex edges, write runes on hex floors, mend with the binding light. The numbers are the book's, tuned in the workshop.">
-          ✎ {castMode ? "Close the Written Light" : "Written Light"}
-        </button>
-        {castMode && (
-          <div style={{ margin: "10px 0", padding: "10px 12px", border: "1px solid rgba(183,166,255,.5)", borderRadius: 10, background: "rgba(24,18,44,.88)" }}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <strong style={{ color: "#e6ddff" }}>Pour:</strong>
-              {GRIM_HUES.map((h) => (
-                <button key={h} onClick={() => { setCastHue(h); setCastPour(0); }} className="abtn" style={{ borderColor: castHue === h ? (GRIM_HUE_GLOWS[h]) : "#555", color: castHue === h ? GRIM_HUE_GLOWS[h] : "#ccc", textTransform: "capitalize" }}>{h}</button>
-              ))}
-              <span style={{ marginLeft: "auto", color: "#cfc4f5" }}>⚡{energy} · Tender Lv {grimGate.level}</span>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              {(grim?.spells ?? []).map((sp) => {
-                const locked = sp.kind !== "binding" && sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
-                const img = grimGlyphImg(sp.key);
-                const sel = castSpellKey === sp.key;
-                return (
-                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); setCastPour(0); }}
-                    className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
-                    title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ⚡${sp.cost}. ${sp.blurb}`}>
-                    {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
-                    {locked ? "🔒 " : ""}{(sp.forms[castHue] ?? sp.name)} · ⚡{sp.cost}
-                  </button>
-                );
-              })}
-              {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
-            </div>
-            {castSpell && ["seal", "trees", "lattice", "shard"].includes(castSpell.engine) && castHue !== "unaligned" && (() => {
-              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[castHue] ?? 0);
-              const cap = Math.min(3, Math.floor(pool / 10));
-              const maxPour = Math.min(cap, pool);
-              const n = castSpell.numbers;
-              const hpPreview = castSpell.engine === "shard" ? null
-                : Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * grimGate.level + (n.hpPerPoint ?? 2) * castPour
-                  + (castSpell.engine === "trees" && workings.some((w) => w.engine === "engine") ? (n.brightHpBonus ?? 2) : 0)));
-              return (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-                  <strong style={{ color: "#e6ddff" }}>Feed it:</strong>
-                  <button className="abtn" disabled={castPour <= 0} onClick={() => setCastPour((p) => Math.max(0, p - 1))}>−</button>
-                  <span style={{ color: "#cfc4f5", minWidth: 150, textAlign: "center" }}>
-                    Pour {castPour} {castHue} pt{castPour === 1 ? "" : "s"} <span style={{ opacity: 0.75 }}>(pool {pool} · your {castHue} Lv {cap})</span>
-                  </span>
-                  <button className="abtn" disabled={castPour >= maxPour} onClick={() => setCastPour((p) => Math.min(maxPour, p + 1))}>+</button>
-                  <span style={{ color: "#ffd98a" }}>
-                    {castSpell.engine === "shard"
-                      ? `→ +${castPour * (n.harmPerPoint ?? 1)} harm when it falls`
-                      : `→ raised with ❤${hpPreview}`}
-                  </span>
-                </div>
-              );
-            })()}
-            <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
-              {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
-              {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}
-              {castSpell?.kind === "ward" && castAnchor === null && <>Tap a hex <strong>your Awoken holds</strong> — then tap one of its glowing edges.</>}
-              {castSpell?.kind === "ward" && castAnchor !== null && <>Tap a <strong>glowing edge</strong> of the anchor hex — or the hex again to choose another.</>}
-              {castSpell && (castSpell.kind === "rune" || castSpell.kind === "spell") && <>Tap a hex's <strong>ground</strong> to write it there — cursed ground takes the light too, ahead of the march. One writing per hex.</>}
-            </div>
-            {workings.length > 0 && (
-              <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ color: "#cfc4f5" }}>{workings.length} working{workings.length === 1 ? "" : "s"} standing:</span>
-                <select value={fadePick ?? ""} onChange={(e) => setFadePick(e.target.value ? Number(e.target.value) : null)} style={{ maxWidth: 260 }}>
-                  <option value="">— choose one to fade —</option>
-                  {workings.map((w) => <option key={w.id} value={w.id}>{grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey} ({w.kind})</option>)}
-                </select>
-                <button className="abtn" disabled={fadePick === null} onClick={async () => {
-                  if (fadePick === null) return;
-                  try { await api.fadeMapWorking({ id: fadePick }); setFadePick(null); await refreshWorkings(); showHexNotice("The light fades from the land — the page rests."); }
-                  catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not fade."); }
-                }}>Fade it</button>
-              </div>
-            )}
-            {(() => {
-              const picked = workings.find((w) => w.id === fadePick);
-              if (!picked || picked.kind !== "rune" || picked.hue !== "unaligned" || !["lattice", "shard"].includes(picked.engine)) return null;
-              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[pushHue] ?? 0);
-              const lvl = Math.min(3, Math.floor(pool / 10));
-              return (
-                <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{ color: "#cfc4f5" }}>That rune stands neutral — <strong>push it either way:</strong></span>
-                  <select value={pushHue} onChange={(e) => { setPushHue(e.target.value); setPushPour(0); }}>
-                    {["tide", "sky", "stone", "root", "fire"].map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                  <button className="abtn" disabled={pushPour <= 0} onClick={() => setPushPour((p) => Math.max(0, p - 1))}>−</button>
-                  <span style={{ color: "#cfc4f5" }}>Pour {pushPour} (your {pushHue} Lv {lvl})</span>
-                  <button className="abtn" disabled={pushPour >= lvl} onClick={() => setPushPour((p) => Math.min(lvl, p + 1))}>+</button>
-                  <button className="abtn" disabled={pushPour <= 0} onClick={async () => {
-                    try { await api.pourMapWorking({ id: picked.id, hue: pushHue, pour: pushPour }); setPushPour(0); await refreshWorkings(); showHexNotice(`The rune takes the ${pushHue} — pushed, and burning with it.`); }
-                    catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not be pushed."); }
-                  }}>Push it</button>
-                </div>
-              );
-            })()}
-          </div>
-        )}
         {wavesCleared >= 3 && wave && (
           <span style={{ marginLeft: 12, color: "#ffd700", fontWeight: "bold" }}>
             All Unravelings broken — Boss awaits!
@@ -4448,9 +4360,104 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <EnergyTimer />
       </div>
       <div className="bottom-dock">
-        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
+        <div className="hand-tabs" role="tablist" aria-label="Your hand">
+          <button type="button" role="tab" aria-selected={handTab === "awoken"} className={`hand-tab${handTab === "awoken" ? " active" : ""}`} onClick={() => { setHandTab("awoken"); setCastMode(false); setCastSpellKey(null); setCastAnchor(null); }}>I · Awoken</button>
+          <button type="button" role="tab" aria-selected={handTab === "spells"} className={`hand-tab${handTab === "spells" ? " active" : ""}`} onClick={() => { setHandTab("spells"); setCastMode(true); }}>II · Spells &amp; Glyphs</button>
+        </div>
+        {handTab === "awoken" && (<div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>)}
         <div className="dock-row">
-        {battlePool.length > 0 && (
+        {handTab === "spells" && (<div className="dock-spells"><div style={{ margin: 0, padding: "10px 12px", border: "1px solid rgba(183,166,255,.5)", borderRadius: 10, background: "rgba(24,18,44,.88)" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <strong style={{ color: "#e6ddff" }}>Pour:</strong>
+              {GRIM_HUES.map((h) => (
+                <button key={h} onClick={() => { setCastHue(h); setCastPour(0); }} className="abtn" style={{ borderColor: castHue === h ? (GRIM_HUE_GLOWS[h]) : "#555", color: castHue === h ? GRIM_HUE_GLOWS[h] : "#ccc", textTransform: "capitalize" }}>{h}</button>
+              ))}
+              <span style={{ marginLeft: "auto", color: "#cfc4f5" }}>⚡{energy} · Tender Lv {grimGate.level}</span>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              {(grim?.spells ?? []).map((sp) => {
+                const locked = sp.kind !== "binding" && sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
+                const img = grimGlyphImg(sp.key);
+                const sel = castSpellKey === sp.key;
+                return (
+                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); setCastPour(0); }}
+                    className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
+                    title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ⚡${sp.cost}. ${sp.blurb}`}>
+                    {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
+                    {locked ? "🔒 " : ""}{(sp.forms[castHue] ?? sp.name)} · ⚡{sp.cost}
+                  </button>
+                );
+              })}
+              {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
+            </div>
+            {castSpell && ["seal", "trees", "lattice", "shard"].includes(castSpell.engine) && castHue !== "unaligned" && (() => {
+              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[castHue] ?? 0);
+              const cap = Math.min(3, Math.floor(pool / 10));
+              const maxPour = Math.min(cap, pool);
+              const n = castSpell.numbers;
+              const hpPreview = castSpell.engine === "shard" ? null
+                : Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * grimGate.level + (n.hpPerPoint ?? 2) * castPour
+                  + (castSpell.engine === "trees" && workings.some((w) => w.engine === "engine") ? (n.brightHpBonus ?? 2) : 0)));
+              return (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                  <strong style={{ color: "#e6ddff" }}>Feed it:</strong>
+                  <button className="abtn" disabled={castPour <= 0} onClick={() => setCastPour((p) => Math.max(0, p - 1))}>−</button>
+                  <span style={{ color: "#cfc4f5", minWidth: 150, textAlign: "center" }}>
+                    Pour {castPour} {castHue} pt{castPour === 1 ? "" : "s"} <span style={{ opacity: 0.75 }}>(pool {pool} · your {castHue} Lv {cap})</span>
+                  </span>
+                  <button className="abtn" disabled={castPour >= maxPour} onClick={() => setCastPour((p) => Math.min(maxPour, p + 1))}>+</button>
+                  <span style={{ color: "#ffd98a" }}>
+                    {castSpell.engine === "shard"
+                      ? `→ +${castPour * (n.harmPerPoint ?? 1)} harm when it falls`
+                      : `→ raised with ❤${hpPreview}`}
+                  </span>
+                </div>
+              );
+            })()}
+            <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
+              {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
+              {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}
+              {castSpell?.kind === "ward" && castAnchor === null && <>Tap a hex <strong>your Awoken holds</strong> — then tap one of its glowing edges.</>}
+              {castSpell?.kind === "ward" && castAnchor !== null && <>Tap a <strong>glowing edge</strong> of the anchor hex — or the hex again to choose another.</>}
+              {castSpell && (castSpell.kind === "rune" || castSpell.kind === "spell") && <>Tap a hex's <strong>ground</strong> to write it there — cursed ground takes the light too, ahead of the march. One writing per hex.</>}
+            </div>
+            {workings.length > 0 && (
+              <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ color: "#cfc4f5" }}>{workings.length} working{workings.length === 1 ? "" : "s"} standing:</span>
+                <select value={fadePick ?? ""} onChange={(e) => setFadePick(e.target.value ? Number(e.target.value) : null)} style={{ maxWidth: 260 }}>
+                  <option value="">— choose one to fade —</option>
+                  {workings.map((w) => <option key={w.id} value={w.id}>{grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey} ({w.kind})</option>)}
+                </select>
+                <button className="abtn" disabled={fadePick === null} onClick={async () => {
+                  if (fadePick === null) return;
+                  try { await api.fadeMapWorking({ id: fadePick }); setFadePick(null); await refreshWorkings(); showHexNotice("The light fades from the land — the page rests."); }
+                  catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not fade."); }
+                }}>Fade it</button>
+              </div>
+            )}
+            {(() => {
+              const picked = workings.find((w) => w.id === fadePick);
+              if (!picked || picked.kind !== "rune" || picked.hue !== "unaligned" || !["lattice", "shard"].includes(picked.engine)) return null;
+              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[pushHue] ?? 0);
+              const lvl = Math.min(3, Math.floor(pool / 10));
+              return (
+                <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ color: "#cfc4f5" }}>That rune stands neutral — <strong>push it either way:</strong></span>
+                  <select value={pushHue} onChange={(e) => { setPushHue(e.target.value); setPushPour(0); }}>
+                    {["tide", "sky", "stone", "root", "fire"].map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                  <button className="abtn" disabled={pushPour <= 0} onClick={() => setPushPour((p) => Math.max(0, p - 1))}>−</button>
+                  <span style={{ color: "#cfc4f5" }}>Pour {pushPour} (your {pushHue} Lv {lvl})</span>
+                  <button className="abtn" disabled={pushPour >= lvl} onClick={() => setPushPour((p) => Math.min(lvl, p + 1))}>+</button>
+                  <button className="abtn" disabled={pushPour <= 0} onClick={async () => {
+                    try { await api.pourMapWorking({ id: picked.id, hue: pushHue, pour: pushPour }); setPushPour(0); await refreshWorkings(); showHexNotice(`The rune takes the ${pushHue} — pushed, and burning with it.`); }
+                    catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not be pushed."); }
+                  }}>Push it</button>
+                </div>
+              );
+            })()}
+          </div></div>)}
+        {handTab === "awoken" && battlePool.length > 0 && (
           <div className="battle-pool">
             <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
             <div className="battle-pool-cards">
@@ -4470,7 +4477,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </div>
           </div>
         )}
-        <div className="dock-hand">
+        <div className="dock-hand" style={handTab === "awoken" ? undefined : { display: "none" }}>
           {hand.map((a, i) => {
             const el = dominantElement(a);
             const level = a.level ?? 0;
