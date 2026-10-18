@@ -179,6 +179,12 @@ interface Props {
    *  raised — one stack, two screens, the same place
    *  (Nigel, 2026-10-17). */
   aspectsSignal?: number;
+  /** The book button at the top of the locked stack
+   *  (Nigel, 2026-10-17): My Deck, the same on both
+   *  screens — it toggles the collection panel, which
+   *  renders above the Terrain as above the home. */
+  onToggleDeck?: () => void;
+  deckOpen?: boolean;
   /** The Skill Zodiac's door (Nigel's directive via Law,
    *  2026-10-17): the tree-glyph button and the attunement
    *  panel's bottom entry both open the wheel. */
@@ -225,7 +231,7 @@ function dominantElement(a: Awakened): Element {
   return best;
 }
 
-export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, aspectsSignal }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, aspectsSignal, onToggleDeck, deckOpen }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -3808,6 +3814,16 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
         </svg>
       </button>
+      {onToggleDeck && (
+        <button
+          className={`aspect-fab deck-fab${deckOpen ? " active" : ""}`}
+          onClick={onToggleDeck}
+          title="My Deck — your awakened collection"
+          aria-label="My Deck — your awakened collection"
+        >
+          <span style={{ fontSize: 24 }}>📖</span>
+        </button>
+      )}
       {onOpenZodiac && (
         <button
           className="aspect-fab tree-fab"
