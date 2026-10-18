@@ -1602,7 +1602,7 @@ body.defeat-flash {
 }
 
 .aspect-fab{
-  position:fixed;left:16px;top:calc(50% - 40px);
+  position:fixed;left:16px;top:calc(50% - 116px);
   width:56px;height:56px;border-radius:50%;
   background:rgba(20,20,35,0.9);border:2px solid #b89b5e;
   cursor:pointer;z-index:41;
@@ -1612,11 +1612,16 @@ body.defeat-flash {
 .aspect-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(212,175,106,0.5)}
 /* The tree door stands ABOVE the attunement market's orb
    (Nigel's directive via Law, 2026-10-17). */
-.aspect-fab.tree-fab{top:calc(50% - 116px)}
+/* The attunement acorn crowns the left stack (Nigel,
+   2026-10-17): attunement above the skill tree, its
+   function living on the front page too. */
+.aspect-fab.tree-fab{top:calc(50% - 40px)}
 /* The book button crowns the locked stack (Nigel,
    2026-10-17): My Deck as a button with a book in it,
    locked above the tree, the same on both screens. */
-.aspect-fab.deck-fab{top:calc(50% - 192px)}
+/* The book stands on the RIGHT (Nigel, 2026-10-17),
+   above the Table's dock, the same on both screens. */
+.aspect-fab.deck-fab{left:auto;right:16px;top:calc(50% - 152px)}
 .aspect-fab.active{background:rgba(184,155,94,0.25);box-shadow:0 0 16px rgba(212,175,106,0.55)}
 .aspect-fab svg{filter:drop-shadow(0 0 4px rgba(212,175,106,0.5))}
 .aspect-close{
@@ -2474,3 +2479,32 @@ body.defeat-flash {
 .zodiac-btn:disabled{opacity:.55;cursor:wait}
 .zodiac-note{max-width:1180px;margin:10px auto;color:#9aa3b8;font-size:13.5px}
 .zodiac-note.small{font-size:11.5px;margin-top:12px;line-height:1.45}
+
+/* The main screen's attunement tracker (Nigel, 2026-10-17):
+   the Tender's level and every hue's standing, at a glance. */
+.attunement-tracker{max-width:760px;margin:14px auto 4px;padding:10px 14px 12px;background:rgba(16,13,26,0.72);border:1px solid rgba(184,155,94,0.4);border-radius:12px}
+.attunement-tracker-head{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#e8d5a0;font-size:13px;margin-bottom:8px}
+.attunement-tracker-title{letter-spacing:0.22em;text-transform:uppercase;font-size:11px;opacity:0.85}
+.attunement-tracker-row{display:flex;gap:8px;flex-wrap:wrap}
+.attunement-chip{flex:1 1 100px;display:flex;flex-direction:column;gap:3px;padding:7px 9px;background:rgba(255,255,255,0.03);border:1px solid rgba(232,213,160,0.18);border-radius:9px;color:#e8dcc3}
+.attunement-chip-lv{font-size:12px;font-weight:600;color:#e8d5a0}
+.attunement-chip-bar{display:block;height:4px;background:rgba(232,213,160,0.15);border-radius:2px;overflow:hidden}
+.attunement-chip-bar span{display:block;height:100%;background:linear-gradient(90deg,#b89b5e,#e8d5a0)}
+.attunement-chip-pts{font-size:10.5px;opacity:0.75}
+/* The birth-screen grant strip (Nigel, 2026-10-17). */
+.birth-grant{margin-top:10px;padding:9px 11px;background:rgba(16,13,26,0.8);border:1px solid rgba(184,155,94,0.45);border-radius:10px;text-align:left}
+.birth-grant-title{margin:0 0 7px;color:#e8d5a0;font-size:12.5px;letter-spacing:0.06em}
+.birth-grant-row{display:flex;gap:7px;flex-wrap:wrap}
+.birth-grant-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:rgba(255,255,255,0.04);border:1px solid rgba(232,213,160,0.35);border-radius:8px;color:#e8dcc3;cursor:pointer;font-size:11px}
+.birth-grant-btn:hover{background:rgba(184,155,94,0.18)}
+.birth-grant-btn:disabled{opacity:0.55;cursor:wait}
+.birth-grant-msg{margin:7px 0 0;font-size:12px;color:#cfe3c0}
+/* The front page's aspect target picker + message. */
+.aspect-picker{position:fixed;inset:0;z-index:70;background:rgba(8,6,14,0.66);display:flex;align-items:center;justify-content:center;padding:18px}
+.aspect-picker-card{max-width:680px;width:100%;max-height:84vh;overflow:auto;background:#14101f;border:1px solid rgba(184,155,94,0.55);border-radius:14px;padding:16px 18px;color:#e8dcc3}
+.aspect-picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;margin:12px 0}
+.aspect-picker-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 6px;background:rgba(255,255,255,0.03);border:1px solid rgba(232,213,160,0.25);border-radius:10px;color:#e8dcc3;cursor:pointer;font-size:12px}
+.aspect-picker-item img{width:52px;height:67px;object-fit:cover;border-radius:6px}
+.aspect-picker-item:hover{background:rgba(184,155,94,0.16)}
+.aspect-home-msg{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:71;display:flex;gap:10px;align-items:center;background:rgba(16,13,26,0.94);border:1px solid rgba(184,155,94,0.6);color:#e8d5a0;border-radius:10px;padding:9px 13px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,0.45)}
+.aspect-home-msg button{background:none;border:none;color:#e8d5a0;cursor:pointer;font-size:13px}

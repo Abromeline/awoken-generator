@@ -39,6 +39,7 @@ const GRIM_HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#5
 const GRIM_HUES = ["unaligned", "tide", "sky", "stone", "root", "fire"];
 import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
+import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { useEnemyArt, enemyImgFor } from "./enemyArt";
 import Tutorial, { tutorialComplete } from "./Tutorial";
@@ -174,11 +175,6 @@ interface Props {
    *  claim's company when no ground is held yet, or readied for battle
    *  when ground already stands. */
   initialPatrolIds?: number[];
-  /** The home screen's acorn speaks: when this signal
-   *  changes, the Terrain opens with the Attunement panel
-   *  raised — one stack, two screens, the same place
-   *  (Nigel, 2026-10-17). */
-  aspectsSignal?: number;
   /** The book button at the top of the locked stack
    *  (Nigel, 2026-10-17): My Deck, the same on both
    *  screens — it toggles the collection panel, which
@@ -231,7 +227,7 @@ function dominantElement(a: Awakened): Element {
   return best;
 }
 
-export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, aspectsSignal, onToggleDeck, deckOpen }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, onToggleDeck, deckOpen }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -779,7 +775,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [showChampionTab, setShowChampionTab] = useState(false);
 
   const [showAspects, setShowAspects] = useState(false);
-  useEffect(() => { if (aspectsSignal) setShowAspects(true); }, [aspectsSignal]);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
   const [showFriends, setShowFriends] = useState(false);
@@ -3492,109 +3487,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
   );
 }
 
-/** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
-function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect, targetAwokenId, onDeepenAspect, onOpenZodiac }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void; targetAwokenId?: number | null; onDeepenAspect?: (wornAspect: any) => void; onOpenZodiac?: () => void }) {
-  const [confirmKey, setConfirmKey] = useState<string | null>(null);
-  if (!visible) return null;
-  const { data } = useQuery({
-    queryKey: ["aspectAttunement"],
-    queryFn: () => api.getAspectAttunement(),
-    refetchInterval: 30000,
-    staleTime: 0,
-  });
-  if (!data) return null;
 
-  const elements = [
-    { id: "tide", label: "Tide" },
-    { id: "sky", label: "Sky" },
-    { id: "stone", label: "Stone" },
-    { id: "root", label: "Root" },
-  ];
-  // Fire appears only after discovering the first spark
-  const showFire = typeof window !== "undefined" && localStorage.getItem("awoken-fire-found") === "1";
-  if (showFire) {
-    elements.push({ id: "fire", label: "Fire" });
-  }
-
-  return (
-    <div className="aspect-attunement celestial">
-      <button className="aspect-close" onClick={onClose} title="Close">✕</button>
-      <div className="celestial-title">Aspect Attunement</div>
-      {elements.map(el => {
-        const points = data.levels[el.id] ?? 0;
-        const pct = Math.min(100, (points / data.threshold) * 100);
-        const aspectCount = (data.inventory || []).filter((i: any) => i.element === el.id).length;
-        const rate = (data.rates && data.rates[el.id]) || 0;
-        return (
-          <div key={el.id} className="celestial-row" title={`${el.label}: ${points.toFixed(1)}/${data.threshold} · +${rate}/hr`}>
-            <ElementGlyph element={el.id as GlyphElement} className="glyph-svg" width={60} height={24} />
-            <div className="celestial-track"><div className="celestial-progress" style={{ width: `${pct}%` }} /></div>
-            <span className="celestial-rate" style={{ fontSize: 11, opacity: rate > 0 ? 0.95 : 0.45, minWidth: 52, textAlign: "right", color: "#e8d5a0" }}>{rate > 0 ? `+${rate}/hr` : "—"}</span>
-            <button
-              className="celestial-orb"
-              title={`${aspectCount} ${el.label} aspects ready — tap, then tap an Awoken`}
-              onClick={() => {
-                const aspects = (data.inventory || []).filter((i: any) => i.element === el.id);
-                if (aspects.length > 0) {
-                  onApplyAspect(aspects[0]);
-                }
-              }}
-              disabled={aspectCount === 0}
-            >
-              {aspectCount}
-            </button>
-          </div>
-        );
-      })}
-      {targetAwokenId && onDeepenAspect && (() => {
-        const wornEntry = (data.wornAspects || []).find((w: any) => w.awakenedId === targetAwokenId);
-        if (!wornEntry) return null;
-        return (
-          <div style={{ marginTop: 10, borderTop: "1px solid rgba(232,213,160,0.25)", paddingTop: 8 }}>
-            <div className="celestial-title" style={{ fontSize: 12 }}>Worn by {wornEntry.name} — tap an orb above: a new element stacks (up to 3); one already worn rises a level at the normal cost, if the pool can pay. Or deepen one here:</div>
-            {wornEntry.aspects.map((wa: any) => {
-              const pool = Math.floor((data.levels && data.levels[wa.element]) ?? 0);
-              const maxed = (wa.level ?? 1) >= 4;
-              const cost = wa.level ?? 1;
-              const confirming = confirmKey === wa.key;
-              return (
-                <div key={wa.key} style={{ marginTop: 4 }}>
-                  <div className="celestial-row">
-                    <span style={{ fontSize: 12, color: "#e8d5a0", flex: 1 }}>{wa.name} · {wa.element} · Lv {wa.level}</span>
-                    {!confirming && (
-                      <button
-                        className="abtn small"
-                        disabled={maxed}
-                        title={maxed ? "Already at max level" : `Raise ${wa.name} to Lv ${(wa.level ?? 1) + 1} — costs ${cost} ${wa.element} attunement point${cost > 1 ? "s" : ""} (the pool holds ${pool})`}
-                        onClick={() => setConfirmKey(wa.key)}
-                      >
-                        {maxed ? "Max" : `Upgrade · ${cost} ${wa.element} pt${cost > 1 ? "s" : ""}`}
-                      </button>
-                    )}
-                  </div>
-                  {confirming && !maxed && (
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0 2px", fontSize: 12, color: "#e8d5a0" }}>
-                      <span style={{ flex: 1 }}>Raise {wa.name} to Lv {(wa.level ?? 1) + 1} for {cost} {wa.element} point{cost > 1 ? "s" : ""}? (Pool: {pool})</span>
-                      <button className="abtn small" disabled={pool < cost} onClick={() => { setConfirmKey(null); onDeepenAspect(wa); }}>Confirm</button>
-                      <button className="abtn small" onClick={() => setConfirmKey(null)}>Cancel</button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-      {onOpenZodiac && (
-        <div style={{ marginTop: 12, borderTop: "1px solid rgba(232,213,160,0.25)", paddingTop: 10 }}>
-          <button type="button" className="abtn" style={{ width: "100%" }} onClick={() => { onClose(); onOpenZodiac(); }}>
-            🌳 The Skill Zodiac — spend your levels' points on the wheel
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
   return (
     <div className="territory-view">
