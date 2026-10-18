@@ -2162,24 +2162,18 @@ body.defeat-flash {
 
 /* ---- Siege battle: projectiles, wind-up, towers ---- */
 .projectile-layer{position:absolute;inset:0;pointer-events:none;z-index:60;overflow:visible}
-.projectile{position:absolute;font-size:30px;line-height:1;transform:translate(-50%,-50%);animation:proj-fly linear forwards;filter:drop-shadow(0 0 8px currentColor);will-change:transform}
-@keyframes proj-fly{
-  from{transform:translate(-50%,-50%) translate(0,0) scale(0.7);opacity:0.9}
-  20%{transform:translate(-50%,-50%) translate(calc(var(--tx) * 0.2),calc(var(--ty) * 0.2)) scale(1.15);opacity:1}
-  85%{opacity:1}
-  to{transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(1);opacity:0.9}
-}
-.projectile.arc{animation-name:proj-arc}
-.projectile .proj-img{display:block;width:104px;height:auto;mix-blend-mode:screen;transform-origin:center;pointer-events:none}
+/* Flight is driven frame-by-frame by ProjectileFlight in
+   Battleground.tsx (gravity arc + tangent rotation); CSS only seats
+   the wrapper and glows it. The sprite carries true alpha (the black
+   it was dreamed on is keyed out in the file), so no blend mode is
+   wanted here — screen blending never engaged through this stacking
+   context anyway, which is why the black used to paint as a box. */
+.projectile{position:absolute;font-size:30px;line-height:1;transform:translate(-50%,-50%);filter:drop-shadow(0 0 8px currentColor);will-change:transform}
+.projectile .proj-img{display:block;width:104px;height:auto;transform-origin:center;pointer-events:none}
+.projectile .proj-glyph{display:inline-block;transform-origin:center}
 .beam-strike{position:absolute;width:110px;height:150px;transform:translate(-50%,-100%);overflow:hidden;pointer-events:none;z-index:61}
-.beam-strike img{width:100%;height:100%;object-fit:cover;mix-blend-mode:screen;animation:beam-flare .95s ease-out forwards}
+.beam-strike img{width:100%;height:100%;object-fit:cover;animation:beam-flare .95s ease-out forwards}
 @keyframes beam-flare{0%{opacity:0}12%{opacity:1}70%{opacity:1}100%{opacity:0}}
-@keyframes proj-arc{
-  0%{transform:translate(-50%,-50%) translate(0,0) scale(0.8);opacity:0.9}
-  50%{transform:translate(-50%,-50%) translate(var(--mx),var(--my)) scale(1.25);opacity:1}
-  85%{opacity:1}
-  100%{transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(1);opacity:0.9}
-}
 .battle-fighter.wind-up{animation:wind-up-pulse 0.5s ease-in-out infinite !important;filter:brightness(1.4) drop-shadow(0 0 14px rgba(255,215,0,0.85))}
 @keyframes wind-up-pulse{
   0%,100%{transform:scale(1)}

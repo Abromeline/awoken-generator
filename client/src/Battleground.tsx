@@ -121,8 +121,62 @@ interface Projectile {
   tx: number; ty: number;  // target (px)
   glyph: string; color: string;
   img?: string;            // dreamed sprite (effects.ts) — rendered instead of the glyph when set
-  arc?: boolean;           // tower arrows fly an arc
+  arc?: boolean;           // lobbed shots fly a high arc; every shot obeys gravity
   duration: number;        // ms of flight
+}
+
+/** One projectile in flight, driven frame-by-frame with true
+ *  projectile maths (Nigel, 2026-10-18: gravity on the arc, and the
+ *  sprite turned to its direction of travel so it reads as aimed).
+ *  The shot is a parabola pinned to its endpoints: with s the
+ *  fraction of the flight elapsed and peak the arc's height above
+ *  the straight chord, position is
+ *      x = dx·s,  y = dy·s − 4·peak·s·(1−s)
+ *  which is exactly a body under constant gravity g with
+ *  peak = g·T²/8 — horizontal velocity constant, vertical velocity
+ *  growing linearly. The sprite's rotation is the tangent of that
+ *  same curve, atan2(dy/ds, dx/ds): noses up on the climb, levels
+ *  at the apex, and dives onto the target at the end of the fall.
+ *  The sprites are authored nose-right, so rotation 0 is travel
+ *  along +x. Flight timing/impact stay with spawnProjectile's
+ *  duration timer; this component only draws. */
+function ProjectileFlight({ p }: { p: Projectile }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const spinRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    const t0 = performance.now();
+    const dx = p.tx - p.fx;
+    const dy = p.ty - p.fy;
+    const dist = Math.hypot(dx, dy);
+    // A lobbed shot climbs high; a direct shot still rises and falls
+    // a little under gravity rather than sliding along a ruler.
+    const peak = p.arc ? Math.max(90, dist * 0.35) : Math.max(26, dist * 0.12);
+    const step = (now: number) => {
+      const s = Math.min(1, (now - t0) / p.duration);
+      const x = dx * s;
+      const y = dy * s - 4 * peak * s * (1 - s);
+      const vx = dx;                        // constant, as gravity demands
+      const vy = dy - 4 * peak * (1 - 2 * s); // the tangent's fall
+      const el = wrapRef.current;
+      if (el) {
+        const swell = 0.9 + 0.2 * Math.sin(Math.PI * s); // swells near the apex, as the CSS flight did
+        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${swell})`;
+      }
+      const spin = spinRef.current;
+      if (spin) spin.style.transform = `rotate(${Math.atan2(vy, vx)}rad)`;
+      if (s < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [p]);
+  return (
+    <div ref={wrapRef} className="projectile" style={{ left: p.fx, top: p.fy, color: p.color }}>
+      {p.img
+        ? <img ref={(el) => { spinRef.current = el; }} className="proj-img" src={p.img} alt="" />
+        : <span ref={(el) => { spinRef.current = el; }} className="proj-glyph">{p.glyph}</span>}
+    </div>
+  );
 }
 
 /** Element-flavored attack visuals for Awoken strikes. Projectile colors
@@ -1008,20 +1062,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         )}
         <div className="projectile-layer">
           {projectiles.map(p => (
-            <div
-              key={p.id}
-              className={`projectile${p.arc ? " arc" : ""}`}
-              style={{
-                left: p.fx,
-                top: p.fy,
-                color: p.color,
-                animationDuration: `${p.duration}ms`,
-                "--tx": `${p.tx - p.fx}px`,
-                "--ty": `${p.ty - p.fy}px`,
-                "--mx": `${(p.tx - p.fx) / 2}px`,
-                "--my": `${(p.ty - p.fy) / 2 - 70}px`,
-              } as CSSProperties}
-            >{p.img ? <img className="proj-img" src={p.img} alt="" style={{ transform: `rotate(${Math.atan2(p.ty - p.fy, p.tx - p.fx)}rad)` }} /> : p.glyph}</div>
+            <ProjectileFlight key={p.id} p={p} />
           ))}
           {beams.map(b => (
             <div key={b.id} className="beam-strike" style={{ left: b.x, top: b.y }}>
