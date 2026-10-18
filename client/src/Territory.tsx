@@ -6,6 +6,7 @@ import { WALL_STYLES } from "./wallArt";
 import EnergyTimer from "./EnergyTimer";
 import { useCardBorder } from "./cardBorder";
 import hallBanner from "./assets/hall-of-champions.jpg";
+import meteorGif from "./assets/meteor-rain.gif";
 
 import FieldAwoken from "./FieldAwoken";
 import { Corner, elementForPiece, type Element } from "./App";
@@ -264,12 +265,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
-  // First-tile claim (fix list #3): a fresh Tender holds no ground — the
-  // empty state is where the Last Bastion begins, not a dead end.
+  // The First Seed (Nigel via Wake, 2026-10-17): a fresh Tender holds
+  // no ground — the empty state is where the Last Bastion begins, not
+  // a dead end. The world is sown on mount (ensureFirstSeed), and the
+  // seed's hold is how the first ground is earned.
   const [territoryLoaded, setTerritoryLoaded] = useState(false);
-  const [firstTeam, setFirstTeam] = useState<number[]>([]);
-  const [firstClaimBusy, setFirstClaimBusy] = useState(false);
-  const [firstClaimError, setFirstClaimError] = useState<string | null>(null);
+  const [seedTeam, setSeedTeam] = useState<number[]>([]);
+  const [seedBusy, setSeedBusy] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
   const [sparkAnimation, setSparkAnimation] = useState<{ phase: "center" | "fly" } | null>(null);
   const [fireFound, setFireFound] = useState(() => localStorage.getItem("awoken-fire-found") === "1");
 
@@ -797,6 +800,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // lines — read from the server, refreshed as the land is.
   const incursionsQ = useQuery({ queryKey: ["incursions"], queryFn: () => api.getIncursions(), refetchInterval: 30000 });
   const seedsQ = useQuery({ queryKey: ["seeds"], queryFn: () => api.getSeeds(), refetchInterval: 30000 });
+  // The First Seed's hold, polled gently — faster while waves fall.
+  const firstSeedQ = useQuery({
+    queryKey: ["firstSeedEvent"],
+    queryFn: () => api.getFirstSeedEvent(),
+    refetchInterval: (q) => ((q.state.data as any)?.event?.state === "holding" ? 5000 : 20000),
+  });
+  const firstSeedEv = firstSeedQ.data?.event ?? null;
+  // When the hold's truth moves (a wave lands, the bank falls), the
+  // map's own state is re-read so the ground agrees with the ledger.
+  const firstSeedSig = firstSeedEv
+    ? `${firstSeedEv.state}|${firstSeedEv.banked}|${firstSeedEv.wavesCleared}|${firstSeedEv.defenders.map(d => `${d.awakenedId}:${d.hp}`).join(",")}`
+    : "";
+  const lastFirstSeedSig = useRef("");
+  useEffect(() => {
+    if (!firstSeedEv) return;
+    if (lastFirstSeedSig.current && lastFirstSeedSig.current !== firstSeedSig) {
+      void refreshTerritory();
+    }
+    lastFirstSeedSig.current = firstSeedSig;
+  }, [firstSeedSig]);
   const callsQ = useQuery({ queryKey: ["calls"], queryFn: () => api.getCalls(), refetchInterval: 30000 });
   const handleCallToArms = async (args: { columnId?: number; seedId?: number }) => {
     try {
@@ -922,43 +945,60 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   }, [placements]);
 
   useEffect(() => {
-    api.getTerritory().then(({ tiles, placements, walls, skills, workings }) => {
-      setTiles(tiles); setPlacements(placements); setWalls(walls ?? []); setSkills(skills ?? []);
-      setWorkings(workings ?? []);
-    }).catch((e) => {
-      console.error("[Territory] getTerritory failed:", e);
-    }).finally(() => setTerritoryLoaded(true));
+    (async () => {
+      try {
+        let t = await api.getTerritory();
+        if (t.tiles.length === 0) {
+          // No ground at all: sow the first seed's world (idempotent
+          // on the server) and read the land again — the seed waits
+          // at its cursed center from the first glance.
+          await api.ensureFirstSeed().catch(() => {});
+          t = await api.getTerritory();
+        }
+        setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []);
+        setWorkings(t.workings ?? []);
+      } catch (e) {
+        console.error("[Territory] getTerritory failed:", e);
+      } finally {
+        setTerritoryLoaded(true);
+      }
+    })();
   }, []);
 
-  // The First Patrol arrives gathered (Wake, Nigel 2026-10-17): seed the
-  // patrol ONCE, when the territory's true state is known. No ground yet
-  // → they become the first claim's company, and claimFirstTile makes
-  // the first ground they take PURIFIED with them standing on it.
-  // Ground already held → they are simply readied in the battle pool.
+  // The First Patrol arrives gathered (Wake, Nigel 2026-10-17): seed
+  // the patrol ONCE, when the territory's true state is known. While
+  // the first seed's hold stands open, the patrol is named to the
+  // seed's company — the deploy selection, up to the hex's four.
+  // The event done (or never sown) → they are simply readied in the
+  // battle pool.
   const patrolSeededRef = useRef(false);
   useEffect(() => {
-    if (patrolSeededRef.current || !territoryLoaded) return;
+    if (patrolSeededRef.current || !territoryLoaded || firstSeedQ.isPending) return;
     if (!initialPatrolIds || initialPatrolIds.length === 0) return;
     patrolSeededRef.current = true;
     const mine = initialPatrolIds.filter(id => tenderItems.some(a => a.id === id));
     if (mine.length === 0) return;
-    if (tiles.length === 0) {
-      setFirstTeam(mine.slice(0, 6));
+    if (firstSeedEv && firstSeedEv.state !== "done") {
+      setSeedTeam(mine.slice(0, 4));
     } else {
       setBattlePool(mine.filter(id => !placements.some(p => p.awakenedId === id)).slice(0, 4));
     }
-  }, [territoryLoaded, tiles, placements, initialPatrolIds, tenderItems]);
+  }, [territoryLoaded, tiles, placements, initialPatrolIds, tenderItems, firstSeedQ.isPending, firstSeedEv]);
 
   useEffect(() => {
     api.getGrimoire().then(setGrim).catch(() => {});
     api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount })).catch(() => {});
   }, []);
 
-  const refreshWorkings = async () => {
+  const refreshTerritory = async () => {
     const refreshed = await api.getTerritory();
     setTiles(refreshed.tiles); setPlacements(refreshed.placements);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
+  };
+
+  const refreshWorkings = async () => {
+    await refreshTerritory();
     onUpdate();
   };
 
@@ -1091,36 +1131,72 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
-  // First-tile claim (fix list #3): the company faces the Unraveler
-  // through the live server path — claimFirstTile measures the team's
-  // true power itself; the client only gathers the company. On victory
-  // the newborn step follows, exactly as after a battle purification.
-  const handleFirstClaim = async () => {
-    if (firstClaimBusy || firstTeam.length === 0) return;
-    setFirstClaimBusy(true);
-    setFirstClaimError(null);
+  // The First Seed's company (Nigel via Wake, 2026-10-17): sending
+  // Awoken onto the seed's hex rides the server's own deploy law
+  // for the hold — no assault, no instant break; the waves decide.
+  // Casting never closes, so this answers before and during a run.
+  const handleDeployFirstSeed = async () => {
+    if (seedBusy || seedTeam.length === 0) return;
+    setSeedBusy(true);
+    setSeedError(null);
     try {
-      await api.claimFirstTile({ teamIds: firstTeam });
-      const after = await api.getTerritory();
-      setTiles(after.tiles);
-      setPlacements(after.placements);
-      const center = after.tiles.find(t => t.q === 0 && t.r === 0);
-      if (center) {
-        const liberatorNames = firstTeam
-          .map(id => tenderItems.find(a => a.id === id)?.name)
-          .filter((n): n is string => !!n);
-        api.birthNewbornToHand({ tileId: center.id, liberatorNames }).catch(e =>
-          console.error("[Birth] Newborn failed — game continues", e)
-        );
-      }
-      setFirstTeam([]);
+      await api.deployFirstSeed({ awakenedIds: seedTeam });
+      setSeedTeam([]);
+      await refreshTerritory();
+      await firstSeedQ.refetch();
+      await refreshEnergy();
       onUpdate();
     } catch (e) {
-      setFirstClaimError(e instanceof Error ? e.message : "The Unraveler would not yield.");
+      setSeedError(e instanceof Error ? e.message : "The company would not go.");
     } finally {
-      setFirstClaimBusy(false);
+      setSeedBusy(false);
     }
   };
+
+  const handleStartFirstSeedHold = async () => {
+    if (seedBusy) return;
+    setSeedBusy(true);
+    setSeedError(null);
+    try {
+      await api.startFirstSeedHold();
+      await firstSeedQ.refetch();
+    } catch (e) {
+      setSeedError(e instanceof Error ? e.message : "The hold would not begin.");
+    } finally {
+      setSeedBusy(false);
+    }
+  };
+
+  const handleEndFirstSeedRun = async () => {
+    if (seedBusy) return;
+    setSeedBusy(true);
+    setSeedError(null);
+    try {
+      await api.endFirstSeedRun();
+      await firstSeedQ.refetch();
+      await refreshTerritory();
+    } catch (e) {
+      setSeedError(e instanceof Error ? e.message : "The run would not end.");
+    } finally {
+      setSeedBusy(false);
+    }
+  };
+
+  // When the seed's third rising frees the newborn (Nigel,
+  // 2026-10-18: at level 3 the hold is a boss equivalent), the
+  // claim the server recorded is gathered through Wake One —
+  // once, by the claim's own ledger, never twice.
+  const newbornGatheredRef = useRef(false);
+  useEffect(() => {
+    if (!firstSeedEv?.newbornClaimed || newbornGatheredRef.current) return;
+    newbornGatheredRef.current = true;
+    const liberatorNames = firstSeedEv.defenders
+      .map(d => tenderItems.find(a => a.id === d.awakenedId)?.name)
+      .filter((n): n is string => !!n);
+    api.birthNewbornToHand({ tileId: firstSeedEv.tileId, liberatorNames }).catch(e =>
+      console.error("[Birth] Newborn failed — game continues", e)
+    );
+  }, [firstSeedEv?.newbornClaimed]);
 
   const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding") => {
     setStanceMinimized(true); // collapse bubble so tiles behind are clickable
@@ -2285,7 +2361,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // that flipped neutral tiles by name-guessing, now removed. The
   // land's attunement is read where the real engine speaks: the
   // tile's own seal badge (bank ETA) and its stack bar (trays).
-    // The empty state is the first-tile step above (fix list #3) — the
+    // The empty state is the first seed's step above — the
     // Tutorial overlay teaches; it never claimed ground.
     // Simple grid layout for now; parallax via row scaling
   // Project a point from the tilted map plane to screen coordinates.
@@ -3242,6 +3318,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const t = tiles.find(t => t.id === sd.tileId);
           if (!t) return null;
           const { cx, cy } = tilePos(t);
+          if (sd.state === "first") {
+            // THE FIRST SEED (Nigel via Wake, 2026-10-17): the tiny
+            // meteor of the ceremony rain, sparkling on the center
+            // cursed hex of a brand-new map — his own asset, seated
+            // as the seed's face until the hold is done.
+            return (
+              <g key={sd.id}>
+                <circle cx={cx} cy={cy - size * 0.5} r={size * 0.55} fill="rgba(232,182,76,0.14)" stroke="#e8b64c" strokeWidth={1.2} strokeDasharray="3 4" />
+                <image href={meteorGif} x={cx - size * 0.45} y={cy - size * 1.1} width={size * 0.9} height={size * 0.9} />
+                {sd.level > 1 && <text x={cx} y={cy - size * 1.2} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Lv {sd.level}</text>}
+              </g>
+            );
+          }
           if (sd.state === "corrupted") {
             return (<g key={sd.id}><text x={cx} y={cy - size * 0.4} textAnchor="middle" fontSize={size * 0.52}>💀</text></g>);
           }
@@ -3504,59 +3593,85 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 
   return (
     <div className="territory-view">
-      {territoryLoaded && tiles.length === 0 && (() => {
-        // The first-tile step (fix list #3): a Tender with no ground
-        // gathers the company that faces the Unraveler. The court stays
-        // in hand, as everywhere — housed Awoken and the champion are
-        // never offered for the company.
-        const eligible = tenderItems.filter(a => !isCourt(a));
-        const teamPower = firstTeam.reduce((sum, id) => sum + (tenderItems.find(a => a.id === id)?.power ?? 0), 0);
-        const handPower = eligible.reduce((sum, a) => sum + a.power, 0);
-        const toggleFirstTeam = (id: number) => setFirstTeam(prev =>
-          prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= 6 ? prev : [...prev, id]);
-        const suggestFirstTeam = () => {
-          const picked: number[] = [];
-          let sum = 0;
-          for (const a of [...eligible].sort((x, y) => y.power - x.power)) {
-            if (picked.length >= 6 || sum >= 7) break;
-            picked.push(a.id);
-            sum += a.power;
-          }
-          setFirstTeam(picked);
-        };
+      {territoryLoaded && firstSeedEv && (() => {
+        // The First Seed's hold (Nigel via Wake, 2026-10-17): the
+        // event surface that replaced the old "Face the Unraveler"
+        // first claim. The court stays in hand, as everywhere —
+        // housed Awoken and the champion are never offered. Every
+        // number here is the server's own ledger, read fresh.
+        const ev = firstSeedEv;
+        const placedIds = new Set(placements.map(p => p.awakenedId));
+        const standing = ev.defenders
+          .map(d => { const a = tenderItems.find(x => x.id === d.awakenedId); return a ? { ...a, hp: d.hp, maxHp: d.maxHp } : null; })
+          .filter(Boolean) as (Awakened & { hp: number; maxHp: number })[];
+        const eligible = tenderItems.filter(a => !isCourt(a) && !placedIds.has(a.id));
+        const room = Math.max(0, 4 - standing.length);
+        const toggleSeedTeam = (id: number) => setSeedTeam(prev =>
+          prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= room ? prev : [...prev, id]);
+        const waveInSec = ev.state === "holding" && ev.nextWaveAt
+          ? Math.max(0, Math.round((ev.nextWaveAt - Date.now()) / 1000)) : null;
         return (
-          <section className="first-claim" aria-live="polite">
-            <p className="eyebrow">The Last Bastion</p>
-            <h2>No ground is held — yet.</h2>
-            <p>The Unraveler waits in the wilds at power 7. Gather a company of up to six of your Awoken whose combined power reaches 7, and face it together. The first four named will stand upon the bastion when the dark breaks. Purification frees no newborn — only the Boss, when it falls, frees one.</p>
-            {initialPatrolIds && initialPatrolIds.length > 0 && firstTeam.length > 0 && (
-              <p className="patrol-arrived">🚶 Your patrol from the spark is gathered below — the first three you woke, already named to the company. Face the Unraveler together, and the first ground they take will be purified, with the patrol standing upon it.</p>
-            )}
-            {eligible.length === 0 ? (
-              <p className="quiet">Your deck is empty — wake Awoken at the spark first, then return to claim your ground.</p>
+          <section className="first-claim first-seed" aria-live="polite">
+            <p className="eyebrow">The Last Bastion · The First Seed</p>
+            <h2>A starseed lies in the cursed heart of your land.</h2>
+            {ev.state === "done" ? (
+              <p>The seed's rising is complete — it rests at <strong>level {ev.seedLevel}</strong>, banked on your first ground, and it will not be tested again.{ev.newbornClaimed ? " The hold freed a newborn at its third rising — it waits for you at the Wake." : ""}</p>
+            ) : ev.state === "holding" ? (
+              <>
+                <p>The hold is underway. <strong>{ev.wavesCleared} wave{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · seed level <strong>{ev.seedLevel}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Wave {ev.nextWave} comes in <strong>{waveInSec}s</strong> — {ev.nextWave} Fray ride with it.</> : ""}</p>
+                <p>Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
+              </>
+            ) : ev.banked ? (
+              <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three waves, a rising. <strong>Hold the seed to its third rising — level 3 — and the hold frees a newborn.</strong>{ev.newbornClaimed ? " (Freed — it waits for you at the Wake.)" : ""}</p>
             ) : (
               <>
-                <div className="first-claim-team">
-                  {eligible.map(a => (
-                    <button key={a.id} type="button" className={`first-claim-card ${firstTeam.includes(a.id) ? "in-pool" : ""}`} onClick={() => toggleFirstTeam(a.id)} aria-pressed={firstTeam.includes(a.id)}>
-                      <img src={a.image_url} alt={a.name} />
-                      <div className="first-claim-card-name">{a.name}</div>
-                      <div className="quiet">{a.power}⚔ {a.toughness}🛡</div>
-                    </button>
-                  ))}
-                </div>
-                <div className="first-claim-actions">
-                  <span>Company power: {teamPower} / 7</span>
-                  <button type="button" className="abtn" onClick={suggestFirstTeam}>Gather the strongest</button>
-                  <button type="button" className="abtn" disabled={teamPower < 7 || firstTeam.length === 0 || firstClaimBusy} onClick={() => void handleFirstClaim()}>
-                    {firstClaimBusy ? "Facing…" : "Face the Unraveler"}
-                  </button>
-                </div>
-                {teamPower < 7 && (handPower >= 7
-                  ? <p className="quiet">Choose more of your Awoken — together they must reach 7.</p>
-                  : <p className="quiet">Even together, your Awoken reach only {handPower}. Wake more at the spark, and return when the company is strong enough.</p>)}
-                {firstClaimError && <p className="notice error" role="status">{firstClaimError}</p>}
+                <p>Send your Awoken onto the seed's hex, then begin the hold. Waves of Fray will come, one upon the next — <strong>clear three waves and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
+                <p><strong>Hold the seed to its third rising — level 3 — and the hold frees a newborn.</strong></p>
               </>
+            )}
+            {initialPatrolIds && initialPatrolIds.length > 0 && standing.length === 0 && seedTeam.length > 0 && ev.state !== "done" && (
+              <p className="patrol-arrived">🚶 Your patrol from the spark is named below — the first three you woke, ready to be sent to the seed.</p>
+            )}
+            {standing.length > 0 && (
+              <p className="quiet">Holding the seed: {standing.map(a => `${a.name} (${a.hp}/${a.maxHp})`).join(" · ")}</p>
+            )}
+            {ev.state !== "done" && (
+              eligible.length === 0 && standing.length === 0 ? (
+                <p className="quiet">Your deck is empty — wake Awoken at the spark first, then return to claim your ground.</p>
+              ) : (
+                <>
+                  {eligible.length > 0 && (
+                    <div className="first-claim-team">
+                      {eligible.map(a => (
+                        <button key={a.id} type="button" className={`first-claim-card ${seedTeam.includes(a.id) ? "in-pool" : ""}`} onClick={() => toggleSeedTeam(a.id)} aria-pressed={seedTeam.includes(a.id)}>
+                          <img src={a.image_url} alt={a.name} />
+                          <div className="first-claim-card-name">{a.name}</div>
+                          <div className="quiet">{a.power}⚔ {a.toughness}🛡</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="first-claim-actions">
+                    <button type="button" className="abtn" disabled={seedTeam.length === 0 || seedBusy} onClick={() => void handleDeployFirstSeed()}>
+                      {seedBusy ? "Sending…" : `Send to the seed${seedTeam.length ? ` (${seedTeam.length})` : ""}`}
+                    </button>
+                    {ev.state === "waiting" && (
+                      <button type="button" className="abtn" disabled={standing.length === 0 || seedBusy} onClick={() => void handleStartFirstSeedHold()}>
+                        Begin the Hold
+                      </button>
+                    )}
+                    {ev.state === "holding" && (
+                      <button type="button" className="abtn" disabled={seedBusy} onClick={() => void handleEndFirstSeedRun()}>
+                        End the Run
+                      </button>
+                    )}
+                  </div>
+                  {ev.state === "waiting" && standing.length === 0 && (
+                    <p className="quiet">No defender stands on the seed's hex yet — name a company above and send them.</p>
+                  )}
+                  {seedError && <p className="notice error" role="status">{seedError}</p>}
+                </>
+              )
             )}
           </section>
         );

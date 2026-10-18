@@ -960,6 +960,284 @@ async function ensureFrontierBuffer(ownerKey: string) {
 }
 
 
+/* ── THE FIRST SEED (Nigel via Wake, 2026-10-17; built 2026-10-18) ──
+   The Starfall Bastion intro, replacing the old "Face the Unraveler"
+   first claim. A tile-less Tender's world is sown whole — cursed
+   rings and frontier, exactly the world the old claim made — but
+   NOTHING in it is purified: a star seed lies at the cursed center,
+   and the Tender's first ground is earned by HOLDING that seed
+   against waves of Fray, refereed here, lazily, on read, like the
+   marches and the columns. The ladder is Law's personal-bastion
+   ladder: every three waves the seed rises a level. Wave 3 banks
+   the seed (the center purifies, the pool fills); fail before the
+   bank and the seed simply WAITS — no loss, no clawback. Casting
+   never closes. And at the seed's third rising (level 3, wave 9)
+   the hold is a boss equivalent (Nigel, 2026-10-18): a newborn
+   claim is recorded, exactly once ever, as a verified boss
+   victory records one in resolveBossBattle. */
+const FIRST_SEED_MAX_WAVE = 12;
+const FIRST_SEED_MAX_LEVEL = 4;
+
+type FirstSeedEventRow = {
+  owner_key: string; seed_id: number; state: string; banked: number;
+  waves_cleared: number; next_wave_at: number;
+  newborn_claimed_at: number | null; created_at: number; updated_at: number;
+};
+
+function firstSeedEventRow(ownerKey: string): FirstSeedEventRow | null {
+  const row = sqlite.prepare("SELECT * FROM first_seed_events WHERE owner_key = ?").get(ownerKey) as FirstSeedEventRow | undefined;
+  return row ?? null;
+}
+
+function saveFirstSeedEvent(ev: FirstSeedEventRow): void {
+  sqlite.prepare(`UPDATE first_seed_events
+    SET state = ?, banked = ?, waves_cleared = ?, next_wave_at = ?, newborn_claimed_at = ?, updated_at = ?
+    WHERE owner_key = ?`)
+    .run(ev.state, ev.banked, ev.waves_cleared, ev.next_wave_at, ev.newborn_claimed_at, Date.now(), ev.owner_key);
+}
+
+/** When the wave AFTER `cleared` waves lands: the first three
+ *  arrive a minute apart; later gaps turn sporadic (45–120s) —
+ *  deliberately chaotic, as ruled. */
+function firstSeedWaveGapMs(cleared: number): number {
+  const arriving = cleared + 1;
+  if (arriving <= 3) return 60 * 1000;
+  return 45 * 1000 + Math.floor(Math.random() * 75 * 1000);
+}
+
+/** The seed's level for a ladder count: level 1 stands from the
+ *  fall itself; every full three waves raise it one. */
+function firstSeedLevelFor(wavesCleared: number): number {
+  if (wavesCleared < 3) return 1;
+  return Math.min(FIRST_SEED_MAX_LEVEL, Math.floor(wavesCleared / 3));
+}
+
+/** Sow a brand-new Tender's world: the same cursed rings + frontier
+ *  the retired claimFirstTile generated — but the center stays
+ *  CURSED, the seed's own hex, its curse reckoned by the ring law
+ *  at ring 0. Returns the center tile id. */
+async function generateFirstWorld(ownerKey: string): Promise<number> {
+  const now = new Date();
+  const { mood } = await getWorldMood();
+  const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
+  const pick = () => elements[Math.floor(Math.random() * elements.length)];
+  const centerHp = curseHpFor(0, mood);
+  const [center] = await db.insert(schema.territoryTiles).values({
+    ownerKey, q: 0, r: 0, element: pick(), cursed: 1, lastPassiveAt: now,
+    curseHp: centerHp, curseMaxHp: centerHp,
+  }).returning({ id: schema.territoryTiles.id });
+  const ringHp = curseHpFor(1, mood);
+  const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  for (const [dq, dr] of dirs) {
+    await db.insert(schema.territoryTiles).values({
+      ownerKey, q: dq, r: dr, element: pick(), cursed: 1, lastPassiveAt: now,
+      curseHp: ringHp, curseMaxHp: ringHp,
+    });
+  }
+  for (const [dq, dr] of dirs) {
+    await expandFrontier(ownerKey, dq, dr);
+  }
+  return center.id;
+}
+
+/** The element a victorious company claims land with: the dominant
+ *  element of their layers, read from the parts' own records (fire
+ *  never claims conquered land; a tie stays neutral). The same
+ *  arithmetic the claim paths have always used, kept in one place. */
+async function dominantClaimElement(standingRows: Array<{ compositionJson: string }>): Promise<"tide" | "sky" | "stone" | "root" | "neutral"> {
+  const assetRows = await db.select().from(schema.layerAssets);
+  const assetStats = new Map<number, AssetStats>();
+  for (const assetRow of assetRows) {
+    const rarity = raritySchema.safeParse(assetRow.rarity);
+    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
+  }
+  const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+  for (const a of standingRows) {
+    for (const layer of parseLayers(a.compositionJson, assetStats)) {
+      const el = storedElement((layer as any).element);
+      if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
+    }
+  }
+  let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+  let maxCount = 0; let tie = false;
+  for (const [el, count] of Object.entries(elementCounts)) {
+    if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+    else if (count === maxCount && count > 0) { tie = true; }
+  }
+  if (tie) element = "neutral";
+  return element;
+}
+
+/** Referee one arrived wave of the first-seed hold. The defenders
+ *  strike first, each blow its filed power against the Fray line
+ *  (canon: power 1, curse HP 3, from the game's own enemy config);
+ *  surviving Fray answer against the weakest standing defender,
+ *  through damagePlacement — the map's single damage path, so a
+ *  defender at 0 HP dissipates back to hand. Pays the Table's
+ *  fell numbers through the map's own seams (+3⚡ capped to the
+ *  slayer's Tender per Fray felled, +2 XP to the slayer, +10
+ *  defense XP to every Awoken who stood), then settles the ladder:
+ *  bank at wave 3, a rising every three, the newborn claim at the
+ *  first reaching of level 3, and the run's end whenever the
+ *  defense falls. */
+async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Promise<void> {
+  const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
+  if (!seed) { ev.state = "done"; ev.next_wave_at = 0; saveFirstSeedEvent(ev); return; }
+  const wave = ev.waves_cleared + 1;
+  const cfg = await loadGameConfig();
+  const frayPower = Math.max(0, cfg.enemies.fray?.power ?? 1);
+  const frayHpEach = Math.max(1, cfg.enemies.fray?.hp ?? 3);
+
+  type Defender = { row: PlacementRow; power: number; hp: number };
+  const placementRows = await db.select().from(schema.fieldPlacements)
+    .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
+  const defenders: Defender[] = [];
+  for (const row of placementRows) {
+    const payload = await awakenedPayloadById(row.awakenedId);
+    defenders.push({ row, power: payload?.power ?? 0, hp: row.hp ?? (await placementMaxHp(row.awakenedId)) });
+  }
+  const stoodIds = defenders.map(d => d.row.awakenedId);
+
+  const xpById = new Map<number, XpGainReport>();
+  let totalFells = 0;
+  let waveCleared = false;
+
+  if (defenders.length > 0) {
+    const fray = Array.from({ length: wave }, () => frayHpEach);
+    const frayAlive = () => fray.some(h => h > 0);
+    const fellBy = new Map<number, number>();
+    let standing = [...defenders];
+    let rounds = 0;
+    while (frayAlive() && standing.length > 0 && rounds < 500) {
+      rounds++;
+      // The company strikes: filed power, blow by blow down the line.
+      for (const d of standing) {
+        let blow = d.power;
+        while (blow > 0 && frayAlive()) {
+          const i = fray.findIndex(h => h > 0);
+          const dealt = Math.min(blow, fray[i]);
+          fray[i] -= dealt; blow -= dealt;
+          if (fray[i] <= 0) fellBy.set(d.row.awakenedId, (fellBy.get(d.row.awakenedId) ?? 0) + 1);
+        }
+        if (!frayAlive()) break;
+      }
+      if (!frayAlive()) break;
+      // The surviving Fray answer: each strikes the weakest standing.
+      let strikes = fray.filter(h => h > 0).length * frayPower;
+      while (strikes-- > 0 && standing.length > 0) {
+        let weakest = standing[0];
+        for (const d of standing) if (d.hp < weakest.hp) weakest = d;
+        const res = await damagePlacement(weakest.row, frayPower);
+        weakest.hp = res.hp;
+        weakest.row = { ...weakest.row, hp: res.hp };
+        if (res.dissipated) standing = standing.filter(d => d !== weakest);
+      }
+    }
+    waveCleared = !frayAlive();
+    // Fell rewards, the Table's numbers through the map's seams.
+    for (const [id, fells] of fellBy) {
+      totalFells += fells;
+      await grantEventXp(xpById, id, 2 * fells);
+    }
+    if (totalFells > 0) {
+      const maxEnergy = await calculateMaxEnergy(ownerKey);
+      const current = await getEnergyFor(ownerKey);
+      const next = Math.min(current + 3 * totalFells, maxEnergy);
+      if (next !== current) {
+        await db.update(schema.tenderResources)
+          .set({ energy: next, updatedAt: new Date() })
+          .where(eq(schema.tenderResources.ownerKey, ownerKey));
+      }
+    }
+    // Every Awoken who stood in the wave stood in its defense.
+    for (const id of stoodIds) {
+      await grantEventXp(xpById, id, XP_PER_DEFENSE);
+    }
+  }
+
+  if (waveCleared) {
+    ev.waves_cleared = wave;
+    const newLevel = firstSeedLevelFor(wave);
+    if (wave === 3 && !ev.banked) {
+      // THE BANK: the center purifies under the company standing on
+      // it, wearing their dominant element; the pool fills to the
+      // cap (the margin's gift — the cap itself grows only by
+      // waking, as it always has).
+      const standingRows = await db.select().from(schema.fieldPlacements)
+        .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
+      const standingAw = standingRows.length
+        ? await db.select().from(schema.awakened).where(inArray(schema.awakened.id, standingRows.map(p => p.awakenedId)))
+        : [];
+      const element = await dominantClaimElement(standingAw);
+      await db.update(schema.territoryTiles)
+        .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+        .where(eq(schema.territoryTiles.id, seed.tile_id));
+      // The neighboring cursed land feels the shift — their passive
+      // timers start now, as on every purification.
+      const center = await db.select({ q: schema.territoryTiles.q, r: schema.territoryTiles.r })
+        .from(schema.territoryTiles).where(eq(schema.territoryTiles.id, seed.tile_id)).limit(1);
+      if (center.length) {
+        const nowD = new Date();
+        const neighborCoords = [
+          [center[0].q + 1, center[0].r], [center[0].q - 1, center[0].r],
+          [center[0].q, center[0].r + 1], [center[0].q, center[0].r - 1],
+          [center[0].q + 1, center[0].r - 1], [center[0].q - 1, center[0].r + 1],
+        ];
+        for (const [nq, nr] of neighborCoords) {
+          await db.update(schema.territoryTiles)
+            .set({ lastPassiveAt: nowD })
+            .where(and(
+              eq(schema.territoryTiles.ownerKey, ownerKey),
+              eq(schema.territoryTiles.q, nq),
+              eq(schema.territoryTiles.r, nr),
+              eq(schema.territoryTiles.cursed, 1),
+            ));
+        }
+      }
+      ev.banked = 1;
+      const maxEnergy = await calculateMaxEnergy(ownerKey);
+      await getEnergyFor(ownerKey); // the row exists before it is filled
+      await db.update(schema.tenderResources)
+        .set({ energy: maxEnergy, updatedAt: new Date() })
+        .where(eq(schema.tenderResources.ownerKey, ownerKey));
+    }
+    if (newLevel > Number(seed.level ?? 1)) {
+      sqlite.prepare("UPDATE star_seeds SET level = ? WHERE id = ?").run(newLevel, seed.id);
+      // THE THIRD RISING (Nigel, 2026-10-18): at level 3 the hold
+      // counts as a boss — a newborn claim is recorded here, once
+      // ever, through the same ledger a verified boss victory uses.
+      if (newLevel === 3 && !ev.newborn_claimed_at) {
+        recordNewbornClaim(ownerKey, "firstSeedHold");
+        ev.newborn_claimed_at = Date.now();
+      }
+    }
+    if (wave >= FIRST_SEED_MAX_WAVE) {
+      ev.state = "done";
+      ev.next_wave_at = 0;
+    } else {
+      ev.next_wave_at = Date.now() + firstSeedWaveGapMs(wave);
+    }
+  } else {
+    // THE DEFENSE FALLS: the run ends. Banked ground is never
+    // clawed back — the ladder rolls back only to the banked
+    // level's rung; unbanked, the seed simply waits, whole.
+    ev.state = "waiting";
+    ev.next_wave_at = 0;
+    ev.waves_cleared = ev.banked ? Number(seed.level ?? 1) * 3 : 0;
+  }
+  saveFirstSeedEvent(ev);
+}
+
+/** The hold's lazy settle: at most one wave lands per read, and
+ *  the next is always scheduled from now — absence is never
+ *  punished with a pile of unattended waves (Anti-Duolingo). */
+async function settleFirstSeedEvent(ownerKey: string): Promise<void> {
+  const ev = firstSeedEventRow(ownerKey);
+  if (!ev || ev.state !== "holding" || !ev.next_wave_at) return;
+  if (Date.now() < ev.next_wave_at) return;
+  await resolveFirstSeedWave(ownerKey, ev);
+}
+
 // Energy helpers: server-authoritative energy per tender.
 async function grantBirthEnergy(ownerKey: string, power: number): Promise<number> {
   // When an Awoken is born, recalculate max and grant the energy bonus immediately.
@@ -4280,6 +4558,9 @@ export const handlers = {
     // Columns land and launch before the territory is read
     // (the Columns, 2026-10-17): the Eye is settled here.
     await this.settleIncursions(ownerKey);
+    // The first seed's waves land before the territory is read
+    // (Nigel via Wake, 2026-10-17): the hold's lazy settle.
+    await settleFirstSeedEvent(ownerKey);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
@@ -5725,7 +6006,7 @@ export const handlers = {
           if (Math.random() >= 0.13) continue;
           const fallen = sqlite.prepare("SELECT COUNT(*) AS n FROM star_seeds WHERE owner_key = ? AND state = 'fallen'").get(ownerKey) as any;
           if (Number(fallen?.n ?? 0) >= 5) break;
-          const seededTiles = new Set((sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted')").all(ownerKey) as any[]).map(r => r.tile_id));
+          const seededTiles = new Set((sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted','first')").all(ownerKey) as any[]).map(r => r.tile_id));
           const spots = tilesAll.filter(t => !(t.q === 0 && t.r === 0) && !seededTiles.has(t.id));
           const drop = 1 + Math.floor(Math.random() * 3);
           for (let d = 0; d < drop && spots.length; d++) {
@@ -6001,7 +6282,7 @@ export const handlers = {
   async getSeeds(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     await this.settleIncursions(ownerKey);
-    const seeds = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted') ORDER BY created_at ASC").all(ownerKey) as any[];
+    const seeds = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted','first') ORDER BY created_at ASC").all(ownerKey) as any[];
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const tileById = new Map(tiles.map(t => [t.id, t]));
     const missions = sqlite.prepare("SELECT * FROM seed_missions WHERE owner_key = ? AND phase IN ('out','back')").all(ownerKey) as any[];
@@ -6016,6 +6297,166 @@ export const handlers = {
       }),
       missions: missions.map(m => ({ id: m.id, seedId: m.seed_id, phase: m.phase, arriveAt: m.arrive_at, returnAt: m.return_at })),
     };
+  },
+
+  /** SOW THE FIRST SEED (Nigel via Wake, 2026-10-17; built
+      2026-10-18): the Starfall Bastion's world-making. Idempotent:
+      a Tender who holds any ground — or whose seed is already
+      sown — is simply told so. Otherwise the whole world is
+      generated (cursed rings + frontier, nothing purified) and a
+      star seed is planted at the cursed center, state 'first',
+      with its hold ledger opened. Territory calls this on mount
+      when no tiles are held; getTerritory itself stays a read. */
+  async ensureFirstSeed(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const existingTiles = await db.select({ id: schema.territoryTiles.id }).from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey)).limit(1);
+    if (existingTiles.length) return { ok: true, created: false };
+    const existing = firstSeedEventRow(ownerKey);
+    if (existing) return { ok: true, created: false, seedId: existing.seed_id };
+    const centerId = await generateFirstWorld(ownerKey);
+    const now = Date.now();
+    const ins = sqlite.prepare("INSERT INTO star_seeds (owner_key, tile_id, level, state, created_at) VALUES (?, ?, 1, 'first', ?)")
+      .run(ownerKey, centerId, now) as any;
+    const seedId = Number(ins.lastInsertRowid);
+    sqlite.prepare(`INSERT INTO first_seed_events (owner_key, seed_id, state, banked, waves_cleared, next_wave_at, newborn_claimed_at, created_at, updated_at)
+      VALUES (?, ?, 'waiting', 0, 0, 0, NULL, ?, ?)`)
+      .run(ownerKey, seedId, now, now);
+    return { ok: true, created: true, seedId, tileId: centerId };
+  },
+
+  /** The first seed's face: its hold ledger, its level, and the
+      company standing on its hex. Settles any arrived wave first,
+      like every honest read in this house. */
+  async getFirstSeedEvent(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await settleFirstSeedEvent(ownerKey);
+    const ev = firstSeedEventRow(ownerKey);
+    if (!ev) return { event: null };
+    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
+    if (!seed) return { event: null };
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.id, seed.tile_id)).limit(1);
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
+    const defenders = [];
+    for (const p of placements) {
+      defenders.push({ awakenedId: p.awakenedId, hp: p.hp ?? (await placementMaxHp(p.awakenedId)), maxHp: await placementMaxHp(p.awakenedId) });
+    }
+    return {
+      event: {
+        seedId: seed.id,
+        seedLevel: Number(seed.level ?? 1),
+        tileId: seed.tile_id,
+        tileCursed: tile.length ? !!tile[0].cursed : true,
+        state: ev.state,
+        banked: !!ev.banked,
+        wavesCleared: ev.waves_cleared,
+        nextWave: ev.waves_cleared + 1,
+        nextWaveAt: ev.next_wave_at,
+        newbornClaimed: !!ev.newborn_claimed_at,
+        defenders,
+      },
+    };
+  },
+
+  /** Send Awoken onto the seed's hex. The field's own deploy law
+      (deployBattle's guards and price) — but NOT its assault: the
+      seed anchors this hex's curse, and standing power alone
+      never breaks it. Only the hold purifies here. Casting never
+      closes: this answers in 'waiting' and 'holding' alike. */
+  async deployFirstSeed(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedIds: z.array(z.number().int().positive()).min(1).max(4),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid deployment.");
+    if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
+      badRequest("Each Awoken fights once.");
+    }
+    const ev = firstSeedEventRow(ownerKey);
+    if (!ev) badRequest("No starseed waits on your land.");
+    if (ev!.state === "done") badRequest("The hold is complete — this ground is yours, and the field's ordinary law deploys here now.");
+    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev!.seed_id, ownerKey) as any;
+    if (!seed) badRequest("No starseed waits on your land.");
+    const tile = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, seed.tile_id), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    if (!tile.length) badRequest("The seed's hex is not yours.");
+    const owned = await db.select().from(schema.awakened)
+      .where(
+        and(
+          eq(schema.awakened.collection, "tender"),
+          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+        )
+      );
+    const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
+    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awoken are not all yours.");
+    const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+      .from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
+    const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
+      .where(eq(schema.hallResidents.ownerKey, ownerKey));
+    const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
+      .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+    const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
+    for (const f of fighters) {
+      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awoken is not yours to send.");
+      if (placedIds.has(f.id)) badRequest("Already on the field.");
+      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awoken and the champion stay in hand.`);
+    }
+    const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.tileId, seed.tile_id));
+    if (occupied.length + fighters.length > 4) badRequest("The seed's hex holds at most 4 Awoken.");
+    let totalCost = 0;
+    for (const f of fighters) {
+      const payload = await awakenedPayloadById(f.id);
+      totalCost += deployCostForPower(payload?.power ?? 0);
+    }
+    if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
+    for (const f of fighters) {
+      await db.insert(schema.fieldPlacements).values({
+        ownerKey, awakenedId: f.id, tileId: seed.tile_id,
+        hp: await placementMaxHp(f.id),
+      });
+    }
+    return { ok: true, cost: totalCost };
+  },
+
+  /** Begin (or resume) the hold: the waves start coming. The
+      ladder is the event's own — a resumed run climbs from the
+      banked rung, never from nothing. */
+  async startFirstSeedHold(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await settleFirstSeedEvent(ownerKey);
+    const ev = firstSeedEventRow(ownerKey);
+    if (!ev) badRequest("No starseed waits on your land.");
+    if (ev!.state === "done") badRequest("The seed's rising is complete.");
+    if (ev!.state === "holding") badRequest("The hold is already underway.");
+    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev!.seed_id, ownerKey) as any;
+    if (!seed) badRequest("No starseed waits on your land.");
+    const standing = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
+    if (!standing.length) badRequest("No defender stands on the seed's hex — send Awoken to the seed before the hold begins.");
+    ev!.state = "holding";
+    ev!.next_wave_at = Date.now() + firstSeedWaveGapMs(ev!.waves_cleared);
+    saveFirstSeedEvent(ev!);
+    return { ok: true, nextWaveAt: ev!.next_wave_at, nextWave: ev!.waves_cleared + 1 };
+  },
+
+  /** End a run standing (after the bank) — or stand down before
+      it. The banked level is kept either way; an unfinished
+      stretch rolls back to the banked rung, as a fall does. */
+  async endFirstSeedRun(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const ev = firstSeedEventRow(ownerKey);
+    if (!ev) badRequest("No starseed waits on your land.");
+    if (ev!.state !== "holding") badRequest("No hold is underway.");
+    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev!.seed_id, ownerKey) as any;
+    ev!.state = "waiting";
+    ev!.next_wave_at = 0;
+    ev!.waves_cleared = ev!.banked ? Number(seed?.level ?? 1) * 3 : 0;
+    saveFirstSeedEvent(ev!);
+    return { ok: true };
   },
 
   /** THE FETCH (Nigel, 2026-10-17): a party rides out from the
@@ -7675,7 +8116,7 @@ export const handlers = {
     // 4. A victory must be claimable by the force that was committed:
     //    at least one survivor, and the company's combined power —
     //    measured server-side from the Awoken's true payloads, the same
-    //    arithmetic as claimFirstTile and defendWave — must match the
+    //    arithmetic as every claim path and defendWave — must match the
     //    Unraveling's recomputed power. Tactics, towers and thorns are
     //    the edge that lets a matching force hold; a force that does not
     //    match it on paper cannot claim to have broken it.
@@ -7980,103 +8421,6 @@ export const handlers = {
         return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
           .parse({ ok: true, purified: true, sparked, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
-  },
-
-  async claimFirstTile(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ teamIds: z.array(z.number().int().positive()).min(1).max(6) }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid team.");
-    // Must have no tiles yet.
-    const existing = await db.select({ id: schema.territoryTiles.id }).from(schema.territoryTiles)
-      .where(eq(schema.territoryTiles.ownerKey, ownerKey)).limit(1);
-    if (existing.length) badRequest("Already claimed.");
-    // Verify team ownership and combined power >= 7.
-    // Legacy shared rows (ownerKey IS NULL) are visible to everyone in the
-    // hand — match buildStudio's filter so the team the Tender sees is the
-    // team the server accepts.
-    const team = await db.select().from(schema.awakened)
-      .where(
-        and(
-          eq(schema.awakened.collection, "tender"),
-          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
-        )
-      );
-    const teamRows = team.filter(t => parsed.data.teamIds.includes(t.id));
-    if (teamRows.length !== parsed.data.teamIds.length) badRequest("Invalid team.");
-    // The Unraveler at power 7: the server measures the team's true combined
-    // power from their layers (current pool stats) + empowerment + stories —
-    // never the client's word for it. Identical arithmetic to toAwakenedPayload.
-    const assetRows = await db.select().from(schema.layerAssets);
-    const assetStats = new Map<number, AssetStats>();
-    for (const assetRow of assetRows) {
-      const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
-    }
-    const allRows = await db.select().from(schema.awakened);
-    const idsByIdentity = new Map<string, number[]>();
-    for (const other of allRows) {
-      const otherLayers = parseLayers(other.compositionJson, assetStats);
-      const otherIdentity = other.identityKey === "legacy" ? identityFor(otherLayers) : other.identityKey;
-      idsByIdentity.set(otherIdentity, [...(idsByIdentity.get(otherIdentity) ?? []), other.id].sort((a, b) => a - b));
-    }
-    let totalPower = 0;
-    const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-    for (const t of teamRows) {
-      const layers = parseLayers(t.compositionJson, assetStats);
-      const identity = t.identityKey === "legacy" ? identityFor(layers) : t.identityKey;
-      totalPower += toAwakenedPayload(t, layers, identity, idsByIdentity).power;
-      // The tile becomes what the team is: each layer's element, read
-      // from the part's own record — never its name (Nigel, 2026-10-15).
-      // Fire is never inherited here — it only ever sparks on wild land.
-      for (const layer of layers) {
-        const el = storedElement((layer as any).element);
-        if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
-      }
-    }
-    if (totalPower < 7) badRequest("Your combined power must reach 7 to face the Unraveler.");
-    // Dominant element claims the tile; a tie stays neutral.
-    let element: "tide" | "sky" | "stone" | "root" | "neutral" | "fire" = "neutral";
-    let maxCount = 0; let tie = false;
-    for (const [el, count] of Object.entries(elementCounts)) {
-      if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
-      else if (count === maxCount && count > 0) { tie = true; }
-    }
-    if (tie) element = "neutral";
-    // Create center tile, purified.
-    const [center] = await db.insert(schema.territoryTiles).values({
-      ownerKey, q: 0, r: 0, element, cursed: 0,
-    }).returning({ id: schema.territoryTiles.id });
-    // Create ring of cursed tiles around it (random elements).
-    // Their 48h passive timers start now — the center's purification stirs them.
-    // Born under the live sky: their curse HP follows the ring law and
-    // thickening's tooth, like every other cursed birth.
-    const now = new Date();
-    const { mood: firstSky } = await getWorldMood();
-    const ringHp = curseHpFor(1, firstSky);
-    const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
-    const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-    for (const [dq, dr] of dirs) {
-      const el = elements[Math.floor(Math.random() * elements.length)];
-      await db.insert(schema.territoryTiles).values({
-        ownerKey, q: dq, r: dr, element: el, cursed: 1, lastPassiveAt: now,
-        curseHp: ringHp, curseMaxHp: ringHp,
-      });
-    }
-    // The wilds press in from beyond the first ring.
-    for (const [dq, dr] of dirs) {
-      await expandFrontier(ownerKey, dq, dr);
-    }
-    // Place team on center tile (max 4 total).
-    // Newborn is birthed client-side via birthFieldAwoken (real Wake, not a clone).
-    for (let i = 0; i < Math.min(4, teamRows.length); i++) {
-      await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: teamRows[i].id, tileId: center.id,
-        hp: await placementMaxHp(teamRows[i].id),
-      });
-    }
-    // The first-tile victory births no newborn (Nigel, 2026-10-14):
-    // purification births are abolished — only boss fights free one.
-    return okResponse.parse({ ok: true });
   },
 
   async birthFieldAwoken(args: unknown, ctx?: ActionContext) {

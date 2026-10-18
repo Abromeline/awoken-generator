@@ -483,11 +483,26 @@ export interface BastionCall {
 }
 export interface StarSeed {
   id: number; tileId: number; q: number | null; r: number | null;
-  level: number; state: "fallen" | "held" | "corrupted"; defenses: number; tileCursed: boolean;
+  level: number; state: "fallen" | "held" | "corrupted" | "first"; defenses: number; tileCursed: boolean;
 }
 export interface SeedsView {
   seeds: StarSeed[];
   missions: { id: number; seedId: number; phase: string; arriveAt: number; returnAt: number }[];
+}
+/** The First Seed's hold (Nigel via Wake, 2026-10-17): the
+ *  Starfall Bastion intro's ledger, as the server reckons it. */
+export interface FirstSeedEvent {
+  seedId: number;
+  seedLevel: number;
+  tileId: number;
+  tileCursed: boolean;
+  state: "waiting" | "holding" | "done";
+  banked: boolean;
+  wavesCleared: number;
+  nextWave: number;
+  nextWaveAt: number;
+  newbornClaimed: boolean;
+  defenders: { awakenedId: number; hp: number; maxHp: number }[];
 }
 export interface IncursionsView {
   eye: number; eyeFull: boolean; breakUntil: number; totalSpent: number;
@@ -705,7 +720,11 @@ export const api = {
   defeatIncursion: (args: { columnId: number; survivorIds?: number[] }) => post<{ ok: boolean; breakUntil?: number; killXp?: number; completionXp?: number; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("defeatIncursion", args),
   dissipateAwoken: (args: { awakenedId: number }) => post<{ ok: true }>("dissipateAwoken", args),
   birthNewbornToHand: (args: { tileId?: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
-  claimFirstTile: (args: { teamIds: number[] }) => post<{ ok: true }>("claimFirstTile", args),
+  ensureFirstSeed: () => post<{ ok: true; created: boolean; seedId?: number; tileId?: number }>("ensureFirstSeed", {}),
+  getFirstSeedEvent: () => post<{ event: FirstSeedEvent | null }>("getFirstSeedEvent", {}),
+  deployFirstSeed: (args: { awakenedIds: number[] }) => post<{ ok: true; cost: number }>("deployFirstSeed", args),
+  startFirstSeedHold: () => post<{ ok: true; nextWaveAt: number; nextWave: number }>("startFirstSeedHold", {}),
+  endFirstSeedRun: () => post<{ ok: true }>("endFirstSeedRun", {}),
   birthFieldAwoken: (args: { layers: LayerRef[]; imageBase64: string; tileId: number; liberatorNames: string[]; toHand?: boolean }) =>
     post<{ ok: true; id: number }>("birthFieldAwoken", args),
   deleteAwoken: (args: { id: number }) => post<{ ok: true }>("deleteAwoken", args),

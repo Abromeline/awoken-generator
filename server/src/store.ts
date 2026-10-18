@@ -577,6 +577,27 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seeds (
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN defenses INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN bastion_building_id INTEGER"); } catch { /* exists */ }
 
+// THE FIRST SEED (Nigel via Wake, 2026-10-17; built 2026-10-18):
+// the Starfall Bastion intro that replaced the old "Face the
+// Unraveler" first claim. A tile-less Tender's world is sown with
+// a star seed at its cursed center (star_seeds, state 'first' —
+// no other system hunts, fetches, or holds a 'first' seed), and
+// this row is the hold's own ledger: whether a run is underway,
+// how many waves the ladder has banked, when the next wave lands,
+// and whether the level-3 newborn claim has ever been recorded.
+// One row per Tender, keyed by owner.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS first_seed_events (
+  owner_key TEXT PRIMARY KEY,
+  seed_id INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'waiting',
+  banked INTEGER NOT NULL DEFAULT 0,
+  waves_cleared INTEGER NOT NULL DEFAULT 0,
+  next_wave_at INTEGER NOT NULL DEFAULT 0,
+  newborn_claimed_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);`);
+
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
 // holds WARDING and who holds RUNEING. Until the milestone ability
