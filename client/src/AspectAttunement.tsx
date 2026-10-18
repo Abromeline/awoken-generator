@@ -112,7 +112,7 @@ export function AspectAttunement({ visible, onClose, tenderItems, placedIds, onU
       {onOpenZodiac && (
         <div style={{ marginTop: 12, borderTop: "1px solid rgba(232,213,160,0.25)", paddingTop: 10 }}>
           <button type="button" className="abtn" style={{ width: "100%" }} onClick={() => { onClose(); onOpenZodiac(); }}>
-            🌳 The Skill Zodiac — spend your levels' points on the wheel
+            <svg className="ink-glyph" viewBox="0 0 32 32"><path d="M16 27 V14"/><path d="M16 14 C13 11 10 10 7 10"/><path d="M16 12 C19 9 22 8 25 8"/><path d="M16 19 C13.5 17 11 16.5 8.5 16.5"/><path d="M16 18 C18.5 16 21 15.5 23.5 15.5"/><path d="M16 27 C14 25.5 12 25 10 25"/><path d="M16 27 C18 25.5 20 25 22 25"/><circle cx="16" cy="5.5" r="1.6"/></svg> The Skill Zodiac — spend your levels' points on the wheel
           </button>
         </div>
       )}

@@ -121,7 +121,7 @@ export default function WelcomePacket({ onClose }: { onClose: () => void }) {
 export function AcornButton({ onClick }: { onClick: () => void }) {
   return (
     <button className="acorn-btn" onClick={onClick} aria-label="Open the Tender's packet" title="The Tender's Packet">
-      🌰
+      <svg viewBox="0 0 32 32"><path d="M16 5.5 C16 3.8 17.2 2.6 19 2.2"/><path d="M6.5 12.5 C6.5 8 10.8 5.5 16 5.5 C21.2 5.5 25.5 8 25.5 12.5 C21 14.6 11 14.6 6.5 12.5 Z"/><path d="M11.5 7.2 L15 12"/><path d="M17 12 L20.5 7.2"/><path d="M9.2 10.4 L11.8 13"/><path d="M20.2 13 L22.8 10.4"/><path d="M9.5 14.2 C9.5 20.2 12.5 24.8 16 27.8 C19.5 24.8 22.5 20.2 22.5 14.2"/><path d="M13 18.5 C13.4 21.5 14.6 23.8 16 25.4"/></svg>
     </button>
   );
 }

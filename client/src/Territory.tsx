@@ -3715,10 +3715,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         onClick={() => setShowChampionTab(!showChampionTab)}
         title="Champion"
       >
-        <svg viewBox="0 0 32 32" width="28" height="28">
-          <path d="M16,2 L20,12 L30,12 L22,18 L25,28 L16,22 L7,28 L10,18 L2,12 L12,12 Z"
-            fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-        </svg>
+        <svg viewBox="0 0 32 32"><path d="M16 4 C17.2 11 21 14.8 28 16 C21 17.2 17.2 21 16 28 C14.8 21 11 17.2 4 16 C11 14.8 14.8 11 16 4 Z"/><circle cx="16" cy="16" r="1.7"/></svg>
       </button>
       {onToggleDeck && (
         <button
@@ -3727,7 +3724,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           title="My Deck — your awakened collection"
           aria-label="My Deck — your awakened collection"
         >
-          <span style={{ fontSize: 24 }}>📖</span>
+          <svg viewBox="0 0 32 32"><path d="M6 8.5 C9.5 7 13 7 16 9 C19 7 22.5 7 26 8.5 V23 C22.5 21.5 19 21.5 16 23.5 C13 21.5 9.5 21.5 6 23 Z"/><path d="M16 9 V23.5"/><path d="M9 12 C11 11.3 13 11.3 14.5 12.1"/><path d="M17.5 12.1 C19 11.3 21 11.3 23 12"/></svg>
         </button>
       )}
       {onOpenZodiac && (
@@ -3737,7 +3734,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           title="The Skill Zodiac — the tree of skills"
           aria-label="The Skill Zodiac"
         >
-          <span style={{ fontSize: 26 }}>🌳</span>
+          <svg viewBox="0 0 32 32"><path d="M16 27 V14"/><path d="M16 14 C13 11 10 10 7 10"/><path d="M16 12 C19 9 22 8 25 8"/><path d="M16 19 C13.5 17 11 16.5 8.5 16.5"/><path d="M16 18 C18.5 16 21 15.5 23.5 15.5"/><path d="M16 27 C14 25.5 12 25 10 25"/><path d="M16 27 C18 25.5 20 25 22 25"/><circle cx="16" cy="5.5" r="1.6"/></svg>
         </button>
       )}
       <button
@@ -3745,12 +3742,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         onClick={() => setShowAspects(!showAspects)}
         title="Aspect Attunement"
       >
-        <svg viewBox="0 0 32 32" width="28" height="28">
-          <path d="M16,4 C16,4 10,10 10,16 C10,22 14,26 16,28 C18,26 22,22 22,16 C22,10 16,4 16,4 Z"
-            fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-          <path d="M16,8 C13,12 13,18 16,24" fill="none" stroke="#d4af6a" strokeWidth="1" opacity="0.6"/>
-          <circle cx="16" cy="16" r="2.5" fill="#e8d5a0" opacity="0.9"/>
-        </svg>
+        <svg viewBox="0 0 32 32"><path d="M16 3.5 C16 3.5 10 10.2 10 16.3 C10 22.3 13.4 25.8 16 27.3 C18.6 25.8 22 22.3 22 16.3 C22 10.2 16 3.5 16 3.5 Z"/><path d="M16 9.5 C13.8 13.2 13.8 18.4 16 23"/></svg>
       </button>
       {/* Left panel: Champion + Hall of Legends (collapsable) */}
 
@@ -3797,11 +3789,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       {showFriends && <Friends onClose={() => setShowFriends(false)} hand={hand} />}
       {!legends.champion && (
         <button className="champion-fab" onClick={() => setShowChampionPicker(true)} title="Choose your champion">
-          🏆
+          <svg viewBox="0 0 32 32"><path d="M16 4 C17.2 11 21 14.8 28 16 C21 17.2 17.2 21 16 28 C14.8 21 11 17.2 4 16 C11 14.8 14.8 11 16 4 Z"/><circle cx="16" cy="16" r="1.7"/></svg>
         </button>
       )}
       <button className="friends-btn" onClick={() => setShowFriends(true)} title="Friends">
-        🤝
+        <svg className="ink-glyph" viewBox="0 0 32 32"><circle cx="11.5" cy="10.5" r="3.6"/><circle cx="21" cy="10.5" r="3.6"/><path d="M4.5 26 C4.5 20.5 7.5 17.5 11.5 17.5 C15.5 17.5 18.5 20.5 18.5 26"/><path d="M16.5 26 C16.5 21.2 18.4 17.9 21.3 17.9 C24.2 17.9 27 21.2 27 26"/></svg>
       </button>
       {wave && (
         <div className="wave-panel">
@@ -4119,7 +4111,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             // inside handleDefend) — no local count is kept anymore.
             handleDefend(true);
           }} style={{ borderColor: "#ffd700" }}>
-            👑 BOSS FIGHT
+            <svg className="ink-glyph" viewBox="0 0 32 32"><path d="M5 21 L3.5 9.5 L10 13.5 L16 6.5 L22 13.5 L28.5 9.5 L27 21 Z"/><path d="M5.5 24.5 H26.5"/></svg> BOSS FIGHT
           </button>
         )}
         {battleActive && (
@@ -4147,7 +4139,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           const danger = inc.eye >= 60 || inc.columns.length > 0;
           return (
             <button className={`abtn eye-toggle${danger ? " warn" : ""}`} onClick={() => setEyeOpen(v => !v)} style={{ marginLeft: 8 }} title="The Curse's Eye — open it to see how in danger of attack your land stands">
-              👁 The Eye — {eyeWord}
+              <svg className="eye-glyph" viewBox="0 0 32 32"><path d="M3 16 C7.5 9.5 12 6.5 16 6.5 C20 6.5 24.5 9.5 29 16 C24.5 22.5 20 25.5 16 25.5 C12 25.5 7.5 22.5 3 16 Z"/><circle cx="16" cy="16" r="5"/><circle className="pupil" cx="16" cy="16" r="1.8"/><path d="M10 4.8 L11.2 7"/><path d="M22 4.8 L20.8 7"/><path d="M16 2.8 V5.3"/></svg> The Eye — {eyeWord}
               <span className="curse-eye-bar mini"><span className="curse-eye-fill" style={{ width: `${Math.min(100, inc.eye)}%` }} /></span>
               {inc.eye}
             </button>
@@ -4701,7 +4693,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         disabled={battleActive}
         style={battleActive ? { opacity: 0.4, cursor: "not-allowed" } : {}}
       >
-        🏰
+        <svg viewBox="0 0 32 32"><path d="M7 26 V13 L10.5 13 V9 H14 V13 H18 V9 H21.5 V13 L25 13 V26 Z"/><path d="M13.5 26 V21 C13.5 18.8 18.5 18.8 18.5 21 V26"/><path d="M16 9 V5"/><path d="M16 5 L20 6.2 L16 7.4"/></svg>
       </button>
 
       {/* War-Grounds button — the fine-edit panel from the map screen
@@ -4723,7 +4715,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         disabled={battleActive}
         style={battleActive ? { opacity: 0.4, cursor: "not-allowed" } : {}}
       >
-        ⚔️
+        <svg viewBox="0 0 32 32"><path d="M10 27 V5"/><path d="M10 6 C13.5 4.6 16.5 7 21.5 5.4 V12.4 C16.5 14 13.5 11.4 10 12.8"/><path d="M6 27 H14"/></svg>
       </button>
 
       {/* Right-side building panel */}

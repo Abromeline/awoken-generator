@@ -1008,7 +1008,7 @@ export default function Table() {
               </div>
               <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law">⚡ {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
               <span className="my-band" title="Your travelling company — how many of your Awoken may stand on the field at once. The Muster roads widen it: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
-              <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice">🎲 Your dice</button>
+              <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice"><svg className="ink-glyph" viewBox="0 0 32 32"><rect x="6.5" y="6.5" width="19" height="19" rx="4.5"/><circle className="pip" cx="11.8" cy="11.8" r="1.7"/><circle className="pip" cx="20.2" cy="11.8" r="1.7"/><circle className="pip" cx="16" cy="16" r="1.7"/><circle className="pip" cx="11.8" cy="20.2" r="1.7"/><circle className="pip" cx="20.2" cy="20.2" r="1.7"/></svg> Your dice</button>
             </div>
             {notice && <p className="notice-line">{notice}</p>}
             {tab === "I" && (
