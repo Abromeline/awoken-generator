@@ -174,6 +174,10 @@ interface Props {
    *  claim's company when no ground is held yet, or readied for battle
    *  when ground already stands. */
   initialPatrolIds?: number[];
+  /** The Skill Zodiac's door (Nigel's directive via Law,
+   *  2026-10-17): the tree-glyph button and the attunement
+   *  panel's bottom entry both open the wheel. */
+  onOpenZodiac?: () => void;
 }
 
 
@@ -216,7 +220,7 @@ function dominantElement(a: Awakened): Element {
   return best;
 }
 
-export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -3477,7 +3481,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 }
 
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
-function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect, targetAwokenId, onDeepenAspect }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void; targetAwokenId?: number | null; onDeepenAspect?: (wornAspect: any) => void }) {
+function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect, targetAwokenId, onDeepenAspect, onOpenZodiac }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void; targetAwokenId?: number | null; onDeepenAspect?: (wornAspect: any) => void; onOpenZodiac?: () => void }) {
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   if (!visible) return null;
   const { data } = useQuery({
@@ -3569,6 +3573,13 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
           </div>
         );
       })()}
+      {onOpenZodiac && (
+        <div style={{ marginTop: 12, borderTop: "1px solid rgba(232,213,160,0.25)", paddingTop: 10 }}>
+          <button type="button" className="abtn" style={{ width: "100%" }} onClick={() => { onClose(); onOpenZodiac(); }}>
+            🌳 The Skill Zodiac — spend your levels' points on the wheel
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3717,7 +3728,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
         </div>
         </>
       )}
-      <AspectAttunement visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToTarget(null); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} targetAwokenId={applyingToTarget} onDeepenAspect={async (wornAspect: any) => {
+      <AspectAttunement onOpenZodiac={onOpenZodiac} visible={showAspects} onClose={() => { setShowAspects(false); setApplyingToTarget(null); }} tenderItems={tenderItems} placedIds={placedIds} onUpdate={onUpdate} targetAwokenId={applyingToTarget} onDeepenAspect={async (wornAspect: any) => {
         if (!applyingToTarget) return;
         try {
           const awoken = tenderItems.find(x => x.id === applyingToTarget);
@@ -3791,6 +3802,16 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
         </svg>
       </button>
+      {onOpenZodiac && (
+        <button
+          className="aspect-fab tree-fab"
+          onClick={onOpenZodiac}
+          title="The Skill Zodiac — the tree of skills"
+          aria-label="The Skill Zodiac"
+        >
+          <span style={{ fontSize: 26 }}>🌳</span>
+        </button>
+      )}
       <button
         className="aspect-fab"
         onClick={() => setShowAspects(!showAspects)}

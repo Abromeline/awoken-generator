@@ -136,8 +136,13 @@
 .tc-watermark{position:absolute;bottom:26px;right:8px;z-index:1;font-size:60px;color:rgba(0,0,0,.07);font-family:var(--display);pointer-events:none}
 @media(min-width:760px){.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
 .tc-stories{text-align:center;font-size:10px;color:#b89b5e;letter-spacing:.2em;padding:2px 0 6px;position:relative;z-index:2}
-.deck-button{position:absolute;top:100%;right:16px;left:auto;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:30}
-.deck-button img{width:108px;height:108px;object-fit:contain;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.5))}
+/* The Terrain button's new seat (Nigel's directive via Law,
+   2026-10-17): the TOP-RIGHT THIRD of the screen, given a
+   GLOW, and LOCKED IN PLACE — fixed, it does not scroll,
+   shift, or ride the header's flow. */
+.deck-button{position:fixed;top:12px;left:67%;right:auto;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:60}
+.deck-button img{width:108px;height:108px;object-fit:contain;animation:terrain-glow 2.8s ease-in-out infinite}
+@keyframes terrain-glow{0%,100%{filter:drop-shadow(0 0 9px rgba(240,214,140,0.55)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}50%{filter:drop-shadow(0 0 22px rgba(240,214,140,0.95)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}}
 .deck-button span{font-size:13px;font-weight:600;letter-spacing:0.05em;text-shadow:0 2px 8px #000}
 .decks-view{max-width:900px;margin:0 auto;padding:16px}
 .decks-view header{margin-bottom:16px}
@@ -1605,6 +1610,9 @@ body.defeat-flash {
   transition:all 0.2s;
 }
 .aspect-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(212,175,106,0.5)}
+/* The tree door stands ABOVE the attunement market's orb
+   (Nigel's directive via Law, 2026-10-17). */
+.aspect-fab.tree-fab{top:calc(50% - 116px)}
 .aspect-fab svg{filter:drop-shadow(0 0 4px rgba(212,175,106,0.5))}
 .aspect-close{
   position:absolute;top:8px;right:8px;
@@ -2349,6 +2357,7 @@ body.defeat-flash {
    Table right — as standing edge tabs any thumb can find. */
 .side-dock{position:fixed;top:50%;transform:translateY(-50%);z-index:45;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 8px;min-width:46px;background:rgba(16,12,8,.82);border:1px solid rgba(201,162,39,.45);color:var(--ink,#e8dcc3);cursor:pointer;backdrop-filter:blur(3px)}
 .side-dock.left{left:0;border-left:none;border-radius:0 12px 12px 0}
+.side-dock.left.tree{top:calc(50% + 118px)}
 .side-dock.right{right:0;border-right:none;border-radius:12px 0 0 12px}
 .side-dock-icon{font-size:19px;line-height:1}
 .side-dock-label{writing-mode:vertical-rl;font-size:12.5px;font-weight:600;letter-spacing:.14em}
@@ -2438,3 +2447,26 @@ body.defeat-flash {
 .wg-fetch-label{font-size:12px;color:#cbbd8a}
 .wg-fetch-row{display:block;font-size:13px;margin:4px 0}
 .wg-fetch-row input{margin-right:8px}
+
+/* ── THE SKILL ZODIAC (2026-10-17) ─────────────────────── */
+.zodiac-overlay{position:fixed;inset:0;z-index:80;background:rgba(7,6,12,0.96);overflow:auto;padding:14px}
+.zodiac-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1180px;margin:0 auto 8px}
+.zodiac-head h2{margin:0;font-size:22px;color:#f0d68c}
+.zodiac-pools{display:flex;gap:14px;flex-wrap:wrap;color:#cfd3e2;font-size:13px}
+.zodiac-pools strong{color:#f0d68c}
+.zodiac-close{margin-left:auto;background:none;border:1px solid rgba(240,214,140,0.4);color:#f0d68c;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:15px}
+.zodiac-body{display:flex;gap:14px;max-width:1180px;margin:0 auto;align-items:flex-start;flex-wrap:wrap}
+.zodiac-wheel{flex:1 1 560px;max-width:720px;width:100%;height:auto;background:radial-gradient(circle at 50% 50%, rgba(38,32,58,0.65), rgba(10,9,16,0.2) 70%);border:1px solid rgba(240,214,140,0.22);border-radius:16px}
+.zodiac-detail{flex:1 1 260px;max-width:360px;background:rgba(18,16,26,0.92);border:1px solid rgba(240,214,140,0.28);border-radius:14px;padding:16px;color:#e6e1d2}
+.zodiac-detail h3{margin:0 0 4px;font-size:19px;color:#f0d68c}
+.zodiac-kind{margin:0 0 8px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#9aa3b8}
+.zodiac-effect{margin:0 0 8px;font-size:14px;line-height:1.5}
+.zodiac-syn{margin:0 0 8px;font-size:12.5px;font-style:italic;color:#b9c0d4;line-height:1.45}
+.zodiac-gate{margin:0 0 6px;font-size:12.5px;color:#cfd3e2}
+.zodiac-held{color:#9ed07e;font-size:13px}
+.zodiac-lock{color:#e8a2a2;font-size:13px;line-height:1.45}
+.zodiac-btn{margin-top:8px;padding:9px 14px;border-radius:9px;border:1px solid rgba(240,214,140,0.55);background:rgba(64,46,16,0.55);color:#f0d68c;cursor:pointer;font-size:13.5px}
+.zodiac-btn.take{background:rgba(120,90,20,0.65);font-weight:700}
+.zodiac-btn:disabled{opacity:.55;cursor:wait}
+.zodiac-note{max-width:1180px;margin:10px auto;color:#9aa3b8;font-size:13.5px}
+.zodiac-note.small{font-size:11.5px;margin-top:12px;line-height:1.45}

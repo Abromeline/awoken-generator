@@ -441,6 +441,22 @@ export interface IncursionColumn {
   spawnedAt: number; arrivesAt: number;
   roster: { kind: string; count: number; power: number; hp: number }[];
 }
+export interface ZodiacNodeView {
+  id: string; name: string; kind: string; sector: string;
+  x: number; y: number; effect: string; syn: string;
+  el: string | null; pool: "tree" | "canopy"; cost: number;
+  gate: { el: string; level: number } | null;
+  requires: string[]; anyCore: boolean;
+}
+export interface SkillTreeState {
+  nodes: ZodiacNodeView[]; edges: [string, string][];
+  unlocked: string[]; level: number; pointsPerLevel: number;
+  tree: { total: number; spent: number; left: number };
+  canopy: { total: number; spent: number; left: number };
+  attunement: Record<string, number>;
+  attunementLevels: Record<string, number>;
+}
+
 export interface BastionCall {
   id: number; owner_key: string; host_tender_id: number;
   column_id: number | null; seed_id: number | null;
@@ -648,6 +664,9 @@ export const api = {
     post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[]; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[]; committedPower?: number; wavePower?: number }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),
+  getSkillTree: () => post<SkillTreeState>("getSkillTree", {}),
+  unlockSkill: (key: string) => post<SkillTreeState>("unlockSkill", { key }),
+  releaseSkill: (key: string) => post<SkillTreeState>("releaseSkill", { key }),
   getIncursions: () => post<IncursionsView>("getIncursions", {}),
   getSeeds: () => post<SeedsView>("getSeeds", {}),
   callToArms: (args: { columnId?: number; seedId?: number }) => post<{ ok: boolean; call: BastionCall; already?: boolean }>("callToArms", args),
