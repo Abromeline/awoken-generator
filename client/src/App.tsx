@@ -239,6 +239,32 @@ function creatureRarity(power: number): string {
   return "Mythic";
 }
 
+/** Live layered art (Nigel, 2026-10-18): the flattened card image
+ *  is stamped at birth and never learns of aspects applied or
+ *  deepened afterwards, so wherever the server serves per-layer art
+ *  the card renders the composition itself, in the field's own
+ *  order — background → aspect → body → arms → aura → head. The
+ *  first layer stands in normal flow and holds the frame's shape;
+ *  the rest stack over it. Without layer art, the flattened image
+ *  serves exactly as before. */
+const LAYER_ART_ORDER: Record<string, number> = { background: 0, aspect: 1, body: 2, arms: 3, aura: 4, head: 5 };
+export function LayeredArt({ item }: { item: Awoken }) {
+  const layered = item.layers
+    .map((layer, index) => ({ layer, index }))
+    .filter(({ layer }) => !!(layer as any).imageUrl)
+    .sort((a, b) => (LAYER_ART_ORDER[a.layer.category] ?? 99) - (LAYER_ART_ORDER[b.layer.category] ?? 99) || a.index - b.index);
+  if (!layered.length) {
+    return <img src={item.image_url} alt={`${item.name}, a layered ink-wash Awoken`} />;
+  }
+  return (
+    <div className="layered-art" role="img" aria-label={`${item.name}, a layered ink-wash Awoken`}>
+      {layered.map(({ layer, index }, i) => (
+        <img key={`${item.id}-art-${index}`} src={(layer as any).imageUrl} alt="" className={i === 0 ? "layered-art-base" : "layered-art-layer"} />
+      ))}
+    </div>
+  );
+}
+
 export function TradingCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
   const queryClient = useQueryClient();
   const cardBorder = useCardBorder();
@@ -268,7 +294,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
     <div className="tc-banner">{roman}</div>
     <div className="tc-title">{item.owner_name} · {creatureRarity(item.base_power)}</div>
     <div className="tc-art">
-      <img src={item.image_url} alt={`${item.name}, a layered ink-wash Awoken`} />
+      <LayeredArt item={item} />
       <div className="tc-pips"><span className="tc-pip">⚔{item.power}</span><span className="tc-pip">🛡{item.toughness}</span></div>
       {item.iteration > 0 && <span className="tc-iteration">{ordinal(item.iteration)}</span>}
     </div>
@@ -369,7 +395,7 @@ function CreatureCard({ item, allowDelete = false, storyteller = false }: { item
   const olderGiftToughness = aspectGiftToughness - aspectLevelSum;
   const giftWord = aspectLayers.length ? "aspect gifts" : "gifts";
   return <article className="creature-card">
-    <div className="creature-image"><img src={item.image_url} alt={`${item.name}, a layered ink-wash Awoken`} />{item.iteration > 0 && <span className="iteration-mark">{ordinal(item.iteration)}</span>}</div>
+    <div className="creature-image"><LayeredArt item={item} />{item.iteration > 0 && <span className="iteration-mark">{ordinal(item.iteration)}</span>}</div>
     <div className="creature-copy">
       <div className="creature-heading">
         {editing ? <form className="rename-form" onSubmit={(event) => { event.preventDefault(); if (name.trim()) rename.mutate(); }}><label htmlFor={`awoken-name-${item.id}`}>Name this Awoken</label><input id={`awoken-name-${item.id}`} value={name} onChange={(event) => setName(event.target.value)} autoFocus maxLength={80} /><div><button disabled={!name.trim() || rename.isPending}>Keep this name</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div></form> : <button className="name-button" onClick={() => setEditing(true)}>{item.name}</button>}
@@ -799,7 +825,7 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
     }
   }, [items, sort, filter]);
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
-  return <section className="collection"><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
+  return <section className={storyteller ? "collection deck-half" : "collection"}><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
     <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header>{selected && <div className="collection-detail"><button type="button" className="quiet-link" onClick={() => setSelectedId(null)}>Close {selected.name}</button><CreatureCard item={selected} storyteller /></div>}<div className="collection-grid trading">{visible.map((item) => storyteller
       ? <div key={item.id} className="card-tap" role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} /></div>
       : <TradingCard key={item.id} item={item} allowDelete={allowDelete} />)}</div></section>;

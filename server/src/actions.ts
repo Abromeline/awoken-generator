@@ -384,7 +384,7 @@ async function addAspectPoint(ownerKey: string, element: AspectElement): Promise
   if (newPoints >= 10) {
     const pool = await db.select().from(schema.layerAssets)
       .where(eq(schema.layerAssets.category, "aspect"));
-    const matches = pool.filter(a => storedElement((a as any).element) === element);
+    const matches = birthableAspects(pool as any[], element);
     if (matches.length) {
       const pick = matches[Math.floor(Math.random() * matches.length)];
       await db.insert(schema.aspectInventory)
@@ -438,7 +438,7 @@ const purifyResponse = z.object({
 });
 
 type Rarity = z.infer<typeof raritySchema>;
-type AssetStats = { name: string; rarity: Rarity; power: number | null; toughness: number | null; element?: string | null };
+type AssetStats = { name: string; rarity: Rarity; power: number | null; toughness: number | null; element?: string | null; imageBlobKey?: string | null };
 
 function rarityFromStats(power: number, toughness: number): Rarity {
   const total = power + toughness;
@@ -475,6 +475,10 @@ const storedLayerRefShape = z.object({
   // surfaces fell back to guessing from names. They pass now.
   aspectLevel: z.number().int().min(1).max(4).optional(),
   aspectElement: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
+  // A worn aspect layer carries its own art key (the flattened card
+  // image predates any aspect, so the deck must render the layers
+  // themselves). It passes this gate now so parseLayers can serve it.
+  imageBlobKey: z.string().max(300).nullable().optional(),
 });
 export const layerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
@@ -482,6 +486,7 @@ export const layerRefShape = z.object({
   element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
   aspectLevel: z.number().int().min(1).max(4).optional(),
   aspectElement: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
 });
 const assetShape = z.object({
   id: z.number(), name: z.string(), category: layerCategorySchema, rarity: raritySchema,
@@ -507,9 +512,22 @@ function parseLayers(value: string, assetStats: Map<number, AssetStats>): z.infe
     return parsed.flatMap((item) => {
       const result = storedLayerRefShape.safeParse(item);
       if (!result.success) return [];
-      const id = parseDbId(result.data.source_id);
+      // Legacy compositions (the random-assignment pass) name their
+      // piece by bare asset id; resolve those too, for reading only —
+      // the stored string itself (and any identity built from it)
+      // is never rewritten here.
+      const sid = result.data.source_id;
+      const id = parseDbId(sid) ?? (/^\d+$/.test(sid) ? Number(sid) : null);
       const current = id === null ? undefined : assetStats.get(id);
-      return [{ ...result.data, name: current?.name ?? result.data.name, rarity: current?.rarity ?? result.data.rarity, power: current?.power ?? result.data.power ?? null, toughness: current?.toughness ?? result.data.toughness ?? null, element: (current as any)?.element ?? (result.data as any).element ?? (result.data as any).aspectElement ?? null }];
+      // Live layer art (Nigel, 2026-10-18): the flattened card image
+      // is stamped at birth and never learns of aspects applied or
+      // deepened afterwards, so the deck renders the layers
+      // themselves. Prefer the living asset's art; a worn aspect
+      // layer's own stamped key is the fallback.
+      const imageUrl = current?.imageBlobKey ? blobUrl(current.imageBlobKey)
+        : result.data.imageBlobKey ? blobUrl(result.data.imageBlobKey)
+        : null;
+      return [{ ...result.data, name: current?.name ?? result.data.name, rarity: current?.rarity ?? result.data.rarity, power: current?.power ?? result.data.power ?? null, toughness: current?.toughness ?? result.data.toughness ?? null, element: (current as any)?.element ?? (result.data as any).element ?? (result.data as any).aspectElement ?? null, imageUrl }];
     });
   } catch { return []; }
 }
@@ -555,6 +573,18 @@ function storedElement(dbElement?: string | null): Element5 | "neutral" {
   return dbElement && (ELEMENTS_5 as readonly string[]).includes(dbElement)
     ? (dbElement as Element5)
     : "neutral";
+}
+/** The level-art pieces ("Stone III") are the ARTWORK a worn aspect
+ *  takes as it rises — they are not newborn aspects. Until today
+ *  every birth drew from the whole filed pool, so attunement points
+ *  were born AS "Aspect I / II / III" pieces and a tender holding
+ *  sixty of them held artwork, not aspects (Nigel, 2026-10-18:
+ *  "the system is still taking some aspect points as aspect 1,2,3").
+ *  Births now draw only from pieces that are not level-art; when
+ *  nothing else is filed for an element, the points simply stay. */
+const LEVEL_ART_NAME = /^(tide|sky|stone|root|fire)\s+(I|II|III|IV)$/i;
+function birthableAspects<T extends { name?: string | null; element?: string | null }>(pool: T[], el: string): T[] {
+  return pool.filter((a) => storedElement((a as any).element) === el && !LEVEL_ART_NAME.test(a.name ?? ""));
 }
 /** Kept name for the truth above: the name argument is IGNORED —
  *  it is accepted only so older call sites compile while they are
@@ -636,7 +666,7 @@ export async function awakenedPayloadById(id: number) {
   const assetStats = new Map<number, AssetStats>();
   for (const assetRow of assetRows) {
     const rarity = raritySchema.safeParse(assetRow.rarity);
-    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
+    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null, imageBlobKey: assetRow.imageBlobKey ?? null });
   }
   const layers = parseLayers(row.compositionJson, assetStats);
   const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
@@ -665,12 +695,12 @@ export interface AwakeningPlan {
 export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Promise<AwakeningPlan> {
   const [latest, currentAssets, existing] = await Promise.all([
     db.select({ id: schema.awakened.id }).from(schema.awakened).orderBy(desc(schema.awakened.id)).limit(1),
-    db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness, element: schema.layerAssets.element }).from(schema.layerAssets),
+    db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness, element: schema.layerAssets.element, imageBlobKey: schema.layerAssets.imageBlobKey }).from(schema.layerAssets),
     db.select({ identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
   ]);
   const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
     const rarity = raritySchema.safeParse(row.rarity);
-    return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness, element: (row as any).element ?? null }] as const] : [];
+    return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness, element: (row as any).element ?? null, imageBlobKey: row.imageBlobKey ?? null }] as const] : [];
   }));
   const canonicalLayers = layers.map((layer) => {
     const id = parseDbId(layer.source_id); const current = id === null ? undefined : currentStats.get(id);
@@ -732,7 +762,7 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
     const category = layerCategorySchema.safeParse(row.category); const rarity = raritySchema.safeParse(row.rarity);
     return category.success && rarity.success ? [{ ...row, category: category.data, rarity: rarity.data }] : [];
   });
-  const assetStats = new Map<number, AssetStats>(supportedAssetRows.map((row) => [row.id, { name: row.name, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null }]));
+  const assetStats = new Map<number, AssetStats>(supportedAssetRows.map((row) => [row.id, { name: row.name, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null, imageBlobKey: row.imageBlobKey ?? null }]));
   const assets = supportedAssetRows.map((row) => ({
     id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null,
     image_url: blobUrl(row.imageBlobKey), mime_type: row.mimeType, created_at: row.createdAt.toISOString(),
@@ -3856,7 +3886,7 @@ export const handlers = {
         while (newPoints >= THRESHOLD) {
           const pool = await db.select().from(schema.layerAssets)
             .where(eq(schema.layerAssets.category, "aspect"));
-          const matches = pool.filter(a => storedElement((a as any).element) === el);
+          const matches = birthableAspects(pool as any[], el);
           if (!matches.length) break;
           newPoints -= THRESHOLD;
           const pick = matches[Math.floor(Math.random() * matches.length)];
@@ -3890,7 +3920,7 @@ export const handlers = {
       }
     }
 
-    const levels: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    const levels: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
     for (const [el, v] of attunement) {
       if (el in levels) levels[el] = Math.floor(v.points * 10) / 10; // Round to 1 decimal
     }
@@ -3913,7 +3943,7 @@ export const handlers = {
     // lifetime gains counter — every system that feeds a meter counts
     // (binding channeling while the map is open, the hourly accrual,
     // shrine doubling inside that accrual). Sampled over >=60s windows.
-    const rates: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+    const rates: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
     const freshRows = await db.select().from(schema.aspectAttunement)
       .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
     for (const r of freshRows) {
@@ -3945,13 +3975,64 @@ export const handlers = {
     for (const w of wornRows) {
       let wLayers: any[] = [];
       try { wLayers = JSON.parse(w.compositionJson || "[]"); } catch { wLayers = []; }
-      const aspects = wLayers.filter((l: any) => l.category === "aspect").map((l: any) => ({
-        key: l.source_id,
-        name: l.name,
-        element: l.aspectElement ?? null,
-        level: l.aspectLevel ?? 1,
-        imageUrl: l.imageBlobKey ? `/blobs/${l.imageBlobKey}` : null,
-      }));
+      // Heal ghost aspect layers (Nigel, 2026-10-18): aspects worn
+      // from before the aspect record rode in the composition — and
+      // every aspect the random-assignment pass placed, which names
+      // its piece by bare asset id and carries no record at all —
+      // have no aspectElement, so the panel priced their deepening
+      // from an empty pool and they could never rise. Resolve the
+      // piece each such layer names (a "db:" id, a bare legacy id,
+      // or an inventory aspect since spent), stamp its filed
+      // element, level and art onto the layer, and write the
+      // composition back healed.
+      let healed = false;
+      for (const l of wLayers) {
+        if (l?.category !== "aspect") continue;
+        if (l.aspectElement && l.aspectElement !== "neutral") continue;
+        const sid = String(l.source_id ?? "");
+        let assetId = parseDbId(sid);
+        if (assetId === null && /^\d+$/.test(sid)) assetId = Number(sid);
+        if (assetId === null) {
+          const invMatch = sid.match(/^aspect-inv:(\d+)$/);
+          if (invMatch) {
+            const invRows = await db.select({ aspectAssetId: schema.aspectInventory.aspectAssetId })
+              .from(schema.aspectInventory)
+              .where(and(
+                eq(schema.aspectInventory.id, Number(invMatch[1])),
+                eq(schema.aspectInventory.ownerKey, ownerKey)
+              ))
+              .limit(1);
+            assetId = invRows[0]?.aspectAssetId ?? null;
+          }
+        }
+        if (assetId === null) continue;
+        const assetRows = await db.select().from(schema.layerAssets)
+          .where(eq(schema.layerAssets.id, assetId)).limit(1);
+        const asset = assetRows[0] as any;
+        if (!asset) continue;
+        const el = storedElement(asset.element);
+        if (el !== "neutral") l.aspectElement = el;
+        if (l.aspectLevel == null) l.aspectLevel = 1;
+        if (!l.imageBlobKey && asset.imageBlobKey) l.imageBlobKey = asset.imageBlobKey;
+        if (/^\d+$/.test(sid)) l.source_id = `db:${assetId}`;
+        healed = true;
+      }
+      if (healed) {
+        await db.update(schema.awakened)
+          .set({ compositionJson: JSON.stringify(wLayers) })
+          .where(eq(schema.awakened.id, w.id));
+      }
+      const resolved = await compositionElements(wLayers);
+      const aspects = wLayers
+        .map((l: any, i: number) => ({ l, i }))
+        .filter(({ l }: any) => l.category === "aspect")
+        .map(({ l, i }: any) => ({
+          key: l.source_id,
+          name: l.name,
+          element: resolved[i] && resolved[i] !== "neutral" ? resolved[i] : (l.aspectElement ?? null),
+          level: l.aspectLevel ?? 1,
+          imageUrl: l.imageBlobKey ? blobUrl(l.imageBlobKey) : null,
+        }));
       if (aspects.length) wornAspects.push({ awakenedId: w.id, name: w.name, aspects });
     }
     return { levels, threshold: 10, inventoryCount: inventory.length, inventory, rates, wornAspects };
@@ -4702,10 +4783,7 @@ export const handlers = {
             if (newPoints >= ASPECT_THRESHOLD) {
               const pool = await db.select().from(schema.layerAssets)
                 .where(eq(schema.layerAssets.category, "aspect"));
-              const matches = pool.filter(a => {
-                const aEl = storedElement((a as any).element);
-                return aEl === el && aEl !== "fire";
-              });
+              const matches = el === "fire" ? [] : birthableAspects(pool as any[], el);
               if (matches.length) {
                 const pick = matches[Math.floor(Math.random() * matches.length)];
                 await db.insert(schema.aspectInventory)

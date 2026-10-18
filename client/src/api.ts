@@ -18,6 +18,7 @@ export interface LayerRef {
   rarity: Rarity;
   power: number | null;
   toughness: number | null;
+  imageUrl?: string | null;
 }
 
 export interface Asset {
