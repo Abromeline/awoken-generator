@@ -548,3 +548,119 @@ button { font-family: inherit; }
 .die-btn span{font-size:12px; letter-spacing:.04em}
 .hand-cards .tcard.locked{opacity:.45; cursor:not-allowed}
 .hand-cards .tcard.locked:hover{transform:none; box-shadow:none}
+
+/* ── PHASE A — THE ROOM, REBUILT (Nigel, 2026-10-18) ──────
+   Priority 1 is the battlefield: it takes the room, the other
+   furniture hangs off its edges. The field is the stage; the
+   Party and the Dark are slim rails over its corners; the
+   Tale is a strip at its foot; and the hand is a DRAWER that
+   rests half off-screen (only its grab shows) and rises when
+   reached for. His layout law of this date supersedes the old
+   "placement untouchable" clause for the room's frame only —
+   every control keeps its face, size and behaviour. */
+.table-room { height: 100dvh; overflow: hidden; }
+.skybar { padding: 5px 12px; font-size: 13px; gap: 12px; flex: none; }
+.table-main { display: block; position: relative; flex: 1; min-height: 0; padding: 0; }
+.panel.field-panel {
+  position: absolute; inset: 0; padding: 0; border: none; border-radius: 0;
+  background: none; box-shadow: none; overflow: hidden; display: block;
+}
+.field-wrap { position: absolute; inset: 0; min-height: 0; border: none; border-radius: 0; display: block; overflow: hidden; }
+.field-bg { z-index: 0; opacity: 0.82; }
+/* Mycelium at the frame's edges: the dark creeps in at the
+   corners and the whole field sits in a soft pit of shadow. */
+.field-wrap::after {
+  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  background:
+    radial-gradient(150px 110px at 0% 0%, rgba(8, 5, 3, 0.6), transparent 70%),
+    radial-gradient(180px 120px at 100% 0%, rgba(8, 5, 3, 0.55), transparent 70%),
+    radial-gradient(200px 140px at 0% 100%, rgba(8, 5, 3, 0.6), transparent 70%),
+    radial-gradient(170px 130px at 100% 100%, rgba(8, 5, 3, 0.55), transparent 70%);
+  box-shadow: inset 0 0 130px rgba(0, 0, 0, 0.6);
+}
+.field-board {
+  position: absolute; left: 50%; top: 46.5%; transform: translate(-50%, -50%);
+  width: min(98%, calc((100dvh - 140px) * 1.1538));
+  aspect-ratio: 300 / 260; margin: 0; z-index: 2;
+}
+.field-hexes { width: 100%; height: 100%; }
+/* The hexes, re-faced: candlelit ground instead of flat fill —
+   a radial fall of light on every cell, ink-dark rims. */
+.hex { fill: url(#hexOpen); stroke: #0a0705; stroke-width: 1.3; opacity: 1; }
+.hex.stood { fill: url(#hexStood); }
+.hex.center { fill: rgba(16, 11, 7, 0.78); stroke: var(--gold); stroke-width: 1.2; }
+.seed-ground { stroke-dasharray: 5 2.2; stroke-width: 2.5; opacity: 0.95; }
+/* Standing figures scale with the board they stand on. */
+.field-unit { width: 8.6%; }
+.field-unit-art { width: 82%; aspect-ratio: 1 / 1; height: auto; }
+.field-unit > img { width: 82%; height: auto; }
+.field-working { width: 9%; }
+.field-working img { width: 80%; height: auto; }
+.field-working.ward img { width: 92%; height: auto; }
+
+/* The rails: slim, translucent, riding the field's corners. */
+.party-panel, .dark-panel {
+  position: absolute; top: 10px; z-index: 6; width: 182px;
+  max-height: calc(100% - 20px); padding: 10px;
+  background: rgba(24, 18, 13, 0.88); backdrop-filter: blur(3px);
+}
+.party-panel { left: 10px; }
+.dark-panel { right: 10px; width: 192px; }
+.party-panel h3, .dark-panel h3 { font-size: 15px; margin-bottom: 8px; }
+.party-row { padding: 6px 8px; margin-bottom: 6px; }
+.roster-row { padding: 6px; margin-bottom: 6px; }
+.roster-row img { width: 34px; height: 34px; }
+.roster-row p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.packing summary, .notes summary {
+  cursor: pointer; color: var(--gold-bright); font-size: 14px;
+  margin: 14px 0 8px; list-style-position: inside;
+}
+
+/* The field's furniture, floating over the stage. */
+.field-caption {
+  left: 50%; right: auto; transform: translateX(-50%);
+  top: 10px; bottom: auto; width: min(600px, 92%);
+  text-align: center; z-index: 5;
+}
+.tale {
+  position: absolute; left: 10px; bottom: 60px; z-index: 6;
+  width: min(400px, 44%); max-height: 23%; min-height: 0; flex: none;
+  background: rgba(16, 12, 9, 0.88);
+}
+.battle-bar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 56px; z-index: 7; width: max-content; max-width: 94%; padding: 0;
+}
+.placing-bar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 122px; z-index: 8; width: min(780px, 94%); margin: 0;
+}
+
+/* The hand drawer: rests with only its grab above the fold —
+   half off-screen, as ruled — and rises when reached for. */
+.handzone.drawer {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  transform: translateY(calc(100% - 48px));
+  transition: transform 0.32s ease;
+  max-height: 68dvh; overflow-y: auto;
+  padding: 0 16px 16px;
+  box-shadow: 0 -14px 38px rgba(0, 0, 0, 0.6);
+}
+.handzone.drawer.risen { transform: none; }
+.hand-grab {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; height: 48px; padding: 0;
+  background: none; border: none; border-bottom: 1px dashed var(--ash-3);
+  color: var(--gold-bright); font-size: 13px; letter-spacing: 0.08em;
+  text-transform: uppercase; cursor: pointer; font-family: inherit;
+}
+.grab-line { display: block; width: 44px; height: 4px; border-radius: 2px; background: var(--ash-3); }
+.handzone .satchel-head { margin-top: 10px; }
+
+@media (max-width: 900px) {
+  .party-panel, .dark-panel { width: 140px; overflow-y: auto; padding: 8px; }
+  .party-meta { font-size: 11px; }
+  .tale { width: 58%; bottom: 58px; }
+  .field-board { top: 44%; width: 99%; }
+  .field-caption { font-size: 11.5px; }
+}

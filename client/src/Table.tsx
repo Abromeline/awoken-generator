@@ -224,6 +224,9 @@ export default function Table() {
   const [shared, setShared] = useState<SharedState | null>(null);
   const [you, setYou] = useState<YouState | null>(null);
   const [tab, setTab] = useState<"I" | "II" | "III" | "IV">("I");
+  // The hand drawer (Phase A room, Nigel 2026-10-18): the hand
+  // rests half off-screen and rises when reached for.
+  const [handUp, setHandUp] = useState(false);
   // The workshop-chosen card border (Nigel, 2026-10-17) wraps the
   // hand cards here too — the same public read the game consumes.
   const [cardBorder, setCardBorder] = useState<{ imageUrl: string | null; fit: string | null }>({ imageUrl: null, fit: null });
@@ -669,8 +672,8 @@ export default function Table() {
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
           {you && (
-            <div className="packing">
-              <h4>Your packing</h4>
+            <details className="packing">
+              <summary>Your packing</summary>
               {you.inventory.length === 0 && <p className="quiet">Nothing written down yet.</p>}
               <ul className="packing-list">
                 {you.inventory.map((item, i) => (
@@ -698,7 +701,7 @@ export default function Table() {
                 <button className="mini-btn add" type="submit">Add</button>
               </form>
               <p className="quiet small">Yours alone — typed, kept, and carried between sittings.</p>
-            </div>
+            </details>
           )}
         </aside>
 
@@ -707,6 +710,18 @@ export default function Table() {
             <img className="field-bg" src={battlegroundBg} alt="" aria-hidden="true" />
             <div className="field-board">
             <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six hexes where Awokin may stand">
+              <defs>
+                <radialGradient id="hexOpen" cx="50%" cy="40%" r="75%">
+                  <stop offset="0%" stopColor="#e8dcc3" stopOpacity="0.13" />
+                  <stop offset="55%" stopColor="#e8dcc3" stopOpacity="0.04" />
+                  <stop offset="100%" stopColor="#000000" stopOpacity="0.28" />
+                </radialGradient>
+                <radialGradient id="hexStood" cx="50%" cy="40%" r="75%">
+                  <stop offset="0%" stopColor="#ddc38b" stopOpacity="0.34" />
+                  <stop offset="60%" stopColor="#c9a227" stopOpacity="0.16" />
+                  <stop offset="100%" stopColor="#000000" stopOpacity="0.22" />
+                </radialGradient>
+              </defs>
               {FIELD_HEXES.map((h) => {
                 const unit = shared.field.find(u => u.hex === h.id);
                 const myUnit = !!(unit && you && unit.ownerKey === you.key);
@@ -846,7 +861,6 @@ export default function Table() {
                 );
               })}
             </div>
-            </div>
             <div className="field-workings">
               {shared.workings.map((w) => {
                 const img = defs[w.root]?.glyph ?? GLYPHS[w.root] ?? null;
@@ -877,6 +891,7 @@ export default function Table() {
                 }
                 return null;
               })}
+            </div>
             </div>
             <div className="field-caption">
               <strong>The star-seed</strong> — fallen light, rooted in cracked ground.
@@ -1012,8 +1027,8 @@ export default function Table() {
           </div>
           <p className="quiet small">The whole roster. When the dealing begins, the dark is dealt from here — face-up, never a bare number.</p>
           {you && (
-            <div className="notes">
-              <h4>Your notes</h4>
+            <details className="notes">
+              <summary>Your notes</summary>
               <textarea
                 value={notesDraft}
                 onChange={(e) => { setNotesDraft(e.target.value); setNotesDirty(true); }}
@@ -1030,14 +1045,18 @@ export default function Table() {
                 Keep these notes
               </button>
               <p className="quiet small">Yours alone, like your hand.</p>
-            </div>
+            </details>
           )}
         </aside>
       </main>
 
-      <footer className="handzone">
+      <footer className={you ? `handzone drawer${handUp ? " risen" : ""}` : "handzone plain"}>
         {you ? (
           <>
+            <button type="button" className="hand-grab" onClick={() => setHandUp(v => !v)} aria-expanded={handUp} aria-label={handUp ? "Lower your hand" : "Raise your hand"}>
+              <span className="grab-line" aria-hidden="true" />
+              {handUp ? "▾ your hand" : "▴ your hand"}
+            </button>
             <div className="satchel-head">
               <div className="satchel-tabs" role="tablist" aria-label="Your satchel">
                 {(["I", "II", "III", "IV"] as const).map((t) => (
@@ -1066,7 +1085,7 @@ export default function Table() {
                         role="button"
                         aria-pressed={selected}
                         title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a ring hex.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
-                        onClick={() => { if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } setSelectedCardId(selected ? null : card.id); }}
+                        onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } setSelectedCardId(selected ? null : card.id); }}
                       >
                         <div className="tcard-banner">
                           <span className="tcard-name">{card.name}</span>
