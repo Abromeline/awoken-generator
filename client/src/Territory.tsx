@@ -174,6 +174,11 @@ interface Props {
    *  claim's company when no ground is held yet, or readied for battle
    *  when ground already stands. */
   initialPatrolIds?: number[];
+  /** The home screen's acorn speaks: when this signal
+   *  changes, the Terrain opens with the Attunement panel
+   *  raised — one stack, two screens, the same place
+   *  (Nigel, 2026-10-17). */
+  aspectsSignal?: number;
   /** The Skill Zodiac's door (Nigel's directive via Law,
    *  2026-10-17): the tree-glyph button and the attunement
    *  panel's bottom entry both open the wheel. */
@@ -220,7 +225,7 @@ function dominantElement(a: Awakened): Element {
   return best;
 }
 
-export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, aspectsSignal }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -768,6 +773,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [showChampionTab, setShowChampionTab] = useState(false);
 
   const [showAspects, setShowAspects] = useState(false);
+  useEffect(() => { if (aspectsSignal) setShowAspects(true); }, [aspectsSignal]);
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
   const [showFriends, setShowFriends] = useState(false);
