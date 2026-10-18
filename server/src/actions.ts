@@ -1077,16 +1077,16 @@ function corruptSeed(ownerKey: string, seed: { id: number; tile_id: number }) {
 export function incursionRoster(size: number, powerTier: number) {
   const bonus = Math.max(0, powerTier - 1);
   const kinds = [
-    { kind: "fray", share: 0.5, power: 1, hp: 3 },
-    { kind: "unraveler", share: 0.25, power: 4, hp: 6 },
-    { kind: "tangle", share: 0.15, power: 3, hp: 8 },
-    { kind: "hollow", share: 0.1, power: 0, hp: 5 },
+    { kind: "fray", share: 0.5, power: 1, hp: 3, armor: 4 },
+    { kind: "unraveler", share: 0.25, power: 4, hp: 6, armor: 6 },
+    { kind: "tangle", share: 0.15, power: 3, hp: 8, armor: 8 },
+    { kind: "hollow", share: 0.1, power: 0, hp: 5, armor: 5 },
   ];
-  const out: { kind: string; count: number; power: number; hp: number }[] = [];
+  const out: { kind: string; count: number; power: number; hp: number; armor: number }[] = [];
   let left = size;
   kinds.forEach((k, i) => {
     const n = i === kinds.length - 1 ? left : Math.min(left, Math.round(size * k.share));
-    if (n > 0) out.push({ kind: k.kind, count: n, power: k.power + Math.floor(bonus / 2), hp: k.hp + bonus });
+    if (n > 0) out.push({ kind: k.kind, count: n, power: k.power + Math.floor(bonus / 2), hp: k.hp + bonus, armor: k.armor + bonus });
     left -= Math.max(0, n);
   });
   return out.filter(r => r.count > 0);

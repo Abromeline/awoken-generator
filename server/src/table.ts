@@ -50,6 +50,9 @@ interface TableCard {
   art?: string;
   level?: number;
   awokenId?: number;
+  /** FATE: the worn pieces (body, arms, head, aura), each
+   *  rolling its own element's die when the Awoken strikes. */
+  parts?: { element: string; power: number }[];
 }
 
 /** The stand-in pool: the roster an UNBOUND seat brings. Bound
@@ -114,6 +117,13 @@ interface FieldUnit {
   card: TableCard;
   hp: number;
   maxHp: number;
+  /** FATE: the shield — toughness × the element die, rolled
+   *  at the summoning. Mitigated harm burns it before HP. */
+  shield: number;
+  maxShield: number;
+  /** FATE: the speed gauge — swifter elements bank extra
+   *  strikes (the same 1–5 scale as the to-hit bonus). */
+  speedGauge: number;
   ownerKey: string;
   ownerName: string;
   /** Rounds of striking this unit must still sit out (a pin). */
@@ -131,6 +141,14 @@ interface EnemyUnit {
   power: number;
   hp: number;
   maxHp: number;
+  /** FATE: the dark thing's armor — its AC, and its armor
+   *  in Diablo's equation when Awoken blows land on it. */
+  armor: number;
+  /** Its level for the mitigation denominator and its own
+   *  level steps: the wave that dealt it, or a column's tier. */
+  lvl: number;
+  /** FATE: the speed gauge, as the Awoken's. */
+  speedGauge: number;
   /** Rounds this dark thing must still sit out (a rune's pin). */
   pinned: number;
 }
@@ -170,11 +188,11 @@ interface Working {
   charges: number;
 }
 
-const ENEMY_STATS: Record<string, { power: number; hp: number }> = {
-  fray: { power: 1, hp: 3 },
-  unraveler: { power: 4, hp: 6 },
-  hollow: { power: 0, hp: 5 },
-  tangle: { power: 3, hp: 8 },
+const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
+  fray: { power: 1, hp: 3, armor: 4 },
+  unraveler: { power: 4, hp: 6, armor: 6 },
+  hollow: { power: 0, hp: 5, armor: 5 },
+  tangle: { power: 3, hp: 8, armor: 8 },
 };
 
 /** The instance field: a full honeycomb filling the battlefield
@@ -224,6 +242,8 @@ interface TaleEntry {
  *  every strike +1. Victory and defeat report back to the land. */
 interface BastionState {
   callId: number;
+  /** The column's power tier — its dark things' level. */
+  tier: number;
   kind: string; // bastion | ambush | siege
   hostKey: string; // the host seat's owner key (tender:<id>)
   hostTenderId: number;
@@ -249,6 +269,7 @@ interface Strike {
   to: string;
   element: string;
   side: "light" | "dark";
+  hit: boolean;
   killed: boolean;
 }
 
@@ -313,6 +334,64 @@ function dominantElement(layers: { element?: string | null }[]): string {
   return best;
 }
 
+// ── FATE AT THE TABLE (Nigel, 2026-10-17) ─────────────────
+// Toughness IS the Armor Class. Every blow rolls a d20 to
+// hit; the attack bonus is the striker's ELEMENT (stone +1,
+// root +2, tide +3, sky +4, fire +5) plus its LEVEL steps
+// (+1 at levels 3, 6, 9). A landed blow's harm is SUMS:
+// each of the striker's parts rolls its own element's die
+// (the skeleton's dice: sky d4, root d6, tide d8, stone
+// d12, fire d10) plus its filed power, and the rolls add.
+// Then DIABLO's equation mitigates what landed: harm ×
+// (1 − armor/(armor + 50 × attacker's level)), the armor
+// being the defender's toughness — or a dark thing's armor.
+// What survives burns the Awoken's SHIELD first: toughness
+// × its element die, rolled when it is summoned; overflow
+// wounds. A natural 20 always hits and rolls its harm dice
+// twice; a natural 1 always misses. The Written Light is
+// not a blow: workings' harm ignores AC and armor alike,
+// as spell harm always has. Skills, spells, and runes that
+// ADD to AC are named for the future — the hooks live in
+// acOf() below, returning 0 until content fills them.
+const FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
+const ELEMENT_HIT_BONUS: Record<string, number> = { stone: 1, root: 2, tide: 3, sky: 4, fire: 5 };
+const DARK_ARMOR: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
+const DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
+function dN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
+function fateLevelBonus(level: number): number { return Math.floor(Math.max(1, level) / 3); }
+function fateMitigate(raw: number, armor: number, attackerLevel: number): number {
+  if (raw <= 0) return 0;
+  const cut = armor / (armor + 50 * Math.max(1, attackerLevel));
+  return Math.max(1, Math.round(raw * (1 - cut)));
+}
+/** An Awoken's parts for Fate: its worn pieces, each with a
+ *  filed element and power. A card dealt without parts
+ *  strikes as one piece of its own element and whole power. */
+function partsOf(card: TableCard): { element: string; power: number }[] {
+  if (card.parts && card.parts.length) return card.parts;
+  return [{ element: card.element, power: card.power }];
+}
+function fatePartsDamage(card: TableCard, crit: boolean): number {
+  let total = 0;
+  for (const part of partsOf(card)) {
+    const die = FATE_DIE[part.element] ?? 6;
+    total += dN(die) + part.power;
+    if (crit) total += dN(die);
+  }
+  return total;
+}
+/** The dark's harm: its power, rolled as that many of the
+ *  curse's dice (d6), summed; a critical rolls them twice. */
+function fateDarkDamage(enemy: EnemyUnit, crit: boolean): number {
+  let total = 0;
+  const n = Math.max(1, enemy.power);
+  for (let i = 0; i < n; i++) { total += dN(6); if (crit) total += dN(6); }
+  return total;
+}
+/** AC beyond toughness: skills, spells, and runes will add
+ *  here (Nigel's naming). Nothing adds yet. */
+function acBonusOf(_unit: FieldUnit): number { return 0; }
+
 async function deckForTender(tenderId: number): Promise<TableCard[]> {
   const ownerKey = tenderOwnerKey(tenderId);
   const rows = await db.select().from(schema.awakened)
@@ -330,6 +409,9 @@ async function deckForTender(tenderId: number): Promise<TableCard[]> {
       art: payload.image_url,
       level: payload.level,
       awokenId: payload.id,
+      parts: ((payload.layers ?? []) as { category?: string; element?: string | null; power?: number | null }[])
+        .filter(l => ["body", "arms", "head", "aura"].includes(l.category ?? ""))
+        .map(l => ({ element: l.element ?? "neutral", power: l.power ?? 0 })),
     });
   }
   for (let i = cards.length - 1; i > 0; i--) {
@@ -401,6 +483,7 @@ function sharedState(room: Room) {
     field: [...room.field.values()].map(u => ({
       hex: u.hex, name: u.card.name, art: u.card.art ?? null, element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
+      shield: u.shield, maxShield: u.maxShield,
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
@@ -682,6 +765,7 @@ function dealWave(room: Room): void {
     room.dark.set(hex, {
       hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
       power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinned: 0,
+      armor: base.armor + Math.floor((wave - 1) / 3), lvl: wave, speedGauge: 0,
     });
   }
   for (const hex of spots) springHex(room, hex, new Set());
@@ -712,6 +796,7 @@ function dealBastion(room: Room): void {
       room.dark.set(hex, {
         hex, kind: entry.kind, label: face?.label ?? entry.kind, art: face?.art ?? null,
         power: entry.power, hp: entry.hp, maxHp: entry.hp, pinned: 0,
+        armor: (entry as { armor?: number }).armor ?? DARK_ARMOR[entry.kind] ?? 5, lvl: b.tier, speedGauge: 0,
       });
     }
   }
@@ -798,8 +883,8 @@ async function runRound(room: Room): Promise<void> {
     await refreshGrimoire().catch(() => {});
     room.roundNo++;
     room.strikes = [];
-    const witness = (from: string, to: string, element: string, side: "light" | "dark", killed: boolean) => {
-      if (room.strikes.length < 30) room.strikes.push({ from, to, element, side, killed });
+    const witness = (from: string, to: string, element: string, side: "light" | "dark", hit: boolean, killed: boolean) => {
+      if (room.strikes.length < 30) room.strikes.push({ from, to, element, side, hit, killed });
     };
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
@@ -810,26 +895,40 @@ async function runRound(room: Room): Promise<void> {
         if (owner && !owner.fallen) owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + (w.nums.energyPerRound ?? 1));
       }
     }
-    // The standing strike first.
-    for (const unit of [...room.field.values()]) {
-      if (!room.field.has(unit.hex)) continue;
-      if (room.dark.size === 0) break;
-      if (unit.pinned > 0) { unit.pinned--; continue; }
+    // The standing strike first — under FATE (Nigel,
+    // 2026-10-17): a d20 against the dark thing's armor;
+    // the element and the level lend the bonus; landed harm
+    // is the parts' dice, summed, then mitigated by Diablo's
+    // equation. Swifter elements strike again as their
+    // speed gauge fills: the gauge banks (speed − 1) a
+    // round, and every 5 banked buys another strike.
+    const strikeOnce = async (unit: FieldUnit): Promise<void> => {
       let target: EnemyUnit | null = null;
       let best = Infinity;
       for (const e of room.dark.values()) {
-        const d = hexDist(unit.hex, e.hex) - e.hp * 0.01;
-        if (d < best) { best = d; target = e; }
+        const dd = hexDist(unit.hex, e.hex) - e.hp * 0.01;
+        if (dd < best) { best = dd; target = e; }
       }
-      if (!target) break;
+      if (!target) return;
       const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey && (w.hexA === unit.hex || w.hexB === unit.hex));
       const bcnWard = room.workings.find(w => w.engine === "beacon" && w.ownerKey === unit.ownerKey && beaconReach(w).has(target.hex));
-      const strikePower = unit.card.power
+      const roll = dN(20);
+      const bonus = (ELEMENT_HIT_BONUS[unit.card.element] ?? 0)
+        + fateLevelBonus(unit.card.level ?? 1)
+        + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush lends its edge to the roll
+      const hit = roll === 20 || (roll !== 1 && roll + bonus >= target.armor);
+      if (!hit) {
+        witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", false, false);
+        if (roll === 1) tell(room, `${unit.card.name}'s strike goes wide — a cast of one, and the dark keeps its ground.`);
+        return;
+      }
+      let raw = fatePartsDamage(unit.card, roll === 20)
         + (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0)
-        + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0)
-        + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush bonus (Nigel, 2026-10-17)
-      target.hp -= strikePower;
-      witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", target.hp <= 0);
+        + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
+      const dmg = fateMitigate(raw, target.armor, unit.card.level ?? 1);
+      target.hp -= dmg;
+      witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
+      if (roll === 20) tell(room, `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`);
       if (target.hp <= 0) {
         room.dark.delete(target.hex);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
@@ -838,6 +937,17 @@ async function runRound(room: Room): Promise<void> {
           owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
           await payBattleExp(room, owner, 2, "The dark pays for its felling.");
         }
+      }
+    };
+    for (const unit of [...room.field.values()]) {
+      if (!room.field.has(unit.hex)) continue;
+      if (room.dark.size === 0) break;
+      if (unit.pinned > 0) { unit.pinned--; continue; }
+      await strikeOnce(unit);
+      unit.speedGauge += (ELEMENT_HIT_BONUS[unit.card.element] ?? 1) - 1;
+      while (unit.speedGauge >= 5 && room.field.has(unit.hex) && room.dark.size > 0) {
+        unit.speedGauge -= 5;
+        await strikeOnce(unit);
       }
     }
     // The dark answers.
@@ -855,60 +965,95 @@ async function runRound(room: Room): Promise<void> {
         continue;
       }
       if (standing.length > 0) {
-        let victim: FieldUnit;
-        if (enemy.kind === "unraveler") victim = standing.reduce((a, b) => (b.card.power > a.card.power ? b : a));
-        else if (enemy.kind === "fray") victim = standing.reduce((a, b) => (b.hp < a.hp ? b : a));
-        else victim = standing[Math.floor(Math.random() * standing.length)];
-        // The written light answers first: a ward on the edge
-        // between the striker and its mark may stop the blow.
-        let blow = enemy.power;
-        const edgeWards = room.workings.filter(w => w.kind === "ward" && w.ownerKey === victim.ownerKey &&
-          ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
-        const seal = edgeWards.find(w => w.engine === "seal");
-        if (seal && blow > 0) {
-          blow = 0;
-          enemy.hp -= (seal.nums.riposte ?? 3) + (engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) : 0);
-          seal.stops++;
-          witness(victim.hex, enemy.hex, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", enemy.hp <= 0);
-          // The Seal's health rating (Nigel, 2026-10-17): every
-          // blow it stops costs it that blow's power in health.
-          seal.hp -= enemy.power;
-          tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
-          if (enemy.hp <= 0) {
-            room.dark.delete(enemy.hex);
-            tell(room, `The ${enemy.label} unravels on the Seal's light!`);
-            const owner = seatByKey(room, seal.ownerKey);
-            if (owner && !owner.fallen) {
-              owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3);
-              await payBattleExp(room, owner, 2, "The dark pays for its felling.");
+        // The dark answers — under FATE: a d20 against the
+        // victim's Armor Class (its toughness). The dark's
+        // element is the curse's own — no element bonus; its
+        // level steps lend what they lend. A landed blow's
+        // harm is its power in d6, summed, mitigated, and
+        // the SHIELD burns before the body. The written
+        // light answers a landed blow as it always has.
+        const blowOnce = async (): Promise<void> => {
+          const standingNow = [...room.field.values()];
+          if (!standingNow.length) return;
+          let victim: FieldUnit;
+          if (enemy.kind === "unraveler") victim = standingNow.reduce((a, b) => (b.card.power > a.card.power ? b : a));
+          else if (enemy.kind === "fray") victim = standingNow.reduce((a, b) => (b.hp < a.hp ? b : a));
+          else victim = standingNow[Math.floor(Math.random() * standingNow.length)];
+          const roll = dN(20);
+          const bonus = fateLevelBonus(enemy.lvl);
+          const ac = victim.card.toughness + acBonusOf(victim);
+          const hit = roll === 20 || (roll !== 1 && roll + bonus >= ac);
+          if (!hit) {
+            witness(enemy.hex, victim.hex, "dark", "dark", false, false);
+            if (roll === 1) tell(room, `The ${enemy.label}'s blow goes wide — a cast of one.`);
+            return;
+          }
+          let dmg = fateMitigate(fateDarkDamage(enemy, roll === 20), victim.card.toughness, enemy.lvl);
+          const edgeWards = room.workings.filter(w => w.kind === "ward" && w.ownerKey === victim.ownerKey &&
+            ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
+          const seal = edgeWards.find(w => w.engine === "seal");
+          if (seal && dmg > 0) {
+            dmg = 0;
+            enemy.hp -= (seal.nums.riposte ?? 3) + (engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) : 0);
+            seal.stops++;
+            witness(victim.hex, enemy.hex, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", true, enemy.hp <= 0);
+            // The Seal's health rating (Nigel, 2026-10-17):
+            // every blow it stops costs it that blow's power.
+            seal.hp -= enemy.power;
+            tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
+            if (enemy.hp <= 0) {
+              room.dark.delete(enemy.hex);
+              tell(room, `The ${enemy.label} unravels on the Seal's light!`);
+              const owner = seatByKey(room, seal.ownerKey);
+              if (owner && !owner.fallen) {
+                owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3);
+                await payBattleExp(room, owner, 2, "The dark pays for its felling.");
+              }
+            }
+            if (seal.stops >= (seal.nums.stops ?? 3)) {
+              room.workings = room.workings.filter(w => w !== seal);
+              tell(room, `${seal.name} has stopped its third strike; its light goes out, spent and honored.`);
+            } else if (seal.hp <= 0) {
+              room.workings = room.workings.filter(w => w !== seal);
+              tell(room, `${seal.name} is worn through by the blows it stopped; its light goes out, spent and honored.`);
             }
           }
-          if (seal.stops >= (seal.nums.stops ?? 3)) {
-            room.workings = room.workings.filter(w => w !== seal);
-            tell(room, `${seal.name} has stopped its third strike; its light goes out, spent and honored.`);
-          } else if (seal.hp <= 0) {
-            room.workings = room.workings.filter(w => w !== seal);
-            tell(room, `${seal.name} is worn through by the blows it stopped; its light goes out, spent and honored.`);
+          const trees = edgeWards.find(w => w.engine === "trees");
+          if (dmg > 0 && trees) {
+            trees.hp -= dmg;
+            dmg = 0;
+            tell(room, `${trees.name} take the blow meant for ${victim.card.name}.`);
+            if (trees.hp <= 0) {
+              room.workings = room.workings.filter(w => w !== trees);
+              tell(room, `${trees.name} are broken — for this battle. The seed remembers them.`);
+            }
           }
-        }
-        const trees = edgeWards.find(w => w.engine === "trees");
-        if (blow > 0 && trees) {
-          trees.hp -= blow;
-          blow = 0;
-          tell(room, `${trees.name} take the blow meant for ${victim.card.name}.`);
-          if (trees.hp <= 0) {
-            room.workings = room.workings.filter(w => w !== trees);
-            tell(room, `${trees.name} are broken — for this battle. The seed remembers them.`);
+          let felled = false;
+          if (dmg > 0) {
+            if (enemy.kind === "tangle") victim.pinned = Math.max(victim.pinned, 1);
+            let wound = dmg;
+            if (victim.shield > 0) {
+              const absorbed = Math.min(victim.shield, wound);
+              victim.shield -= absorbed;
+              wound -= absorbed;
+            }
+            victim.hp -= wound;
+            felled = victim.hp <= 0;
           }
-        }
-        victim.hp -= blow;
-        if (blow > 0) witness(enemy.hex, victim.hex, "dark", "dark", victim.hp <= 0);
-        if (enemy.kind === "tangle" && blow > 0) victim.pinned = Math.max(victim.pinned, 1);
-        if (victim.hp <= 0) {
-          room.field.delete(victim.hex);
-          const owner = seatByKey(room, victim.ownerKey);
-          if (owner) owner.hand = [...owner.hand, victim.card];
-          tell(room, `The ${enemy.label} unravels ${victim.card.name} — it dissipates to its Tender's roster.`);
+          witness(enemy.hex, victim.hex, "dark", "dark", true, felled);
+          if (roll === 20) tell(room, `The ${enemy.label} rolls a natural twenty — the blow lands true and terrible!`);
+          if (felled) {
+            room.field.delete(victim.hex);
+            const owner = seatByKey(room, victim.ownerKey);
+            if (owner) owner.hand = [...owner.hand, victim.card];
+            tell(room, `The ${enemy.label} unravels ${victim.card.name} — it dissipates to its Tender's roster.`);
+          }
+        };
+        await blowOnce();
+        enemy.speedGauge += (DARK_SPEED[enemy.kind] ?? 1) - 1;
+        while (enemy.speedGauge >= 5 && room.dark.has(enemy.hex) && room.field.size > 0) {
+          enemy.speedGauge -= 5;
+          await blowOnce();
         }
       } else {
         // Nothing stands: the shield law leaves the Tenders bare.
@@ -1078,7 +1223,11 @@ function handleConnection(ws: WebSocket): void {
         }
       }
       if (!watcher && !bound) {
-        hand = TEST_POOL.map(c => ({ ...c, id: randomUUID() }));
+        hand = TEST_POOL.map(c => ({ ...c, id: randomUUID(), parts: [
+          { element: c.element, power: Math.ceil(c.power / 2) },
+          { element: c.element, power: Math.floor(c.power / 2) },
+          { element: c.element, power: 0 },
+        ] }));
         energy = 12;
         maxEnergy = 12;
       }
@@ -1149,8 +1298,10 @@ function handleConnection(ws: WebSocket): void {
         player.energy -= cost;
       }
       player.hand = player.hand.filter(c => c.id !== cardId);
+      const shield = card.toughness * dN(FATE_DIE[card.element] ?? 6);
       room.field.set(hex, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
+        shield, maxShield: shield, speedGauge: 0,
         ownerKey: player.key, ownerName: player.name, pinned: 0,
       });
       tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}).`);
@@ -1191,13 +1342,23 @@ function handleConnection(ws: WebSocket): void {
       if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no mending — bind in the game to cast." })); return; }
       const unit = room.field.get(String(msg.hex || ""));
       if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awoken." })); return; }
-      if (unit.hp >= unit.maxHp) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already.` })); return; }
+      if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = healSpell()?.cost ?? 2;
       if (player.energy < healCost) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — you hold ⚡${player.energy}.` })); return; }
       player.energy -= healCost;
-      const healed = Math.min(player.healAmount, unit.maxHp - unit.hp);
-      unit.hp += healed;
-      tell(room, `${player.name} mends ${unit.card.name} — ${healed} HP restored (Heal, Tier ${player.healTier}).`);
+      // FATE's healing dice (the skeleton, Nigel 2026-10-17):
+      // the mended Awoken's own element die — stone d4, sky
+      // d6, tide d8, root d12, fire d10 — rolled once per
+      // heal tier. The body mends first; overflow reweaves
+      // the shield.
+      let amount = 0;
+      const dieSides = FATE_DIE[unit.card.element] ?? 6;
+      for (let i = 0; i < Math.max(1, player.healTier); i++) amount += dN(dieSides);
+      const toHp = Math.min(unit.maxHp - unit.hp, amount);
+      unit.hp += toHp;
+      const toShield = Math.min(unit.maxShield - unit.shield, amount - toHp);
+      unit.shield += toShield;
+      tell(room, `${player.name} mends ${unit.card.name} — ${toHp + toShield} restored by the ${unit.card.element} die (Heal, Tier ${player.healTier}).`);
       sendState(room);
       return;
     }
@@ -1420,7 +1581,7 @@ function handleConnection(ws: WebSocket): void {
         pool += p.maxEnergy + 2 * Math.max(0, p.tenderLevel - 1);
       }
       room.bastion = {
-        callId: call.id, kind: call.kind, hostKey: call.owner_key, hostTenderId: call.host_tender_id,
+        callId: call.id, tier: call.column_id ? Number((sqlite.prepare("SELECT power FROM incursion_columns WHERE id = ?").get(call.column_id) as any)?.power ?? 1) : 2, kind: call.kind, hostKey: call.owner_key, hostTenderId: call.host_tender_id,
         hostName: player.name, columnId: call.column_id, seedId: call.seed_id,
         roster, size, ambush: call.kind === "ambush",
         pool, poolMax: pool, begun: false, resolved: false,

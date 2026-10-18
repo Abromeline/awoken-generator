@@ -529,3 +529,7 @@ button { font-family: inherit; }
 /* Visualized combat: the round's strikes, flown (2026-10-17) */
 .shots-layer image{pointer-events:none;transform-box:fill-box;transform-origin:center}
 .shots-layer image.dark-shot{filter:brightness(.48) contrast(1.3) hue-rotate(248deg) saturate(2.4)}
+
+/* FATE at the Table: the shield bar rides above the health bar */
+.unit-hp.shield{height:3px;margin-bottom:2px;background:rgba(90,140,255,.18)}
+.unit-hp-fill.shield-fill{background:linear-gradient(90deg,#7fb2ff,#cfe4ff)}

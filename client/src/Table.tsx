@@ -93,6 +93,8 @@ interface FieldUnitView {
   toughness: number;
   hp: number;
   maxHp: number;
+  shield?: number;
+  maxShield?: number;
   level: number | null;
   ownerKey: string;
   ownerName: string;
@@ -110,10 +112,10 @@ interface SharedState {
   tale: { at: number; text: string }[];
   field: FieldUnitView[];
   enemies: EnemyView[];
-  dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinned: number }[];
+  dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinned: number; armor?: number; lvl?: number }[];
   workings: WorkingView[];
   battle: { active: boolean; wave: number };
-  strikes?: { from: string; to: string; element: string; side: "light" | "dark"; killed: boolean }[];
+  strikes?: { from: string; to: string; element: string; side: "light" | "dark"; hit: boolean; killed: boolean }[];
   bastion?: {
     callId: number; kind: string; hostName: string; ambush: boolean;
     pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
@@ -252,7 +254,7 @@ export default function Table() {
   // every strike of the round it just resolved; the Table
   // flies them — the attacker's element from its hex to its
   // mark's, the dark answering in a darkened bolt.
-  const [shots, setShots] = useState<{ id: number; from: string; to: string; img: string; dark: boolean; killed: boolean; idx: number }[]>([]);
+  const [shots, setShots] = useState<{ id: number; from: string; to: string; img: string; dark: boolean; hit: boolean; killed: boolean; idx: number }[]>([]);
   const lastRoundRef = useRef(-1);
   const shotIdRef = useRef(0);
   useEffect(() => {
@@ -265,7 +267,7 @@ export default function Table() {
       id: ++shotIdRef.current,
       from: st.from, to: st.to,
       img: st.side === "dark" ? PROJECTILE_GIF.unaligned : (PROJECTILE_GIF[st.element] ?? PROJECTILE_GIF.unaligned),
-      dark: st.side === "dark", killed: st.killed, idx: shotIdRef.current % 1000,
+      dark: st.side === "dark", hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000,
     }));
     setShots(prev => [...prev.slice(-30), ...fresh]);
     const ids = new Set(fresh.map(f => f.id));
@@ -751,9 +753,13 @@ export default function Table() {
                       ref={(el) => {
                         if (!el || el.dataset.flown) return;
                         el.dataset.flown = "1";
-                        el.animate([
+                        el.animate(shot.hit ? [
                           { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
                           { transform: `translate(${dx}px, ${dy}px) scale(${shot.killed ? 1.8 : 0.85})`, opacity: shot.killed ? 0 : 0.85 },
+                        ] : [
+                          // A miss flies — and spends itself wide of the mark.
+                          { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
+                          { transform: `translate(${dx * 0.92}px, ${dy * 0.92 - 14}px) scale(0.8)`, opacity: 0 },
                         ], { duration: 540, delay: i * 55, easing: "cubic-bezier(.25,.7,.3,1)", fill: "forwards" });
                       }}
                     />
@@ -778,7 +784,8 @@ export default function Table() {
                       : <ElementGlyph element={u.element as GlyphElement} width={30} height={30} />}
                     <span className="unit-name">{u.name}</span>
                     <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (u.hp / Math.max(1, u.maxHp)) * 100))}%` }} /></span>
-                    <span className="unit-stats">⚔{u.power} ❤{u.hp}/{u.maxHp}</span>
+                    <span className="unit-hp shield"><span className="unit-hp-fill shield-fill" style={{ width: `${Math.max(0, Math.min(100, ((u.shield ?? 0) / Math.max(1, u.maxShield ?? 1)) * 100))}%` }} /></span>
+                    <span className="unit-stats">⚔{u.power} ❤{u.hp}/{u.maxHp}{(u.shield ?? 0) > 0 ? ` 🛡${u.shield}` : ""} · AC {u.toughness}</span>
                   </div>
                 );
               })}
@@ -792,7 +799,7 @@ export default function Table() {
                       : <span className="dark-glyph">🕳️</span>}
                     <span className="unit-name">{e.label}</span>
                     <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (e.hp / Math.max(1, e.maxHp)) * 100))}%` }} /></span>
-                    <span className="unit-stats">⚔{e.power} ❤{e.hp}/{e.maxHp}{e.pinned > 0 ? ` · ⛓${e.pinned}` : ""}</span>
+                    <span className="unit-stats">⚔{e.power} ❤{e.hp}/{e.maxHp}{e.armor ? ` · AC ${e.armor}` : ""}{e.pinned > 0 ? ` · ⛓${e.pinned}` : ""}</span>
                   </div>
                 );
               })}
