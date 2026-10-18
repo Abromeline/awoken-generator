@@ -112,6 +112,10 @@ export interface TerritoryTile {
   height?: number;
   curseHp?: number | null;
   curseMaxHp?: number | null;
+  /** The Seed-Calm (Nigel, 2026-10-17): present when a held
+   *  seed's calm covers this tile — the level the curse is
+   *  (or would be) reckoned at here: its ring from the seed. */
+  calmLevel?: number | null;
   /** The terrain attunement bank, as getTerritory serves it: which
    *  element is pressing this tile, and how full its 10-point bank is.
    *  Both absent/null until a company or a turned shrine first pours. */

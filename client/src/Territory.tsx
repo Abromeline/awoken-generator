@@ -3138,6 +3138,27 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     ) : null;
+    // THE SEED-CALM ON THE MAP (Nigel, 2026-10-17): every hex
+    // a held seed's calm covers wears a soft golden ring —
+    // the second home's light lying on the land — and a
+    // cursed hex under it names the level the curse is now
+    // reckoned at: tamable.
+    const calmLayer = (
+      <g key="seed-calm" pointerEvents="none">
+        {tiles.filter(t => t.calmLevel != null).map(t => {
+          const { cx, cy } = tilePos(t);
+          const pts = hexCellPoints(cx, cy, size, 0.94);
+          return (
+            <g key={t.id}>
+              <polygon points={pts} fill="rgba(240,214,140,0.07)" stroke="#f0d68c" strokeWidth={1.6} strokeDasharray="5 4" opacity={0.9} />
+              {t.cursed ? (
+                <text x={cx} y={cy + size * 1.28} textAnchor="middle" fontSize={size * 0.30} fill="#f0d68c">curse Lv {t.calmLevel}</text>
+              ) : null}
+            </g>
+          );
+        })}
+      </g>
+    );
     // THE COLUMNS ON THE MAP (2026-10-17): a marching column is
     // only a traced dotted line from outside the map to its
     // target, with the warning mark at the threatened hex; an
@@ -3274,6 +3295,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {castEdgeLayer}
         {wgGuideLayer}
         {wgAttuneLayer}
+        {calmLayer}
         {columnsLayer}
         {seedLayer}
         {patrolGuideLayer}

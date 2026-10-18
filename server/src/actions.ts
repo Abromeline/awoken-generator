@@ -1352,6 +1352,31 @@ export function moodEffects(mood: WorldMood): MoodEffects {
  *  the ring law, 4 + ring × 6, thickened by the live mood. Tiles keep
  *  the HP they were born with — thickening bites at birth, everywhere
  *  a curse is born, and nowhere else. */
+/** THE SEED-CALM (Nigel, 2026-10-17): a HELD star seed is a
+ *  second home. The curse within TWO RINGS of it (19 hexes —
+ *  his ruling) is reckoned by its distance from the SEED, as
+ *  the land around the first hex is reckoned from home, so
+ *  its level drops to tamable; the calm never raises a
+ *  curse — a hex keeps whichever reckoning is kinder. */
+export const SEED_CALM_RADIUS = 2;
+export function calmEffRing(seedHexes: { q: number; r: number }[], q: number, r: number, mapRing: number): number {
+  let eff = mapRing;
+  for (const sd of seedHexes) {
+    const dq = q - sd.q, dr = r - sd.r;
+    const dist = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
+    if (dist <= SEED_CALM_RADIUS) eff = Math.min(eff, dist);
+  }
+  return eff;
+}
+async function heldSeedHexes(ownerKey: string): Promise<{ q: number; r: number }[]> {
+  const rows = sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state = 'held'").all(ownerKey) as { tile_id: number }[];
+  if (!rows.length) return [];
+  const tiles = await db.select({ id: schema.territoryTiles.id, q: schema.territoryTiles.q, r: schema.territoryTiles.r })
+    .from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const byId = new Map(tiles.map(t => [t.id, t]));
+  return rows.flatMap(rw => { const t = byId.get(rw.tile_id); return t ? [{ q: t.q, r: t.r }] : []; });
+}
+
 export function curseHpFor(ring: number, mood: WorldMood): number {
   return Math.ceil((4 + ring * 6) * moodEffects(mood).curseHpMult);
 }
@@ -4017,6 +4042,21 @@ export const handlers = {
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    // The Seed-Calm's reach, served (Nigel, 2026-10-17): any
+    // tile within two rings of a held seed carries the level
+    // the curse WOULD be reckoned at there — its distance
+    // from the seed — so the map can show the calm lying on
+    // the land.
+    {
+      const seedHexes = await heldSeedHexes(ownerKey);
+      if (seedHexes.length) {
+        for (const t of tiles as any[]) {
+          const mapRing = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+          const eff = calmEffRing(seedHexes, t.q, t.r, mapRing);
+          if (eff < mapRing) (t as any).calmLevel = eff;
+        }
+      }
+    }
     // Self-heal the stack law (Land, 2026-10-16): tiles cursed or
     // purified before FALLEN/PURIFIED_TILE_FIELDS rode on those paths
     // may carry a stack they have no right to — a stack on cursed
@@ -5565,6 +5605,42 @@ export const handlers = {
             .run(Math.max(0, eye - EYE_SPAWN_RELIEF), now, ownerKey);
         }
       }
+    }
+    // The seed-calm is reckoned last, over everything this
+    // settle may have cursed or corrupted.
+    await this.settleSeedCalm(ownerKey);
+  },
+
+  /** The calm made true on the tiles themselves (the
+   *  Seed-Calm, Nigel 2026-10-17): every cursed tile within a
+   *  held seed's reach has its curse strength re-reckoned at
+   *  its effective ring — current HP clamps down when the
+   *  calm falls on it — and a tile whose calm has COLLAPSED
+   *  (its stored depth is shallower than its natural ring
+   *  allows) re-thickens by the difference. Tiles the calm
+   *  has never touched are left exactly as they were. */
+  async settleSeedCalm(ownerKey: string) {
+    const seedHexes = await heldSeedHexes(ownerKey);
+    const mood = (await getWorldMood()).mood;
+    const tiles = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.ownerKey, ownerKey), eq(schema.territoryTiles.cursed, 1)));
+    for (const t of tiles as any[]) {
+      const mapRing = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+      const effRing = calmEffRing(seedHexes, t.q, t.r, mapRing);
+      const baseNatural = 4 + mapRing * 6;
+      const curMax = (t.curseMaxHp as number | null) ?? curseHpFor(mapRing, mood);
+      const curHp = (t.curseHp as number | null) ?? curMax;
+      const inCalm = effRing < mapRing;
+      const wasCalmed = curMax < baseNatural;
+      if (!inCalm && !wasCalmed) continue;
+      const targetMax = curseHpFor(effRing, mood);
+      if (targetMax === curMax) continue;
+      let nextHp = curHp;
+      if (targetMax < curMax) nextHp = Math.min(curHp, targetMax);
+      else nextHp = Math.min(targetMax, curHp + (targetMax - curMax));
+      await db.update(schema.territoryTiles)
+        .set({ curseHp: nextHp, curseMaxHp: targetMax })
+        .where(eq(schema.territoryTiles.id, t.id));
     }
   },
 
