@@ -50,6 +50,11 @@ export interface GrimoireState { glyphs: GrimoireGlyph[]; spells: GrimoireSpell[
  *  workshop editor, defaults for new spells. */
 export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; def: number }[]> = {
   springleaf: [],
+  shardrain: [
+    { key: "diceBase", label: "Dice that always fall (d6)", def: 2 },
+    { key: "dicePerLevel", label: "Extra dice per attunement level in the spell's element (d6)", def: 1 },
+    { key: "maxHexes", label: "Hexes the rain can cover at the Table", def: 3 },
+  ],
   seal: [
     { key: "riposte", label: "Riposte power (harm answered to the striker)", def: 3 },
     { key: "brightBonus", label: "Extra riposte while an Engine burns", def: 1 },
@@ -171,6 +176,26 @@ export function defaultGrimoire(): GrimoireState {
     blurb: "Stands in the path of an incoming column of enemies, stops it, and redirects it back three hexes in a random direction — before the column reroutes to its original goal. Its referee woke with the columns: cast it on the land a column's traced line crosses, and the line breaks on it.",
     numbers: {},
     forms: { unaligned: "The Springleaf Ward", tide: "Tide Springleaf", sky: "Sky Springleaf", stone: "Stone Springleaf", root: "Root Springleaf", fire: "Fire Springleaf" },
+    builtin: true,
+  });
+  // SHARD RAIN (Nigel, 2026-10-17): its OWN spell, not the Crown
+  // Shard's greater form — a rune written over up to three hexes
+  // of ground. When the dark stands on its covered ground, the
+  // sky opens ONCE: 2d6, plus 1d6 per attunement LEVEL in the
+  // spell's element (the caster's level, snapshotted at the
+  // cast), rolled as ONE POOL and split between every enemy
+  // standing on the covered hexes. Its glyph is owed — one of
+  // the five undrawn roots; its rain, though, Nigel has drawn.
+  spells.push({
+    key: "shardrain",
+    name: "Shard Rain",
+    kind: "rune",
+    engine: "shardrain",
+    glyphId: null,
+    cost: 5,
+    blurb: "A doom written over up to three hexes of ground: when the dark stands on its covered ground, the sky opens once — two dice, plus one more per attunement level in the spell's element — rolled as one pool and split between every enemy standing under it.",
+    numbers: {},
+    forms: { unaligned: "Shard Rain", tide: "Tide Shard Rain", sky: "Sky Shard Rain", stone: "Stone Shard Rain", root: "Root Shard Rain", fire: "Fire Shard Rain" },
     builtin: true,
   });
   return { glyphs, spells };

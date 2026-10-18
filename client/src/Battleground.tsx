@@ -676,6 +676,27 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           addLog(`${grimName(grune)} turns ${attacker.name} aside — hurled to far ground, its strike lost in the turning!`);
           return;
         }
+        if (grune.engine === "shardrain") {
+          // SHARD RAIN (Nigel, 2026-10-17): one pool, split over
+          // every dark thing standing on the covered ground —
+          // on the map, the rune's own hex. The dice: the base,
+          // plus one per attunement level the caster held in
+          // the spell's element when they wrote it.
+          const here = enemiesRef.current.filter(e => e.tileId === target.tileId || e.id === attacker.id);
+          if (here.length) {
+            const dice = Math.max(1, (grune.nums.diceBase ?? 2) + (grune.nums.dicePerLevel ?? 1) * (grune.nums.rainLevel ?? 0));
+            const rolls: number[] = [];
+            let pool = 0;
+            for (let i = 0; i < dice; i++) { const r = 1 + Math.floor(Math.random() * 6); rolls.push(r); pool += r; }
+            const share = Math.floor(pool / here.length);
+            let rem = pool - share * here.length;
+            const harm = new Map<string, number>();
+            for (const e of here) { harm.set(e.id, share + (rem > 0 ? (rem--, 1) : 0)); }
+            setEnemies(prev => prev.map(e => harm.has(e.id) ? { ...e, hp: Math.max(0, e.hp - (harm.get(e.id) ?? 0)) } : e));
+            gst.spent = true;
+            addLog(`${grimName(grune)} FALLS — the sky opens: ${dice} dice (${rolls.join(" + ")}) make a pool of ${pool}, split over ${here.length} of the dark — ${share} harm each, the first in line taking the remainder!`);
+          }
+        }
         if (grune.engine === "shard") {
           const here = enemiesRef.current.filter(e => e.tileId === target.tileId || e.id === attacker.id);
           const greatest = here.length ? Math.max(...here.map(e => e.power)) : 0;

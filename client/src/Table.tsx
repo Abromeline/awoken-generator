@@ -30,7 +30,7 @@ import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 
-const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil };
+const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain };
 
 /** A spell as the Table reads it — from the Grimoire (Nigel,
  *  2026-10-17): the workshop's book is the data of record now;
@@ -674,8 +674,8 @@ export default function Table() {
                           return;
                         }
                         if (placing.kind === "rune") {
-                          if (defs[placing.root]?.engine === "blades") {
-                            const maxT = defs[placing.root]?.numbers.maxTargets ?? 3;
+                          if (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") {
+                            const maxT = defs[placing.root]?.engine === "shardrain" ? (defs[placing.root]?.numbers.maxHexes ?? 3) : (defs[placing.root]?.numbers.maxTargets ?? 3);
                             setBladePicks(prev => prev.includes(h.id) ? prev.filter(x => x !== h.id) : prev.length >= maxT ? prev : [...prev, h.id]);
                             return;
                           }
@@ -817,7 +817,8 @@ export default function Table() {
               <div className="placing-bar">
                 <span className="placing-text">
                   {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awoken</strong> to restore {you?.healAmount ?? 5} HP (⚡{healDef?.cost ?? 2}).</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
                   {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>your Awoken holds</strong>: the ward will stand on one of its edges.</>}
                   {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
@@ -840,8 +841,8 @@ export default function Table() {
                     </span>
                   );
                 })()}
-                {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && bladePicks.length > 0 && (
-                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); setPlacing(null); setBladePicks([]); setPourPts(0); }}>Lay them · ⚡{defs[placing.root]?.cost ?? 4}</button>
+                {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
+                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); setPlacing(null); setBladePicks([]); setPourPts(0); }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
                 )}
                 <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); }}>Set the light down</button>
               </div>

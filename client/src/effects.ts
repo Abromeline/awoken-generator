@@ -16,6 +16,7 @@ import glyphSeal from "./assets/effects/glyph-seal.gif";
 import glyphTrees from "./assets/effects/glyph-trees.gif";
 import glyphLattice from "./assets/effects/glyph-lattice.gif";
 import glyphShard from "./assets/effects/glyph-shard.gif";
+import shardRain from "./assets/effects/shard-rain.gif";
 
 /** Projectile sprite per element, plus the unaligned gold spark. */
 export const PROJECTILE_GIF: Record<string, string> = {
@@ -38,4 +39,5 @@ export const ANIMATED_GLYPH: Record<string, string> = {
   trees: glyphTrees,
   lattice: glyphLattice,
   shard: glyphShard,
+  shardrain: shardRain,
 };

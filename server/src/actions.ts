@@ -5253,13 +5253,28 @@ export const handlers = {
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
       const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) : 1;
+      // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
+      // level in the spell's element rides inside the stored
+      // numbers, snapshotted at the cast as HP is — on the map
+      // the rain covers the one hex the rune is written on, and
+      // the Battleground splits its pool over the dark standing
+      // there when it springs.
+      let numsToStore: Record<string, number> = { ...(spell.numbers ?? {}) };
+      if (spell.engine === "shardrain") {
+        let lvl = 0;
+        if (hue !== "unaligned") {
+          const pools = await attunementPools(ownerKey);
+          lvl = attunementLevel(pools[hue] ?? 0);
+        }
+        numsToStore = { ...numsToStore, rainLevel: lvl };
+      }
       // The Lattice holds its ground with a health rating, like
       // the holding wards; harm and snare runes carry none.
       const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pour, false) : 0;
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(spell.numbers ?? {}), hp, charges, pour, hp, Date.now());
+        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pour, hp, Date.now());
       return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, pour, hp };
     }
 

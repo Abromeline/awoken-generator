@@ -155,6 +155,9 @@ interface Working {
   ownerKey: string;
   ownerName: string;
   hex: string | null;
+  /** Multi-hex casts (the Three Blades, Shard Rain) share a
+   *  group: the rain falls once for the whole covered ground. */
+  group?: string;
   hexA: string | null;
   hexB: string | null;
   hp: number;
@@ -585,6 +588,32 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(rune.nums.energyCap ?? 3, moved * (rune.nums.energyPerDark ?? 1)));
     tell(room, `${rune.name} turns the dark aside — ${moved} thrown back to far ground, their strikes forgotten.`);
     room.workings = room.workings.filter(w => w !== rune);
+  } else if (rune.engine === "shardrain") {
+    // SHARD RAIN (Nigel, 2026-10-17): ONE pool over ALL the
+    // covered ground. The group's hexes gather every foe
+    // standing under the same writing; the dice — the base,
+    // plus one per attunement level snapshotted at the cast —
+    // roll once, and the pool splits between them all, the
+    // remainder walking down the line one point at a time.
+    const group = rune.group ?? rune.id;
+    const covered = room.workings.filter(w => w.kind === "rune" && w.engine === "shardrain" && (w.group ?? w.id) === group);
+    const hexSet = new Set(covered.map(w => w.hex));
+    const foes = [...room.dark.values()].filter(e => hexSet.has(e.hex));
+    if (foes.length) {
+      const dice = Math.max(1, (rune.nums.diceBase ?? 2) + (rune.nums.dicePerLevel ?? 1) * (rune.nums.rainLevel ?? 0));
+      const rolls: number[] = [];
+      let pool = 0;
+      for (let i = 0; i < dice; i++) { const r = 1 + Math.floor(Math.random() * 6); rolls.push(r); pool += r; }
+      const share = Math.floor(pool / foes.length);
+      let rem = pool - share * foes.length;
+      tell(room, `${rune.name} FALLS — the sky opens over ${hexSet.size} hex${hexSet.size === 1 ? "" : "es"}: ${dice} dice (${rolls.join(" + ")}) make a pool of ${pool}, split over ${foes.length} of the dark — ${share} harm each${rem ? `, and ${rem} of them take one more` : ""}.`);
+      for (const e of foes) {
+        const d = share + (rem > 0 ? (rem--, 1) : 0);
+        e.hp -= d;
+        if (e.hp <= 0) fellDark(room, e, caster);
+      }
+      room.workings = room.workings.filter(w => !covered.includes(w));
+    }
   } else if (rune.engine === "shard") {
     const greatest = Math.max(...darkHere.map(e => e.power));
     if (greatest >= (rune.nums.minPower ?? 5)) {
@@ -1178,6 +1207,9 @@ function handleConnection(ws: WebSocket): void {
       if (def.engine === "blades") {
         const maxT = def.numbers.maxTargets ?? 3;
         if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is planted on one to ${maxT} hexes.` })); return; }
+      } else if (def.engine === "shardrain") {
+        const maxT = def.numbers.maxHexes ?? 3;
+        if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is written over one to ${maxT} hexes of ground.` })); return; }
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
         if (!SUMMONABLE_HEXES.includes(hx)) { ws.send(JSON.stringify({ type: "error", message: "Runes are written on the field's ground — not on the star-seed's hex." })); return; }
@@ -1205,11 +1237,27 @@ function handleConnection(ws: WebSocket): void {
         if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
       }
       const hp = hpForCast(def, caster.tenderLevel, pour, false);
+      // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
+      // LEVEL in the spell's element is snapshotted at the cast,
+      // as HP is — the rain that falls later rolls by the sky
+      // the caster stood under when they wrote it. An unaligned
+      // cast rolls the base dice alone.
+      let rainNums: Record<string, number> = { ...def.numbers };
+      if (def.engine === "shardrain") {
+        let lvl = 0;
+        if (hue !== "unaligned" && caster.expKey) {
+          const pools = await attunementPools(caster.expKey).catch(() => null);
+          if (pools) lvl = attunementLevel(pools[hue] ?? 0);
+        }
+        rainNums = { ...def.numbers, rainLevel: lvl };
+      }
+      const group = randomUUID();
       for (const hx of hexes) {
         room.workings.push({
-          id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: { ...def.numbers }, name: def.forms[hue] ?? def.name, hue,
+          id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: rainNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
           hp, maxHp: hp, pour, stops: 0, charges: def.engine === "blade" ? (def.numbers.charges ?? 2) : 1,
+          group,
         });
       }
       tell(room, hexes.length > 1
