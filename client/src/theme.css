@@ -2485,17 +2485,13 @@ body.defeat-flash {
 .zodiac-note{max-width:1180px;margin:10px auto;color:#9aa3b8;font-size:13.5px}
 .zodiac-note.small{font-size:11.5px;margin-top:12px;line-height:1.45}
 
-/* The main screen's attunement tracker (Nigel, 2026-10-17):
-   the Tender's level and every hue's standing, at a glance. */
-.attunement-tracker{max-width:760px;margin:14px auto 4px;padding:10px 14px 12px;background:rgba(16,13,26,0.72);border:1px solid rgba(184,155,94,0.4);border-radius:12px}
-.attunement-tracker-head{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#e8d5a0;font-size:13px;margin-bottom:8px}
-.attunement-tracker-title{letter-spacing:0.22em;text-transform:uppercase;font-size:11px;opacity:0.85}
-.attunement-tracker-row{display:flex;gap:8px;flex-wrap:wrap}
-.attunement-chip{flex:1 1 100px;display:flex;flex-direction:column;gap:3px;padding:7px 9px;background:rgba(255,255,255,0.03);border:1px solid rgba(232,213,160,0.18);border-radius:9px;color:#e8dcc3}
-.attunement-chip-lv{font-size:12px;font-weight:600;color:#e8d5a0}
-.attunement-chip-bar{display:block;height:4px;background:rgba(232,213,160,0.15);border-radius:2px;overflow:hidden}
-.attunement-chip-bar span{display:block;height:100%;background:linear-gradient(90deg,#b89b5e,#e8d5a0)}
-.attunement-chip-pts{font-size:10.5px;opacity:0.75}
+/* The deepen door on the front page (Nigel, 2026-10-18):
+   it stands only while the attunement panel stands open —
+   the front page carries no extra attunement bar of its
+   own; the bar behind the button is the bar, the same as
+   the Territory map's. */
+.aspect-deepen-door{position:fixed;left:16px;bottom:24px;z-index:55;padding:9px 14px;background:rgba(16,13,26,0.92);border:1px solid rgba(184,155,94,0.55);border-radius:999px;color:#e8d5a0;font-size:12.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4)}
+.aspect-deepen-door:hover{background:rgba(184,155,94,0.2)}
 /* The birth-screen grant strip (Nigel, 2026-10-17). */
 .birth-grant{margin-top:10px;padding:9px 11px;background:rgba(16,13,26,0.8);border:1px solid rgba(184,155,94,0.45);border-radius:10px;text-align:left}
 .birth-grant-title{margin:0 0 7px;color:#e8d5a0;font-size:12.5px;letter-spacing:0.06em}
