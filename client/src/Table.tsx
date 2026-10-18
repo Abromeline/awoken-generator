@@ -28,7 +28,7 @@ import glyphBeacon from "./assets/glyphs/beacon.png";
 import glyphBlade from "./assets/glyphs/blade.png";
 import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
-import { ANIMATED_GLYPH } from "./effects";
+import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
 
 const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain };
 
@@ -113,6 +113,7 @@ interface SharedState {
   dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinned: number }[];
   workings: WorkingView[];
   battle: { active: boolean; wave: number };
+  strikes?: { from: string; to: string; element: string; side: "light" | "dark"; killed: boolean }[];
   bastion?: {
     callId: number; kind: string; hostName: string; ambush: boolean;
     pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
@@ -247,6 +248,30 @@ export default function Table() {
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [callKeyInput, setCallKeyInput] = useState("");
+  // VISUALIZED COMBAT (Nigel, 2026-10-17): the referee reports
+  // every strike of the round it just resolved; the Table
+  // flies them — the attacker's element from its hex to its
+  // mark's, the dark answering in a darkened bolt.
+  const [shots, setShots] = useState<{ id: number; from: string; to: string; img: string; dark: boolean; killed: boolean; idx: number }[]>([]);
+  const lastRoundRef = useRef(-1);
+  const shotIdRef = useRef(0);
+  useEffect(() => {
+    if (!shared) return;
+    if (shared.round === lastRoundRef.current) return;
+    lastRoundRef.current = shared.round;
+    const strikes = shared.strikes ?? [];
+    if (!strikes.length) return;
+    const fresh = strikes.map((st) => ({
+      id: ++shotIdRef.current,
+      from: st.from, to: st.to,
+      img: st.side === "dark" ? PROJECTILE_GIF.unaligned : (PROJECTILE_GIF[st.element] ?? PROJECTILE_GIF.unaligned),
+      dark: st.side === "dark", killed: st.killed, idx: shotIdRef.current % 1000,
+    }));
+    setShots(prev => [...prev.slice(-30), ...fresh]);
+    const ids = new Set(fresh.map(f => f.id));
+    const t = setTimeout(() => setShots(prev => prev.filter(x => !ids.has(x.id))), 1500);
+    return () => clearTimeout(t);
+  }, [shared]);
   const [diceOpen, setDiceOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
@@ -711,6 +736,30 @@ export default function Table() {
                   </g>
                 );
               })}
+              <g className="shots-layer">
+                {shots.map((shot, i) => {
+                  const a = FIELD_HEXES.find(x => x.id === shot.from);
+                  const b = FIELD_HEXES.find(x => x.id === shot.to);
+                  if (!a || !b) return null;
+                  const dx = b.x - a.x, dy = b.y - a.y;
+                  return (
+                    <image
+                      key={shot.id}
+                      href={shot.img}
+                      x={a.x - 15} y={a.y - 15} width={30} height={30}
+                      className={shot.dark ? "dark-shot" : undefined}
+                      ref={(el) => {
+                        if (!el || el.dataset.flown) return;
+                        el.dataset.flown = "1";
+                        el.animate([
+                          { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
+                          { transform: `translate(${dx}px, ${dy}px) scale(${shot.killed ? 1.8 : 0.85})`, opacity: shot.killed ? 0 : 0.85 },
+                        ], { duration: 540, delay: i * 55, easing: "cubic-bezier(.25,.7,.3,1)", fill: "forwards" });
+                      }}
+                    />
+                  );
+                })}
+              </g>
             </svg>
             <div className="field-units" aria-hidden={false}>
               {shared.field.map((u) => {

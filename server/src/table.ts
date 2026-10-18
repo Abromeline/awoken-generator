@@ -239,9 +239,23 @@ interface BastionState {
   resolved: boolean;
 }
 
+/** One visible strike of the round just resolved (2026-10-17):
+ *  the referee reports who struck whom, and the Table flies
+ *  the attacker's element across the field — the visualized
+ *  combat Nigel asked for, seated from the Battleground's own
+ *  projectile language. */
+interface Strike {
+  from: string;
+  to: string;
+  element: string;
+  side: "light" | "dark";
+  killed: boolean;
+}
+
 interface Room {
   id: string;
   bastion: BastionState | null;
+  strikes: Strike[];
   players: Map<WebSocket, Player>;
   tale: TaleEntry[];
   sky: { mood: string; description: string; endsAt: string | null };
@@ -390,6 +404,7 @@ function sharedState(room: Room) {
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
+    strikes: room.strikes,
     bastion: room.bastion ? {
       callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
       ambush: room.bastion.ambush, pool: room.bastion.pool, poolMax: room.bastion.poolMax,
@@ -454,6 +469,7 @@ async function getRoom(id: string): Promise<Room> {
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
       bastion: null,
+      strikes: [],
       battle: { active: false, wave: 1, timer: null, ticking: false },
       roundNo: 0,
     };
@@ -781,6 +797,10 @@ async function runRound(room: Room): Promise<void> {
   try {
     await refreshGrimoire().catch(() => {});
     room.roundNo++;
+    room.strikes = [];
+    const witness = (from: string, to: string, element: string, side: "light" | "dark", killed: boolean) => {
+      if (room.strikes.length < 30) room.strikes.push({ from, to, element, side, killed });
+    };
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
     for (const w of room.workings) {
@@ -809,6 +829,7 @@ async function runRound(room: Room): Promise<void> {
         + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0)
         + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush bonus (Nigel, 2026-10-17)
       target.hp -= strikePower;
+      witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", target.hp <= 0);
       if (target.hp <= 0) {
         room.dark.delete(target.hex);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
@@ -848,6 +869,7 @@ async function runRound(room: Room): Promise<void> {
           blow = 0;
           enemy.hp -= (seal.nums.riposte ?? 3) + (engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) : 0);
           seal.stops++;
+          witness(victim.hex, enemy.hex, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", enemy.hp <= 0);
           // The Seal's health rating (Nigel, 2026-10-17): every
           // blow it stops costs it that blow's power in health.
           seal.hp -= enemy.power;
@@ -880,6 +902,7 @@ async function runRound(room: Room): Promise<void> {
           }
         }
         victim.hp -= blow;
+        if (blow > 0) witness(enemy.hex, victim.hex, "dark", "dark", victim.hp <= 0);
         if (enemy.kind === "tangle" && blow > 0) victim.pinned = Math.max(victim.pinned, 1);
         if (victim.hp <= 0) {
           room.field.delete(victim.hex);
