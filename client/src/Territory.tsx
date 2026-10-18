@@ -4637,7 +4637,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   </div>
                 )
               )}
-              {cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
+              {battlePool.includes(a.id) && cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
             </button>
             );
           })}

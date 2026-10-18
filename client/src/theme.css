@@ -2476,6 +2476,12 @@ body.defeat-flash {
 .card-border-frame{position:absolute;pointer-events:none;z-index:6}
 .card-border-frame.fit-hug{inset:0;width:100%;height:100%}
 .card-border-frame.fit-morning{width:283.3%;height:156.6%;left:-91.6%;top:-26.8%;max-width:none;filter:drop-shadow(0 0 10px rgba(255,214,130,.35))}
+/* The raised card wears the border (Nigel, 2026-10-18): in the
+   deck grids the full border shows only on the SELECTED card,
+   lifted over its neighbours; resting cards hide it. */
+.collection-grid .card-tap .card-frame-field{transition:transform .18s ease}
+.collection-grid .card-tap.selected{z-index:5}
+.collection-grid .card-tap.selected .card-frame-field{transform:translateY(-8px) scale(1.045);filter:drop-shadow(0 16px 22px rgba(0,0,0,.55))}
 /* The wake ceremony keeps its own birth frame — never both. */
 /* The wake ceremony (Nigel's ruling, 2026-10-17): the revealed
    card wears the LIVE card border — read and fit as every other

@@ -535,124 +535,13 @@ button { font-family: inherit; }
 .unit-hp.shield{height:3px;margin-bottom:2px;background:rgba(90,140,255,.18)}
 .unit-hp-fill.shield-fill{background:linear-gradient(90deg,#7fb2ff,#cfe4ff)}
 
-/* ════════════════════════════════════════════════════════════════
-   THE BUTTON SKIN at the Table — the Torn Stack (Nigel's
-   direction, approved 2026-10-18; the same law as the app's
-   theme.css). Buttons here are scraps of the one treasure map
-   (paper-map.jpg), torn at the fine irregular edge, bold ink,
-   pockmarked; spent buttons are the grey sheet with legible
-   ink; chosen tabs wear the brighter light with the same ink
-   as their quieter siblings. The text-bearing sheet is never
-   warped. Positions, sizes and behaviour are untouched.
-   ════════════════════════════════════════════════════════════════ */
-:root{
-  --map-paper:url("./assets/paper-map.jpg");
-  --torn:polygon(1% 9%, 6% 3%, 13% 6%, 21% 2%, 30% 5%, 38% 1.5%, 47% 5%, 55% 2%, 63% 6%, 71% 3%, 79% 6%, 87% 2.5%, 93% 7%, 98.5% 4%, 96% 14%, 99% 24%, 95.5% 35%, 99.5% 46%, 96% 57%, 99% 68%, 94.5% 78%, 97.5% 88%, 92% 95%, 95% 98.5%, 84% 95%, 73% 98%, 63% 94.5%, 52% 98.5%, 42% 94%, 31% 97.5%, 21% 93.5%, 13% 97%, 5% 93%, 7.5% 84%, 2% 74%, 5.5% 63%, 1% 52%, 4.5% 41%, 0.5% 30%, 4% 20%, 0.8% 13%);
-  --paper-light:radial-gradient(125% 135% at 50% 42%, rgba(246,232,192,0.34), rgba(246,232,192,0) 62%), linear-gradient(180deg, rgba(58,38,10,0.05), rgba(38,24,6,0.13));
-  --paper-light-on:radial-gradient(125% 135% at 50% 42%, rgba(250,238,200,0.46), rgba(250,238,200,0) 62%), linear-gradient(180deg, rgba(58,38,10,0.03), rgba(38,24,6,0.08));
-  --paper-rolls:linear-gradient(90deg, rgba(30,18,4,0.40), rgba(255,240,200,0.15) 5%, rgba(40,24,6,0.10) 9%, transparent 15%, transparent 85%, rgba(40,24,6,0.10) 91%, rgba(255,240,200,0.15) 95%, rgba(20,12,2,0.42));
-  --paper-pocks:radial-gradient(19px 14px at 10% 20%, rgba(54,32,10,0.5), transparent 70%), radial-gradient(13px 10px at 88% 14%, rgba(48,28,8,0.52), transparent 70%), radial-gradient(16px 12px at 94% 70%, rgba(56,33,10,0.48), transparent 70%), radial-gradient(11px 9px at 20% 82%, rgba(58,34,10,0.5), transparent 70%), radial-gradient(8px 7px at 66% 86%, rgba(58,34,10,0.5), transparent 70%), radial-gradient(7px 5px at 40% 12%, rgba(58,34,10,0.46), transparent 70%), radial-gradient(5px 5px at 56% 60%, rgba(58,34,10,0.44), transparent 70%), radial-gradient(4px 3px at 30% 44%, rgba(58,34,10,0.42), transparent 70%), radial-gradient(21px 15px at 3% 92%, rgba(50,30,10,0.4), transparent 70%), radial-gradient(17px 12px at 99% 94%, rgba(50,30,10,0.38), transparent 70%), radial-gradient(3px 3px at 76% 42%, rgba(58,34,10,0.4), transparent 70%), radial-gradient(6px 4px at 48% 90%, rgba(58,34,10,0.44), transparent 70%), radial-gradient(2.5px 2.5px at 62% 26%, rgba(58,34,10,0.42), transparent 70%), radial-gradient(4px 4px at 82% 52%, rgba(58,34,10,0.4), transparent 70%);
-  --paper-inset:inset 0 0 0 1px rgba(74,50,20,0.4), inset 0 0 26px rgba(74,48,18,0.5), inset 0 -12px 16px rgba(60,40,12,0.35), inset 7px 0 15px rgba(74,48,18,0.28);
-  --paper-drop:drop-shadow(0 4px 4px rgba(0,0,0,0.55)) drop-shadow(0 1px 1px rgba(0,0,0,0.5));
-}
-
-.table-btn, .mini-btn, .dice-btn, .die-btn{
-  position:relative;
-  --bpos:78% 30%; --bsz:1020px;
-  background-image:var(--paper-rolls), var(--paper-light), var(--map-paper);
-  background-size:auto, auto, auto, var(--bsz);
-  background-position:center, center, center, var(--bpos);
-  background-repeat:no-repeat;
-  border:none; border-radius:2px;
-  clip-path:var(--torn);
-  color:#2a1f10; font-weight:700;
-  text-shadow:0 1px 0 rgba(255,246,220,0.55), 0 0 14px rgba(246,232,192,0.4);
-  box-shadow:var(--paper-inset);
-  filter:var(--paper-drop);
-}
-.mini-btn, .die-btn{--bpos:30% 38%; --bsz:960px}
-.table-btn::after, .mini-btn::after, .dice-btn::after, .die-btn::after,
-.satchel-tabs button::after{
-  content:""; position:absolute; inset:0; clip-path:inherit; pointer-events:none;
-  mix-blend-mode:multiply; opacity:0.95; background:var(--paper-pocks);
-}
-.table-btn.primary{
-  --bpos:50% 88%; --bsz:1120px;
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  color:#241a0e;
-}
-.table-btn:hover, .mini-btn:hover, .dice-btn:hover, .die-btn:hover{
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-}
-/* Spent: the grey sheet, legible ink. */
-.table-btn:disabled, .mini-btn:disabled{
-  background-image:linear-gradient(rgba(150,138,110,0.34), rgba(150,138,110,0.34)), var(--map-paper);
-  background-size:auto, var(--bsz, 920px);
-  background-position:center, var(--bpos, 34% 26%);
-  color:#43331b; text-shadow:0 1px 0 rgba(246,234,200,0.65), 0 0 10px rgba(246,234,200,0.4);
-  box-shadow:inset 0 0 18px rgba(70,54,26,0.4);
-  opacity:1; filter:drop-shadow(0 2px 2px rgba(0,0,0,0.45));
-}
-/* The satchel tabs: quiet scraps, the chosen one lit — the
-   same ink on both (Nigel's word). */
-.satchel-tabs button{
-  position:relative;
-  background-image:linear-gradient(rgba(112,100,80,0.38), rgba(112,100,80,0.38)), var(--paper-rolls), radial-gradient(125% 135% at 50% 42%, rgba(246,232,192,0.18), rgba(246,232,192,0) 62%), var(--map-paper);
-  background-size:auto, auto, auto, 920px;
-  background-position:center, center, center, 30% 38%;
-  background-repeat:no-repeat;
-  border:none; border-radius:2px;
-  clip-path:var(--torn);
-  color:#241a0e; font-weight:700;
-  text-shadow:0 1px 0 rgba(255,246,220,0.5);
-  box-shadow:var(--paper-inset);
-  filter:drop-shadow(0 3px 3px rgba(0,0,0,0.5));
-}
-.satchel-tabs button.active{
-  background-image:var(--paper-rolls), var(--paper-light-on), var(--map-paper);
-  background-size:auto, auto, auto, 920px;
-  background-position:center, center, center, 60% 4%;
-  color:#241a0e;
-}
-/* Small chips wear the paper without the tear. */
-.hue-chip{
-  background-image:var(--paper-light), var(--map-paper);
-  background-size:auto, auto, 700px;
-  background-position:center, center, 62% 55%;
-  background-repeat:no-repeat;
-  border:1px solid rgba(74,50,20,0.5);
-  color:#2a1f10; font-weight:700;
-  text-shadow:0 1px 0 rgba(255,246,220,0.5);
-}
-.hue-chip.active{
-  background-image:var(--paper-light-on), var(--map-paper);
-  color:#241a0e; border-color:rgba(74,50,20,0.7);
-  box-shadow:0 0 8px rgba(255,210,110,0.35), var(--paper-inset);
-}
-/* The working cards: whole pages of the map, unclipped —
-   a page is read, not torn. */
-.working-card{
-  background-image:var(--paper-light), var(--map-paper);
-  background-size:auto, auto, 1100px;
-  background-position:center, center, 50% 45%;
-  background-repeat:no-repeat;
-  border:1px solid rgba(74,50,20,0.45);
-  color:#2a1f10;
-  box-shadow:var(--paper-inset);
-}
-.working-card:hover{background-image:var(--paper-light-on), var(--map-paper)}
-.working-card.selected{border-color:rgba(74,50,20,0.75); box-shadow:0 0 12px rgba(255,210,110,0.30), var(--paper-inset)}
-.working-card:disabled{
-  background-image:linear-gradient(rgba(150,138,110,0.34), rgba(150,138,110,0.34)), var(--map-paper);
-  color:#43331b;
-}
-.working-text strong{color:#43331b}
-.working-text em{color:#6d5a34}
-.working-text span{color:#3a2c14}
-.heal-medal{border-color:rgba(138,106,28,0.8); color:#8a6a1c; text-shadow:none}
-/* Drawn glyphs inside paper buttons: fine ink line-work. */
-svg.ink-glyph{
-  width:1.15em; height:1.15em; vertical-align:-0.22em;
-  fill:none; stroke:#2a1f10; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;
-}
-svg.ink-glyph .pip{fill:#2a1f10; stroke:none}
+/* The dice, drawn again + the full band's quiet cards (Nigel,
+   2026-10-18). No paper here — the Table's buttons wear their
+   old faces; these rules only shape the dice glyphs and rest
+   the cards that cannot be picked while the band stands full. */
+.die-btn{display:flex; flex-direction:column; align-items:center; gap:2px}
+.die-glyph{width:30px; height:30px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linejoin:round; stroke-linecap:round}
+.die-glyph .pip{fill:currentColor; stroke:none}
+.die-btn span{font-size:12px; letter-spacing:.04em}
+.hand-cards .tcard.locked{opacity:.45; cursor:not-allowed}
+.hand-cards .tcard.locked:hover{transform:none; box-shadow:none}

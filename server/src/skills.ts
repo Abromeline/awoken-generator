@@ -70,20 +70,29 @@ export function heartEffects(ownerKey: string | null | undefined): HeartEffects 
   };
 }
 
-/** The Travelling Company (ruled by Nigel, 2026-10-18): at the
- *  Table a tender's STANDING band is capped — five by the base
- *  law ("tighter, skills matter sooner") — and the tree teaches
- *  a tender to lead more: the Escort (Warden), the Company
- *  Pennant (Binder) and the Written Retinue (Runewright) widen
- *  the band by two each, and the Binder's crown, THE WHOLE
- *  MUSTER, by four. A full muster stands fifteen strong. The
- *  roster itself is never capped; only the band standing on
- *  the field at once. */
+/** The Travelling Company (ruled by Nigel, 2026-10-18; the base
+ *  re-ruled the same day): at the Table a tender's STANDING band
+ *  is capped by the tender's own level — three at Lv 1, four
+ *  from Lv 3, and from Lv 6 the full and true five a full-
+ *  fledged tender leads without skill unlocks — and the tree
+ *  teaches a tender to lead more: the Escort (Warden), the
+ *  Company Pennant (Binder) and the Written Retinue (Runewright)
+ *  widen the band by two each, and the Binder's crown, THE
+ *  WHOLE MUSTER, by four. The roster itself is never capped;
+ *  only the band standing on the field at once. */
 export const COMPANY_BASE = 5;
-export function companyCapFor(ownerKey: string | null | undefined): number {
+export function bandBaseForLevel(level: number): number {
+  if (level >= 6) return 5;
+  if (level >= 3) return 4;
+  return 3;
+}
+export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?: number | null): number {
   // The Muster's width is clause law now (the Living Wheel):
   // the seed writes +2/+2/+2/+4 onto the four company stars.
-  return COMPANY_BASE + fxSum(ownerKey, "company");
+  // Beneath the clauses stands the level base (Nigel, 2026-10-18);
+  // an unknown level (an unbound seat) keeps the old full base.
+  const base = tenderLevel == null ? COMPANY_BASE : bandBaseForLevel(tenderLevel);
+  return base + fxSum(ownerKey, "company");
 }
 
 /**

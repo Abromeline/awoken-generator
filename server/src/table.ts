@@ -430,10 +430,18 @@ function fateDarkDamage(enemy: EnemyUnit, crit: boolean): number {
  *  here (Nigel's naming). Nothing adds yet. */
 function acBonusOf(_unit: FieldUnit): number { return 0; }
 
-async function deckForTender(tenderId: number): Promise<TableCard[]> {
+export async function deckForTender(tenderId: number): Promise<TableCard[]> {
   const ownerKey = tenderOwnerKey(tenderId);
-  const rows = await db.select().from(schema.awakened)
-    .where(eq(schema.awakened.ownerKey, ownerKey));
+  // The Table deals the UN-FIELDED roster only (Nigel, 2026-10-18):
+  // an Awokin standing on the Territory field cannot also stand
+  // here. Champions and the housed court are NOT field placements —
+  // they stay in hand for battles, as the Territory dock promises.
+  const placedRows = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey)).catch(() => [] as { awakenedId: number }[]);
+  const placedIds = new Set(placedRows.map(r => r.awakenedId));
+  const rows = (await db.select().from(schema.awakened)
+    .where(eq(schema.awakened.ownerKey, ownerKey)))
+    .filter(row => !placedIds.has(row.id));
   const cards: TableCard[] = [];
   for (const row of rows.slice(0, 120)) {
     const payload = await awakenedPayloadById(row.id).catch(() => null);
@@ -561,7 +569,7 @@ function sendState(room: Room): void {
         })(),
         maxEnergy: player.maxEnergy,
         band: [...room.field.values()].filter(u => u.ownerKey === player.key).length,
-        bandCap: companyCapFor(player.expKey),
+        bandCap: companyCapFor(player.expKey, player.tenderLevel),
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
         healAmount: player.healAmount,
@@ -1505,13 +1513,14 @@ function handleConnection(ws: WebSocket): void {
         return;
       }
       // The Travelling Company (ruled 2026-10-18): the band
-      // standing on the field is capped — five by the base
-      // law, widened by the Muster roads (companyCapFor).
-      const bandCap = companyCapFor(player.expKey);
+      // standing on the field is capped by the tender's level
+      // (3 at Lv 1, 4 at Lv 3, the true 5 at Lv 6), widened by
+      // the Muster roads (companyCapFor).
+      const bandCap = companyCapFor(player.expKey, player.tenderLevel);
       const myKey = player.key;
       const bandStanding = [...room.field.values()].filter(u => u.ownerKey === myKey).length;
       if (bandStanding >= bandCap) {
-        ws.send(JSON.stringify({ type: "error", message: `Your band stands full — ${bandCap} strong. The road widens it: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
+        ws.send(JSON.stringify({ type: "error", message: `Your band stands full — ${bandCap} strong. Levels widen it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
         return;
       }
       const cost = Math.max(1, card.power);

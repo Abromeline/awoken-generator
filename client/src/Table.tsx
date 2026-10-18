@@ -146,6 +146,29 @@ interface YouState {
 type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
+
+/** The dice wear their shapes again (Nigel, 2026-10-18): every
+ *  die in the pop-up is drawn as its own stone — the triangle,
+ *  the pipped cube, the diamond, the kite, the pentagon, the
+ *  hexagon — never bare text. */
+function DieGlyph({ sides }: { sides: number }) {
+  switch (sides) {
+    case 4:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,5 30,28 4,28" /><polygon points="17,16 22.5,24.5 11.5,24.5" /></svg>);
+    case 6:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><rect x="8" y="8" width="18" height="18" rx="2.5" />{[[13, 12.5], [21, 12.5], [13, 17], [21, 17], [13, 21.5], [21, 21.5]].map(([cx, cy], i) => (<circle key={i} className="pip" cx={cx} cy={cy} r="1.5" />))}</svg>);
+    case 8:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,4 29,17 17,30 5,17" /><line x1="5" y1="17" x2="29" y2="17" /><line x1="17" y1="4" x2="17" y2="17" /><line x1="17" y1="30" x2="17" y2="17" /></svg>);
+    case 10:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,3 28,13 17,31 6,13" /><line x1="6" y1="13" x2="28" y2="13" /></svg>);
+    case 12:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,4 29.5,13 24.5,28.5 9.5,28.5 4.5,13" /><circle className="pip" cx="17" cy="18" r="1.6" /></svg>);
+    case 20:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,3 29,10.5 29,23.5 17,31 5,23.5 5,10.5" /><polygon points="17,11 23.5,22 10.5,22" /></svg>);
+    default:
+      return (<svg className="die-glyph" viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,3 28,13 17,31 6,13" /><line x1="6" y1="13" x2="28" y2="13" /><text x="17" y="24.5" textAnchor="middle" fontSize="8.5" fill="currentColor" stroke="none">%</text></svg>);
+  }
+}
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
 // The field fills the battlefield (Nigel, 2026-10-16): a
 // generated honeycomb, edge to edge — the server owns the
@@ -620,6 +643,7 @@ export default function Table() {
 
   const sky = shared.sky;
   const selectedCard = you && selectedCardId ? you.hand.find(c => c.id === selectedCardId) ?? null : null;
+  const bandFull = !!you && (you.band ?? 0) >= (you.bandCap ?? 5);
   return (
     <div className="table-room">
       <header className="skybar">
@@ -1007,8 +1031,8 @@ export default function Table() {
                 ))}
               </div>
               <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law">⚡ {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
-              <span className="my-band" title="Your travelling company — how many of your Awokin may stand on the field at once. The Muster roads widen it: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
-              <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice"><svg className="ink-glyph" viewBox="0 0 32 32"><rect x="6.5" y="6.5" width="19" height="19" rx="4.5"/><circle className="pip" cx="11.8" cy="11.8" r="1.7"/><circle className="pip" cx="20.2" cy="11.8" r="1.7"/><circle className="pip" cx="16" cy="16" r="1.7"/><circle className="pip" cx="11.8" cy="20.2" r="1.7"/><circle className="pip" cx="20.2" cy="20.2" r="1.7"/></svg> Your dice</button>
+              <span className="my-band" title="Your travelling company — how many of your Awokin may stand on the field at once. Your level widens it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
+              <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice">🎲 Your dice</button>
             </div>
             {notice && <p className="notice-line">{notice}</p>}
             {tab === "I" && (
@@ -1021,12 +1045,12 @@ export default function Table() {
                     return (
                       <div
                         key={card.id}
-                        className={`tcard castable${selected ? " selected" : ""}${afford ? "" : " dim"}`}
+                        className={`tcard castable${selected ? " selected" : ""}${afford ? "" : " dim"}${bandFull && !selected ? " locked" : ""}`}
                         data-element={card.element}
                         role="button"
                         aria-pressed={selected}
-                        title={afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a ring hex.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
-                        onClick={() => setSelectedCardId(selected ? null : card.id)}
+                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a ring hex.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
+                        onClick={() => { if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } setSelectedCardId(selected ? null : card.id); }}
                       >
                         <div className="tcard-banner">
                           <span className="tcard-name">{card.name}</span>
@@ -1038,7 +1062,7 @@ export default function Table() {
                           <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
                         )}
                         <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span><span className="cost-chip">⚡{cost}</span></div>
-                        {cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
+                        {selected && cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
                       </div>
                     );
                   })}
@@ -1148,7 +1172,7 @@ export default function Table() {
                   className="die-btn"
                   onClick={() => { send({ type: "roll", sides: d }); setDiceOpen(false); }}
                 >
-                  d{d}
+                  <DieGlyph sides={d} /><span>d{d}</span>
                 </button>
               ))}
             </div>

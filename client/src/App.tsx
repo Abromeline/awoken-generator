@@ -265,7 +265,7 @@ export function LayeredArt({ item }: { item: Awoken }) {
   );
 }
 
-export function TradingCard({ item, allowDelete = false }: { item: Awoken; allowDelete?: boolean }) {
+export function TradingCard({ item, allowDelete = false, framed = true }: { item: Awoken; allowDelete?: boolean; framed?: boolean }) {
   const queryClient = useQueryClient();
   const cardBorder = useCardBorder();
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
@@ -316,7 +316,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
         ×
       </button>
     )}
-  </article>{cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}</div>;
+  </article>{framed && cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}</div>;
 }
 
 /** The telling spot (Nigel's ruling, 2026-10-15): a Tender tells stories
@@ -827,8 +827,8 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
   return <section className={storyteller ? "collection deck-half" : "collection"}><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
     <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header>{selected && <div className="collection-detail"><button type="button" className="quiet-link" onClick={() => setSelectedId(null)}>Close {selected.name}</button><CreatureCard item={selected} storyteller /></div>}<div className="collection-grid trading">{visible.map((item) => storyteller
-      ? <div key={item.id} className="card-tap" role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} /></div>
-      : <TradingCard key={item.id} item={item} allowDelete={allowDelete} />)}</div></section>;
+      ? <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} /></div>
+      : <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Raise ${item.name} — show its border`} onClick={() => setSelectedId(item.id === selectedId ? null : item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id === selectedId ? null : item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} /></div>)}</div></section>;
 }
 
 function AspectAssignButton() {
