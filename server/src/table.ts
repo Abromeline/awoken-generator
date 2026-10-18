@@ -132,6 +132,9 @@ interface FieldUnit {
   ownerName: string;
   /** Rounds of striking this unit must still sit out (a pin). */
   pinned: number;
+  /** Has this dark thing struck yet? (War Runewright's
+   *  patience, tranche one.) */
+  struck?: boolean;
 }
 
 /** One of the dark, standing on the field. Damage is its filed
@@ -155,6 +158,8 @@ interface EnemyUnit {
   speedGauge: number;
   /** Rounds this dark thing must still sit out (a rune's pin). */
   pinned: number;
+  /** Has this dark thing struck yet? (War Runewright's patience.) */
+  struck?: boolean;
 }
 
 /** A working of the Written Light on the field (Nigel, 2026-10-17:
@@ -190,6 +195,8 @@ interface Working {
   pour: number;
   stops: number;
   charges: number;
+  /** Lore Runewright: this rune's first spring has paid. */
+  firstPaid?: boolean;
 }
 
 const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
@@ -290,6 +297,20 @@ interface Room {
   dark: Map<string, EnemyUnit>;
   battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean };
   roundNo: number;
+  /** Lore Warden: edges where a ward has FALLEN this sitting
+   *  — the next ward raised on one stands written stronger. */
+  writtenEdges?: Set<string>;
+  prevWardEdges?: Set<string>;
+  /** Lore Binder: bindings scheduled to echo a round later. */
+  pendingEchoes?: { hex: string; pin: number; due: number }[];
+}
+
+const edgeKeyOf = (a: string, b: string): string => [a, b].sort().join("|");
+/** Brand Walker's question: does this working's ground —
+ *  its hex, or its edge's two — touch the named hex? */
+function workingBeside(w: Working, hex: string): boolean {
+  const ground = [w.hex, w.hexA, w.hexB].filter((x): x is string => !!x);
+  return ground.includes(hex) || ground.some(g => neighborsOf(g).includes(hex));
 }
 
 const rooms = new Map<string, Room>();
@@ -625,9 +646,15 @@ function engineBright(room: Room, ownerKey: string): boolean {
   return room.workings.some(w => w.engine === "engine" && w.ownerKey === ownerKey);
 }
 
-function beaconReach(w: Working): Set<string> {
+function beaconReach(w: Working, extraRings = 0): Set<string> {
   const out = new Set<string>();
-  for (const hx of [w.hexA, w.hexB]) if (hx) { out.add(hx); for (const n of neighborsOf(hx)) out.add(n); }
+  let frontier: string[] = [];
+  for (const hx of [w.hexA, w.hexB]) if (hx) { out.add(hx); frontier.push(hx); }
+  for (let ring = 0; ring < 1 + extraRings; ring++) {
+    const next: string[] = [];
+    for (const hx of frontier) for (const n of neighborsOf(hx)) if (!out.has(n)) { out.add(n); next.push(n); }
+    frontier = next;
+  }
   return out;
 }
 
@@ -648,6 +675,15 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
   if (!rune) return;
   fired.add(rune.id);
   const caster = seatByKey(room, rune.ownerKey) ?? null;
+  const seff = workingEffects(caster?.expKey);
+  // The Remembering Ray (tranche one): Lore keeps the tale
+  // of every spring — +1 Tender EXP to the rune's Tender.
+  if (caster?.expKey && seff.rememberingRay) void awardTenderExp(caster.expKey, 1).catch(() => {});
+  // Lore Runewright: the first spring of each rune pays.
+  if (caster && seff.loreRunewright && !rune.firstPaid) {
+    rune.firstPaid = true;
+    caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + 1);
+  }
   const bright = caster && engineBright(room, caster.key) ? 1 : 0;
   if (rune.engine === "lattice") {
     // The Lattice holds with a health rating (Nigel, 2026-10-17):
@@ -664,6 +700,12 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       }
     }
     if (heldCount) tell(room, `${rune.name} springs — the floor is the snare, and ${heldCount} of the dark stand bound in light.`);
+    // Lore Binder (tranche one): the binding ECHOES a round
+    // later at half strength on the same ground.
+    if (seff.loreBinder && heldCount > 0) {
+      room.pendingEchoes ??= [];
+      room.pendingEchoes.push({ hex, pin: Math.max(1, Math.floor((rune.nums.pinRounds ?? 2) / 2)), due: room.roundNo + 1 });
+    }
     if (rune.hp <= 0) {
       room.workings = room.workings.filter(w => w !== rune);
       tell(room, `${rune.name} is worn through and goes out, spent and honored.`);
@@ -672,7 +714,10 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     }
   } else if (rune.engine === "blade" || rune.engine === "blades") {
     const eff = workingEffects(caster?.expKey);
-    const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0));
+    const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
+      // War Runewright (tranche one): sprung on dark that has
+      // not yet struck, the writing deals +2.
+      + (eff.warRunewright && darkHere.some(e => !e.struck) ? 2 : 0);
     tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
     let felledByRune = 0;
     for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) { felledByRune++; fellDark(room, e, caster); } }
@@ -722,12 +767,18 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       room.workings = room.workings.filter(w => !covered.includes(w));
     }
   } else if (rune.engine === "shard") {
-    const greatest = Math.max(...darkHere.map(e => e.power));
+    // Falling Light (tranche one): the Shard reckons its
+    // ground one ring wider — the fall measures, and lands
+    // on, the neighbouring hexes' dark as well.
+    const foes = seff.fallingLight
+      ? [...room.dark.values()].filter(e => e.hex === hex || neighborsOf(hex).includes(e.hex))
+      : darkHere;
+    const greatest = Math.max(...foes.map(e => e.power));
     if (greatest >= (rune.nums.minPower ?? 5)) {
       const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour * (rune.nums.harmPerPoint ?? 1);
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
       let felledByShard = 0;
-      for (const e of darkHere) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
+      for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
       if (caster && workingEffects(caster.expKey).hungryInk && felledByShard > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByShard);
       room.workings = room.workings.filter(w => w !== rune);
     }
@@ -900,6 +951,25 @@ async function runRound(room: Room): Promise<void> {
     };
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
+    // Lore Binder's echoes land a round after the spring.
+    if (room.pendingEchoes?.length) {
+      const due = room.pendingEchoes.filter(e2 => e2.due <= room.roundNo);
+      room.pendingEchoes = room.pendingEchoes.filter(e2 => e2.due > room.roundNo);
+      for (const e2 of due) {
+        const d = room.dark.get(e2.hex);
+        if (d) { d.pinned = Math.max(d.pinned, e2.pin); tell(room, `The binding echoes — the dark on the written ground is held again, fainter and faithful.`); }
+      }
+    }
+    // Lore Warden's ledger: an edge whose ward stood at the
+    // last tending and stands no longer is WRITTEN.
+    {
+      const cur = new Set(room.workings.filter(w => w.kind === "ward").map(w => edgeKeyOf(w.hexA ?? "", w.hexB ?? "")));
+      if (room.prevWardEdges) {
+        room.writtenEdges ??= new Set();
+        for (const e2 of room.prevWardEdges) if (!cur.has(e2)) room.writtenEdges.add(e2);
+      }
+      room.prevWardEdges = cur;
+    }
     const effBySeat = new Map<string, ReturnType<typeof workingEffects>>();
     const effOf = (key: string) => {
       const seat = seatByKey(room, key);
@@ -939,8 +1009,22 @@ async function runRound(room: Room): Promise<void> {
         if (dd < best) { best = dd; target = e; }
       }
       if (!target) return;
-      const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey && (w.hexA === unit.hex || w.hexB === unit.hex));
-      const bcnWard = room.workings.find(w => w.engine === "beacon" && w.ownerKey === unit.ownerKey && beaconReach(w).has(target.hex));
+      // The Banner's Reach (tranche one): a holder's Standard
+      // blesses the hexes NEIGHBOURING its two as well.
+      const myEff = workingEffects(seatByKey(room, unit.ownerKey)?.expKey);
+      const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey
+        && (w.hexA === unit.hex || w.hexB === unit.hex
+          || (myEff.bannerReach && ((w.hexA && neighborsOf(w.hexA).includes(unit.hex)) || (w.hexB && neighborsOf(w.hexB).includes(unit.hex))))));
+      // The Bright Pillar + Falling Light (tranche one): the
+      // Beacon's reach widens a ring per gift, and a Pillar's
+      // light serves the WHOLE party, not its Tender alone.
+      const bcnWard = room.workings.find(w => {
+        if (w.engine !== "beacon") return false;
+        const oEff = workingEffects(seatByKey(room, w.ownerKey)?.expKey);
+        const rings = (oEff.brightPillar ? 1 : 0) + (oEff.fallingLight ? 1 : 0);
+        if (!beaconReach(w, rings).has(target.hex)) return false;
+        return w.ownerKey === unit.ownerKey || oEff.brightPillar;
+      });
       const roll = dN(20);
       const bonus = (ELEMENT_HIT_BONUS[unit.card.element] ?? 0)
         + fateLevelBonus(unit.card.level ?? 1)
@@ -1008,6 +1092,7 @@ async function runRound(room: Room): Promise<void> {
           if (enemy.kind === "unraveler") victim = standingNow.reduce((a, b) => (b.card.power > a.card.power ? b : a));
           else if (enemy.kind === "fray") victim = standingNow.reduce((a, b) => (b.hp < a.hp ? b : a));
           else victim = standingNow[Math.floor(Math.random() * standingNow.length)];
+          enemy.struck = true;
           const roll = dN(20);
           const bonus = fateLevelBonus(enemy.lvl);
           const ac = victim.card.toughness + acBonusOf(victim);
@@ -1017,7 +1102,13 @@ async function runRound(room: Room): Promise<void> {
             if (roll === 1) tell(room, `The ${enemy.label}'s blow goes wide — a cast of one.`);
             return;
           }
-          let dmg = fateMitigate(fateDarkDamage(enemy, roll === 20), victim.card.toughness, enemy.lvl);
+          // Brand Walker (tranche one): dark standing beside
+          // a holder's FIRE working strikes at −1 power —
+          // lit, and wary.
+          const wary = room.workings.some(w => w.hue === "fire"
+            && workingEffects(seatByKey(room, w.ownerKey)?.expKey).brandWalker
+            && workingBeside(w, enemy.hex));
+          let dmg = fateMitigate(fateDarkDamage(wary ? { ...enemy, power: Math.max(0, enemy.power - 1) } : enemy, roll === 20), victim.card.toughness, enemy.lvl);
           const edgeWards = room.workings.filter(w => w.kind === "ward" && w.ownerKey === victim.ownerKey &&
             ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
           const seal = edgeWards.find(w => w.engine === "seal");
@@ -1032,6 +1123,21 @@ async function runRound(room: Room): Promise<void> {
             const brightTerm = engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) + (sealEff.millwright ? 1 : 0) : 0;
             enemy.hp -= (sealEff.keystoneRiposte ? enemy.power : (seal.nums.riposte ?? 3)) + brightTerm;
             seal.stops++;
+            // The Remembering Ray keeps this tale too.
+            const sealSeat = seatByKey(room, seal.ownerKey);
+            if (sealEff.rememberingRay && sealSeat?.expKey) void awardTenderExp(sealSeat.expKey, 1).catch(() => {});
+            // War Warden (tranche one): the stopped strike
+            // splashes — the striker's hex-neighbours are
+            // wounded for 1 by the ward's answering light.
+            if (sealEff.warWarden) {
+              for (const nHex of neighborsOf(enemy.hex)) {
+                const nDark = room.dark.get(nHex);
+                if (nDark && nDark !== enemy) {
+                  nDark.hp -= 1;
+                  if (nDark.hp <= 0) fellDark(room, nDark, sealSeat ?? null);
+                }
+              }
+            }
             witness(victim.hex, enemy.hex, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", true, enemy.hp <= 0);
             // The Seal's health rating (Nigel, 2026-10-17):
             // every blow it stops costs it that blow's power.
@@ -1455,6 +1561,10 @@ function handleConnection(ws: WebSocket): void {
       // riposte, the Engine's deeper song.
       let hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
       hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0);
+      // Lore Warden (tranche one): a ward raised on an edge
+      // where one of yours fell stands at +2 HP — the edge
+      // remembers its last state.
+      if (eff.loreWarden && room.writtenEdges?.has(edgeKeyOf(hexA, hexB))) hp += 2;
       const wardNums: Record<string, number> = { ...def.numbers };
       if (def.engine === "seal") {
         wardNums.stops = (wardNums.stops ?? 3) + eff.sealStops + (hue === "stone" ? eff.deepSetSealStops : 0);

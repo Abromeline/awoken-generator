@@ -5374,7 +5374,11 @@ export const handlers = {
         const flying = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'standard'").get(ownerKey) as any;
         if (flying) badRequest("One Standard per Tender — yours already flies on the map.");
       }
-      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      // Ebb Walker (tranche one): a Tide working cast on Tide
+      // or neutral ground costs 1⚡ less.
+      const ebbWard = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
+      const wardCost = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
+      if (!(await spendEnergy(ownerKey, wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
       // The health rating (Nigel, 2026-10-17): holding wards are
       // raised with health grown from the book's base, the
@@ -5400,7 +5404,7 @@ export const handlers = {
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
         .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pour, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: spell.cost, pour, hp };
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour, hp };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -5412,7 +5416,9 @@ export const handlers = {
       const existing = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell')").get(ownerKey, tileId) as any;
       if (existing) badRequest("That ground is already written — one writing per hex.");
       if (spell.engine === "blades") badRequest("The Three Blades are planted a hex at a time on the map — cast once per hex here.");
-      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      const ebbRune = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
+      const runeCost = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
+      if (!(await spendEnergy(ownerKey, runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
       const effR = workingEffects(ownerKey);
       const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
@@ -5443,7 +5449,7 @@ export const handlers = {
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
         .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pour, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, pour, hp };
+      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: runeCost, pour, hp };
     }
 
     badRequest("That page of the book cannot be cast on the land.");

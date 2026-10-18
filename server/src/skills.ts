@@ -63,6 +63,40 @@ export interface WorkingEffects {
   crownThreshold: number | null;
   /** Split Writing: the Three Blades may plant a fourth blade. */
   bladesExtra: number;
+  /** The Banner's Reach: the Standard's blessing covers the
+   *  hexes neighbouring its two as well. */
+  bannerReach: boolean;
+  /** The Bright Pillar: the Beacon's reach widens one ring,
+   *  and dark lit by it is struck at +1 by the whole party. */
+  brightPillar: boolean;
+  /** Falling Light: the Beacon and the Crown Shard reckon
+   *  their ground one ring wider. */
+  fallingLight: boolean;
+  /** Brand Walker: dark standing beside your Fire workings
+   *  strikes at −1 power, lit and wary. */
+  brandWalker: boolean;
+  /** Ebb Walker: your Tide workings cost 1⚡ less on Tide or
+   *  neutral ground (the land's clause; the Table's field
+   *  has no ground to judge, so it sleeps there). */
+  ebbWalker: boolean;
+  /** War Warden: a strike your ward stops also wounds the
+   *  striker's hex-neighbours for 1. */
+  warWarden: boolean;
+  /** Lore Warden: a ward that falls leaves its edge written —
+   *  the next ward raised on that edge stands at +2 HP. */
+  loreWarden: boolean;
+  /** Lore Binder: a sprung rune's binding echoes a round
+   *  later at half strength. */
+  loreBinder: boolean;
+  /** Lore Runewright: the first time each of your runes
+   *  springs in a battle, it pays you +1⚡. */
+  loreRunewright: boolean;
+  /** The Remembering Ray: +1 Tender EXP whenever one of your
+   *  wards or runes springs in battle. */
+  rememberingRay: boolean;
+  /** War Runewright: a rune sprung on dark that has not yet
+   *  struck deals +2. */
+  warRunewright: boolean;
 }
 
 export function workingEffects(ownerKey: string | null | undefined): WorkingEffects {
@@ -88,5 +122,16 @@ export function workingEffects(ownerKey: string | null | undefined): WorkingEffe
     hungryInk: has("r_hungry"),
     crownThreshold: has("r_crown") ? 4 : null,
     bladesExtra: has("r_split") ? 1 : 0,
+    bannerReach: has("w_banner"),
+    brightPillar: has("w_pillar"),
+    fallingLight: has("sky_runewright_n"),
+    brandWalker: has("fire_warden_n"),
+    ebbWalker: has("tide_binder_n") || has("tide_runewright_n"),
+    warWarden: has("hybW_warground"),
+    loreWarden: has("hybW_lore"),
+    loreBinder: has("hybB_lore"),
+    loreRunewright: has("hybR_lore"),
+    rememberingRay: has("ray_lore"),
+    warRunewright: has("hybR_warground"),
   };
 }
