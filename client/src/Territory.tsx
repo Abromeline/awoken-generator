@@ -565,6 +565,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [spendOpenId, setSpendOpenId] = useState<number | null>(null);
+  // The Eye opens at a tap (Nigel, 2026-10-18): the
+  // Curse's Eye panel no longer stands open on the land —
+  // an eye glyph in the battle row opens it to show how
+  // in danger of attack the land stands.
+  const [eyeOpen, setEyeOpen] = useState(false);
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
   // Wave simulation (preview only, no DB changes)
   const [simActive, setSimActive] = useState(false);
@@ -4019,7 +4024,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         );
       })()}
-      {incursionsQ.data && (() => {
+      {incursionsQ.data && eyeOpen && (() => {
         const inc = incursionsQ.data;
         const nowMs = Date.now();
         const eyeWord = inc.eye >= 100 ? "Under investigation" : inc.eye >= 60 ? "Drawing attention" : inc.eye >= 25 ? "Stirring" : "Hidden";
@@ -4073,6 +4078,28 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             {seedsQ.data && seedsQ.data.seeds.some(sd => sd.state === "fallen") && (
               <div className="curse-eye-line">⭐ {seedsQ.data.seeds.filter(sd => sd.state === "fallen").length} seed{seedsQ.data.seeds.filter(sd => sd.state === "fallen").length > 1 ? "s lie" : " lies"} fallen on your land — fetch or hold them before the dark does. Open a seed's hex in the War-Grounds to choose.</div>
             )}
+            <div className="curse-eye-line" style={{ marginTop: 8 }}>
+        {!battleActive && wavesCleared < 3 && wave && (() => {
+          // Wave recovery (fix list #4): after a victory the next wave
+          // gathers for a while — show the wait instead of inviting a
+          // fight the server would refuse.
+          const readyMs = wave.nextWaveAt ? new Date(wave.nextWaveAt).getTime() - Date.now() : 0;
+          if (readyMs > 0) {
+            const mins = Math.ceil(readyMs / 60000);
+            const label = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
+            return (
+              <button className="abtn" disabled style={{ marginLeft: 8, borderColor: "#666", opacity: 0.75 }}>
+                🌑 Next Unraveling in {label}
+              </button>
+            );
+          }
+          return (
+            <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
+              ⚔ Face the Next Unraveling ({wavesCleared + 1}/3)
+            </button>
+          );
+        })()}
+            </div>
           </div>
         );
       })()}
@@ -4106,23 +4133,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </span>
         )}
 
-        {!battleActive && wavesCleared < 3 && wave && (() => {
-          // Wave recovery (fix list #4): after a victory the next wave
-          // gathers for a while — show the wait instead of inviting a
-          // fight the server would refuse.
-          const readyMs = wave.nextWaveAt ? new Date(wave.nextWaveAt).getTime() - Date.now() : 0;
-          if (readyMs > 0) {
-            const mins = Math.ceil(readyMs / 60000);
-            const label = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
-            return (
-              <button className="abtn" disabled style={{ marginLeft: 8, borderColor: "#666", opacity: 0.75 }}>
-                🌑 Next Unraveling in {label}
-              </button>
-            );
-          }
+        {incursionsQ.data && (() => {
+          const inc = incursionsQ.data;
+          const eyeWord = inc.eye >= 100 ? "Under investigation" : inc.eye >= 60 ? "Drawing attention" : inc.eye >= 25 ? "Stirring" : "Hidden";
+          const danger = inc.eye >= 60 || inc.columns.length > 0;
           return (
-            <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
-              ⚔ Face the Next Unraveling ({wavesCleared + 1}/3)
+            <button className={`abtn eye-toggle${danger ? " warn" : ""}`} onClick={() => setEyeOpen(v => !v)} style={{ marginLeft: 8 }} title="The Curse's Eye — open it to see how in danger of attack your land stands">
+              👁 The Eye — {eyeWord}
+              <span className="curse-eye-bar mini"><span className="curse-eye-fill" style={{ width: `${Math.min(100, inc.eye)}%` }} /></span>
+              {inc.eye}
             </button>
           );
         })()}

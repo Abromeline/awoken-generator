@@ -631,8 +631,13 @@ body.defeat-flash {
   100% { opacity: 0; }
 }
 /* Castle toggle + right-side building panel */
+/* Under the zoom (Nigel, 2026-10-18): the castle and
+   the War-Grounds moved down beneath the compass, whose
+   zoom buttons ride its foot — the pair stacks there,
+   centered under the compass, War-Grounds above the
+   castle as they stood before. */
 .castle-toggle {
-  position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
+  position: fixed; right: 52px; top: 344px;
   width: 56px; height: 56px; border-radius: 50%;
   background: rgba(20,20,35,0.9); border: 2px solid #b89b5e;
   font-size: 28px; cursor: pointer; z-index: 41;
@@ -643,7 +648,7 @@ body.defeat-flash {
 .castle-toggle.open { background: rgba(184,155,94,0.3); border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.4); }
 /* War-Grounds toggle — sits above the castle button, same family */
 .wg-toggle {
-  position: fixed; right: 16px; top: calc(50% - 76px); transform: translateY(-50%);
+  position: fixed; right: 52px; top: 280px;
   width: 56px; height: 56px; border-radius: 50%;
   background: rgba(20,20,35,0.9); border: 2px solid #b89b5e;
   font-size: 26px; cursor: pointer; z-index: 41;
@@ -2553,3 +2558,11 @@ body.defeat-flash {
 .aspect-picker-item:hover{background:rgba(184,155,94,0.16)}
 .aspect-home-msg{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:71;display:flex;gap:10px;align-items:center;background:rgba(16,13,26,0.94);border:1px solid rgba(184,155,94,0.6);color:#e8d5a0;border-radius:10px;padding:9px 13px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,0.45)}
 .aspect-home-msg button{background:none;border:none;color:#e8d5a0;cursor:pointer;font-size:13px}
+
+/* The eye glyph in the battle row (Nigel, 2026-10-18):
+   it carries the Eye's word and its little meter, and it
+   warns in red when the dark is close. */
+.eye-toggle{display:inline-flex;align-items:center;gap:8px;border-color:#4a2a6e;color:#e9ddf5}
+.eye-toggle.warn{border-color:#ff5340;box-shadow:0 0 10px rgba(255,83,64,.35)}
+.curse-eye-bar.mini{display:inline-block;width:64px;flex:none;vertical-align:middle}
+.curse-eye-bar.mini .curse-eye-fill{display:block}
