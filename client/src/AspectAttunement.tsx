@@ -12,13 +12,20 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 /** Aspect attunement panel: hand-drawn element glyphs flowing into meters. Toggled by dock button. */
 export function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, onApplyAspect, targetAwokenId, onDeepenAspect, onOpenZodiac }: { visible: boolean; onClose: () => void; tenderItems: any[]; placedIds: Set<number>; onUpdate: () => void; onApplyAspect: (aspect: any) => void; targetAwokenId?: number | null; onDeepenAspect?: (wornAspect: any) => void; onOpenZodiac?: () => void }) {
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
-  if (!visible) return null;
+  // Both hooks run on EVERY render, in this order — the panel
+  // stays mounted in Territory with `visible` toggling, and a
+  // hook after an early return made the first tap render more
+  // hooks than the render before: React felled the whole tree
+  // (the terrain map's black screen, 2026-10-18). The query
+  // simply sleeps while the panel is closed.
   const { data } = useQuery({
     queryKey: ["aspectAttunement"],
     queryFn: () => api.getAspectAttunement(),
+    enabled: visible,
     refetchInterval: 30000,
     staleTime: 0,
   });
+  if (!visible) return null;
   if (!data) return null;
 
   const elements = [
