@@ -437,6 +437,11 @@ export interface IncursionColumn {
   spawnedAt: number; arrivesAt: number;
   roster: { kind: string; count: number; power: number; hp: number }[];
 }
+export interface BastionCall {
+  id: number; owner_key: string; host_tender_id: number;
+  column_id: number | null; seed_id: number | null;
+  kind: "bastion" | "ambush" | "siege"; state: string; created_at: number;
+}
 export interface StarSeed {
   id: number; tileId: number; q: number | null; r: number | null;
   level: number; state: "fallen" | "held" | "corrupted"; defenses: number; tileCursed: boolean;
@@ -640,6 +645,8 @@ export const api = {
     post<{ ok: boolean }>("claimBonusTile", args),
   getIncursions: () => post<IncursionsView>("getIncursions", {}),
   getSeeds: () => post<SeedsView>("getSeeds", {}),
+  callToArms: (args: { columnId?: number; seedId?: number }) => post<{ ok: boolean; call: BastionCall; already?: boolean }>("callToArms", args),
+  getCalls: () => post<{ calls: BastionCall[] }>("getCalls", {}),
   fetchSeed: (args: { seedId: number; awakenedIds: number[] }) => post<{ ok: boolean; missionId: number; arriveAt: number; travelMs: number }>("fetchSeed", args),
   holdSeed: (args: { seedId: number }) => post<{ ok: boolean; building: any }>("holdSeed", args),
   failIncursion: (args: { columnId: number }) => post<{ ok: boolean; broken: boolean }>("failIncursion", args),

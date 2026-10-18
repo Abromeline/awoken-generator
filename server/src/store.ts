@@ -534,6 +534,16 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS incursion_columns (
   resolved_at INTEGER
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_incursion_columns_owner ON incursion_columns (owner_key, state);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS bastion_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  host_tender_id INTEGER NOT NULL,
+  column_id INTEGER,
+  seed_id INTEGER,
+  kind TEXT NOT NULL DEFAULT 'bastion',
+  state TEXT NOT NULL DEFAULT 'open',
+  created_at INTEGER NOT NULL
+);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS seed_missions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_key TEXT NOT NULL,

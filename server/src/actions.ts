@@ -1074,7 +1074,7 @@ function corruptSeed(ownerKey: string, seed: { id: number; tile_id: number }) {
 /** A column's force, from the Compendium's canon numbers,
     hardened by the hosting Tender's level (incursions scale
     with Tender level). */
-function incursionRoster(size: number, powerTier: number) {
+export function incursionRoster(size: number, powerTier: number) {
   const bonus = Math.max(0, powerTier - 1);
   const kinds = [
     { kind: "fray", share: 0.5, power: 1, hp: 3 },
@@ -5436,6 +5436,55 @@ export const handlers = {
         }
       }
     }
+    // THE SPRINGLEAF SPRINGS (its referee, woken with the
+    // columns, 2026-10-17): a Springleaf Ward standing on the
+    // land a marching column's traced line crosses stops the
+    // column and knocks it back three hexes in a random
+    // direction — its origin shifts, its arrival delays by
+    // three hexes of its own pace, and it reroutes to its goal.
+    // One ward springs per column per settle; the ward is spent.
+    {
+      const marching = sqlite.prepare("SELECT * FROM incursion_columns WHERE owner_key = ? AND state = 'marching'").all(ownerKey) as any[];
+      if (marching.length) {
+        const wards = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND spell_key = 'springleaf'").all(ownerKey) as any[];
+        if (wards.length) {
+          const tilesAll = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+          const tileById = new Map(tilesAll.map(t => [t.id, t]));
+          const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+          for (const col of marching) {
+            const target = col.target_tile_id != null ? tileById.get(col.target_tile_id) : null;
+            if (!target) continue;
+            const oq = Math.round(Number(col.origin_q)), orr = Math.round(Number(col.origin_r));
+            const tq = target.q as number, tr = target.r as number;
+            const steps = Math.max(Math.abs(tq - oq), Math.abs(tr - orr), 1);
+            const line = new Set<string>();
+            for (let i = 0; i <= steps; i++) {
+              const f = i / steps;
+              // cube lerp + round, in axial dress
+              const x = oq + (tq - oq) * f, z = orr + (tr - orr) * f, y = -x - z;
+              let rx = Math.round(x), rz = Math.round(z); const ry = Math.round(y);
+              const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+              if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) { /* y follows */ } else rz = -rx - ry;
+              line.add(`${rx},${rz}`);
+            }
+            const ward = wards.find(w => {
+              if (w.q == null || w.r == null) return false;
+              if (line.has(`${w.q},${w.r}`)) return true;
+              return DIRS.some(([dq, dr]) => line.has(`${Number(w.q) + dq},${Number(w.r) + dr}`));
+            });
+            if (ward) {
+              const perHexMs = (Number(col.arrives_at) - Number(col.spawned_at)) / steps;
+              const delay = Math.round(perHexMs * 3);
+              const [dq, dr] = DIRS[Math.floor(Math.random() * DIRS.length)];
+              sqlite.prepare("UPDATE incursion_columns SET arrives_at = ?, origin_q = ?, origin_r = ? WHERE id = ?")
+                .run(Number(col.arrives_at) + delay, Math.round((Number(col.origin_q) + dq * 3) * 10) / 10, Math.round((Number(col.origin_r) + dr * 3) * 10) / 10, col.id);
+              sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(ward.id);
+              wards.splice(wards.indexOf(ward), 1);
+            }
+          }
+        }
+      }
+    }
     // The Eye: spawn when lit, unanswered, and the break has run.
     const att = sqlite.prepare("SELECT eye, updated_at, break_until FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
     const eye = decayedEye(att, now);
@@ -5671,6 +5720,49 @@ export const handlers = {
     return { ok: true, building: (res as any).building };
   },
 
+  /** THE CALL TO ARMS (Nigel, 2026-10-17): the warning is a
+      standing invitation inside Discord, with the timer on it,
+      naming the event — a BASTION (defend yours, arrived), an
+      AMBUSH (warned ahead, while it still marches — your
+      Awoken strike first and harder), or a SIEGE (a cursed
+      bastion of theirs, to be taken back). The game sends no
+      notification: the host carries this call to their friends
+      themselves, and the Table room answers it. */
+  async callToArms(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const columnId = Math.floor(Number((args as any)?.columnId ?? 0)) || null;
+    const seedId = Math.floor(Number((args as any)?.seedId ?? 0)) || null;
+    if (!columnId && !seedId) badRequest("Call against what — a column, or a cursed bastion?");
+    if (columnId && seedId) badRequest("One call names one event.");
+    let kind = "bastion";
+    if (seedId) {
+      const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(seedId, ownerKey) as any;
+      if (!seed) badRequest("No such seed lies on your land.");
+      if (seed.state !== "corrupted") badRequest("Only a corrupted seed — a cursed bastion — is besieged. That one is not theirs.");
+      kind = "siege";
+    } else {
+      const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
+      if (!col) badRequest("No such column walks your land.");
+      if (col.state === "defeated") badRequest("That column is already broken.");
+      kind = col.state === "marching" ? "ambush" : "bastion";
+    }
+    const existing = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' AND IFNULL(column_id, 0) = IFNULL(?, 0) AND IFNULL(seed_id, 0) = IFNULL(?, 0)")
+      .get(ownerKey, columnId, seedId) as any;
+    if (existing) return { ok: true, call: existing, already: true };
+    const tenderId = Number(ownerKey.replace("tender:", "")) || 0;
+    const ins = sqlite.prepare("INSERT INTO bastion_calls (owner_key, host_tender_id, column_id, seed_id, kind, state, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)")
+      .run(ownerKey, tenderId, columnId, seedId, kind, Date.now()) as any;
+    const call = sqlite.prepare("SELECT * FROM bastion_calls WHERE id = ?").get(Number(ins.lastInsertRowid)) as any;
+    return { ok: true, call };
+  },
+
+  /** My standing calls, for the map's face and the Table. */
+  async getCalls(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const calls = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' ORDER BY created_at ASC").all(ownerKey) as any[];
+    return { calls };
+  },
+
   /** The Eye and its columns, for the map's face. */
   async getIncursions(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
@@ -5713,6 +5805,12 @@ export const handlers = {
     if (col.state === "defeated") return { ok: true, already: true };
     const survivorIds = (Array.isArray((args as any)?.survivorIds) ? (args as any).survivorIds : [])
       .map((n: any) => Math.floor(Number(n))).filter((n: number) => n > 0);
+    // At the Table, guests' Awoken stand beside the host's: each
+    // survivor pair names the Awoken and ITS OWN Tender's key,
+    // verified against the collection it came from.
+    const survivorPairs = (Array.isArray((args as any)?.survivorPairs) ? (args as any).survivorPairs : [])
+      .map((pr: any) => ({ awakenedId: Math.floor(Number(pr?.awakenedId)), ownerKey: String(pr?.ownerKey ?? "") }))
+      .filter((pr: any) => pr.awakenedId > 0 && pr.ownerKey);
     const now = Date.now();
     sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE id = ?").run(now, columnId);
     // A HELD SEED DEFENDED (the personal bastion settlement,
@@ -5757,6 +5855,11 @@ export const handlers = {
       const mine = sqlite.prepare("SELECT id FROM awakened WHERE id = ? AND owner_key = ?").get(awId, ownerKey) as any;
       if (!mine) continue;
       await grantEventXp(xpById, awId, killXp + completionXp);
+    }
+    for (const pr of survivorPairs) {
+      const theirs = sqlite.prepare("SELECT id FROM awakened WHERE id = ? AND owner_key = ?").get(pr.awakenedId, pr.ownerKey) as any;
+      if (!theirs) continue;
+      await grantEventXp(xpById, pr.awakenedId, killXp + completionXp);
     }
     return { ok: true, breakUntil: now + INCURSION_BREAK_MS, killXp, completionXp, xpGains: [...xpById.values()] };
   },

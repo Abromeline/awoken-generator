@@ -113,6 +113,10 @@ interface SharedState {
   dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinned: number }[];
   workings: WorkingView[];
   battle: { active: boolean; wave: number };
+  bastion?: {
+    callId: number; kind: string; hostName: string; ambush: boolean;
+    pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
+  } | null;
 }
 
 interface YouState {
@@ -131,6 +135,7 @@ interface YouState {
   pools?: Record<string, number> | null;
   inventory: string[];
   bound?: string | null;
+  yourCall?: { id: number; kind: string; columnId: number | null; seedId: number | null } | null;
 }
 
 type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
@@ -845,7 +850,24 @@ export default function Table() {
               {shared.battle.active ? (
                 <span className="battle-status">🌑 Wave {shared.battle.wave} — {shared.dark.length} of the dark stand · round {shared.round}</span>
               ) : you ? (
-                <button className="table-btn primary battle-btn" onClick={() => send({ type: "startWave" })}>⚔ Begin the Unraveling — Wave {shared.battle.wave}</button>
+                <>
+                {shared.bastion ? (
+                  <div className="bastion-banner">
+                    ⚔ {shared.bastion.kind.toUpperCase()} — {shared.bastion.hostName}'s call · One pool ⚡{shared.bastion.pool}/{shared.bastion.poolMax}
+                    {shared.bastion.ambush ? " · Ambush: strikes +1" : ""}
+                    {shared.bastion.resolved ? " · the day is decided" : shared.bastion.begun ? " · the battle is joined" : " · waiting for the host to begin"}
+                    {!shared.bastion.begun && !shared.bastion.resolved && you?.yourCall?.id === shared.bastion.callId && (
+                      <button className="table-btn primary battle-btn" onClick={() => send({ type: "startBastion" })}>⚔ Begin the {shared.bastion.kind}</button>
+                    )}
+                  </div>
+                ) : you?.yourCall ? (
+                  <div className="bastion-banner">
+                    📣 Your {you.yourCall.kind.toUpperCase()} call stands — claim this room for it, and your friends' energy joins the pool.
+                    <button className="table-btn primary battle-btn" onClick={() => send({ type: "claimBastion", callId: you.yourCall!.id })}>📣 Claim this room</button>
+                  </div>
+                ) : null}
+                {!shared.bastion && <button className="table-btn primary battle-btn" onClick={() => send({ type: "startWave" })}>⚔ Begin the Unraveling — Wave {shared.battle.wave}</button>}
+                </>
               ) : (
                 <span className="battle-status">The field is at rest. A seated Tender may begin the Unraveling.</span>
               )}

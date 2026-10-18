@@ -49,6 +49,7 @@ export interface GrimoireState { glyphs: GrimoireGlyph[]; spells: GrimoireSpell[
 /** The number fields each engine carries — labels for the
  *  workshop editor, defaults for new spells. */
 export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; def: number }[]> = {
+  springleaf: [],
   seal: [
     { key: "riposte", label: "Riposte power (harm answered to the striker)", def: 3 },
     { key: "brightBonus", label: "Extra riposte while an Engine burns", def: 1 },
@@ -164,10 +165,10 @@ export function defaultGrimoire(): GrimoireState {
     key: "springleaf",
     name: "The Springleaf Ward",
     kind: "ward",
-    engine: "none",
+    engine: "springleaf",
     glyphId: null,
     cost: 3,
-    blurb: "Stands in the path of an incoming column of enemies, stops it, and redirects it back three hexes in a random direction — before the column reroutes to its original goal. Written ahead of its referee: columns do not march yet.",
+    blurb: "Stands in the path of an incoming column of enemies, stops it, and redirects it back three hexes in a random direction — before the column reroutes to its original goal. Its referee woke with the columns: cast it on the land a column's traced line crosses, and the line breaks on it.",
     numbers: {},
     forms: { unaligned: "The Springleaf Ward", tide: "Tide Springleaf", sky: "Sky Springleaf", stone: "Stone Springleaf", root: "Root Springleaf", fire: "Fire Springleaf" },
     builtin: true,
@@ -291,6 +292,10 @@ export async function refreshGrimoire(): Promise<GrimoireState> {
           // alone now (Nigel, 2026-10-17) — a stored book pourCap
           // is retired wherever it lingers.
           delete spell.numbers.pourCap;
+          // The Springleaf woke with the columns (2026-10-17): a
+          // stored book still calling it unwritten (engine
+          // "none") is woken to its true engine at refresh.
+          if (spell.key === "springleaf" && spell.engine === "none") spell.engine = "springleaf";
         }
         for (const seedSpell of seed.spells) {
           if (seedSpell.builtin && !parsed.spells.some(s => s.key === seedSpell.key)) {

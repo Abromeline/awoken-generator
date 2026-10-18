@@ -773,6 +773,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // lines — read from the server, refreshed as the land is.
   const incursionsQ = useQuery({ queryKey: ["incursions"], queryFn: () => api.getIncursions(), refetchInterval: 30000 });
   const seedsQ = useQuery({ queryKey: ["seeds"], queryFn: () => api.getSeeds(), refetchInterval: 30000 });
+  const callsQ = useQuery({ queryKey: ["calls"], queryFn: () => api.getCalls(), refetchInterval: 30000 });
+  const handleCallToArms = async (args: { columnId?: number; seedId?: number }) => {
+    try {
+      await api.callToArms(args);
+      showHexNotice("The call stands — carry it to your friends in Discord. The game sends nothing; the invitation is yours to give.");
+      void callsQ.refetch();
+    } catch (e) { showHexNotice(refusalText(e, "The call could not be raised.")); }
+  };
   const handleFetchSeed = async (seedId: number, awakenedIds: number[]) => {
     try {
       await api.fetchSeed({ seedId, awakenedIds });
@@ -4065,22 +4073,44 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
               <div className="curse-eye-bar"><div className="curse-eye-fill" style={{ width: `${Math.min(100, inc.eye)}%` }} /></div>
               <span className="curse-eye-num">{inc.eye}</span>
             </div>
-            {inc.columns.map(col => col.state === "marching" ? (
+            {inc.columns.map(col => {
+              const call = (callsQ.data?.calls ?? []).find(c => c.column_id === col.id);
+              const invite = col.kind === "siege"
+                ? `⚔️ SIEGE — a force of ${col.size} holds my land. Friends: open the Table in our voice channel and muster at the bastion.`
+                : call?.kind === "ambush"
+                  ? `⚔️ AMBUSH CALLED — a ${col.kind} of ${col.size} reaches my ${col.targetKind === "seed" ? "fallen seed" : "edge"} in ${fmtCountdown(col.arrivesAt - nowMs)}. Friends: open the Table in our voice channel and muster BEFORE it lands — warned ahead, our Awoken strike with the ambush's edge.`
+                  : `⚔️ BASTION — a ${col.kind} of ${col.size} is at my ${col.targetKind === "seed" ? "seed" : "edge"}. Friends: open the Table in our voice channel and muster at the bastion — hold the tide with me.`;
+              return col.state === "marching" ? (
               <div key={col.id} className="curse-eye-line warn">
                 ⚠ ATTACK INCOMING — a {col.kind === "siege" ? "SIEGE" : "raid"} of {col.size} walks for your {col.targetKind === "seed" ? "fallen seed" : "edge"} — here in {fmtCountdown(col.arrivesAt - nowMs)}. Move your companies to meet it.
+                {!call && <button className="abtn small" onClick={() => void handleCallToArms({ columnId: col.id })}>📣 Call to arms — warn your friends</button>}
+                {call && <div className="curse-eye-invite">📣 {call.kind.toUpperCase()} called — carry it to Discord: <em>{invite}</em> Then open the Table together and claim the call.</div>}
               </div>
             ) : (
               <div key={col.id} className="curse-eye-line here">
                 🔥 THE {col.kind === "siege" ? "SIEGE" : "RAID"} IS HERE — {col.size} dark stand at your {col.targetKind === "seed" ? "seed" : "edge"}.
                 <button className="abtn small" onClick={() => startColumnBattle(col)}>⚔ Face them</button>
+                {!call && <button className="abtn small" onClick={() => void handleCallToArms({ columnId: col.id })}>📣 Call to arms</button>}
+                {call && <div className="curse-eye-invite">📣 {call.kind.toUpperCase()} called — carry it to Discord: <em>{invite}</em> Then open the Table together and claim the call.</div>}
               </div>
-            ))}
+            );
+            })}
             {inc.columns.length === 0 && inc.breakUntil > nowMs && (
               <div className="curse-eye-line rest">The land rests — the Eye cannot send another for {fmtCountdown(inc.breakUntil - nowMs)}.</div>
             )}
             {inc.columns.length === 0 && inc.breakUntil <= nowMs && inc.eye >= 25 && (
               <div className="curse-eye-line warn">The Eye is lit — a column is gathering beyond the edge.</div>
             )}
+            {seedsQ.data && seedsQ.data.seeds.filter(sd => sd.state === "corrupted").map(sd => {
+              const call = (callsQ.data?.calls ?? []).find(c => c.seed_id === sd.id);
+              return (
+                <div key={sd.id} className="curse-eye-line here">
+                  💀 A cursed bastion stands on your land — the seed that was, is theirs.
+                  {!call && <button className="abtn small" onClick={() => void handleCallToArms({ seedId: sd.id })}>📣 Call a SIEGE</button>}
+                  {call && <div className="curse-eye-invite">📣 SIEGE called — carry it to Discord: <em>⚔️ SIEGE — a cursed bastion stands on my land, and we take it back. Friends: open the Table in our voice channel and muster — this one wants many hands, and the dark will not give it up gently.</em></div>}
+                </div>
+              );
+            })}
             {seedsQ.data && seedsQ.data.seeds.some(sd => sd.state === "fallen") && (
               <div className="curse-eye-line">⭐ {seedsQ.data.seeds.filter(sd => sd.state === "fallen").length} seed{seedsQ.data.seeds.filter(sd => sd.state === "fallen").length > 1 ? "s lie" : " lies"} fallen on your land — fetch or hold them before the dark does. Open a seed's hex in the War-Grounds to choose.</div>
             )}

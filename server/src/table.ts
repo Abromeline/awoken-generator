@@ -26,10 +26,10 @@ import type { Server } from "node:http";
 import type { Express, Request, Response } from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { eq } from "drizzle-orm";
-import { db, schema } from "./store.js";
+import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
@@ -213,8 +213,32 @@ interface TaleEntry {
   text: string;
 }
 
+/** A BASTION BATTLE at the Table (the Columns, 2026-10-17): a
+ *  host's call to arms, claimed into a room. The seats fight the
+ *  column's true roster; their energy is ONE POOL (joining
+ *  Tenders' energy joins the pool, scaled by level); an AMBUSH
+ *  call — warned ahead, while the column still marched — lends
+ *  every strike +1. Victory and defeat report back to the land. */
+interface BastionState {
+  callId: number;
+  kind: string; // bastion | ambush | siege
+  hostKey: string; // the host seat's owner key (tender:<id>)
+  hostTenderId: number;
+  hostName: string;
+  columnId: number | null;
+  seedId: number | null;
+  roster: { kind: string; count: number; power: number; hp: number }[];
+  size: number;
+  ambush: boolean;
+  pool: number;
+  poolMax: number;
+  begun: boolean;
+  resolved: boolean;
+}
+
 interface Room {
   id: string;
+  bastion: BastionState | null;
   players: Map<WebSocket, Player>;
   tale: TaleEntry[];
   sky: { mood: string; description: string; endsAt: string | null };
@@ -363,6 +387,11 @@ function sharedState(room: Room) {
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
+    bastion: room.bastion ? {
+      callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
+      ambush: room.bastion.ambush, pool: room.bastion.pool, poolMax: room.bastion.poolMax,
+      begun: room.bastion.begun, resolved: room.bastion.resolved, size: room.bastion.size,
+    } : null,
   };
 }
 
@@ -383,7 +412,14 @@ function sendState(room: Room): void {
         notes: player.notes,
         inventory: player.inventory,
         bound: player.bound ?? null,
-        energy: player.energy,
+        energy: room.bastion?.begun && !room.bastion.resolved ? room.bastion.pool : player.energy,
+        yourCall: (() => {
+          if (!player.expKey) return null;
+          try {
+            const c = sqlite.prepare("SELECT id, kind, column_id, seed_id FROM bastion_calls WHERE owner_key = ? AND state = 'open' ORDER BY created_at ASC LIMIT 1").get(player.expKey) as any;
+            return c ? { id: c.id, kind: c.kind, columnId: c.column_id, seedId: c.seed_id } : null;
+          } catch { return null; }
+        })(),
         maxEnergy: player.maxEnergy,
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
@@ -414,6 +450,7 @@ async function getRoom(id: string): Promise<Room> {
       workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
+      bastion: null,
       battle: { active: false, wave: 1, timer: null, ticking: false },
       roundNo: 0,
     };
@@ -611,6 +648,99 @@ function dealWave(room: Room): void {
   }
 }
 
+/** The column takes the field (the Columns, 2026-10-17): the
+ *  roster's true kinds and numbers, at the field's far edges,
+ *  with the column's own hardened power and health. */
+function dealBastion(room: Room): void {
+  const b = room.bastion;
+  if (!b) return;
+  const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
+  const free = SUMMONABLE_HEXES
+    .filter(h => !room.field.has(h) && !room.dark.has(h))
+    .map(id => FIELD_HEXES_SERVER.find(h => h.id === id)!)
+    .sort((a, z) => ((z.x - center.x) ** 2 + (z.y - center.y) ** 2) - ((a.x - center.x) ** 2 + (a.y - center.y) ** 2));
+  let i = 0;
+  for (const entry of b.roster) {
+    for (let n = 0; n < entry.count && i < free.length; n++, i++) {
+      const hex = free[i].id;
+      const face = room.enemies.find(e => e.name === entry.kind);
+      room.dark.set(hex, {
+        hex, kind: entry.kind, label: face?.label ?? entry.kind, art: face?.art ?? null,
+        power: entry.power, hp: entry.hp, maxHp: entry.hp, pinned: 0,
+      });
+    }
+  }
+  for (const hex of [...room.dark.keys()]) springHex(room, hex, new Set());
+  room.battle.active = true;
+  room.roundNo = 0;
+  b.begun = true;
+  tell(room, `${b.kind === "siege" ? "The cursed bastion" : "The column"} is met — ${b.size} of the dark stand at the field's edge. ${b.ambush ? "Warned ahead, you strike with the ambush's edge (+1)." : ""} One pool binds you: ⚡${b.pool}.`);
+  if (!room.battle.timer) {
+    room.battle.timer = setInterval(() => { void runRound(room); }, 2800);
+  }
+}
+
+/** A bastion battle WON (the Columns, 2026-10-17): the victory
+ *  is reported to the land — the column falls and its break
+ *  begins (with the reckoning paid to the standing Awoken), a
+ *  besieged seed is LIBERATED, and guests carry home nothing
+ *  but energy, as ruled. */
+async function resolveBastionVictory(room: Room): Promise<void> {
+  const b = room.bastion;
+  if (!b || b.resolved) return;
+  b.resolved = true;
+  const ctx = { tender: { id: b.hostTenderId, tenderName: b.hostName } };
+  const survivorPairs = [...room.field.values()].flatMap(u => {
+    const seat = seatByKey(room, u.ownerKey);
+    const id = Number((u.card as any).awokenId);
+    return seat?.expKey && id > 0 ? [{ awakenedId: id, ownerKey: seat.expKey }] : [];
+  });
+  try {
+    if (b.columnId) {
+      await handlers.defeatIncursion({ columnId: b.columnId, survivorPairs }, ctx as any);
+    }
+    if (b.seedId) {
+      const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ?").get(b.seedId) as any;
+      if (seed && seed.state === "corrupted") {
+        sqlite.prepare("UPDATE star_seeds SET state = 'fallen' WHERE id = ?").run(b.seedId);
+        sqlite.prepare("UPDATE territory_tiles SET cursed = 0, element = 'neutral' WHERE id = ?").run(seed.tile_id);
+        sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE owner_key = ? AND target_tile_id = ? AND state = 'arrived'")
+          .run(Date.now(), b.hostKey, seed.tile_id);
+        tell(room, "The cursed bastion FALLS — the seed is free, and its hex is light again.");
+      }
+    }
+    // Guests: nothing but energy, carried home.
+    for (const p of room.players.values()) {
+      if (p.watcher || !p.expKey || p.expKey === b.hostKey) continue;
+      try {
+        const cur = sqlite.prepare("SELECT energy FROM tender_resources WHERE owner_key = ?").get(p.expKey) as any;
+        const max = await calculateMaxEnergy(p.expKey);
+        const nowE = Number(cur?.energy ?? 10);
+        sqlite.prepare(`INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(owner_key) DO UPDATE SET energy = excluded.energy, updated_at = excluded.updated_at`)
+          .run(p.expKey, Math.min(max, nowE + Math.max(3, b.size)), Date.now());
+      } catch { /* the road home is rough; the tale stands */ }
+    }
+    sqlite.prepare("UPDATE bastion_calls SET state = 'won' WHERE id = ?").run(b.callId);
+    tell(room, "The call is answered and the day is won — the land reckons it so.");
+  } catch { /* the report rides the next telling */ }
+}
+
+/** A bastion battle LOST: reported to the land — a held seed's
+ *  hold breaks (its bastion falls, the seed corrupts); a siege
+ *  simply fails, and the cursed bastion stands. */
+async function resolveBastionDefeat(room: Room): Promise<void> {
+  const b = room.bastion;
+  if (!b || b.resolved) return;
+  b.resolved = true;
+  const ctx = { tender: { id: b.hostTenderId, tenderName: b.hostName } };
+  try {
+    if (b.columnId) await handlers.failIncursion({ columnId: b.columnId }, ctx as any).catch(() => {});
+    sqlite.prepare("UPDATE bastion_calls SET state = 'lost' WHERE id = ?").run(b.callId);
+    tell(room, "The call ends in the dark's keeping — the land reckons that too.");
+  } catch { /* as above */ }
+}
+
 function endBattle(room: Room): void {
   room.battle.active = false;
   if (room.battle.timer) { clearInterval(room.battle.timer); room.battle.timer = null; }
@@ -647,7 +777,8 @@ async function runRound(room: Room): Promise<void> {
       const bcnWard = room.workings.find(w => w.engine === "beacon" && w.ownerKey === unit.ownerKey && beaconReach(w).has(target.hex));
       const strikePower = unit.card.power
         + (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0)
-        + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
+        + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0)
+        + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush bonus (Nigel, 2026-10-17)
       target.hp -= strikePower;
       if (target.hp <= 0) {
         room.dark.delete(target.hex);
@@ -664,8 +795,12 @@ async function runRound(room: Room): Promise<void> {
       const standing = [...room.field.values()];
       if (enemy.pinned > 0) { enemy.pinned--; continue; }
       if (enemy.kind === "hollow") {
-        for (const p of room.players.values()) {
-          if (!p.watcher && !p.fallen) p.energy = Math.max(0, p.energy - 2);
+        if (room.bastion?.begun && !room.bastion.resolved) {
+          room.bastion.pool = Math.max(0, room.bastion.pool - 2);
+        } else {
+          for (const p of room.players.values()) {
+            if (!p.watcher && !p.fallen) p.energy = Math.max(0, p.energy - 2);
+          }
         }
         continue;
       }
@@ -741,16 +876,26 @@ async function runRound(room: Room): Promise<void> {
     if (room.dark.size === 0 && room.battle.active) {
       settleShardsAndFade(room);
       endBattle(room);
-      tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
-      for (const p of seatedAlive) {
-        p.energy = Math.min(p.maxEnergy + 10, p.energy + 5);
-        await payBattleExp(room, p, 5, "A wave broken together pays together.");
+      if (room.bastion?.begun && !room.bastion.resolved) {
+        tell(room, "The dark is broken at the bastion — the field breathes again.");
+        for (const p of seatedAlive) await payBattleExp(room, p, 5, "A bastion held together pays together.");
+        await resolveBastionVictory(room);
+      } else {
+        tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
+        for (const p of seatedAlive) {
+          p.energy = Math.min(p.maxEnergy + 10, p.energy + 5);
+          await payBattleExp(room, p, 5, "A wave broken together pays together.");
+        }
+        room.battle.wave++;
       }
-      room.battle.wave++;
     } else if (seatedAlive.length === 0 && room.battle.active) {
       settleShardsAndFade(room);
       endBattle(room);
-      tell(room, `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
+      if (room.bastion?.begun && !room.bastion.resolved) {
+        await resolveBastionDefeat(room);
+      } else {
+        tell(room, `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
+      }
       room.dark.clear();
     }
     sendState(room);
@@ -899,11 +1044,21 @@ function handleConnection(ws: WebSocket): void {
         return;
       }
       const cost = Math.max(1, card.power);
-      if (player.energy < cost) {
-        ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
-        return;
+      if (room.bastion?.begun && !room.bastion.resolved) {
+        // One pool binds the muster (Nigel, 2026-10-17): joining
+        // Tenders' energy joins the pool, scaled by level.
+        if (room.bastion.pool < cost) {
+          ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ⚡${cost} — the pool holds ⚡${room.bastion.pool}.` }));
+          return;
+        }
+        room.bastion.pool -= cost;
+      } else {
+        if (player.energy < cost) {
+          ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
+          return;
+        }
+        player.energy -= cost;
       }
-      player.energy -= cost;
       player.hand = player.hand.filter(c => c.id !== cardId);
       room.field.set(hex, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
@@ -964,6 +1119,7 @@ function handleConnection(ws: WebSocket): void {
       if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers raise no wards — bind in the game to cast." })); return; }
       const def = spellByKey(String(msg.root || ""));
       if (!def || def.kind !== "ward") { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
+      if (def.engine === "springleaf") { ws.send(JSON.stringify({ type: "error", message: "The Springleaf Ward answers columns on the land — it has no purchase on the Table's dark." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
       const hexA = String(msg.hexA || "");
@@ -1117,6 +1273,65 @@ function handleConnection(ws: WebSocket): void {
       }
       dealWave(room);
       tell(room, `${player.name} begins the Unraveling.`);
+      sendState(room);
+      return;
+    }
+
+    // CLAIM A CALL (the Columns, 2026-10-17): the host seat of a
+    // standing call seats it in this room. The pool is struck
+    // from the seats then present — their max energy, each
+    // scaled +2 per level above the first.
+    if (msg.type === "claimBastion") {
+      if (player.watcher || !player.expKey) {
+        ws.send(JSON.stringify({ type: "error", message: "Only a bound seat can claim its call." }));
+        return;
+      }
+      if (room.bastion) {
+        ws.send(JSON.stringify({ type: "error", message: "A call already stands claimed in this room." }));
+        return;
+      }
+      const callId = Math.floor(Number(msg.callId ?? 0));
+      const call = sqlite.prepare("SELECT * FROM bastion_calls WHERE id = ? AND state = 'open'").get(callId) as any;
+      if (!call) { ws.send(JSON.stringify({ type: "error", message: "No open call by that name stands." })); return; }
+      if (call.owner_key !== player.expKey) { ws.send(JSON.stringify({ type: "error", message: "That call is another Tender's to claim." })); return; }
+      let roster: { kind: string; count: number; power: number; hp: number }[] = [];
+      let size = 0;
+      if (call.column_id) {
+        const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ?").get(call.column_id) as any;
+        if (!col) { ws.send(JSON.stringify({ type: "error", message: "The column that call named is gone." })); return; }
+        roster = incursionRoster(Number(col.size), Number(col.power));
+        size = Number(col.size);
+      } else if (call.seed_id) {
+        const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ?").get(call.seed_id) as any;
+        size = 8 + 2 * Number(seed?.level ?? 1);
+        roster = incursionRoster(size, 2);
+      }
+      let pool = 0;
+      for (const p of room.players.values()) {
+        if (p.watcher) continue;
+        pool += p.maxEnergy + 2 * Math.max(0, p.tenderLevel - 1);
+      }
+      room.bastion = {
+        callId: call.id, kind: call.kind, hostKey: call.owner_key, hostTenderId: call.host_tender_id,
+        hostName: player.name, columnId: call.column_id, seedId: call.seed_id,
+        roster, size, ambush: call.kind === "ambush",
+        pool, poolMax: pool, begun: false, resolved: false,
+      };
+      tell(room, `${player.name} claims the call: a ${call.kind.toUpperCase()} — ${size} of the dark. Friends, take your seats; the host begins it when the muster is ready. The pool stands at ⚡${pool}.`);
+      sendState(room);
+      return;
+    }
+
+    // BEGIN THE BASTION BATTLE: the host alone deals the column.
+    if (msg.type === "startBastion") {
+      if (!room.bastion) { ws.send(JSON.stringify({ type: "error", message: "No call stands claimed in this room." })); return; }
+      if (player.expKey !== room.bastion.hostKey) { ws.send(JSON.stringify({ type: "error", message: "The host begins their own call." })); return; }
+      if (room.battle.active || room.bastion.begun) { ws.send(JSON.stringify({ type: "error", message: "The battle is already joined." })); return; }
+      if (room.dark.size > 0) room.dark.clear();
+      for (const p of room.players.values()) {
+        if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
+      }
+      dealBastion(room);
       sendState(room);
       return;
     }
