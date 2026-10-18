@@ -33,6 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
+import { workingEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -96,6 +97,9 @@ interface Player {
   maxTenderHp: number;
   /** True once this seat's Tender has fallen in the battle. */
   fallen: boolean;
+  /** Second Wall (the Zodiac, tranche one): this battle's
+   *  half-cost ward has been spent. Reset at every deal. */
+  secondWallUsed?: boolean;
   /** The tender-progress owner key for bound seats — where
    *  battle EXP is paid. Null for stand-in seats. */
   expKey: string | null;
@@ -667,9 +671,13 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       tell(room, `${rune.name} holds on — ❤${rune.hp} of its light remains.`);
     }
   } else if (rune.engine === "blade" || rune.engine === "blades") {
-    const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
+    const eff = workingEffects(caster?.expKey);
+    const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0));
     tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
-    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) fellDark(room, e, caster); }
+    let felledByRune = 0;
+    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) { felledByRune++; fellDark(room, e, caster); } }
+    // Hungry Ink (tranche one): the writing drinks the fell.
+    if (caster && eff.hungryInk && felledByRune > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByRune);
     rune.charges--;
     if (rune.charges <= 0) room.workings = room.workings.filter(w => w !== rune);
     else tell(room, `${rune.name} hums on, waiting for one more.`);
@@ -718,7 +726,9 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     if (greatest >= (rune.nums.minPower ?? 5)) {
       const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour * (rune.nums.harmPerPoint ?? 1);
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
-      for (const e of darkHere) { e.hp -= dmg; if (e.hp <= 0) fellDark(room, e, caster); }
+      let felledByShard = 0;
+      for (const e of darkHere) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
+      if (caster && workingEffects(caster.expKey).hungryInk && felledByShard > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByShard);
       room.workings = room.workings.filter(w => w !== rune);
     }
   }
@@ -752,6 +762,7 @@ function settleShardsAndFade(room: Room): void {
 }
 
 function dealWave(room: Room): void {
+  for (const p of room.players.values()) p.secondWallUsed = false;
   const wave = room.battle.wave;
   const free = SUMMONABLE_HEXES.filter(h => !room.field.has(h) && !room.dark.has(h));
   const kinds = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
@@ -783,6 +794,7 @@ function dealWave(room: Room): void {
 function dealBastion(room: Room): void {
   const b = room.bastion;
   if (!b) return;
+  for (const p of room.players.values()) p.secondWallUsed = false;
   const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
   const free = SUMMONABLE_HEXES
     .filter(h => !room.field.has(h) && !room.dark.has(h))
@@ -888,11 +900,28 @@ async function runRound(room: Room): Promise<void> {
     };
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
+    const effBySeat = new Map<string, ReturnType<typeof workingEffects>>();
+    const effOf = (key: string) => {
+      const seat = seatByKey(room, key);
+      const ek = seat?.expKey ?? "";
+      if (!effBySeat.has(ek)) effBySeat.set(ek, workingEffects(ek));
+      return effBySeat.get(ek)!;
+    };
     for (const w of room.workings) {
-      if (w.engine === "trees" && w.hp > 0 && w.hp < (w.maxHp || (w.nums.hp ?? 8))) w.hp = Math.min(w.maxHp || (w.nums.hp ?? 8), w.hp + (w.nums.regrow ?? 2));
+      if (w.engine === "trees" && w.hp > 0 && w.hp < (w.maxHp || (w.nums.hp ?? 8))) w.hp = Math.min(w.maxHp || (w.nums.hp ?? 8), w.hp + (w.nums.regrow ?? 2) + effOf(w.ownerKey).treesRegrow);
       if (w.engine === "engine") {
         const owner = seatByKey(room, w.ownerKey);
         if (owner && !owner.fallen) owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + (w.nums.energyPerRound ?? 1));
+      }
+      // The Mending Wall (tranche one): a Binder's ward is a
+      // hospital — each round it mends the most-hurt ally
+      // standing on its edge's hexes by 1.
+      if (w.kind === "ward" && effOf(w.ownerKey).mendingWall) {
+        const behind = [...room.field.values()].filter(u => (u.hex === w.hexA || u.hex === w.hexB) && u.hp < u.maxHp);
+        if (behind.length) {
+          behind.sort((x, z) => (x.hp / x.maxHp) - (z.hp / z.maxHp));
+          behind[0].hp = Math.min(behind[0].maxHp, behind[0].hp + 1);
+        }
       }
     }
     // The standing strike first — under FATE (Nigel,
@@ -994,7 +1023,14 @@ async function runRound(room: Room): Promise<void> {
           const seal = edgeWards.find(w => w.engine === "seal");
           if (seal && dmg > 0) {
             dmg = 0;
-            enemy.hp -= (seal.nums.riposte ?? 3) + (engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) : 0);
+            // THE WALL THAT ANSWERS (tranche one): a keystone
+            // holder's Seal answers with the STRIKER'S OWN
+            // power; otherwise the snapshotted riposte (the
+            // Answer already baked in at the cast). Millwright
+            // deepens the brightening wherever it applies.
+            const sealEff = workingEffects(seatByKey(room, seal.ownerKey)?.expKey);
+            const brightTerm = engineBright(room, victim.ownerKey) ? (seal.nums.brightBonus ?? 1) + (sealEff.millwright ? 1 : 0) : 0;
+            enemy.hp -= (sealEff.keystoneRiposte ? enemy.power : (seal.nums.riposte ?? 3)) + brightTerm;
             seal.stops++;
             witness(victim.hex, enemy.hex, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", true, enemy.hp <= 0);
             // The Seal's health rating (Nigel, 2026-10-17):
@@ -1379,7 +1415,14 @@ function handleConnection(ws: WebSocket): void {
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two hexes must share a side." })); return; }
       if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
-      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      // The Zodiac's workings tranche (2026-10-17): the
+      // holder's skills ride the cast. Second Wall: once per
+      // battle, a ward at half cost.
+      const eff = workingEffects(caster.expKey);
+      let castCost = def.cost;
+      let secondWallSpent = false;
+      if (eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
+      if (caster.energy < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — you hold ⚡${caster.energy}.` })); return; }
       // The Pour (Nigel, 2026-10-17): elemental points of the
       // poured hue, fed into the working at its cast — capped by
       // the book, drawn from the caster's own attunement pool,
@@ -1398,16 +1441,28 @@ function handleConnection(ws: WebSocket): void {
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
-      caster.energy -= def.cost;
+      caster.energy -= castCost;
+      if (secondWallSpent) { caster.secondWallUsed = true; tell(room, `${caster.name}'s Second Wall rises at half its price — the Warden's economy.`); }
       if (pour > 0 && caster.expKey) {
         await spendAttunement(caster.expKey, hue, pour);
         if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
       }
       // The health rating: holding wards are raised with health
       // grown from the book's base, the caster's level, the pour.
-      const hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
+      // The Zodiac rides the snapshot (tranche one): Thick
+      // Light's +2 on every ward, the Living Wall's +4 more on
+      // the Trees, the Seal's deeper stops and answered
+      // riposte, the Engine's deeper song.
+      let hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
+      hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0);
+      const wardNums: Record<string, number> = { ...def.numbers };
+      if (def.engine === "seal") {
+        wardNums.stops = (wardNums.stops ?? 3) + eff.sealStops + (hue === "stone" ? eff.deepSetSealStops : 0);
+        wardNums.riposte = (wardNums.riposte ?? 3) + eff.riposte;
+      }
+      if (def.engine === "engine") wardNums.energyPerRound = (wardNums.energyPerRound ?? 1) + eff.engineEnergy;
       room.workings.push({
-        id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: { ...def.numbers }, name: def.forms[hue] ?? def.name, hue,
+        id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: wardNums, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
         hp, maxHp: hp, pour, stops: 0, charges: 0,
       });
@@ -1424,9 +1479,10 @@ function handleConnection(ws: WebSocket): void {
       if (!def || (def.kind !== "rune" && def.kind !== "spell")) { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
+      const eff = workingEffects(caster.expKey);
       const hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 12) : [];
       if (def.engine === "blades") {
-        const maxT = def.numbers.maxTargets ?? 3;
+        const maxT = (def.numbers.maxTargets ?? 3) + eff.bladesExtra;
         if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is planted on one to ${maxT} hexes.` })); return; }
       } else if (def.engine === "shardrain") {
         const maxT = def.numbers.maxHexes ?? 3;
@@ -1464,6 +1520,15 @@ function handleConnection(ws: WebSocket): void {
       // the caster stood under when they wrote it. An unaligned
       // cast rolls the base dice alone.
       let rainNums: Record<string, number> = { ...def.numbers };
+      // The Zodiac rides the rune's snapshot (tranche one):
+      // Deep Ink and the Everlasting Inscription deepen its
+      // harm and its pins; Patient Light lengthens the hold;
+      // the Lowered Crown feeds the Shard on lesser power;
+      // Ebb Walker fattens the Coil's return.
+      if (typeof rainNums.power === "number") rainNums.power += eff.runePower;
+      if (typeof rainNums.pinRounds === "number") rainNums.pinRounds += eff.runePin;
+      if (def.engine === "shard" && eff.crownThreshold != null) rainNums.minPower = Math.min(rainNums.minPower ?? 5, eff.crownThreshold);
+      if (def.engine === "coil") rainNums.energyPerDark = (rainNums.energyPerDark ?? 1) + eff.coilReturn;
       if (def.engine === "shardrain") {
         let lvl = 0;
         if (hue !== "unaligned" && caster.expKey) {
@@ -1473,11 +1538,20 @@ function handleConnection(ws: WebSocket): void {
         rainNums = { ...def.numbers, rainLevel: lvl };
       }
       const group = randomUUID();
+      let castIndex = 0;
       for (const hx of hexes) {
+        // Split Writing (tranche one): the FOURTH blade is
+        // planted at half power — its own numbers, its own
+        // hunger.
+        let thisNums = rainNums;
+        if (def.engine === "blades" && eff.bladesExtra > 0 && castIndex === (def.numbers.maxTargets ?? 3)) {
+          thisNums = { ...rainNums, power: Math.floor((rainNums.power ?? 3) / 2) };
+        }
+        castIndex++;
         room.workings.push({
-          id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: rainNums, name: def.forms[hue] ?? def.name, hue,
+          id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp, maxHp: hp, pour, stops: 0, charges: def.engine === "blade" ? (def.numbers.charges ?? 2) : 1,
+          hp, maxHp: hp, pour, stops: 0, charges: (def.engine === "blade" || def.engine === "blades") ? (def.numbers.charges ?? 2) + eff.bladeSprings : def.engine === "coil" ? 1 + eff.coilTurns : 1,
           group,
         });
       }

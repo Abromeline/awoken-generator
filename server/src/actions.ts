@@ -24,6 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { ZODIAC_NODES, ZODIAC_EDGES, ZODIAC_BY_ID, ZODIAC_ADJ } from "./zodiacData.js";
+import { workingEffects } from "./skills.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -5381,14 +5382,24 @@ export const handlers = {
       // yours standing anywhere on the map lifts a new Trees at
       // its raising, as at the Table.
       let hp = 0;
+      // The Zodiac rides the map cast (tranche one, 2026-10-17):
+      // the same snapshot modifiers as at the Table.
+      const eff = workingEffects(ownerKey);
+      const mapNums: Record<string, number> = { ...(spell.numbers ?? {}) };
+      if (spell.engine === "seal") {
+        mapNums.stops = (mapNums.stops ?? 3) + eff.sealStops + (hue === "stone" ? eff.deepSetSealStops : 0);
+        mapNums.riposte = (mapNums.riposte ?? 3) + eff.riposte;
+      }
+      if (spell.engine === "engine") mapNums.energyPerRound = (mapNums.energyPerRound ?? 1) + eff.engineEnergy;
       if (spell.engine === "trees" || spell.engine === "seal") {
         const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
         hp = hpForCast(spell, progress.level, pour, !!bright);
+        hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0);
       }
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(spell.numbers ?? {}), hp, pour, hp, Date.now());
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pour, hp, Date.now());
       return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: spell.cost, pour, hp };
     }
 
@@ -5403,7 +5414,8 @@ export const handlers = {
       if (spell.engine === "blades") badRequest("The Three Blades are planted a hex at a time on the map — cast once per hex here.");
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
-      const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) : 1;
+      const effR = workingEffects(ownerKey);
+      const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // level in the spell's element rides inside the stored
       // numbers, snapshotted at the cast as HP is — on the map
@@ -5411,6 +5423,11 @@ export const handlers = {
       // the Battleground splits its pool over the dark standing
       // there when it springs.
       let numsToStore: Record<string, number> = { ...(spell.numbers ?? {}) };
+      // The Zodiac rides the rune's stored numbers (tranche one).
+      if (typeof numsToStore.power === "number") numsToStore.power += effR.runePower;
+      if (typeof numsToStore.pinRounds === "number") numsToStore.pinRounds += effR.runePin;
+      if (spell.engine === "shard" && effR.crownThreshold != null) numsToStore.minPower = Math.min(numsToStore.minPower ?? 5, effR.crownThreshold);
+      if (spell.engine === "coil") numsToStore.energyPerDark = (numsToStore.energyPerDark ?? 1) + effR.coilReturn;
       if (spell.engine === "shardrain") {
         let lvl = 0;
         if (hue !== "unaligned") {
