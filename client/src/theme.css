@@ -1612,12 +1612,14 @@ body.defeat-flash {
 .aspect-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(212,175,106,0.5)}
 /* The tree door stands ABOVE the attunement market's orb
    (Nigel's directive via Law, 2026-10-17). */
-/* The tree door stands ABOVE the attunement orb — the
-   stack as Nigel ruled it and as the Territory screen has
-   always held it: on the main screen, the attunement
-   button is the same acorn, in the same seat, with the
-   same panel behind it (his correction, 2026-10-17:
-   the acorn was fine). */
+/* The stack, truly named (Nigel's corrections,
+   2026-10-17): the tree door (Skill Zodiac) stands above
+   the DROPLET button — that droplet is the ATTUNEMENT
+   button, the same on both screens, opening the Aspect
+   Attunement panel. The ACORN is a different button
+   entirely: .acorn-btn, the Welcome Packet's tutorial
+   door, bottom of the home screen — it is not in this
+   stack and never was. Do not merge their names again. */
 .aspect-fab.tree-fab{top:calc(50% - 116px)}
 /* The book button crowns the locked stack (Nigel,
    2026-10-17): My Deck as a button with a book in it,
