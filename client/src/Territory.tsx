@@ -3908,7 +3908,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         </button>
       )}
       <button className="friends-btn" onClick={() => setShowFriends(true)} title="Friends">
-        <svg className="ink-glyph" viewBox="0 0 32 32"><circle cx="11.5" cy="10.5" r="3.6"/><circle cx="21" cy="10.5" r="3.6"/><path d="M4.5 26 C4.5 20.5 7.5 17.5 11.5 17.5 C15.5 17.5 18.5 20.5 18.5 26"/><path d="M16.5 26 C16.5 21.2 18.4 17.9 21.3 17.9 C24.2 17.9 27 21.2 27 26"/></svg>
+        🤝
       </button>
       {wave && (
         <div className="wave-panel">
@@ -4226,7 +4226,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             // inside handleDefend) — no local count is kept anymore.
             handleDefend(true);
           }} style={{ borderColor: "#ffd700" }}>
-            <svg className="ink-glyph" viewBox="0 0 32 32"><path d="M5 21 L3.5 9.5 L10 13.5 L16 6.5 L22 13.5 L28.5 9.5 L27 21 Z"/><path d="M5.5 24.5 H26.5"/></svg> BOSS FIGHT
+            👑 BOSS FIGHT
           </button>
         )}
         {battleActive && (

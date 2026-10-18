@@ -2698,15 +2698,19 @@ body.defeat-flash {
 .aspect-close:hover, .zodiac-close:hover, .packet-close:hover,
 .admin-popup-close:hover, .table-panel-close:hover{filter:brightness(1.12)}
 
-/* Drawn glyphs inside buttons: fine pale line-work. */
-svg.ink-glyph{
-  width:1.15em; height:1.15em; vertical-align:-0.22em;
-  fill:none; stroke:#e8d5a0; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;
-}
-svg.ink-glyph .pip{fill:#e8d5a0; stroke:none}
+/* The Eye's drawn glyph: crimson line-work (the socket that
+   waits for Nigel's own drawn eye). */
 svg.eye-glyph{
   width:22px; height:22px; vertical-align:-5px;
   fill:none; stroke:#8e3a28; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round;
   filter:drop-shadow(0 0 6px rgba(232,213,160,0.55));
 }
 svg.eye-glyph .pupil{fill:#8e3a28; stroke:none}
+
+/* The presented card, pocket-sized on phones (Nigel, 2026-10-18):
+   on a small screen the birth presentation stands at about half
+   its desktop size, so it stops swallowing the page. The wrap
+   keeps its width — the Keep and Name doors stay full-size. */
+@media (max-width: 768px) {
+  .ceremony-card-stage{width:52%; margin-left:auto; margin-right:auto}
+}
