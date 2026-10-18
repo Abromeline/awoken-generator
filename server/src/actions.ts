@@ -5606,6 +5606,10 @@ export const handlers = {
           const spots = tilesAll.filter(t => !(t.q === 0 && t.r === 0) && !seededTiles.has(t.id));
           const drop = 1 + Math.floor(Math.random() * 3);
           for (let d = 0; d < drop && spots.length; d++) {
+            // The five-fallen cap binds DURING the drop too
+            // (playtest, 2026-10-18): checking only before a
+            // 1–3 drop let one settled hour land seven seeds.
+            if (Number(fallen?.n ?? 0) + d >= 5) break;
             const spot = spots.splice(Math.floor(Math.random() * spots.length), 1)[0];
             sqlite.prepare("INSERT INTO star_seeds (owner_key, tile_id, level, state, created_at) VALUES (?, ?, 1, 'fallen', ?)").run(ownerKey, spot.id, now);
           }
@@ -5723,13 +5727,19 @@ export const handlers = {
           }
         }
         if (target) {
-          const size = eye < 50 ? 3 + Math.floor((eye - 25) / 8)
+          const sizeByEye = eye < 50 ? 3 + Math.floor((eye - 25) / 8)
             : eye < 100 ? 6 + Math.floor((eye - 50) / 10)
             : Math.min(20, 11 + Math.floor((eye - 100) / 15));
+          // No two marches alike (playtest, 2026-10-18): the
+          // Eye sets the column's weight, but the curse musters
+          // unevenly — size strays a step either way, and the
+          // road takes a little more or less time than the last.
+          const size = Math.max(1, sizeByEye + Math.floor(Math.random() * 3) - 1);
           const progress = await getTenderProgress(ownerKey).catch(() => null) as any;
           const powerTier = 1 + Math.floor(((progress?.level ?? 1) - 1) / 3);
           const kind = eye >= EYE_SIEGE_THRESHOLD ? "siege" : "raid";
-          const travelMin = Math.min(1440, Math.max(COLUMN_MIN_TRAVEL_MIN, COLUMN_MIN_TRAVEL_MIN + size * 8));
+          const travelMin = Math.min(1440, Math.max(COLUMN_MIN_TRAVEL_MIN,
+            Math.round((COLUMN_MIN_TRAVEL_MIN + size * 8) * (0.85 + Math.random() * 0.3))));
           // The line traces from OUTSIDE the map: from the
           // territory's heart through the target, nine hexes
           // beyond its edge.

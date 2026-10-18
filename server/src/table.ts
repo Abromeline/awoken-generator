@@ -1449,7 +1449,13 @@ function handleConnection(ws: WebSocket): void {
       const cardId = String(msg.cardId ?? "");
       const card = player.hand.find(c => c.id === cardId);
       if (!SUMMONABLE_HEXES.includes(hex)) {
-        ws.send(JSON.stringify({ type: "error", message: "An Awoken stands on a field hex — the center hex is the star-seed's." }));
+        // Name the true bar (playtest, 2026-10-18): the old
+        // line blamed the star-seed's hex for every bad hex,
+        // including requests that named no hex of this field.
+        const centerId = FIELD_HEXES_SERVER.find(h => h.center)?.id;
+        ws.send(JSON.stringify({ type: "error", message: hex === centerId
+          ? "An Awoken stands on a field hex — the center hex is the star-seed's."
+          : "That is no hex of this field." }));
         return;
       }
       if (room.field.has(hex)) {
@@ -1637,7 +1643,7 @@ function handleConnection(ws: WebSocket): void {
         if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is written over one to ${maxT} hexes of ground.` })); return; }
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
-        if (!SUMMONABLE_HEXES.includes(hx)) { ws.send(JSON.stringify({ type: "error", message: "Runes are written on the field's ground — not on the star-seed's hex." })); return; }
+        if (!SUMMONABLE_HEXES.includes(hx)) { const centerId = FIELD_HEXES_SERVER.find(h => h.center)?.id; ws.send(JSON.stringify({ type: "error", message: hx === centerId ? "Runes are written on the field's ground — not on the star-seed's hex." : "That is no hex of this field." })); return; }
         if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
       if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
@@ -1758,9 +1764,25 @@ function handleConnection(ws: WebSocket): void {
     }
 
     if (msg.type === "startWave") {
-      if (player.watcher || player.fallen) {
+      if (player.watcher) {
         ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
         return;
+      }
+      if (player.fallen) {
+        // The rise between waves lives just below — but a
+        // fallen caller could never reach it, so a room where
+        // EVERY seat has fallen was soft-locked (playtest,
+        // 2026-10-18): the tale's own advice, "re-seat, recast,
+        // and begin it again", freed no one. When no seat
+        // stands, the fallen begin it themselves and rise at
+        // half, exactly as a bastion's begin already lifts
+        // them. While any seat stands, the standing seat
+        // begins it — that law is untouched.
+        const anyStanding = [...room.players.values()].some(p => !p.watcher && !p.fallen);
+        if (anyStanding) {
+          ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
+          return;
+        }
       }
       if (room.battle.active) {
         ws.send(JSON.stringify({ type: "error", message: "The wave is already on the field." }));
