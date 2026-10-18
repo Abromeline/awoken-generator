@@ -1630,9 +1630,12 @@ body.defeat-flash {
 /* The book button crowns the locked stack (Nigel,
    2026-10-17): My Deck as a button with a book in it,
    locked above the tree, the same on both screens. */
-/* The book stands on the RIGHT (Nigel, 2026-10-17),
-   above the Table's dock, the same on both screens. */
-.aspect-fab.deck-fab{left:auto;right:16px;top:calc(50% - 152px)}
+/* The book locks into the LEFT line, under the
+   attunement (Nigel, 2026-10-18): the left buttons stand
+   in one line — tree, attunement, deck — the same on
+   both screens. (It stood on the right for an hour by
+   his earlier word; this word supersedes it.) */
+.aspect-fab.deck-fab{top:calc(50% + 36px)}
 .aspect-fab.active{background:rgba(184,155,94,0.25);box-shadow:0 0 16px rgba(212,175,106,0.55)}
 .aspect-fab svg{filter:drop-shadow(0 0 4px rgba(212,175,106,0.5))}
 .aspect-close{
