@@ -54,6 +54,11 @@ interface TableCard {
   /** FATE: the worn pieces (body, arms, head, aura), each
    *  rolling its own element's die when the Awoken strikes. */
   parts?: { element: string; power: number }[];
+  /** The piece art itself (source, category, current image URL),
+   *  so the field can stand the Awoken as a cutout — the battleground's
+   *  own sources — never the flattened card face (Nigel, 2026-10-18:
+   *  no backgrounds behind the figures at the Table). */
+  layers?: { source_id: string; category: string; imageUrl: string | null }[];
 }
 
 /** The stand-in pool: the roster an UNBOUND seat brings. Bound
@@ -458,6 +463,8 @@ export async function deckForTender(tenderId: number): Promise<TableCard[]> {
       parts: ((payload.layers ?? []) as { category?: string; element?: string | null; power?: number | null }[])
         .filter(l => ["body", "arms", "head", "aura"].includes(l.category ?? ""))
         .map(l => ({ element: l.element ?? "neutral", power: l.power ?? 0 })),
+      layers: ((payload.layers ?? []) as { source_id?: string; category?: string; imageUrl?: string | null }[])
+        .map(l => ({ source_id: l.source_id ?? "", category: l.category ?? "", imageUrl: l.imageUrl ?? null })),
     });
   }
   for (let i = cards.length - 1; i > 0; i--) {
@@ -527,7 +534,7 @@ function sharedState(room: Room) {
     workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
     field: [...room.field.values()].map(u => ({
-      hex: u.hex, name: u.card.name, art: u.card.art ?? null, element: u.card.element,
+      hex: u.hex, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
       shield: u.shield, maxShield: u.maxShield,
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,

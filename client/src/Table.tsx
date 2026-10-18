@@ -88,6 +88,7 @@ interface FieldUnitView {
   hex: string;
   name: string;
   art: string | null;
+  layers?: { source_id: string; category: string; imageUrl: string | null }[];
   element: string;
   power: number;
   toughness: number;
@@ -798,6 +799,19 @@ export default function Table() {
                 const h = FIELD_HEXES.find(x => x.id === u.hex);
                 if (!h) return null;
                 const mine = you && u.ownerKey === you.key;
+                // The field cutout, by the game's one law (FieldAwoken):
+                // the piece art itself, body → arms → head — background
+                // and aura layers never stand on a field, so no baked
+                // background rides behind the figure (Nigel, 2026-10-18).
+                const cutout = (u.layers ?? [])
+                  .filter(l => {
+                    const c = (l.category || "").toLowerCase().trim();
+                    return c !== "background" && c !== "aura" && !c.includes("background") && !c.includes("aura") && !!l.imageUrl;
+                  })
+                  .sort((a, b) => {
+                    const order = ["aspect", "body", "arms", "head"];
+                    return order.indexOf(a.category) - order.indexOf(b.category);
+                  });
                 return (
                   <div
                     key={u.hex}
@@ -805,9 +819,11 @@ export default function Table() {
                     style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }}
                     title={mine ? `${u.name} — yours. Tap its hex to recall it.` : `${u.name} — stands for ${u.ownerName}.`}
                   >
-                    {u.art
-                      ? <img src={u.art} alt={u.name} />
-                      : <ElementGlyph element={u.element as GlyphElement} width={30} height={30} />}
+                    {cutout.length
+                      ? <span className="field-unit-art" aria-hidden="true">{cutout.map((l, i) => <img key={i} src={l.imageUrl as string} alt="" />)}</span>
+                      : u.art
+                        ? <img src={u.art} alt={u.name} />
+                        : <ElementGlyph element={u.element as GlyphElement} width={30} height={30} />}
                     <span className="unit-name">{u.name}</span>
                     <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (u.hp / Math.max(1, u.maxHp)) * 100))}%` }} /></span>
                     <span className="unit-hp shield"><span className="unit-hp-fill shield-fill" style={{ width: `${Math.max(0, Math.min(100, ((u.shield ?? 0) / Math.max(1, u.maxShield ?? 1)) * 100))}%` }} /></span>
