@@ -40,7 +40,7 @@ export default function MusicLibrary() {
       const { trackData } = await api.getBattleTrack({ id });
       if (trackData.startsWith("data:audio") || trackData.startsWith("/music/")) {
         const audio = new Audio(trackData);
-        audio.volume = 0.7;
+        audio.volume = 0.42;
         audioRef.current = audio;
         setPlayingId(id);
         audio.onended = () => setPlayingId(null);

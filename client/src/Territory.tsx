@@ -341,7 +341,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     const a = audioRef.current;
     a.src = tracks[i].url;
-    a.volume = 0.4;
+    a.volume = 0.24;
     a.play().catch(() => {});
   };
   const applyPlaylist = (pl: { tracks: { name: string; url: string }[] }) => {

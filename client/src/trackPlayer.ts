@@ -21,7 +21,7 @@ export class TrackPlayer {
       await this.ctx.resume().catch(() => {});
     }
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.12;
+    this.master.gain.value = 0.072;
     this.master.connect(this.ctx.destination);
     this.playing = true;
     this.loopTrack(trackData);

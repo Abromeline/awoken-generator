@@ -41,7 +41,7 @@ export default function ConfluenceBattle({
       const td = res.track.trackData;
       if (!td.startsWith("data:audio") && !td.startsWith("/music/")) return;
       battleAudio.current = new Audio(td);
-      battleAudio.current.volume = 0.35;
+      battleAudio.current.volume = 0.21;
       battleAudio.current.loop = true;
       battleAudio.current.play().catch(() => {});
     }).catch(() => {});

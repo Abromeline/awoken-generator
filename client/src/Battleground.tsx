@@ -439,7 +439,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         battleAudio.current = new Audio(fallback.url);
       }
       if (battleAudio.current) {
-        battleAudio.current.volume = 0.35;
+        battleAudio.current.volume = 0.21;
         battleAudio.current.loop = true;
         battleAudio.current.play().catch(() => {});
       }
@@ -448,7 +448,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       const fallback = BATTLE_TRACKS[Math.floor(Math.random() * BATTLE_TRACKS.length)];
       setBattleTrack(fallback);
       battleAudio.current = new Audio(fallback.url);
-      battleAudio.current.volume = 0.35;
+      battleAudio.current.volume = 0.21;
       battleAudio.current.loop = true;
       battleAudio.current.play().catch(() => {});
     });
