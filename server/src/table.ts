@@ -36,7 +36,7 @@ import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForC
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
-const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
+const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 by Nigel 2026-10-18, the night the map grew to 127 tiles
 const TALE_CAP = 100;
 
 interface TableCard {
@@ -2027,7 +2027,7 @@ function handleConnection(ws: WebSocket): void {
       if (room.battle.active) { ws.send(JSON.stringify({ type: "error", message: "Not mid-battle — the dark does not wait for travellers." })); return; }
       const target = await getRoom(targetId);
       const seatedThere = [...target.players.values()].filter(p => !p.watcher && !p.storytender).length;
-      if (!player.watcher && seatedThere >= MAX_SEATED) { ws.send(JSON.stringify({ type: "error", message: "That call's table is full — five seats stand there already. You may still watch." })); return; }
+      if (!player.watcher && seatedThere >= MAX_SEATED) { ws.send(JSON.stringify({ type: "error", message: `That call's table is full — ${MAX_SEATED} seats stand there already. You may still watch.` })); return; }
       const old = room;
       old.players.delete(ws);
       tell(old, `${player.name} rises to answer a call elsewhere.`);
@@ -2084,7 +2084,7 @@ function handleConnection(ws: WebSocket): void {
       const storytenderTaken = [...room.players.values()].some(p => p.storytender);
       const isStorytender = wantsStorytender && !storytenderTaken;
       const seatedCount = [...room.players.values()].filter(p => !p.watcher && !p.storytender).length;
-      if (!watcher && !isStorytender && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no sixth hand; watchers are welcome
+      if (!watcher && !isStorytender && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no ninth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
       // The full roster stands at the Table (Nigel, 2026-10-16):
       // a bound seat brings its Tender's whole collection, and
