@@ -23,7 +23,7 @@ import {
 } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
-import { ZODIAC_NODES, ZODIAC_EDGES, ZODIAC_BY_ID, ZODIAC_ADJ } from "./zodiacData.js";
+import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
@@ -2063,7 +2063,7 @@ function zodiacReached(owned: ReadonlySet<string>): Set<string> {
   const queue = ["heart"];
   while (queue.length) {
     const cur = queue.shift()!;
-    for (const nb of ZODIAC_ADJ[cur] ?? []) {
+    for (const nb of liveAdj()[cur] ?? []) {
       if (!seen.has(nb) && owned.has(nb)) { seen.add(nb); queue.push(nb); }
     }
   }
@@ -2073,9 +2073,10 @@ function zodiacReached(owned: ReadonlySet<string>): Set<string> {
 async function skillTreeState(ownerKey: string) {
   const progress = await getTenderProgress(ownerKey);
   const rows = sqlite.prepare("SELECT skill_key FROM tender_skills WHERE owner_key = ?").all(ownerKey) as { skill_key: string }[];
-  const unlocked = rows.map(r => r.skill_key).filter(k => ZODIAC_BY_ID.has(k));
+  const byId = liveById();
+  const unlocked = rows.map(r => r.skill_key).filter(k => byId.has(k));
   const spent: Record<string, number> = { tree: 0, canopy: 0 };
-  for (const k of unlocked) { const n = ZODIAC_BY_ID.get(k)!; spent[n.pool] += n.cost; }
+  for (const k of unlocked) { const n = byId.get(k)!; spent[n.pool] += n.cost; }
   const level = progress.level;
   const totals = {
     tree: level * SKILL_POINTS_PER_LEVEL,
@@ -2092,7 +2093,7 @@ async function skillTreeState(ownerKey: string) {
   const attunementLevels: Record<string, number> = {};
   for (const el of Object.keys(attunement)) attunementLevels[el] = attunementLevel(attunement[el]);
   return {
-    nodes: ZODIAC_NODES, edges: ZODIAC_EDGES, unlocked, level,
+    nodes: liveNodes(), edges: liveEdges(), unlocked, level,
     pointsPerLevel: SKILL_POINTS_PER_LEVEL,
     tree: { total: totals.tree, spent: spent.tree, left: totals.tree - spent.tree },
     canopy: { total: totals.canopy, spent: spent.canopy, left: totals.canopy - spent.canopy },
@@ -3628,7 +3629,7 @@ export const handlers = {
   async unlockSkill(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const key = String((args as any)?.key ?? "");
-    const node = ZODIAC_BY_ID.get(key);
+    const node = liveById().get(key);
     if (!node) badRequest("No such skill stands on the wheel.");
     if (node.kind === "center") badRequest("The Heart is not bought — it beats already, and its ring is the first road.");
     const state = await skillTreeState(ownerKey);
@@ -3636,7 +3637,7 @@ export const handlers = {
     if (owned.has(key)) badRequest(`${node.name} is already yours.`);
     const pool = node.pool === "canopy" ? state.canopy : state.tree;
     if (pool.left < node.cost) badRequest(`${node.name} costs ${node.cost} ${node.pool} point${node.cost > 1 ? "s" : ""} — you hold ${pool.left}. Levels grant ${SKILL_POINTS_PER_LEVEL} tree points each; the wheel is a life's walking.`);
-    const heartHeld = state.unlocked.some(k => ZODIAC_BY_ID.get(k)?.sector === "heart");
+    const heartHeld = state.unlocked.some(k => liveById().get(k)?.sector === "heart");
     if (node.sector !== "heart" && !heartHeld) badRequest("The Heart must beat before the limbs move — take a heart-ring skill first.");
     if (node.anyCore && !state.unlocked.some(k => k.startsWith("c_"))) badRequest("The Long Watch keeps company — another heart-ring skill must be held first.");
     if (node.gate) {
@@ -3644,10 +3645,10 @@ export const handlers = {
       if (lvl < node.gate.level) badRequest(`${node.name} stands behind the ${node.gate.el} gate: your ${node.gate.el} attunement is level ${lvl}, and the road opens at level ${node.gate.level}.`);
     }
     for (const req of node.requires) {
-      if (!owned.has(req)) badRequest(`${node.name} requires ${ZODIAC_BY_ID.get(req)?.name ?? req} first — the catalogue's law.`);
+      if (!owned.has(req)) badRequest(`${node.name} requires ${liveById().get(req)?.name ?? req} first — the catalogue's law.`);
     }
     const reached = zodiacReached(owned);
-    if (!(ZODIAC_ADJ[key] ?? []).some(nb => reached.has(nb))) badRequest(`No road of held skills reaches ${node.name} — unlock along the roads from your Heart, trunk to limb to twig.`);
+    if (!(liveAdj()[key] ?? []).some(nb => reached.has(nb))) badRequest(`No road of held skills reaches ${node.name} — unlock along the roads from your Heart, trunk to limb to twig.`);
     sqlite.prepare("INSERT INTO tender_skills (owner_key, skill_key, pool, created_at) VALUES (?, ?, ?, ?)")
       .run(ownerKey, key, node.pool, Date.now());
     return skillTreeState(ownerKey);
@@ -3658,7 +3659,7 @@ export const handlers = {
   async releaseSkill(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const key = String((args as any)?.key ?? "");
-    const node = ZODIAC_BY_ID.get(key);
+    const node = liveById().get(key);
     if (!node) badRequest("No such skill stands on the wheel.");
     const state = await skillTreeState(ownerKey);
     const owned = new Set(state.unlocked);
@@ -3666,10 +3667,54 @@ export const handlers = {
     owned.delete(key);
     const reached = zodiacReached(owned);
     for (const k of owned) {
-      if (!reached.has(k)) badRequest(`Releasing ${node.name} would strand ${ZODIAC_BY_ID.get(k)?.name ?? k} beyond it — release from the twigs inward.`);
+      if (!reached.has(k)) badRequest(`Releasing ${node.name} would strand ${liveById().get(k)?.name ?? k} beyond it — release from the twigs inward.`);
     }
     sqlite.prepare("DELETE FROM tender_skills WHERE owner_key = ? AND skill_key = ?").run(ownerKey, key);
     return skillTreeState(ownerKey);
+  },
+
+  // ── THE STARWRIGHT (workshop, 2026-10-18) ────────────────
+  // The Ancient One re-writes the stars: the living wheel's
+  // nodes, roads and effect clauses, edited in the workshop
+  // and live in the game the moment they are saved. Gated by
+  // WORKSHOP_ACTIONS in index.ts — these never answer a
+  // player's call, only the workshop's key.
+
+  async getZodiacGraph(_args: unknown, _ctx?: ActionContext) {
+    return { graph: zodiacGraph(), palette: FX_PALETTE, bespoke: BESPOKE_IDS };
+  },
+
+  async saveZodiacNode(args: unknown, _ctx?: ActionContext) {
+    try {
+      const node = upsertNode((args as any)?.node);
+      return { ok: true as const, node, graph: zodiacGraph() };
+    } catch (e) { badRequest(e instanceof Error ? e.message : "The star refused its writing."); }
+  },
+
+  async deleteZodiacNode(args: unknown, _ctx?: ActionContext) {
+    try {
+      const id = String((args as any)?.id ?? "");
+      const r = deleteNode(id);
+      return { ...r, graph: zodiacGraph() };
+    } catch (e) { badRequest(e instanceof Error ? e.message : "The star refused its unwriting."); }
+  },
+
+  async addZodiacEdge(args: unknown, _ctx?: ActionContext) {
+    try {
+      const r = addEdge(String((args as any)?.a ?? ""), String((args as any)?.b ?? ""));
+      return { ...r, graph: zodiacGraph() };
+    } catch (e) { badRequest(e instanceof Error ? e.message : "The road refused its laying."); }
+  },
+
+  async deleteZodiacEdge(args: unknown, _ctx?: ActionContext) {
+    try {
+      const r = deleteEdge(String((args as any)?.a ?? ""), String((args as any)?.b ?? ""));
+      return { ...r, graph: zodiacGraph() };
+    } catch (e) { badRequest(e instanceof Error ? e.message : "The road refused its cutting."); }
+  },
+
+  async resetZodiacGraph(_args: unknown, _ctx?: ActionContext) {
+    return { ok: true as const, graph: resetGraph() };
   },
 
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {

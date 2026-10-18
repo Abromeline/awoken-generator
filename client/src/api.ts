@@ -267,6 +267,23 @@ export interface GrimoireState {
   glyphs: GrimoireGlyph[];
   spells: GrimoireSpell[];
 }
+/** The Living Wheel (the Starwright, 2026-10-18): the zodiac
+ *  graph as the workshop edits it — nodes with their effect
+ *  clauses, roads between them, and the clause palette. */
+export interface ZodiacFxClause { verb: string; amount: number; el?: string | null }
+export interface ZodiacGraphNode {
+  id: string; name: string; kind: string; sector: string;
+  x: number; y: number; effect: string; syn: string;
+  el: string | null; att: number; pool: "tree" | "canopy"; cost: number;
+  gate: { el: string; level: number } | null;
+  requires: string[]; anyCore: boolean; fx: ZodiacFxClause[];
+}
+export interface ZodiacGraphData { nodes: ZodiacGraphNode[]; edges: [string, string][] }
+export interface ZodiacGraphState {
+  graph: ZodiacGraphData;
+  palette: { verb: string; label: string; hint: string; hasElement?: boolean }[];
+  bespoke: string[];
+}
 /** The number fields each engine carries — the client mirror of
  *  server/src/grimoire.ts ENGINE_NUMBER_FIELDS (labels + defaults
  *  for the workshop editor and for new spells). */
@@ -503,6 +520,16 @@ export const api = {
   upsertGrimoireSpell: (args: { spell: GrimoireSpellInput }) =>
     post<GrimoireState>("upsertGrimoireSpell", args),
   deleteGrimoireSpell: (args: { key: string }) => post<GrimoireState>("deleteGrimoireSpell", args),
+  getZodiacGraph: () => post<ZodiacGraphState>("getZodiacGraph", {}),
+  saveZodiacNode: (args: { node: ZodiacGraphNode }) =>
+    post<{ ok: true; node: ZodiacGraphNode; graph: ZodiacGraphData }>("saveZodiacNode", args),
+  deleteZodiacNode: (args: { id: string }) =>
+    post<{ ok: true; removedEdges: number; graph: ZodiacGraphData }>("deleteZodiacNode", args),
+  addZodiacEdge: (args: { a: string; b: string }) =>
+    post<{ ok: true; edges: number; graph: ZodiacGraphData }>("addZodiacEdge", args),
+  deleteZodiacEdge: (args: { a: string; b: string }) =>
+    post<{ ok: true; edges: number; graph: ZodiacGraphData }>("deleteZodiacEdge", args),
+  resetZodiacGraph: () => post<{ ok: true; graph: ZodiacGraphData }>("resetZodiacGraph", {}),
   uploadTerrainArt: (args: { element: string; stage: 2 | 3; imageBase64: string; mimeType: "image/png" }) =>
     post<{ ok: true; element: string; stage: number; image_url: string }>("uploadTerrainArt", args),
   deleteTerrainArt: (args: { element: string; stage: 2 | 3 }) => post<{ ok: true }>("deleteTerrainArt", args),

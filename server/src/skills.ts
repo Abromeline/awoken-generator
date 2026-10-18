@@ -1,5 +1,5 @@
 import { sqlite } from "./store.js";
-import { ZODIAC_BY_ID } from "./zodiacData.js";
+import { liveById, type FxClause } from "./zodiacLive.js";
 
 /**
  * THE SKILL ZODIAC'S EFFECTS — tranche one: THE WARD & RUNE
@@ -48,23 +48,25 @@ export interface HeartEffects {
   tenderHp: number;
   heal: number;
   tableEnergy: number;
-  harvest: boolean;
-  steady: boolean;
-  breath: boolean;
-  blood: boolean;
-  skin: boolean;
+  harvestAmount: number;
+  steadyAmount: number;
+  breathAmount: number;
+  bloodAmount: number;
+  skinAmount: number;
 }
 export function heartEffects(ownerKey: string | null | undefined): HeartEffects {
-  const held = heldSkills(ownerKey);
+  // The Heart's law is now read off the stars' clauses (the
+  // Living Wheel): the seed writes these exact numbers onto
+  // the Heart's nodes, and the Starwright may re-write them.
   return {
-    tenderHp: (held.has("c_hp1") ? 5 : 0) + (held.has("c_hp2") ? 5 : 0) + (held.has("p_constitution") ? 4 : 0),
-    heal: (held.has("c_heal") ? 3 : 0) + (held.has("c_hp2") ? 2 : 0),
-    tableEnergy: held.has("c_en") ? 3 : 0,
-    harvest: held.has("c_harv"),
-    steady: held.has("c_steady"),
-    breath: held.has("p_breath"),
-    blood: held.has("p_blood"),
-    skin: held.has("p_skin"),
+    tenderHp: fxSum(ownerKey, "tenderHp"),
+    heal: fxSum(ownerKey, "heal"),
+    tableEnergy: fxSum(ownerKey, "tableEnergy"),
+    harvestAmount: fxSum(ownerKey, "fellHarvest"),
+    steadyAmount: fxSum(ownerKey, "firstWorkingDiscount"),
+    breathAmount: fxSum(ownerKey, "roundEnergy"),
+    bloodAmount: fxSum(ownerKey, "roundMend"),
+    skinAmount: fxSum(ownerKey, "tenderSkin"),
   };
 }
 
@@ -79,13 +81,9 @@ export function heartEffects(ownerKey: string | null | undefined): HeartEffects 
  *  the field at once. */
 export const COMPANY_BASE = 5;
 export function companyCapFor(ownerKey: string | null | undefined): number {
-  const held = heldSkills(ownerKey);
-  let cap = COMPANY_BASE;
-  if (held.has("w_escort")) cap += 2;
-  if (held.has("b_pennant")) cap += 2;
-  if (held.has("r_retinue")) cap += 2;
-  if (held.has("b_muster")) cap += 4;
-  return cap;
+  // The Muster's width is clause law now (the Living Wheel):
+  // the seed writes +2/+2/+2/+4 onto the four company stars.
+  return COMPANY_BASE + fxSum(ownerKey, "company");
 }
 
 /**
@@ -98,11 +96,28 @@ export function companyCapFor(ownerKey: string | null | undefined): number {
  * SPENDABLE pool stays the earned points: a grant deepens
  * the well, it does not fill it.
  */
+/** Every effect clause a Tender's held stars carry (the Living
+ *  Wheel, 2026-10-18): the derivations below are sums over
+ *  these, so a star the Ancient One re-writes in the workshop —
+ *  or a new star he sets in the sky — moves the game's numbers
+ *  exactly as its clauses say. */
+export function heldClauses(ownerKey: string | null | undefined): FxClause[] {
+  const byId = liveById();
+  const out: FxClause[] = [];
+  for (const k of heldSkills(ownerKey)) {
+    const n = byId.get(k);
+    if (n) out.push(...n.fx);
+  }
+  return out;
+}
+export function fxSum(ownerKey: string | null | undefined, verb: string): number {
+  return heldClauses(ownerKey).filter(c => c.verb === verb).reduce((a, c) => a + c.amount, 0);
+}
+
 export function skillAttunementGrants(ownerKey: string | null | undefined): Record<string, number> {
   const grants: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
-  for (const k of heldSkills(ownerKey)) {
-    const n = ZODIAC_BY_ID.get(k);
-    if (n && n.el && n.att > 0) grants[n.el] = (grants[n.el] ?? 0) + n.att;
+  for (const c of heldClauses(ownerKey)) {
+    if (c.verb === "attunement" && c.el) grants[c.el] = (grants[c.el] ?? 0) + c.amount;
   }
   return grants;
 }

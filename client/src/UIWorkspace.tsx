@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { setWheatStageOverride, setDreamWeedStageOverride } from "./BuildingMenu";
 import { useEnemyArt, ENEMY_ART_QUERY_KEY } from "./enemyArt";
-import { api, GRIMOIRE_ENGINE_FIELDS, GRIMOIRE_HUES, type GrimoireGlyph, type GrimoireSpell, type GrimoireSpellInput, type GrimoireGlyphSort, type GrimoireSpellKind } from "./api";
+import { api, GRIMOIRE_ENGINE_FIELDS, GRIMOIRE_HUES, type GrimoireGlyph, type GrimoireSpell, type GrimoireSpellInput, type GrimoireGlyphSort, type GrimoireSpellKind, type ZodiacGraphNode, type ZodiacFxClause } from "./api";
 import { ElementGlyph } from "./glyphs";
 import { ELEMENTS, ELEMENT_SCHEME, applyElementPalette, elementPalette, isHexColor, type ElementName } from "./palette";
 // Current default sprites (bundled with the app)
@@ -58,7 +58,7 @@ const CURRENT_SPRITES: Record<string, Record<string, string>> = {
   },
 };
 
-type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium" | "border" | "grimoire";
+type Section = "enemies" | "buildings" | "terrain" | "timers" | "awakening" | "elements" | "table" | "compendium" | "border" | "grimoire" | "starwright";
 
 // The Monsters Compendium (the game's living copy of the Atelier's roll):
 // entries live in the game's own store (compendium_entries, seeded from
@@ -523,6 +523,211 @@ function GrimoireSection() {
   );
 }
 
+/** THE STARWRIGHT (2026-10-18) — the Ancient One re-writes the
+ *  stars: the whole Skill Zodiac on one wheel, clickable.
+ *  Edit a star's words, numbers and effect clauses; drag it to
+ *  a new place in the sky; add new stars; lay and cut roads.
+ *  Every save is live in the game at once. */
+const STAR_SECTORS: Record<string, string> = {
+  heart: "#e8b4b8", warden: "#9fb6c9", binder: "#c3aef0", runewright: "#a8c9a1",
+  lore: "#d9b26a", warground: "#d97b6a", wake: "#f0e2a0", voice: "#a0d8e8",
+  land: "#9ac98f", law: "#c9c9d9", grove: "#7fc97f", music: "#e8a0c9", weather: "#8fb6e8",
+};
+function starR(n: ZodiacGraphNode): number {
+  return n.kind === "center" ? 15 : n.kind === "crown" ? 9 : n.kind === "keystone" ? 8 : n.kind === "notable" ? 7 : 5;
+}
+function StarwrightSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["zodiacGraph"], queryFn: () => api.getZodiacGraph(), staleTime: 0 });
+  const [mode, setMode] = useState<"edit" | "roads">("edit");
+  const [draft, setDraft] = useState<ZodiacGraphNode | null>(null);
+  const [isNew, setIsNew] = useState(false);
+  const [roadFrom, setRoadFrom] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [msg, setMsg] = useState<string>("");
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const dragId = useRef<string | null>(null);
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ["zodiacGraph"] }); void qc.invalidateQueries({ queryKey: ["skillTree"] }); };
+  const err = (e: any) => setMsg(e?.message ?? "The wheel refused.");
+  const saveM = useMutation({
+    mutationFn: (node: ZodiacGraphNode) => api.saveZodiacNode({ node }),
+    onSuccess: (r) => { setDraft(r.node); setIsNew(false); setMsg(`✦ ${r.node.name} is written.`); refresh(); },
+    onError: err,
+  });
+  const delM = useMutation({
+    mutationFn: (id: string) => api.deleteZodiacNode({ id }),
+    onSuccess: (r) => { setDraft(null); setConfirmDel(false); setMsg(`The star is unwritten — ${r.removedEdges} road${r.removedEdges === 1 ? "" : "s"} went with it, and no Tender holds it now.`); refresh(); },
+    onError: err,
+  });
+  const edgeM = useMutation({
+    mutationFn: (a: { a: string; b: string; cut: boolean }) => a.cut ? api.deleteZodiacEdge({ a: a.a, b: a.b }) : api.addZodiacEdge({ a: a.a, b: a.b }),
+    onSuccess: () => refresh(),
+    onError: err,
+  });
+  const resetM = useMutation({
+    mutationFn: () => api.resetZodiacGraph(),
+    onSuccess: () => { setDraft(null); setConfirmReset(false); setMsg("The wheel stands as it was first written."); refresh(); },
+    onError: err,
+  });
+  if (!data) return <div className="workspace-card wide"><h3>✦ The Starwright</h3><p className="quiet">Reading the sky…</p></div>;
+  const graph = data.graph;
+  const byId = new Map(graph.nodes.map(n => [n.id, n]));
+  const palette = data.palette;
+  const sectors = [...new Set(graph.nodes.map(n => n.sector))].sort();
+  const edgeKey = (a: string, b: string) => [a, b].sort().join("|");
+  const edgeSet = new Set(graph.edges.map(([a, b]) => edgeKey(a, b)));
+  const toLocal = (e: React.PointerEvent) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 360, y: 360 };
+    return { x: Math.max(0, Math.min(720, (e.clientX - rect.left) * (720 / rect.width))), y: Math.max(0, Math.min(720, (e.clientY - rect.top) * (720 / rect.height))) };
+  };
+  const selectNode = (n: ZodiacGraphNode) => { setDraft({ ...n, fx: n.fx.map(c => ({ ...c })) }); setIsNew(false); setConfirmDel(false); };
+  const onNodeTap = (n: ZodiacGraphNode) => {
+    if (mode === "roads") {
+      if (!roadFrom) { setRoadFrom(n.id); setMsg(`Road from ${n.name} — tap the star it should reach.`); return; }
+      if (roadFrom === n.id) { setRoadFrom(null); return; }
+      const cut = edgeSet.has(edgeKey(roadFrom, n.id));
+      edgeM.mutate({ a: roadFrom, b: n.id, cut });
+      setMsg(cut ? `The road between ${byId.get(roadFrom)?.name} and ${n.name} is cut.` : `A road now joins ${byId.get(roadFrom)?.name} and ${n.name}.`);
+      setRoadFrom(null);
+      return;
+    }
+    selectNode(n);
+  };
+  const newStar = () => {
+    let i = 1; while (byId.has(`star_${i}`)) i++;
+    const node: ZodiacGraphNode = {
+      id: `star_${i}`, name: "A New Star", kind: "minor", sector: "heart", x: 360, y: 300,
+      effect: "", syn: "", el: null, att: 0, pool: "tree", cost: 1, gate: null, requires: [], anyCore: false, fx: [],
+    };
+    setDraft(node); setIsNew(true); setMode("edit"); setMsg("A new star, unwritten — name it, place it, give it its clauses, then Write it. Road it to the wheel in Roads mode once it stands.");
+  };
+  const setFx = (at: number, clause: ZodiacFxClause) => {
+    if (!draft) return;
+    const fx = draft.fx.map((c, i) => i === at ? clause : c);
+    setDraft({ ...draft, fx });
+  };
+  return (
+    <div className="workspace-grid">
+      <div className="workspace-card wide">
+        <h3>✦ The Starwright — re-write the stars</h3>
+        <p className="quiet">The whole wheel, as the game now reads it. Every save is live at once — no push, no deploy. A star's <strong>effect clauses</strong> are its true mechanics: the game sums them over what a Tender holds. Its <em>effect text</em> is what the player reads — keep the two telling the same story.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
+          <button className={mode === "edit" ? "abtn primary" : "abtn"} onClick={() => { setMode("edit"); setRoadFrom(null); }}>✎ Edit stars</button>
+          <button className={mode === "roads" ? "abtn primary" : "abtn"} onClick={() => { setMode("roads"); setMsg("Roads mode: tap one star, then another, to lay or cut the road between them. Tap a road itself to cut it."); }}>🛤️ Roads</button>
+          <button className="abtn" onClick={newStar}>✦ Add a star</button>
+          {!confirmReset
+            ? <button className="abtn" onClick={() => setConfirmReset(true)}>Restore the first writing</button>
+            : <button className="abtn danger" onClick={() => resetM.mutate()}>Truly restore? Every edit is lost.</button>}
+        </div>
+        {msg && <p className="notice-line">{msg}</p>}
+        <svg ref={svgRef} viewBox="0 0 720 720" style={{ width: "100%", maxWidth: 720, display: "block", background: "radial-gradient(circle at 50% 50%, #171a29 0%, #0b0d16 70%)", borderRadius: 12, touchAction: "none" }}
+          onPointerMove={(e) => {
+            if (!dragId.current || !draft || draft.id !== dragId.current) return;
+            const p = toLocal(e);
+            setDraft({ ...draft, x: Math.round(p.x), y: Math.round(p.y) });
+          }}
+          onPointerUp={() => { if (dragId.current && draft && draft.id === dragId.current && !isNew) saveM.mutate(draft); dragId.current = null; }}
+        >
+          {graph.edges.map(([a, b], i) => {
+            const na = byId.get(a), nb = byId.get(b);
+            if (!na || !nb) return null;
+            return (
+              <g key={i}>
+                <line x1={na.x} y1={na.y} x2={nb.x} y2={nb.y} stroke="transparent" strokeWidth={14} style={{ cursor: mode === "roads" ? "pointer" : "default" }}
+                  onClick={() => { if (mode === "roads") { edgeM.mutate({ a, b, cut: true }); setMsg(`The road between ${na.name} and ${nb.name} is cut.`); } }} />
+                <line x1={na.x} y1={na.y} x2={nb.x} y2={nb.y} stroke="#4a5170" strokeWidth={1.2} pointerEvents="none" />
+              </g>
+            );
+          })}
+          {graph.nodes.map(n => {
+            const isSel = draft?.id === n.id;
+            const isFrom = roadFrom === n.id;
+            return (
+              <g key={n.id} style={{ cursor: "pointer" }}
+                onPointerDown={(e) => { if (mode === "edit") { selectNode(n); dragId.current = n.id; (e.target as Element).setPointerCapture?.(e.pointerId); } }}
+                onClick={() => onNodeTap(n)}
+              >
+                <circle cx={n.x} cy={n.y} r={starR(n) + 6} fill="transparent" />
+                <circle cx={n.x} cy={n.y} r={starR(n)} fill={STAR_SECTORS[n.sector] ?? "#9aa3b8"} stroke={isFrom ? "#ffd76a" : isSel ? "#fff" : "#0b0d16"} strokeWidth={isSel || isFrom ? 2.5 : 1} opacity={0.92} />
+                {n.kind === "center" && <text x={n.x} y={n.y + 5} textAnchor="middle" fontSize={13} fill="#14161f" pointerEvents="none">♥</text>}
+              </g>
+            );
+          })}
+          {draft && isNew && <circle cx={draft.x} cy={draft.y} r={10} fill="none" stroke="#ffd76a" strokeDasharray="3 3" pointerEvents="none" />}
+        </svg>
+        <p className="quiet">{graph.nodes.length} stars · {graph.edges.length} roads. {mode === "edit" ? "Tap a star to edit it; drag it to move it (it saves when you let go)." : "Tap two stars to lay or cut their road; tap a road to cut it."}</p>
+      </div>
+      {draft && (
+        <div className="workspace-card wide">
+          <h3>{isNew ? "✦ A new star" : `✎ ${draft.name}`}</h3>
+          {data.bespoke.includes(draft.id) && <p className="notice-line">This star also carries Keeper-wired workings in the game's code — its clauses add their numbers on top; the workings themselves change only by the Keeper's hand.</p>}
+          <div className="stat-rows">
+            <label>Id {isNew ? "(choose well — the ledger knows it by this)" : "(fixed)"}<input value={draft.id} disabled={!isNew} onChange={(e) => setDraft({ ...draft, id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} /></label>
+            <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+            <label>Kind
+              <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}>
+                {["minor", "notable", "keystone", "element", "crown", "center"].map(k => <option key={k} value={k}>{k}</option>)}
+              </select>
+            </label>
+            <label>Sector<input value={draft.sector} list="star-sectors" onChange={(e) => setDraft({ ...draft, sector: e.target.value })} /><datalist id="star-sectors">{sectors.map(s => <option key={s} value={s} />)}</datalist></label>
+            <label>Pool
+              <select value={draft.pool} onChange={(e) => setDraft({ ...draft, pool: e.target.value as "tree" | "canopy" })}>
+                <option value="tree">tree</option><option value="canopy">canopy</option>
+              </select>
+            </label>
+            <label>Cost (points)<input type="number" value={draft.cost} onChange={(e) => setDraft({ ...draft, cost: Number(e.target.value) })} /></label>
+            <label>Element
+              <select value={draft.el ?? ""} onChange={(e) => setDraft({ ...draft, el: e.target.value || null })}>
+                <option value="">— none —</option>{["tide", "sky", "stone", "root", "fire"].map(el => <option key={el} value={el}>{el}</option>)}
+              </select>
+            </label>
+            <label>X<input type="number" value={Math.round(draft.x)} onChange={(e) => setDraft({ ...draft, x: Number(e.target.value) })} /></label>
+            <label>Y<input type="number" value={Math.round(draft.y)} onChange={(e) => setDraft({ ...draft, y: Number(e.target.value) })} /></label>
+            <label>Gate element
+              <select value={draft.gate?.el ?? ""} onChange={(e) => setDraft({ ...draft, gate: e.target.value ? { el: e.target.value, level: draft.gate?.level ?? 1 } : null })}>
+                <option value="">— no gate —</option>{["tide", "sky", "stone", "root", "fire"].map(el => <option key={el} value={el}>{el}</option>)}
+              </select>
+            </label>
+            <label>Gate level<input type="number" min={0} max={3} value={draft.gate?.level ?? 1} disabled={!draft.gate} onChange={(e) => draft.gate && setDraft({ ...draft, gate: { ...draft.gate, level: Number(e.target.value) } })} /></label>
+            <label>Needs a heart-ring star first (anyCore)<input type="checkbox" checked={draft.anyCore} onChange={(e) => setDraft({ ...draft, anyCore: e.target.checked })} /></label>
+          </div>
+          <label style={{ display: "block", marginTop: 8 }}>Requires first (comma-separated star ids)<input style={{ width: "100%" }} value={draft.requires.join(", ")} onChange={(e) => setDraft({ ...draft, requires: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} /></label>
+          <label style={{ display: "block", marginTop: 8 }}>Effect — what the player reads<textarea style={{ width: "100%", minHeight: 54 }} value={draft.effect} onChange={(e) => setDraft({ ...draft, effect: e.target.value })} /></label>
+          <label style={{ display: "block", marginTop: 8 }}>Synergy note<textarea style={{ width: "100%", minHeight: 40 }} value={draft.syn} onChange={(e) => setDraft({ ...draft, syn: e.target.value })} /></label>
+          <h4 style={{ marginTop: 14 }}>Effect clauses — the star's true mechanics</h4>
+          {draft.fx.map((c, i) => {
+            const spec = palette.find(p => p.verb === c.verb);
+            return (
+              <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+                <select value={c.verb} onChange={(e) => setFx(i, { ...c, verb: e.target.value })}>
+                  {palette.map(p => <option key={p.verb} value={p.verb}>{p.label}</option>)}
+                </select>
+                {spec?.hasElement && (
+                  <select value={c.el ?? "stone"} onChange={(e) => setFx(i, { ...c, el: e.target.value })}>
+                    {["tide", "sky", "stone", "root", "fire"].map(el => <option key={el} value={el}>{el}</option>)}
+                  </select>
+                )}
+                <input type="number" style={{ width: 80 }} value={c.amount} onChange={(e) => setFx(i, { ...c, amount: Number(e.target.value) })} />
+                <small className="quiet" style={{ flex: 1, minWidth: 160 }}>{spec?.hint}</small>
+                <button className="abtn small" onClick={() => setDraft({ ...draft, fx: draft.fx.filter((_, j) => j !== i) })}>Remove</button>
+              </div>
+            );
+          })}
+          <button className="abtn small" onClick={() => setDraft({ ...draft, fx: [...draft.fx, { verb: "tenderHp", amount: 1, el: null }] })}>+ Add an effect clause</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+            <button className="abtn primary" disabled={saveM.isPending} onClick={() => saveM.mutate(draft)}>{isNew ? "✦ Write this star" : "Save this star"}</button>
+            {!isNew && draft.id !== "heart" && (!confirmDel
+              ? <button className="abtn" onClick={() => setConfirmDel(true)}>Unwrite this star</button>
+              : <button className="abtn danger" onClick={() => delM.mutate(draft.id)}>Truly unwrite it? Its roads go too, and no Tender holds it.</button>)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UIWorkspace() {
   const [section, setSection] = useState<Section>("enemies");
   const queryClient = useQueryClient();
@@ -764,9 +969,9 @@ export default function UIWorkspace() {
       <p className="quiet">Tweak sprites, stats, and timers. Changes apply immediately.</p>
 
       <div className="workspace-tabs">
-        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium", "border", "grimoire"] as Section[]).map(s => (
+        {(["enemies", "buildings", "terrain", "timers", "awakening", "elements", "table", "compendium", "border", "grimoire", "starwright"] as Section[]).map(s => (
           <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>
-            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : s === "compendium" ? "📖 Compendium" : s === "grimoire" ? "📖 Grimoire" : "🖼️ Card Border"}
+            {s === "enemies" ? "👹 Enemies" : s === "buildings" ? "🏗️ Buildings" : s === "terrain" ? "🗺️ Terrain" : s === "timers" ? "⏱️ Timers" : s === "awakening" ? "✨ Awakening" : s === "elements" ? "🌿 Elements" : s === "table" ? "🎲 Discord Table" : s === "compendium" ? "📖 Compendium" : s === "grimoire" ? "📖 Grimoire" : s === "starwright" ? "✦ Starwright" : "🖼️ Card Border"}
           </button>
         ))}
       </div>
@@ -942,6 +1147,7 @@ export default function UIWorkspace() {
 
       {section === "border" && <CardBorderSection />}
       {section === "grimoire" && <GrimoireSection />}
+      {section === "starwright" && <StarwrightSection />}
 
       {section === "timers" && (
         <div className="workspace-grid">

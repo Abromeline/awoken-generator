@@ -996,10 +996,11 @@ async function runRound(room: Room): Promise<void> {
     for (const p of room.players.values()) {
       if (p.watcher || p.fallen || !p.expKey) continue;
       const heart = heartEffects(p.expKey);
-      if (heart.breath) p.energy = Math.min(p.maxEnergy + 10, p.energy + 1);
-      if (heart.blood && p.tenderHp > 0 && p.tenderHp < p.maxTenderHp) {
-        p.tenderHp += 1;
-        tell(room, `The Returning Blood knits ${p.name} — 1 HP returns with the round.`);
+      if (heart.breathAmount > 0) p.energy = Math.min(p.maxEnergy + 10, p.energy + heart.breathAmount);
+      if (heart.bloodAmount > 0 && p.tenderHp > 0 && p.tenderHp < p.maxTenderHp) {
+        const mend = Math.min(heart.bloodAmount, p.maxTenderHp - p.tenderHp);
+        p.tenderHp += mend;
+        tell(room, `The Returning Blood knits ${p.name} — ${mend} HP returns with the round.`);
       }
     }
     const witness = (from: string, to: string, element: string, side: "light" | "dark", hit: boolean, killed: boolean) => {
@@ -1105,9 +1106,11 @@ async function runRound(room: Room): Promise<void> {
         if (owner && !owner.fallen) {
           owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
           // The Harvest (the Heart, 2026-10-18): when YOUR
-          // Awoken fell the dark, +1⚡ more.
-          if (owner.expKey && heartEffects(owner.expKey).harvest) {
-            owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 1);
+          // Awoken fell the dark, the stars' fellHarvest
+          // clauses pay their ⚡ on top of the base three.
+          const hv = owner.expKey ? heartEffects(owner.expKey).harvestAmount : 0;
+          if (hv !== 0) {
+            owner.energy = Math.max(0, Math.min(owner.maxEnergy + 10, owner.energy + hv));
           }
           await payBattleExp(room, owner, 2, "The dark pays for its felling.");
         }
@@ -1264,9 +1267,10 @@ async function runRound(room: Room): Promise<void> {
         if (bare.length === 0) break;
         const tender = bare[Math.floor(Math.random() * bare.length)];
         // The Thickened Skin (the Heart's spine, 2026-10-18):
-        // every strike against the Tender deals 1 less, never
-        // below 1.
-        const blow = tender.expKey && heartEffects(tender.expKey).skin ? Math.max(1, enemy.power - 1) : enemy.power;
+        // strikes against the Tender are blunted by the
+        // stars' tenderSkin clauses, never below 1.
+        const skinAmt = tender.expKey ? heartEffects(tender.expKey).skinAmount : 0;
+        const blow = Math.max(1, enemy.power - skinAmt);
         tender.tenderHp -= blow;
         if (tender.tenderHp <= 0) {
           tender.tenderHp = 0;
@@ -1624,7 +1628,8 @@ function handleConnection(ws: WebSocket): void {
       // ward or rune of the battle costs 1⚡ less — it rides
       // after the Second Wall's halving when both are held.
       let steadySpent = false;
-      if (caster.expKey && heartEffects(caster.expKey).steady && !caster.steadyUsed) { castCost = Math.max(0, castCost - 1); steadySpent = true; }
+      const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
+      if (steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
       if (caster.energy < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — you hold ⚡${caster.energy}.` })); return; }
       // The Pour (Nigel, 2026-10-17): elemental points of the
       // poured hue, fed into the working at its cast — capped by
@@ -1706,7 +1711,8 @@ function handleConnection(ws: WebSocket): void {
       // shared with the ward's raising.
       let runeCost = def.cost;
       let runeSteadySpent = false;
-      if (caster.expKey && heartEffects(caster.expKey).steady && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - 1); runeSteadySpent = true; }
+      const runeSteadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
+      if (runeSteadyAmt > 0 && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - runeSteadyAmt); runeSteadySpent = true; }
       if (caster.energy < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — you hold ⚡${caster.energy}.` })); return; }
       // The Pour, as at the ward's raising — one pour feeds the
       // whole cast (the Three Blades drink once, not per hex).
