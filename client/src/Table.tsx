@@ -15,11 +15,13 @@
  * readability are the accepted prototype's, untouched.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
+import { BUNDLED_TERRAIN } from "./terrainArt";
+import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
 import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
 import glyphEngine from "./assets/glyphs/engine.png";
@@ -67,12 +69,6 @@ interface WorkingView {
   hp: number; stops: number; charges: number;
 }
 
-function hexNeighbors(id: string): string[] {
-  const h = FIELD_HEXES.find(x => x.id === id);
-  if (!h) return [];
-  return FIELD_HEXES.filter(x => x.id !== id && Math.hypot(x.x - h.x, x.y - h.y) <= 52).map(x => x.id);
-}
-
 interface TableCard {
   id: string;
   name: string;
@@ -84,8 +80,24 @@ interface TableCard {
   awokenId?: number;
 }
 
+/** One tile of the instance map (the server's MapTile, as it
+ *  crosses the wire): axial (q, r) on a radius-3 flower; "0,0"
+ *  is the star-seed's ground. `landing` names the Tender whose
+ *  arrival purified it, when one holds it. */
+interface MapTileView {
+  id: string;
+  q: number;
+  r: number;
+  cursed: boolean;
+  element: string | null;
+  curseHp: number;
+  curseMaxHp: number;
+  landing: string | null;
+}
+
 interface FieldUnitView {
   hex: string;
+  cardId: string;
   name: string;
   art: string | null;
   layers?: { source_id: string; category: string; imageUrl: string | null }[];
@@ -96,6 +108,8 @@ interface FieldUnitView {
   maxHp: number;
   shield?: number;
   maxShield?: number;
+  /** On the march: the road home is read off road + clock. */
+  march?: { road: string[]; since: number; endsAt: number } | null;
   level: number | null;
   ownerKey: string;
   ownerName: string;
@@ -121,9 +135,10 @@ interface SharedState {
   players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
+  map: MapTileView[];
   field: FieldUnitView[];
   enemies: EnemyView[];
-  dark: { hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinned: number; armor?: number; lvl?: number }[];
+  dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; march?: { road: string[]; since: number; endsAt: number } | null }[];
   workings: WorkingView[];
   battle: { active: boolean; wave: number };
   strikes?: { from: string; to: string; element: string; side: "light" | "dark"; hit: boolean; killed: boolean }[];
@@ -155,6 +170,8 @@ interface YouState {
   /** CAMPAIGN (Phase B): dissipations per card — the recast
    *  multiplier the bank will charge for its return. */
   recasts?: Record<string, number>;
+  /** The instance tile this Tender's landing purified. */
+  landing?: string | null;
   /** The Storytender's private instruments (her eyes only). */
   storytender?: {
     reserve: string[];
@@ -194,28 +211,88 @@ function DieGlyph({ sides }: { sides: number }) {
   }
 }
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
-// The field fills the battlefield (Nigel, 2026-10-16): a
-// generated honeycomb, edge to edge — the server owns the
-// identical field from the identical constants; the two
-// generators must stay in step. The hex nearest the middle
-// holds the star-seed and is never stood upon.
-const FIELD_HEXES: { id: string; x: number; y: number; center?: boolean }[] = (() => {
-  const R = 26, dx = Math.sqrt(3) * R, dy = 1.5 * R;
-  const out: { id: string; x: number; y: number; center?: boolean }[] = [];
-  for (let r = 0; r < 6; r++) {
-    const y = 26 + r * dy;
-    const off = (r % 2) * (dx / 2);
-    for (let c = 0; ; c++) {
-      const x = 28 + off + c * dx;
-      if (x > 276) break;
-      out.push({ id: `hex-${r}-${c}`, x, y });
-    }
-  }
-  let best = out[0], bd = Infinity;
-  for (const h of out) { const d = (h.x - 150) ** 2 + (h.y - 130) ** 2; if (d < bd) { bd = d; best = h; } }
-  best.center = true;
-  return out;
-})();
+
+// ── THE INSTANCE MAP (Nigel, 2026-10-18): the Table's field is
+// the terrain map now — a fresh instance dealt per room, drawn
+// by the land's own isometric geometry. The constants and
+// functions below are copied VERBATIM from Territory.tsx (the
+// hex geometry section), so the Table's map and the land's map
+// are one lattice and can never drift apart. The ART is
+// canonical: where measurement and art disagree, the code
+// moves, never the art.
+const ISO_E: [number, number] = [1292, 470];
+const ISO_SE: [number, number] = [0, 948];
+const ISO_DEN = 796;
+
+/** The lattice basis (east and south-east neighbor offsets) at a size. */
+function isoBasis(size: number): { u: [number, number]; v: [number, number] } {
+  const k = size / ISO_DEN;
+  return { u: [ISO_E[0] * k, ISO_E[1] * k], v: [ISO_SE[0] * k, ISO_SE[1] * k] };
+}
+
+/** Axial → pixel offset, from the same basis (used with an origin). */
+function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
+  const { u, v } = isoBasis(size);
+  return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
+}
+
+/** The painted face, measured from the tile art (source px, relative
+ *  to face center, in angular order: TL, TR, R, BR, BL, L). */
+const FACE_HEX: [number, number][] = [
+  [-406, -468], [415, -468], [861, -6],
+  [431, 476], [-431, 472], [-870, -6],
+];
+
+/** The six corners of the painted-face polygon around (cx, cy),
+ *  optionally scaled about the center (pulses, double outlines). */
+function hexCellVertices(cx: number, cy: number, size: number, scale = 1): [number, number][] {
+  const k = (size / ISO_DEN) * scale;
+  return FACE_HEX.map(([x, y]): [number, number] => [cx + x * k, cy + y * k]);
+}
+
+/** The fitted hex cell as an SVG points string. */
+function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string {
+  return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+}
+
+/** The stage's one measure: the hex base size the instance is
+ *  drawn at. The stage's frame is NOT fixed — the viewBox is
+ *  computed from state.map's own extents (see stageBox), so the
+ *  same drawing serves a radius-3 flower or a radius-5 one. */
+const TILE_SIZE = 40;
+const SEED_TILE_ID = "0,0";
+const TILE_K = TILE_SIZE / ISO_DEN;
+
+/** A tile's center in the stage's own coordinates (no origin:
+ *  the viewBox frames wherever the tiles fall). Purified land
+ *  rides 5px higher than the curse — Territory's own tray-lift
+ *  law, one step: the light literally stands above the dark. */
+function tilePos(q: number, r: number, cursed: boolean): { cx: number; cy: number } {
+  const { px, py } = isoOffset(q, r, TILE_SIZE);
+  return { cx: px, cy: py + (cursed ? 0 : -5) };
+}
+
+/** Axial hex distance between two tiles of the instance. */
+function axialDist(a: { q: number; r: number }, b: { q: number; r: number }): number {
+  return (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2;
+}
+
+/** Where the stacked light stands on one tile: a 2×2 fan
+ *  around the tile's standing point (STACK_CAP is 4), scaled
+ *  to the stage's tile size. */
+const STACK_OFF: [number, number][] = [[-19, -4], [19, -4], [-19, 15], [19, 15]];
+
+/** A small court of colors: a figure's owner ring is filled
+ *  by a steady hash of their name, so a Tender's light wears
+ *  the same color on every screen. */
+const OWNER_COLORS = ["#e8b13a", "#57c8ff", "#7dd069", "#ff7a9e", "#cdb9ff", "#ff9c4a", "#4ad6c2", "#f0e68c"];
+function ownerColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return OWNER_COLORS[h % OWNER_COLORS.length];
+}
+
+const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 
 const ROSTER = [
   { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
@@ -340,6 +417,25 @@ export default function Table() {
     const t = setTimeout(() => setShots(prev => prev.filter(x => !ids.has(x.id))), 1500);
     return () => clearTimeout(t);
   }, [shared]);
+  // THE MARCH (2026-10-18): a standing Awoken of mine, chosen
+  // to receive orders — march, heal, recall (see the unit bar).
+  const [selUnitId, setSelUnitId] = useState<string | null>(null);
+  // The stage clock: a marching figure's place is read off
+  // road + clock on every screen (Territory's marching-layer
+  // law), so the stage ticks gently while anyone watches.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 150);
+    return () => clearInterval(t);
+  }, []);
+  // The stage's manners (Territory's, carried over 2026-10-18):
+  // the map pans by drag and zooms by button, in the viewBox's
+  // own coordinate space. A tap is a tap only when the pointer
+  // barely moved — drags must never read as tile taps.
+  const [view, setView] = useState<{ zoom: number; pan: { x: number; y: number } }>({ zoom: 1, pan: { x: 0, y: 0 } });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean } | null>(null);
+  const suppressTapRef = useRef(false);
   const [diceOpen, setDiceOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
@@ -758,6 +854,294 @@ export default function Table() {
     const n = shared.mode === "campaign" && you?.recasts ? (you.recasts[card.id] ?? 0) : 0;
     return Math.max(1, card.power) * (n > 0 ? 2 ** Math.min(n, 5) : 1);
   };
+
+  // ── THE INSTANCE MAP, derived (2026-10-18) ─────────────────
+  // Everything on the stage is read off the server's tiles and
+  // the clock — the client keeps no second map.
+  const tiles = shared.map ?? [];
+  const tileById = new Map(tiles.map(t => [t.id, t]));
+  const tileCenter = (t: MapTileView): { cx: number; cy: number } => tilePos(t.q, t.r, t.cursed);
+  const centerOf = (id: string): { cx: number; cy: number } | null => {
+    const t = tileById.get(id);
+    return t ? tileCenter(t) : null;
+  };
+  const sortedTiles = [...tiles].sort((a, b) => tileCenter(a).cy - tileCenter(b).cy);
+  const myUnitOn = (tileId: string): boolean => !!you && shared.field.some(u => u.hex === tileId && u.ownerKey === you.key);
+  const isMarchingNow = (u: FieldUnitView): boolean => !!u.march && nowMs < u.march.endsAt;
+
+  // The stage's frame, computed from the map's own extents:
+  // the tiles' base centers (lift aside, so the frame never
+  // breathes as tiles purify) grown by the painted face's
+  // measure on every side, plus a small margin. Whatever
+  // radius the server deals, the whole flower fits at zoom 1.
+  const stageBox = (() => {
+    if (!tiles.length) return { x: -100, y: -100, w: 200, h: 200, cx: 0, cy: 0 };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const t of tiles) {
+      const { px, py } = isoOffset(t.q, t.r, TILE_SIZE);
+      if (px < minX) minX = px;
+      if (px > maxX) maxX = px;
+      if (py < minY) minY = py;
+      if (py > maxY) maxY = py;
+    }
+    const x0 = minX - 870 * TILE_K - 14, x1 = maxX + 861 * TILE_K + 14;
+    const y0 = minY - 468 * TILE_K - 14, y1 = maxY + 476 * TILE_K + 14;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+  })();
+
+  // Pan and zoom, in the viewBox's coordinate space. Zooming
+  // holds the stage's center still; dragging past a few
+  // pixels is a pan, never a tap (suppressTapRef stands
+  // guard until just after the click it would have fed).
+  const zoomBy = (f: number) => {
+    setView(v => {
+      const zoom = Math.max(0.7, Math.min(2.2, v.zoom * f));
+      const k = zoom / v.zoom;
+      return { zoom, pan: { x: stageBox.cx - (stageBox.cx - v.pan.x) * k, y: stageBox.cy - (stageBox.cy - v.pan.y) * k } };
+    });
+  };
+  const onStageDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ }
+  };
+  const onStageMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    d.moved = true;
+    suppressTapRef.current = true;
+    const rect = svgRef.current?.getBoundingClientRect();
+    const f = rect && rect.width > 0 ? stageBox.w / rect.width : 1;
+    setView(v => ({ ...v, pan: { x: d.panX + dx * f, y: d.panY + dy * f } }));
+  };
+  const onStageUp = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (d?.moved) setTimeout(() => { suppressTapRef.current = false; }, 80);
+  };
+
+  // The selected Awoken and its march price (the land's rate:
+  // 1 + ⌊(power−1)/3⌋ per hex crossed).
+  const selUnit = selUnitId && you ? shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key) ?? null : null;
+  const selUnitMarching = !!selUnit && isMarchingNow(selUnit);
+  const marchRateOf = (u: FieldUnitView): number => 1 + Math.floor((Math.max(1, u.power) - 1) / 3);
+
+  // Which tiles the Written Light's placing flows may touch —
+  // the same law the old hex field enforced, in axial terms.
+  const tilePickable = (t: MapTileView): boolean => {
+    if (!placing || !you) return false;
+    if (placing.kind === "heal") return myUnitOn(t.id);
+    if (placing.kind === "rune") return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
+    if (!wardAnchor) return myUnitOn(t.id);
+    const anchor = tileById.get(wardAnchor);
+    return !!anchor && axialDist(anchor, t) === 1;
+  };
+
+  // A tap on the land itself. The placing flows drink first;
+  // then a chosen card is cast; then a chosen Awoken marches;
+  // then the tap chooses (or cycles) my Awoken standing there.
+  const onTileTap = (t: MapTileView) => {
+    if (!you) return;
+    if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
+    if (placing) {
+      if (placing.kind === "heal") {
+        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id }); setPlacing(null); }
+        return;
+      }
+      if (placing.kind === "rune") {
+        const eng = defs[placing.root]?.engine;
+        if (eng === "blades" || eng === "shardrain") {
+          const maxT = eng === "shardrain" ? (defs[placing.root]?.numbers.maxHexes ?? 3) : (defs[placing.root]?.numbers.maxTargets ?? 3);
+          setBladePicks(prev => prev.includes(t.id) ? prev.filter(x => x !== t.id) : prev.length >= maxT ? prev : [...prev, t.id]);
+          return;
+        }
+        if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
+          send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [t.id], pour: pourPts });
+          setPlacing(null); setPourPts(0);
+        }
+        return;
+      }
+      // ward: an anchor on my own ground, then a neighbour.
+      if (!wardAnchor) { if (myUnitOn(t.id)) setWardAnchor(t.id); return; }
+      const anchor = tileById.get(wardAnchor);
+      if (anchor && axialDist(anchor, t) === 1) {
+        send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: t.id, pour: pourPts });
+        setPlacing(null); setWardAnchor(null); setPourPts(0);
+      } else if (t.id === wardAnchor) setWardAnchor(null);
+      return;
+    }
+    if (selectedCard) { send({ type: "summon", cardId: selectedCard.id, hex: t.id }); return; }
+    if (selUnitId) {
+      const unit = shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key);
+      if (unit && t.id !== unit.hex && !isMarchingNow(unit)) {
+        send({ type: "march", cardId: unit.cardId, from: unit.hex, to: t.id });
+        setSelUnitId(null);
+        return;
+      }
+    }
+    const mineHere = shared.field.filter(u => u.hex === t.id && u.ownerKey === you.key && !isMarchingNow(u));
+    if (mineHere.length) {
+      const idx = mineHere.findIndex(u => u.cardId === selUnitId);
+      setSelUnitId(mineHere[(idx + 1) % mineHere.length].cardId);
+      setSelectedCardId(null);
+    } else {
+      setSelUnitId(null);
+    }
+  };
+
+  // A tap on one of my own figures chooses it for orders —
+  // unless the Written Light is being placed, when the tap
+  // belongs to the tile beneath it, as it always did.
+  const onUnitTap = (u: FieldUnitView) => {
+    if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
+    if (placing) {
+      const t = tileById.get(u.hex);
+      if (t) onTileTap(t);
+      return;
+    }
+    setSelUnitId(u.cardId);
+    setSelectedCardId(null);
+  };
+
+  // The standing light, fanned by tile; the marching, apart.
+  const standingByTile = new Map<string, FieldUnitView[]>();
+  const marchingUnits: FieldUnitView[] = [];
+  for (const u of shared.field) {
+    if (isMarchingNow(u)) { marchingUnits.push(u); continue; }
+    const arr = standingByTile.get(u.hex) ?? [];
+    arr.push(u);
+    standingByTile.set(u.hex, arr);
+  }
+  // The dark travels too (continuous time): a marching enemy's
+  // hex names where it will stand, not where it walks.
+  const marchingDark = shared.dark.filter(e => !!e.march && nowMs < e.march.endsAt);
+
+  // A marching figure's place, walked segment by segment along
+  // its road by the fraction of its hour gone — Territory's
+  // patrolPositionOf derivation, carried to the Table. The
+  // dark walks by the same clock (continuous time, 2026-10-18):
+  // its `hex` names its destination while it marches.
+  const marchPosOf = (u: { march?: { road: string[]; since: number; endsAt: number } | null }): { x: number; y: number } | null => {
+    if (!u.march) return null;
+    const centers = u.march.road.map(id => centerOf(id)).filter(Boolean) as { cx: number; cy: number }[];
+    if (!centers.length) return null;
+    if (centers.length === 1) return { x: centers[0].cx, y: centers[0].cy };
+    const frac = clamp01((nowMs - u.march.since) / Math.max(1, u.march.endsAt - u.march.since));
+    const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number }[] = [];
+    let total = 0;
+    for (let i = 0; i < centers.length - 1; i++) {
+      const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy);
+      segs.push({ a: centers[i], b: centers[i + 1], len });
+      total += len;
+    }
+    if (total <= 0) return { x: centers[0].cx, y: centers[0].cy };
+    let d = frac * total;
+    for (const s of segs) {
+      if (d <= s.len) {
+        const k = s.len ? d / s.len : 0;
+        return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k };
+      }
+      d -= s.len;
+    }
+    const last = centers[centers.length - 1];
+    return { x: last.cx, y: last.cy };
+  };
+
+  // One figure of the light at its ground point (ax, ay): the
+  // piece art itself — body → arms → head, background and aura
+  // layers never stand on a field (the game's one law) — its
+  // name, its health and shield, and its owner's ring.
+  const renderUnitFigure = (u: FieldUnitView, ax: number, ay: number, marching: boolean): ReactNode => {
+    const mine = !!you && u.ownerKey === you.key;
+    const cutout = (u.layers ?? [])
+      .filter(l => {
+        const c = (l.category || "").toLowerCase().trim();
+        return c !== "background" && c !== "aura" && !c.includes("background") && !c.includes("aura") && !!l.imageUrl;
+      })
+      .sort((a, b) => {
+        const order = ["aspect", "body", "arms", "head"];
+        return order.indexOf(a.category) - order.indexOf(b.category);
+      });
+    const chosen = mine && selUnitId === u.cardId;
+    return (
+      <g key={`u-${u.ownerKey}-${u.cardId}`} pointerEvents="none">
+        {chosen && <circle cx={ax} cy={ay - 19} r={22} fill="none" stroke="#ffd977" strokeWidth={1.6} />}
+        {cutout.length
+          ? cutout.map((l, i) => <image key={i} href={l.imageUrl as string} x={ax - 20} y={ay - 38} width={40} height={40} />)
+          : u.art
+            ? <image href={u.art} x={ax - 20} y={ay - 38} width={40} height={40} />
+            : <g transform={`translate(${ax - 11}, ${ay - 38})`}><ElementGlyph element={u.element as GlyphElement} width={22} height={22} /></g>}
+        <circle cx={ax - 15} cy={ay - 34} r={2.6} fill={ownerColor(u.ownerName)} />
+        <text className="ts-name" x={ax} y={ay + 10}>{u.name}</text>
+        <rect x={ax - 13} y={ay + 13} width={26} height={3} fill="#000000" opacity={0.65} />
+        <rect x={ax - 13} y={ay + 13} width={26 * clamp01(u.hp / Math.max(1, u.maxHp))} height={3} fill="#7fb069" />
+        {(u.shield ?? 0) > 0 && (
+          <>
+            <rect x={ax - 13} y={ay + 17} width={26} height={2} fill="#000000" opacity={0.5} />
+            <rect x={ax - 13} y={ay + 17} width={26 * clamp01((u.shield ?? 0) / Math.max(1, u.maxShield ?? 1))} height={2} fill="#cfd8dc" />
+          </>
+        )}
+        {marching && <text x={ax + 16} y={ay - 28} fontSize={9}>🚶</text>}
+        {mine && !marching && (
+          <circle
+            cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
+            style={{ cursor: "pointer" }}
+            onClick={(e) => { e.stopPropagation(); onUnitTap(u); }}
+          />
+        )}
+      </g>
+    );
+  };
+
+  // One of the dark at its ground point: its art mirrored to
+  // face the light, its name, its health. Standing or walking,
+  // it is drawn the same — only its place differs.
+  const renderDarkFigure = (e: SharedState["dark"][number], ax: number, ay: number, marching: boolean): ReactNode => {
+    const art = e.art ?? BUNDLED_ENEMIES[e.kind as keyof typeof BUNDLED_ENEMIES] ?? null;
+    return (
+      <g key={`${marching ? "dm" : "d"}-${e.id}`} pointerEvents="none">
+        {art
+          ? <g transform={`translate(${2 * ax} 0) scale(-1 1)`}><image className="ts-dark-img" href={art} x={ax - 20} y={ay - 38} width={40} height={40} /></g>
+          : <text x={ax} y={ay - 13} textAnchor="middle" fontSize={20}>🕳️</text>}
+        <text className="ts-name dark" x={ax} y={ay + 10}>{e.label}{e.pinnedUntil > nowMs ? ` ⛓${Math.max(1, Math.ceil((e.pinnedUntil - nowMs) / 1000))}` : ""}</text>
+        <rect x={ax - 13} y={ay + 13} width={26} height={3} fill="#000000" opacity={0.65} />
+        <rect x={ax - 13} y={ay + 13} width={26 * clamp01(e.hp / Math.max(1, e.maxHp))} height={3} fill="#b8412f" />
+      </g>
+    );
+  };
+
+  // Everyone on the stage, back to front by ground point.
+  const figures: { key: string; gy: number; node: ReactNode }[] = [];
+  for (const [tileId, units] of standingByTile) {
+    const c = centerOf(tileId);
+    if (!c) continue;
+    units.forEach((u, i) => {
+      const [dx, dy] = STACK_OFF[i % STACK_OFF.length];
+      const ax = c.cx + dx, ay = c.cy - 4 + dy;
+      figures.push({ key: `u-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, false) });
+    });
+  }
+  for (const e of shared.dark) {
+    if (e.march && nowMs < e.march.endsAt) continue; // walking — drawn below, on its road
+    const c = centerOf(e.hex);
+    if (!c) continue;
+    const ax = c.cx, ay = c.cy - 4;
+    figures.push({ key: `d-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, false) });
+  }
+  for (const e of marchingDark) {
+    const p = marchPosOf(e);
+    if (!p) continue;
+    const ax = p.x, ay = p.y - 4;
+    figures.push({ key: `dm-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, true) });
+  }
+  for (const u of marchingUnits) {
+    const p = marchPosOf(u);
+    if (!p) continue;
+    const ax = p.x, ay = p.y - 4;
+    figures.push({ key: `m-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, true) });
+  }
+  figures.sort((a, b) => a.gy - b.gy);
   return (
     <div className="table-room">
       <header className="skybar">
@@ -824,188 +1208,165 @@ export default function Table() {
           <div className="field-wrap">
             <img className="field-bg" src={battlegroundBg} alt="" aria-hidden="true" />
             <div className="field-board">
-            <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six hexes where Awokin may stand">
-              <defs>
-                <radialGradient id="hexOpen" cx="50%" cy="40%" r="75%">
-                  <stop offset="0%" stopColor="#e8dcc3" stopOpacity="0.13" />
-                  <stop offset="55%" stopColor="#e8dcc3" stopOpacity="0.04" />
-                  <stop offset="100%" stopColor="#000000" stopOpacity="0.28" />
-                </radialGradient>
-                <radialGradient id="hexStood" cx="50%" cy="40%" r="75%">
-                  <stop offset="0%" stopColor="#ddc38b" stopOpacity="0.34" />
-                  <stop offset="60%" stopColor="#c9a227" stopOpacity="0.16" />
-                  <stop offset="100%" stopColor="#000000" stopOpacity="0.22" />
-                </radialGradient>
-              </defs>
-              {FIELD_HEXES.map((h) => {
-                const unit = shared.field.find(u => u.hex === h.id);
-                const myUnit = !!(unit && you && unit.ownerKey === you.key);
-                let pickable = false;
-                if (placing && !h.center) {
-                  if (placing.kind === "heal") pickable = myUnit;
-                  else if (placing.kind === "rune") pickable = !shared.workings.some(w => w.kind === "rune" && w.hex === h.id);
-                  else if (!wardAnchor) pickable = myUnit;
-                  else pickable = hexNeighbors(wardAnchor).includes(h.id);
+            <svg
+              ref={svgRef}
+              className="terrain-stage"
+              viewBox={`${stageBox.x} ${stageBox.y} ${stageBox.w} ${stageBox.h}`}
+              preserveAspectRatio="xMidYMid meet"
+              role="img"
+              aria-label="the instance — the terrain map, dealt fresh"
+              onPointerDown={onStageDown}
+              onPointerMove={onStageMove}
+              onPointerUp={onStageUp}
+              onPointerCancel={onStageUp}
+            >
+            <g transform={`translate(${view.pan.x} ${view.pan.y}) scale(${view.zoom})`}>
+              {/* The land itself, back tiles first: every tile
+                  wears its painted face — the curse's face, or
+                  the face of the element that holds it. */}
+              {sortedTiles.map((t) => {
+                const { cx, cy } = tileCenter(t);
+                const isSeed = t.id === SEED_TILE_ID;
+                const face = t.cursed ? cursedImg
+                  : isSeed || !t.element || t.element === "fire" ? BUNDLED_TERRAIN.neutral
+                  : BUNDLED_TERRAIN[t.element as keyof typeof BUNDLED_TERRAIN] ?? BUNDLED_TERRAIN.neutral;
+                let overlay: { fill: string; opacity: number } | null = null;
+                if (placing && you) {
+                  if (tilePickable(t)) overlay = { fill: "#ffd977", opacity: 0.22 };
+                  if (wardAnchor === t.id) overlay = { fill: "#ffd977", opacity: 0.35 };
+                  if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
+                } else if (selectedCard) {
+                  if (!t.cursed) overlay = { fill: "#ffd977", opacity: 0.14 };
+                } else if (selUnit) {
+                  if (t.id !== selUnit.hex) overlay = { fill: "#ffffff", opacity: 0.07 };
                 }
                 return (
-                  <g
-                    key={h.id}
-                    transform={`translate(${h.x},${h.y})`}
-                    onClick={() => {
-                      if (h.center) return;
-                      if (placing && you) {
-                        if (placing.kind === "heal") {
-                          if (myUnit) { send({ type: "castHeal", hex: h.id }); setPlacing(null); }
-                          return;
-                        }
-                        if (placing.kind === "rune") {
-                          if (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") {
-                            const maxT = defs[placing.root]?.engine === "shardrain" ? (defs[placing.root]?.numbers.maxHexes ?? 3) : (defs[placing.root]?.numbers.maxTargets ?? 3);
-                            setBladePicks(prev => prev.includes(h.id) ? prev.filter(x => x !== h.id) : prev.length >= maxT ? prev : [...prev, h.id]);
-                            return;
-                          }
-                          if (!shared.workings.some(w => w.kind === "rune" && w.hex === h.id)) {
-                            send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [h.id], pour: pourPts });
-                            setPlacing(null); setPourPts(0);
-                          }
-                          return;
-                        }
-                        if (!wardAnchor) { if (myUnit) setWardAnchor(h.id); return; }
-                        if (hexNeighbors(wardAnchor).includes(h.id)) {
-                          send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: h.id, pour: pourPts });
-                          setPlacing(null); setWardAnchor(null); setPourPts(0);
-                        } else if (h.id === wardAnchor) setWardAnchor(null);
-                        return;
-                      }
-                      if (unit && you && unit.ownerKey === you.key) { send({ type: "recall", hex: h.id }); return; }
-                      if (selectedCard && !unit) send({ type: "summon", cardId: selectedCard.id, hex: h.id });
-                    }}
-                    style={{ cursor: !h.center && (pickable || selectedCard || myUnit) ? "pointer" : "default" }}
-                  >
-                    <polygon
-                      className={`${h.center ? "hex center" : "hex"}${unit ? " stood" : ""}${!h.center && selectedCard && !unit ? " open" : ""}${pickable ? " pickable" : ""}${wardAnchor === h.id ? " anchor" : ""}${bladePicks.includes(h.id) ? " picked" : ""}`}
-                      points="0,-26 22.52,-13 22.52,13 0,26 -22.52,13 -22.52,-13"
-                    />
-                    {h.center && (
+                  <g key={t.id}>
+                    <image href={face} x={cx - 870 * TILE_K} y={cy - 468 * TILE_K} width={1731 * TILE_K} height={944 * TILE_K} pointerEvents="none" />
+                    {!t.cursed && t.element === "fire" && !isSeed && (
+                      <polygon points={hexCellPoints(cx, cy, TILE_SIZE)} fill="#ff7733" opacity={0.18} pointerEvents="none" />
+                    )}
+                    {isSeed && (
                       <>
-                        <circle className="seed-ground" r="13" />
-                        <circle className="seed-bulb" r={bulbR} />
+                        <circle className="seed-ground" cx={cx} cy={cy} r={22} />
+                        <circle className="seed-bulb" cx={cx} cy={cy} r={bulbR * 1.63} />
                       </>
                     )}
+                    {t.landing && (
+                      <polygon points={hexCellPoints(cx, cy, TILE_SIZE, 0.96)} fill="none" stroke="#d9b45c" strokeWidth={2} opacity={0.8} pointerEvents="none" />
+                    )}
+                    {t.cursed && t.curseHp < t.curseMaxHp && (
+                      <>
+                        <rect x={cx - 17} y={cy + 22} width={34} height={3} fill="#000000" opacity={0.55} pointerEvents="none" />
+                        <rect x={cx - 17} y={cy + 22} width={34 * clamp01(t.curseHp / Math.max(1, t.curseMaxHp))} height={3} fill="#c22333" pointerEvents="none" />
+                      </>
+                    )}
+                    {overlay && <polygon points={hexCellPoints(cx, cy, TILE_SIZE)} fill={overlay.fill} opacity={overlay.opacity} pointerEvents="none" />}
+                    <polygon
+                      points={hexCellPoints(cx, cy, TILE_SIZE)}
+                      fill="transparent"
+                      pointerEvents="all"
+                      onClick={() => onTileTap(t)}
+                      style={{ cursor: overlay || selectedCard || myUnitOn(t.id) ? "pointer" : "default" }}
+                    />
                   </g>
                 );
               })}
-              <g className="shots-layer">
-                {shots.map((shot, i) => {
-                  const a = FIELD_HEXES.find(x => x.id === shot.from);
-                  const b = FIELD_HEXES.find(x => x.id === shot.to);
-                  if (!a || !b) return null;
-                  const dx = b.x - a.x, dy = b.y - a.y;
-                  return (
-                    <image
-                      key={shot.id}
-                      href={shot.img}
-                      x={a.x - 15} y={a.y - 15} width={30} height={30}
-                      className={shot.dark ? "dark-shot" : undefined}
-                      ref={(el) => {
-                        if (!el || el.dataset.flown) return;
-                        el.dataset.flown = "1";
-                        el.animate(shot.hit ? [
-                          { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
-                          { transform: `translate(${dx}px, ${dy}px) scale(${shot.killed ? 1.8 : 0.85})`, opacity: shot.killed ? 0 : 0.85 },
-                        ] : [
-                          // A miss flies — and spends itself wide of the mark.
-                          { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
-                          { transform: `translate(${dx * 0.92}px, ${dy * 0.92 - 14}px) scale(0.8)`, opacity: 0 },
-                        ], { duration: 540, delay: i * 55, easing: "cubic-bezier(.25,.7,.3,1)", fill: "forwards" });
-                      }}
-                    />
-                  );
-                })}
-              </g>
-            </svg>
-            <div className="field-units" aria-hidden={false}>
-              {shared.field.map((u) => {
-                const h = FIELD_HEXES.find(x => x.id === u.hex);
-                if (!h) return null;
-                const mine = you && u.ownerKey === you.key;
-                // The field cutout, by the game's one law (FieldAwoken):
-                // the piece art itself, body → arms → head — background
-                // and aura layers never stand on a field, so no baked
-                // background rides behind the figure (Nigel, 2026-10-18).
-                const cutout = (u.layers ?? [])
-                  .filter(l => {
-                    const c = (l.category || "").toLowerCase().trim();
-                    return c !== "background" && c !== "aura" && !c.includes("background") && !c.includes("aura") && !!l.imageUrl;
-                  })
-                  .sort((a, b) => {
-                    const order = ["aspect", "body", "arms", "head"];
-                    return order.indexOf(a.category) - order.indexOf(b.category);
-                  });
-                return (
-                  <div
-                    key={u.hex}
-                    className={`field-unit${mine ? " mine" : ""}`}
-                    style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }}
-                    title={mine ? `${u.name} — yours. Tap its hex to recall it.` : `${u.name} — stands for ${u.ownerName}.`}
-                  >
-                    {cutout.length
-                      ? <span className="field-unit-art" aria-hidden="true">{cutout.map((l, i) => <img key={i} src={l.imageUrl as string} alt="" />)}</span>
-                      : u.art
-                        ? <img src={u.art} alt={u.name} />
-                        : <ElementGlyph element={u.element as GlyphElement} width={30} height={30} />}
-                    <span className="unit-name">{u.name}</span>
-                    <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (u.hp / Math.max(1, u.maxHp)) * 100))}%` }} /></span>
-                    <span className="unit-hp shield"><span className="unit-hp-fill shield-fill" style={{ width: `${Math.max(0, Math.min(100, ((u.shield ?? 0) / Math.max(1, u.maxShield ?? 1)) * 100))}%` }} /></span>
-                    <span className="unit-stats">⚔{u.power} ❤{u.hp}/{u.maxHp}{(u.shield ?? 0) > 0 ? ` 🛡${u.shield}` : ""} · AC {u.toughness}</span>
-                  </div>
-                );
-              })}
-              {shared.dark.map((e) => {
-                const h = FIELD_HEXES.find(x => x.id === e.hex);
-                if (!h) return null;
-                return (
-                  <div key={e.hex} className="field-unit dark" style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }} title={`${e.label} — ⚔${e.power}, ❤${e.hp}/${e.maxHp}`}>
-                    {e.art
-                      ? <img src={e.art} alt={e.label} />
-                      : <span className="dark-glyph">🕳️</span>}
-                    <span className="unit-name">{e.label}</span>
-                    <span className="unit-hp"><span className="unit-hp-fill" style={{ width: `${Math.max(0, Math.min(100, (e.hp / Math.max(1, e.maxHp)) * 100))}%` }} /></span>
-                    <span className="unit-stats">⚔{e.power} ❤{e.hp}/{e.maxHp}{e.armor ? ` · AC ${e.armor}` : ""}{e.pinned > 0 ? ` · ⛓${e.pinned}` : ""}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="field-workings">
+              {/* The Written Light, laid on the land: runes wait
+                  in a tile's floor; wards stand on the edge
+                  between two, a glowing line and its glyph. */}
               {shared.workings.map((w) => {
                 const img = defs[w.root]?.glyph ?? GLYPHS[w.root] ?? null;
                 const filter = `${HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 6px ${HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
                 if (w.kind === "rune" && w.hex) {
-                  const h = FIELD_HEXES.find(x => x.id === w.hex);
-                  if (!h) return null;
+                  const c = centerOf(w.hex);
+                  if (!c) return null;
                   return (
-                    <div key={w.id} className="field-working rune" style={{ left: `${(h.x / 300) * 100}%`, top: `${(h.y / 260) * 100}%` }} title={`${w.name} — written by ${w.ownerName}`}>
-                      {img ? <img src={img} alt={w.name} style={{ filter }} /> : <span className="working-glyph-fallback" style={{ filter }}>✦</span>}
-                      {defs[w.root]?.engine === "blade" && <span className="working-tag">{w.charges}✦</span>}
-                      {defs[w.root]?.engine === "lattice" && <span className="working-tag">❤{w.hp}</span>}
-                    </div>
+                    <g key={w.id} pointerEvents="none">
+                      {img
+                        ? <image href={img} x={c.cx - 14} y={c.cy - 14} width={27} height={27} style={{ filter }} />
+                        : <text className="ts-glyph-fallback" x={c.cx} y={c.cy + 7} style={{ filter }}>✦</text>}
+                      {defs[w.root]?.engine === "blade" && <text className="ts-tag" x={c.cx} y={c.cy + 23}>{w.charges}✦</text>}
+                      {defs[w.root]?.engine === "lattice" && <text className="ts-tag" x={c.cx} y={c.cy + 23}>❤{w.hp}</text>}
+                    </g>
                   );
                 }
                 if (w.kind === "ward" && w.hexA && w.hexB) {
-                  const a = FIELD_HEXES.find(x => x.id === w.hexA);
-                  const b = FIELD_HEXES.find(x => x.id === w.hexB);
+                  const a = centerOf(w.hexA);
+                  const b = centerOf(w.hexB);
                   if (!a || !b) return null;
-                  const deg = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 90;
+                  const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2;
+                  const glow = HUE_GLOWS[w.hue] ?? "#ffd98a";
                   return (
-                    <div key={w.id} className="field-working ward" style={{ left: `${(((a.x + b.x) / 2) / 300) * 100}%`, top: `${(((a.y + b.y) / 2) / 260) * 100}%`, transform: `translate(-50%, -50%) rotate(${deg}deg)` }} title={`${w.name} — raised by ${w.ownerName}`}>
-                      {img ? <img src={img} alt={w.name} style={{ filter }} /> : <span className="working-glyph-fallback" style={{ filter }}>✦</span>}
-                      {defs[w.root]?.engine === "trees" && <span className="working-tag">❤{w.hp}</span>}
-                      {defs[w.root]?.engine === "seal" && <span className="working-tag">❤{w.hp} · {(defs[w.root]?.numbers.stops ?? 3) - w.stops}✦</span>}
-                    </div>
+                    <g key={w.id} pointerEvents="none">
+                      <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke={glow} strokeWidth={2.5} strokeLinecap="round" opacity={0.75} style={{ filter: `drop-shadow(0 0 6px ${glow})` }} />
+                      {img
+                        ? <image href={img} x={mx - 16} y={my - 16} width={31} height={31} style={{ filter }} />
+                        : <text className="ts-glyph-fallback" x={mx} y={my + 7} style={{ filter }}>✦</text>}
+                      {defs[w.root]?.engine === "trees" && <text className="ts-tag" x={mx} y={my + 24}>❤{w.hp}</text>}
+                      {defs[w.root]?.engine === "seal" && <text className="ts-tag" x={mx} y={my + 24}>❤{w.hp} · {(defs[w.root]?.numbers.stops ?? 3) - w.stops}✦</text>}
+                    </g>
                   );
                 }
                 return null;
               })}
+              {/* The roads of the marching, drawn dashed under
+                  the feet that walk them. */}
+              {marchingUnits.map((u) => {
+                const centers = (u.march?.road ?? []).map(id => centerOf(id)).filter(Boolean) as { cx: number; cy: number }[];
+                if (centers.length < 2) return null;
+                return (
+                  <polyline
+                    key={`road-${u.ownerKey}-${u.cardId}`}
+                    points={centers.map(c => `${c.cx},${c.cy}`).join(" ")}
+                    fill="none" stroke="#d9b45c" strokeWidth={1.5} strokeDasharray="3 5" opacity={0.5} pointerEvents="none"
+                  />
+                );
+              })}
+              {marchingDark.map((e, i) => {
+                const centers = (e.march?.road ?? []).map(id => centerOf(id)).filter(Boolean) as { cx: number; cy: number }[];
+                if (centers.length < 2) return null;
+                return (
+                  <polyline
+                    key={`droad-${e.id}-${i}`}
+                    points={centers.map(c => `${c.cx},${c.cy}`).join(" ")}
+                    fill="none" stroke="#8e2434" strokeWidth={1.5} strokeDasharray="3 5" opacity={0.45} pointerEvents="none"
+                  />
+                );
+              })}
+              {/* Everyone standing — and walking — back to front. */}
+              {figures.map(f => f.node)}
+              {/* The round's strikes, flown on gravity's arc from
+                  tile to tile. A shot lives exactly as long as
+                  the strikes state keeps it — when the timeout
+                  clears it, it unmounts; nothing is left stuck
+                  on the field. */}
+              <g className="shots-layer">
+                {shots.map((shot) => {
+                  const a = centerOf(shot.from);
+                  const b = centerOf(shot.to);
+                  if (!a || !b) return null;
+                  const dist = Math.hypot(b.cx - a.cx, b.cy - a.cy);
+                  const qx = (a.cx + b.cx) / 2;
+                  const qy = Math.min(a.cy, b.cy) - (26 + dist * 0.38);
+                  return (
+                    <image
+                      key={shot.id}
+                      href={shot.img}
+                      x={-13} y={-13} width={26} height={26}
+                      className={shot.dark ? "dark-shot" : undefined}
+                    >
+                      <animateMotion dur="0.55s" fill="freeze" rotate="auto" path={`M ${a.cx} ${a.cy} Q ${qx} ${qy} ${b.cx} ${b.cy}`} />
+                    </image>
+                  );
+                })}
+              </g>
+            </g>
+            </svg>
+            <div className="stage-view-btns">
+              <button type="button" onClick={() => zoomBy(1.3)} aria-label="Zoom the map in">+</button>
+              <button type="button" onClick={() => zoomBy(1 / 1.3)} aria-label="Zoom the map out">−</button>
+              <button type="button" onClick={() => setView({ zoom: 1, pan: { x: 0, y: 0 } })} aria-label="Reset the map view">⌂</button>
             </div>
             </div>
             {shared.campaign?.stage && !shared.battle.active && !stageHidden && (
@@ -1084,6 +1445,22 @@ export default function Table() {
                   <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); setPlacing(null); setBladePicks([]); setPourPts(0); }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
                 )}
                 <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); }}>Set the light down</button>
+              </div>
+            )}
+            {selUnit && !placing && (
+              <div className="placing-bar unit-bar">
+                <span className="placing-text">
+                  🚶 <strong>{selUnit.name}</strong> — {selUnitMarching
+                    ? "on the march — it answers when it arrives."
+                    : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.</>}
+                </span>
+                {!selUnitMarching && (
+                  <>
+                    <button className="table-btn" onClick={() => send({ type: "castHeal", hex: selUnit.hex })}>Heal · ⚡{healDef?.cost ?? 2}</button>
+                    <button className="table-btn" onClick={() => { send({ type: "recall", hex: selUnit.hex, cardId: selUnit.cardId }); setSelUnitId(null); }}>Recall</button>
+                  </>
+                )}
+                <button className="table-btn" onClick={() => setSelUnitId(null)}>Done</button>
               </div>
             )}
             <div className="battle-bar">
@@ -1255,9 +1632,9 @@ export default function Table() {
                 ))}
                 {shared.dark.length > 0 && <p className="quiet small">Mercy on the dark: tap a standing foe's hex is the field's business — to lift one early, use its hex below.</p>}
                 {shared.dark.map(e => (
-                  <div key={e.hex} className="st-roster-row">
+                  <div key={e.id} className="st-roster-row">
                     <span>{e.label} — ❤{e.hp}/{e.maxHp}</span>
-                    <button className="mini-btn" onClick={() => send({ type: "stDissipate", hex: e.hex })}>Dissipate</button>
+                    <button className="mini-btn" onClick={() => send({ type: "stDissipate", hex: e.hex, id: e.id })}>Dissipate</button>
                   </div>
                 ))}
                 <div className="st-actions">
@@ -1300,8 +1677,8 @@ export default function Table() {
                         data-element={card.element}
                         role="button"
                         aria-pressed={selected}
-                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a ring hex.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
-                        onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } setSelectedCardId(selected ? null : card.id); }}
+                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a purified tile of the instance.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
+                        onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } if (!selected) setSelUnitId(null); setSelectedCardId(selected ? null : card.id); }}
                       >
                         <div className="tcard-banner">
                           <span className="tcard-name">{card.name}</span>
@@ -1319,7 +1696,7 @@ export default function Table() {
                   })}
                 </div>
                 {selectedCard ? (
-                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap an open ring hex on the field to set it standing (⚡{castCostOf(selectedCard)}). Tap its hex again later to recall it; the energy spent is not returned.</p>
+                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap a purified tile of the instance to set it standing (⚡{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, heal, recall.</p>
                 ) : you.bound ? (
                   <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (

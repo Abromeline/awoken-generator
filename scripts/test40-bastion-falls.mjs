@@ -63,14 +63,13 @@ await a.waitFor(c => c.state.campaign?.seeded && c.state.dark.length === 12, "do
 check("bank seeded at one stake (12)", a.state.campaign.bank === 12, `bank=${a.state.campaign.bank}`);
 
 // Spend the bank to nothing: Spark (7) + Mothwing (4) +
-// Hushkeeper (1) = 12, a full band of three. (hex-3-2 is the
-// star-seed's own hex — never stood upon.)
+// Hushkeeper (1) = 12, a full band of three. (The Instance
+// Map: the muster stands together on the seat's purified
+// landing tile — stacking carries the band.)
 const hand = a.you.hand;
 const picks = ["Spark of the First Forge", "Mothwing Herald", "Hushkeeper"].map(n => hand.find(c => c.name === n));
-const hexes = ["hex-2-2", "hex-2-3", "hex-3-1", "hex-3-3", "hex-1-2", "hex-4-2"].filter(h => h !== "hex-3-2");
 for (let i = 0; i < 3; i++) {
-  const taken = new Set([...a.state.dark.map(d => d.hex), ...a.state.field.map(u => u.hex), "hex-3-2"]);
-  const hex = hexes.find(h => !taken.has(h));
+  const hex = a.you.landing;
   a.send({ type: "summon", cardId: picks[i].id, hex });
   await a.waitFor(c => c.state.field.length === i + 1, `unit ${i + 1} stands`, 15000).catch(e => {
     throw new Error(`${e.message}; errors: ${a.errors.join(" | ")}; field=${a.state.field.map(u => u.name).join(",")}`);

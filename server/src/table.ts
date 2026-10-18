@@ -147,17 +147,50 @@ interface FieldUnit {
   speedGauge: number;
   ownerKey: string;
   ownerName: string;
-  /** Rounds of striking this unit must still sit out (a pin). */
-  pinned: number;
+  /** Until when this unit may not strike (a pin) — a moment
+   *  in time, not a count of rounds: the referee runs on the
+   *  clock now (Nigel, 2026-10-18). */
+  pinnedUntil: number;
+  /** When this unit may next strike (the clock's cadence —
+   *  swifter elements sooner). */
+  nextStrike?: number;
+  /** THE MARCH: while set, the unit is on the road — it does
+   *  not strike, cannot be struck, and does not shield its
+   *  Tender. `hex` already names the DESTINATION (it reserves
+   *  its place in the stack there); clients derive its drawn
+   *  position from road + clock, as the land's marching layer
+   *  does. Marching is a derived state: once now ≥ endsAt the
+   *  unit simply stands (see isMarching). */
+  march?: { road: string[]; since: number; endsAt: number } | null;
   /** Has this dark thing struck yet? (War Runewright's
    *  patience, tranche one.) */
   struck?: boolean;
+}
+
+/** One tile of the room's instance map. */
+interface MapTile {
+  id: string; q: number; r: number;
+  cursed: boolean;
+  /** The element of the light that holds it (purified tiles). */
+  element: string | null;
+  /** Corruption remaining (cursed tiles): ground down by the
+   *  standing light's power each round; at zero the tile turns. */
+  curseHp: number;
+  curseMaxHp: number;
+  /** The seat whose landing this is (a player key), or null. */
+  landingFor: string | null;
 }
 
 /** One of the dark, standing on the field. Damage is its filed
  *  Power, health its filed HP — the Compendium's canon numbers,
  *  no hidden tables (Nigel, 2026-10-16). */
 interface EnemyUnit {
+  /** A stable name of its own: the dark is registered by ID,
+   *  never by tile — an advancing thing changes tiles, and a
+   *  registry keyed by its first tile would lose it (kills
+   *  missing their delete, the slain striking on). Several of
+   *  the dark may also share one tile, as the light stacks. */
+  id: string;
   hex: string;
   kind: string;
   label: string;
@@ -173,8 +206,16 @@ interface EnemyUnit {
   lvl: number;
   /** FATE: the speed gauge, as the Awoken's. */
   speedGauge: number;
-  /** Rounds this dark thing must still sit out (a rune's pin). */
-  pinned: number;
+  /** Until when this dark thing may not strike (a pin) — a
+   *  moment in time, as the light's. */
+  pinnedUntil: number;
+  /** When this dark thing may next strike. */
+  nextStrike?: number;
+  /** THE ADVANCE: while set, the dark thing is travelling
+   *  its road toward the seed or the nearest light — the
+   *  clock carries it, as it carries the marching light.
+   *  `hex` tracks the tile it stands on as it comes. */
+  march?: { road: string[]; since: number; endsAt: number } | null;
   /** Has this dark thing struck yet? (War Runewright's patience.) */
   struck?: boolean;
 }
@@ -228,30 +269,113 @@ const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> 
   tangle: { power: 3, hp: 8, armor: 8 },
 };
 
-/** The instance field: a full honeycomb filling the battlefield
- *  (Nigel, 2026-10-16). Generated, not listed — the client draws
- *  the identical field from the identical constants; the two
- *  generators must stay in step. The hex nearest the middle is
- *  the star-seed's and is never stood upon. */
-function buildFieldHexes(): { id: string; x: number; y: number; center: boolean }[] {
-  const R = 26, dx = Math.sqrt(3) * R, dy = 1.5 * R;
-  const out: { id: string; x: number; y: number; center: boolean }[] = [];
-  for (let r = 0; r < 6; r++) {
-    const y = 26 + r * dy;
-    const off = (r % 2) * (dx / 2);
-    for (let c = 0; ; c++) {
-      const x = 28 + off + c * dx;
-      if (x > 276) break;
-      out.push({ id: `hex-${r}-${c}`, x, y, center: false });
+/** THE INSTANCE MAP (Nigel, 2026-10-18): the Table's field IS
+ *  the terrain map — a fresh instance per room, dealt in axial
+ *  coordinates on the land's own lattice (the same (q, r) the
+ *  Territory marches by). Radius 6: 127 tiles — room enough
+ *  to see the dark coming and send patrols out to meet it.
+ *  The center tile
+ *  holds the star-seed and is never stood upon. Every tile
+ *  begins cursed but for the seed's own ground; each seated
+ *  Tender's arrival purifies ONE landing tile (see
+ *  assignLanding), and the party's light spreads from there —
+ *  by felling the dark that holds a tile, or by standing on
+ *  empty cursed ground and grinding its corruption down while
+ *  the curse burns back (Nigel: "moving and patrolling in the
+ *  curse is possible too, it's just damage over time until
+ *  purified"). Tile ids are "q,r" — the client draws the
+ *  identical lattice from Territory's iso geometry. */
+const MAP_RADIUS = 6;
+const TILE_DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+interface TileDef { id: string; q: number; r: number }
+const TILE_DEFS: TileDef[] = [];
+for (let q = -MAP_RADIUS; q <= MAP_RADIUS; q++) {
+  for (let r = -MAP_RADIUS; r <= MAP_RADIUS; r++) {
+    if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) > MAP_RADIUS) continue;
+    TILE_DEFS.push({ id: `${q},${r}`, q, r });
+  }
+}
+const TILE_BY_ID = new Map(TILE_DEFS.map(t => [t.id, t]));
+const SEED_TILE = "0,0";
+const STANDABLE_TILES = TILE_DEFS.filter(t => t.id !== SEED_TILE).map(t => t.id);
+/** How many of the light may share one tile — the March law's
+ *  destination capacity, carried to the Table (design §2). */
+const STACK_CAP = 4;
+/** A cursed tile's corruption, by its ring from the seed —
+ *  the land's own curse law (4 + 6 × ring). */
+function curseHpForRing(ring: number): number { return 4 + 6 * ring; }
+function ringOf(tileId: string): number { return axialDist(tileId, SEED_TILE); }
+function axialDist(a: string, b: string): number {
+  const ta = TILE_BY_ID.get(a), tb = TILE_BY_ID.get(b);
+  if (!ta || !tb) return 999;
+  const dq = ta.q - tb.q, dr = ta.r - tb.r;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+}
+/** A road that dares any ground (the land's seed-mission road,
+ *  findAnyRoad, ported): at the Table the march may cross and
+ *  enter the curse — the burn is the price, not a wall.
+ *  Returns the tile ids, origin first, or null. */
+function findAnyRoad(fromId: string, toId: string): string[] | null {
+  if (!TILE_BY_ID.has(fromId) || !TILE_BY_ID.has(toId)) return null;
+  if (fromId === toId) return [fromId];
+  const prev = new Map<string, string>([[fromId, fromId]]);
+  const queue = [fromId];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const c = TILE_BY_ID.get(cur)!;
+    for (const [dq, dr] of TILE_DIRS) {
+      const nid = `${c.q + dq},${c.r + dr}`;
+      if (!TILE_BY_ID.has(nid) || prev.has(nid)) continue;
+      prev.set(nid, cur);
+      if (nid === toId) {
+        const road = [toId];
+        let walk = toId;
+        while (walk !== fromId) { walk = prev.get(walk)!; road.unshift(walk); }
+        return road;
+      }
+      queue.push(nid);
     }
   }
-  let best = out[0], bd = Infinity;
-  for (const h of out) { const d = (h.x - 150) ** 2 + (h.y - 130) ** 2; if (d < bd) { bd = d; best = h; } }
-  best.center = true;
-  return out;
+  return null;
 }
-const FIELD_HEXES_SERVER = buildFieldHexes();
-const SUMMONABLE_HEXES = FIELD_HEXES_SERVER.filter(h => !h.center).map(h => h.id);
+/** THE MARCH's price in energy, per hex crossed — the land's
+ *  moveCost law: 1 + ⌊(power − 1)/3⌋, charged per hex of road. */
+function marchRateFor(power: number): number { return 1 + Math.floor((Math.max(1, power) - 1) / 3); }
+/** MARCH SPEED LAW (the land's own; War-Ground, 2026-10-16):
+ *  seconds to cross one hex — the element's gait, parts
+ *  averaged, weighted by size, and size is level. */
+const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
+function marchSecondsPerHexFor(card: TableCard): number {
+  const parts = partsOf(card) as { element?: string | null }[];
+  let pace = MARCH_SECONDS_PER_HEX.neutral;
+  if (parts.length) {
+    pace = parts.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[l.element ?? "neutral"] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / parts.length;
+  }
+  const level = Math.max(1, card.level ?? 1);
+  return pace * Math.sqrt(Math.pow(1.25, level - 1));
+}
+/** THE DARK's gaits (seconds per hex on its advance): the
+ *  Fray skitters, the Hollow drifts, the Tangle creeps, the
+ *  Unraveler looms — slow, and all the more terrible for it. */
+const DARK_GAIT: Record<string, number> = { fray: 1.4, hollow: 2.2, tangle: 2.8, unraveler: 3.4 };
+/** Strike cadences on the clock (the old speed gauges, made
+ *  time): a base beat of 2.8s, quickened by the striker's
+ *  speed on the same 1–5 scale FATE already uses. */
+const BEAT_MS = 2800;
+function lightIntervalMs(u: FieldUnit): number {
+  return Math.round(BEAT_MS * 5 / ((ELEMENT_HIT_BONUS[u.card.element] ?? 1) + 4));
+}
+function darkIntervalMs(e: EnemyUnit): number {
+  return Math.round(BEAT_MS * 5 / ((DARK_SPEED[e.kind] ?? 1) + 4));
+}
+/** Where a travelling thing stands right now: the tile of its
+ *  road its journey's fraction has reached. */
+function roadTileAt(march: { road: string[]; since: number; endsAt: number }, now: number): string {
+  const road = march.road;
+  if (road.length < 2) return road[0];
+  const frac = Math.min(1, Math.max(0, (now - march.since) / Math.max(1, march.endsAt - march.since)));
+  return road[Math.min(road.length - 1, Math.floor(frac * (road.length - 1)))];
+}
 
 /** The Dark roster the room shows — names and tellings; the faces
  *  resolve live from the game's current enemy art. */
@@ -298,6 +422,10 @@ interface BastionState {
  *  combat Nigel asked for, seated from the Battleground's own
  *  projectile language. */
 interface Strike {
+  /** A running id + the moment it flew — the continuous
+   *  referee's clients dedupe and age shots by these. */
+  id?: number;
+  at?: number;
   from: string;
   to: string;
   element: string;
@@ -343,10 +471,18 @@ interface Room {
   tale: TaleEntry[];
   sky: { mood: string; description: string; endsAt: string | null };
   field: Map<string, FieldUnit>;
+  /** The instance map, dealt fresh with the room. The field
+   *  map above is keyed by UNIT (owner|card), never by tile:
+   *  up to STACK_CAP of the light may share a tile. */
+  map: Map<string, MapTile>;
   workings: Working[];
   enemies: { name: string; label: string; note: string; art: string | null }[];
   dark: Map<string, EnemyUnit>;
-  battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean };
+  battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean; lastTick?: number; beatAcc?: number };
+  /** The continuous referee's strike ledger counter, and the
+   *  last moment the seed-assault's warning was told. */
+  strikeSeq?: number;
+  assaultToldAt?: number;
   roundNo: number;
   /** Lore Warden: edges where a ward has FALLEN this sitting
    *  — the next ward raised on one stands written stronger. */
@@ -561,10 +697,10 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: room.campaign && !room.campaign.over ? room.campaign.bank : p.energy, maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender })),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender })),
     watcherCount: room.players.size - seated.length,
     campaign: room.campaign ? {
-      bank: room.campaign.bank,
+      bank: Math.floor(room.campaign.bank),
       bankStart: room.campaign.bankStart,
       seeded: room.campaign.seeded,
       over: room.campaign.over,
@@ -573,20 +709,26 @@ function sharedState(room: Room) {
       deals: room.campaign.deals,
     } : null,
     tale: room.tale.slice(-TALE_CAP),
+    map: [...room.map.values()].map(t => ({
+      id: t.id, q: t.q, r: t.r, cursed: t.cursed, element: t.element,
+      curseHp: Math.ceil(t.curseHp), curseMaxHp: t.curseMaxHp,
+      landing: t.landingFor ? (seatByKey(room, t.landingFor)?.name ?? null) : null,
+    })),
     dark: [...room.dark.values()].map(e => ({ ...e })),
     workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
     field: [...room.field.values()].map(u => ({
-      hex: u.hex, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
+      hex: u.hex, cardId: u.card.id, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
       shield: u.shield, maxShield: u.maxShield,
+      march: u.march ?? null,
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
     strikes: room.strikes,
     bastion: room.bastion ? {
       callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
-      ambush: room.bastion.ambush, pool: room.bastion.pool, poolMax: room.bastion.poolMax,
+      ambush: room.bastion.ambush, pool: Math.floor(room.bastion.pool), poolMax: room.bastion.poolMax,
       begun: room.bastion.begun, resolved: room.bastion.resolved, size: room.bastion.size,
     } : null,
   };
@@ -609,14 +751,14 @@ function sendState(room: Room): void {
         notes: player.notes,
         inventory: player.inventory,
         bound: player.bound ?? null,
-        energy: room.bastion?.begun && !room.bastion.resolved ? room.bastion.pool : room.campaign && !room.campaign.over ? room.campaign.bank : player.energy,
+        energy: Math.floor(room.bastion?.begun && !room.bastion.resolved ? room.bastion.pool : room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : player.energy),
         recasts: room.campaign ? (room.campaign.recasts[player.key] ?? {}) : {},
         storytender: player.storytender && room.campaign ? {
           reserve: room.campaign.reserve,
           reserveThreat: room.campaign.reserve.reduce((s, k) => s + (ENEMY_STATS[k]?.power ?? 0), 0),
           partyPower: [...room.field.values()].reduce((s, u) => s + u.card.power, 0),
           deals: room.campaign.deals,
-          bank: room.campaign.bank,
+          bank: Math.floor(room.campaign.bank),
           seeded: room.campaign.seeded,
           over: room.campaign.over,
         } : null,
@@ -629,6 +771,7 @@ function sendState(room: Room): void {
         })(),
         maxEnergy: player.maxEnergy,
         band: [...room.field.values()].filter(u => u.ownerKey === player.key).length,
+        landing: [...room.map.values()].find(t => t.landingFor === player.key)?.id ?? null,
         bandCap: companyCapFor(player.expKey, player.tenderLevel),
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
@@ -659,6 +802,7 @@ async function getRoom(id: string): Promise<Room> {
       mode: campaignMode ? "campaign" : "casual",
       campaign: campaignMode ? loadCampaign(id) : null,
       field: new Map(),
+      map: freshInstanceMap(),
       workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
@@ -683,10 +827,7 @@ async function getRoom(id: string): Promise<Room> {
 // swarm the weakest, the Tangle pins.
 
 function hexDist(a: string, b: string): number {
-  const ha = FIELD_HEXES_SERVER.find(h => h.id === a);
-  const hb = FIELD_HEXES_SERVER.find(h => h.id === b);
-  if (!ha || !hb) return 999;
-  return Math.hypot(ha.x - hb.x, ha.y - hb.y);
+  return axialDist(a, b);
 }
 
 function seatByKey(room: Room, key: string): Player | undefined {
@@ -724,9 +865,126 @@ async function payBattleExp(room: Room, seat: Player, amount: number, why: strin
 // unfed Crown Shard has fallen where it must).
 
 function neighborsOf(hex: string): string[] {
-  const h = FIELD_HEXES_SERVER.find(x => x.id === hex);
-  if (!h) return [];
-  return FIELD_HEXES_SERVER.filter(x => x.id !== hex && Math.hypot(x.x - h.x, x.y - h.y) <= 52).map(x => x.id);
+  const t = TILE_BY_ID.get(hex);
+  if (!t) return [];
+  return TILE_DIRS.map(([dq, dr]) => `${t.q + dq},${t.r + dr}`).filter(id => TILE_BY_ID.has(id));
+}
+
+// ── The instance map's keepers ─────────────────────────────
+/** A fresh instance: every tile cursed at its ring's full
+ *  corruption but the seed's own ground, which is the party's
+ *  first purified earth. */
+function freshInstanceMap(): Map<string, MapTile> {
+  const map = new Map<string, MapTile>();
+  for (const t of TILE_DEFS) {
+    const ring = ringOf(t.id);
+    const seed = t.id === SEED_TILE;
+    map.set(t.id, {
+      id: t.id, q: t.q, r: t.r,
+      cursed: !seed, element: seed ? "sky" : null,
+      curseHp: seed ? 0 : curseHpForRing(ring), curseMaxHp: seed ? 0 : curseHpForRing(ring),
+      landingFor: null,
+    });
+  }
+  return map;
+}
+
+/** The field is keyed by unit, not by tile — the stack law. */
+function unitKeyOf(u: FieldUnit): string { return `${u.ownerKey}|${u.card.id}`; }
+function unitsAt(room: Room, tileId: string): FieldUnit[] {
+  return [...room.field.values()].filter(u => u.hex === tileId);
+}
+function unitStanding(room: Room, u: FieldUnit): boolean {
+  return room.field.get(unitKeyOf(u)) === u;
+}
+function placeUnit(room: Room, u: FieldUnit): void { room.field.set(unitKeyOf(u), u); }
+function removeUnit(room: Room, u: FieldUnit): void { room.field.delete(unitKeyOf(u)); }
+function isMarching(u: FieldUnit, now = Date.now()): boolean {
+  return !!u.march && now < u.march.endsAt;
+}
+/** The standing light: fielded, arrived, and able to be met. */
+function standingUnits(room: Room): FieldUnit[] {
+  const now = Date.now();
+  return [...room.field.values()].filter(u => !isMarching(u, now));
+}
+/** The dark registry is keyed by id (see EnemyUnit.id); the
+ *  tile lookups scan, as springHex always has. */
+let darkSeq = 0;
+function nextDarkId(): string { return `dk${++darkSeq}`; }
+function darkAt(room: Room, hex: string): EnemyUnit | undefined {
+  return [...room.dark.values()].find(e => e.hex === hex);
+}
+function darkOn(room: Room, hex: string): boolean {
+  return [...room.dark.values()].some(e => e.hex === hex);
+}
+
+/** A tile turns to the light: felled dark frees it at once,
+ *  or the standing light grinds its corruption to nothing. */
+function purifyTile(room: Room, tile: MapTile, element: string): void {
+  if (!tile.cursed) return;
+  tile.cursed = false;
+  tile.element = element;
+  tile.curseHp = 0;
+  tell(room, `🌿 The land turns — ${element} ground joins the light.`);
+}
+
+/** ONE PURIFIED TILE PER PLAYER (Nigel, 2026-10-18): when a
+ *  Tender takes a seat and holds no landing yet, a tile of the
+ *  second ring purifies for them — spread as far from the
+ *  other landings as the map allows — in the element of their
+ *  first Awokin's aspect. Late seats land the same way. The
+ *  land remembers: a landing stays purified when its Tender
+ *  rises, and another may claim it after. */
+function assignLanding(room: Room, player: Player): void {
+  if (player.watcher || player.storytender) return;
+  if ([...room.map.values()].some(t => t.landingFor === player.key)) return;
+  const claimed = [...room.map.values()].find(t => !t.cursed && t.landingFor === null && t.id !== SEED_TILE && !darkOn(room, t.id) && unitsAt(room, t.id).length === 0);
+  if (claimed) { claimed.landingFor = player.key; return; }
+  for (const ring of [2, 1, 3]) {
+    const taken = [...room.map.values()].filter(t => t.landingFor && t.landingFor !== player.key);
+    const candidates = [...room.map.values()].filter(t => t.cursed && ringOf(t.id) === ring && !darkOn(room, t.id));
+    if (!candidates.length) continue;
+    candidates.sort((a, b) => {
+      const spread = (t: MapTile) => taken.length ? Math.min(...taken.map(o => axialDist(t.id, o.id))) : 99;
+      return spread(b) - spread(a);
+    });
+    const tile = candidates[0];
+    const first = player.hand[0];
+    const element = first ? dominantElement(partsOf(first) as { element?: string | null }[]) : "neutral";
+    purifyTile(room, tile, element);
+    tile.landingFor = player.key;
+    tell(room, `🌱 ${player.name}'s light takes root — a first tile of ${element} ground is theirs to stand on.`);
+    return;
+  }
+}
+
+/** Where the dark is dealt: cursed ground, the rim first —
+ *  the dark presses in from the instance's edge. */
+function darkGround(room: Room, count: number): string[] {
+  const cursed = [...room.map.values()].filter(t => t.cursed && !darkOn(room, t.id));
+  cursed.sort((a, b) => ringOf(b.id) - ringOf(a.id) || Math.random() - 0.5);
+  return cursed.slice(0, count).map(t => t.id);
+}
+
+/** The curse burns its guests (Nigel, 2026-10-18): a standing
+ *  Awokin on cursed ground takes the ring's burn each round —
+ *  its shield drinks first, as for any harm; what gets through
+ *  unbinds. The seed's calm softens the inner rings. */
+function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
+  let wound = burn;
+  if (u.shield > 0) {
+    const absorbed = Math.min(u.shield, wound);
+    u.shield -= absorbed;
+    wound -= absorbed;
+  }
+  u.hp -= wound;
+  if (u.hp <= 0) {
+    noteDissipation(room, u);
+    removeUnit(room, u);
+    const owner = seatByKey(room, u.ownerKey);
+    if (owner) owner.hand = [...owner.hand, u.card];
+    tell(room, `The curse unbinds ${u.card.name} where it stood — it dissipates to its Tender's roster.`);
+  }
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -745,9 +1003,13 @@ function beaconReach(w: Working, extraRings = 0): Set<string> {
   return out;
 }
 
-function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
-  room.dark.delete(enemy.hex);
+function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, fellElement?: string): void {
+  room.dark.delete(enemy.id);
   tell(room, `The ${enemy.label} unravels!`);
+  // The ground it held is freed by the felling (the Instance
+  // Map): a cursed tile whose dark falls turns to the light.
+  const tile = room.map.get(enemy.hex);
+  if (tile) purifyTile(room, tile, fellElement ?? "neutral");
   if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer); return; }
   if (killer && !killer.fallen) {
     killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
@@ -822,12 +1084,12 @@ function restoreCampaignTale(room: Room): void {
  *  otherwise the seat's own energy. (A bastion's pool keeps
  *  its own older law, handled at its own charge site.) */
 function purseOf(room: Room, player: Player): number {
-  if (room.campaign && !room.campaign.over) return room.campaign.bank;
+  if (room.campaign && !room.campaign.over && room.campaign.seeded) return room.campaign.bank;
   return player.energy;
 }
 
 function chargePurse(room: Room, player: Player, cost: number): boolean {
-  if (room.campaign && !room.campaign.over) {
+  if (room.campaign && !room.campaign.over && room.campaign.seeded) {
     if (room.campaign.bank < cost) return false;
     room.campaign.bank -= cost;
     return true;
@@ -838,7 +1100,7 @@ function chargePurse(room: Room, player: Player, cost: number): boolean {
 }
 
 function purseName(room: Room): string {
-  return room.campaign && !room.campaign.over ? "the bank" : "you";
+  return room.campaign && !room.campaign.over && room.campaign.seeded ? "the bank" : "you";
 }
 
 /** The recast law: a dissipated Awokin's return costs its
@@ -954,7 +1216,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       const strain = Math.max(1, e.power);
       if (rune.hp >= strain) {
         rune.hp -= strain;
-        e.pinned = Math.max(e.pinned, rune.nums.pinRounds ?? 2);
+        e.pinnedUntil = Math.max(e.pinnedUntil ?? 0, Date.now() + (rune.nums.pinRounds ?? 2) * BEAT_MS);
         heldCount++;
       }
     }
@@ -979,21 +1241,19 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       + (eff.warRunewright && darkHere.some(e => !e.struck) ? 2 : 0);
     tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
     let felledByRune = 0;
-    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) { felledByRune++; fellDark(room, e, caster); } }
+    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) { felledByRune++; fellDark(room, e, caster, rune.hue && rune.hue !== "unaligned" ? rune.hue : "neutral"); } }
     // Hungry Ink (tranche one): the writing drinks the fell.
     if (caster && eff.hungryInk && felledByRune > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByRune);
     rune.charges--;
     if (rune.charges <= 0) retireSprungRune(room, rune);
     else tell(room, `${rune.name} hums on, waiting for one more.`);
   } else if (rune.engine === "coil") {
-    const free = SUMMONABLE_HEXES.filter(hx => hx !== hex && !room.field.has(hx) && !room.dark.has(hx));
+    const free = STANDABLE_TILES.filter(hx => hx !== hex && !darkOn(room, hx));
     let moved = 0;
     for (const e of darkHere) {
       if (!free.length) break;
       const spot = free.splice(Math.floor(Math.random() * free.length), 1)[0];
-      room.dark.delete(e.hex);
-      e.hex = spot;
-      room.dark.set(spot, e);
+      e.hex = spot; // registered by id: the throw is just a new tile
       moved++;
     }
     if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(rune.nums.energyCap ?? 3, moved * (rune.nums.energyPerDark ?? 1)));
@@ -1021,7 +1281,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       for (const e of foes) {
         const d = share + (rem > 0 ? (rem--, 1) : 0);
         e.hp -= d;
-        if (e.hp <= 0) fellDark(room, e, caster);
+        if (e.hp <= 0) fellDark(room, e, caster, rune.hue && rune.hue !== "unaligned" ? rune.hue : "neutral");
       }
       room.workings = room.workings.filter(w => !covered.includes(w));
       if (covered[0]) maybeRewriteRune(room, covered[0]);
@@ -1038,7 +1298,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour * (rune.nums.harmPerPoint ?? 1);
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
       let felledByShard = 0;
-      for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
+      for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster, rune.hue && rune.hue !== "unaligned" ? rune.hue : "neutral"); } }
       if (caster && workingEffects(caster.expKey).hungryInk && felledByShard > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByShard);
       retireSprungRune(room, rune);
     }
@@ -1077,7 +1337,7 @@ function settleShardsAndFade(room: Room): void {
       tell(room, `${w.name} went unfed — a doom owed is a doom paid: it falls on ${strongest.card.name}, ${dmg} harm.`);
       if (strongest.hp <= 0) {
         noteDissipation(room, strongest);
-        room.field.delete(strongest.hex);
+        removeUnit(room, strongest);
         const owner = seatByKey(room, strongest.ownerKey);
         if (owner) owner.hand = [...owner.hand, strongest.card];
         tell(room, `${strongest.card.name} dissipates to its Tender's roster.`);
@@ -1103,28 +1363,27 @@ function settleShardsAndFade(room: Room): void {
 function dealWave(room: Room): void {
   for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false; }
   const wave = room.battle.wave;
-  const free = SUMMONABLE_HEXES.filter(h => !room.field.has(h) && !room.dark.has(h));
   const kinds = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
-  const count = Math.min(free.length, 3 + (wave - 1) * 2);
-  const spots = [...free].sort(() => Math.random() - 0.5).slice(0, count);
+  const spots = darkGround(room, 3 + (wave - 1) * 2);
+  const count = spots.length;
   for (const hex of spots) {
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     const base = ENEMY_STATS[kind];
     const rosterFace = room.enemies.find(e => e.name === kind);
     const hp = base.hp + (wave - 1);
-    room.dark.set(hex, {
+    const foe: EnemyUnit = {
+      id: nextDarkId(),
       hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
-      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinned: 0,
+      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, march: null,
       armor: base.armor + Math.floor((wave - 1) / 3), lvl: wave, speedGauge: 0,
-    });
+    };
+    room.dark.set(foe.id, foe);
   }
   for (const hex of spots) springHex(room, hex, new Set());
   room.battle.active = true;
   room.roundNo = 0;
   tell(room, `Wave ${wave} is dealt — ${count} of the dark take the field.`);
-  if (!room.battle.timer) {
-    room.battle.timer = setInterval(() => { void runRound(room); }, 2800);
-  }
+  startBattleTimer(room);
 }
 
 /** The column takes the field (the Columns, 2026-10-17): the
@@ -1134,31 +1393,27 @@ function dealBastion(room: Room): void {
   const b = room.bastion;
   if (!b) return;
   for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false; }
-  const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
-  const free = SUMMONABLE_HEXES
-    .filter(h => !room.field.has(h) && !room.dark.has(h))
-    .map(id => FIELD_HEXES_SERVER.find(h => h.id === id)!)
-    .sort((a, z) => ((z.x - center.x) ** 2 + (z.y - center.y) ** 2) - ((a.x - center.x) ** 2 + (a.y - center.y) ** 2));
+  const spots = darkGround(room, b.roster.reduce((s, e) => s + e.count, 0));
   let i = 0;
   for (const entry of b.roster) {
-    for (let n = 0; n < entry.count && i < free.length; n++, i++) {
-      const hex = free[i].id;
+    for (let n = 0; n < entry.count && i < spots.length; n++, i++) {
+      const hex = spots[i];
       const face = room.enemies.find(e => e.name === entry.kind);
-      room.dark.set(hex, {
+      const foe: EnemyUnit = {
+        id: nextDarkId(),
         hex, kind: entry.kind, label: face?.label ?? entry.kind, art: face?.art ?? null,
-        power: entry.power, hp: entry.hp, maxHp: entry.hp, pinned: 0,
+        power: entry.power, hp: entry.hp, maxHp: entry.hp, pinnedUntil: 0, march: null,
         armor: (entry as { armor?: number }).armor ?? DARK_ARMOR[entry.kind] ?? 5, lvl: b.tier, speedGauge: 0,
-      });
+      };
+      room.dark.set(foe.id, foe);
     }
   }
-  for (const hex of [...room.dark.keys()]) springHex(room, hex, new Set());
+  for (const hex of new Set([...room.dark.values()].map(e => e.hex))) springHex(room, hex, new Set());
   room.battle.active = true;
   room.roundNo = 0;
   b.begun = true;
   tell(room, `${b.kind === "siege" ? "The cursed bastion" : "The column"} is met — ${b.size} of the dark stand at the field's edge. ${b.ambush ? "Warned ahead, you strike with the ambush's edge (+1)." : ""} One pool binds you: ⚡${b.pool}.`);
-  if (!room.battle.timer) {
-    room.battle.timer = setInterval(() => { void runRound(room); }, 2800);
-  }
+  startBattleTimer(room);
 }
 
 /** A bastion battle WON (the Columns, 2026-10-17): the victory
@@ -1222,18 +1477,47 @@ async function resolveBastionDefeat(room: Room): Promise<void> {
   } catch { /* as above */ }
 }
 
+/** The clock's start: a battle runs the sim every
+ *  quarter-second until it ends (endBattle clears it). */
+function startBattleTimer(room: Room): void {
+  if (room.battle.timer) return;
+  room.battle.lastTick = Date.now();
+  room.battle.beatAcc = 0;
+  room.battle.timer = setInterval(() => { void runRound(room); }, 250);
+}
+
 function endBattle(room: Room): void {
   room.battle.active = false;
   if (room.battle.timer) { clearInterval(room.battle.timer); room.battle.timer = null; }
 }
 
+/** THE REFEREE, ON THE CLOCK (Nigel, 2026-10-18: "instead of
+ *  rounds we need distance traveled over time"). The sim ticks
+ *  every quarter-second: movement is distance over time along
+ *  roads — the light's marches, the dark's advance — strikes
+ *  land on cadences, and the curse burns and the light grinds
+ *  as rates. The slow bookkeeping (the Heart's breath, the
+ *  written light's tending, the binding echoes) still keeps
+ *  the old 2.8-second beat, accumulated from the same clock. */
 async function runRound(room: Room): Promise<void> {
   if (!room.battle.active || room.battle.ticking) return;
   room.battle.ticking = true;
   try {
-    await refreshGrimoire().catch(() => {});
-    room.roundNo++;
-    room.strikes = [];
+    const now = Date.now();
+    const dtMs = Math.min(1000, Math.max(0, now - (room.battle.lastTick ?? now)));
+    room.battle.lastTick = now;
+    const dtSec = dtMs / 1000;
+    room.battle.beatAcc = (room.battle.beatAcc ?? 0) + dtSec;
+    const beatDue = room.battle.beatAcc >= BEAT_MS / 1000;
+    if (beatDue) room.battle.beatAcc = 0;
+    // Shots age off the ledger; clients fly what is fresh.
+    room.strikes = room.strikes.filter(s => now - (s.at ?? 0) < 1200);
+    const witness = (from: string, to: string, element: string, side: "light" | "dark", hit: boolean, killed: boolean) => {
+      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from, to, element, side, hit, killed });
+    };
+    if (beatDue) {
+      await refreshGrimoire().catch(() => {});
+      room.roundNo++;
     // The Returning Breath and Blood (the Heart's spine,
     // 2026-10-18): at the round's opening, a standing holder
     // breathes — +1⚡ on the same purse the felling-harvest
@@ -1248,9 +1532,8 @@ async function runRound(room: Room): Promise<void> {
         tell(room, `The Returning Blood knits ${p.name} — ${mend} HP returns with the round.`);
       }
     }
-    const witness = (from: string, to: string, element: string, side: "light" | "dark", hit: boolean, killed: boolean) => {
-      if (room.strikes.length < 30) room.strikes.push({ from, to, element, side, hit, killed });
-    };
+    // (the witness is defined above the beat now — the strikes
+    // it records fly on the clock, not on the beat.)
     // The written light tends itself: living walls regrow,
     // and a standing Engine sings energy to its Tender.
     // Lore Binder's echoes land a round after the spring.
@@ -1258,8 +1541,8 @@ async function runRound(room: Room): Promise<void> {
       const due = room.pendingEchoes.filter(e2 => e2.due <= room.roundNo);
       room.pendingEchoes = room.pendingEchoes.filter(e2 => e2.due > room.roundNo);
       for (const e2 of due) {
-        const d = room.dark.get(e2.hex);
-        if (d) { d.pinned = Math.max(d.pinned, e2.pin); tell(room, `The binding echoes — the dark on the written ground is held again, fainter and faithful.`); }
+        const d = darkAt(room, e2.hex);
+        if (d) { d.pinnedUntil = Math.max(d.pinnedUntil ?? 0, now + e2.pin * BEAT_MS); tell(room, `The binding echoes — the dark on the written ground is held again, fainter and faithful.`); }
       }
     }
     // Lore Warden's ledger: an edge whose ward stood at the
@@ -1296,6 +1579,7 @@ async function runRound(room: Room): Promise<void> {
         }
       }
     }
+    } // — the beat's bookkeeping ends; the clock's work follows.
     // The standing strike first — under FATE (Nigel,
     // 2026-10-17): a d20 against the dark thing's armor;
     // the element and the level lend the bonus; landed harm
@@ -1307,6 +1591,10 @@ async function runRound(room: Room): Promise<void> {
       let target: EnemyUnit | null = null;
       let best = Infinity;
       for (const e of room.dark.values()) {
+        // REACH (the Instance Map): the light strikes two
+        // tiles out — beyond that, the dark is a shape on the
+        // road, not yet a foe in hand.
+        if (hexDist(unit.hex, e.hex) > 2) continue;
         const dd = hexDist(unit.hex, e.hex) - e.hp * 0.01;
         if (dd < best) { best = dd; target = e; }
       }
@@ -1345,8 +1633,10 @@ async function runRound(room: Room): Promise<void> {
       witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
       if (roll === 20) tell(room, `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`);
       if (target.hp <= 0) {
-        room.dark.delete(target.hex);
+        room.dark.delete(target.id);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
+        const freedTile = room.map.get(target.hex);
+        if (freedTile) purifyTile(room, freedTile, dominantElement(partsOf(unit.card) as { element?: string | null }[]));
         const owner = seatByKey(room, unit.ownerKey);
         if (room.campaign && !room.campaign.over) {
           campaignFell(room, target, owner ?? null);
@@ -1364,31 +1654,93 @@ async function runRound(room: Room): Promise<void> {
       }
     };
     for (const unit of [...room.field.values()]) {
-      if (!room.field.has(unit.hex)) continue;
+      if (!unitStanding(room, unit)) continue;
       if (room.dark.size === 0) break;
-      if (unit.pinned > 0) { unit.pinned--; continue; }
+      if (isMarching(unit, now)) continue; // on the road: no strikes
+      if ((unit.pinnedUntil ?? 0) > now) continue; // pinned: the moments pass
+      if (now < (unit.nextStrike ?? 0)) continue; // the cadence has not come round
+      if (![...room.dark.values()].some(e => hexDist(unit.hex, e.hex) <= 2)) continue;
+      unit.nextStrike = now + lightIntervalMs(unit);
       await strikeOnce(unit);
-      unit.speedGauge += (ELEMENT_HIT_BONUS[unit.card.element] ?? 1) - 1;
-      while (unit.speedGauge >= 5 && room.field.has(unit.hex) && room.dark.size > 0) {
-        unit.speedGauge -= 5;
-        await strikeOnce(unit);
-      }
     }
-    // The dark answers.
+    // THE DARK ADVANCES (the Instance Map, on the clock): a
+    // dark thing with no foe in claw's reach travels its road
+    // toward the seed — or toward the nearest standing light,
+    // when the light is nearer — at its kind's gait. A patrol
+    // posted on its road stops it: within a tile, it halts and
+    // fights. The Hollow only drifts and drains, at a rate.
+    const beginAdvance = (enemy: EnemyUnit): void => {
+      if (enemy.march) return;
+      const standingNow = standingUnits(room);
+      let quarry = SEED_TILE;
+      let bestD = hexDist(enemy.hex, SEED_TILE);
+      for (const u of standingNow) {
+        const d = hexDist(enemy.hex, u.hex);
+        if (d < bestD) { bestD = d; quarry = u.hex; }
+      }
+      if (quarry === enemy.hex) return;
+      // AT THE GATE: a dark thing already standing on the
+      // seed's own ring with the seed as its quarry HAS
+      // arrived — it does not march the last step onto the
+      // seed's tile (the travel law would halt it at the gate
+      // again, forever). It claws the seed from here; the
+      // assault reckons what that costs.
+      if (quarry === SEED_TILE && ringOf(enemy.hex) <= 1) return;
+      const road = findAnyRoad(enemy.hex, quarry);
+      if (!road || road.length < 2) return;
+      const gait = DARK_GAIT[enemy.kind] ?? 2.8;
+      enemy.march = { road, since: now, endsAt: now + Math.round((road.length - 1) * gait * 1000) };
+    };
     for (const enemy of [...room.dark.values()]) {
-      const standing = [...room.field.values()];
-      if (enemy.pinned > 0) { enemy.pinned--; continue; }
       if (enemy.kind === "hollow") {
+        // The Hollow drains the air itself, at a rate — the
+        // bastion's pool, or every standing Tender's purse.
+        const drain = 2 * dtSec / (BEAT_MS / 1000);
         if (room.bastion?.begun && !room.bastion.resolved) {
-          room.bastion.pool = Math.max(0, room.bastion.pool - 2);
+          room.bastion.pool = Math.max(0, room.bastion.pool - drain);
         } else {
           for (const p of room.players.values()) {
-            if (!p.watcher && !p.fallen) p.energy = Math.max(0, p.energy - 2);
+            if (!p.watcher && !p.fallen) p.energy = Math.max(0, p.energy - drain);
           }
         }
+      }
+      if ((enemy.pinnedUntil ?? 0) > now) continue;
+      // Travel: settle where the road has carried it.
+      if (enemy.march) {
+        const here = roadTileAt(enemy.march, now);
+        if (here !== enemy.hex) { enemy.hex = here; springHex(room, here, new Set()); }
+        const arrived = now >= enemy.march.endsAt;
+        const blocked = standingUnits(room).some(u => hexDist(u.hex, here) <= 1);
+        // The gate halts only a march whose road ENDS at the
+        // seed. A hunt for a light beyond the ring passes
+        // through the ring — transit is lawful — and the old
+        // blanket halt froze those hunters on the seed's door-
+        // step, where the seed became their quarry by default
+        // and nothing could ever move again (probe40's stall).
+        const dest = enemy.march.road[enemy.march.road.length - 1];
+        const atGate = dest === SEED_TILE && ringOf(here) <= 1 && !blocked;
+        if (arrived || blocked || atGate) {
+          enemy.hex = arrived ? enemy.march.road[enemy.march.road.length - 1] : here;
+          enemy.march = null;
+          springHex(room, enemy.hex, new Set());
+        } else {
+          continue; // still on the road: it does not strike
+        }
+      }
+      const standing = standingUnits(room);
+      const inReach = standing.filter(u => hexDist(enemy.hex, u.hex) <= 1);
+      if (enemy.kind === "hollow") {
+        // It never claws — but it COMES: a Hollow left standing
+        // on the rim would haunt the air forever, beyond every
+        // reach, and no battle against it could ever end. It
+        // drifts its road until the gate or a standing light
+        // stops it, and drains where it stands.
+        if (!enemy.march && ringOf(enemy.hex) > 1) beginAdvance(enemy);
         continue;
       }
-      if (standing.length > 0) {
+      if (inReach.length > 0) {
+        if (now < (enemy.nextStrike ?? 0)) continue;
+        enemy.nextStrike = now + darkIntervalMs(enemy);
         // The dark answers — under FATE: a d20 against the
         // victim's Armor Class (its toughness). The dark's
         // element is the curse's own — no element bonus; its
@@ -1397,7 +1749,7 @@ async function runRound(room: Room): Promise<void> {
         // the SHIELD burns before the body. The written
         // light answers a landed blow as it always has.
         const blowOnce = async (): Promise<void> => {
-          const standingNow = [...room.field.values()];
+          const standingNow = standingUnits(room).filter(u => hexDist(enemy.hex, u.hex) <= 1);
           if (!standingNow.length) return;
           let victim: FieldUnit;
           if (enemy.kind === "unraveler") victim = standingNow.reduce((a, b) => (b.card.power > a.card.power ? b : a));
@@ -1442,10 +1794,10 @@ async function runRound(room: Room): Promise<void> {
             // wounded for 1 by the ward's answering light.
             if (sealEff.warWarden) {
               for (const nHex of neighborsOf(enemy.hex)) {
-                const nDark = room.dark.get(nHex);
+                const nDark = darkAt(room, nHex);
                 if (nDark && nDark !== enemy) {
                   nDark.hp -= 1;
-                  if (nDark.hp <= 0) fellDark(room, nDark, sealSeat ?? null);
+                  if (nDark.hp <= 0) fellDark(room, nDark, sealSeat ?? null, seal.hue && seal.hue !== "unaligned" ? seal.hue : "neutral");
                 }
               }
             }
@@ -1455,8 +1807,10 @@ async function runRound(room: Room): Promise<void> {
             seal.hp -= enemy.power;
             tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
             if (enemy.hp <= 0) {
-              room.dark.delete(enemy.hex);
+              room.dark.delete(enemy.id);
               tell(room, `The ${enemy.label} unravels on the Seal's light!`);
+              const freedTile = room.map.get(enemy.hex);
+              if (freedTile) purifyTile(room, freedTile, seal.hue && seal.hue !== "unaligned" ? seal.hue : "neutral");
               const owner = seatByKey(room, seal.ownerKey);
               if (room.campaign && !room.campaign.over) {
                 campaignFell(room, enemy, owner ?? null);
@@ -1485,7 +1839,7 @@ async function runRound(room: Room): Promise<void> {
           }
           let felled = false;
           if (dmg > 0) {
-            if (enemy.kind === "tangle") victim.pinned = Math.max(victim.pinned, 1);
+            if (enemy.kind === "tangle") victim.pinnedUntil = Math.max(victim.pinnedUntil ?? 0, now + BEAT_MS);
             let wound = dmg;
             if (victim.shield > 0) {
               const absorbed = Math.min(victim.shield, wound);
@@ -1499,22 +1853,22 @@ async function runRound(room: Room): Promise<void> {
           if (roll === 20) tell(room, `The ${enemy.label} rolls a natural twenty — the blow lands true and terrible!`);
           if (felled) {
             noteDissipation(room, victim);
-            room.field.delete(victim.hex);
+            removeUnit(room, victim);
             const owner = seatByKey(room, victim.ownerKey);
             if (owner) owner.hand = [...owner.hand, victim.card];
             tell(room, `The ${enemy.label} unravels ${victim.card.name} — it dissipates to its Tender's roster.`);
           }
         };
         await blowOnce();
-        enemy.speedGauge += (DARK_SPEED[enemy.kind] ?? 1) - 1;
-        while (enemy.speedGauge >= 5 && room.dark.has(enemy.hex) && room.field.size > 0) {
-          enemy.speedGauge -= 5;
-          await blowOnce();
-        }
-      } else {
-        // Nothing stands: the shield law leaves the Tenders bare.
+      } else if (standing.length === 0) {
+        // Nothing stands: the shield law leaves the Tenders
+        // bare — but the blow lands only at the gate. Out on
+        // the road, the dark is still coming.
+        if (ringOf(enemy.hex) > 1) { beginAdvance(enemy); continue; }
+        if (now < (enemy.nextStrike ?? 0)) continue;
+        enemy.nextStrike = now + darkIntervalMs(enemy);
         const bare = [...room.players.values()].filter(p => !p.watcher && !p.storytender && !p.fallen);
-        if (bare.length === 0) break;
+        if (bare.length === 0) continue;
         const tender = bare[Math.floor(Math.random() * bare.length)];
         // The Thickened Skin (the Heart's spine, 2026-10-18):
         // strikes against the Tender are blunted by the
@@ -1527,24 +1881,74 @@ async function runRound(room: Room): Promise<void> {
           tender.fallen = true;
           tell(room, `${tender.name} has fallen. The Bastion mourns — and fights on.`);
         }
+      } else {
+        // Light stands, but beyond claw's reach: the dark comes on.
+        beginAdvance(enemy);
       }
     }
-    // THE BASTION ASSAULTED (campaign, TABLE-DESIGN §4.4):
-    // no light stands, the dark remains, and no seat can
-    // afford any cast from the bank — the dark turns on the
-    // star-seed itself and drains the pooled light, round by
-    // round, until a cast resumes the defense or the bank —
-    // the Bastion's body — is gone.
-    if (room.campaign && !room.campaign.over && room.campaign.seeded && room.battle.active && room.field.size === 0 && room.dark.size > 0) {
+    // THE CURSE BURNS, THE LIGHT GRINDS (the Instance Map;
+    // Nigel, 2026-10-18): every Awokin standing on cursed
+    // ground pays the ring's burn — and its presence wears
+    // the tile's corruption down by its power, unless the
+    // dark itself holds that tile. A tile ground to nothing
+    // turns, in the element of the strongest light upon it.
+    {
+      const grind = new Map<string, { dmg: number; best: FieldUnit | null }>();
+      const rate = dtSec / (BEAT_MS / 1000); // the old round's share of this tick
+      for (const u of standingUnits(room)) {
+        const tile = room.map.get(u.hex);
+        if (!tile || !tile.cursed) continue;
+        hurtByCurse(room, u, Math.max(1, ringOf(tile.id) - 1) * rate);
+        if (!unitStanding(room, u)) continue; // the burn unbound it
+        if (darkOn(room, tile.id)) continue; // the dark holds this ground
+        const g = grind.get(tile.id) ?? { dmg: 0, best: null };
+        g.dmg += u.card.power * rate;
+        if (!g.best || u.card.power > g.best.card.power) g.best = u;
+        grind.set(tile.id, g);
+      }
+      for (const [tileId, g] of grind) {
+        const tile = room.map.get(tileId);
+        if (!tile || !tile.cursed || !g.best) continue;
+        tile.curseHp -= g.dmg;
+        if (tile.curseHp <= 0) {
+          purifyTile(room, tile, dominantElement(partsOf(g.best.card) as { element?: string | null }[]));
+        }
+      }
+    }
+    // THE SEED ASSAULTED (campaign, TABLE-DESIGN §4.4, made
+    // physical by the Instance Map): dark standing AT THE
+    // GATE — the seed's own ring — EXPOSED, with no standing
+    // light able to reach it (the light strikes two tiles
+    // out), claws the star-seed: the bank bleeds at the sum
+    // of the exposed crawlers' power, as a rate, until a
+    // guard is marched to the gate, the crawlers are felled,
+    // or the bank — the Bastion's body — is gone. Exposure is
+    // reckoned crawler by crawler: a guard posted on the far
+    // ring does not cover the opposite gate, and a siege
+    // there is a patrol's errand. An earlier draft also
+    // required that no cast be affordable — but a full hand
+    // never held the dark off a heart it had already reached;
+    // only light at the gate does. That clause froze doom
+    // itself: harvest kept the bank fat, a cast stayed
+    // "affordable" forever, and the Bastion could neither
+    // fall nor be saved (probe40's stall). Casting is the
+    // ANSWER to the assault, not a shield against it.
+    if (room.campaign && !room.campaign.over && room.campaign.seeded && room.battle.active && room.dark.size > 0) {
       const c = room.campaign;
-      const canCast = [...room.players.values()].some(p => !p.watcher && !p.storytender && !p.fallen && p.hand.some(card => castCost(room, p, card) <= c.bank));
-      if (!canCast) {
-        const drain = [...room.dark.values()].reduce((s, e) => s + e.power, 0);
-        c.bank = Math.max(0, c.bank - drain);
-        tell(room, `No light stands and no hand can cast — the dark turns on the star-seed. The bank bleeds ⚡${drain} (⚡${c.bank} remains). Cast something, anything, or lose the light.`);
-        if (c.bank <= 0) {
-          settleShardsAndFade(room);
-          endCampaign(room, "fallen");
+      const standing = standingUnits(room);
+      const exposed = [...room.dark.values()].filter(e => !e.march && ringOf(e.hex) <= 1 && !standing.some(u => hexDist(u.hex, e.hex) <= 2));
+      if (exposed.length) {
+        const drain = exposed.reduce((s, e) => s + e.power, 0) * dtSec / (BEAT_MS / 1000);
+        if (drain > 0) {
+          c.bank = Math.max(0, c.bank - drain);
+          if (now - (room.assaultToldAt ?? 0) > 5000 || c.bank <= 0) {
+            room.assaultToldAt = now;
+            tell(room, `No light guards the heart — the dark turns on the star-seed. The bank bleeds (⚡${Math.floor(c.bank)} remains). March a guard to the gate, cast something, anything, or lose the light.`);
+          }
+          if (c.bank <= 0) {
+            settleShardsAndFade(room);
+            endCampaign(room, "fallen");
+          }
         }
       }
     }
@@ -1558,7 +1962,7 @@ async function runRound(room: Room): Promise<void> {
         for (const p of seatedAlive) await payBattleExp(room, p, 5, "A bastion held together pays together.");
         await resolveBastionVictory(room);
       } else if (room.campaign) {
-        tell(room, `The Unraveling is broken. The bank stands at ⚡${room.campaign.bank} — the Storytender may deal again, call a rest, or turn the campaign home.`);
+        tell(room, `The Unraveling is broken. The bank stands at ⚡${Math.floor(room.campaign.bank)} — the Storytender may deal again, call a rest, or turn the campaign home.`);
         room.battle.wave++;
       } else {
         tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
@@ -1631,6 +2035,7 @@ function handleConnection(ws: WebSocket): void {
       room = target;
       room.sky = await currentSky();
       room.players.set(ws, player);
+      assignLanding(room, player);
       tell(room, `${player.name} answers the ${String(call.kind).toUpperCase()} call — key ${k} — and takes a seat, Awokin in hand.`);
       sendState(room);
       return;
@@ -1734,6 +2139,7 @@ function handleConnection(ws: WebSocket): void {
       }
       player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
       room.players.set(ws, player);
+      assignLanding(room, player);
       if (isStorytender && room.campaign) {
         room.campaign.storytenderName = name;
         tell(room, `${name} takes the Storytender's seat — the dealing, the scene, and the sky are hers to hold.`);
@@ -1788,18 +2194,24 @@ function handleConnection(ws: WebSocket): void {
       const hex = String(msg.hex ?? "");
       const cardId = String(msg.cardId ?? "");
       const card = player.hand.find(c => c.id === cardId);
-      if (!SUMMONABLE_HEXES.includes(hex)) {
-        // Name the true bar (playtest, 2026-10-18): the old
-        // line blamed the star-seed's hex for every bad hex,
-        // including requests that named no hex of this field.
-        const centerId = FIELD_HEXES_SERVER.find(h => h.center)?.id;
-        ws.send(JSON.stringify({ type: "error", message: hex === centerId
-          ? "An Awokin stands on a field hex — the center hex is the star-seed's."
-          : "That is no hex of this field." }));
+      const tile = room.map.get(hex);
+      if (!tile) {
+        ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." }));
         return;
       }
-      if (room.field.has(hex)) {
-        ws.send(JSON.stringify({ type: "error", message: "That hex is already stood upon." }));
+      if (hex === SEED_TILE) {
+        ws.send(JSON.stringify({ type: "error", message: "An Awokin stands on the land — the center tile is the star-seed's." }));
+        return;
+      }
+      // SUMMON ONTO PURIFIED GROUND ONLY (Nigel, 2026-10-18 —
+      // the land's own deploy law, carried to the Table): the
+      // light takes the field where the light already holds.
+      if (tile.cursed) {
+        ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — your light takes the field on purified land. Fell the dark that holds it, or grind it down by standing patrols, and it will turn." }));
+        return;
+      }
+      if (unitsAt(room, hex).length >= STACK_CAP) {
+        ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile, by the March law.` }));
         return;
       }
       if (!card) {
@@ -1828,17 +2240,17 @@ function handleConnection(ws: WebSocket): void {
         room.bastion.pool -= cost;
       } else if (!chargePurse(room, player, cost)) {
         const n = recastCount(room, player.key, card.id);
-        ws.send(JSON.stringify({ type: "error", message: room.campaign && !room.campaign.over
-          ? `${card.name} costs ⚡${cost}${n > 0 ? ` (recast ×${2 ** Math.min(n, 5)})` : ""} — the bank holds ⚡${room.campaign.bank}.`
+        ws.send(JSON.stringify({ type: "error", message: room.campaign && !room.campaign.over && room.campaign.seeded
+          ? `${card.name} costs ⚡${cost}${n > 0 ? ` (recast ×${2 ** Math.min(n, 5)})` : ""} — the bank holds ⚡${Math.floor(room.campaign.bank)}.`
           : `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
         return;
       }
       player.hand = player.hand.filter(c => c.id !== cardId);
       const shield = card.toughness * dN(FATE_DIE[card.element] ?? 6);
-      room.field.set(hex, {
+      placeUnit(room, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
         shield, maxShield: shield, speedGauge: 0,
-        ownerKey: player.key, ownerName: player.name, pinned: 0,
+        ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, march: null,
       });
       tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
       sendState(room);
@@ -1850,16 +2262,60 @@ function handleConnection(ws: WebSocket): void {
     // was spent was spent.
     if (msg.type === "recall") {
       if (player.fallen) return;
+      const myKey = player.key;
       const hex = String(msg.hex ?? "");
-      const unit = room.field.get(hex);
-      if (!unit) return;
-      if (unit.ownerKey !== player.key) {
-        ws.send(JSON.stringify({ type: "error", message: "That Awokin answers to another Tender." }));
+      const cardId = String(msg.cardId ?? "");
+      const unit = unitsAt(room, hex).find(u => u.ownerKey === myKey && (!cardId || u.card.id === cardId))
+        ?? (cardId ? [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId) : undefined);
+      if (!unit) {
+        ws.send(JSON.stringify({ type: "error", message: "No Awokin of yours stands there to recall." }));
         return;
       }
-      room.field.delete(hex);
+      if (isMarching(unit)) {
+        ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` }));
+        return;
+      }
+      removeUnit(room, unit);
       player.hand = [...player.hand, unit.card];
       tell(room, `${player.name} recalls ${unit.card.name} from the field.`);
+      sendState(room);
+      return;
+    }
+
+    // THE MARCH (Nigel, 2026-10-18 — the land's movement law
+    // carried to the Table): a standing Awokin walks a road —
+    // any road, cursed ground included (the seed-mission road)
+    // — to any open tile. The price is the land's: hexes
+    // crossed × (1 + ⌊(power−1)/3⌋)⚡, from the purse (or the
+    // campaign bank). The pace is its element's gait, weighted
+    // by its level, and while it walks it neither strikes nor
+    // shields — the road is its own exposure.
+    if (msg.type === "march") {
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender marches their Awokin." })); return; }
+      const from = String(msg.from ?? "");
+      const to = String(msg.to ?? "");
+      const cardId = String(msg.cardId ?? "");
+      const myKey = player.key;
+      const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
+      if (!unit || unit.hex !== from) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand there." })); return; }
+      if (isMarching(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is already on the march.` })); return; }
+      if (!TILE_BY_ID.has(to) || to === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The march ends on the land — never on the star-seed's tile." })); return; }
+      if (to === from) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} already stands there.` })); return; }
+      if (unitsAt(room, to).length >= STACK_CAP) { ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile.` })); return; }
+      const road = findAnyRoad(from, to);
+      if (!road || road.length < 2) { ws.send(JSON.stringify({ type: "error", message: "No road runs there." })); return; }
+      const hexes = road.length - 1;
+      const cost = hexes * marchRateFor(unit.card.power);
+      if (!chargePurse(room, player, cost)) {
+        ws.send(JSON.stringify({ type: "error", message: `The march costs ⚡${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at ⚡${marchRateFor(unit.card.power)} for ${unit.card.name}'s power) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        return;
+      }
+      const duration = Math.round(hexes * marchSecondsPerHexFor(unit.card) * 1000);
+      const now = Date.now();
+      unit.hex = to;
+      unit.march = { road, since: now, endsAt: now + duration };
+      tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (⚡${cost}).`);
       sendState(room);
       return;
     }
@@ -1876,11 +2332,13 @@ function handleConnection(ws: WebSocket): void {
     if (msg.type === "castHeal") {
       if (!player) return;
       if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no mending — bind in the game to cast." })); return; }
-      const unit = room.field.get(String(msg.hex || ""));
-      if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
+      const myKey = player.key;
+      const unit = unitsAt(room, String(msg.hex || "")).filter(u => u.ownerKey === myKey)
+        .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+      if (!unit) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = healSpell()?.cost ?? 2;
-      if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — ${room.campaign && !room.campaign.over ? `the bank holds ⚡${room.campaign.bank}` : `you hold ⚡${player.energy}`}.` })); return; }
+      if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` })); return; }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -1914,9 +2372,9 @@ function handleConnection(ws: WebSocket): void {
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
       const hexA = String(msg.hexA || "");
       const hexB = String(msg.hexB || "");
-      const mine = room.field.get(hexA);
-      if (!mine || mine.ownerKey !== caster.key) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a hex your own Awokin holds." })); return; }
-      if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two hexes must share a side." })); return; }
+      const mine = unitsAt(room, hexA).find(u => u.ownerKey === caster.key);
+      if (!mine) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a tile your own Awokin holds." })); return; }
+      if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
       if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
       // The Zodiac's workings tranche (2026-10-17): the
@@ -2005,7 +2463,7 @@ function handleConnection(ws: WebSocket): void {
         if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is written over one to ${maxT} hexes of ground.` })); return; }
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
-        if (!SUMMONABLE_HEXES.includes(hx)) { const centerId = FIELD_HEXES_SERVER.find(h => h.center)?.id; ws.send(JSON.stringify({ type: "error", message: hx === centerId ? "Runes are written on the field's ground — not on the star-seed's hex." : "That is no hex of this field." })); return; }
+        if (!TILE_BY_ID.has(hx) || hx === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: hx === SEED_TILE ? "Runes are written on the land's ground — not on the star-seed's tile." : "That is no tile of this land." })); return; }
         if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
       // Steady Attention (the Heart, 2026-10-18): the first
@@ -2275,35 +2733,33 @@ function handleConnection(ws: WebSocket): void {
             p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false;
             if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
           }
-          const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
-          const free = SUMMONABLE_HEXES
-            .filter(h => !R.field.has(h) && !R.dark.has(h))
-            .map(id => FIELD_HEXES_SERVER.find(h => h.id === id)!)
-            .sort((a, z) => ((z.x - center.x) ** 2 + (z.y - center.y) ** 2) - ((a.x - center.x) ** 2 + (a.y - center.y) ** 2));
+          const spots = darkGround(R, c.reserve.length);
           const lvl = 1 + Math.floor(c.deals / 3);
           let placed = 0;
           for (const kind of c.reserve) {
-            if (placed >= free.length) break;
-            const hex = free[placed].id;
+            if (placed >= spots.length) break;
+            const hex = spots[placed];
             const base = ENEMY_STATS[kind];
             const face = R.enemies.find(e => e.name === kind);
             const hp = base.hp + (lvl - 1);
-            R.dark.set(hex, {
+            const foe: EnemyUnit = {
+              id: nextDarkId(),
               hex, kind, label: face?.label ?? kind, art: face?.art ?? null,
-              power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinned: 0,
+              power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, march: null,
               armor: base.armor + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
-            });
+            };
+            R.dark.set(foe.id, foe);
             placed++;
           }
           if (placed < c.reserve.length) tell(R, `The field holds no more ground — ${c.reserve.length - placed} of the dealt dark wait for room to stand.`);
           c.reserve = c.reserve.slice(placed);
-          for (const hex of [...room.dark.keys()]) springHex(R, hex, new Set());
+          for (const hex of new Set([...R.dark.values()].map(e => e.hex))) springHex(R, hex, new Set());
           c.deals++;
           R.battle.active = true;
           R.roundNo = 0;
           const threat = [...room.dark.values()].reduce((s, e) => s + e.power, 0);
           tell(R, `${player.name} deals — ${placed} of the dark take the field (threat ${threat}). The bank stands at ⚡${c.bank}.`);
-          if (!R.battle.timer) R.battle.timer = setInterval(() => { void runRound(R); }, 2800);
+          startBattleTimer(R);
           break;
         }
         case "stNarrate": {
@@ -2345,9 +2801,9 @@ function handleConnection(ws: WebSocket): void {
           break;
         }
         case "stDissipate": {
-          const e = R.dark.get(String(msg.hex ?? ""));
+          const e = (msg.id ? R.dark.get(String(msg.id)) : undefined) ?? darkAt(R, String(msg.hex ?? ""));
           if (e) {
-            R.dark.delete(e.hex);
+            R.dark.delete(e.id);
             tell(R, `The Storytender's mercy: the ${e.label} comes apart, unharvested.`);
           }
           break;

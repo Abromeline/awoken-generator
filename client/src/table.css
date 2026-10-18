@@ -212,9 +212,6 @@ button { font-family: inherit; }
   to { transform: translate(1.5%, 1%); }
 }
 .field-board { position: relative; width: min(340px, 80%); margin: 0 auto; }
-.field-hexes { position: relative; width: 100%; height: auto; display: block; }
-.hex { fill: rgba(20, 16, 13, 0.55); stroke: var(--bone-dim); stroke-width: 1; opacity: 0.8; }
-.hex.center { fill: rgba(20, 16, 13, 0.7); stroke: var(--gold); }
 .seed-ground { fill: #0d0906; stroke: #000; stroke-width: 2; }
 .seed-bulb {
   fill: var(--bulb);
@@ -443,20 +440,6 @@ button { font-family: inherit; }
 .tcard.dim { opacity: .45; }
 .cost-chip { color: var(--gold-bright); font-weight: 600; }
 .cast-hint { color: var(--gold-bright); font-size: 13.5px; margin: 8px 0 0; }
-.field-units { position: absolute; inset: 0; pointer-events: none; }
-.field-unit { position: absolute; transform: translate(-50%, -50%); width: 56px; text-align: center; pointer-events: none; }
-.field-unit img { width: 44px; height: 44px; object-fit: contain; object-position: center bottom; display: block; margin: 0 auto; }
-/* The cutout stack: the Awoken's own pieces (body, arms, head) laid
-   over one another, floating clean on the field's art — no card
-   face, no frame, no backing box (Nigel, 2026-10-18). */
-.field-unit-art { position: relative; display: block; width: 44px; height: 44px; margin: 0 auto; }
-.field-unit-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; }
-.field-unit .unit-name { display: block; font-size: 9.5px; line-height: 1.15; color: #f3e9d2; text-shadow: 0 1px 4px #000; margin-top: 2px; max-height: 22px; overflow: hidden; }
-.field-unit .unit-hp { display: block; height: 4px; background: rgba(0,0,0,.65); border-radius: 2px; margin: 2px 6px 0; overflow: hidden; }
-.field-unit .unit-hp-fill { display: block; height: 100%; background: #b8433a; }
-.field-unit .unit-stats { display: block; font-size: 9.5px; color: #e8dcc3; text-shadow: 0 1px 4px #000; }
-.hex.stood { fill: rgba(201, 162, 39, 0.20); }
-.hex.open { stroke: var(--gold-bright); stroke-dasharray: 4 3; }
 
 /* ── The fanned hand (Nigel, 2026-10-16 — Magic Arena's way):
    the roster overlaps like a held hand of cards, no scroll
@@ -480,9 +463,6 @@ button { font-family: inherit; }
 .battle-bar { display: flex; justify-content: center; padding: 10px 0 2px; }
 .battle-btn { font-size: 15px; padding: 10px 22px; letter-spacing: .02em; }
 .battle-status { color: var(--gold-bright); font-size: 14px; }
-.field-unit.dark img { filter: saturate(.8) brightness(.9); }
-.field-unit.dark .unit-name { color: #f0b8a6; }
-.dark-glyph { font-size: 26px; display: block; }
 
 /* ── The Written Light at the Table (2026-10-17) ─────────── */
 .pour-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 12px; }
@@ -503,17 +483,6 @@ button { font-family: inherit; }
 .placing-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--gold); border-radius: 10px; background: rgba(23, 18, 8, .92); }
 .placing-text { flex: 1 1 260px; font-size: 13.5px; line-height: 1.5; }
 .placing-text strong { color: #ffd98a; }
-.field-workings { position: absolute; inset: 0; pointer-events: none; }
-.field-working { position: absolute; transform: translate(-50%, -50%); width: 46px; text-align: center; }
-.field-working img { width: 36px; height: 36px; object-fit: contain; display: block; margin: 0 auto; }
-.field-working .working-glyph-fallback { display: block; font-size: 30px; line-height: 36px; color: #ffd98a; }
-.field-working.ward img { width: 42px; height: 42px; }
-.field-working.rune img { animation: workingBreath 2.8s ease-in-out infinite; }
-@keyframes workingBreath { 0%, 100% { opacity: .82; } 50% { opacity: 1; } }
-.working-tag { display: block; font-size: 9.5px; color: #ffe9b0; text-shadow: 0 1px 4px #000; margin-top: 1px; }
-.hex.pickable { fill: rgba(255, 217, 138, 0.16); stroke: var(--gold-bright); stroke-dasharray: 4 3; }
-.hex.anchor { fill: rgba(255, 217, 138, 0.30); stroke: var(--gold-bright); stroke-width: 2; }
-.hex.picked { fill: rgba(255, 122, 51, 0.30); stroke: #ff7a33; }
 
 /* Card borders at the Table (Nigel, 2026-10-17): the same chosen
    frame the game wraps — hug stretches to the card's edge; morning
@@ -534,9 +503,6 @@ button { font-family: inherit; }
 .shots-layer image{pointer-events:none;transform-box:fill-box;transform-origin:center}
 .shots-layer image.dark-shot{filter:brightness(.48) contrast(1.3) hue-rotate(248deg) saturate(2.4)}
 
-/* FATE at the Table: the shield bar rides above the health bar */
-.unit-hp.shield{height:3px;margin-bottom:2px;background:rgba(90,140,255,.18)}
-.unit-hp-fill.shield-fill{background:linear-gradient(90deg,#7fb2ff,#cfe4ff)}
 
 /* The dice, drawn again + the full band's quiet cards (Nigel,
    2026-10-18). No paper here — the Table's buttons wear their
@@ -580,23 +546,28 @@ button { font-family: inherit; }
 }
 .field-board {
   position: absolute; left: 50%; top: 46.5%; transform: translate(-50%, -50%);
-  width: min(98%, calc((100dvh - 140px) * 1.1538));
-  aspect-ratio: 300 / 260; margin: 0; z-index: 2;
+  width: min(98%, calc((100dvh - 140px) * 1.0));
+  aspect-ratio: 4 / 3; margin: 0; z-index: 2;
 }
-.field-hexes { width: 100%; height: 100%; }
-/* The hexes, re-faced: candlelit ground instead of flat fill —
-   a radial fall of light on every cell, ink-dark rims. */
-.hex { fill: url(#hexOpen); stroke: #0a0705; stroke-width: 1.3; opacity: 1; }
-.hex.stood { fill: url(#hexStood); }
-.hex.center { fill: rgba(16, 11, 7, 0.78); stroke: var(--gold); stroke-width: 1.2; }
+.terrain-stage { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.terrain-stage:active { cursor: grabbing; }
+.terrain-stage text { user-select: none; }
 .seed-ground { stroke-dasharray: 5 2.2; stroke-width: 2.5; opacity: 0.95; }
-/* Standing figures scale with the board they stand on. */
-.field-unit { width: 8.6%; }
-.field-unit-art { width: 82%; aspect-ratio: 1 / 1; height: auto; }
-.field-unit > img { width: 82%; height: auto; }
-.field-working { width: 9%; }
-.field-working img { width: 80%; height: auto; }
-.field-working.ward img { width: 92%; height: auto; }
+/* The stage's lettering: names, tags and fallback glyphs ride
+   the SVG, inked against a dark stroke so they read on any land. */
+.ts-name { font-size: 9px; fill: #e8dcc0; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,0.72); stroke-width: 3px; }
+.ts-name.dark { fill: #f0b8a6; }
+.ts-tag { font-size: 8.5px; fill: #ffe9b0; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,0.72); stroke-width: 3px; }
+.ts-glyph-fallback { font-size: 20px; fill: #ffd98a; text-anchor: middle; }
+.terrain-stage .ts-dark-img { filter: saturate(.8) brightness(.9); }
+/* The map's manners: pan by drag, zoom by these. */
+.stage-view-btns { position: absolute; right: 10px; bottom: 10px; z-index: 5; display: flex; gap: 6px; }
+.stage-view-btns button {
+  width: 32px; height: 32px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--gold); background: rgba(16, 12, 9, .88);
+  color: var(--gold-bright); font-size: 16px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
 
 /* The rails: slim, translucent, riding the field's corners. */
 .party-panel, .dark-panel {

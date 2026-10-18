@@ -92,13 +92,23 @@ check("the seed tale was told", a.state.tale.some(t => t.text.includes("poured i
 
 // A cast draws on the bank.
 const hush = a.you.hand.find(c => c.name === "Hushkeeper");
-const freeHex = (() => {
-  const taken = new Set([...a.state.dark.map(d => d.hex), ...a.state.field.map(u => u.hex)]);
-  return ["hex-0-0", "hex-0-1", "hex-1-0", "hex-5-4", "hex-5-0", "hex-0-4"].find(h => !taken.has(h));
-})();
+// The Instance Map: summons land on the seat's own purified
+// landing tile (stacking lets the band share it).
+const freeHex = a.you.landing;
 a.send({ type: "summon", cardId: hush.id, hex: freeHex });
 await a.waitFor(c => c.state.field.some(u => u.name === "Hushkeeper"), "hushkeeper stands");
 check("cast charged the bank (24 → 23)", a.state.campaign.bank === 23, `bank=${a.state.campaign.bank}`);
+
+// The kill: under the old referee the first dealing's dark
+// struck from anywhere and the lone Hushkeeper fell to it.
+// On the clock and the big map she fells each approaching
+// thing at reach, one strike at a time — what brings her
+// down is a swarm arriving faster than her cadence: ten
+// Fray, skittering, more claws than she can answer.
+for (let i = 0; i < 10; i++) st.send({ type: "stAdd", kind: "fray" });
+await st.waitFor(c => c.you?.storytender?.reserve.length === 10, "the swarm held");
+st.send({ type: "stDeal" });
+await a.waitFor(c => c.state.dark.length === 13, "the swarm is dealt");
 
 // The Unraveler hunts it; wait for the dissipation, then the
 // recast must cost double.
@@ -106,19 +116,26 @@ await a.waitFor(c => c.you?.recasts?.[hush.id] === 1, "dissipation counted", 900
 check("dissipation counted for the recast law", a.you.recasts[hush.id] === 1);
 check("the card returned to the roster", a.you.hand.some(c => c.id === hush.id));
 const bankBefore = a.state.campaign.bank;
-const freeHex2 = (() => {
-  const taken = new Set([...a.state.dark.map(d => d.hex), ...a.state.field.map(u => u.hex)]);
-  return ["hex-0-0", "hex-0-1", "hex-1-0", "hex-5-4", "hex-5-0", "hex-0-4", "hex-3-2"].find(h => !taken.has(h));
-})();
+const freeHex2 = a.you.landing;
 a.send({ type: "summon", cardId: hush.id, hex: freeHex2 });
 await a.waitFor(c => c.state.field.some(u => u.name === "Hushkeeper"), "recast stands");
 check("recast charged double (bank fell by 2)", bankBefore - a.state.campaign.bank === 2, `delta=${bankBefore - a.state.campaign.bank}`);
 
-// Mercy is unharvested.
+// The swarm is still on the field, clawing at the gate —
+// the Storytender calls it off entirely (mercy, unharvested),
+// so the room is calm for what follows.
+for (const d of [...a.state.dark]) st.send({ type: "stDissipate", hex: d.hex, id: d.id });
+await a.waitFor(c => c.state.dark.length === 0 && !c.state.battle.active, "the field is called off", 30000);
+
+// Mercy is unharvested: one fresh Fray, dealt and dismissed.
+st.send({ type: "stAdd", kind: "fray" });
+await st.waitFor(c => c.you?.storytender?.reserve.length === 1, "one fray held for mercy");
+st.send({ type: "stDeal" });
+await a.waitFor(c => c.state.dark.length === 1, "the mercy fray is dealt");
 const bankM = a.state.campaign.bank;
 const someDark = a.state.dark[0];
-st.send({ type: "stDissipate", hex: someDark.hex });
-await a.waitFor(c => !c.state.dark.some(d => d.hex === someDark.hex), "mercy dissipation");
+st.send({ type: "stDissipate", hex: someDark.hex, id: someDark.id });
+await a.waitFor(c => !c.state.dark.some(d => d.id === someDark.id), "mercy dissipation");
 check("storytender's mercy pays no harvest", a.state.campaign.bank === bankM, `bank=${a.state.campaign.bank} was ${bankM}`);
 
 // Narration + scene ride the shared state.
