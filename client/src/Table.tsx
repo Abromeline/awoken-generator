@@ -105,10 +105,20 @@ interface EnemyView { name: string; label: string; note: string; art: string | n
 
 interface SharedState {
   room: string;
+  mode?: string;
+  campaign?: {
+    bank: number;
+    bankStart: number;
+    seeded: boolean;
+    over: string | null;
+    storytenderName: string | null;
+    stage: { title: string; text: string; imageUrl: string | null; at: number } | null;
+    deals: number;
+  } | null;
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   field: FieldUnitView[];
@@ -142,6 +152,19 @@ interface YouState {
   inventory: string[];
   bound?: string | null;
   yourCall?: { id: number; kind: string; columnId: number | null; seedId: number | null; joinKey?: string | null } | null;
+  /** CAMPAIGN (Phase B): dissipations per card — the recast
+   *  multiplier the bank will charge for its return. */
+  recasts?: Record<string, number>;
+  /** The Storytender's private instruments (her eyes only). */
+  storytender?: {
+    reserve: string[];
+    reserveThreat: number;
+    partyPower: number;
+    deals: number;
+    bank: number;
+    seeded: boolean;
+    over: string | null;
+  } | null;
 }
 
 type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
@@ -227,6 +250,20 @@ export default function Table() {
   // The hand drawer (Phase A room, Nigel 2026-10-18): the hand
   // rests half off-screen and rises when reached for.
   const [handUp, setHandUp] = useState(false);
+  // CAMPAIGN doors (Phase B): the Discord door's proven name,
+  // held while the opener chooses the room's nature; and the
+  // doorway-test campaign key.
+  const [authJoin, setAuthJoin] = useState<{ authToken: string; instanceId: string } | null>(null);
+  const [campKey, setCampKey] = useState("");
+  // The Stage: hidden by the viewer's own tap until a new
+  // scene is set.
+  const [stageHidden, setStageHidden] = useState(false);
+  // The Storytender's instruments (her panel's drafts).
+  const [stNarrate, setStNarrate] = useState("");
+  const [stSceneTitle, setStSceneTitle] = useState("");
+  const [stSceneText, setStSceneText] = useState("");
+  const [stSceneImg, setStSceneImg] = useState("");
+  const [stSkyText, setStSkyText] = useState("");
   // The workshop-chosen card border (Nigel, 2026-10-17) wraps the
   // hand cards here too — the same public read the game consumes.
   const [cardBorder, setCardBorder] = useState<{ imageUrl: string | null; fit: string | null }>({ imageUrl: null, fit: null });
@@ -512,7 +549,15 @@ export default function Table() {
         const auth = await authRes.json();
         setBootStep("Discord is vouching for you…");
         await sdk.commands.authenticate({ access_token: auth.accessToken });
-        if (!cancelled) connect({ authToken: auth.token, room: sdk.instanceId || "the-table" });
+        // The door inside Discord (Phase B): the opener chooses
+        // the room's nature — the casual table, or a campaign
+        // (as a Tender, or as its Storytender). The instance id
+        // names the room either way, so the whole party lands
+        // together whichever door they take.
+        if (!cancelled) {
+          setAuthJoin({ authToken: auth.token, instanceId: sdk.instanceId || "the-table" });
+          setPhase("door");
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "The door to the Table would not open.");
@@ -534,6 +579,11 @@ export default function Table() {
     const el = taleRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [shared?.tale.length]);
+
+  // A newly set scene raises the Stage again.
+  useEffect(() => {
+    if (shared?.campaign?.stage) setStageHidden(false);
+  }, [shared?.campaign?.stage?.at]);
 
   const send = (msg: Record<string, unknown>) => {
     const ws = wsRef.current;
@@ -614,6 +664,54 @@ export default function Table() {
                   Watch instead
                 </button>
               </div>
+              <label className="door-label" htmlFor="door-campaign">Or open a campaign — a Storytender deals, one bank binds the party</label>
+              <input
+                id="door-campaign"
+                className="door-input"
+                value={campKey}
+                onChange={(e) => setCampKey(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24))}
+                maxLength={24}
+                placeholder="Campaign key (blank = the main campaign)"
+              />
+              <div className="door-actions">
+                <button
+                  className="table-btn"
+                  disabled={!devName.trim()}
+                  onClick={() => connect({ devName: devName.trim(), room: `campaign-${campKey.trim() || "main"}` })}
+                >
+                  📖 Campaign — take a seat
+                </button>
+                <button
+                  className="table-btn"
+                  disabled={!devName.trim()}
+                  onClick={() => connect({ devName: devName.trim(), room: `campaign-${campKey.trim() || "main"}`, storytender: true })}
+                >
+                  📖 Campaign — be the Storytender
+                </button>
+              </div>
+            </>
+          ) : authJoin ? (
+            <>
+              <p className="quiet">
+                Discord has vouched for your name. Choose the room's nature — the whole
+                party lands together whichever door they take.
+              </p>
+              <div className="door-actions">
+                <button className="table-btn primary" onClick={() => connect({ authToken: authJoin.authToken, room: authJoin.instanceId })}>
+                  ⚔ The casual table
+                </button>
+                <button className="table-btn" onClick={() => connect({ watch: true, name: "A Watcher", room: authJoin.instanceId })}>
+                  Watch instead
+                </button>
+              </div>
+              <div className="door-actions">
+                <button className="table-btn" onClick={() => connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}` })}>
+                  📖 Campaign — take a seat
+                </button>
+                <button className="table-btn" onClick={() => connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}`, storytender: true })}>
+                  📖 Campaign — be the Storytender
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -648,11 +746,28 @@ export default function Table() {
   const sky = shared.sky;
   const selectedCard = you && selectedCardId ? you.hand.find(c => c.id === selectedCardId) ?? null : null;
   const bandFull = !!you && (you.band ?? 0) >= (you.bandCap ?? 5);
+  // CAMPAIGN: the star-seed swells with the bank — the bulb is
+  // the pool's body, read at a glance (TABLE-DESIGN §4.5).
+  const bankFrac = shared.campaign?.seeded && shared.campaign.bankStart > 0
+    ? Math.max(0.05, Math.min(1.5, shared.campaign.bank / shared.campaign.bankStart))
+    : null;
+  const bulbR = bankFrac === null ? 6 : 3 + 4.5 * bankFrac;
+  // CAMPAIGN: a dissipated Awokin's recast price doubles per
+  // dissipation — the card chips show the bank's true price.
+  const castCostOf = (card: TableCard): number => {
+    const n = shared.mode === "campaign" && you?.recasts ? (you.recasts[card.id] ?? 0) : 0;
+    return Math.max(1, card.power) * (n > 0 ? 2 ** Math.min(n, 5) : 1);
+  };
   return (
     <div className="table-room">
       <header className="skybar">
         <span className="sky-reign">☁ <strong>{sky.mood}</strong>{sky.description ? ` — ${sky.description}` : ""}</span>
-        <span className="sky-round">The Table · casual room</span>
+        <span className="sky-round">The Table · {shared.mode === "campaign" ? "campaign room" : "casual room"}</span>
+        {shared.campaign?.seeded && !shared.campaign.over && (
+          <span className="bank-chip" title="The party's one bank — every cast draws from it, every harvest joins it, and what remains divides evenly when the campaign turns home">🌟 The Bank ⚡{shared.campaign.bank}</span>
+        )}
+        {shared.campaign?.over === "fallen" && <span className="bank-chip fallen">🌑 The Bastion has fallen</span>}
+        {shared.campaign?.over === "ended" && <span className="bank-chip">🏠 The campaign has turned home</span>}
         <span className="sky-threat">
           <label>Unraveling power</label>
           <span className="threat-track"><span className="threat-fill" style={{ width: "0%" }} /></span>
@@ -667,7 +782,7 @@ export default function Table() {
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
               <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}</span>
-              {p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>}
+              {p.storytender ? <span className="party-meta">📖 Storytender — she deals</span> : p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>}
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
@@ -774,7 +889,7 @@ export default function Table() {
                     {h.center && (
                       <>
                         <circle className="seed-ground" r="13" />
-                        <circle className="seed-bulb" r="6" />
+                        <circle className="seed-bulb" r={bulbR} />
                       </>
                     )}
                   </g>
@@ -893,7 +1008,17 @@ export default function Table() {
               })}
             </div>
             </div>
-            <div className="field-caption">
+            {shared.campaign?.stage && !shared.battle.active && !stageHidden && (
+            <div className="stage-overlay" role="region" aria-label="The Storytender's Stage">
+              {shared.campaign.stage.imageUrl && <img className="stage-img" src={shared.campaign.stage.imageUrl} alt="" />}
+              <div className="stage-body">
+                <h3>{shared.campaign.stage.title}</h3>
+                {shared.campaign.stage.text && <p>{shared.campaign.stage.text}</p>}
+                <button className="table-btn" onClick={() => setStageHidden(true)}>⚔ To the field</button>
+              </div>
+            </div>
+          )}
+          <div className="field-caption">
               <strong>The star-seed</strong> — fallen light, rooted in cracked ground.
               The Bastion is what the party will build around it. Cast from your
               roster onto the field; when the party stands ready, begin the Unraveling.
@@ -964,6 +1089,19 @@ export default function Table() {
             <div className="battle-bar">
               {shared.battle.active ? (
                 <span className="battle-status">🌑 Wave {shared.battle.wave} — {shared.dark.length} of the dark stand · round {shared.round}</span>
+              ) : shared.campaign ? (
+                <>
+                <span className="battle-status">
+                  {shared.campaign.over === "fallen"
+                    ? "🌑 The Bastion has fallen — this campaign is ended by the enemy's right. A new campaign opens at the door."
+                    : shared.campaign.over === "ended"
+                      ? "🏠 The campaign has turned home — its growth goes with you. A new campaign opens at the door."
+                      : <>📖 A campaign table — {shared.campaign.storytenderName ? <>{shared.campaign.storytenderName} deals the dark.</> : "awaiting a Storytender to deal."}{shared.campaign.seeded ? <> The bank ⚡{shared.campaign.bank} binds you.</> : null}</>}
+                </span>
+                {!shared.campaign.over && !shared.campaign.storytenderName && you && (
+                  <button className="table-btn battle-btn" onClick={() => send({ type: "stEnd" })}>🏠 Turn the campaign home</button>
+                )}
+                </>
               ) : you ? (
                 <>
                 {shared.bastion ? (
@@ -1050,8 +1188,86 @@ export default function Table() {
         </aside>
       </main>
 
-      <footer className={you ? `handzone drawer${handUp ? " risen" : ""}` : "handzone plain"}>
-        {you ? (
+      <footer className={you?.storytender ? "handzone st-zone" : you ? `handzone drawer${handUp ? " risen" : ""}` : "handzone plain"}>
+        {you?.storytender ? (
+          <div className="st-panel">
+            <div className="st-head">
+              <strong>📖 The Storytender's Panel</strong>
+              <span className="quiet small">
+                The bank ⚡{you.storytender.bank}
+                {you.storytender.seeded ? " — every cast draws from it; every harvest joins it." : " — it seeds at your first dealing, from the party's poured stakes."}
+                {you.storytender.over ? " This campaign is over." : ""}
+              </span>
+            </div>
+            <div className="st-cols">
+              <div className="st-col">
+                <h4>Compose the dark</h4>
+                {(shared.enemies.length ? shared.enemies : ROSTER.map(r => ({ ...r, art: null }))).map((r) => (
+                  <div key={r.name} className="st-roster-row">
+                    <span>{r.label}</span>
+                    <button className="mini-btn add" onClick={() => send({ type: "stAdd", kind: r.name })}>Hold +</button>
+                  </div>
+                ))}
+                <div className="st-reserve">
+                  {you.storytender.reserve.length === 0 && <span className="quiet small">Nothing held back. The party sees none of this — the Dark is sealed until you deal.</span>}
+                  {you.storytender.reserve.map((k, i) => (
+                    <button key={i} className="mini-btn" title="Release this piece" onClick={() => send({ type: "stRemove", index: i })}>
+                      {(shared.enemies.find(e => e.name === k)?.label ?? k)} ✕
+                    </button>
+                  ))}
+                </div>
+                <p className="quiet small">Threat held ⚔{you.storytender.reserveThreat} · the party stands ⚔{you.storytender.partyPower} — a fairness gauge, advice, not a leash.</p>
+                <div className="st-actions">
+                  <button className="table-btn primary" disabled={!you.storytender.reserve.length || !!you.storytender.over} onClick={() => send({ type: "stDeal" })}>🌑 Deal the dark</button>
+                  <button className="table-btn" disabled={!you.storytender.reserve.length} onClick={() => send({ type: "stClear" })}>Clear</button>
+                </div>
+              </div>
+              <div className="st-col">
+                <h4>The telling</h4>
+                <form className="packing-form" onSubmit={(e) => { e.preventDefault(); if (stNarrate.trim()) { send({ type: "stNarrate", text: stNarrate.trim() }); setStNarrate(""); } }}>
+                  <input value={stNarrate} onChange={(e) => setStNarrate(e.target.value)} maxLength={500} placeholder="Speak into the Tale…" aria-label="Narration for the Tale" />
+                  <button className="mini-btn add" type="submit">Tell</button>
+                </form>
+                <h4>The scene</h4>
+                <input className="door-input st-input" value={stSceneTitle} onChange={(e) => setStSceneTitle(e.target.value)} maxLength={80} placeholder="Scene title — the place, named" aria-label="Scene title" />
+                <textarea className="st-textarea" value={stSceneText} onChange={(e) => setStSceneText(e.target.value)} maxLength={1000} rows={3} placeholder="What the party sees…" aria-label="Scene text" />
+                <input className="door-input st-input" value={stSceneImg} onChange={(e) => setStSceneImg(e.target.value)} maxLength={600} placeholder="Image address (https://…) — optional" aria-label="Scene image address" />
+                <div className="st-actions">
+                  <button className="table-btn" onClick={() => send({ type: "stScene", title: stSceneTitle, text: stSceneText, imageUrl: stSceneImg })}>🖼️ Set the scene</button>
+                </div>
+                <h4>The sky</h4>
+                <form className="packing-form" onSubmit={(e) => { e.preventDefault(); send({ type: "stSky", text: stSkyText.trim() }); }}>
+                  <input value={stSkyText} onChange={(e) => setStSkyText(e.target.value)} maxLength={160} placeholder="Name the weather over this place…" aria-label="The sky over the scene" />
+                  <button className="mini-btn add" type="submit">Turn</button>
+                </form>
+              </div>
+              <div className="st-col">
+                <h4>Mercy &amp; pacing</h4>
+                <div className="st-actions">
+                  <button className="table-btn" onClick={() => send({ type: "stRest" })}>🛌 Call a rest</button>
+                  <button className="table-btn" onClick={() => send({ type: "stAdjourn" })}>🌙 Adjourn</button>
+                </div>
+                {shared.players.filter(p => p.fallen).map(p => (
+                  <div key={p.key} className="st-roster-row">
+                    <span>💀 {p.name} has fallen</span>
+                    <button className="mini-btn add" onClick={() => send({ type: "stRevive", playerKey: p.key })}>Return at half</button>
+                  </div>
+                ))}
+                {shared.dark.length > 0 && <p className="quiet small">Mercy on the dark: tap a standing foe's hex is the field's business — to lift one early, use its hex below.</p>}
+                {shared.dark.map(e => (
+                  <div key={e.hex} className="st-roster-row">
+                    <span>{e.label} — ❤{e.hp}/{e.maxHp}</span>
+                    <button className="mini-btn" onClick={() => send({ type: "stDissipate", hex: e.hex })}>Dissipate</button>
+                  </div>
+                ))}
+                <div className="st-actions">
+                  <button className="table-btn" disabled={!!you.storytender.over} onClick={() => send({ type: "stEnd" })}>🏠 End the campaign — divide the bank</button>
+                </div>
+                <p className="quiet small">Ending by choice divides what remains evenly. If the line falls, no hand can cast, and the bank bleeds dry — the Bastion falls, and the enemy ends it instead.</p>
+              </div>
+            </div>
+          </div>
+        ) : you ? (
           <>
             <button type="button" className="hand-grab" onClick={() => setHandUp(v => !v)} aria-expanded={handUp} aria-label={handUp ? "Lower your hand" : "Raise your hand"}>
               <span className="grab-line" aria-hidden="true" />
@@ -1074,7 +1290,7 @@ export default function Table() {
               <>
                 <div className="hand-cards">
                   {you.hand.map((card) => {
-                    const cost = Math.max(1, card.power);
+                    const cost = castCostOf(card);
                     const afford = (you.energy ?? 0) >= cost;
                     const selected = selectedCardId === card.id;
                     return (
@@ -1103,7 +1319,7 @@ export default function Table() {
                   })}
                 </div>
                 {selectedCard ? (
-                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap an open ring hex on the field to set it standing (⚡{Math.max(1, selectedCard.power)}). Tap its hex again later to recall it; the energy spent is not returned.</p>
+                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap an open ring hex on the field to set it standing (⚡{castCostOf(selectedCard)}). Tap its hex again later to recall it; the energy spent is not returned.</p>
                 ) : you.bound ? (
                   <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (

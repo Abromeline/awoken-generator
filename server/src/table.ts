@@ -80,6 +80,10 @@ interface Player {
   key: string;
   name: string;
   watcher: boolean;
+  /** CAMPAIGN (Phase B, 2026-10-18): the Storytender's seat —
+   *  she holds no hand, is no combatant, and is never counted
+   *  among the seated Tenders. Only in campaign rooms. */
+  storytender?: boolean;
   /** The seat's roster — every card available to cast. For a bound
    *  seat that is the Tender's whole collection (Nigel, 2026-10-16:
    *  the full roster stands at the Table, not a dealt five). */
@@ -302,8 +306,37 @@ interface Strike {
   killed: boolean;
 }
 
+/** A CAMPAIGN at the Table (Phase B, 2026-10-18; design of
+ *  record: TABLE-DESIGN §4/§4.3–4.5). One Storytender deals
+ *  from the whole roster; the party's energy is ONE BANK —
+ *  seeded by the seated Tenders' stakes, fattened by the
+ *  Harvest, spent on every cast (recasts at exponential
+ *  prices), divided equally when the session ends by choice —
+ *  or lost entire if the dark takes the star-seed while no
+ *  one can cast: the Bastion falls, and the enemy ends the
+ *  campaign by its own right. */
+interface CampaignState {
+  bank: number;
+  bankStart: number;
+  seeded: boolean;
+  /** Enemy kinds the Storytender holds back, undealt. Hers
+   *  alone — the Dark is sealed in campaign mode. */
+  reserve: string[];
+  deals: number;
+  stage: { title: string; text: string; imageUrl: string | null; at: number } | null;
+  skyNote: string | null;
+  over: "ended" | "fallen" | null;
+  /** Dissipations per seat per card — the recast multiplier. */
+  recasts: Record<string, Record<string, number>>;
+  storytenderName: string | null;
+}
+
 interface Room {
   id: string;
+  /** "campaign" rooms (id begins "campaign") run Phase B;
+   *  every other room is the casual Table, unchanged. */
+  mode: "casual" | "campaign";
+  campaign: CampaignState | null;
   bastion: BastionState | null;
   strikes: Strike[];
   players: Map<WebSocket, Player>;
@@ -524,11 +557,21 @@ function sharedState(room: Room) {
   const seated = [...room.players.values()].filter(p => !p.watcher);
   return {
     room: room.id,
-    sky: room.sky,
+    mode: room.mode,
+    sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: p.energy, maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen })),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: room.campaign && !room.campaign.over ? room.campaign.bank : p.energy, maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender })),
     watcherCount: room.players.size - seated.length,
+    campaign: room.campaign ? {
+      bank: room.campaign.bank,
+      bankStart: room.campaign.bankStart,
+      seeded: room.campaign.seeded,
+      over: room.campaign.over,
+      storytenderName: room.campaign.storytenderName,
+      stage: room.campaign.stage,
+      deals: room.campaign.deals,
+    } : null,
     tale: room.tale.slice(-TALE_CAP),
     dark: [...room.dark.values()].map(e => ({ ...e })),
     workings: room.workings.map(w => ({ ...w })),
@@ -566,7 +609,17 @@ function sendState(room: Room): void {
         notes: player.notes,
         inventory: player.inventory,
         bound: player.bound ?? null,
-        energy: room.bastion?.begun && !room.bastion.resolved ? room.bastion.pool : player.energy,
+        energy: room.bastion?.begun && !room.bastion.resolved ? room.bastion.pool : room.campaign && !room.campaign.over ? room.campaign.bank : player.energy,
+        recasts: room.campaign ? (room.campaign.recasts[player.key] ?? {}) : {},
+        storytender: player.storytender && room.campaign ? {
+          reserve: room.campaign.reserve,
+          reserveThreat: room.campaign.reserve.reduce((s, k) => s + (ENEMY_STATS[k]?.power ?? 0), 0),
+          partyPower: [...room.field.values()].reduce((s, u) => s + u.card.power, 0),
+          deals: room.campaign.deals,
+          bank: room.campaign.bank,
+          seeded: room.campaign.seeded,
+          over: room.campaign.over,
+        } : null,
         yourCall: (() => {
           if (!player.expKey) return null;
           try {
@@ -600,8 +653,11 @@ async function getRoom(id: string): Promise<Room> {
     // The Dark's faces resolve once, at the room's making, under
     // the game's current-art law; null means the bundled face.
     const { art } = await resolveCurrentEnemyArt().catch(() => ({ art: {} as Record<string, { url: string } | null> }));
+    const campaignMode = id.startsWith("campaign");
     room = {
       id, players: new Map(), tale: [], sky: await currentSky(),
+      mode: campaignMode ? "campaign" : "casual",
+      campaign: campaignMode ? loadCampaign(id) : null,
       field: new Map(),
       workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
@@ -612,6 +668,7 @@ async function getRoom(id: string): Promise<Room> {
       roundNo: 0,
     };
     rooms.set(id, room);
+    if (campaignMode) restoreCampaignTale(room);
   }
   return room;
 }
@@ -691,10 +748,182 @@ function beaconReach(w: Working, extraRings = 0): Set<string> {
 function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
   room.dark.delete(enemy.hex);
   tell(room, `The ${enemy.label} unravels!`);
+  if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer); return; }
   if (killer && !killer.fallen) {
     killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
     void payBattleExp(room, killer, 2, "The dark pays for its felling.");
   }
+}
+
+// ── THE CAMPAIGN (Phase B, 2026-10-18) ───────────────────
+// The Harvest economy and the Storytender's instruments.
+// Tuning named where the design left it open (§8): the
+// recast multiplier doubles per dissipation (capped ×32);
+// the harvest a felled dark pays is its power ×2 plus a
+// share of its hardiness; stakes are each seat's whole
+// sitting energy, poured in entire.
+
+function freshCampaign(): CampaignState {
+  return {
+    bank: 0, bankStart: 0, seeded: false, reserve: [], deals: 0,
+    stage: null, skyNote: null, over: null, recasts: {}, storytenderName: null,
+  };
+}
+
+/** Adjournment: a campaign is a bloodline, not a match — its
+ *  state rests in ui_config until the room is opened again. */
+function saveCampaign(room: Room): void {
+  if (!room.campaign) return;
+  try {
+    const snap = {
+      ...room.campaign,
+      tale: room.tale.slice(-100),
+      wave: room.battle.wave,
+    };
+    sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+      .run(`table.campaign.${room.id}`, JSON.stringify(snap), Date.now());
+  } catch { /* an unsaved adjournment loses the rest, never the room */ }
+}
+
+function loadCampaign(id: string): CampaignState {
+  const c = freshCampaign();
+  try {
+    const row = sqlite.prepare("SELECT value FROM ui_config WHERE key = ?").get(`table.campaign.${id}`) as { value: string } | undefined;
+    if (!row) return c;
+    const snap = JSON.parse(row.value);
+    if (snap && typeof snap === "object" && !snap.over) {
+      Object.assign(c, snap);
+      delete (c as any).tale;
+      delete (c as any).wave;
+      c.reserve = Array.isArray(c.reserve) ? c.reserve.filter(k => k in ENEMY_STATS) : [];
+    }
+  } catch { /* a corrupt rest is a fresh campaign */ }
+  return c;
+}
+
+function clearCampaignSave(id: string): void {
+  try { sqlite.prepare("DELETE FROM ui_config WHERE key = ?").run(`table.campaign.${id}`); } catch {}
+}
+
+/** The adjourned tale and wave ride back into a reopened room. */
+function restoreCampaignTale(room: Room): void {
+  try {
+    const row = sqlite.prepare("SELECT value FROM ui_config WHERE key = ?").get(`table.campaign.${room.id}`) as { value: string } | undefined;
+    if (!row) return;
+    const snap = JSON.parse(row.value);
+    if (snap && !snap.over) {
+      if (Array.isArray(snap.tale) && room.tale.length === 0) room.tale = snap.tale;
+      if (typeof snap.wave === "number") room.battle.wave = snap.wave;
+    }
+  } catch {}
+}
+
+/** The purse a cast draws on: in a living campaign, the bank;
+ *  otherwise the seat's own energy. (A bastion's pool keeps
+ *  its own older law, handled at its own charge site.) */
+function purseOf(room: Room, player: Player): number {
+  if (room.campaign && !room.campaign.over) return room.campaign.bank;
+  return player.energy;
+}
+
+function chargePurse(room: Room, player: Player, cost: number): boolean {
+  if (room.campaign && !room.campaign.over) {
+    if (room.campaign.bank < cost) return false;
+    room.campaign.bank -= cost;
+    return true;
+  }
+  if (player.energy < cost) return false;
+  player.energy -= cost;
+  return true;
+}
+
+function purseName(room: Room): string {
+  return room.campaign && !room.campaign.over ? "the bank" : "you";
+}
+
+/** The recast law: a dissipated Awokin's return costs its
+ *  base × 2 per dissipation this campaign (capped at ×32) —
+ *  early mercy is cheap; deep in a long campaign, each return
+ *  devours a fortune (TABLE-DESIGN §4.3). */
+function recastCount(room: Room, playerKey: string, cardId: string): number {
+  return room.campaign?.recasts[playerKey]?.[cardId] ?? 0;
+}
+
+function castCost(room: Room, player: Player, card: TableCard): number {
+  const base = Math.max(1, card.power);
+  if (!room.campaign || room.campaign.over) return base;
+  return base * 2 ** Math.min(recastCount(room, player.key, card.id), 5);
+}
+
+function noteDissipation(room: Room, unit: FieldUnit): void {
+  if (!room.campaign || room.campaign.over) return;
+  const byCard = room.campaign.recasts[unit.ownerKey] ??= {};
+  byCard[unit.card.id] = (byCard[unit.card.id] ?? 0) + 1;
+}
+
+/** What a felled dark pays the bank, and the XP that flows
+ *  with it — split among the seats whose Awoken stand in
+ *  this Unraveling: the bench does not level on the line's
+ *  work (§4.3). */
+function campaignFell(room: Room, enemy: EnemyUnit, _killer: Player | null): void {
+  const c = room.campaign;
+  if (!c || c.over) return;
+  const harvest = Math.max(1, enemy.power * 2 + Math.floor(enemy.maxHp / 5));
+  c.bank += harvest;
+  const standingKeys = [...new Set([...room.field.values()].map(u => u.ownerKey))];
+  const seats = standingKeys
+    .map(k => seatByKey(room, k))
+    .filter((p): p is Player => !!p && !p.fallen && !p.storytender);
+  if (seats.length) {
+    const share = Math.max(1, Math.floor(harvest / seats.length));
+    for (const s of seats) void payBattleExp(room, s, share, "The Harvest divides among the standing.");
+  }
+  tell(room, `The ${enemy.label}'s light is harvested — ⚡${harvest} joins the bank (⚡${c.bank}).`);
+}
+
+/** The bank is seeded once, at the campaign's first dealing:
+ *  every seated Tender's sitting energy pours into one pot. */
+function seedBankIfNeeded(room: Room): void {
+  const c = room.campaign;
+  if (!c || c.seeded || c.over) return;
+  let total = 0;
+  for (const p of room.players.values()) {
+    if (p.watcher || p.storytender) continue;
+    total += p.energy;
+    p.energy = 0;
+  }
+  c.bank = total;
+  c.bankStart = total;
+  c.seeded = true;
+  tell(room, `The stakes are poured into one bank — ⚡${total} of pooled light. What the dark yields joins it; what you cast draws from it; what remains when you turn home divides evenly among you.`);
+}
+
+/** A campaign ends two ways. BY CHOICE (the Storytender's
+ *  word, or the players' when no Storytender sits): the
+ *  leftover divides equally among the seated Tenders.
+ *  BY THE FALL: the dark took the star-seed — no division;
+ *  the enemy holds the light, and the campaign closes by
+ *  its right (§4.4). */
+function endCampaign(room: Room, how: "ended" | "fallen"): void {
+  const c = room.campaign;
+  if (!c || c.over) return;
+  c.over = how;
+  endBattle(room);
+  room.dark.clear();
+  if (how === "ended") {
+    const seats = [...room.players.values()].filter(p => !p.watcher && !p.storytender);
+    const share = seats.length ? Math.floor(c.bank / seats.length) : 0;
+    for (const p of seats) p.energy += share;
+    tell(room, share > 0
+      ? `The campaign turns home. The bank's remaining ⚡${c.bank} divides evenly — ⚡${share} to each Tender still seated. The instance collapses; the growth goes home with you.`
+      : "The campaign turns home. The bank stands empty — what was gathered was spent in the holding, and the growth goes home with you.");
+    c.bank = 0;
+  } else {
+    tell(room, `THE BASTION FALLS. The dark takes the star-seed and the pooled light with it — ⚡${c.bank} lost to the curse. This campaign is ended by the enemy's right. Begin again at the lower, poorer pools, when you will — no mark stands against you beyond this tale.`);
+    c.bank = 0;
+  }
+  clearCampaignSave(room.id);
+  sendState(room);
 }
 
 /** Spring the rune written on a hex, if the dark stands on it. */
@@ -847,6 +1076,7 @@ function settleShardsAndFade(room: Room): void {
       strongest.hp -= dmg;
       tell(room, `${w.name} went unfed — a doom owed is a doom paid: it falls on ${strongest.card.name}, ${dmg} harm.`);
       if (strongest.hp <= 0) {
+        noteDissipation(room, strongest);
         room.field.delete(strongest.hex);
         const owner = seatByKey(room, strongest.ownerKey);
         if (owner) owner.hand = [...owner.hand, strongest.card];
@@ -1118,7 +1348,9 @@ async function runRound(room: Room): Promise<void> {
         room.dark.delete(target.hex);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
         const owner = seatByKey(room, unit.ownerKey);
-        if (owner && !owner.fallen) {
+        if (room.campaign && !room.campaign.over) {
+          campaignFell(room, target, owner ?? null);
+        } else if (owner && !owner.fallen) {
           owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
           // The Harvest (the Heart, 2026-10-18): when YOUR
           // Awoken fell the dark, the stars' fellHarvest
@@ -1226,7 +1458,9 @@ async function runRound(room: Room): Promise<void> {
               room.dark.delete(enemy.hex);
               tell(room, `The ${enemy.label} unravels on the Seal's light!`);
               const owner = seatByKey(room, seal.ownerKey);
-              if (owner && !owner.fallen) {
+              if (room.campaign && !room.campaign.over) {
+                campaignFell(room, enemy, owner ?? null);
+              } else if (owner && !owner.fallen) {
                 owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3);
                 await payBattleExp(room, owner, 2, "The dark pays for its felling.");
               }
@@ -1264,6 +1498,7 @@ async function runRound(room: Room): Promise<void> {
           witness(enemy.hex, victim.hex, "dark", "dark", true, felled);
           if (roll === 20) tell(room, `The ${enemy.label} rolls a natural twenty — the blow lands true and terrible!`);
           if (felled) {
+            noteDissipation(room, victim);
             room.field.delete(victim.hex);
             const owner = seatByKey(room, victim.ownerKey);
             if (owner) owner.hand = [...owner.hand, victim.card];
@@ -1278,7 +1513,7 @@ async function runRound(room: Room): Promise<void> {
         }
       } else {
         // Nothing stands: the shield law leaves the Tenders bare.
-        const bare = [...room.players.values()].filter(p => !p.watcher && !p.fallen);
+        const bare = [...room.players.values()].filter(p => !p.watcher && !p.storytender && !p.fallen);
         if (bare.length === 0) break;
         const tender = bare[Math.floor(Math.random() * bare.length)];
         // The Thickened Skin (the Heart's spine, 2026-10-18):
@@ -1294,8 +1529,27 @@ async function runRound(room: Room): Promise<void> {
         }
       }
     }
+    // THE BASTION ASSAULTED (campaign, TABLE-DESIGN §4.4):
+    // no light stands, the dark remains, and no seat can
+    // afford any cast from the bank — the dark turns on the
+    // star-seed itself and drains the pooled light, round by
+    // round, until a cast resumes the defense or the bank —
+    // the Bastion's body — is gone.
+    if (room.campaign && !room.campaign.over && room.campaign.seeded && room.battle.active && room.field.size === 0 && room.dark.size > 0) {
+      const c = room.campaign;
+      const canCast = [...room.players.values()].some(p => !p.watcher && !p.storytender && !p.fallen && p.hand.some(card => castCost(room, p, card) <= c.bank));
+      if (!canCast) {
+        const drain = [...room.dark.values()].reduce((s, e) => s + e.power, 0);
+        c.bank = Math.max(0, c.bank - drain);
+        tell(room, `No light stands and no hand can cast — the dark turns on the star-seed. The bank bleeds ⚡${drain} (⚡${c.bank} remains). Cast something, anything, or lose the light.`);
+        if (c.bank <= 0) {
+          settleShardsAndFade(room);
+          endCampaign(room, "fallen");
+        }
+      }
+    }
     // Endings.
-    const seatedAlive = [...room.players.values()].filter(p => !p.watcher && !p.fallen);
+    const seatedAlive = [...room.players.values()].filter(p => !p.watcher && !p.storytender && !p.fallen);
     if (room.dark.size === 0 && room.battle.active) {
       settleShardsAndFade(room);
       endBattle(room);
@@ -1303,6 +1557,9 @@ async function runRound(room: Room): Promise<void> {
         tell(room, "The dark is broken at the bastion — the field breathes again.");
         for (const p of seatedAlive) await payBattleExp(room, p, 5, "A bastion held together pays together.");
         await resolveBastionVictory(room);
+      } else if (room.campaign) {
+        tell(room, `The Unraveling is broken. The bank stands at ⚡${room.campaign.bank} — the Storytender may deal again, call a rest, or turn the campaign home.`);
+        room.battle.wave++;
       } else {
         tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
         for (const p of seatedAlive) {
@@ -1313,11 +1570,18 @@ async function runRound(room: Room): Promise<void> {
       }
     } else if (seatedAlive.length === 0 && room.battle.active) {
       settleShardsAndFade(room);
-      endBattle(room);
-      if (room.bastion?.begun && !room.bastion.resolved) {
+      if (room.campaign && !room.campaign.over && room.field.size === 0 && room.dark.size > 0) {
+        // Every Tender down, the field empty, the dark
+        // standing: nothing shields the seed. It falls.
+        endCampaign(room, "fallen");
+      } else if (room.bastion?.begun && !room.bastion.resolved) {
+        endBattle(room);
         await resolveBastionDefeat(room);
       } else {
-        tell(room, `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
+        endBattle(room);
+        tell(room, room.campaign
+          ? `The party is down. The Storytender may call a rest and raise them, or turn the campaign home.`
+          : `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
       }
       room.dark.clear();
     }
@@ -1358,7 +1622,7 @@ function handleConnection(ws: WebSocket): void {
       if (room.id === targetId) { ws.send(JSON.stringify({ type: "error", message: "You already sit at that call's table." })); return; }
       if (room.battle.active) { ws.send(JSON.stringify({ type: "error", message: "Not mid-battle — the dark does not wait for travellers." })); return; }
       const target = await getRoom(targetId);
-      const seatedThere = [...target.players.values()].filter(p => !p.watcher).length;
+      const seatedThere = [...target.players.values()].filter(p => !p.watcher && !p.storytender).length;
       if (!player.watcher && seatedThere >= MAX_SEATED) { ws.send(JSON.stringify({ type: "error", message: "That call's table is full — five seats stand there already. You may still watch." })); return; }
       const old = room;
       old.players.delete(ws);
@@ -1409,8 +1673,13 @@ function handleConnection(ws: WebSocket): void {
       }
       room = await getRoom(roomId);
       room.sky = await currentSky();
-      const seatedCount = [...room.players.values()].filter(p => !p.watcher).length;
-      if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no sixth hand; watchers are welcome
+      // THE STORYTENDER'S SEAT (campaign rooms only): one seat,
+      // no hand, never counted among the Tenders.
+      const wantsStorytender = msg.storytender === true && room.mode === "campaign" && !watcher;
+      const storytenderTaken = [...room.players.values()].some(p => p.storytender);
+      const isStorytender = wantsStorytender && !storytenderTaken;
+      const seatedCount = [...room.players.values()].filter(p => !p.watcher && !p.storytender).length;
+      if (!watcher && !isStorytender && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no sixth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
       // The full roster stands at the Table (Nigel, 2026-10-16):
       // a bound seat brings its Tender's whole collection, and
@@ -1454,7 +1723,7 @@ function handleConnection(ws: WebSocket): void {
           }
         }
       }
-      if (!watcher && !bound) {
+      if (!watcher && !bound && !isStorytender) {
         hand = TEST_POOL.map(c => ({ ...c, id: randomUUID(), parts: [
           { element: c.element, power: Math.ceil(c.power / 2) },
           { element: c.element, power: Math.floor(c.power / 2) },
@@ -1463,9 +1732,23 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
       room.players.set(ws, player);
-      if (!watcher) {
+      if (isStorytender && room.campaign) {
+        room.campaign.storytenderName = name;
+        tell(room, `${name} takes the Storytender's seat — the dealing, the scene, and the sky are hers to hold.`);
+        if (wantsStorytender && storytenderTaken) { /* unreachable: isStorytender covers it */ }
+      } else if (wantsStorytender && storytenderTaken) {
+        ws.send(JSON.stringify({ type: "error", message: "The Storytender's seat is already held — you sit as a Tender." }));
+      }
+      if (!watcher && !isStorytender && room.campaign?.seeded && !room.campaign.over && player.energy > 0) {
+        // A late stake joins the pot entire (the Risk of
+        // Confluence runs both ways: arrive invested).
+        room.campaign.bank += player.energy;
+        tell(room, `${name}'s stake of ⚡${player.energy} joins the bank (⚡${room.campaign.bank}).`);
+        player.energy = 0;
+      }
+      if (!watcher && !isStorytender) {
         tell(room, `${name} takes a seat at the Table.`);
       }
       sendState(room);
@@ -1496,6 +1779,10 @@ function handleConnection(ws: WebSocket): void {
       }
       if (player.watcher) {
         ws.send(JSON.stringify({ type: "error", message: "Watchers hold no hand to cast from." }));
+        return;
+      }
+      if (player.storytender) {
+        ws.send(JSON.stringify({ type: "error", message: "The Storytender holds no hand — she deals the dark, not the light." }));
         return;
       }
       const hex = String(msg.hex ?? "");
@@ -1530,7 +1817,7 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: `Your band stands full — ${bandCap} strong. Levels widen it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
         return;
       }
-      const cost = Math.max(1, card.power);
+      const cost = castCost(room, player, card);
       if (room.bastion?.begun && !room.bastion.resolved) {
         // One pool binds the muster (Nigel, 2026-10-17): joining
         // Tenders' energy joins the pool, scaled by level.
@@ -1539,12 +1826,12 @@ function handleConnection(ws: WebSocket): void {
           return;
         }
         room.bastion.pool -= cost;
-      } else {
-        if (player.energy < cost) {
-          ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
-          return;
-        }
-        player.energy -= cost;
+      } else if (!chargePurse(room, player, cost)) {
+        const n = recastCount(room, player.key, card.id);
+        ws.send(JSON.stringify({ type: "error", message: room.campaign && !room.campaign.over
+          ? `${card.name} costs ⚡${cost}${n > 0 ? ` (recast ×${2 ** Math.min(n, 5)})` : ""} — the bank holds ⚡${room.campaign.bank}.`
+          : `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
+        return;
       }
       player.hand = player.hand.filter(c => c.id !== cardId);
       const shield = card.toughness * dN(FATE_DIE[card.element] ?? 6);
@@ -1553,7 +1840,7 @@ function handleConnection(ws: WebSocket): void {
         shield, maxShield: shield, speedGauge: 0,
         ownerKey: player.key, ownerName: player.name, pinned: 0,
       });
-      tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}).`);
+      tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
       sendState(room);
       return;
     }
@@ -1593,8 +1880,7 @@ function handleConnection(ws: WebSocket): void {
       if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = healSpell()?.cost ?? 2;
-      if (player.energy < healCost) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — you hold ⚡${player.energy}.` })); return; }
-      player.energy -= healCost;
+      if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — ${room.campaign && !room.campaign.over ? `the bank holds ⚡${room.campaign.bank}` : `you hold ⚡${player.energy}`}.` })); return; }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -1646,7 +1932,7 @@ function handleConnection(ws: WebSocket): void {
       let steadySpent = false;
       const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
-      if (caster.energy < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — you hold ⚡${caster.energy}.` })); return; }
+      if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — ${purseName(room) === "the bank" ? `the bank holds ⚡${room.campaign!.bank}` : `you hold ⚡${caster.energy}`}.` })); return; }
       // The Pour (Nigel, 2026-10-17): elemental points of the
       // poured hue, fed into the working at its cast — capped by
       // the book, drawn from the caster's own attunement pool,
@@ -1666,7 +1952,7 @@ function handleConnection(ws: WebSocket): void {
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
-      caster.energy -= castCost;
+      if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — the purse no longer holds it.` })); return; }
       if (secondWallSpent) { caster.secondWallUsed = true; tell(room, `${caster.name}'s Second Wall rises at half its price — the Warden's economy.`); }
       if (steadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       if (pour > 0 && caster.expKey) {
@@ -1729,7 +2015,7 @@ function handleConnection(ws: WebSocket): void {
       let runeSteadySpent = false;
       const runeSteadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (runeSteadyAmt > 0 && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - runeSteadyAmt); runeSteadySpent = true; }
-      if (caster.energy < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — you hold ⚡${caster.energy}.` })); return; }
+      if (purseOf(room, caster) < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — ${purseName(room) === "the bank" ? `the bank holds ⚡${room.campaign!.bank}` : `you hold ⚡${caster.energy}`}.` })); return; }
       // The Pour, as at the ward's raising — one pour feeds the
       // whole cast (the Three Blades drink once, not per hex).
       const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
@@ -1746,7 +2032,7 @@ function handleConnection(ws: WebSocket): void {
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
-      caster.energy -= runeCost;
+      if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — the purse no longer holds it.` })); return; }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       if (pour > 0 && caster.expKey) {
         await spendAttunement(caster.expKey, hue, pour);
@@ -1848,6 +2134,10 @@ function handleConnection(ws: WebSocket): void {
     }
 
     if (msg.type === "startWave") {
+      if (room.campaign) {
+        ws.send(JSON.stringify({ type: "error", message: "In a campaign the Storytender deals — no ladder climbs itself here." }));
+        return;
+      }
       if (player.watcher) {
         ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
         return;
@@ -1888,6 +2178,10 @@ function handleConnection(ws: WebSocket): void {
     // from the seats then present — their max energy, each
     // scaled +2 per level above the first.
     if (msg.type === "claimBastion") {
+      if (room.campaign) {
+        ws.send(JSON.stringify({ type: "error", message: "A campaign table answers no column calls — the Convergence here is the Storytender's to deal." }));
+        return;
+      }
       if (player.watcher || !player.expKey) {
         ws.send(JSON.stringify({ type: "error", message: "Only a bound seat can claim its call." }));
         return;
@@ -1942,6 +2236,133 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
+    // ── THE STORYTENDER'S INSTRUMENTS (campaign rooms,
+    // Phase B) — and the campaign's own way home. ──
+    if (["stAdd", "stRemove", "stClear", "stDeal", "stNarrate", "stScene", "stSky", "stRest", "stRevive", "stDissipate", "stAdjourn", "stEnd"].includes(msg.type) && room.campaign) {
+      if (!room || !player) return;
+      const R: Room = room;
+      const c = R.campaign as CampaignState;
+      const isST = !!player.storytender;
+      if (msg.type === "stEnd") {
+        if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers do not end campaigns." })); return; }
+        if (!isST && [...room.players.values()].some(p => p.storytender)) {
+          ws.send(JSON.stringify({ type: "error", message: "The turning-home is the Storytender's word while she sits." }));
+          return;
+        }
+        endCampaign(R, "ended");
+        return;
+      }
+      if (!isST) { ws.send(JSON.stringify({ type: "error", message: "Only the Storytender holds that instrument." })); return; }
+      if (c.over) { ws.send(JSON.stringify({ type: "error", message: "The campaign is over — its tale is told." })); return; }
+      switch (msg.type) {
+        case "stAdd": {
+          const kind = String(msg.kind ?? "");
+          if (!(kind in ENEMY_STATS)) { ws.send(JSON.stringify({ type: "error", message: "That is no dark the roster knows." })); return; }
+          if (c.reserve.length >= 40) { ws.send(JSON.stringify({ type: "error", message: "Your hand of dark is full — forty pieces is a doom, not a dealing." })); return; }
+          c.reserve.push(kind);
+          break;
+        }
+        case "stRemove": {
+          const i = Number(msg.index);
+          if (Number.isInteger(i) && i >= 0 && i < c.reserve.length) c.reserve.splice(i, 1);
+          break;
+        }
+        case "stClear": c.reserve = []; break;
+        case "stDeal": {
+          if (!c.reserve.length) { ws.send(JSON.stringify({ type: "error", message: "Your hand of dark is empty — compose the Unraveling first." })); return; }
+          seedBankIfNeeded(R);
+          for (const p of R.players.values()) {
+            p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false;
+            if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
+          }
+          const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
+          const free = SUMMONABLE_HEXES
+            .filter(h => !R.field.has(h) && !R.dark.has(h))
+            .map(id => FIELD_HEXES_SERVER.find(h => h.id === id)!)
+            .sort((a, z) => ((z.x - center.x) ** 2 + (z.y - center.y) ** 2) - ((a.x - center.x) ** 2 + (a.y - center.y) ** 2));
+          const lvl = 1 + Math.floor(c.deals / 3);
+          let placed = 0;
+          for (const kind of c.reserve) {
+            if (placed >= free.length) break;
+            const hex = free[placed].id;
+            const base = ENEMY_STATS[kind];
+            const face = R.enemies.find(e => e.name === kind);
+            const hp = base.hp + (lvl - 1);
+            R.dark.set(hex, {
+              hex, kind, label: face?.label ?? kind, art: face?.art ?? null,
+              power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinned: 0,
+              armor: base.armor + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
+            });
+            placed++;
+          }
+          if (placed < c.reserve.length) tell(R, `The field holds no more ground — ${c.reserve.length - placed} of the dealt dark wait for room to stand.`);
+          c.reserve = c.reserve.slice(placed);
+          for (const hex of [...room.dark.keys()]) springHex(R, hex, new Set());
+          c.deals++;
+          R.battle.active = true;
+          R.roundNo = 0;
+          const threat = [...room.dark.values()].reduce((s, e) => s + e.power, 0);
+          tell(R, `${player.name} deals — ${placed} of the dark take the field (threat ${threat}). The bank stands at ⚡${c.bank}.`);
+          if (!R.battle.timer) R.battle.timer = setInterval(() => { void runRound(R); }, 2800);
+          break;
+        }
+        case "stNarrate": {
+          const text = String(msg.text ?? "").trim().slice(0, 500);
+          if (text) tell(R, `📖 ${player.name}: ${text}`);
+          break;
+        }
+        case "stScene": {
+          const title = String(msg.title ?? "").trim().slice(0, 80);
+          const text = String(msg.text ?? "").trim().slice(0, 1000);
+          const rawUrl = String(msg.imageUrl ?? "").trim().slice(0, 600);
+          const imageUrl = /^https:\/\/\S+$/.test(rawUrl) ? rawUrl : null;
+          c.stage = { title: title || "The scene", text, imageUrl, at: Date.now() };
+          tell(R, `The Storytender sets the scene: ${c.stage.title}.`);
+          break;
+        }
+        case "stSky": {
+          const text = String(msg.text ?? "").trim().slice(0, 160);
+          c.skyNote = text || null;
+          if (text) tell(R, `The sky over the campaign turns: ${text}.`);
+          break;
+        }
+        case "stRest": {
+          for (const p of R.players.values()) {
+            if (p.watcher || p.storytender) continue;
+            p.fallen = false;
+            p.tenderHp = p.maxTenderHp;
+          }
+          tell(R, `${player.name} calls a rest — wounds close, the fallen rise, and the party breathes.`);
+          break;
+        }
+        case "stRevive": {
+          const target = seatByKey(R, String(msg.playerKey ?? ""));
+          if (target && target.fallen) {
+            target.fallen = false;
+            target.tenderHp = Math.ceil(target.maxTenderHp / 2);
+            tell(R, `Mercy: ${target.name} is returned to the fight at half their ward.`);
+          }
+          break;
+        }
+        case "stDissipate": {
+          const e = R.dark.get(String(msg.hex ?? ""));
+          if (e) {
+            R.dark.delete(e.hex);
+            tell(R, `The Storytender's mercy: the ${e.label} comes apart, unharvested.`);
+          }
+          break;
+        }
+        case "stAdjourn": {
+          saveCampaign(R);
+          tell(R, "The campaign is adjourned — its bank, its tale, and its reckonings rest in keeping until this room opens again.");
+          break;
+        }
+        default: return;
+      }
+      sendState(R);
+      return;
+    }
+
     if (msg.type === "notes" && !player.watcher) {
       player.notes = String(msg.text ?? "").slice(0, 8000);
       await saveProfile(player);
@@ -1962,7 +2383,15 @@ function handleConnection(ws: WebSocket): void {
     if (room && player) {
       room.players.delete(ws);
       if (!player.watcher) tell(room, `${player.name} leaves the Table.`);
-      if (room.players.size === 0) { endBattle(room); rooms.delete(room.id); }
+      // THE RISK OF CONFLUENCE (§4.3): a stake poured into a
+      // living campaign stays in the pot when its Tender goes.
+      if (room.campaign?.seeded && !room.campaign.over && !player.watcher && !player.storytender) {
+        tell(room, `${player.name}'s stake stays in the pot (⚡${room.campaign.bank}) — it divides only among those seated when the campaign turns home, unless they return.`);
+      }
+      if (room.players.size === 0) {
+        if (room.campaign && !room.campaign.over) saveCampaign(room); // an emptied campaign room adjourns itself
+        endBattle(room); rooms.delete(room.id);
+      }
       else sendState(room);
     }
   });
