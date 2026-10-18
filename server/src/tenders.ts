@@ -244,6 +244,7 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
         // Twin: same identityKey → duplicate empowerment bonus applies to both
         await db.insert(schema.awakened).values({
           name: "Twin of " + source.name,
+          mintedName: "Twin of " + source.name,
           imageBlobKey: source.imageBlobKey,
           compositionJson: source.compositionJson,
           collection: "tender",

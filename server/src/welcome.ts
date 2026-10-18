@@ -125,6 +125,7 @@ async function holdAwakening(ownerKey: string, ownerName: string, slot: Slot, la
     .insert(schema.awakened)
     .values({
       name: plan.name,
+      mintedName: plan.name,
       imageBlobKey: blobKey,
       compositionJson: JSON.stringify(plan.canonicalLayers),
       collection: "tender",

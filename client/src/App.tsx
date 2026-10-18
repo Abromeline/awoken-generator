@@ -399,7 +399,7 @@ function CreatureCard({ item, allowDelete = false, storyteller = false }: { item
     <div className="creature-copy">
       <div className="creature-heading">
         {editing ? <form className="rename-form" onSubmit={(event) => { event.preventDefault(); if (name.trim()) rename.mutate(); }}><label htmlFor={`awoken-name-${item.id}`}>Name this Awoken</label><input id={`awoken-name-${item.id}`} value={name} onChange={(event) => setName(event.target.value)} autoFocus maxLength={80} /><div><button disabled={!name.trim() || rename.isPending}>Keep this name</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div></form> : <button className="name-button" onClick={() => setEditing(true)}>{item.name}</button>}
-        <span className="owner-line">Held by {item.owner_name} · {item.collection === "tender" ? "Tender collection" : "Workshop collection"}</span>
+        <span className="owner-line">Held by {item.owner_name} · {item.collection === "tender" ? "Tender collection" : "Workshop collection"}{item.minted_name && item.minted_name !== item.name ? ` · Minted ${item.minted_name}` : ""}</span>
       </div>
       <blockquote>{item.flavor_text}</blockquote>
       <div className="total-stats"><div><span>Power</span><strong>{item.power}</strong></div><i aria-hidden="true" /><div><span>Toughness</span><strong>{item.toughness}</strong></div></div>

@@ -49,6 +49,7 @@ export interface Awakened {
   iteration: number;
   collection: Collection;
   owner_name: string;
+  minted_name?: string | null;
   flavor_text: string;
   created_at: string;
   experience?: number;

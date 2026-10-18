@@ -320,6 +320,14 @@ if (!awakenedCols.some((col) => col.name === "bonus_power")) {
 if (!awakenedCols.some((col) => col.name === "bonus_toughness")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN bonus_toughness INTEGER NOT NULL DEFAULT 0`);
 }
+// The minted name (Nigel, 2026-10-18): the name a creature was born
+// with, stamped at every mint and never rewritten by a rename. Rows
+// minted before this column existed are backfilled from their
+// current name — the truest record that survives for them.
+if (!awakenedCols.some((col) => col.name === "minted_name")) {
+  sqlite.exec(`ALTER TABLE awakened ADD COLUMN minted_name TEXT`);
+  sqlite.exec(`UPDATE awakened SET minted_name = name WHERE minted_name IS NULL`);
+}
 // Element override on layer assets (workshop).
 const assetCols = sqlite.prepare(`PRAGMA table_info(layer_assets)`).all() as { name: string }[];
 if (!assetCols.some((col) => col.name === "element")) {

@@ -639,7 +639,7 @@ export function toAwakenedPayload(
   const bonusPower = row.bonusPower ?? 0;
   const bonusToughness = row.bonusToughness ?? 0;
   return {
-    id: row.id, name: row.name, image_url: blobUrl(row.imageBlobKey), layers,
+    id: row.id, name: row.name, minted_name: row.mintedName ?? null, image_url: blobUrl(row.imageBlobKey), layers,
     base_power: basePower, base_toughness: baseToughness,
     power: basePower + empowerment + storyCount + bonusPower,
     toughness: baseToughness + empowerment + storyCount + bonusToughness,
@@ -2615,7 +2615,7 @@ export const handlers = {
     blobs.put(blobKey, bytes, "image/png");
     const ownerName = collection === "tender" ? ownerNameFor(ctx) : parsed.data.ownerName;
     const ownerKey = collection === "tender" && ctx?.tender ? tenderOwnerKey(ctx.tender.id) : null;
-    const rows = await db.insert(schema.awakened).values({ name: plan.name, imageBlobKey: blobKey, compositionJson: JSON.stringify(plan.canonicalLayers), collection, ownerName, ownerKey, identityKey: plan.identityKey, iteration: plan.previousCount, flavorText: plan.flavorText }).returning({ id: schema.awakened.id });
+    const rows = await db.insert(schema.awakened).values({ name: plan.name, mintedName: plan.name, imageBlobKey: blobKey, compositionJson: JSON.stringify(plan.canonicalLayers), collection, ownerName, ownerKey, identityKey: plan.identityKey, iteration: plan.previousCount, flavorText: plan.flavorText }).returning({ id: schema.awakened.id });
     const row = rows[0] as { id: number } | undefined;
     if (!row) { blobs.delete(blobKey); badRequest("This awakening could not be saved."); }
     // Grant birth energy if this is a tender's Awoken
@@ -2626,7 +2626,7 @@ export const handlers = {
       // (Tender EXP, 2026-10-16 — the rate slows as wakes mount).
       await awardWakeExp(ownerKey).catch(() => null);
     }
-    return { id: (row as { id: number }).id, name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
+    return { id: (row as { id: number }).id, name: plan.name, minted_name: plan.name, iteration: plan.previousCount, empowerment: plan.previousCount, flavor_text: plan.flavorText };
   },
 
   async renameAwoken(args: unknown, ctx?: ActionContext) {
@@ -3239,6 +3239,7 @@ export const handlers = {
     if (!twinData) badRequest("No twin was conceived.");
     const [twin] = await db.insert(schema.awakened).values({
       name: twinData.name,
+      mintedName: twinData.name,
       imageBlobKey: twinData.imageBlobKey,
       compositionJson: twinData.compositionJson,
       collection: "tender",
@@ -8461,6 +8462,7 @@ export const handlers = {
     blobs.put(blobKey, imageBytes, "image/png");
     const [newborn] = await db.insert(schema.awakened).values({
       name: "Newborn of the Purified Land",
+      mintedName: "Newborn of the Purified Land",
       imageBlobKey: blobKey,
       compositionJson: JSON.stringify(parsed.layers),
       collection: "tender",
