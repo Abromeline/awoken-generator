@@ -254,7 +254,13 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
   const courtClass = item.collection === "tender"
     ? court.championId === item.id ? " court-champion" : court.housedIds.has(item.id) ? " court-housed" : ""
     : "";
-  return <article className={`trading-card${courtClass}`} aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
+  // The frame stands alone in front of the card (Nigel,
+  // 2026-10-18): the border image is NOT a child of the
+  // card — it lives on its own field, a sibling layer over
+  // the card, so nothing in the card's box (or its clipped
+  // corners) can cut it. The art is transparent; framed
+  // this way, it simply frames.
+  return <div className="card-frame-field"><article className={`trading-card${courtClass}`} aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
     <Corner element={tl} className="tcorner tl" />
     <Corner element={tr} className="tcorner tr" />
     <Corner element={bl} className="tcorner bl" />
@@ -284,8 +290,7 @@ export function TradingCard({ item, allowDelete = false }: { item: Awoken; allow
         ×
       </button>
     )}
-    {cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
-  </article>;
+  </article>{cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}</div>;
 }
 
 /** The telling spot (Nigel's ruling, 2026-10-15): a Tender tells stories

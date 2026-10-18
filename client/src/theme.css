@@ -1679,7 +1679,13 @@ body.defeat-flash {
 /* The shared breathing loop of a form standing at the spark. */
 .canvas-frame canvas.awoken-breathing{transform-origin:50% 44%;animation:awokenBreathe 3.8s ease-in-out infinite alternate}
 @keyframes awokenBreathe{from{transform:scale(1)}to{transform:scale(1.018)}}
-.ceremony-card-layer{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center}
+/* The layer scrolls, not the wrap (Nigel, 2026-10-18):
+   the card's border must stand alone in front of the card,
+   un-clipped — a scrolling wrap cut the frame's crown and
+   foot. The layer takes the scroll (bar hidden, as the
+   wrap's was), and the wrap lets the frame bleed free. */
+.ceremony-card-layer{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center;overflow-y:auto;scrollbar-width:none}
+.ceremony-card-layer::-webkit-scrollbar{display:none;width:0;height:0}
 .ceremony-card-backdrop{position:absolute;inset:0;background:rgba(4,4,2,.55)}
 /* THE FADE — Option 1 from the ceremony examples (Nigel's pick,
    2026-10-13: "fading away over 1 sec"). While the formed card hovers
@@ -1711,7 +1717,7 @@ body.defeat-flash {
 .canvas-frame.card-presented .canvas-frame-bg{animation:ceremonyStackSettle 1s ease both}
 .canvas-frame.card-presented canvas{filter:brightness(.98) saturate(.95)}
 @keyframes ceremonyStackSettle{from{filter:brightness(1.08) saturate(.9)}}
-.ceremony-card-wrap{position:relative;width:min(80%,320px);max-height:94%;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:10px}
+.ceremony-card-wrap{position:relative;width:min(80%,320px);margin:auto;display:flex;flex-direction:column;align-items:center;gap:10px;overflow:visible}
 .ceremony-card-wrap .trading-card{width:100%}
 /* THE CARD FORMATION — "Drift In" + the corner burn (Nigel's final
    design, approved 2026-10-13 from the ceremony examples). Everything
@@ -1721,15 +1727,18 @@ body.defeat-flash {
    — banner from above, gold rails from the sides, the art's glow
    fading up, the litany from below, the filigree last — over ~2.6s.
    Then the corner burn (see .ceremony-burn below) completes the card. */
-.ceremony-card-wrap{overflow-x:clip;overflow-clip-margin:170px}
+/* (The clip-margin compromise stood here until 2026-10-18:
+   it bought the frame 170px of air on the sides and none
+   above or below. The layer-scroll arrangement above
+   retires it — the wrap clips nothing now.) */
 /* No scrollbar shows at birth (Nigel, 2026-10-17): the wrap keeps its
    overflow-y:auto so a short screen can still reach the whole card,
    but the scrollbar chrome itself never appears beside the framed
    card — the standard property for Firefox, the pseudo-element for
    the WebKit/Blink family the iPad runs. Scoped to this wrap alone;
    every other scroller in the app keeps its bar. */
-.ceremony-card-wrap{scrollbar-width:none}
-.ceremony-card-wrap::-webkit-scrollbar{display:none;width:0;height:0}
+/* The hidden-scrollbar rules moved to the layer with
+   the scroll itself (2026-10-18). */
 .ceremony-card-stage{position:relative;width:100%}
 /* The birth frame (Nigel's drawing, seated 2026-10-17): his gold
    frame — starburst crown, fans at the sides, an open book for a
@@ -2419,6 +2428,12 @@ body.defeat-flash {
    edge; "morning" is the birth frame's measured fit — the image is
    scaled so its inner window lands exactly on the card, ornament
    spilling past the edges as it did at this morning's ceremony. */
+/* The frame's own field (Nigel, 2026-10-18): a plain
+   relative plane the card fills and the frame overlays,
+   overflow visible — the frame is never the card's child
+   again, and no clipped corner can cut it. */
+.card-frame-field{position:relative;overflow:visible}
+.card-frame-field>.trading-card{width:100%}
 .card-border-frame{position:absolute;pointer-events:none;z-index:6}
 .card-border-frame.fit-hug{inset:0;width:100%;height:100%}
 .card-border-frame.fit-morning{width:283.3%;height:156.6%;left:-91.6%;top:-26.8%;max-width:none;filter:drop-shadow(0 0 10px rgba(255,214,130,.35))}
@@ -2433,7 +2448,7 @@ body.defeat-flash {
    the live border as its front-most child, on the birth
    frame's old beat as the code rails fade. When no border is
    chosen, the stage's own birth-frame art still arrives. */
-.ceremony-card-stage .trading-card .card-border-frame{display:none}
+.ceremony-card-stage .card-frame-field .card-border-frame{display:none}
 .ceremony-card-stage .ceremony-live-frame{animation:birthFrameIn 1.1s ease 1.15s both;z-index:8}
 
 /* THE CURSE'S EYE (the Columns, 2026-10-17): the visible gauge
