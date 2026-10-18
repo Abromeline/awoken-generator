@@ -1602,7 +1602,7 @@ body.defeat-flash {
 }
 
 .aspect-fab{
-  position:fixed;left:16px;top:calc(50% - 116px);
+  position:fixed;left:16px;top:calc(50% - 40px);
   width:56px;height:56px;border-radius:50%;
   background:rgba(20,20,35,0.9);border:2px solid #b89b5e;
   cursor:pointer;z-index:41;
@@ -1612,10 +1612,13 @@ body.defeat-flash {
 .aspect-fab:hover{background:rgba(184,155,94,0.2);box-shadow:0 0 16px rgba(212,175,106,0.5)}
 /* The tree door stands ABOVE the attunement market's orb
    (Nigel's directive via Law, 2026-10-17). */
-/* The attunement acorn crowns the left stack (Nigel,
-   2026-10-17): attunement above the skill tree, its
-   function living on the front page too. */
-.aspect-fab.tree-fab{top:calc(50% - 40px)}
+/* The tree door stands ABOVE the attunement orb — the
+   stack as Nigel ruled it and as the Territory screen has
+   always held it: on the main screen, the attunement
+   button is the same acorn, in the same seat, with the
+   same panel behind it (his correction, 2026-10-17:
+   the acorn was fine). */
+.aspect-fab.tree-fab{top:calc(50% - 116px)}
 /* The book button crowns the locked stack (Nigel,
    2026-10-17): My Deck as a button with a book in it,
    locked above the tree, the same on both screens. */
