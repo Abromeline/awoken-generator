@@ -26,6 +26,26 @@ export function heldSkills(ownerKey: string | null | undefined): Set<string> {
   }
 }
 
+/** The Travelling Company (ruled by Nigel, 2026-10-18): at the
+ *  Table a tender's STANDING band is capped — five by the base
+ *  law ("tighter, skills matter sooner") — and the tree teaches
+ *  a tender to lead more: the Escort (Warden), the Company
+ *  Pennant (Binder) and the Written Retinue (Runewright) widen
+ *  the band by two each, and the Binder's crown, THE WHOLE
+ *  MUSTER, by four. A full muster stands fifteen strong. The
+ *  roster itself is never capped; only the band standing on
+ *  the field at once. */
+export const COMPANY_BASE = 5;
+export function companyCapFor(ownerKey: string | null | undefined): number {
+  const held = heldSkills(ownerKey);
+  let cap = COMPANY_BASE;
+  if (held.has("w_escort")) cap += 2;
+  if (held.has("b_pennant")) cap += 2;
+  if (held.has("r_retinue")) cap += 2;
+  if (held.has("b_muster")) cap += 4;
+  return cap;
+}
+
 /**
  * The attunement GRANTS (tranche one): cluster steps grant
  * +3 attunement in their hue, notables +3 more, crowns +6

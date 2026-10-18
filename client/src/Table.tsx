@@ -129,6 +129,8 @@ interface YouState {
   notes: string;
   energy?: number;
   maxEnergy?: number;
+  band?: number;
+  bandCap?: number;
   tenderLevel?: number;
   healTier?: number;
   healAmount?: number;
@@ -1005,6 +1007,7 @@ export default function Table() {
                 ))}
               </div>
               <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law">⚡ {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
+              <span className="my-band" title="Your travelling company — how many of your Awoken may stand on the field at once. The Muster roads widen it: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
               <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice">🎲 Your dice</button>
             </div>
             {notice && <p className="notice-line">{notice}</p>}

@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -556,6 +556,8 @@ function sendState(room: Room): void {
           } catch { return null; }
         })(),
         maxEnergy: player.maxEnergy,
+        band: [...room.field.values()].filter(u => u.ownerKey === player.key).length,
+        bandCap: companyCapFor(player.expKey),
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
         healAmount: player.healAmount,
@@ -1464,6 +1466,16 @@ function handleConnection(ws: WebSocket): void {
       }
       if (!card) {
         ws.send(JSON.stringify({ type: "error", message: "That Awoken is not in your roster." }));
+        return;
+      }
+      // The Travelling Company (ruled 2026-10-18): the band
+      // standing on the field is capped — five by the base
+      // law, widened by the Muster roads (companyCapFor).
+      const bandCap = companyCapFor(player.expKey);
+      const myKey = player.key;
+      const bandStanding = [...room.field.values()].filter(u => u.ownerKey === myKey).length;
+      if (bandStanding >= bandCap) {
+        ws.send(JSON.stringify({ type: "error", message: `Your band stands full — ${bandCap} strong. The road widens it: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
         return;
       }
       const cost = Math.max(1, card.power);
