@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
-import { workingEffects } from "./skills.js";
+import { workingEffects, skillAttunementGrants } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -1541,7 +1541,8 @@ function handleConnection(ws: WebSocket): void {
         if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
         if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
         const pools = await attunementPools(caster.expKey);
-        const cap = pourCapFor(def, pools, hue);
+        const capPools = { ...pools, [hue]: (pools[hue] ?? 0) + (skillAttunementGrants(caster.expKey)[hue] ?? 0) };
+        const cap = pourCapFor(def, capPools, hue);
         if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.` })); return; }
         const held = pools[hue] ?? 0;
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
@@ -1612,7 +1613,8 @@ function handleConnection(ws: WebSocket): void {
         if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
         if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
         const pools = await attunementPools(caster.expKey);
-        const cap = pourCapFor(def, pools, hue);
+        const capPools = { ...pools, [hue]: (pools[hue] ?? 0) + (skillAttunementGrants(caster.expKey)[hue] ?? 0) };
+        const cap = pourCapFor(def, capPools, hue);
         if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.` })); return; }
         const held = pools[hue] ?? 0;
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
@@ -1643,7 +1645,7 @@ function handleConnection(ws: WebSocket): void {
         let lvl = 0;
         if (hue !== "unaligned" && caster.expKey) {
           const pools = await attunementPools(caster.expKey).catch(() => null);
-          if (pools) lvl = attunementLevel(pools[hue] ?? 0);
+          if (pools) lvl = attunementLevel((pools[hue] ?? 0) + (skillAttunementGrants(caster.expKey)[hue] ?? 0));
         }
         rainNums = { ...def.numbers, rainLevel: lvl };
       }

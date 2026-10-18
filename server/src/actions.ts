@@ -24,7 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { ZODIAC_NODES, ZODIAC_EDGES, ZODIAC_BY_ID, ZODIAC_ADJ } from "./zodiacData.js";
-import { workingEffects } from "./skills.js";
+import { workingEffects, skillAttunementGrants } from "./skills.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -2084,6 +2084,11 @@ async function skillTreeState(ownerKey: string) {
   const attRows = await db.select().from(schema.aspectAttunement).where(eq(schema.aspectAttunement.ownerKey, ownerKey));
   const attunement: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   for (const r of attRows as any[]) attunement[r.element] = r.points ?? 0;
+  // The cluster GRANTS (tranche one): held steps, notables,
+  // and crowns add their attunement to the Tender's standing
+  // — the gates below judge the effective hue.
+  const grants = skillAttunementGrants(ownerKey);
+  for (const el of Object.keys(attunement)) attunement[el] += grants[el] ?? 0;
   const attunementLevels: Record<string, number> = {};
   for (const el of Object.keys(attunement)) attunementLevels[el] = attunementLevel(attunement[el]);
   return {
@@ -5345,7 +5350,11 @@ export const handlers = {
       if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
       if (hue === "unaligned") badRequest("An unaligned cast has no element to pour — choose a hue, and its pool feeds the working.");
       const pools = await attunementPools(ownerKey);
-      const cap = pourCapFor(spell, pools, hue);
+      // The pour's DEPTH is capped by the effective level —
+      // grants deepen the well (tranche one) — while the
+      // points SPENT remain the earned pool's alone.
+      const capPools = { ...pools, [hue]: (pools[hue] ?? 0) + (skillAttunementGrants(ownerKey)[hue] ?? 0) };
+      const cap = pourCapFor(spell, capPools, hue);
       if (pourWanted > cap) badRequest(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement. Grow the ${hue} pool past the next ten to deepen it.`);
       const held = pools[hue] ?? 0;
       if (held < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${held}.`);
@@ -5438,7 +5447,7 @@ export const handlers = {
         let lvl = 0;
         if (hue !== "unaligned") {
           const pools = await attunementPools(ownerKey);
-          lvl = attunementLevel(pools[hue] ?? 0);
+          lvl = attunementLevel((pools[hue] ?? 0) + (skillAttunementGrants(ownerKey)[hue] ?? 0));
         }
         numsToStore = { ...numsToStore, rainLevel: lvl };
       }

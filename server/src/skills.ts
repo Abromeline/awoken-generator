@@ -1,4 +1,5 @@
 import { sqlite } from "./store.js";
+import { ZODIAC_BY_ID } from "./zodiacData.js";
 
 /**
  * THE SKILL ZODIAC'S EFFECTS — tranche one: THE WARD & RUNE
@@ -23,6 +24,25 @@ export function heldSkills(ownerKey: string | null | undefined): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+/**
+ * The attunement GRANTS (tranche one): cluster steps grant
+ * +3 attunement in their hue, notables +3 more, crowns +6
+ * (the catalogue §5). Grants raise the Tender's STANDING
+ * in a hue — they count toward levels everywhere a level
+ * is derived (the Zodiac's gates, the pour's depth cap,
+ * Shard Rain's dice, a hue's crowning total) — but the
+ * SPENDABLE pool stays the earned points: a grant deepens
+ * the well, it does not fill it.
+ */
+export function skillAttunementGrants(ownerKey: string | null | undefined): Record<string, number> {
+  const grants: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
+  for (const k of heldSkills(ownerKey)) {
+    const n = ZODIAC_BY_ID.get(k);
+    if (n && n.el && n.att > 0) grants[n.el] = (grants[n.el] ?? 0) + n.att;
+  }
+  return grants;
 }
 
 export interface WorkingEffects {

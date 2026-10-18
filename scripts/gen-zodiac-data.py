@@ -52,7 +52,7 @@ for n in nodes.values():
     out.append({
         "id": nid, "name": n["name"], "kind": kind, "sector": n["sector"],
         "x": n["x"], "y": n["y"], "effect": n.get("effect", ""), "syn": n.get("syn", ""),
-        "el": n.get("el"), "pool": n.get("pool", "tree"), "cost": cost,
+        "el": n.get("el"), "att": n.get("att", 0), "pool": n.get("pool", "tree"), "cost": cost,
         "gate": gate, "requires": requires,
         "anyCore": nid == "c_hp2",
     })
@@ -69,7 +69,11 @@ ts = """/**
 export interface ZodiacNode {
   id: string; name: string; kind: string; sector: string;
   x: number; y: number; effect: string; syn: string;
-  el: string | null; pool: "tree" | "canopy"; cost: number;
+  el: string | null;
+  /** Attunement GRANTED by holding this skill (cluster
+   *  steps +3, notables +3, crowns +6 — the catalogue). */
+  att: number;
+  pool: "tree" | "canopy"; cost: number;
   gate: { el: string; level: number } | null;
   requires: string[];
   /** The Long Watch's stem: any other heart-ring skill first. */
