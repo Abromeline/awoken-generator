@@ -5761,12 +5761,33 @@ export const handlers = {
       if (col.state === "defeated") badRequest("That column is already broken.");
       kind = col.state === "marching" ? "ambush" : "bastion";
     }
+    // THE KEY (Nigel, 2026-10-17): every call carries a short
+    // join key, named by its kind in the telling — a BASTION
+    // key, an AMBUSH key, a SIEGE key. The host carries it
+    // into Discord; a friend opens the Table anywhere, enters
+    // the key, and is seated in the call's own room with their
+    // Awoken in hand, to help in the defence.
+    const KEY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const mintKey = (): string => {
+      for (;;) {
+        let k = "";
+        for (let i = 0; i < 6; i++) k += KEY_ALPHABET[Math.floor(Math.random() * KEY_ALPHABET.length)];
+        const clash = sqlite.prepare("SELECT id FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
+        if (!clash) return k;
+      }
+    };
     const existing = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' AND IFNULL(column_id, 0) = IFNULL(?, 0) AND IFNULL(seed_id, 0) = IFNULL(?, 0)")
       .get(ownerKey, columnId, seedId) as any;
-    if (existing) return { ok: true, call: existing, already: true };
+    if (existing) {
+      if (!existing.join_key) {
+        existing.join_key = mintKey();
+        sqlite.prepare("UPDATE bastion_calls SET join_key = ? WHERE id = ?").run(existing.join_key, existing.id);
+      }
+      return { ok: true, call: existing, already: true };
+    }
     const tenderId = Number(ownerKey.replace("tender:", "")) || 0;
-    const ins = sqlite.prepare("INSERT INTO bastion_calls (owner_key, host_tender_id, column_id, seed_id, kind, state, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)")
-      .run(ownerKey, tenderId, columnId, seedId, kind, Date.now()) as any;
+    const ins = sqlite.prepare("INSERT INTO bastion_calls (owner_key, host_tender_id, column_id, seed_id, kind, state, created_at, join_key) VALUES (?, ?, ?, ?, ?, 'open', ?, ?)")
+      .run(ownerKey, tenderId, columnId, seedId, kind, Date.now(), mintKey()) as any;
     const call = sqlite.prepare("SELECT * FROM bastion_calls WHERE id = ?").get(Number(ins.lastInsertRowid)) as any;
     return { ok: true, call };
   },

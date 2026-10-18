@@ -4075,11 +4075,12 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
             </div>
             {inc.columns.map(col => {
               const call = (callsQ.data?.calls ?? []).find(c => c.column_id === col.id);
+              const keyStr = call?.join_key ? ` Key: ${call.join_key}` : "";
               const invite = col.kind === "siege"
-                ? `⚔️ SIEGE — a force of ${col.size} holds my land. Friends: open the Table in our voice channel and muster at the bastion.`
+                ? `⚔️ SIEGE — a force of ${col.size} holds my land. Friends: open the Table, enter my SIEGE key, call your Awoken, and help me take it back.${keyStr}`
                 : call?.kind === "ambush"
-                  ? `⚔️ AMBUSH CALLED — a ${col.kind} of ${col.size} reaches my ${col.targetKind === "seed" ? "fallen seed" : "edge"} in ${fmtCountdown(col.arrivesAt - nowMs)}. Friends: open the Table in our voice channel and muster BEFORE it lands — warned ahead, our Awoken strike with the ambush's edge.`
-                  : `⚔️ BASTION — a ${col.kind} of ${col.size} is at my ${col.targetKind === "seed" ? "seed" : "edge"}. Friends: open the Table in our voice channel and muster at the bastion — hold the tide with me.`;
+                  ? `⚔️ AMBUSH CALLED — a ${col.kind} of ${col.size} reaches my ${col.targetKind === "seed" ? "fallen seed" : "edge"} in ${fmtCountdown(col.arrivesAt - nowMs)}. Friends: open the Table, enter my AMBUSH key, and muster BEFORE it lands — warned ahead, our Awoken strike with the ambush's edge.${keyStr}`
+                  : `⚔️ BASTION — a ${col.kind} of ${col.size} is at my ${col.targetKind === "seed" ? "seed" : "edge"}. Friends: open the Table, enter my BASTION key, call your Awoken, and hold the tide with me.${keyStr}`;
               return col.state === "marching" ? (
               <div key={col.id} className="curse-eye-line warn">
                 ⚠ ATTACK INCOMING — a {col.kind === "siege" ? "SIEGE" : "raid"} of {col.size} walks for your {col.targetKind === "seed" ? "fallen seed" : "edge"} — here in {fmtCountdown(col.arrivesAt - nowMs)}. Move your companies to meet it.
@@ -4107,7 +4108,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
                 <div key={sd.id} className="curse-eye-line here">
                   💀 A cursed bastion stands on your land — the seed that was, is theirs.
                   {!call && <button className="abtn small" onClick={() => void handleCallToArms({ seedId: sd.id })}>📣 Call a SIEGE</button>}
-                  {call && <div className="curse-eye-invite">📣 SIEGE called — carry it to Discord: <em>⚔️ SIEGE — a cursed bastion stands on my land, and we take it back. Friends: open the Table in our voice channel and muster — this one wants many hands, and the dark will not give it up gently.</em></div>}
+                  {call && <div className="curse-eye-invite">📣 SIEGE called — carry it to Discord: <em>⚔️ SIEGE — a cursed bastion stands on my land, and we take it back. Friends: open the Table, enter my SIEGE key, call your Awoken, and help in the taking — this one wants many hands, and the dark will not give it up gently.{call.join_key ? ` Key: ${call.join_key}` : ""}</em></div>}
                 </div>
               );
             })}

@@ -135,7 +135,7 @@ interface YouState {
   pools?: Record<string, number> | null;
   inventory: string[];
   bound?: string | null;
-  yourCall?: { id: number; kind: string; columnId: number | null; seedId: number | null } | null;
+  yourCall?: { id: number; kind: string; columnId: number | null; seedId: number | null; joinKey?: string | null } | null;
 }
 
 type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
@@ -246,6 +246,7 @@ export default function Table() {
   const [pushPts, setPushPts] = useState(0);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
+  const [callKeyInput, setCallKeyInput] = useState("");
   const [diceOpen, setDiceOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
@@ -862,11 +863,25 @@ export default function Table() {
                     )}
                   </div>
                 ) : you?.yourCall ? (
-                  <div className="bastion-banner">
-                    📣 Your {you.yourCall.kind.toUpperCase()} call stands — claim this room for it, and your friends' energy joins the pool.
-                    <button className="table-btn primary battle-btn" onClick={() => send({ type: "claimBastion", callId: you.yourCall!.id })}>📣 Claim this room</button>
-                  </div>
+                  you.yourCall.joinKey && shared.room !== `call-${you.yourCall.joinKey.toLowerCase()}` ? (
+                    <div className="bastion-banner">
+                      📣 Your {you.yourCall.kind.toUpperCase()} call stands in its own room — key <strong>{you.yourCall.joinKey}</strong>. Sit there to claim it; friends enter the key to join you.
+                      <button className="table-btn primary battle-btn" onClick={() => send({ type: "switchRoom", callKey: you.yourCall!.joinKey })}>🪑 Sit at your call</button>
+                    </div>
+                  ) : (
+                    <div className="bastion-banner">
+                      📣 Your {you.yourCall.kind.toUpperCase()} call stands — claim this room for it, and your friends' energy joins the pool.{you.yourCall.joinKey ? <> Key: <strong>{you.yourCall.joinKey}</strong></> : null}
+                      <button className="table-btn primary battle-btn" onClick={() => send({ type: "claimBastion", callId: you.yourCall!.id })}>📣 Claim this room</button>
+                    </div>
+                  )
                 ) : null}
+                {you && !shared.bastion && (
+                  <div className="bastion-banner">
+                    🔑 Answering a friend's call? Enter their key — a bastion key, an ambush key, a siege key — and take your seat at their defence, Awoken in hand.
+                    <input className="call-key-input" value={callKeyInput} onChange={e => setCallKeyInput(e.target.value.toUpperCase())} placeholder="KEY" maxLength={6} />
+                    <button className="table-btn battle-btn" disabled={callKeyInput.trim().length < 4} onClick={() => send({ type: "switchRoom", callKey: callKeyInput.trim() })}>Answer the call</button>
+                  </div>
+                )}
                 {!shared.bastion && <button className="table-btn primary battle-btn" onClick={() => send({ type: "startWave" })}>⚔ Begin the Unraveling — Wave {shared.battle.wave}</button>}
                 </>
               ) : (

@@ -441,6 +441,7 @@ export interface BastionCall {
   id: number; owner_key: string; host_tender_id: number;
   column_id: number | null; seed_id: number | null;
   kind: "bastion" | "ambush" | "siege"; state: string; created_at: number;
+  join_key: string | null;
 }
 export interface StarSeed {
   id: number; tileId: number; q: number | null; r: number | null;

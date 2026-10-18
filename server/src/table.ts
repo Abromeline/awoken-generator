@@ -419,8 +419,8 @@ function sendState(room: Room): void {
         yourCall: (() => {
           if (!player.expKey) return null;
           try {
-            const c = sqlite.prepare("SELECT id, kind, column_id, seed_id FROM bastion_calls WHERE owner_key = ? AND state = 'open' ORDER BY created_at ASC LIMIT 1").get(player.expKey) as any;
-            return c ? { id: c.id, kind: c.kind, columnId: c.column_id, seedId: c.seed_id } : null;
+            const c = sqlite.prepare("SELECT id, kind, column_id, seed_id, join_key FROM bastion_calls WHERE owner_key = ? AND state = 'open' ORDER BY created_at ASC LIMIT 1").get(player.expKey) as any;
+            return c ? { id: c.id, kind: c.kind, columnId: c.column_id, seedId: c.seed_id, joinKey: c.join_key } : null;
           } catch { return null; }
         })(),
         maxEnergy: player.maxEnergy,
@@ -950,9 +950,46 @@ function handleConnection(ws: WebSocket): void {
     try { msg = JSON.parse(String(raw)); } catch { return; }
     if (!msg || typeof msg.type !== "string") return;
 
+    // ANSWER A CALL (Nigel, 2026-10-17): a seated player with
+    // a key rises from this room and takes their seat in the
+    // call's own room — their hand, their standing, and their
+    // Awoken travel with them. The key is the invitation: any
+    // open call's key seats whoever carries it.
+    if (msg.type === "switchRoom") {
+      if (!room || !player) return;
+      const k = String(msg.callKey ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const call = sqlite.prepare("SELECT * FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
+      if (!call) { ws.send(JSON.stringify({ type: "error", message: "No open call answers to that key — it may have ended, or the key is mistyped." })); return; }
+      const targetId = `call-${k.toLowerCase()}`;
+      if (room.id === targetId) { ws.send(JSON.stringify({ type: "error", message: "You already sit at that call's table." })); return; }
+      if (room.battle.active) { ws.send(JSON.stringify({ type: "error", message: "Not mid-battle — the dark does not wait for travellers." })); return; }
+      const target = await getRoom(targetId);
+      const seatedThere = [...target.players.values()].filter(p => !p.watcher).length;
+      if (!player.watcher && seatedThere >= MAX_SEATED) { ws.send(JSON.stringify({ type: "error", message: "That call's table is full — five seats stand there already. You may still watch." })); return; }
+      const old = room;
+      old.players.delete(ws);
+      tell(old, `${player.name} rises to answer a call elsewhere.`);
+      sendState(old);
+      room = target;
+      room.sky = await currentSky();
+      room.players.set(ws, player);
+      tell(room, `${player.name} answers the ${String(call.kind).toUpperCase()} call — key ${k} — and takes a seat, Awoken in hand.`);
+      sendState(room);
+      return;
+    }
+
     if (msg.type === "join") {
       if (room) return; // one seat per socket
-      const roomId = String(msg.room || "the-table").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "the-table";
+      // JOIN BY KEY (Nigel, 2026-10-17): a call key names its
+      // own room — whoever enters it sits at that call's table,
+      // wherever the Table was opened from.
+      let roomId = String(msg.room || "the-table").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "the-table";
+      if (typeof msg.callKey === "string" && msg.callKey.trim()) {
+        const k = msg.callKey.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const call = sqlite.prepare("SELECT id FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
+        if (!call) { fail("No open call answers to that key — it may have ended, or the key is mistyped."); return; }
+        roomId = `call-${k.toLowerCase()}`;
+      }
       let key = "";
       let name = "";
       let watcher = false;

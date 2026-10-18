@@ -544,6 +544,7 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS bastion_calls (
   state TEXT NOT NULL DEFAULT 'open',
   created_at INTEGER NOT NULL
 );`);
+try { sqlite.exec("ALTER TABLE bastion_calls ADD COLUMN join_key TEXT"); } catch { /* exists */ }
 sqlite.exec(`CREATE TABLE IF NOT EXISTS seed_missions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_key TEXT NOT NULL,
