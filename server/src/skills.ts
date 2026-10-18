@@ -117,6 +117,21 @@ export interface WorkingEffects {
   /** War Runewright: a rune sprung on dark that has not yet
    *  struck deals +2. */
   warRunewright: boolean;
+  /** The Second Thread: once per battle, a sprung rune of
+   *  yours is re-written on the same ground, free. */
+  secondThread: boolean;
+  /** The Ground Remembers: one rune per battle does not
+   *  fade when the battle ends — it waits for the next. */
+  groundRemembers: boolean;
+  /** The Long Script: HELD, and ledgered — but its premise
+   *  (runes laid from where a Runeing Awoken STANDS) is not
+   *  law anywhere yet: neither the land's cast nor the
+   *  Table's requires the writer to stand near the writing.
+   *  Wiring it would mean inventing a restriction no one
+   *  ruled. It wakes the day placement gains a standing
+   *  law; until then it sleeps, named here rather than
+   *  dressed as working. */
+  longScript: boolean;
 }
 
 export function workingEffects(ownerKey: string | null | undefined): WorkingEffects {
@@ -153,5 +168,8 @@ export function workingEffects(ownerKey: string | null | undefined): WorkingEffe
     loreRunewright: has("hybR_lore"),
     rememberingRay: has("ray_lore"),
     warRunewright: has("hybR_warground"),
+    secondThread: has("b_thread"),
+    groundRemembers: has("r_remembers"),
+    longScript: has("r_long"),
   };
 }

@@ -100,6 +100,10 @@ interface Player {
   /** Second Wall (the Zodiac, tranche one): this battle's
    *  half-cost ward has been spent. Reset at every deal. */
   secondWallUsed?: boolean;
+  /** Tranche one, per battle: the Second Thread spent? */
+  secondThreadUsed?: boolean;
+  /** Tranche one, per battle: the Ground's memory spent? */
+  groundRemembered?: boolean;
   /** The tender-progress owner key for bound seats — where
    *  battle EXP is paid. Null for stand-in seats. */
   expKey: string | null;
@@ -197,6 +201,11 @@ interface Working {
   charges: number;
   /** Lore Runewright: this rune's first spring has paid. */
   firstPaid?: boolean;
+  /** The charges it was written with (the Second Thread
+   *  re-writes at full strength). */
+  maxCharges?: number;
+  /** The Ground Remembers: this rune waits out the fade. */
+  rememberMark?: boolean;
 }
 
 const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
@@ -724,7 +733,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     // Hungry Ink (tranche one): the writing drinks the fell.
     if (caster && eff.hungryInk && felledByRune > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByRune);
     rune.charges--;
-    if (rune.charges <= 0) room.workings = room.workings.filter(w => w !== rune);
+    if (rune.charges <= 0) retireSprungRune(room, rune);
     else tell(room, `${rune.name} hums on, waiting for one more.`);
   } else if (rune.engine === "coil") {
     const free = SUMMONABLE_HEXES.filter(hx => hx !== hex && !room.field.has(hx) && !room.dark.has(hx));
@@ -739,7 +748,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     }
     if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(rune.nums.energyCap ?? 3, moved * (rune.nums.energyPerDark ?? 1)));
     tell(room, `${rune.name} turns the dark aside — ${moved} thrown back to far ground, their strikes forgotten.`);
-    room.workings = room.workings.filter(w => w !== rune);
+    retireSprungRune(room, rune);
   } else if (rune.engine === "shardrain") {
     // SHARD RAIN (Nigel, 2026-10-17): ONE pool over ALL the
     // covered ground. The group's hexes gather every foe
@@ -765,6 +774,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
         if (e.hp <= 0) fellDark(room, e, caster);
       }
       room.workings = room.workings.filter(w => !covered.includes(w));
+      if (covered[0]) maybeRewriteRune(room, covered[0]);
     }
   } else if (rune.engine === "shard") {
     // Falling Light (tranche one): the Shard reckons its
@@ -780,9 +790,28 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       let felledByShard = 0;
       for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
       if (caster && workingEffects(caster.expKey).hungryInk && felledByShard > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByShard);
-      room.workings = room.workings.filter(w => w !== rune);
+      retireSprungRune(room, rune);
     }
   }
+}
+
+/** The Second Thread (tranche one): when a holder's rune
+ *  springs and spends itself, the Thread re-writes it once
+ *  per battle on the same ground — fresh, full, and free. */
+function maybeRewriteRune(room: Room, rune: Working): void {
+  const caster = seatByKey(room, rune.ownerKey);
+  if (!caster || caster.secondThreadUsed) return;
+  if (!workingEffects(caster.expKey).secondThread) return;
+  caster.secondThreadUsed = true;
+  room.workings.push({
+    ...rune, id: randomUUID(), hp: rune.maxHp, charges: rune.maxCharges ?? rune.charges,
+    firstPaid: false, stops: 0,
+  });
+  tell(room, `The Second Thread holds — ${rune.name} is re-written on the same ground, free.`);
+}
+function retireSprungRune(room: Room, rune: Working): void {
+  room.workings = room.workings.filter(w => w !== rune);
+  maybeRewriteRune(room, rune);
 }
 
 /** Battle's end: unfed Shards fall where they must; then all
@@ -807,13 +836,21 @@ function settleShardsAndFade(room: Room): void {
     }
   }
   if (room.workings.length) {
-    tell(room, "The written light fades from the field — it was written for this battle.");
-    room.workings = [];
+    // The Ground Remembers (tranche one): one marked rune
+    // per holder does not fade — it waits on the same field
+    // for the next battle, its mark spent in the waiting.
+    const remembered = room.workings.filter(w => w.rememberMark);
+    for (const w of remembered) {
+      w.rememberMark = false;
+      tell(room, `${w.name} does not fade — the ground remembers it, and it waits.`);
+    }
+    if (remembered.length < room.workings.length) tell(room, "The written light fades from the field — it was written for this battle.");
+    room.workings = remembered;
   }
 }
 
 function dealWave(room: Room): void {
-  for (const p of room.players.values()) p.secondWallUsed = false;
+  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; }
   const wave = room.battle.wave;
   const free = SUMMONABLE_HEXES.filter(h => !room.field.has(h) && !room.dark.has(h));
   const kinds = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
@@ -845,7 +882,7 @@ function dealWave(room: Room): void {
 function dealBastion(room: Room): void {
   const b = room.bastion;
   if (!b) return;
-  for (const p of room.players.values()) p.secondWallUsed = false;
+  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; }
   const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
   const free = SUMMONABLE_HEXES
     .filter(h => !room.field.has(h) && !room.dark.has(h))
@@ -1660,12 +1697,20 @@ function handleConnection(ws: WebSocket): void {
           thisNums = { ...rainNums, power: Math.floor((rainNums.power ?? 3) / 2) };
         }
         castIndex++;
-        room.workings.push({
+        const chargesNow = (def.engine === "blade" || def.engine === "blades") ? (def.numbers.charges ?? 2) + eff.bladeSprings : def.engine === "coil" ? 1 + eff.coilTurns : 1;
+        const wNew: Working = {
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp, maxHp: hp, pour, stops: 0, charges: (def.engine === "blade" || def.engine === "blades") ? (def.numbers.charges ?? 2) + eff.bladeSprings : def.engine === "coil" ? 1 + eff.coilTurns : 1,
+          hp, maxHp: hp, pour, stops: 0, charges: chargesNow, maxCharges: chargesNow,
           group,
-        });
+        };
+        // The Ground Remembers (tranche one): the FIRST rune
+        // a holder writes each battle is marked to wait.
+        if (eff.groundRemembers && !caster.groundRemembered) {
+          wNew.rememberMark = true;
+          caster.groundRemembered = true;
+        }
+        room.workings.push(wNew);
       }
       tell(room, hexes.length > 1
         ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`
