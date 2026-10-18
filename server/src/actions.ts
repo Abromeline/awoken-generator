@@ -5708,9 +5708,11 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const columnId = Math.floor(Number((args as any)?.columnId ?? 0));
     if (!columnId) badRequest("Which column was beaten?");
-    const col = sqlite.prepare("SELECT id, state FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
+    const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
     if (!col) badRequest("No such column walks your land.");
     if (col.state === "defeated") return { ok: true, already: true };
+    const survivorIds = (Array.isArray((args as any)?.survivorIds) ? (args as any).survivorIds : [])
+      .map((n: any) => Math.floor(Number(n))).filter((n: number) => n > 0);
     const now = Date.now();
     sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE id = ?").run(now, columnId);
     // A HELD SEED DEFENDED (the personal bastion settlement,
@@ -5742,7 +5744,21 @@ export const handlers = {
       VALUES (?, 0, ?, ?, 0)
       ON CONFLICT(owner_key) DO UPDATE SET break_until = excluded.break_until`)
       .run(ownerKey, now, now + INCURSION_BREAK_MS);
-    return { ok: true, breakUntil: now + INCURSION_BREAK_MS };
+    // THE RECKONING (Nigel, 2026-10-17): EXP comes from enemies
+    // killed — priced by the power of the force that died — and
+    // defeating the whole attack pays 50 EXP per level of the
+    // attack. Both ride to the Awoken left standing.
+    const roster = incursionRoster(Number(col.size || 0), Number(col.power || 1));
+    const totalPower = roster.reduce((acc, r) => acc + r.count * r.power, 0);
+    const killXp = totalPower * 2;
+    const completionXp = 50 * Number(col.power || 1);
+    const xpById = new Map<number, XpGainReport>();
+    for (const awId of survivorIds) {
+      const mine = sqlite.prepare("SELECT id FROM awakened WHERE id = ? AND owner_key = ?").get(awId, ownerKey) as any;
+      if (!mine) continue;
+      await grantEventXp(xpById, awId, killXp + completionXp);
+    }
+    return { ok: true, breakUntil: now + INCURSION_BREAK_MS, killXp, completionXp, xpGains: [...xpById.values()] };
   },
 
   async setPatrol(args: unknown, ctx?: ActionContext) {

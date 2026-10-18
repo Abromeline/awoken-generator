@@ -2176,7 +2176,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const columnId = battleColumnId;
       setBattleColumnId(null);
       try {
-        if (result.victory) await api.defeatIncursion({ columnId });
+        if (result.victory) {
+          const reck = await api.defeatIncursion({ columnId, survivorIds: result.survivors });
+          const earned = (reck.xpGains ?? []).reduce((acc, g) => acc + g.xpGain, 0);
+          if (earned > 0) showHexNotice(`The attack breaks — your defenders earned ${earned} EXP from the killing and the victory.`);
+        }
         else await api.failIncursion({ columnId }).catch(() => {});
         await refreshAfterResolution();
         void incursionsQ.refetch();
@@ -4052,7 +4056,7 @@ function AspectAttunement({ visible, onClose, tenderItems, placedIds, onUpdate, 
       {incursionsQ.data && (() => {
         const inc = incursionsQ.data;
         const nowMs = Date.now();
-        const eyeWord = inc.eye >= 100 ? "WIDE OPEN" : inc.eye >= 60 ? "Open" : inc.eye >= 25 ? "Stirring" : "Shut";
+        const eyeWord = inc.eye >= 100 ? "Under investigation" : inc.eye >= 60 ? "Drawing attention" : inc.eye >= 25 ? "Stirring" : "Hidden";
         return (
           <div className="curse-eye-panel">
             <div className="curse-eye-head">
