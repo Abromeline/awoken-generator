@@ -713,7 +713,7 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
     if (rowIdentity === identityKey) previousCount += 1;
   }
   const nextNumber = (latest[0]?.id ?? 0) + 1;
-  const name = `Awoken ${String(nextNumber).padStart(3, "0")}`;
+  const name = `Awokin ${String(nextNumber).padStart(3, "0")}`;
   const namedMatter = canonicalLayers.filter((layer) => statCategories.has(layer.category)).map((layer) => layer.name);
   const flavorText = birthFlavorText(namedMatter);
   const basePower = canonicalLayers.reduce((sum, layer) => sum + (layer.power ?? 0), 0);
@@ -845,7 +845,7 @@ export function describeValidationIssues(error: z.ZodError): string {
     switch (issue.code) {
       case "too_small":
         if (head === "imageBase64") return "the image is too small — the picture did not arrive whole";
-        if (head === "layers" && issue.path.length === 1) return "no pieces were gathered — an Awoken needs a body, arms and a head";
+        if (head === "layers" && issue.path.length === 1) return "no pieces were gathered — an Awokin needs a body, arms and a head";
         return `${field} is too small`;
       case "too_big":
         if (head === "imageBase64") return "the image is too large";
@@ -1436,7 +1436,7 @@ const MOODS: WorldMood[] = ["thickening", "thinning", "quiet", "storm"];
 const MOOD_DESCRIPTIONS: Record<WorldMood, string> = {
   thickening: "The dark grows dense. Cursed tiles hold +50% HP.",
   thinning: "The veil is thin. Attunement completes twice as fast.",
-  quiet: "A hush falls. Fewer waves, but the Awoken dream vividly.",
+  quiet: "A hush falls. Fewer waves, but the Awokin dream vividly.",
   storm: "The Unraveling rages. Waves strike with +50% power.",
 };
 const MOOD_WEIGHTS: Record<WorldMood, number> = {
@@ -1492,7 +1492,7 @@ type WorldMoodState = { mood: WorldMood; description: string; endsAt: string };
 const VOICE_WEATHER_LINES: Record<WorldMood, string> = {
   thickening: "The sky turns. The dark grows dense over the Bastion — cursed ground holds harder under this sky.",
   thinning: "The sky turns. The veil thins — attunement runs swift, and the world feels briefly near.",
-  quiet: "The sky turns. A hush falls over the world — mist on the Bastion, and the Awoken dreaming vividly.",
+  quiet: "The sky turns. A hush falls over the world — mist on the Bastion, and the Awokin dreaming vividly.",
   storm: "The sky turns. A storm is gathering — the Unraveling rages, and Music is already tuning to it.",
 };
 const VOICE_WEATHER_COLORS: Record<WorldMood, number> = {
@@ -1581,7 +1581,7 @@ async function announceWeatherReign(mood: WorldMood, endsAt: string): Promise<vo
       title: "The sky turns",
       description: `${VOICE_WEATHER_LINES[mood]}\n\n*${MOOD_DESCRIPTIONS[mood]}*`,
       color: VOICE_WEATHER_COLORS[mood],
-      footer: { text: "The Voice · the weather of the Awoken world" },
+      footer: { text: "The Voice · the weather of the Awokin world" },
     });
     if (!posted && DISCORD_STORIES_WEBHOOK_URL) {
       console.warn(`[voice] weather post for the ${mood} reign was not delivered; it will not be retried.`);
@@ -2129,7 +2129,7 @@ async function loadGameConfig() {
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number; upkeepPerHour?: number }> = {
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
-  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awoken. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops. TAP the standing shrine on the map to turn it to the LAND: the doubling sleeps, and the shrine pours its congregation's dominant element into its own hex and the six around it — one hex about every five hours, its own first.", icon: "🛕" },
+  "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awokin. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops. TAP the standing shrine on the map to turn it to the LAND: the doubling sleeps, and the shrine pours its congregation's dominant element into its own hex and the six around it — one hex about every five hours, its own first.", icon: "🛕" },
   "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
   "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +10 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 10, growHours: 8 },
   "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
@@ -2137,7 +2137,7 @@ export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMi
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
   "tree": { name: "Dream Tree", cost: 2, buildMinutes: 15, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
   "bastion": { name: "Bastion", cost: 6, buildMinutes: 20, desc: "A fortress of the light and a beacon for friends: columns besiege bastions first, and allies muster here when the call goes out. Raise one upon a fallen seed's purified hex to HOLD the seed.", icon: "🏯" },
-  "hall-of-champions": { name: "Hall of Champions", cost: 10, buildMinutes: 30, desc: "A castle haunted by the spirits of ancient Awoken. House champions in its dwellings to feed and level them. Upgrade to level 10 — each level opens a new room. One per tender; stands alone on its tile.", icon: "🏰" },
+  "hall-of-champions": { name: "Hall of Champions", cost: 10, buildMinutes: 30, desc: "A castle haunted by the spirits of ancient Awokin. House champions in its dwellings to feed and level them. Upgrade to level 10 — each level opens a new room. One per tender; stands alone on its tile.", icon: "🏰" },
 };
 
 // Hall of Champions tier costs — exponential in energy, elemental points
@@ -2245,9 +2245,9 @@ type CompendiumSeed = {
 
 const COMPENDIUM_SEED: CompendiumSeed[] = [
   { className: "The Canon Dark", name: "Fray", status: "Canon", power: 1, hp: 3, story: "Small ink splatter with twig legs; attacks in groups, the dark's least and most numerous grief.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 1 },
-  { className: "The Canon Dark", name: "Unraveler", status: "Canon", power: 4, hp: 6, story: "Looming ink mass with tendrils; hunts the strongest Awoken standing.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 2 },
+  { className: "The Canon Dark", name: "Unraveler", status: "Canon", power: 4, hp: 6, story: "Looming ink mass with tendrils; hunts the strongest Awokin standing.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 2 },
   { className: "The Canon Dark", name: "Hollow", status: "Canon", power: 0, hp: 5, story: "Pure void, no gold — it eats light. Drains the Tender's energy instead of dealing damage.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 3 },
-  { className: "The Canon Dark", name: "Tangle", status: "Canon", power: 3, hp: 8, story: "Knotted thorns with gold sap; pins one played Awoken for the wave.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 4 },
+  { className: "The Canon Dark", name: "Tangle", status: "Canon", power: 3, hp: 8, story: "Knotted thorns with gold sap; pins one played Awokin for the wave.", typeNote: null, layers: null, motion: null, slotKey: null, sortOrder: 4 },
   { className: "The Stitchers", name: "The Seamother", status: "Confirmed", power: null, hp: null, story: "A mother of mending gone wrong.", typeNote: null, layers: "Knotted shadow-cloth torso; spool head wound with black thread; stitch-X eyeless eyes; four needle-legs jointed three times too many; trailing thread-tendrils; one gold seam.", motion: "She stitches herself forward — a leg plants ahead, her body sews along the thread, turning only at knots, the ground unstitching behind her.", slotKey: "enemy_seamother", sortOrder: 1 },
   { className: "The Stitchers", name: "The Stitchlings", status: "Dreamed", power: null, hp: null, story: "The Seamother's smallest issue: hand-sized knots of black thread, each with one long needle for a spine, scuttling on thread legs.", typeNote: null, layers: "Knot-body; needle-spine; thread legs; one gold thread the swarm shares like a lifeline.", motion: "They travel as one frayed knot — where one goes, the seam pulls the rest; they enter a field through its edges and work inward, unstitching as they come.", slotKey: "enemy_stitchlings", sortOrder: 2 },
   { className: "The Stitchers", name: "The Buttonhole", status: "Dreamed", power: null, hp: null, story: "A squat fold of black cloth pierced by buttonhole slits rimmed with pale stitching — mouths sewn open. Three thread-stalks end in dull gold spiral buttons that are NOT eyes, whatever they behave like.", typeNote: null, layers: "Cloth body; slit-mouths; button stalks; needle fingers; a lower half frayed to loose threads.", motion: "It slips through seams — gaps in walls, tent-flaps, the space between a door and its frame — and is simply on the other side, mid-conversation with itself.", slotKey: "enemy_buttonhole", sortOrder: 3 },
@@ -2633,8 +2633,8 @@ export const handlers = {
     const parsed = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(80) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid name.");
     const rows = await db.select({ ownerKey: schema.awakened.ownerKey }).from(schema.awakened).where(eq(schema.awakened.id, parsed.data.id)).limit(1);
-    if (!rows[0]) badRequest("That Awoken is not found.");
-    if (rows[0].ownerKey !== ownerKeyFor(ctx)) badRequest("You can only rename your own Awoken.");
+    if (!rows[0]) badRequest("That Awokin is not found.");
+    if (rows[0].ownerKey !== ownerKeyFor(ctx)) badRequest("You can only rename your own Awokin.");
     await db.update(schema.awakened).set({ name: parsed.data.name }).where(eq(schema.awakened.id, parsed.data.id));
     return okResponse.parse({ ok: true });
   },
@@ -2655,9 +2655,9 @@ export const handlers = {
     const ownerKey = tenderOwnerKey(ctx.tender.id);
     const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.id)).limit(1);
     const awoken = rows[0];
-    if (!awoken) badRequest("That Awoken is not found.");
-    if (awoken.ownerKey !== ownerKey) badRequest("You can only share stories of your own Awoken.");
-    if ((awoken.storyCount ?? 0) >= 3) badRequest("This Awoken has already heard three stories — it is full.");
+    if (!awoken) badRequest("That Awokin is not found.");
+    if (awoken.ownerKey !== ownerKey) badRequest("You can only share stories of your own Awokin.");
+    if ((awoken.storyCount ?? 0) >= 3) badRequest("This Awokin has already heard three stories — it is full.");
     await db.insert(schema.awokenStories).values({
       awakenedId: parsed.data.id, tenderId: ctx.tender.id, storyText: parsed.data.story, createdAt: new Date(),
     });
@@ -2675,8 +2675,8 @@ export const handlers = {
     const ownerKey = tenderOwnerKey(ctx.tender.id);
     const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.id)).limit(1);
     const awoken = rows[0];
-    if (!awoken) badRequest("That Awoken is not found.");
-    if (awoken.ownerKey !== ownerKey) badRequest("You can only read stories of your own Awoken.");
+    if (!awoken) badRequest("That Awokin is not found.");
+    if (awoken.ownerKey !== ownerKey) badRequest("You can only read stories of your own Awokin.");
     const stories = await db.select().from(schema.awokenStories)
       .where(eq(schema.awokenStories.awakenedId, parsed.data.id))
       .orderBy(asc(schema.awokenStories.id));
@@ -2718,8 +2718,8 @@ export const handlers = {
     if (story.sentAt) badRequest("That telling has already been sent to Discord.");
     const awokenRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, story.awakenedId)).limit(1);
     const awoken = awokenRows[0];
-    if (!awoken) badRequest("That Awoken is not found.");
-    if (awoken.ownerKey !== tenderOwnerKey(ctx.tender.id)) badRequest("You can only send stories of your own Awoken.");
+    if (!awoken) badRequest("That Awokin is not found.");
+    if (awoken.ownerKey !== tenderOwnerKey(ctx.tender.id)) badRequest("You can only send stories of your own Awokin.");
     if (!DISCORD_STORIES_WEBHOOK_URL) {
       badRequest("The Voice has no road to Discord yet — the stories webhook is not set on the server. Your story stays safe here, personal and unsent.");
     }
@@ -2976,7 +2976,7 @@ export const handlers = {
       .limit(1);
     const awoken = rows[0];
     if (!awoken || !canTouchAwoken(awoken, ownerKey))
-      badRequest("That Awoken does not belong to your collection.");
+      badRequest("That Awokin does not belong to your collection.");
     await db
       .insert(schema.deckCards)
       .values({ deckId: parsed.data.deckId, awakenedId: parsed.data.awakenedId })
@@ -3073,7 +3073,7 @@ export const handlers = {
         eq(schema.awakened.id, parsed.data.awakenedId),
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
-    if (!rows.length) badRequest("That Awoken is not yours.");
+    if (!rows.length) badRequest("That Awokin is not yours.");
     if ((rows[0].statPoints ?? 0) < 1) badRequest("No stat points available.");
     const update = parsed.data.stat === "power"
       ? { bonusPower: (rows[0].bonusPower ?? 0) + 1, spentPower: ((rows[0] as any).spentPower ?? 0) + 1 }
@@ -3131,14 +3131,14 @@ export const handlers = {
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
-    if (placed.length) badRequest("Only Awoken from hand can join a confluence.");
+    if (placed.length) badRequest("Only Awokin from hand can join a confluence.");
     // Verify ownership
     const owned = await db.select().from(schema.awakened)
       .where(and(
         eq(schema.awakened.id, parsed.data.awakenedId),
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
-    if (!owned.length) badRequest("That Awoken is not yours.");
+    if (!owned.length) badRequest("That Awokin is not yours.");
     // The Hall sends its champions (Nigel, 2026-10-12): only housed Awoken
     // may march to a confluence, and the Hall's size caps the roster.
     // The marked champion is the quiet exception: housed or not, it may
@@ -3152,14 +3152,14 @@ export const handlers = {
       .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
     const championId = champRows.length ? champRows[0].awakenedId : null;
     const isChampion = championId === parsed.data.awakenedId;
-    if (!housed.length && !isChampion) badRequest("Only housed champions march to a confluence — house this Awoken in your Hall first.");
+    if (!housed.length && !isChampion) badRequest("Only housed champions march to a confluence — house this Awokin in your Hall first.");
     const already = await db.select().from(schema.confluenceRoster)
       .where(and(
         eq(schema.confluenceRoster.sessionId, parsed.data.sessionId),
         eq(schema.confluenceRoster.ownerKey, ownerKey),
         eq(schema.confluenceRoster.awakenedId, parsed.data.awakenedId)
       )).limit(1);
-    if (already.length) badRequest("That Awoken is already committed.");
+    if (already.length) badRequest("That Awokin is already committed.");
     if (!(isChampion && !housed.length)) {
       const hall = await hallBuildingFor(ownerKey);
       const cap = hall && hall.status === "active" ? (hall.level ?? 1) : 0;
@@ -3313,12 +3313,12 @@ export const handlers = {
         eq(schema.awakened.id, parsed.data.awakenedId),
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
-    if (!owned.length) badRequest("That Awoken is not yours.");
+    if (!owned.length) badRequest("That Awokin is not yours.");
     // Court-bound: the champion stands in hand. An Awoken stationed on the
     // field cannot take the title until it returns.
     const champOnField = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
-    if (champOnField.length) badRequest("Your champion must stand in hand — an Awoken on the field cannot take the title.");
+    if (champOnField.length) badRequest("Your champion must stand in hand — an Awokin on the field cannot take the title.");
     // Any Awoken can be champion, anywhere (Nigel, 2026-10-12). The Hall
     // TRAINS champions — housing is where they are fed and leveled — but
     // the title is not gated by a room. The marked champion is still the
@@ -3409,14 +3409,14 @@ export const handlers = {
         eq(schema.awakened.id, parsed.data.awakenedId),
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
-    if (!aw.length) badRequest("Awoken not found.");
+    if (!aw.length) badRequest("Awokin not found.");
     let layers: any[];
     try { layers = JSON.parse(aw[0].compositionJson || "[]"); }
     catch { badRequest("Invalid composition."); layers = []; }
     const wornAspects = layers.filter((l: any) => l.category === "aspect");
-    if (!wornAspects.length) badRequest("This Awoken has no aspect equipped.");
+    if (!wornAspects.length) badRequest("This Awokin has no aspect equipped.");
     const target = wornAspects.find((l: any) => l.source_id === parsed.data.targetAspectKey);
-    if (!target) badRequest("That aspect is not worn by this Awoken.");
+    if (!target) badRequest("That aspect is not worn by this Awokin.");
     const currentLevel = target.aspectLevel ?? 1;
     // The ladder (Nigel, 2026-10-17): raising FROM a level costs that
     // level's number of points — 1=1, 2=2, 3=3, 4=4 — so I->II costs
@@ -3590,7 +3590,7 @@ export const handlers = {
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
     const awakened = aw[0];
-    if (!awakened) badRequest("Awoken not found.");
+    if (!awakened) badRequest("Awokin not found.");
     let layers: any[];
     try { layers = JSON.parse(awakened.compositionJson); }
     catch { layers = []; }
@@ -3664,7 +3664,7 @@ export const handlers = {
       return { ok: true as const, element, newLevel, upgraded: true as const, cost, targetName: match.name, targetKey: match.source_id, imageUrl: match.imageBlobKey ? blobUrl(match.imageBlobKey) : null, stacked: worn.length };
     }
     if (worn.length >= ASPECT_STACK_MAX) {
-      badRequest(`This Awoken already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one with attunement points instead.`);
+      badRequest(`This Awokin already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one with attunement points instead.`);
     }
     // New aspect: add to composition (renders behind body), +1/+1
     layers.push({
@@ -5117,7 +5117,7 @@ export const handlers = {
     // Verify the Tender owns this Awoken and it is not already placed.
     const owned = await db.select({ id: schema.awakened.id }).from(schema.awakened)
       .where(and(eq(schema.awakened.id, parsed.data.awakenedId), eq(schema.awakened.ownerKey, ownerKey))).limit(1);
-    if (!owned.length) badRequest("That Awoken is not yours.");
+    if (!owned.length) badRequest("That Awokin is not yours.");
     const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     if (already.length) badRequest("Already on the field.");
@@ -5128,7 +5128,7 @@ export const handlers = {
     const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
       .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
     const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
-    if (courtIds.has(parsed.data.awakenedId)) badRequest("The court stays in hand — housed Awoken and the champion cannot be stationed on the field.");
+    if (courtIds.has(parsed.data.awakenedId)) badRequest("The court stays in hand — housed Awokin and the champion cannot be stationed on the field.");
     // Verify the tile belongs to the Tender and is not cursed.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
@@ -5137,7 +5137,7 @@ export const handlers = {
     if (tile[0].cursed) badRequest("Cannot deploy on cursed land.");
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
+    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");
     // Entering the field costs the power-scaled deploy energy — the same
     // price deployBattle charges (deployCostForPower). This is also the
     // recast price for an Awoken that dissipated back to hand at 0 HP.
@@ -5165,7 +5165,7 @@ export const handlers = {
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid battle deployment.");
     if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
-      badRequest("Each Awoken fights once.");
+      badRequest("Each Awokin fights once.");
     }
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
@@ -5178,12 +5178,12 @@ export const handlers = {
         )
       );
     const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
-    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awoken are not all yours.");
+    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awokin are not all yours.");
     const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
       .from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
     for (const f of fighters) {
-      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awoken is not yours to send.");
+      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awokin is not yours to send.");
       if (placedIds.has(f.id)) badRequest("Already on the field.");
       // Court-bound (Nigel, 2026-10-12): housed Awoken and the marked champion
       // stay in hand for battles — they cannot be stationed on field tiles.
@@ -5192,11 +5192,11 @@ export const handlers = {
       const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
         .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
       const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
-      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awoken and the champion stay in hand for battles.`);
+      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awokin and the champion stay in hand for battles.`);
     }
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-    if (occupied.length + fighters.length > 4) badRequest("Tile holds at most 4 Awoken.");
+    if (occupied.length + fighters.length > 4) badRequest("Tile holds at most 4 Awokin.");
     // Server-authoritative deploy cost: 2 + floor((power - 1) / 3) per fighter
     const assetRows = await db.select().from(schema.layerAssets);
     const assetStats = new Map<number, AssetStats>();
@@ -5318,7 +5318,7 @@ export const handlers = {
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
-    if (!placement.length) badRequest("That Awoken is not on your field.");
+    if (!placement.length) badRequest("That Awokin is not on your field.");
     // Target must be a purified tile owned by the Tender.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(
@@ -5339,7 +5339,7 @@ export const handlers = {
     const occupied = await db.select({ id: schema.fieldPlacements.id })
       .from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
+    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");
     // Server-authoritative move cost: 1 + floor((power - 1) / 3)
     const awokenRows = await db.select().from(schema.awakened)
       .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
@@ -5549,7 +5549,7 @@ export const handlers = {
     if (tile.cursed) badRequest("The curse holds that hex — no wall stands on cursed ground.");
     const standing = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
-    if (standing.length === 0) badRequest("No Awoken stands on that hex — walls are raised by the Awoken who stand there.");
+    if (standing.length === 0) badRequest("No Awokin stands on that hex — walls are raised by the Awokin who stand there.");
     const [dq, dr] = WALL_DIRS[dir];
     const nq = tile.q + dq, nr = tile.r + dr;
     const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
@@ -5591,14 +5591,14 @@ export const handlers = {
     if (tile.cursed) badRequest("The curse holds that hex — no work stands on cursed ground.");
     const standing = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
-    if (standing.length === 0) badRequest("No Awoken stands on that hex — edge works are laid by the Awoken who stand there.");
+    if (standing.length === 0) badRequest("No Awokin stands on that hex — edge works are laid by the Awokin who stand there.");
     const needSkill = SKILL_FOR_WORK[kind];
     if (needSkill) {
       const held = skillsHeldBy(ownerKey, standing.map((s: any) => s.awakenedId));
       if (!held.has(needSkill)) {
         badRequest(kind === "ward"
-          ? "No Warding hand stands on that hex — wards are cast only by an Awoken with the Warding skill."
-          : "No Runeing hand stands on that hex — runes are set only by an Awoken with the Runeing skill.");
+          ? "No Warding hand stands on that hex — wards are cast only by an Awokin with the Warding skill."
+          : "No Runeing hand stands on that hex — runes are set only by an Awokin with the Runeing skill.");
       }
     }
     const [dq, dr] = WALL_DIRS[dir];
@@ -5700,7 +5700,7 @@ export const handlers = {
       awakenedId: z.number().int().positive().optional(),
       pour: z.number().int().min(0).max(500).optional(),
     }).safeParse(args);
-    if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awoken to receive it.");
+    if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awokin to receive it.");
     const { spellKey, tileId, dir, awakenedId } = parsed.data;
     const hue = ["unaligned", "tide", "sky", "stone", "root", "fire"].includes(parsed.data.hue ?? "") ? parsed.data.hue! : "unaligned";
     await refreshGrimoire();
@@ -5711,11 +5711,11 @@ export const handlers = {
 
     // HEAL — the binding art, cast on one of your own standing.
     if (spell.engine === "heal" || spell.kind === "binding") {
-      if (!awakenedId) badRequest("Heal reaches one of your own standing Awoken — name it.");
+      if (!awakenedId) badRequest("Heal reaches one of your own standing Awokin — name it.");
       const placements = await db.select().from(schema.fieldPlacements)
         .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.awakenedId, awakenedId)));
       const placement = placements[0] as any;
-      if (!placement) badRequest("That Awoken does not stand on your field.");
+      if (!placement) badRequest("That Awokin does not stand on your field.");
       const payload = await awakenedPayloadById(awakenedId);
       const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
       const tileById = new Map(tiles.map((t) => [t.id, t]));
@@ -5728,7 +5728,7 @@ export const handlers = {
       const myTile = tileById.get(placement.tileId);
       const maxHp = (payload?.toughness ?? 3) + (myTile && towerTiles.some((tt) => hexDist(myTile, tt) <= 1) ? towerBonus : 0);
       const curHp = placement.hp ?? maxHp;
-      if (curHp >= maxHp) badRequest(`${payload?.name ?? "That Awoken"} stands whole already.`);
+      if (curHp >= maxHp) badRequest(`${payload?.name ?? "That Awokin"} stands whole already.`);
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
       const healed = Math.min(progress.healAmount, maxHp - curHp);
       await db.update(schema.fieldPlacements).set({ hp: curHp + healed })
@@ -5767,14 +5767,14 @@ export const handlers = {
     }
 
     if (spell.kind === "ward") {
-      if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awoken holds and the edge (0–5).");
+      if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
       const tileRows = await db.select().from(schema.territoryTiles)
         .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not yours to ward.");
       const standing = await db.select().from(schema.fieldPlacements)
         .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
-      if (!standing.length) badRequest("A ward stands on the edge of a hex your own Awoken holds — none stands there.");
+      if (!standing.length) badRequest("A ward stands on the edge of a hex your own Awokin holds — none stands there.");
       const [dq, dr] = WALL_DIRS[dir];
       const nq = tile.q + dq, nr = tile.r + dr;
       const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
@@ -5928,16 +5928,16 @@ export const handlers = {
   async teachSkill(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ awakenedId: z.number().int().positive(), skill: z.enum(["warding", "runeing"]) }).safeParse(args);
-    if (!parsed.success) badRequest("The War-Ground needs an Awoken and a skill (warding or runeing).");
+    if (!parsed.success) badRequest("The War-Ground needs an Awokin and a skill (warding or runeing).");
     const { awakenedId, skill } = parsed.data;
     const rows = await db.select().from(schema.awakened)
       .where(and(eq(schema.awakened.id, awakenedId), eq(schema.awakened.ownerKey, ownerKey))).limit(1);
     const aw = rows[0] as any;
-    if (!aw) badRequest("That Awoken is not yours to teach.");
+    if (!aw) badRequest("That Awokin is not yours to teach.");
     const level = awokenLevelOf(aw.experience ?? 0);
-    if (level < TEACH_MIN_LEVEL) badRequest(`${aw.name ?? "That Awoken"} has not reached level ${TEACH_MIN_LEVEL} — skills are milestone teachings, earned by seasons of war.`);
+    if (level < TEACH_MIN_LEVEL) badRequest(`${aw.name ?? "That Awokin"} has not reached level ${TEACH_MIN_LEVEL} — skills are milestone teachings, earned by seasons of war.`);
     const known = sqlite.prepare("SELECT id FROM awoken_skills WHERE owner_key = ? AND awakened_id = ? AND skill = ?").get(ownerKey, awakenedId, skill);
-    if (known) badRequest(`${aw.name ?? "That Awoken"} already holds the ${skill === "warding" ? "Warding" : "Runeing"} skill.`);
+    if (known) badRequest(`${aw.name ?? "That Awokin"} already holds the ${skill === "warding" ? "Warding" : "Runeing"} skill.`);
     if (!(await spendEnergy(ownerKey, TEACH_COST))) badRequest(`Not enough energy — a teaching costs ${TEACH_COST}.`);
     sqlite.prepare("INSERT INTO awoken_skills (owner_key, awakened_id, skill, created_at) VALUES (?, ?, ?, ?)")
       .run(ownerKey, awakenedId, skill, Date.now());
@@ -6373,7 +6373,7 @@ export const handlers = {
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid deployment.");
     if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
-      badRequest("Each Awoken fights once.");
+      badRequest("Each Awokin fights once.");
     }
     const ev = firstSeedEventRow(ownerKey);
     if (!ev) badRequest("No starseed waits on your land.");
@@ -6391,7 +6391,7 @@ export const handlers = {
         )
       );
     const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
-    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awoken are not all yours.");
+    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awokin are not all yours.");
     const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
       .from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
@@ -6401,13 +6401,13 @@ export const handlers = {
       .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
     const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
     for (const f of fighters) {
-      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awoken is not yours to send.");
+      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awokin is not yours to send.");
       if (placedIds.has(f.id)) badRequest("Already on the field.");
-      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awoken and the champion stay in hand.`);
+      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awokin and the champion stay in hand.`);
     }
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, seed.tile_id));
-    if (occupied.length + fighters.length > 4) badRequest("The seed's hex holds at most 4 Awoken.");
+    if (occupied.length + fighters.length > 4) badRequest("The seed's hex holds at most 4 Awokin.");
     let totalCost = 0;
     for (const f of fighters) {
       const payload = await awakenedPayloadById(f.id);
@@ -6437,7 +6437,7 @@ export const handlers = {
     if (!seed) badRequest("No starseed waits on your land.");
     const standing = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
-    if (!standing.length) badRequest("No defender stands on the seed's hex — send Awoken to the seed before the hold begins.");
+    if (!standing.length) badRequest("No defender stands on the seed's hex — send Awokin to the seed before the hold begins.");
     ev!.state = "holding";
     ev!.next_wave_at = Date.now() + firstSeedWaveGapMs(ev!.waves_cleared);
     saveFirstSeedEvent(ev!);
@@ -6470,7 +6470,7 @@ export const handlers = {
     const seedId = Math.floor(Number((args as any)?.seedId ?? 0));
     const awakenedIds = (Array.isArray((args as any)?.awakenedIds) ? (args as any).awakenedIds : []).map((n: any) => Math.floor(Number(n))).filter((n: number) => n > 0).slice(0, 4);
     if (!seedId) badRequest("Which seed?");
-    if (!awakenedIds.length) badRequest("A fetch party needs at least one Awoken.");
+    if (!awakenedIds.length) badRequest("A fetch party needs at least one Awokin.");
     const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(seedId, ownerKey) as any;
     if (!seed) badRequest("No such seed lies on your land.");
     if (seed.state !== "fallen") badRequest("That seed can no longer be fetched.");
@@ -6698,13 +6698,13 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const parsed = z.object({ awakenedId: z.number().int().positive(), tileIds: z.array(z.number().int().positive()).max(8) }).safeParse(args);
-    if (!parsed.success) badRequest("A patrol road is an Awoken and up to eight hexes.");
+    if (!parsed.success) badRequest("A patrol road is an Awokin and up to eight hexes.");
     const { awakenedId, tileIds } = parsed.data;
     const rows = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     const placement = rows[0] as any;
-    if (!placement) badRequest("That Awoken does not stand on the field — only the stationed can patrol.");
-    if (placement.marchPath) badRequest("That Awoken is on the march — recall it, or let it arrive, before laying a patrol.");
+    if (!placement) badRequest("That Awokin does not stand on the field — only the stationed can patrol.");
+    if (placement.marchPath) badRequest("That Awokin is on the march — recall it, or let it arrive, before laying a patrol.");
     if (tileIds.length === 0) {
       await db.update(schema.fieldPlacements).set({ patrolPath: null, patrolSince: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
@@ -6734,13 +6734,13 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
-    if (!parsed.success) badRequest("A march is an Awoken and the hex it marches to.");
+    if (!parsed.success) badRequest("A march is an Awokin and the hex it marches to.");
     const { awakenedId, tileId } = parsed.data;
     const rows = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     const placement = rows[0] as any;
-    if (!placement) badRequest("That Awoken does not stand on the field — only the stationed can march.");
-    if (placement.marchPath) badRequest("That Awoken is already on the march — recall it, or let it arrive.");
+    if (!placement) badRequest("That Awokin does not stand on the field — only the stationed can march.");
+    if (placement.marchPath) badRequest("That Awokin is already on the march — recall it, or let it arrive.");
     if (placement.tileId === tileId) badRequest("It stands there already.");
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const dest = tiles.find(t => t.id === tileId) as any;
@@ -6758,11 +6758,11 @@ export const handlers = {
         try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r[r.length - 1] === tileId) inbound++; } catch { /* broken roads hold no room */ }
       }
     }
-    if (inbound >= 4) badRequest("That hex will hold no more — four Awoken to a hex, standing or marching in.");
+    if (inbound >= 4) badRequest("That hex will hold no more — four Awokin to a hex, standing or marching in.");
     // The walker's true power and pace, from its own record.
     const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)).limit(1);
     const aw = awRows[0] as any;
-    if (!aw) badRequest("That Awoken is not yours to march.");
+    if (!aw) badRequest("That Awokin is not yours to march.");
     const assetRows = await db.select().from(schema.layerAssets);
     const assetStats = new Map<number, AssetStats>();
     for (const r of assetRows) {
@@ -6791,13 +6791,13 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
-    if (!parsed.success) badRequest("A recall names the marching Awoken.");
+    if (!parsed.success) badRequest("A recall names the marching Awokin.");
     const { awakenedId } = parsed.data;
     const rows = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     const placement = rows[0] as any;
-    if (!placement) badRequest("That Awoken does not stand on the field.");
-    if (!placement.marchPath || !placement.marchSince || !placement.marchEnds) badRequest("That Awoken is not on the march.");
+    if (!placement) badRequest("That Awokin does not stand on the field.");
+    if (!placement.marchPath || !placement.marchSince || !placement.marchEnds) badRequest("That Awokin is not on the march.");
     let road: number[] = [];
     try { const r = JSON.parse(placement.marchPath); if (Array.isArray(r)) road = r.filter((x: any) => typeof x === "number"); } catch { /* broken below */ }
     if (road.length < 2) {
@@ -7177,7 +7177,7 @@ export const handlers = {
       const busy = validHelpers.filter(h => busyPlacementIds.has(h.id));
       if (busy.length) {
         const names = busy.map(h => h.awakenedId).join(", ");
-        badRequest(`Awoken ${names} already assisting another build.`);
+        badRequest(`Awokin ${names} already assisting another build.`);
       }
     }
     const helperCount = validHelpers.length;
@@ -8037,7 +8037,7 @@ export const handlers = {
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
-    if (!placement.length) badRequest("Awoken not on field.");
+    if (!placement.length) badRequest("Awokin not on field.");
     // Remove from field
     await db.delete(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
@@ -8278,7 +8278,7 @@ export const handlers = {
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
-    if (!placement.length) badRequest("That Awoken is not on your field.");
+    if (!placement.length) badRequest("That Awokin is not on your field.");
     await db.update(schema.fieldPlacements)
       .set({
         stance: parsed.data.stance,
@@ -8304,7 +8304,7 @@ export const handlers = {
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
-    if (!placement.length) badRequest("That Awoken is not on your field.");
+    if (!placement.length) badRequest("That Awokin is not on your field.");
     if (placement[0].stance !== "attack") badRequest("Set attack stance first.");
     // The target must be a cursed tile owned by the Tender.
     const tile = await db.select().from(schema.territoryTiles)
@@ -8452,7 +8452,7 @@ export const handlers = {
       if (tile[0].cursed) badRequest("A newborn can only be placed on reclaimed land.");
       const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
         .where(eq(schema.fieldPlacements.tileId, parsed.tileId));
-      if (occupied.length >= 4) badRequest("Tile holds at most 4 Awoken.");
+      if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");
     }
     // A birth follows a victory, and the victory is the server's own
     // record: consume exactly one pending claim. No claim, no birth.
@@ -8569,14 +8569,14 @@ export const handlers = {
         eq(schema.awakened.id, parsed.data.awakenedId),
         eq(schema.awakened.ownerKey, ownerKey)
       )).limit(1);
-    if (!aw.length) badRequest("Awoken not found.");
+    if (!aw.length) badRequest("Awokin not found.");
     let layers: any[];
     try { layers = JSON.parse(aw[0].compositionJson); }
     catch { layers = []; }
     const aspect = layers.find((l: any) => l.category === "aspect");
-    if (!aspect) badRequest("This Awoken has no aspect.");
+    if (!aspect) badRequest("This Awokin has no aspect.");
     const el = aspect.aspectElement || (await compositionElements([aspect]))[0];
-    if (el !== "fire") badRequest("Only a Fire Awoken can ignite wildfire.");
+    if (el !== "fire") badRequest("Only a Fire Awokin can ignite wildfire.");
     if ((aspect.aspectLevel ?? 1) < 3) badRequest("Requires Fire III (level 3).");
     // Must be on a border tile (adjacent to cursed)
     const tile = await db.select().from(schema.territoryTiles)
@@ -8753,11 +8753,11 @@ export const handlers = {
     // the court is drawn from the hand. (Placed Awoken return only by dissipation.)
     const onField = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
-    if (onField.length) badRequest("That Awoken stands on the field — the court is drawn from the hand.");
+    if (onField.length) badRequest("That Awokin stands on the field — the court is drawn from the hand.");
     const aw = await db.select().from(schema.awakened)
       .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
-    if (!aw.length) badRequest("That Awoken is gone.");
-    if ((aw[0] as any).ownerKey !== ownerKey) badRequest("That Awoken is not yours.");
+    if (!aw.length) badRequest("That Awokin is gone.");
+    if ((aw[0] as any).ownerKey !== ownerKey) badRequest("That Awokin is not yours.");
     // Free the Awoken's previous room, clear the target room, then house.
     await db.delete(schema.hallResidents)
       .where(and(
@@ -8797,12 +8797,12 @@ export const handlers = {
       awakenedId: z.number().int(),
       energy: z.number().int().min(1).max(100),
     }).safeParse(args);
-    if (!parsed.success) badRequest("Choose an Awoken and 1–100 energy.");
+    if (!parsed.success) badRequest("Choose an Awokin and 1–100 energy.");
     const rows = await db.select().from(schema.awakened)
       .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
-    if (!rows.length) badRequest("That Awoken is gone.");
+    if (!rows.length) badRequest("That Awokin is gone.");
     if ((rows[0] as any).ownerKey && (rows[0] as any).ownerKey !== ownerKey) {
-      badRequest("That Awoken is not yours to feed.");
+      badRequest("That Awokin is not yours to feed.");
     }
     const spent = await spendEnergy(ownerKey, parsed.data.energy);
     if (!spent) badRequest("Not enough energy.");
@@ -9008,7 +9008,7 @@ export const handlers = {
       tileId: z.number().int().positive(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid direct attack.");
-    if (new Set(parsed.data.awakenedIds).size !== 3) badRequest("Three distinct Awoken must strike together.");
+    if (new Set(parsed.data.awakenedIds).size !== 3) badRequest("Three distinct Awokin must strike together.");
     // Verify the tile belongs to the Tender and is cursed.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
@@ -9018,12 +9018,12 @@ export const handlers = {
     const owned = await db.select().from(schema.awakened)
       .where(and(eq(schema.awakened.ownerKey, ownerKey)));
     const attackers = owned.filter(t => parsed.data.awakenedIds.includes(t.id));
-    if (attackers.length !== 3) badRequest("Those Awoken are not all yours.");
+    if (attackers.length !== 3) badRequest("Those Awokin are not all yours.");
     const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
       .from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
     for (const a of attackers) {
-      if (!canTouchAwoken(a, ownerKey)) badRequest("That Awoken is not yours to send.");
+      if (!canTouchAwoken(a, ownerKey)) badRequest("That Awokin is not yours to send.");
       if (placedIds.has(a.id)) badRequest("Already on the field.");
     }
     // The tile becomes what the attackers are: dominant element of their

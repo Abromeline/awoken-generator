@@ -982,7 +982,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       </div>
       {!autoBattle && !selected && fighters.some(f => f.hp > 0) && enemies.some(e => e.hp > 0) && (
         <div className="manual-hint">
-          👆 Tap one of your Awoken, then tap an enemy to attack
+          👆 Tap one of your Awokin, then tap an enemy to attack
         </div>
       )}
       <div className="battle-log">

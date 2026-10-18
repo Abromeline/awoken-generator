@@ -154,7 +154,7 @@ export function defaultGrimoire(): GrimoireState {
     engine: "heal",
     glyphId: null,
     cost: 2,
-    blurb: "Mend one of your own standing Awoken. The amount is your heal tier (5 × tier, tier rising every three Tender levels) — the book holds only its price.",
+    blurb: "Mend one of your own standing Awokin. The amount is your heal tier (5 × tier, tier rising every three Tender levels) — the book holds only its price.",
     numbers: {},
     forms: { unaligned: "Heal", tide: "Heal", sky: "Heal", stone: "Heal", root: "Heal", fire: "Heal" },
     builtin: true,

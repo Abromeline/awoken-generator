@@ -174,7 +174,7 @@ const ROSTER = [
   { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
   { name: "unraveler", label: "Unraveler", note: "Looming ink mass. Hunts the strongest standing." },
   { name: "hollow", label: "Hollow", note: "Pure void. Drains energy instead of blood." },
-  { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awoken where it stands." },
+  { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awokin where it stands." },
 ] as const;
 
 function PourRow({ hue, setHue }: { hue: string; setHue: (h: string) => void }) {
@@ -553,10 +553,10 @@ export default function Table() {
     return (
       <div className="table-door-wrap">
         <div className="table-door">
-          <p className="door-back"><a href="/">← Back to the Awoken</a></p>
+          <p className="door-back"><a href="/">← Back to the Awokin</a></p>
           <h1>🕯️ The Table</h1>
           <p>
-            A table for Tenders, played together. Awoken never fight each other here —
+            A table for Tenders, played together. Awokin never fight each other here —
             every battle is the party against the Unbinding.
           </p>
           {devMode ? (
@@ -681,7 +681,7 @@ export default function Table() {
           <div className="field-wrap">
             <img className="field-bg" src={battlegroundBg} alt="" aria-hidden="true" />
             <div className="field-board">
-            <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six hexes where Awoken may stand">
+            <svg className="field-hexes" viewBox="0 0 300 260" role="img" aria-label="The instance field: the star-seed at the center hex, ringed by six hexes where Awokin may stand">
               {FIELD_HEXES.map((h) => {
                 const unit = shared.field.find(u => u.hex === h.id);
                 const myUnit = !!(unit && you && unit.ownerKey === you.key);
@@ -875,11 +875,11 @@ export default function Table() {
             {placing && (
               <div className="placing-bar">
                 <span className="placing-text">
-                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awoken</strong> to restore {you?.healAmount ?? 5} HP (⚡{healDef?.cost ?? 2}).</>}
+                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to restore {you?.healAmount ?? 5} HP (⚡{healDef?.cost ?? 2}).</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
-                  {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>your Awoken holds</strong>: the ward will stand on one of its edges.</>}
+                  {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>your Awokin holds</strong>: the ward will stand on one of its edges.</>}
                   {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
                 </span>
                 {placing.kind !== "heal" && ["seal", "trees", "lattice", "shard"].includes(defs[placing.root]?.engine ?? "") && pourHue !== "unaligned" && you?.pools && (() => {
@@ -935,7 +935,7 @@ export default function Table() {
                 ) : null}
                 {you && !shared.bastion && (
                   <div className="bastion-banner">
-                    🔑 Answering a friend's call? Enter their key — a bastion key, an ambush key, a siege key — and take your seat at their defence, Awoken in hand.
+                    🔑 Answering a friend's call? Enter their key — a bastion key, an ambush key, a siege key — and take your seat at their defence, Awokin in hand.
                     <input className="call-key-input" value={callKeyInput} onChange={e => setCallKeyInput(e.target.value.toUpperCase())} placeholder="KEY" maxLength={6} />
                     <button className="table-btn battle-btn" disabled={callKeyInput.trim().length < 4} onClick={() => send({ type: "switchRoom", callKey: callKeyInput.trim() })}>Answer the call</button>
                   </div>
@@ -1002,12 +1002,12 @@ export default function Table() {
               <div className="satchel-tabs" role="tablist" aria-label="Your satchel">
                 {(["I", "II", "III", "IV"] as const).map((t) => (
                   <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                    {t}{t === "I" ? " · Awoken" : t === "II" ? " · Abilities" : t === "III" ? " · Spells" : " · Potions & Items"}
+                    {t}{t === "I" ? " · Awokin" : t === "II" ? " · Abilities" : t === "III" ? " · Spells" : " · Potions & Items"}
                   </button>
                 ))}
               </div>
               <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law">⚡ {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
-              <span className="my-band" title="Your travelling company — how many of your Awoken may stand on the field at once. The Muster roads widen it: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
+              <span className="my-band" title="Your travelling company — how many of your Awokin may stand on the field at once. The Muster roads widen it: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
               <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice"><svg className="ink-glyph" viewBox="0 0 32 32"><rect x="6.5" y="6.5" width="19" height="19" rx="4.5"/><circle className="pip" cx="11.8" cy="11.8" r="1.7"/><circle className="pip" cx="20.2" cy="11.8" r="1.7"/><circle className="pip" cx="16" cy="16" r="1.7"/><circle className="pip" cx="11.8" cy="20.2" r="1.7"/><circle className="pip" cx="20.2" cy="20.2" r="1.7"/></svg> Your dice</button>
             </div>
             {notice && <p className="notice-line">{notice}</p>}
@@ -1033,7 +1033,7 @@ export default function Table() {
                           <span className="tcard-mark">{card.level ? `Lv ${card.level}` : ""}</span>
                         </div>
                         {card.art ? (
-                          <div className="tcard-art real"><img src={card.art} alt={`${card.name}, your Awoken`} /></div>
+                          <div className="tcard-art real"><img src={card.art} alt={`${card.name}, your Awokin`} /></div>
                         ) : (
                           <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
                         )}
@@ -1046,10 +1046,10 @@ export default function Table() {
                 {selectedCard ? (
                   <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap an open ring hex on the field to set it standing (⚡{Math.max(1, selectedCard.power)}). Tap its hex again later to recall it; the energy spent is not returned.</p>
                 ) : you.bound ? (
-                  <p className="quiet small">Your roster — every Awoken of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
+                  <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (
                   <div className="bind-strip">
-                    <p className="quiet small">Your roster — sent to you alone. These are stand-in cards: bind your Tender and your own Awoken take their places, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
+                    <p className="quiet small">Your roster — sent to you alone. These are stand-in cards: bind your Tender and your own Awokin take their places, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
                     <div className="bind-row">
                       <input
                         className="door-input"
@@ -1078,7 +1078,7 @@ export default function Table() {
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, choose the hex your Awoken holds, then its neighbour.`}>
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, choose the hex your Awokin holds, then its neighbour.`}>
                       {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✦</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
@@ -1096,12 +1096,12 @@ export default function Table() {
                 <PourRow hue={pourHue} setHue={(h) => { setPourHue(h); setPourPts(0); }} />
                 <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
                   onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
-                  title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awoken · ⚡${healDef?.cost ?? 2}`}>
+                  title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ⚡${healDef?.cost ?? 2}`}>
                   {healDef?.glyph ? <img src={healDef.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✚</span>}
                   <span className="working-text">
                     <strong>Heal · Tier {you.healTier ?? 1}</strong>
                     <em>The mending art · ⚡{healDef?.cost ?? 2} · yours from Tender Lv 1</em>
-                    <span>Restore {you.healAmount ?? 5} HP to one of your standing Awoken. In our lore, the healers are the Binders.</span>
+                    <span>Restore {you.healAmount ?? 5} HP to one of your standing Awokin. In our lore, the healers are the Binders.</span>
                   </span>
                 </button>
                 {Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell").map(d => {

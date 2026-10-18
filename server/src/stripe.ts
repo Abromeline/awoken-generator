@@ -80,7 +80,7 @@ export async function createCheckoutSession(req: {
         price_data: {
           currency: "usd",
           unit_amount: PACK_PRICE_CENTS,
-          product_data: { name: `Awoken wake pack — ${CREDITS_PER_PACK} wakes` },
+          product_data: { name: `Awokin wake pack — ${CREDITS_PER_PACK} wakes` },
         },
         quantity: 1,
       },
@@ -96,7 +96,7 @@ export async function createCheckoutSession(req: {
 async function getOrCreateCustomer(s: Stripe): Promise<string> {
   const existing = await db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, "stripe_customer_id")).limit(1);
   if (existing[0]?.value) return existing[0].value;
-  const customer = await s.customers.create({ metadata: { user_id: SINGLE_OWNER }, description: "Awoken Tender (single-owner playtest)" });
+  const customer = await s.customers.create({ metadata: { user_id: SINGLE_OWNER }, description: "Awokin Tender (single-owner playtest)" });
   await db.insert(schema.settings).values({ key: "stripe_customer_id", value: customer.id }).onConflictDoNothing();
   return customer.id;
 }

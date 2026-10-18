@@ -250,7 +250,7 @@ const ENEMY_ROSTER = [
   { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
   { name: "unraveler", label: "Unraveler", note: "Looming ink mass. Hunts the strongest standing." },
   { name: "hollow", label: "Hollow", note: "Pure void. Drains energy instead of blood." },
-  { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awoken where it stands." },
+  { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awokin where it stands." },
 ] as const;
 
 interface TaleEntry {
@@ -1352,7 +1352,7 @@ function handleConnection(ws: WebSocket): void {
       room = target;
       room.sky = await currentSky();
       room.players.set(ws, player);
-      tell(room, `${player.name} answers the ${String(call.kind).toUpperCase()} call — key ${k} — and takes a seat, Awoken in hand.`);
+      tell(room, `${player.name} answers the ${String(call.kind).toUpperCase()} call — key ${k} — and takes a seat, Awokin in hand.`);
       sendState(room);
       return;
     }
@@ -1492,7 +1492,7 @@ function handleConnection(ws: WebSocket): void {
         // including requests that named no hex of this field.
         const centerId = FIELD_HEXES_SERVER.find(h => h.center)?.id;
         ws.send(JSON.stringify({ type: "error", message: hex === centerId
-          ? "An Awoken stands on a field hex — the center hex is the star-seed's."
+          ? "An Awokin stands on a field hex — the center hex is the star-seed's."
           : "That is no hex of this field." }));
         return;
       }
@@ -1501,7 +1501,7 @@ function handleConnection(ws: WebSocket): void {
         return;
       }
       if (!card) {
-        ws.send(JSON.stringify({ type: "error", message: "That Awoken is not in your roster." }));
+        ws.send(JSON.stringify({ type: "error", message: "That Awokin is not in your roster." }));
         return;
       }
       // The Travelling Company (ruled 2026-10-18): the band
@@ -1551,7 +1551,7 @@ function handleConnection(ws: WebSocket): void {
       const unit = room.field.get(hex);
       if (!unit) return;
       if (unit.ownerKey !== player.key) {
-        ws.send(JSON.stringify({ type: "error", message: "That Awoken answers to another Tender." }));
+        ws.send(JSON.stringify({ type: "error", message: "That Awokin answers to another Tender." }));
         return;
       }
       room.field.delete(hex);
@@ -1574,7 +1574,7 @@ function handleConnection(ws: WebSocket): void {
       if (!player) return;
       if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no mending — bind in the game to cast." })); return; }
       const unit = room.field.get(String(msg.hex || ""));
-      if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awoken." })); return; }
+      if (!unit || unit.ownerKey !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = healSpell()?.cost ?? 2;
       if (player.energy < healCost) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — you hold ⚡${player.energy}.` })); return; }
@@ -1613,7 +1613,7 @@ function handleConnection(ws: WebSocket): void {
       const hexA = String(msg.hexA || "");
       const hexB = String(msg.hexB || "");
       const mine = room.field.get(hexA);
-      if (!mine || mine.ownerKey !== caster.key) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a hex your own Awoken holds." })); return; }
+      if (!mine || mine.ownerKey !== caster.key) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a hex your own Awokin holds." })); return; }
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two hexes must share a side." })); return; }
       if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }

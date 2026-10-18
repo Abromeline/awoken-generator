@@ -100,7 +100,7 @@ export default function ConfluenceBattle({
       if (aliveFighters.length === 0) {
         clearInterval(timer);
         setPhase("defeat");
-        setLog(l => [...l, "The Awoken disperse..."]);
+        setLog(l => [...l, "The Awokin disperse..."]);
         api.resolveConfluence({ sessionId, victory: false }).catch(() => {});
         return;
       }
@@ -144,13 +144,13 @@ export default function ConfluenceBattle({
           <button className="packet-close" onClick={onClose}>✕</button>
         </div>
 
-        {phase === "loading" && <div className="cb-loading">Gathering the Awoken...</div>}
+        {phase === "loading" && <div className="cb-loading">Gathering the Awokin...</div>}
 
         {(phase === "battle" || phase === "victory" || phase === "defeat") && (
           <>
             <div className="cb-sides">
               <div className="cb-fighters">
-                <h3>Awoken ({fighters.filter(f => f.hp > 0).length}/{fighters.length})</h3>
+                <h3>Awokin ({fighters.filter(f => f.hp > 0).length}/{fighters.length})</h3>
                 {fighters.map(f => (
                   <div key={f.id} className={`cb-fighter ${f.hp <= 0 ? "fallen" : ""}`}>
                     <img src={f.image_url} alt={f.name} />

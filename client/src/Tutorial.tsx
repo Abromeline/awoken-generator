@@ -17,30 +17,30 @@ const STEPS: Step[] = [
     title: "Welcome, Tender",
     body: [
       "This is your territory — hexes adrift in the void. The center tile is purified. Everything around it is cursed.",
-      "Your Awoken are matter held together by attention. Your attention is the binding force.",
+      "Your Awokin are matter held together by attention. Your attention is the binding force.",
     ],
-    lore: "The Awoken never fight each other. That is not what they are here to do.",
+    lore: "The Awokin never fight each other. That is not what they are here to do.",
   },
   {
-    title: "Place Your First Awoken",
+    title: "Place Your First Awokin",
     body: [
       "Tap a card in your hand, then tap a purified tile to deploy them.",
-      "Once placed, an Awoken cannot return to hand. They are committed to the land.",
-      "Awoken in your hand grant energy — stronger ones grant more.",
+      "Once placed, an Awokin cannot return to hand. They are committed to the land.",
+      "Awokin in your hand grant energy — stronger ones grant more.",
     ],
   },
   {
     title: "Energy & Waking",
     body: [
-      "Wake more Awoken for energy. Each one in hand increases your energy cap.",
-      "Deploying costs energy based on the Awoken's power.",
+      "Wake more Awokin for energy. Each one in hand increases your energy cap.",
+      "Deploying costs energy based on the Awokin's power.",
       "Balance: keep some in hand for energy, deploy others to expand.",
     ],
   },
   {
     title: "Stances",
     body: [
-      "⚔ Attack (1 energy): Strike adjacent cursed tiles. Each attack dwindles curse HP by the Awoken's power.",
+      "⚔ Attack (1 energy): Strike adjacent cursed tiles. Each attack dwindles curse HP by the Awokin's power.",
       "🛡 Defense (1 energy): Hold ground. Guards the tile and blocks enemies.",
       "✦ Binding (1 energy + 3/hr): Heals wounded defenders and channels attunement into the land.",
     ],
@@ -49,17 +49,17 @@ const STEPS: Step[] = [
   {
     title: "Purifying Land",
     body: [
-      "Each cursed tile shows ♥ — its curse HP. Attack with adjacent Awoken to dwindle it.",
+      "Each cursed tile shows ♥ — its curse HP. Attack with adjacent Awokin to dwindle it.",
       "At 0 HP, the curse breaks and the tile becomes yours.",
-      "Curses grow stronger farther from center. You'll need more Awoken — or stronger ones — to push outward.",
+      "Curses grow stronger farther from center. You'll need more Awokin — or stronger ones — to push outward.",
     ],
   },
   {
     title: "The Unraveling",
     body: [
       "Unravelings assault your territory. Tap 'Face the Next Unraveling' when ready.",
-      "Towers fire first. Then Awoken and enemies act in initiative order (tougher = slower).",
-      "Enemies target your Awoken and towers — unless they see an undefended tile, then they go for the land.",
+      "Towers fire first. Then Awokin and enemies act in initiative order (tougher = slower).",
+      "Enemies target your Awokin and towers — unless they see an undefended tile, then they go for the land.",
     ],
     lore: "The Unbinding is entropy trying to rip their world apart. Your attention is the only thing holding it together.",
   },
@@ -67,9 +67,9 @@ const STEPS: Step[] = [
     title: "Enemies",
     body: [
       "FRAY: Small ink splatters. Weak alone, dangerous in groups.",
-      "UNRAVELER: Looming ink mass. Targets your strongest Awoken.",
+      "UNRAVELER: Looming ink mass. Targets your strongest Awokin.",
       "HOLLOW: Pure void. Drains your energy instead of dealing damage.",
-      "TANGLE: Knotted thorns. Pins one Awoken for the wave.",
+      "TANGLE: Knotted thorns. Pins one Awokin for the wave.",
     ],
     lore: "Adversaries have no elements, no synergy. They are entropy, falling apart. Your edge is fellowship.",
     enemyImages: [frayImg, unravelerImg, hollowImg, tangleImg],
@@ -78,7 +78,7 @@ const STEPS: Step[] = [
     title: "Tactics",
     body: [
       "Towers are your first line — they volley before anyone moves. Place them to cover approaches.",
-      "Tough Awoken move slowly but hit hard. Fast ones strike first.",
+      "Tough Awokin move slowly but hit hard. Fast ones strike first.",
       "Ranged attacks lose power with distance. Keep archers close.",
       "If a tile has no defenders, enemies will corrupt it. Never leave borders undefended.",
     ],
@@ -86,16 +86,16 @@ const STEPS: Step[] = [
   {
     title: "Binding & Healing",
     body: [
-      "Binding Awoken heal wounded defenders between waves.",
-      "Healing = total power ÷ wounded Awoken in hex + adjacent hexes.",
-      "Damage persists. Heal matters. A wounded Awoken left alone stays wounded.",
+      "Binding Awokin heal wounded defenders between waves.",
+      "Healing = total power ÷ wounded Awokin in hex + adjacent hexes.",
+      "Damage persists. Heal matters. A wounded Awokin left alone stays wounded.",
     ],
     lore: "The Tender's attention IS the binding force. To bind is to care, and care has a cost.",
   },
   {
     title: "Attunement Shrine",
     body: [
-      "Build an Attunement Shrine to double aspect attunement from adjacent Binding Awoken.",
+      "Build an Attunement Shrine to double aspect attunement from adjacent Binding Awokin.",
       "Aspects are earned through attunement — 10 points spawns a random aspect.",
       "Matching elements upgrade aspects I → II → III.",
     ],
@@ -103,7 +103,7 @@ const STEPS: Step[] = [
   {
     title: "Champions",
     body: [
-      "Every Awoken dreams of one day being a champion — shaping the world merely with their presence.",
+      "Every Awokin dreams of one day being a champion — shaping the world merely with their presence.",
       "A well-attuned champion can turn the tide of the curse. Their element flows into the land around them.",
       "Raise many, not one. Each champion is a beacon. Together, they are a dawn.",
     ],
@@ -113,7 +113,7 @@ const STEPS: Step[] = [
     title: "Expand",
     body: [
       "Purify 7 tiles and build 1 Attunement Shrine to complete your training.",
-      "Then the land is yours to shape. Build towers, raise Awoken, face the waves.",
+      "Then the land is yours to shape. Build towers, raise Awokin, face the waves.",
       "The Unraveling never stops. But neither do you.",
     ],
   },

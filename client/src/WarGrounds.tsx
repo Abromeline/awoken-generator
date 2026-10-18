@@ -50,7 +50,7 @@ type RuneKind = "snare" | "harm" | "meld";
 // Client mirrors of the server's stems — display only; the server
 // is the law and its refusals speak.
 const WORK_DEFS: Record<WorkKind, { icon: string; name: string; cost: number; blurb: string }> = {
-  wall: { icon: "🧱", name: "Wall", cost: 2, blurb: "Blocks passage. No damage. Any Awoken standing here may raise it. HP 10." },
+  wall: { icon: "🧱", name: "Wall", cost: 2, blurb: "Blocks passage. No damage. Any Awokin standing here may raise it. HP 10." },
   thorns: { icon: "🌵", name: "Thorns", cost: 1, blurb: "Passage allowed — but slowed: crossing or fighting through them costs an enemy its next strike." },
   ward: { icon: "🔷", name: "Ward", cost: 3, blurb: "A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15." },
   rune: { icon: "🔶", name: "Rune", cost: 3, blurb: "A trap, not a barrier — springs once on the first enemy who crosses, then is spent. Needs the Runeing skill." },
@@ -123,7 +123,7 @@ function SeedMissions({ tile, seed, fieldParty, onFetchSeed, onHoldSeed }: {
       {onFetchSeed && (
         <div className="wg-fetch">
           <p className="wg-fetch-label">🧺 The fetch party (rides from the home bastion; pick up to 4):</p>
-          {fieldParty.length === 0 && <p className="quiet">No Awoken stand in your field.</p>}
+          {fieldParty.length === 0 && <p className="quiet">No Awokin stand in your field.</p>}
           {fieldParty.map(m => (
             <label key={m.awakenedId} className="wg-fetch-row">
               <input type="checkbox" disabled={m.marching || busy} checked={party.includes(m.awakenedId)} onChange={() => toggle(m.awakenedId)} />
@@ -187,7 +187,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
     const icon = skill === "warding" ? "🔷" : "🔶";
     const candidates = standing.filter(a => !a.skills.includes(skill) && (a.level ?? 0) >= TEACH_MIN_LEVEL);
     if (candidates.length === 0) {
-      return <p className="quiet wg-teach-note">{icon} {label} is a milestone teaching — an Awoken of level {TEACH_MIN_LEVEL}+ standing here could learn it for {TEACH_COST}⚡. None standing can yet.</p>;
+      return <p className="quiet wg-teach-note">{icon} {label} is a milestone teaching — an Awokin of level {TEACH_MIN_LEVEL}+ standing here could learn it for {TEACH_COST}⚡. None standing can yet.</p>;
     }
     return (
       <div className="wg-teach-row">
@@ -325,7 +325,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
           {cursed
             ? "Cursed ground raises no works and holds no buildings. Purify it first."
             : standing.length === 0
-              ? "Edge works are laid by an Awoken standing on the hex — station one here first."
+              ? "Edge works are laid by an Awokin standing on the hex — station one here first."
               : pickDir !== null
                 ? `The ${DIR_NAMES[pickDir]} edge is bare. Choose its work below — one work per edge.`
                 : selWork
@@ -441,7 +441,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
               {a.skills.includes("runeing") ? " · 🔶 Runeing" : ""}
             </span>
           ))}
-          {standing.length === 0 && <span className="wg-reading">No Awoken stationed</span>}
+          {standing.length === 0 && <span className="wg-reading">No Awokin stationed</span>}
         </div>
 
         {!!tile.spark && onClaimSpark && (

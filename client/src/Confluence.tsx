@@ -117,7 +117,7 @@ export default function Confluence({
             )}
             <div className="friends-section">
               <h4>Commit your housed champions ({committed.length}/{hallLevel})</h4>
-              <div className="referral-text">The Hall sends its champions — only Awoken housed in your Hall of Champions can march, up to its level.</div>
+              <div className="referral-text">The Hall sends its champions — only Awokin housed in your Hall of Champions can march, up to its level.</div>
               <div className="champion-grid">
                 {hand.filter(a => canMarch(a) && !committed.includes(a.id)).map(a => (
                   <button key={a.id} className="champion-option" onClick={() => commit(a.id)}>
@@ -127,14 +127,14 @@ export default function Confluence({
                   </button>
                 ))}
               </div>
-              {hand.length === 0 && <div className="friends-empty">No Awoken in hand.</div>}
-              {hand.length > 0 && !hand.some(a => canMarch(a)) && <div className="friends-empty">No champions are housed. Build the Hall of Champions and house an Awoken to send them.</div>}
+              {hand.length === 0 && <div className="friends-empty">No Awokin in hand.</div>}
+              {hand.length > 0 && !hand.some(a => canMarch(a)) && <div className="friends-empty">No champions are housed. Build the Hall of Champions and house an Awokin to send them.</div>}
             </div>
             {committed.length > 0 && (
               <div className="friends-section">
                 <h4>To battle</h4>
                 <div className="referral-text">
-                  Both tenders' committed Awoken fight as one against the Unraveling.
+                  Both tenders' committed Awokin fight as one against the Unraveling.
                 </div>
                 <button className="abtn" onClick={() => setShowBattle(true)}>
                   ⚔ Begin the shared battle

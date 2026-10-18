@@ -177,7 +177,7 @@ const TABLE_GROUPS: { title: string; caption?: string; slots: TableSlot[] }[] = 
       { name: "seed_bulb_1", label: "Star-seed bulb — young", canvas: "360×360", note: "The bulb at the pool's smallest. It grows as the pool grows." },
       { name: "seed_bulb_2", label: "Star-seed bulb — grown", canvas: "360×360" },
       { name: "seed_bulb_3", label: "Star-seed bulb — swollen", canvas: "360×360", note: "The bulb at the pool's fullest, before the tally." },
-      { name: "bastion_lvl_1", label: "Bastion — Level 1", canvas: "640×512", note: "What the Awoken build around a held seed. Level = holders' level ÷ 3." },
+      { name: "bastion_lvl_1", label: "Bastion — Level 1", canvas: "640×512", note: "What the Awokin build around a held seed. Level = holders' level ÷ 3." },
       { name: "bastion_lvl_2", label: "Bastion — Level 2", canvas: "640×512" },
       { name: "bastion_lvl_3", label: "Bastion — Level 3", canvas: "640×512" },
     ],
@@ -207,7 +207,7 @@ const TABLE_GROUPS: { title: string; caption?: string; slots: TableSlot[] }[] = 
   {
     title: "Abilities & table signs",
     slots: [
-      { name: "ability_ward", label: "Ward", canvas: "128×128", note: "Tab II marks: every Tender casts Lvl 1 wards and runes; Awoken-borne ones ride here too." },
+      { name: "ability_ward", label: "Ward", canvas: "128×128", note: "Tab II marks: every Tender casts Lvl 1 wards and runes; Awokin-borne ones ride here too." },
       { name: "ability_rune", label: "Rune", canvas: "128×128" },
       { name: "sign_dice", label: "Dice sign", canvas: "128×128", note: "The mark that opens the dice pop-up on the hand." },
       { name: "sign_kindred", label: "Kindred sign", canvas: "128×128", note: "The twin-flame mark of the Kindred pool." },
@@ -277,7 +277,7 @@ function CardBorderSection() {
     <div className="workspace-grid">
       <div className="workspace-card wide">
         <h3>🖼️ Card Border</h3>
-        <p className="quiet">Add border art here and the live one wraps <strong>every Awoken card</strong> — in the collection, on the card's own page, and in your hand at the Table. Upload a PNG drawn with a transparent middle. <em>Hug the edge</em> suits art drawn as a full-card frame; <em>Morning fit</em> suits art drawn like the birth frame — an ornament surround whose window should land on the card. The wake ceremony always keeps its own birth frame.</p>
+        <p className="quiet">Add border art here and the live one wraps <strong>every Awokin card</strong> — in the collection, on the card's own page, and in your hand at the Table. Upload a PNG drawn with a transparent middle. <em>Hug the edge</em> suits art drawn as a full-card frame; <em>Morning fit</em> suits art drawn like the birth frame — an ornament surround whose window should land on the card. The wake ceremony always keeps its own birth frame.</p>
         <div style={{ display: "flex", gap: 26, flexWrap: "wrap", alignItems: "flex-start" }}>
           <div style={{ textAlign: "center" }}>
             <div style={{ position: "relative", width: 150, aspectRatio: "750 / 971", margin: "34px auto 8px", background: "linear-gradient(160deg,#2a2118,#171208)", border: "2px solid #141414", boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>
@@ -1255,7 +1255,7 @@ export default function UIWorkspace() {
         <div>
           <p className="quiet" style={{ marginTop: 0 }}>
             🎲 <strong>Discord Table</strong> — these shelves hold the replaceable art for the Discord
-            Table: the Activity where Tenders will play the Awoken together. Uploads save here exactly
+            Table: the Activity where Tenders will play the Awokin together. Uploads save here exactly
             like the other sections, ready for the Table to draw from. The four classic enemies keep
             their slots in the Enemies section above; only the Table's newer faces live here.
           </p>

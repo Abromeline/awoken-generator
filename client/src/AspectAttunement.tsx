@@ -56,7 +56,7 @@ export function AspectAttunement({ visible, onClose, tenderItems, placedIds, onU
             <span className="celestial-rate" style={{ fontSize: 11, opacity: rate > 0 ? 0.95 : 0.45, minWidth: 52, textAlign: "right", color: "#e8d5a0" }}>{rate > 0 ? `+${rate}/hr` : "—"}</span>
             <button
               className="celestial-orb"
-              title={`${aspectCount} ${el.label} aspects ready — tap, then tap an Awoken`}
+              title={`${aspectCount} ${el.label} aspects ready — tap, then tap an Awokin`}
               onClick={() => {
                 const aspects = (data.inventory || []).filter((i: any) => i.element === el.id);
                 if (aspects.length > 0) {

@@ -1084,7 +1084,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await api.teachSkill({ awakenedId, skill });
       await refreshWorks();
       const aw = tenderItems.find(a => a.id === awakenedId);
-      showHexNotice(`${aw?.name ?? "The Awoken"} learns the ${skill === "warding" ? "Warding" : "Runeing"} skill — the teaching holds.`);
+      showHexNotice(`${aw?.name ?? "The Awokin"} learns the ${skill === "warding" ? "Warding" : "Runeing"} skill — the teaching holds.`);
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "The teaching failed.");
     }
@@ -1318,13 +1318,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         const a = tenderItems.find((x) => x.id === p.awakenedId);
         return { id: p.awakenedId, hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
       }).filter((x) => x.max > 0 && x.hp < x.max).sort((x, y) => (x.hp / x.max) - (y.hp / y.max));
-      if (!wounded.length) { showHexNotice("No wounded Awoken stands on that hex."); return; }
+      if (!wounded.length) { showHexNotice("No wounded Awokin stands on that hex."); return; }
       void doCastMap({ awakenedId: wounded[0].id });
       return;
     }
     if (castSpell.kind === "ward") {
       if (castAnchor === null) {
-        if (!placements.some((p) => p.tileId === tile.id)) { showHexNotice("A ward stands on the edge of a hex your own Awoken holds — tap such a hex first."); return; }
+        if (!placements.some((p) => p.tileId === tile.id)) { showHexNotice("A ward stands on the edge of a hex your own Awokin holds — tap such a hex first."); return; }
         setCastAnchor(tile.id);
         showHexNotice("Now tap one of the glowing edges of that hex.");
         return;
@@ -1646,7 +1646,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       .filter(p => p.stance === "attack" || p.stance === "defense")
       .map(p => p.awakenedId);
     if (!fighterIds.length) {
-      showHexNotice("Commit Awoken in attack or defense stance first — towers alone cannot claim a victory.");
+      showHexNotice("Commit Awokin in attack or defense stance first — towers alone cannot claim a victory.");
       return;
     }
     battleFighterIdsRef.current = fighterIds;
@@ -2340,7 +2340,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // Court-bound: housed Awoken and the champion stay in hand for battles —
     // they never stage for field deployment.
     if (isCourt(a) && !battlePool.includes(a.id)) {
-      showHexNotice(`${a.name} is of the court — housed Awoken and the champion stay in hand for battles.`);
+      showHexNotice(`${a.name} is of the court — housed Awokin and the champion stay in hand for battles.`);
       return;
     }
     setBattlePool(prev => {
@@ -3486,7 +3486,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
     <div className="champion-tab">
       <div className="celestial-title">Hall of Champions</div>
       <img src={hallBanner} className="hall-banner" alt="The Hall of Champions" />
-      <p className="quiet">No hall stands yet. Raise the 🏰 Hall of Champions from the build menu — a castle haunted by ancient Awoken, where your champions will dwell, be fed, and grow.</p>
+      <p className="quiet">No hall stands yet. Raise the 🏰 Hall of Champions from the build menu — a castle haunted by ancient Awokin, where your champions will dwell, be fed, and grow.</p>
     </div>
   );
   if (hall.status === "building") return (
@@ -3545,13 +3545,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <button className="abtn small" onClick={() => unhouse.mutate(room.roomIndex)}>Leave room</button>
             {championId === resident.id
               ? <span className="quiet" style={{ alignSelf: "center" }}>Your champion — represents you in the Confluence.</span>
-              : <button className="abtn small" disabled={makeChampion.isPending} onClick={() => makeChampion.mutate(resident.id)} title="Crown this Awoken as your champion">⭐ Make Champion</button>}
+              : <button className="abtn small" disabled={makeChampion.isPending} onClick={() => makeChampion.mutate(resident.id)} title="Crown this Awokin as your champion">⭐ Make Champion</button>}
           </div>
           {feedNote && <div className={`hall-feed-note ${feedNote.tone}`}>{feedNote.text}</div>}
         </div>
       ) : (
         <div>
-          <p className="quiet">Room {room.roomIndex + 1} stands empty. House an Awoken:</p>
+          <p className="quiet">Room {room.roomIndex + 1} stands empty. House an Awokin:</p>
           <div className="champion-field-list" style={{ maxHeight: 150 }}>
             {tenderItems.filter(a => !housedIds.has(a.id)).map(a => (
               <div key={a.id} className="champion-field-item">
@@ -3560,7 +3560,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 <button className="abtn small" onClick={() => house.mutate({ roomIndex: room.roomIndex, awakenedId: a.id })}>House</button>
               </div>
             ))}
-            {tenderItems.filter(a => !housedIds.has(a.id)).length === 0 && <p className="quiet">Every Awoken is housed or none remain.</p>}
+            {tenderItems.filter(a => !housedIds.has(a.id)).length === 0 && <p className="quiet">Every Awokin is housed or none remain.</p>}
           </div>
         </div>
       ))}
@@ -3625,7 +3625,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three waves, a rising. <strong>Hold the seed to its third rising — level 3 — and the hold frees a newborn.</strong>{ev.newbornClaimed ? " (Freed — it waits for you at the Wake.)" : ""}</p>
             ) : (
               <>
-                <p>Send your Awoken onto the seed's hex, then begin the hold. Waves of Fray will come, one upon the next — <strong>clear three waves and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
+                <p>Send your Awokin onto the seed's hex, then begin the hold. Waves of Fray will come, one upon the next — <strong>clear three waves and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
                 <p><strong>Hold the seed to its third rising — level 3 — and the hold frees a newborn.</strong></p>
               </>
             )}
@@ -3637,7 +3637,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             )}
             {ev.state !== "done" && (
               eligible.length === 0 && standing.length === 0 ? (
-                <p className="quiet">Your deck is empty — wake Awoken at the spark first, then return to claim your ground.</p>
+                <p className="quiet">Your deck is empty — wake Awokin at the spark first, then return to claim your ground.</p>
               ) : (
                 <>
                   {eligible.length > 0 && (
@@ -3733,7 +3733,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               ))
             )}
           </div>
-          <div className="celestial-title" style={{ marginTop: 12, fontSize: 14 }}>Field Awoken</div>
+          <div className="celestial-title" style={{ marginTop: 12, fontSize: 14 }}>Field Awokin</div>
           <div className="champion-field-list">
             {tenderItems.filter(a => placedIds.has(a.id)).map(a => (
               <div key={a.id} className="champion-field-item">
@@ -3755,7 +3755,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </div>
             ))}
             {tenderItems.filter(a => placedIds.has(a.id)).length === 0 && (
-              <p className="quiet">No Awoken on the field.</p>
+              <p className="quiet">No Awokin on the field.</p>
             )}
           </div>
         </div>
@@ -3822,7 +3822,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       )}
       {applyingAspect && (
         <div className="applying-aspect-banner" onClick={() => setApplyingAspect(null)}>
-          Tap an Awoken to apply {applyingAspect.name} — tap here to cancel
+          Tap an Awokin to apply {applyingAspect.name} — tap here to cancel
         </div>
       )}
       <button
@@ -3865,7 +3865,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <div className="champion-picker-overlay" onClick={() => setShowChampionPicker(false)}>
           <div className="champion-picker" onClick={e => e.stopPropagation()}>
             <h3>Choose your champion</h3>
-            <p className="quiet">Any of your Awoken can bear the title, wherever they stand. The champion's pieces pass into confluence victory births. The Hall is where champions are trained — fed and leveled.</p>
+            <p className="quiet">Any of your Awokin can bear the title, wherever they stand. The champion's pieces pass into confluence victory births. The Hall is where champions are trained — fed and leveled.</p>
             <div className="champion-grid">
               {tenderItems.map(a => (
                 <button key={a.id} className="champion-option"
@@ -3890,7 +3890,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       {returnReport && (
         <div className="return-report-overlay" onClick={() => setReturnReport(null)}>
           <div className="return-report" onClick={e => e.stopPropagation()}>
-            <div className="return-report-label">Upon your return, an Awoken speaks:</div>
+            <div className="return-report-label">Upon your return, an Awokin speaks:</div>
             <div className="return-report-text">"{returnReport.text}"</div>
             <button className="abtn small" onClick={() => setReturnReport(null)}>Tend on</button>
           </div>
@@ -4043,7 +4043,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               <button
                 className={`stance-btn ${wallTargeting ? "active" : ""}`}
                 onClick={() => { setWallTargeting(w => !w); setAttackTargeting(false); setMoveTargeting(false); }}
-                title="Raise a wall on one edge of this hex (2 energy). Tap the glowing edge itself — one tap, one wall. Enemies in battle strike the wall before the Awoken behind it.">
+                title="Raise a wall on one edge of this hex (2 energy). Tap the glowing edge itself — one tap, one wall. Enemies in battle strike the wall before the Awokin behind it.">
                 🧱 {wallTargeting ? "Tap an edge…" : "Raise wall (2⚡)"}
               </button>
               <button
@@ -4056,7 +4056,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               <button
                 className="stance-btn dissipate"
                 onClick={async () => {
-                  if (confirm("Dissipate this Awoken? It will enter 8h re-coalescence.")) {
+                  if (confirm("Dissipate this Awokin? It will enter 8h re-coalescence.")) {
                     try {
                       await api.dissipateAwoken({ awakenedId: selectedAwoken });
                       setSelectedAwoken(null);
@@ -4155,10 +4155,10 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               const call = (callsQ.data?.calls ?? []).find(c => c.column_id === col.id);
               const keyStr = call?.join_key ? ` Key: ${call.join_key}` : "";
               const invite = col.kind === "siege"
-                ? `⚔️ SIEGE — a force of ${col.size} holds my land. Friends: open the Table, enter my SIEGE key, call your Awoken, and help me take it back.${keyStr}`
+                ? `⚔️ SIEGE — a force of ${col.size} holds my land. Friends: open the Table, enter my SIEGE key, call your Awokin, and help me take it back.${keyStr}`
                 : call?.kind === "ambush"
-                  ? `⚔️ AMBUSH CALLED — a ${col.kind} of ${col.size} reaches my ${col.targetKind === "seed" ? "fallen seed" : "edge"} in ${fmtCountdown(col.arrivesAt - nowMs)}. Friends: open the Table, enter my AMBUSH key, and muster BEFORE it lands — warned ahead, our Awoken strike with the ambush's edge.${keyStr}`
-                  : `⚔️ BASTION — a ${col.kind} of ${col.size} is at my ${col.targetKind === "seed" ? "seed" : "edge"}. Friends: open the Table, enter my BASTION key, call your Awoken, and hold the tide with me.${keyStr}`;
+                  ? `⚔️ AMBUSH CALLED — a ${col.kind} of ${col.size} reaches my ${col.targetKind === "seed" ? "fallen seed" : "edge"} in ${fmtCountdown(col.arrivesAt - nowMs)}. Friends: open the Table, enter my AMBUSH key, and muster BEFORE it lands — warned ahead, our Awokin strike with the ambush's edge.${keyStr}`
+                  : `⚔️ BASTION — a ${col.kind} of ${col.size} is at my ${col.targetKind === "seed" ? "seed" : "edge"}. Friends: open the Table, enter my BASTION key, call your Awokin, and hold the tide with me.${keyStr}`;
               return col.state === "marching" ? (
               <div key={col.id} className="curse-eye-line warn">
                 ⚠ ATTACK INCOMING — a {col.kind === "siege" ? "SIEGE" : "raid"} of {col.size} walks for your {col.targetKind === "seed" ? "fallen seed" : "edge"} — here in {fmtCountdown(col.arrivesAt - nowMs)}. Move your companies to meet it.
@@ -4186,7 +4186,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 <div key={sd.id} className="curse-eye-line here">
                   💀 A cursed bastion stands on your land — the seed that was, is theirs.
                   {!call && <button className="abtn small" onClick={() => void handleCallToArms({ seedId: sd.id })}>📣 Call a SIEGE</button>}
-                  {call && <div className="curse-eye-invite">📣 SIEGE called — carry it to Discord: <em>⚔️ SIEGE — a cursed bastion stands on my land, and we take it back. Friends: open the Table, enter my SIEGE key, call your Awoken, and help in the taking — this one wants many hands, and the dark will not give it up gently.{call.join_key ? ` Key: ${call.join_key}` : ""}</em></div>}
+                  {call && <div className="curse-eye-invite">📣 SIEGE called — carry it to Discord: <em>⚔️ SIEGE — a cursed bastion stands on my land, and we take it back. Friends: open the Table, enter my SIEGE key, call your Awokin, and help in the taking — this one wants many hands, and the dark will not give it up gently.{call.join_key ? ` Key: ${call.join_key}` : ""}</em></div>}
                 </div>
               );
             })}
@@ -4438,10 +4438,10 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         let text = "";
         let confirmLabel = "Confirm";
         if (hexConfirm.kind === "attack") {
-          text = `${actor?.name ?? "Your Awoken"} will strike this cursed hex — its thorns answer back.`;
+          text = `${actor?.name ?? "Your Awokin"} will strike this cursed hex — its thorns answer back.`;
           confirmLabel = "Strike";
         } else if (hexConfirm.kind === "move") {
-          text = `${actor?.name ?? "Your Awoken"} will move to this hex — ${actor ? moveCost(actor.power) : 1}⚡.`;
+          text = `${actor?.name ?? "Your Awokin"} will move to this hex — ${actor ? moveCost(actor.power) : 1}⚡.`;
           confirmLabel = "Move";
         } else {
           const pooled = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
@@ -4468,7 +4468,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       </div>
       <div className="bottom-dock">
         <div className="hand-tabs" role="tablist" aria-label="Your hand">
-          <button type="button" role="tab" aria-selected={handTab === "awoken"} className={`hand-tab${handTab === "awoken" ? " active" : ""}`} onClick={() => { setHandTab("awoken"); setCastMode(false); setCastSpellKey(null); setCastAnchor(null); }}>I · Awoken</button>
+          <button type="button" role="tab" aria-selected={handTab === "awoken"} className={`hand-tab${handTab === "awoken" ? " active" : ""}`} onClick={() => { setHandTab("awoken"); setCastMode(false); setCastSpellKey(null); setCastAnchor(null); }}>I · Awokin</button>
           <button type="button" role="tab" aria-selected={handTab === "spells"} className={`hand-tab${handTab === "spells" ? " active" : ""}`} onClick={() => { setHandTab("spells"); setCastMode(true); }}>II · Spells &amp; Glyphs</button>
         </div>
         {handTab === "awoken" && (<div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>)}
@@ -4524,7 +4524,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
               {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
               {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}
-              {castSpell?.kind === "ward" && castAnchor === null && <>Tap a hex <strong>your Awoken holds</strong> — then tap one of its glowing edges.</>}
+              {castSpell?.kind === "ward" && castAnchor === null && <>Tap a hex <strong>your Awokin holds</strong> — then tap one of its glowing edges.</>}
               {castSpell?.kind === "ward" && castAnchor !== null && <>Tap a <strong>glowing edge</strong> of the anchor hex — or the hex again to choose another.</>}
               {castSpell && (castSpell.kind === "rune" || castSpell.kind === "spell") && <>Tap a hex's <strong>ground</strong> to write it there — cursed ground takes the light too, ahead of the march. One writing per hex.</>}
             </div>
@@ -4641,7 +4641,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </button>
             );
           })}
-          {hand.length === 0 && <div className="dock-empty">All Awoken stand on the field.</div>}
+          {hand.length === 0 && <div className="dock-empty">All Awokin stand on the field.</div>}
         </div>
         </div>
       </div>
@@ -4712,7 +4712,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <p style={{ color: waveTarget.defenderIds.length > 0 ? "#8f8" : "#fa0", fontSize: 14 }}>
               {waveTarget.defenderIds.length > 0
                 ? `${waveTarget.defenderIds.length} defender(s) hold this land.`
-                : "No defenders! You must play Awoken from hand (costs energy)."}
+                : "No defenders! You must play Awokin from hand (costs energy)."}
             </p>
             <button className="abtn battle-cta" onClick={handleTargetConfirmed}>
               ⚔ Defend
@@ -4822,7 +4822,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           if (wgTileId !== null) { setWgTileId(null); return; }
           const sel = selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken) : undefined;
           const target = sel ?? placements[0];
-          if (!target) { showHexNotice("Station an Awoken on the field first — the War-Grounds open on the hex an Awoken stands on."); return; }
+          if (!target) { showHexNotice("Station an Awokin on the field first — the War-Grounds open on the hex an Awokin stands on."); return; }
           setWgTileId(target.tileId);
           showHexNotice("The War-Grounds are open — while they are open, dragging on the map chooses wardens. Close them (⚔️) to drag the map again.");
         }}
@@ -4894,7 +4894,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           <div className="admin-popup" onClick={() => { setPendingTile(null); setSelectedBuilders([]); }}>
             <div className="admin-popup-inner" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
               <h3>🗼 {selectedBuilding.name}</h3>
-              <p className="quiet">Tap Awoken on this tile to assign as builders. Each halves the build time.</p>
+              <p className="quiet">Tap Awokin on this tile to assign as builders. Each halves the build time.</p>
               <div className="builder-grid">
                 {tileAwoken.map((aw: any) => {
                   const isSelected = selectedBuilders.includes(aw.id);
@@ -4916,7 +4916,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     </button>
                   );
                 })}
-                {tileAwoken.length === 0 && <p className="quiet">No Awoken on this tile. The build will take full time.</p>}
+                {tileAwoken.length === 0 && <p className="quiet">No Awokin on this tile. The build will take full time.</p>}
               </div>
               <div className="builder-summary">
                 <span>⏱ {baseMinutes >= 60 ? `${baseMinutes/60}h` : `${baseMinutes}m`} → <strong>{actualMinutes >= 60 ? `${(actualMinutes/60).toFixed(1)}h` : `${actualMinutes}m`}</strong></span>

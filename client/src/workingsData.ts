@@ -40,7 +40,7 @@ export const WORKING_DEFS = {
   "kind": "ward",
   "glyph": "glyph-01.png",
   "cost": 5,
-  "blurb": "A banner-wall on an edge: your Awoken standing on either hex it divides strike at +1 power.",
+  "blurb": "A banner-wall on an edge: your Awokin standing on either hex it divides strike at +1 power.",
   "forms": {
    "unaligned": "The Plain Standard",
    "tide": "Standard of the Ford",
@@ -72,7 +72,7 @@ export const WORKING_DEFS = {
   "kind": "ward",
   "glyph": "glyph-10.png",
   "cost": 4,
-  "blurb": "A pillar on an edge: your Awoken strike at +1 power against dark standing on or beside its two hexes.",
+  "blurb": "A pillar on an edge: your Awokin strike at +1 power against dark standing on or beside its two hexes.",
   "forms": {
    "unaligned": "The Plain Beacon",
    "tide": "Beacon of the Shoal",
@@ -136,7 +136,7 @@ export const WORKING_DEFS = {
   "kind": "rune",
   "glyph": "glyph-09.png",
   "cost": 4,
-  "blurb": "A doom hung over a hex's ground: when a dark thing of power 5+ stands there, the crown falls on the whole hex — twice the greatest's power, to everything there. Unfed by battle's end, it falls on your strongest Awoken's hex.",
+  "blurb": "A doom hung over a hex's ground: when a dark thing of power 5+ stands there, the crown falls on the whole hex — twice the greatest's power, to everything there. Unfed by battle's end, it falls on your strongest Awokin's hex.",
   "forms": {
    "unaligned": "The Plain Shard",
    "tide": "Shard of the Deep",

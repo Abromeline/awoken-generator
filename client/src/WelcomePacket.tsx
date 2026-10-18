@@ -10,7 +10,7 @@ const PAGES: Page[] = [
   {
     title: "Welcome, Tender",
     body: [
-      "The Awoken are matter held together by attention — your attention is the binding force.",
+      "The Awokin are matter held together by attention — your attention is the binding force.",
       "You wake them, you name them, you place them on the land. Each one is drawn by a human hand, layer upon layer.",
       "This packet holds what you need to begin. Take your time — there is no hurry here.",
     ],
@@ -19,18 +19,18 @@ const PAGES: Page[] = [
     title: "Your Land",
     body: [
       "Your deck is not a pile of cards. It is a territory — hexes adrift in the void.",
-      "Your HAND holds Awoken not yet placed. Tap a card, then tap a purified tile to deploy them.",
-      "Awoken in hand grant energy: stronger ones grant more. Deploying costs energy based on their power.",
-      "Once placed, an Awoken cannot return to hand. They are committed to the land.",
+      "Your HAND holds Awokin not yet placed. Tap a card, then tap a purified tile to deploy them.",
+      "Awokin in hand grant energy: stronger ones grant more. Deploying costs energy based on their power.",
+      "Once placed, an Awokin cannot return to hand. They are committed to the land.",
     ],
   },
   {
     title: "Curses & Attacks",
     body: [
       "The wilds around your land are cursed. Each cursed tile shows a ♥ number — its curse HP.",
-      "Set an Awoken to attack stance (1 energy), then tap an adjacent cursed tile to strike (1 energy per attack).",
-      "Each attack dwindles the curse by the Awoken's power. At 0, the curse breaks and the tile turns neutral.",
-      "Curses grow stronger farther from your center. You will need more Awoken — or stronger ones — to push outward.",
+      "Set an Awokin to attack stance (1 energy), then tap an adjacent cursed tile to strike (1 energy per attack).",
+      "Each attack dwindles the curse by the Awokin's power. At 0, the curse breaks and the tile turns neutral.",
+      "Curses grow stronger farther from your center. You will need more Awokin — or stronger ones — to push outward.",
     ],
     diagram: "curse",
   },
@@ -49,7 +49,7 @@ const PAGES: Page[] = [
       "Unravelings assault your territory. Survive, and the Unraveling breaks.",
       "Victory brings a spinning golden hex — and a choice. Pick one new territory from the map as your reward.",
       "Then decide: ✦ Rest to bank your progress and end the run, or Continue → for +6 energy, fresh cards, and a harder wave.",
-      "An Awoken's presence slowly attunes neutral land toward its element — 13 minutes to take root.",
+      "An Awokin's presence slowly attunes neutral land toward its element — 13 minutes to take root.",
     ],
     diagram: "attune",
   },

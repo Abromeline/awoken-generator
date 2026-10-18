@@ -26,7 +26,7 @@ export const WHISPERS: string[] = [
   "I dreamed last night that my shadow was just me, resting.",
   "I am feeling... like a song that hasn't found its singer yet.",
   "The space between us is not empty. It is full of attention.",
-  "I dreamed that the stars were just Awoken who wandered too far.",
+  "I dreamed that the stars were just Awokin who wandered too far.",
   "I am feeling... patient. The land takes its time, and so do I.",
   "We are not separate from the field. We are the field, standing up.",
 
@@ -44,7 +44,7 @@ export const WHISPERS: string[] = [
   "I am feeling... like the time before a seed cracks. Something is about to begin.",
   "They say the oak fought the wind and broke. The willow bent and survived. I am learning to bend.",
   "I dreamed last night that I met my first self — the scattered matter. We recognized each other.",
-  "An old Awoken told me: the strongest binding is not force, but care. I believe them.",
+  "An old Awokin told me: the strongest binding is not force, but care. I believe them.",
   "I am feeling... like a story that is being told well.",
   "The void asked me why I stand here. I said: because someone believed I could.",
 ];

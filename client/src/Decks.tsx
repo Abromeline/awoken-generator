@@ -28,7 +28,7 @@ export function DecksView({ items }: { items: Awoken[] }) {
       <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name a new deck…" maxLength={60} aria-label="New deck name" />
       <button disabled={!newName.trim() || createDeck.isPending}>{createDeck.isPending ? "Gathering…" : "Create deck"}</button>
     </form>
-    {!decks.length && !decksQuery.isPending ? <p className="quiet">No decks yet. Name one above, then fill it with your Awoken.</p> : null}
+    {!decks.length && !decksQuery.isPending ? <p className="quiet">No decks yet. Name one above, then fill it with your Awokin.</p> : null}
     <div className="deck-list">
       {decks.map((deck) => {
         const face = deck.faceCardId ? items.find((i) => i.id === deck.faceCardId) : null;

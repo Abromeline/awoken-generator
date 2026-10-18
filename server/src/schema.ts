@@ -21,7 +21,7 @@ export const layerAssets = sqliteTable("layer_assets", {
 
 export const awakened = sqliteTable("awakened", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull().default("Unnamed Awoken"),
+  name: text("name").notNull().default("Unnamed Awokin"),
   // The minted name (Nigel, 2026-10-18): the name this creature was
   // born with, stamped at every mint and never rewritten — a rename
   // changes `name` (the given name) only, so the card carries both.

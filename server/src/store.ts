@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS layer_assets (
 );
 CREATE TABLE IF NOT EXISTS awakened (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL DEFAULT 'Unnamed Awoken',
+  name TEXT NOT NULL DEFAULT 'Unnamed Awokin',
   image_blob_key TEXT NOT NULL,
   composition_json TEXT NOT NULL DEFAULT '[]',
   collection TEXT NOT NULL DEFAULT 'workshop',
