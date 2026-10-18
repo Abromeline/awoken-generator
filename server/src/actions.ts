@@ -3187,7 +3187,7 @@ export const handlers = {
         bonusToughness: (aw[0].bonusToughness ?? 0) + 1,
       })
       .where(eq(schema.awakened.id, parsed.data.awakenedId));
-    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, imageUrl: `/blobs/${target.imageBlobKey}`, cost, pointsLeft: Math.floor((points - cost) * 10) / 10 };
+    return { ok: true as const, newLevel, element, targetName: target.name, targetKey: target.source_id, imageUrl: target.imageBlobKey ? blobUrl(target.imageBlobKey) : null, cost, pointsLeft: Math.floor((points - cost) * 10) / 10 };
   },
 
   async listGlyphs(args: unknown) {
@@ -3382,7 +3382,7 @@ export const handlers = {
           bonusToughness: (awakened.bonusToughness ?? 0) + 1,
         })
         .where(eq(schema.awakened.id, parsed.data.awakenedId));
-      return { ok: true as const, element, newLevel, upgraded: true as const, cost, targetName: match.name, targetKey: match.source_id, imageUrl: `/blobs/${match.imageBlobKey}`, stacked: worn.length };
+      return { ok: true as const, element, newLevel, upgraded: true as const, cost, targetName: match.name, targetKey: match.source_id, imageUrl: match.imageBlobKey ? blobUrl(match.imageBlobKey) : null, stacked: worn.length };
     }
     if (worn.length >= ASPECT_STACK_MAX) {
       badRequest(`This Awoken already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one with attunement points instead.`);
@@ -3409,7 +3409,7 @@ export const handlers = {
     // Consume the inventory aspect
     await db.delete(schema.aspectInventory)
       .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
-    return { ok: true as const, element, newLevel: 1, upgraded: false as const, targetName: aspect.name, targetKey: `aspect-inv:${aspect.id}`, imageUrl: `/blobs/${aspect.imageBlobKey}`, stacked: worn.length + 1 };
+    return { ok: true as const, element, newLevel: 1, upgraded: false as const, targetName: aspect.name, targetKey: `aspect-inv:${aspect.id}`, imageUrl: aspect.imageBlobKey ? blobUrl(aspect.imageBlobKey) : null, stacked: worn.length + 1 };
   },
 
   // grantAspectPoint is GONE (War-Ground fix, 2026-10-15): it minted a
@@ -3935,7 +3935,7 @@ export const handlers = {
           id: inv.id,
           name: asset[0].name,
           element: storedElement((asset[0] as any).element),
-          imageUrl: `/blobs/${asset[0].imageBlobKey}`,
+          imageUrl: asset[0].imageBlobKey ? blobUrl(asset[0].imageBlobKey) : null,
         });
       }
     }
