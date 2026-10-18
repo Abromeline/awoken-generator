@@ -26,6 +26,48 @@ export function heldSkills(ownerKey: string | null | undefined): Set<string> {
   }
 }
 
+/** The Heart of the wheel (wired 2026-10-18, on Nigel's word
+ *  that the Heart comes next): the CORE ring and the passive
+ *  spine, each promise read off the tree's own copy —
+ *    c_hp1  Strong Hands       Tender HP +5
+ *    c_en   Deep Breath        Maximum energy +3 (Table/Bastion —
+ *                              applied at the Table seat, not the
+ *                              map's energy law, as its copy says)
+ *    c_heal The Mending Art    Heal +3
+ *    c_harv The Harvest        your Awoken fell the dark: +1⚡
+ *    c_steady Steady Attention first ward or rune each battle −1⚡
+ *    c_hp2  The Long Watch     Tender HP +5 and Heal +2
+ *    p_constitution Ember Constitution  Tender HP +4
+ *    p_breath The Returning Breath      +1⚡ at each battle round's start
+ *    p_blood  The Returning Blood       mend 1 HP at each battle round's start
+ *    p_skin   The Thickened Skin        strikes against your Tender deal 1 less (min 1)
+ *  HP and Heal ride the Tender-progress view (tenderExp), so
+ *  every surface that reads a Tender's standing agrees; the
+ *  battle-shaped ones are applied by the Table's referee. */
+export interface HeartEffects {
+  tenderHp: number;
+  heal: number;
+  tableEnergy: number;
+  harvest: boolean;
+  steady: boolean;
+  breath: boolean;
+  blood: boolean;
+  skin: boolean;
+}
+export function heartEffects(ownerKey: string | null | undefined): HeartEffects {
+  const held = heldSkills(ownerKey);
+  return {
+    tenderHp: (held.has("c_hp1") ? 5 : 0) + (held.has("c_hp2") ? 5 : 0) + (held.has("p_constitution") ? 4 : 0),
+    heal: (held.has("c_heal") ? 3 : 0) + (held.has("c_hp2") ? 2 : 0),
+    tableEnergy: held.has("c_en") ? 3 : 0,
+    harvest: held.has("c_harv"),
+    steady: held.has("c_steady"),
+    breath: held.has("p_breath"),
+    blood: held.has("p_blood"),
+    skin: held.has("p_skin"),
+  };
+}
+
 /** The Travelling Company (ruled by Nigel, 2026-10-18): at the
  *  Table a tender's STANDING band is capped — five by the base
  *  law ("tighter, skills matter sooner") — and the tree teaches

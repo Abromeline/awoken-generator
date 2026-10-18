@@ -19,6 +19,7 @@
  */
 import { db, schema } from "./store.js";
 import { and, eq } from "drizzle-orm";
+import { heartEffects } from "./skills.js";
 
 /** Cumulative EXP at which each level is reached (index 0 = Lv 1). */
 export const TENDER_LEVEL_THRESHOLDS = [0, 50, 150, 300, 500, 800, 1200, 1800, 2600, 3800];
@@ -87,10 +88,22 @@ function view(totalExp: number, lifetimeWakes: number): TenderProgressView {
   };
 }
 
+/** The Heart rides the standing (2026-10-18): Strong Hands,
+ *  the Long Watch, Ember Constitution and the Mending Art add
+ *  their promised HP and heal to every reading of a Tender's
+ *  progress, so the Table, the header and the map never
+ *  disagree about the same Tender. */
+function withHeart(ownerKey: string, v: TenderProgressView): TenderProgressView {
+  const h = heartEffects(ownerKey);
+  if (h.tenderHp) v.maxTenderHp += h.tenderHp;
+  if (h.heal) v.healAmount += h.heal;
+  return v;
+}
+
 export async function getTenderProgress(ownerKey: string): Promise<TenderProgressView> {
   const [row] = await db.select().from(schema.tenderProgress)
     .where(eq(schema.tenderProgress.ownerKey, ownerKey)).limit(1);
-  if (row) return view(row.totalExp, row.lifetimeWakes);
+  if (row) return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes));
   // First reading for a Tender whose waking predates the
   // ledger (2026-10-16): their standing collection is the
   // record of their wakes — seed the ledger from it, so
@@ -105,9 +118,9 @@ export async function getTenderProgress(ownerKey: string): Promise<TenderProgres
     await db.insert(schema.tenderProgress)
       .values({ ownerKey, totalExp: exp, lifetimeWakes: tenderOwned, updatedAt: new Date() })
       .catch(() => null);
-    return view(exp, tenderOwned);
+    return withHeart(ownerKey, view(exp, tenderOwned));
   }
-  return view(0, 0);
+  return withHeart(ownerKey, view(0, 0));
 }
 
 /** Award EXP for any work of tending; returns the Tender's new standing. */

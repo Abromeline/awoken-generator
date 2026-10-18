@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 5; // ruled 2026-10-15: up to 5 Tenders to a table
@@ -100,6 +100,10 @@ interface Player {
   /** Second Wall (the Zodiac, tranche one): this battle's
    *  half-cost ward has been spent. Reset at every deal. */
   secondWallUsed?: boolean;
+  /** Steady Attention (the Heart, 2026-10-18): this battle's
+   *  first-working discount (−1⚡) has been spent — one flag
+   *  shared by wards and runes. Reset at every deal. */
+  steadyUsed?: boolean;
   /** Tranche one, per battle: the Second Thread spent? */
   secondThreadUsed?: boolean;
   /** Tranche one, per battle: the Ground's memory spent? */
@@ -852,7 +856,7 @@ function settleShardsAndFade(room: Room): void {
 }
 
 function dealWave(room: Room): void {
-  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; }
+  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false; }
   const wave = room.battle.wave;
   const free = SUMMONABLE_HEXES.filter(h => !room.field.has(h) && !room.dark.has(h));
   const kinds = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
@@ -884,7 +888,7 @@ function dealWave(room: Room): void {
 function dealBastion(room: Room): void {
   const b = room.bastion;
   if (!b) return;
-  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; }
+  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false; }
   const center = FIELD_HEXES_SERVER.find(h => h.center) ?? FIELD_HEXES_SERVER[0];
   const free = SUMMONABLE_HEXES
     .filter(h => !room.field.has(h) && !room.dark.has(h))
@@ -985,6 +989,19 @@ async function runRound(room: Room): Promise<void> {
     await refreshGrimoire().catch(() => {});
     room.roundNo++;
     room.strikes = [];
+    // The Returning Breath and Blood (the Heart's spine,
+    // 2026-10-18): at the round's opening, a standing holder
+    // breathes — +1⚡ on the same purse the felling-harvest
+    // fills — and the wounded mend 1 HP of their own body.
+    for (const p of room.players.values()) {
+      if (p.watcher || p.fallen || !p.expKey) continue;
+      const heart = heartEffects(p.expKey);
+      if (heart.breath) p.energy = Math.min(p.maxEnergy + 10, p.energy + 1);
+      if (heart.blood && p.tenderHp > 0 && p.tenderHp < p.maxTenderHp) {
+        p.tenderHp += 1;
+        tell(room, `The Returning Blood knits ${p.name} — 1 HP returns with the round.`);
+      }
+    }
     const witness = (from: string, to: string, element: string, side: "light" | "dark", hit: boolean, killed: boolean) => {
       if (room.strikes.length < 30) room.strikes.push({ from, to, element, side, hit, killed });
     };
@@ -1087,6 +1104,11 @@ async function runRound(room: Room): Promise<void> {
         const owner = seatByKey(room, unit.ownerKey);
         if (owner && !owner.fallen) {
           owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
+          // The Harvest (the Heart, 2026-10-18): when YOUR
+          // Awoken fell the dark, +1⚡ more.
+          if (owner.expKey && heartEffects(owner.expKey).harvest) {
+            owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 1);
+          }
           await payBattleExp(room, owner, 2, "The dark pays for its felling.");
         }
       }
@@ -1241,7 +1263,11 @@ async function runRound(room: Room): Promise<void> {
         const bare = [...room.players.values()].filter(p => !p.watcher && !p.fallen);
         if (bare.length === 0) break;
         const tender = bare[Math.floor(Math.random() * bare.length)];
-        tender.tenderHp -= enemy.power;
+        // The Thickened Skin (the Heart's spine, 2026-10-18):
+        // every strike against the Tender deals 1 less, never
+        // below 1.
+        const blow = tender.expKey && heartEffects(tender.expKey).skin ? Math.max(1, enemy.power - 1) : enemy.power;
+        tender.tenderHp -= blow;
         if (tender.tenderHp <= 0) {
           tender.tenderHp = 0;
           tender.fallen = true;
@@ -1400,6 +1426,12 @@ function handleConnection(ws: WebSocket): void {
               wardRuneUnlocked = progress.wardRuneUnlocked;
               maxTenderHp = progress.maxTenderHp;
             }
+            // Deep Breath (the Heart, 2026-10-18): maximum
+            // energy +3 at the Table and on the Bastion — its
+            // copy names those seats, so the bonus lands here
+            // and not in the map's energy law.
+            const breathBonus = heartEffects(tenderOwnerKey(tenderId)).tableEnergy;
+            if (breathBonus) { maxEnergy += breathBonus; energy += breathBonus; }
           }
         }
       }
@@ -1548,14 +1580,19 @@ function handleConnection(ws: WebSocket): void {
       // d6, tide d8, root d12, fire d10 — rolled once per
       // heal tier. The body mends first; overflow reweaves
       // the shield.
-      let amount = 0;
+      let dieAmount = 0;
       const dieSides = FATE_DIE[unit.card.element] ?? 6;
-      for (let i = 0; i < Math.max(1, player.healTier); i++) amount += dN(dieSides);
+      for (let i = 0; i < Math.max(1, player.healTier); i++) dieAmount += dN(dieSides);
+      // The Mending Art and the Long Watch (the Heart,
+      // 2026-10-18): the tree's promised heal rides on top of
+      // the dice — flat mending, named in the tale.
+      const heartHeal = player.expKey ? heartEffects(player.expKey).heal : 0;
+      const amount = dieAmount + heartHeal;
       const toHp = Math.min(unit.maxHp - unit.hp, amount);
       unit.hp += toHp;
       const toShield = Math.min(unit.maxShield - unit.shield, amount - toHp);
       unit.shield += toShield;
-      tell(room, `${player.name} mends ${unit.card.name} — ${toHp + toShield} restored by the ${unit.card.element} die (Heal, Tier ${player.healTier}).`);
+      tell(room, `${player.name} mends ${unit.card.name} — ${toHp + toShield} restored (${dieAmount} by the ${unit.card.element} die${heartHeal ? `, ${heartHeal} by the Heart's mending` : ""}; Heal, Tier ${player.healTier}).`);
       sendState(room);
       return;
     }
@@ -1583,6 +1620,11 @@ function handleConnection(ws: WebSocket): void {
       let castCost = def.cost;
       let secondWallSpent = false;
       if (eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
+      // Steady Attention (the Heart, 2026-10-18): the first
+      // ward or rune of the battle costs 1⚡ less — it rides
+      // after the Second Wall's halving when both are held.
+      let steadySpent = false;
+      if (caster.expKey && heartEffects(caster.expKey).steady && !caster.steadyUsed) { castCost = Math.max(0, castCost - 1); steadySpent = true; }
       if (caster.energy < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — you hold ⚡${caster.energy}.` })); return; }
       // The Pour (Nigel, 2026-10-17): elemental points of the
       // poured hue, fed into the working at its cast — capped by
@@ -1605,6 +1647,7 @@ function handleConnection(ws: WebSocket): void {
       }
       caster.energy -= castCost;
       if (secondWallSpent) { caster.secondWallUsed = true; tell(room, `${caster.name}'s Second Wall rises at half its price — the Warden's economy.`); }
+      if (steadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       if (pour > 0 && caster.expKey) {
         await spendAttunement(caster.expKey, hue, pour);
         if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
@@ -1658,7 +1701,13 @@ function handleConnection(ws: WebSocket): void {
         if (!SUMMONABLE_HEXES.includes(hx)) { const centerId = FIELD_HEXES_SERVER.find(h => h.center)?.id; ws.send(JSON.stringify({ type: "error", message: hx === centerId ? "Runes are written on the field's ground — not on the star-seed's hex." : "That is no hex of this field." })); return; }
         if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
-      if (caster.energy < def.cost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${def.cost} — you hold ⚡${caster.energy}.` })); return; }
+      // Steady Attention (the Heart, 2026-10-18): the first
+      // ward or rune of the battle costs 1⚡ less — one flag,
+      // shared with the ward's raising.
+      let runeCost = def.cost;
+      let runeSteadySpent = false;
+      if (caster.expKey && heartEffects(caster.expKey).steady && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - 1); runeSteadySpent = true; }
+      if (caster.energy < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — you hold ⚡${caster.energy}.` })); return; }
       // The Pour, as at the ward's raising — one pour feeds the
       // whole cast (the Three Blades drink once, not per hex).
       const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
@@ -1675,7 +1724,8 @@ function handleConnection(ws: WebSocket): void {
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
-      caster.energy -= def.cost;
+      caster.energy -= runeCost;
+      if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       if (pour > 0 && caster.expKey) {
         await spendAttunement(caster.expKey, hue, pour);
         if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
