@@ -263,6 +263,27 @@ const TILE_SIZE = 40;
 const SEED_TILE_ID = "0,0";
 const TILE_K = TILE_SIZE / ISO_DEN;
 
+/** How a tile's painted face is drawn — Territory's seating law,
+ *  carried verbatim (its TERRAIN_IMG_OFFSET + TERRAIN_IMG_PLACE,
+ *  in units of TILE_SIZE). The tile PNGs are NOT face-sized: the
+ *  element faces live on a 1920×1280 canvas with the face centre
+ *  at (964, 546) source px, and the cursed face on a 1920×1510
+ *  canvas (flame-wisps above the face) with its centre at
+ *  (960, 790). Drawing the image AS IF the canvas were the face's
+ *  own bounding box (1731×944) shrank every painted face to ~74%
+ *  of its cell (cursed ~63%) under SVG's meet letterbox — the
+ *  honeycomb read as separate tiles floating in gaps (Nigel,
+ *  2026-10-18). Seated by the face centre instead, each painted
+ *  face fills its fitted cell exactly, so neighbours share full
+ *  edges by the lattice's construction. Neutral's slab sits
+ *  off-template in its canvas, hence its nudge; cursed gets its
+ *  own height and lift. */
+const TILE_ART_PLACE: Record<string, { dx: number; dy: number; h: number }> = {
+  neutral: { dx: -0.1180, dy: 0.0302, h: 1.608 },
+  cursed: { dx: 0, dy: -0.3067, h: 1.8968 },
+};
+const TILE_ART_PLACE_DEFAULT = { dx: 0, dy: 0, h: 1.608 };
+
 /** A tile's center in the stage's own coordinates (no origin:
  *  the viewBox frames wherever the tiles fall). Purified land
  *  rides 5px higher than the curse — Territory's own tray-lift
@@ -871,8 +892,8 @@ export default function Table() {
 
   // The stage's frame, computed from the map's own extents:
   // the tiles' base centers (lift aside, so the frame never
-  // breathes as tiles purify) grown by the painted face's
-  // measure on every side, plus a small margin. Whatever
+  // breathes as tiles purify) grown by the tile art's true
+  // reach on every side, plus a small margin. Whatever
   // radius the server deals, the whole flower fits at zoom 1.
   const stageBox = (() => {
     if (!tiles.length) return { x: -100, y: -100, w: 200, h: 200, cx: 0, cy: 0 };
@@ -884,8 +905,13 @@ export default function Table() {
       if (py < minY) minY = py;
       if (py > maxY) maxY = py;
     }
-    const x0 = minX - 870 * TILE_K - 14, x1 = maxX + 861 * TILE_K + 14;
-    const y0 = minY - 468 * TILE_K - 14, y1 = maxY + 476 * TILE_K + 14;
+    // The pad is the ART's true reach around a tile centre, not
+    // the face's: the slabs' skirts hang ~750 source px below the
+    // face centre, the cursed wisps rise ~790 above it, and
+    // neutral's off-template slab reaches ~1000 to the left — a
+    // face-sized frame would clip the rim tiles' ink.
+    const x0 = minX - 1000 * TILE_K - 14, x1 = maxX + 900 * TILE_K + 14;
+    const y0 = minY - 795 * TILE_K - 14, y1 = maxY + 755 * TILE_K + 14;
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
   })();
 
@@ -1230,6 +1256,10 @@ export default function Table() {
                 const face = t.cursed ? cursedImg
                   : isSeed || !t.element || t.element === "fire" ? BUNDLED_TERRAIN.neutral
                   : BUNDLED_TERRAIN[t.element as keyof typeof BUNDLED_TERRAIN] ?? BUNDLED_TERRAIN.neutral;
+                const faceKey = t.cursed ? "cursed"
+                  : isSeed || !t.element || t.element === "fire" ? "neutral"
+                  : t.element as string;
+                const artPlace = TILE_ART_PLACE[faceKey] ?? TILE_ART_PLACE_DEFAULT;
                 let overlay: { fill: string; opacity: number } | null = null;
                 if (placing && you) {
                   if (tilePickable(t)) overlay = { fill: "#ffd977", opacity: 0.22 };
@@ -1242,7 +1272,7 @@ export default function Table() {
                 }
                 return (
                   <g key={t.id}>
-                    <image href={face} x={cx - 870 * TILE_K} y={cy - 468 * TILE_K} width={1731 * TILE_K} height={944 * TILE_K} pointerEvents="none" />
+                    <image href={face} x={cx - TILE_SIZE * 1.2106 + artPlace.dx * TILE_SIZE} y={cy - TILE_SIZE * 0.6857 + artPlace.dy * TILE_SIZE} width={TILE_SIZE * 2.41} height={TILE_SIZE * artPlace.h} preserveAspectRatio="xMidYMid meet" pointerEvents="none" />
                     {!t.cursed && t.element === "fire" && !isSeed && (
                       <polygon points={hexCellPoints(cx, cy, TILE_SIZE)} fill="#ff7733" opacity={0.18} pointerEvents="none" />
                     )}
