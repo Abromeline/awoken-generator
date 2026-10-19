@@ -681,11 +681,15 @@ body.defeat-flash {
   touch-action: none;
 }
 .patrol-bar {
-  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-  /* Same tier as .hex-confirm (90), for the same reason as the
-     stance picker above: the march/company/patrol orders bar sits
-     at the foot of the screen, where the bottom dock (85) and the
-     energy orb (86) otherwise paint and click over it. */
+  /* ANCHORED ON THE MAP (Nigel, 2026-10-18): no longer a fixed
+     strip at the screen's foot behind the deck hand — TSX hangs
+     the bar below the warden it commands (march / patrol) or
+     below the chosen company's extent (company march), at
+     left/top in the view's percent fiction, clamped into view by
+     useClampedAnchor. The tier stays the stance picker's (90),
+     as backstop: above the bottom dock (85) and the energy
+     orb (86), should a clamped bar still overlap their band. */
+  position: absolute; transform: translate(-50%, 0);
   z-index: 90; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
   background: rgba(10,10,25,0.95); border: 2px solid #b89b5e; border-radius: 999px;
   padding: 10px 16px; max-width: 94vw;
@@ -1128,9 +1132,15 @@ body.defeat-flash {
      full-width, pointer-events:all children covered the picker's
      foot — where the ➤ Move button lives — whenever the chosen
      Awokin stood on a low hex (Nigel, 2026-10-18: "the move and
-     marching orders button is hidden behind the desk"). */
+     marching orders button is hidden behind the desk"). That tier
+     stays as backstop; the placement itself moved the same day:
+     BELOW THE FIGURE — TSX anchors the picker's top at the ground
+     line under the chosen Awokin's feet (ordersAnchorBelow), so
+     the transform only centres it sideways now, and
+     useClampedAnchor slides it back inside the view at the foot
+     rather than ever flipping it behind the hand. */
   position: absolute; z-index: 90;
-  transform: translate(-50%, -120%);
+  transform: translate(-50%, 0);
   background: rgba(10,10,20,0.95); border: 1px solid #b89b5e;
   border-radius: 8px; padding: 10px 12px;
   pointer-events: all;

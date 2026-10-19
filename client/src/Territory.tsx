@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
@@ -226,6 +226,54 @@ function dominantElement(a: Awakened): Element {
     if (n > max) { max = n; best = el as Element; }
   }
   return best;
+}
+
+// The four keystone points a hex's company stands on, in the field
+// render's order (middle-front first). One table, two readers: the
+// field render draws by it, and the orders anchor below hangs the
+// stance picker under the very figure it commands.
+const FIELD_KEYSTONES = [
+  { dx: 0, dy: 0.28 },      // middle-front (default)
+  { dx: -0.30, dy: 0.14 }, // front-left
+  { dx: 0.30, dy: 0.14 },  // front-right
+  { dx: 0, dy: -0.24 },    // back-center
+];
+
+// ORDERS BELOW THE FIGURE (Nigel, 2026-10-18): the stance picker and
+// the march / company / patrol bars hang BELOW the Awoken (or the
+// chosen company) they command — on the map, never in the fixed
+// strip behind the deck hand. A surface asks for an anchor in
+// percent of the territory view (the same 500×340 fiction the picker
+// has always used); after layout, if that anchor would push the
+// surface past the view's foot or sides, it is slid just inside —
+// clamped into view, never flipped back behind the hand. The
+// surfaces are translate(-50%, 0): the anchor is their top-centre.
+function useClampedAnchor(desired: { xPct: number; yPct: number } | null) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [clamped, setClamped] = useState<{ xPct: number; yPct: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !desired) {
+      if (clamped) setClamped(null);
+      return;
+    }
+    const parent = el.offsetParent as HTMLElement | null;
+    if (!parent) return;
+    const viewW = parent.clientWidth, viewH = parent.clientHeight;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    if (!viewW || !viewH || !w || !h) return;
+    let xPx = (desired.xPct / 100) * viewW;
+    let yPx = (desired.yPct / 100) * viewH;
+    xPx = Math.min(Math.max(xPx, w / 2 + 4), Math.max(w / 2 + 4, viewW - w / 2 - 4));
+    yPx = Math.min(yPx, Math.max(0, viewH - h - 6));
+    const next = { xPct: (xPx / viewW) * 100, yPct: (yPx / viewH) * 100 };
+    if (!clamped || Math.abs(next.xPct - clamped.xPct) > 0.01 || Math.abs(next.yPct - clamped.yPct) > 0.01) {
+      setClamped(next);
+    }
+  });
+  if (!desired) return { ref, xPct: null as number | null, yPct: null as number | null };
+  const eff = clamped ?? desired;
+  return { ref, xPct: eff.xPct as number | null, yPct: eff.yPct as number | null };
 }
 
 export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, onToggleDeck, deckOpen }: Props) {
@@ -2381,6 +2429,74 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
   const tiltPoint = (x: number, y: number) => projectTilted(x, y, 500, 340);
 
+  // ── Orders anchors (Nigel, 2026-10-18): the stance picker and the
+  // march / company / patrol bars hang BELOW the figure they command
+  // — under its feet, on the map — instead of above the Awoken or in
+  // the fixed strip behind the deck hand. The anchor re-derives the
+  // field render's own geometry (tilePos lives inside renderGrid, so
+  // the iso math is walked again here, step for step): the figure's
+  // keystone on its hex, the ground line its feet stand on (growth
+  // rises UP from that line, so the feet do not move with level),
+  // the tray lift, and the field layer's cursed/purified lift. A
+  // warden out on a road is anchored at its post, as the picker has
+  // always anchored there.
+  const ORDER_GAP = 8; // viewBox units of air between feet and orders
+  const ordersAnchorBelow = (p: FieldPlacement): { x: number; y: number } | null => {
+    const tile = tiles.find(t => t.id === p.tileId);
+    if (!tile) return null;
+    const size = HEX_BASE_SIZE * zoom;
+    const TRAY_LIFT = Math.round(size * 0.2);
+    const { px, py } = isoOffset(tile.q, tile.r, size);
+    const cx = 250 + px + pan.x;
+    const cy = 170 + py + pan.y - (Math.max(1, tile.height || 1) - 1) * TRAY_LIFT;
+    // The figure's own keystone: its place among the hex's drawn
+    // company, in the render's order (first four drawn).
+    const drawn = placements
+      .filter(pp => pp.tileId === tile.id)
+      .map(pp => tenderItems.find(a => a.id === pp.awakenedId))
+      .filter(Boolean) as Awakened[];
+    const idx = drawn.findIndex(a => a.id === p.awakenedId);
+    const ks = FIELD_KEYSTONES[idx >= 0 && idx < FIELD_KEYSTONES.length ? idx : 0];
+    const awScale = 0.8 + zoom * 0.5;
+    const feetY = cy + ks.dy * size + (20 * awScale) / 2 + (tile.cursed ? 0 : -5);
+    return { x: cx + ks.dx * size, y: feetY + ORDER_GAP };
+  };
+  const anchorPct = (pt: { x: number; y: number } | null) =>
+    pt ? { xPct: (pt.x / 500) * 100, yPct: (pt.y / 340) * 100 } : null;
+  const placementOf = (id: number | null) =>
+    id !== null ? placements.find(p => p.awakenedId === id) ?? null : null;
+
+  const selPlacementForAnchor = placementOf(selectedAwoken);
+  const pickerAnchor = useClampedAnchor(
+    !stanceMinimized && selPlacementForAnchor
+      ? anchorPct(ordersAnchorBelow(selPlacementForAnchor))
+      : null,
+  );
+
+  // The company's orders anchor: below the group's extent — the
+  // centroid's x, the LOWEST chosen warden's feet.
+  const groupPts = selectedGroup
+    .map(id => placementOf(id))
+    .filter(Boolean)
+    .map(p => ordersAnchorBelow(p!))
+    .filter(Boolean) as { x: number; y: number }[];
+  const groupAnchorPt = groupPts.length
+    ? {
+        x: groupPts.reduce((s, p) => s + p.x, 0) / groupPts.length,
+        y: Math.max(...groupPts.map(p => p.y)),
+      }
+    : null;
+  const companyAnchor = useClampedAnchor(anchorPct(groupAnchorPt));
+
+  const marchPlacementForAnchor = placementOf(marchUiFor);
+  const marchAnchor = useClampedAnchor(
+    marchPlacementForAnchor ? anchorPct(ordersAnchorBelow(marchPlacementForAnchor)) : null,
+  );
+  const patrolPlacementForAnchor = placementOf(patrolSettingFor);
+  const patrolAnchor = useClampedAnchor(
+    patrolPlacementForAnchor ? anchorPct(ordersAnchorBelow(patrolPlacementForAnchor)) : null,
+  );
+
   // Render hex grid with mathematical perspective tilt.
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
@@ -2626,13 +2742,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 // Awoken anchored below its hex's middle. They now
                 // cluster in the hex's heart, a slight front bias kept
                 // for the iso view.
-                const keystones = [
-                  { dx: 0, dy: 0.28 },      // middle-front (default)
-                  { dx: -0.30, dy: 0.14 }, // front-left
-                  { dx: 0.30, dy: 0.14 },  // front-right
-                  { dx: 0, dy: -0.24 },    // back-center
-                ];
-                const ks = keystones[idx];
+                const ks = FIELD_KEYSTONES[idx];
                 const ws = 15, hs = 20;
                 const placement = tilePlacements.find(p => p.awakenedId === a.id);
                 // The marching layer: a patrolling Awoken is drawn at
@@ -3938,13 +4048,17 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         const { px, py } = isoOffset(tile.q, tile.r, size);
         const cx = 250 + px + pan.x;
         const cy = 170 + py + pan.y - (Math.max(1, tile.height || 1) - 1) * TRAY_LIFT;
-        // Render as HTML overlay positioned over the Awoken
+        // Render as HTML overlay: the minimized badge stays on the
+        // Awoken's post (cx, cy); the OPEN picker hangs BELOW the
+        // figure — ordersAnchorBelow's ground-line anchor, clamped
+        // into view by pickerAnchor (Nigel, 2026-10-18).
         return (
-          <div 
-            className={`stance-picker-field ${stanceMinimized ? "minimized" : ""}`} 
+          <div
+            ref={pickerAnchor.ref}
+            className={`stance-picker-field ${stanceMinimized ? "minimized" : ""}`}
             style={{
-              left: `${(cx / 500) * 100}%`,
-              top: `${(cy / 340) * 100}%`,
+              left: `${(!stanceMinimized && pickerAnchor.xPct !== null ? pickerAnchor.xPct : (cx / 500) * 100)}%`,
+              top: `${(!stanceMinimized && pickerAnchor.yPct !== null ? pickerAnchor.yPct : (cy / 340) * 100)}%`,
             }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -5008,7 +5122,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           2026-10-16): one march for the whole band, quoted whole —
           total energy, the slowest warden's arrival — then confirmed. */}
       {selectedGroup.length > 0 && marchUiFor === null && patrolSettingFor === null && (
-        <div className="patrol-bar">
+        <div className="patrol-bar" ref={companyAnchor.ref}
+          style={{ left: `${companyAnchor.xPct ?? 50}%`, top: `${companyAnchor.yPct ?? 92}%` }}>
           {!groupMarchUi ? (
             <>
               <span className="patrol-bar-label">⚔ {selectedGroup.length} wardens chosen</span>
@@ -5060,7 +5175,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         const who = tenderItems.find(a => a.id === marchUiFor);
         const dest = marchQuote ? tiles.find(t => t.id === marchQuote.tileId) : null;
         return (
-          <div className="patrol-bar">
+          <div className="patrol-bar" ref={marchAnchor.ref}
+            style={{ left: `${marchAnchor.xPct ?? 50}%`, top: `${marchAnchor.yPct ?? 92}%` }}>
             {!marchQuote ? (
               <>
                 <span className="patrol-bar-label">➤ March orders — {who?.name ?? "the warden"}: tap a hex to quote the march</span>
@@ -5116,7 +5232,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           }
         };
         return (
-          <div className="patrol-bar">
+          <div className="patrol-bar" ref={patrolAnchor.ref}
+            style={{ left: `${patrolAnchor.xPct ?? 50}%`, top: `${patrolAnchor.yPct ?? 92}%` }}>
             <span className="patrol-bar-label">🚶 Laying {who?.name ?? "the warden"}'s patrol — tap hexes ({patrolDraft.length}/8)</span>
             <button className="stance-btn" disabled={!patrolDraft.length}
               onClick={() => void settle(patrolDraft, "The patrol is set. The road will be walked, out and back, until the warden is called in.")}>
