@@ -140,16 +140,13 @@ interface Player {
   energy: number;
   maxEnergy: number;
   /** THE TENDER ON THE FIELD (Nigel, 2026-10-19): where this
-   *  Tender stands on the instance — a tile id, derived from
-   *  `pos` by the continuous referee. The Tender arrives at
-   *  their landing tile and glides from there. The
-   *  Storytender holds no ground — she deals. */
+   *  Tender stands on the instance — a tile id. While marching
+   *  it names the DESTINATION, as a unit's hex does, and `march`
+   *  carries the road; clients derive the drawn place from road
+   *  + clock. The Tender arrives at their landing tile and walks
+   *  from there. The Storytender holds no ground — she deals. */
   hex?: string;
-  pos?: Pt;
-  target?: Pt | null;
-  /** The runic weapon's next strike moment, and its tally. */
-  weaponNext?: number;
-  weaponKills?: number;
+  march?: { road: string[]; since: number; endsAt: number } | null;
   /** When this Tender last cast a working — the room's screens
    *  play their casting gesture from it. */
   castAt?: number;
@@ -159,9 +156,6 @@ interface Player {
  *  so a recall returns exactly what was cast. */
 interface FieldUnit {
   hex: string;
-  pos: Pt;
-  target: Pt | null;
-  speedPx?: number;
   card: TableCard;
   hp: number;
   maxHp: number;
@@ -181,6 +175,14 @@ interface FieldUnit {
   /** When this unit may next strike (the clock's cadence —
    *  swifter elements sooner). */
   nextStrike?: number;
+  /** THE MARCH: while set, the unit is on the road — it does
+   *  not strike, cannot be struck, and does not shield its
+   *  Tender. `hex` already names the DESTINATION (it reserves
+   *  its place in the stack there); clients derive its drawn
+   *  position from road + clock, as the land's marching layer
+   *  does. Marching is a derived state: once now ≥ endsAt the
+   *  unit simply stands (see isMarching). */
+  march?: { road: string[]; since: number; endsAt: number } | null;
   /** FOLLOW (Nigel, 2026-10-19): the standing order to trail
    *  one's Tender — when the Tender arrives anywhere, a
    *  following Awokin not already at their side musters to a
@@ -216,9 +218,6 @@ interface EnemyUnit {
    *  the dark may also share one tile, as the light stacks. */
   id: string;
   hex: string;
-  pos: Pt;
-  target: Pt | null;
-  lastTile?: string;
   kind: string;
   label: string;
   art: string | null;
@@ -238,6 +237,11 @@ interface EnemyUnit {
   pinnedUntil: number;
   /** When this dark thing may next strike. */
   nextStrike?: number;
+  /** THE ADVANCE: while set, the dark thing is travelling
+   *  its road toward the seed or the nearest light — the
+   *  clock carries it, as it carries the marching light.
+   *  `hex` tracks the tile it stands on as it comes. */
+  march?: { road: string[]; since: number; endsAt: number } | null;
   /** Has this dark thing struck yet? (War Runewright's patience.) */
   struck?: boolean;
 }
@@ -458,14 +462,12 @@ interface Strike {
    *  referee's clients dedupe and age shots by these. */
   id?: number;
   at?: number;
-  from: Pt;
-  to: Pt;
-  element: string | null;
+  from: string;
+  to: string;
+  element: string;
   side: "light" | "dark";
   hit: boolean;
   killed: boolean;
-  weapon?: string | null;
-  pierce?: boolean;
 }
 
 /** A CAMPAIGN at the Table (Phase B, 2026-10-18; design of
