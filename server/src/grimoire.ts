@@ -175,6 +175,18 @@ export function defaultGrimoire(): GrimoireState {
   // present call — awaiting the Ancient One's word — is that the
   // energy is spent and the working unravels; abilities (like
   // Attune) are not casts and roll no die.
+  // TWO MORE CLASSES (Nigel, 2026-10-19): the WITCH, whose
+  // school is the Spell school itself — +2 on spell-school
+  // casts and their power rolls, -3 on ward, rune and binding
+  // workings. The Spell school stays OPEN even so: a non-witch,
+  // non-sage caster still rolls its spells unmodified (±0), for
+  // only the ward, rune and binding schools are closed to
+  // outsiders. And the SAGE, who owns no school at all: -3 on
+  // EVERY cast, spells included. His gift is attunement
+  // mastery — when he uses the Attune ability, the ground
+  // gains attuneLevel + 2 points while his own attunement pool
+  // pays only attuneLevel; the thirty-point cap a hex may hold
+  // stands over even him.
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
