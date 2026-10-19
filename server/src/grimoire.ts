@@ -190,6 +190,12 @@ export function defaultGrimoire(): GrimoireState {
   // his presence (Nigel, 2026-10-19): Awoken fighting under
   // a Sage gain +2 AC and +2 attack — at the Table, Fate's
   // dice will weigh both exactly.
+  // WARD SIZE (Nigel, 2026-10-19): a ward cast by a TENDER
+  // stands 2.75x the size of one cast by an Awokin; wards
+  // from low-level Awoken keep the base size. The preview
+  // proves it on the tender's own cast (the Springleaf
+  // grove's radius x2.75; her seeded sapling groves keep
+  // the old measure).
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
