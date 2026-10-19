@@ -154,6 +154,12 @@ try {
 } catch {
   // Column already exists
 }
+// Migration: curse attrition watermark (Nigel, 2026-10-19)
+try {
+  sqlite.exec("ALTER TABLE field_placements ADD COLUMN curse_since INTEGER");
+} catch {
+  // Column already exists
+}
 // Migration: terrain attunement bank (Nigel, 2026-10-14)
 try {
   sqlite.exec("ALTER TABLE territory_tiles ADD COLUMN attune_points REAL NOT NULL DEFAULT 0");

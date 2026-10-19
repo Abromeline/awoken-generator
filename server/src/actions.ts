@@ -6106,6 +6106,38 @@ export const handlers = {
           .run(row.id);
       }
     }
+    // CURSE ATTRITION (Nigel, 2026-10-19): a placement standing
+    // on cursed ground withers — the ring's share of its
+    // greatest health per beat (2.8s) of standing, reckoned
+    // from its watermark whenever the world settles. One
+    // settle never reckons more than a minute of it: the
+    // curse pressures the Tender who works in it — it does
+    // not execute the absent. On the land the withering falls
+    // on the Awokin standing in the curse; at the Table it
+    // falls on everyone standing there, the Tender included.
+    const standings = sqlite.prepare(
+      `SELECT p.id, p.awakened_id, p.hp, p.curse_since, t.cursed, t.q, t.r
+       FROM field_placements p LEFT JOIN territory_tiles t ON t.id = p.tile_id
+       WHERE p.owner_key = ?`
+    ).all(ownerKey) as any[];
+    for (const s of standings) {
+      if (!s.cursed) {
+        if (s.curse_since != null) sqlite.prepare("UPDATE field_placements SET curse_since = NULL WHERE id = ?").run(s.id);
+        continue;
+      }
+      if (s.curse_since == null) {
+        sqlite.prepare("UPDATE field_placements SET curse_since = ? WHERE id = ?").run(now, s.id);
+        continue;
+      }
+      const elapsed = Math.min(now - Number(s.curse_since), 60000);
+      if (elapsed < 1000) continue;
+      const ring = Math.max(Math.abs(s.q ?? 0), Math.abs(s.r ?? 0), Math.abs((s.q ?? 0) + (s.r ?? 0)));
+      const maxHp = await placementMaxHp(s.awakened_id);
+      const dmg = maxHp * (0.01 * (ring + 1)) * (elapsed / 2800);
+      if (dmg <= 0) continue;
+      const result = await damagePlacement({ id: s.id, awakenedId: s.awakened_id, hp: s.hp } as any, dmg);
+      if (!result.dissipated) sqlite.prepare("UPDATE field_placements SET curse_since = ? WHERE id = ?").run(now, s.id);
+    }
   },
 
   /** THE COLUMNS SETTLE (Nigel, 2026-10-17): arrivals land,
@@ -8514,16 +8546,18 @@ export const handlers = {
     const attackerXpById = new Map<number, XpGainReport>();
     await grantEventXp(attackerXpById, parsed.data.awakenedId, XP_PER_ATTACK);
     const xpShape = z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() });
-    // Exponential thorns: 2^(ring-1). The curse fights back, dealing thorns damage to the attacker.
-    const thorns = Math.pow(2, Math.max(0, ring - 1));
-    // The thorns LAND (Nigel, 2026-10-13): applied to the attacker's
-    // placement HP through the single damage path — at 0 HP the attacker
-    // dissipates back to hand, whatever the curse itself does next.
-    const thornsResult = await damagePlacement(placement[0], thorns);
+    // ATTRITION, NOT THORNS (Nigel, 2026-10-19): the curse no
+    // longer answers the blow — striking it costs the striker
+    // nothing in the moment. Its teeth are the withering of
+    // whatever stands in it, reckoned at settle time (see
+    // settleMarches). The striker's standing is reported as
+    // it stands, untouched by the curse's reply — there is
+    // no reply.
+    const attackerMaxHp = await placementMaxHp(parsed.data.awakenedId);
     const attackerOutcome = {
-      attackerHp: thornsResult.hp,
-      attackerMaxHp: thornsResult.maxHp,
-      attackerDissipated: thornsResult.dissipated,
+      attackerHp: placement[0].hp ?? attackerMaxHp,
+      attackerMaxHp,
+      attackerDissipated: false,
       awakenedId: parsed.data.awakenedId,
     };
     const newHp = Math.max(0, currentHp - power);
@@ -8532,8 +8566,8 @@ export const handlers = {
       await db.update(schema.territoryTiles)
         .set({ curseHp: newHp, curseMaxHp: maxHp })
         .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), thorns: z.number(), thornsDamage: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
-        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, thorns, thornsDamage: thorns, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
+      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
+        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
     // HP reached 0 — the curse breaks!
     // 35% chance: pulled into one wave of the Unraveling instead of instant purify.
@@ -8568,13 +8602,12 @@ export const handlers = {
         await db.update(schema.territoryTiles)
           .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0, ...PURIFIED_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, tile[0].id));
-        // The attacker advances onto the broken land — unless the thorns
-        // took it as the curse broke, in which case it is back in hand.
-        if (!thornsResult.dissipated) {
-          await db.update(schema.fieldPlacements)
-            .set({ tileId: tile[0].id })
-            .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
-        }
+        // The attacker advances onto the broken land. (Under
+        // the old thorns this was gated on surviving the
+        // curse's answer; there is no answer now.)
+        await db.update(schema.fieldPlacements)
+          .set({ tileId: tile[0].id })
+          .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
         // Reveal new cursed land at the frontier.
         await expandFrontier(ownerKey, tile[0].q, tile[0].r);
         // HEX TAKEN: this attacker's blow broke the curse — +50 XP.

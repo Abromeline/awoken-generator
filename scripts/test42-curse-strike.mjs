@@ -6,7 +6,9 @@
 // wears the tile's corruption by the striker's filed power —
 // the land's attackTile arithmetic — with the strike flown on
 // the shared ledger (from the warden's hex, to the TILE) and
-// the curse's thorns answering 2^(ring−1) through the shield;
+// the curse NOT answering (attrition law, 2026-10-19 — the
+// thorns are gone; its teeth are the withering of standing
+// in it, proven at the Table by test41's grind);
 // blow by blow the corruption thins in the tale until the
 // last blow breaks it, the tile turns in the striker's
 // element, and the ground the curse held now takes a summon —
@@ -141,8 +143,8 @@ check("the strike flew on the shared ledger — to the TILE",
   (a.state.strikes ?? []).some(s => s.from === landing && s.to === target && s.side === "light" && s.hit === true),
   `strikes=${JSON.stringify(a.state.strikes)}`);
 const after = strikers().find(u => u.cardId === striker.cardId);
-check("the curse's thorns answered — 2^(ring−1) = 1, shield first",
-  after.hp + after.shield === fleshBefore - 1, `flesh ${fleshBefore} → ${after.hp + after.shield}`);
+check("the curse does not answer — no thorns (attrition law, 2026-10-19): the striker's flesh is untouched by the blow",
+  after.hp + after.shield === fleshBefore, `flesh ${fleshBefore} → ${after.hp + after.shield}`);
 
 // ── Blow by blow, until the curse breaks ──────────────────
 const lastStriker = striker;

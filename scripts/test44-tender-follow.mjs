@@ -132,5 +132,44 @@ a.send({ type: "setFollow", cardId: card1.id, follow: false });
 await a.waitFor(c => unitIn(c, card1.id)?.follow === false, "hold ordered");
 check("the hold order clears the follow", unitIn(a, card1.id).follow === false);
 
+// ── Attrition: the Tender in the cursed land ─────────────
+// (Nigel, 2026-10-19): the Tender may travel into the curse
+// — and it withers him: a share of his greatest health per
+// beat while he stands in it, no dark required. The wave is
+// called so the referee's clock runs; the proof watches his
+// health fall while every dark thing is still far away.
+{
+  const tileOf = (c, id) => c.state.map.find(t => t.id === id);
+  const neighborsOf = (id) => {
+    const [q, r] = id.split(",").map(Number);
+    return [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].map(([dq, dr]) => `${q + dq},${r + dr}`);
+  };
+  let me = meIn(a);
+  let cursedStep = neighborsOf(me.hex).map(id => tileOf(a, id)).find(t => t && t.cursed)?.id;
+  if (!cursedStep) {
+    const staging = a.state.map
+      .filter(t => t.id !== "0,0" && dist(me.hex, t.id) <= 3 && neighborsOf(t.id).some(n => tileOf(a, n)?.cursed))
+      .sort((x, y) => dist(me.hex, x.id) - dist(me.hex, y.id))[0];
+    a.send({ type: "tenderMarch", to: staging.id });
+    await a.waitFor(c => { const m = meIn(c); return m.hex === staging.id && !m.march; }, "the Tender stages beside the curse", 30000);
+    me = meIn(a);
+    cursedStep = neighborsOf(me.hex).map(id => tileOf(a, id)).find(t => t && t.cursed)?.id;
+  }
+  check("a cursed tile waits beside the Tender", !!cursedStep);
+  a.send({ type: "tenderMarch", to: cursedStep });
+  await a.waitFor(c => { const m = meIn(c); return m.hex === cursedStep && !m.march; }, "the Tender steps into the cursed land", 30000);
+  const hpBefore = meIn(a).tenderHp;
+  const maxHp = meIn(a).maxTenderHp;
+  a.send({ type: "startWave" });
+  await a.waitFor(c => c.state.battle.active, "the wave is called", 20000);
+  await a.waitFor(c => {
+    const m = meIn(c);
+    return m.tenderHp < hpBefore - 0.05 && c.state.dark.every(d => dist(d.hex, cursedStep) >= 3);
+  }, "attrition withers the Tender while the dark is far", 45000);
+  check("the cursed land withers the Tender who stands in it (attrition, no blow landed)",
+    meIn(a).tenderHp < hpBefore, `tenderHp ${hpBefore} → ${meIn(a).tenderHp} of ${maxHp}`);
+  check("and he still stands — attrition is a withering, not a blow", meIn(a).tenderHp > 0 && !meIn(a).fallen);
+}
+
 console.log(`\ntest44: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

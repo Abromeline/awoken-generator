@@ -1322,13 +1322,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // attacker back to hand — the refreshed placements below show it.
       if (typeof result.attackerHp === "number") {
         setAwokenHp(prev => new Map(prev).set(selectedAwoken, result.attackerHp));
-      } else if (result.thornsDamage > 0) {
-        setAwokenHp(prev => {
-          const next = new Map(prev);
-          const current = next.get(selectedAwoken) ?? 3;
-          next.set(selectedAwoken, Math.max(0, current - result.thornsDamage));
-          return next;
-        });
       }
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
@@ -1336,17 +1329,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // The blow speaks (Nigel, 2026-10-18: "a blow per order" —
       // the Attack seal is posture AND key: with targeting armed, a
       // tap on a cursed square is one strike of the warden's power
-      // against that tile's curse HP). attackTile has always worn
-      // the curse honestly server-side — power per blow, thorns
-      // 2^(ring-1) answering through the damage path, purification
-      // at 0 — but the client swallowed a landed blow in silence.
+      // against that tile's curse HP). attackTile wears the curse
+      // honestly server-side — power per blow, purification at 0 —
+      // and the curse does not answer (attrition law, 2026-10-19:
+      // its teeth are the withering of whatever stands in it).
       const attackerName = tenderItems.find(a => a.id === selectedAwoken)?.name ?? "Your warden";
-      const thornsDealt = typeof result.thornsDamage === "number" ? result.thornsDamage : (result.thorns ?? 0);
-      const thornClause = thornsDealt > 0
-        ? result.attackerDissipated
-          ? ` Thorns answer for ${thornsDealt} — they take ${attackerName}, who dissipates back to your hand.`
-          : ` Thorns answer for ${thornsDealt} — ${attackerName} at ${result.attackerHp}/${result.attackerMaxHp} HP.`
-        : "";
       if (result.wavePull) {
         // Pulled into the Unraveling! Open a wave battle for this tile.
         setWavePullTile(result.tileId);
@@ -1355,9 +1342,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         // No newborn follows a purification (Nigel, 2026-10-14) —
         // the dead client call that still asked for one is gone;
         // the server refused it every time and the catch hid it.
-        showHexNotice(`⚔ The curse breaks — the tile is purified.${result.sparked ? " The broken land smoulders with fire." : ""}${thornClause}`);
+        showHexNotice(`⚔ The curse breaks — the tile is purified.${result.sparked ? " The broken land smoulders with fire." : ""}`);
       } else if (typeof result.hp === "number") {
-        showHexNotice(`⚔ ${attackerName} strikes the curse for ${result.damage} — curse ${result.hp}/${result.maxHp}.${thornClause}`);
+        showHexNotice(`⚔ ${attackerName} strikes the curse for ${result.damage} — curse ${result.hp}/${result.maxHp}.`);
       }
       setSelectedAwoken(null);
       setAttackTargeting(false);

@@ -405,6 +405,11 @@ export const fieldPlacements = sqliteTable("field_placements", {
   marchPath: text("march_path"),
   marchSince: integer("march_since"),
   marchEnds: integer("march_ends"),
+  // Curse attrition (Nigel, 2026-10-19): the watermark from
+  // which this placement's withering on cursed ground is
+  // reckoned at settle time. Null while it stands on pure
+  // ground (or has not yet been seen standing in the curse).
+  curseSince: integer("curse_since"),
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.

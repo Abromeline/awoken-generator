@@ -1793,7 +1793,7 @@ export default function Table() {
                   {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMarching
                     ? "on the march — it answers when it arrives."
                     : strikeArmed
-                      ? <>armed against the curse — tap cursed ground within two tiles: one blow (⚡1) wears its curse by {selUnit.power}. Its thorns answer.</>
+                      ? <>armed against the curse — tap cursed ground within two tiles: one blow (⚡1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
                       : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.</>}
                 </span>
                 {!selUnitMarching && (

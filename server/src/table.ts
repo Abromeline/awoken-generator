@@ -320,6 +320,16 @@ const STACK_CAP = 4;
 /** A cursed tile's corruption, by its ring from the seed —
  *  the land's own curse law (4 + 6 × ring). */
 function curseHpForRing(ring: number): number { return 4 + 6 * ring; }
+
+/** CURSE ATTRITION (Nigel, 2026-10-19): the curse no longer
+ *  answers blow for blow — the thorns are gone, on the Table
+ *  and on the land alike. What the curse does now is WITHER
+ *  whatever stands in it: a share of the stander's greatest
+ *  health per beat, growing ring by ring — ring 1 takes 2%,
+ *  and +1% for every ring deeper. Great bodies bleed great
+ *  numbers and small ones small, and everything bleeds more
+ *  slowly than the old flat burn bit. */
+function curseAttritionPct(ring: number): number { return 0.01 * (Math.max(0, ring) + 1); }
 function ringOf(tileId: string): number { return axialDist(tileId, SEED_TILE); }
 function axialDist(a: string, b: string): number {
   const ta = TILE_BY_ID.get(a), tb = TILE_BY_ID.get(b);
@@ -1070,10 +1080,10 @@ function darkGround(room: Room, count: number): string[] {
   return cursed.slice(0, count).map(t => t.id);
 }
 
-/** The curse burns its guests (Nigel, 2026-10-18): a standing
- *  Awokin on cursed ground takes the ring's burn each round —
- *  its shield drinks first, as for any harm; what gets through
- *  unbinds. The seed's calm softens the inner rings. */
+/** The curse withers its guests (attrition, Nigel,
+ *  2026-10-19): a standing Awokin on cursed ground pays the
+ *  ring's share of its greatest health each beat — its shield
+ *  drinks first, as for any harm; what gets through unbinds. */
 function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
   let wound = burn;
   if (u.shield > 0) {
@@ -1990,19 +2000,37 @@ async function runRound(room: Room): Promise<void> {
         beginAdvance(enemy);
       }
     }
-    // THE CURSE BURNS, THE LIGHT GRINDS (the Instance Map;
-    // Nigel, 2026-10-18): every Awokin standing on cursed
-    // ground pays the ring's burn — and its presence wears
+    // THE CURSE WITHERS, THE LIGHT GRINDS (the Instance Map;
+    // attrition ruled 2026-10-19): every Awokin standing on
+    // cursed ground pays the ring's attrition — a share of
+    // its greatest health per beat — and its presence wears
     // the tile's corruption down by its power, unless the
     // dark itself holds that tile. A tile ground to nothing
     // turns, in the element of the strongest light upon it.
+    // THE TENDER WITHERS TOO: he may walk the cursed land —
+    // it is his road as much as theirs — and it takes the
+    // same share of him, standing or mid-march, until he
+    // falls where he stands.
     {
       const grind = new Map<string, { dmg: number; best: FieldUnit | null }>();
       const rate = dtSec / (BEAT_MS / 1000); // the old round's share of this tick
+      for (const p of room.players.values()) {
+        if (p.watcher || p.storytender || p.fallen || !p.hex) continue;
+        const hereId = p.march ? roadTileAt(p.march, now) : p.hex;
+        const tile = room.map.get(hereId);
+        if (!tile || !tile.cursed) continue;
+        p.tenderHp -= p.maxTenderHp * curseAttritionPct(ringOf(tile.id)) * rate;
+        if (p.tenderHp <= 0) {
+          p.tenderHp = 0;
+          p.fallen = true;
+          if (p.march) { p.hex = hereId; p.march = null; }
+          tell(room, `The curse's attrition takes ${p.name} — they fall where they stand. The Bastion mourns — and fights on.`);
+        }
+      }
       for (const u of standingUnits(room)) {
         const tile = room.map.get(u.hex);
         if (!tile || !tile.cursed) continue;
-        hurtByCurse(room, u, Math.max(1, ringOf(tile.id) - 1) * rate);
+        hurtByCurse(room, u, u.maxHp * curseAttritionPct(ringOf(tile.id)) * rate);
         if (!unitStanding(room, u)) continue; // the burn unbound it
         if (darkOn(room, tile.id)) continue; // the dark holds this ground
         const g = grind.get(tile.id) ?? { dmg: 0, best: null };
@@ -2510,10 +2538,11 @@ function handleConnection(ws: WebSocket): void {
     // arithmetic exactly. At nothing the tile turns in the
     // striker's dominant element, and every consequence of
     // pure ground follows (the summon gate reads the same
-    // flag). The curse answers as the land's does — thorns of
-    // 2^(ring−1), drunk by the shield first through the
-    // curse's own harm path. Victory and the standing grind
-    // remain the other roads; this is the deliberate one.
+    // flag). The curse does not answer the blow (attrition
+    // law, 2026-10-19 — the thorns are gone from both maps);
+    // its harm is the withering of whatever stands in it.
+    // Victory and the standing grind remain the other roads;
+    // this is the deliberate one.
     // The referee's say is final: no client word is trusted
     // for the wear, the turn, or the thorns.
     if (msg.type === "strikeCurse") {
@@ -2552,12 +2581,9 @@ function handleConnection(ws: WebSocket): void {
       } else {
         tell(room, `⚔️ ${unit.card.name} strikes the curse — its corruption thins to ${Math.ceil(tile.curseHp)} of ${tile.curseMaxHp}.`);
       }
-      // The curse answers: thorns, 2^(ring−1), as on the land.
-      const thorns = Math.pow(2, Math.max(0, ringOf(targetId) - 1));
-      if (thorns > 0) {
-        hurtByCurse(room, unit, thorns);
-        if (unitStanding(room, unit)) tell(room, `The curse's thorns answer ${unit.card.name}'s blow.`);
-      }
+      // The curse does not answer (attrition law, 2026-10-19):
+      // no thorns fly back at the striker. Its teeth are only
+      // for those who stand in it.
       sendState(room);
       return;
     }
