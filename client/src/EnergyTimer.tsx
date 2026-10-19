@@ -1,10 +1,22 @@
 // EnergyTimer: Glowing orb counting down to the next +1 energy.
 // The interval is the workshop's timer.energyRegenMinutes (online rate),
 // loaded from game config — never a hardcoded guess.
+//
+// The globe houses FEEDING now (Nigel, 2026-10-18): while a warden
+// is chosen on the field, the orb wears a lit feed-ready face and a
+// tap feeds that warden 10⚡ (Territory owns the feed itself — this
+// component only carries the face and the tap). With no warden
+// chosen, no feed props arrive and the orb is its present self.
 import { useState, useEffect } from "react";
 import { api } from "./api";
 
-export default function EnergyTimer() {
+interface EnergyTimerProps {
+  feedName?: string | null;
+  onFeed?: () => void;
+  refreshBump?: number;
+}
+
+export default function EnergyTimer({ feedName = null, onFeed, refreshBump = 0 }: EnergyTimerProps) {
   const [energy, setEnergy] = useState(0);
   const [maxEnergy, setMaxEnergy] = useState(10);
   const [regenSeconds, setRegenSeconds] = useState(240);
@@ -33,6 +45,15 @@ export default function EnergyTimer() {
     return () => clearInterval(interval);
   }, []);
 
+  // A feed landed (Territory bumped): re-read the globe's own number.
+  useEffect(() => {
+    if (!refreshBump) return;
+    api.getEnergy().then(({ energy: e, maxEnergy: m }) => {
+      setEnergy(e);
+      setMaxEnergy(m);
+    }).catch(() => {});
+  }, [refreshBump]);
+
   useEffect(() => {
     if (energy >= maxEnergy) return; // full, no timer needed
     const timer = setInterval(() => {
@@ -57,9 +78,13 @@ export default function EnergyTimer() {
   const progress = 1 - secondsLeft / regenSeconds; // 0 to 1
 
   return (
-    <div className={`energy-orb ${isFull ? "full" : "charging"}`} title={
-      isFull 
-        ? `Energy full (${energy}/${maxEnergy})` 
+    <div className={`energy-orb ${isFull ? "full" : "charging"}${feedName ? " feed-ready" : ""}`}
+    onClick={feedName && onFeed ? () => onFeed() : undefined}
+    title={
+      feedName
+        ? `Feed ${feedName} — 10⚡ becomes XP`
+        : isFull
+        ? `Energy full (${energy}/${maxEnergy})`
         : `+1 energy in ${mins}:${secs.toString().padStart(2, "0")}`
     }>
       <svg viewBox="0 0 60 60" className="energy-orb-ring">

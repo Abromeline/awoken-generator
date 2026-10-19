@@ -84,6 +84,12 @@ interface Props {
   onStrengthenWork: (dir: number) => Promise<void>;
   onRemoveWork: (dir: number) => Promise<void>;
   onTeachSkill: (awakenedId: number, skill: "warding" | "runeing") => Promise<void>;
+  // An armed work (Nigel, 2026-10-18): chosen in the radial's
+  // Binding menu and carried here — the edge is then chosen by THIS
+  // panel's own flow, and the laying rides the same onPlaceWork law.
+  // The panel invents no second casting path.
+  armedWork?: { kind: "ward" | "rune"; runeKind?: RuneKind } | null;
+  onCancelArm?: () => void;
   onChooseBuilding: (def: BuildingDef) => void;
   onDemolish: (buildingId: number) => Promise<void>;
   onClaimSpark?: () => void;
@@ -139,7 +145,7 @@ function SeedMissions({ tile, seed, fieldParty, onFetchSeed, onHoldSeed }: {
   );
 }
 
-export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, onChooseBuilding, onDemolish, onClaimSpark, seed, fieldParty, onFetchSeed, onHoldSeed }: Props) {
+export default function WarGrounds({ tile, walls, standing, tileBuildings, energy, onClose, onPlaceWork, onStrengthenWork, onRemoveWork, onTeachSkill, armedWork, onCancelArm, onChooseBuilding, onDemolish, onClaimSpark, seed, fieldParty, onFetchSeed, onHoldSeed }: Props) {
   const [defs, setDefs] = useState<BuildingDef[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pickDir, setPickDir] = useState<number | null>(null);
@@ -247,6 +253,12 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
                   onClick={() => {
                     if (busyKey !== null) return;
                     if (work) { setSelDir(d); setPickDir(null); }
+                    else if (armedWork) {
+                      // The work was chosen in the radial's Binding
+                      // menu; this tap chooses its edge — the laying
+                      // itself is the panel's own onPlaceWork law.
+                      act(`arm-${d}`, () => onPlaceWork(d, armedWork.kind, armedWork.runeKind));
+                    }
                     else { setPickDir(d); setSelDir(null); setRunePick(false); }
                   }} />
               ) : null;
@@ -321,12 +333,20 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
             )}
           </svg>
         </div>
+        {armedWork && (
+          <div className="wg-armed">
+            <span>{armedWork.kind === "ward" ? "🔷 A Ward is chosen" : `🔶 The ${RUNE_DEFS[armedWork.runeKind ?? "snare"].name} rune is chosen`} in the radial — tap a bare gold edge to lay it here. The skilled hand must stand on this hex; the server's law decides.</span>
+            {onCancelArm && <button className="abtn small" onClick={onCancelArm}>✕ Set it down</button>}
+          </div>
+        )}
         <p className="quiet wg-note">
           {cursed
             ? "Cursed ground raises no works and holds no buildings. Purify it first."
             : standing.length === 0
               ? "Edge works are laid by an Awokin standing on the hex — station one here first."
-              : pickDir !== null
+              : armedWork
+                ? "The chosen work waits on an edge — bare edges only; a standing work keeps its own law below."
+                : pickDir !== null
                 ? `The ${DIR_NAMES[pickDir]} edge is bare. Choose its work below — one work per edge.`
                 : selWork
                   ? `The ${DIR_NAMES[selDir!]} edge carries a ${selWork.kind === "wall" ? (selWork.style === "spire" ? "Spire Wall" : "Stone Wall") : WORK_DEFS[selWork.kind].name}. Its law is below.`

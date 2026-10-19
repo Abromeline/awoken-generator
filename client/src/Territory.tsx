@@ -457,6 +457,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [patrolDraft, setPatrolDraft] = useState<number[]>([]);
   const [marchUiFor, setMarchUiFor] = useState<number | null>(null);
   const [marchQuote, setMarchQuote] = useState<{ tileId: number; road: number[]; steps: number; seconds: number; energy: number } | null>(null);
+  // The radial's second menu (Nigel, 2026-10-18): the Binding seal
+  // opens the chosen Awoken's taught works (runes / wards) fanned
+  // from the radial itself. Choosing one arms the work and opens
+  // the War-Grounds panel on the warden's hex, where the edge is
+  // chosen by the panel's own flow — one casting path, never two.
+  const [bindingMenuOpen, setBindingMenuOpen] = useState(false);
+  const [wgArmedWork, setWgArmedWork] = useState<{ kind: "ward" | "rune"; runeKind?: "snare" | "harm" | "meld" } | null>(null);
+  useEffect(() => { setBindingMenuOpen(false); }, [selectedAwoken]);
+  // Feeding lives in the energy globe now (Nigel, 2026-10-18): the
+  // bump re-reads the orb's own energy after a feed lands.
+  const [orbBump, setOrbBump] = useState(0);
   // Drag-selection (War-Ground, Nigel 2026-10-16): a left-drag on the
   // map draws a band; the wardens inside it are chosen together and
   // can be given a company march. (Pan is right-drag, so the left
@@ -533,6 +544,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
+  // An armed work (chosen in the radial's Binding menu) is spent the
+  // moment a work action resolves into fresh walls — the laying is
+  // done; a refusal leaves the walls untouched and the arm in hand.
+  const wallsSeenRef = useRef<EdgeWork[] | null>(null);
+  useEffect(() => {
+    if (wallsSeenRef.current === null) { wallsSeenRef.current = walls; return; }
+    if (wallsSeenRef.current !== walls) { wallsSeenRef.current = walls; setWgArmedWork(null); }
+  }, [walls]);
   // ── The Written Light on the land (the Grimoire, Nigel 2026-10-17) ──
   // The Tender's own castings from the book: standings served by
   // getTerritory, the book itself by getGrimoire, the Lv 3 gate by
@@ -1246,8 +1265,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     );
   }, [firstSeedEv?.newbornClaimed]);
 
-  const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding") => {
-    setStanceMinimized(true); // collapse bubble so tiles behind are clickable
+  const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding", opts?: { keepOpen?: boolean }) => {
+    // Collapse bubble so tiles behind are clickable — except when
+    // the seal's second menu must fan from the open radial (Binding).
+    if (!opts?.keepOpen) setStanceMinimized(true);
     try {
       await api.setStance({ awakenedId, stance, maxEnergy });
       await refreshEnergy();
@@ -2497,6 +2518,57 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     patrolPlacementForAnchor ? anchorPct(ordersAnchorBelow(patrolPlacementForAnchor)) : null,
   );
 
+  // The War-Grounds selection bar (Nigel, 2026-10-18): marching is a
+  // War-Grounds function now — while the War-Grounds stand open and
+  // exactly one warden is chosen, its march orders hang BELOW THE
+  // RADIAL, stacked on the radial's own laid-out foot (measured from
+  // the picker element itself, open or minimized, so the stack can
+  // never drift apart), then clamped into view like every order.
+  const [wgStackPct, setWgStackPct] = useState<{ xPct: number; yPct: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = pickerAnchor.ref.current;
+    if (!el || wgTileId === null || selectedAwoken === null) {
+      if (wgStackPct) setWgStackPct(null);
+      return;
+    }
+    const parent = el.offsetParent as HTMLElement | null;
+    if (!parent || !parent.clientWidth || !parent.clientHeight) return;
+    const xPx = el.offsetLeft; // the picker's anchor centre (it is translate(-50%, …))
+    const footPx = stanceMinimized ? el.offsetTop + el.offsetHeight / 2 : el.offsetTop + el.offsetHeight;
+    const next = { xPct: (xPx / parent.clientWidth) * 100, yPct: ((footPx + 6) / parent.clientHeight) * 100 };
+    if (!wgStackPct || Math.abs(next.xPct - wgStackPct.xPct) > 0.01 || Math.abs(next.yPct - wgStackPct.yPct) > 0.01) {
+      setWgStackPct(next);
+    }
+  });
+  const wgBarAnchor = useClampedAnchor(wgStackPct);
+
+  // The globe feeds the chosen warden (Nigel, 2026-10-18): feeding
+  // left the individual Awoken screens; the energy globe houses it,
+  // 10⚡ at a time, through the same feedEnergy law — and refusals
+  // speak through the hex notice, as the picker's messages read.
+  const feedTarget = selectedAwoken !== null && placements.some(p => p.awakenedId === selectedAwoken)
+    ? tenderItems.find(a => a.id === selectedAwoken) ?? null
+    : null;
+  const handleGlobeFeed = async () => {
+    if (!feedTarget || selectedAwoken === null) return;
+    const amt = 10;
+    if (energy < amt) {
+      showHexNotice(`Feeding ${feedTarget.name} takes ${amt}⚡ — the globe holds ${energy}⚡.`);
+      return;
+    }
+    try {
+      const r = await api.feedEnergy({ awakenedId: selectedAwoken, energy: amt });
+      setEnergy(e => Math.max(0, e - amt));
+      setOrbBump(b => b + 1);
+      onUpdate();
+      showHexNotice(r.leveledUp
+        ? `${feedTarget.name} fed ${amt}⚡ → +${r.xpGain} XP. Level ${r.newLevel}!${r.statPointsGained ? ` +${r.statPointsGained} stat point${r.statPointsGained > 1 ? "s" : ""}.` : ""}`
+        : `${feedTarget.name} fed ${amt}⚡ → +${r.xpGain} XP.`);
+    } catch (e) {
+      showHexNotice(e instanceof Error ? e.message : "Feeding failed");
+    }
+  };
+
   // Render hex grid with mathematical perspective tilt.
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
@@ -3320,7 +3392,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               strokeDasharray={isOpen ? undefined : "1 6"}
               strokeLinecap="round"
               style={{ cursor: "pointer" }}
-              onClick={(e) => { e.stopPropagation(); setWgTileId(t.id); }}
+              onClick={(e) => { e.stopPropagation(); if (t.id !== wgTileId) setWgArmedWork(null); setWgTileId(t.id); }}
             />
           );
         })}
@@ -4104,41 +4176,54 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 ));
               })()}
             </div>
-            <div className="stance-buttons">
-              <button
-                className={`stance-btn ${placement.stance === "attack" ? "active" : ""}`}
-                onClick={() => handleSetStance(selectedAwoken, "attack")}
-                title="Focus all power on one tile. Attack an adjacent cursed tile to purify it.">
-                ⚔ Attack
-              </button>
-              <button
-                className={`stance-btn ${placement.stance === "defense" ? "active" : ""}`}
-                onClick={() => handleSetStance(selectedAwoken, "defense")}
-                title="Hold ground. Generates 1 energy. Protects your purified land.">
-                🛡 Defense
-              </button>
-              <button
-                className={`stance-btn ${placement.stance === "binding" ? "active" : ""}`}
-                onClick={() => handleSetStance(selectedAwoken, "binding")}
-                title="Channel power into the land: feeds attunement and mends the wounded. Costs 2 energy.">
-                ✦ Binding
-              </button>
-              {(() => {
-                // Check if this Awoken has Fire III aspect
-                const layers = awoken.layers || [];
-                const aspect = layers.find((l: any) => l.category === "aspect");
-                // Judged by the aspect's own record alone — its
-                // filed element and its level — never by its name
-                // (Nigel, 2026-10-16; the name tests that stood here
-                // could crown a fire-named level-I aspect as Fire III).
-                const isFireIII = aspect &&
-                  ((aspect as any).aspectElement === "fire" || (aspect as any).element === "fire") &&
-                  (aspect as any).aspectLevel === 3;
-                if (!isFireIII) return null;
-                return (
-                  <button
-                    className="stance-btn ignite"
-                    onClick={async () => {
+            {/* THE RADIAL (Nigel, 2026-10-18): the pop-up shrinks to
+                a small radial — Attack, Defense, Binding as wax seals
+                fanned in a shallow smile beneath the heart (name,
+                stats, element levels above). Raise Wall, the
+                War-Grounds button, Dissipate and the feed row have
+                left this menu: walls ride the War-Grounds panel,
+                marching is a War-Grounds function, feeding lives in
+                the energy globe. Ignite keeps a conditional seal —
+                it is a Fire III working, not a stance. */}
+            {(() => {
+              // Check if this Awoken has Fire III aspect. Judged by
+              // the aspect's own record alone — its filed element
+              // and its level — never by its name (Nigel, 2026-10-16;
+              // the name tests that stood here could crown a
+              // fire-named level-I aspect as Fire III).
+              const layers = awoken.layers || [];
+              const aspect = layers.find((l: any) => l.category === "aspect");
+              const isFireIII = !!aspect &&
+                ((aspect as any).aspectElement === "fire" || (aspect as any).element === "fire") &&
+                (aspect as any).aspectLevel === 3;
+              const seals: { key: string; glyph: string; label: string; title: string; active: boolean; cls?: string; onPick: () => void }[] = [
+                {
+                  key: "attack", glyph: "⚔", label: "Attack",
+                  title: "Focus all power on one tile. Attack an adjacent cursed tile to purify it.",
+                  active: placement.stance === "attack",
+                  onPick: () => { setBindingMenuOpen(false); void handleSetStance(selectedAwoken, "attack"); },
+                },
+                {
+                  key: "defense", glyph: "🛡", label: "Defense",
+                  title: "Hold ground. Generates 1 energy. Protects your purified land.",
+                  active: placement.stance === "defense",
+                  onPick: () => { setBindingMenuOpen(false); void handleSetStance(selectedAwoken, "defense"); },
+                },
+                {
+                  key: "binding", glyph: "✦", label: "Binding",
+                  title: "Channel power into the land: feeds attunement and mends the wounded. Costs 2 energy. Opens this Awokin's taught runes and wards.",
+                  active: placement.stance === "binding",
+                  onPick: () => { void handleSetStance(selectedAwoken, "binding", { keepOpen: true }); setBindingMenuOpen(true); },
+                },
+              ];
+              if (isFireIII) {
+                seals.push({
+                  key: "ignite", glyph: "🔥", label: "Ignite", cls: "ignite",
+                  title: "Ignite wildfire (13 energy). Requires Fire III aspect.",
+                  active: false,
+                  onPick: () => {
+                    setBindingMenuOpen(false);
+                    void (async () => {
                       try {
                         const result = await api.igniteWildfire({ awakenedId: selectedAwoken, tileId: placement.tileId });
                         alert(`Wildfire ignited! ${result.ignitedTileIds.length} tiles burning.`);
@@ -4148,104 +4233,88 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                       } catch (e) {
                         alert((e as Error).message || "Ignition failed");
                       }
-                    }}
-                    title="Ignite wildfire (13 energy). Requires Fire III aspect.">
-                    🔥 Ignite (13⚡)
-                  </button>
-                );
-              })()}
-              <button
-                className={`stance-btn ${wallTargeting ? "active" : ""}`}
-                onClick={() => { setWallTargeting(w => !w); setAttackTargeting(false); setMoveTargeting(false); }}
-                title="Raise a wall on one edge of this hex (2 energy). Tap the glowing edge itself — one tap, one wall. Enemies in battle strike the wall before the Awokin behind it.">
-                🧱 {wallTargeting ? "Tap an edge…" : "Raise wall (2⚡)"}
-              </button>
-              <button
-                className="stance-btn"
-                disabled={battleActive}
-                onClick={() => { setWgTileId(placement.tileId); setWallTargeting(false); setAttackTargeting(false); setMoveTargeting(false); }}
-                title="Open the War-Grounds for this hex: one enlarged hex for fine work — raise walls on fat edges, seat or demolish buildings, and read the tile's state plainly.">
-                ⚔️ War-Grounds
-              </button>
-              <button
-                className="stance-btn dissipate"
-                onClick={async () => {
-                  if (confirm("Dissipate this Awokin? It will enter 8h re-coalescence.")) {
-                    try {
-                      await api.dissipateAwoken({ awakenedId: selectedAwoken });
-                      setSelectedAwoken(null);
-                      onUpdate();
-                    } catch (e) {
-                      console.error("Dissipate failed", e);
-                    }
-                  }
-                }}
-                title="Voluntarily dissipate. 8h re-coalescence (double the 4h).">
-                🌫 Dissipate
-              </button>
-            </div>
-            <div className="feed-energy-row" style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, opacity: 0.85 }}>Feed energy → XP (×2 in the Hall · ×1 in the field):</span>
-              {[1, 5, 10].map(amt => (
-                <button
-                  key={amt}
-                  className="stance-btn"
-                  disabled={energy < amt}
-                  title={`Give ${amt} energy — XP at ×2 while ${awoken.name} dwells in the Hall, ×1 in the field`}
-                  onClick={async () => {
-                    try {
-                      const r = await api.feedEnergy({ awakenedId: selectedAwoken, energy: amt });
-                      setEnergy(e => Math.max(0, e - amt));
-                      onUpdate();
-                      alert(r.leveledUp ? `${awoken.name} fed ${amt}⚡ → +${r.xpGain} XP. Level ${r.newLevel}!${r.statPointsGained ? ` +${r.statPointsGained} stat point${r.statPointsGained > 1 ? "s" : ""}.` : ""}` : `${awoken.name} fed ${amt}⚡ → +${r.xpGain} XP.`);
-                    } catch (e) {
-                      alert((e as Error).message || "Feeding failed");
-                    }
-                  }}
-                >
-                  {amt}⚡
-                </button>
-              ))}
-            </div>
+                    })();
+                  },
+                });
+              }
+              const n = seals.length;
+              return (
+                <div className="stance-fan">
+                  {seals.map((s, i) => {
+                    const t = n <= 1 ? 0 : (i - (n - 1) / 2) / ((n - 1) / 2);
+                    return (
+                      <div key={s.key} className="stance-seal-wrap">
+                        <button
+                          className={`stance-seal${s.cls ? ` ${s.cls}` : ""}${s.active ? " active" : ""}`}
+                          style={{ transform: `translateY(${-Math.round(t * t * 7)}px) rotate(${Math.round(t * 9)}deg)` }}
+                          onClick={s.onPick}
+                          title={s.title}>
+                          {s.glyph}
+                        </button>
+                        <span className="stance-seal-label">{s.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {/* The Binding menu (Nigel, 2026-10-18): the chosen
+                Awokin's taught works, fanned from the radial. A work
+                chosen here ARMS it and opens the War-Grounds panel
+                on the warden's hex — the edge is chosen there, by
+                the panel's own flow, through the one placeEdgeWork
+                law. Nothing parallel is built. Costs are display
+                mirrors; the server is the law. */}
+            {bindingMenuOpen && (() => {
+              const taught = skills.filter(s => s.awakenedId === selectedAwoken).map(s => s.skill);
+              const hasWard = taught.includes("warding");
+              const hasRune = taught.includes("runeing");
+              const arm = (kind: "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
+                setWgArmedWork({ kind, runeKind });
+                setBindingMenuOpen(false);
+                setAttackTargeting(false);
+                setMoveTargeting(false);
+                setWgTileId(placement.tileId);
+              };
+              const runeBlurbs: Record<string, string> = {
+                snare: "Stops the crossing whole — held fast, no damage.",
+                harm: "Heavy damage, no stop — 6 wounds, doubling with each strengthening.",
+                meld: "Some of both — 3 wounds and the strike never comes.",
+              };
+              return (
+                <div className="stance-binding-menu">
+                  <div className="stance-binding-title">✦ Taught works — choose one, then choose its edge in the War-Grounds</div>
+                  {!hasWard && !hasRune && (
+                    <div className="stance-binding-none">No runes or wards taught.</div>
+                  )}
+                  {hasWard && (
+                    <button className="stance-work-btn" onClick={() => arm("ward")}
+                      title="A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15.">
+                      🔷 Ward · 3⚡
+                    </button>
+                  )}
+                  {hasRune && (["snare", "harm", "meld"] as const).map(rk => (
+                    <button key={rk} className="stance-work-btn" onClick={() => arm("rune", rk)}
+                      title={runeBlurbs[rk]}>
+                      🔶 {rk.charAt(0).toUpperCase() + rk.slice(1)} rune · 3⚡
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {/* Feeding lives in the energy globe now (Nigel,
+                2026-10-18) — the globe feeds the chosen warden,
+                10⚡ at a time. The Hall keeps its own feeding: a
+                dwelling screen, at the Hall's ×2 rate. */}
             {attackTargeting && placement.stance === "attack" && (
               <div className="attack-hint">Tap an adjacent cursed tile to attack (1 energy)</div>
             )}
-            {moveTargeting && (
-              <div className="attack-hint">Tap an adjacent purified tile to move ({moveCost(awoken.power)} energy)</div>
-            )}
-            {/* The marching systems live within Move (Nigel, 2026-10-16):
-                the button opens the march orders — a plain march from
-                A to B (quoted, confirmed, walked for real) or a patrol
-                road. On the march, the picker shows the road's state
-                and the recall instead. */}
-            {placement.marchPath ? (
-              <>
-                <span style={{ fontSize: 12, opacity: 0.9 }}>
-                  🚶 On the march — arrives in {fmtMarchTime(((placement.marchEnds ?? marchNow) - marchNow) / 1000)}
-                </span>
-                <button
-                  className="stance-btn"
-                  onClick={async () => {
-                    try {
-                      const r = await api.recallMarch({ awakenedId: selectedAwoken });
-                      await refreshMarching();
-                      showHexNotice(r.stepsHome > 0 ? "Recalled — the warden turns for home." : "Recalled — it had barely left its post.");
-                    } catch (e) {
-                      showHexNotice(e instanceof Error ? e.message : "The recall failed.");
-                    }
-                  }}
-                  title="Call the marcher home: it turns where it stands and walks back. The march's energy is spent either way.">
-                  ↩ Recall
-                </button>
-              </>
-            ) : !attackTargeting && !moveTargeting && marchUiFor === null && patrolSettingFor === null && (
-              <button
-                className="stance-btn"
-                onClick={() => { setMarchUiFor(selectedAwoken); setMarchQuote(null); setStanceMinimized(true); }}
-                title="March orders: tap a hex and the march is quoted — the road traced, the time and energy calculated — then confirm and it walks. Or lay a patrol road instead.">
-                ➤ Move — march & patrol{placement.patrolPath ? ` (patrolling, ${patrolRoadOf(placement).length} waypoints)` : ""}
-              </button>
-            )}
+            {/* Marching is a War-Grounds function now (Nigel,
+                2026-10-18): the march status, the recall and the
+                march orders hang in the War-Grounds selection bar
+                below this radial — see the bar beside the company
+                bar. The march / patrol / company bars themselves
+                never moved. */}
             <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); clearHexConfirm(); setStanceMinimized(false); }}>
               ✕
             </button>
@@ -4576,9 +4645,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         );
       })()}
-      {/* Bottom dock: energy orb + hand */}
+      {/* Bottom dock: energy orb + hand. The orb houses feeding
+          now (Nigel, 2026-10-18): while a warden is chosen it wears
+          the lit feed-ready face and tapping it — or its caption —
+          feeds that warden 10⚡. Unchosen, it is its present self. */}
       <div className="energy-orb-fixed">
-        <EnergyTimer />
+        <EnergyTimer feedName={feedTarget?.name ?? null} onFeed={handleGlobeFeed} refreshBump={orbBump} />
+        {feedTarget && (
+          <button type="button" className="energy-orb-feed-caption" onClick={() => void handleGlobeFeed()}
+            title={`Feed ${feedTarget.name} 10⚡ — energy becomes XP (×1 in the field)`}>
+            Feed {feedTarget.name} · 10⚡
+          </button>
+        )}
       </div>
       <div className="bottom-dock">
         <div className="hand-tabs" role="tablist" aria-label="Your hand">
@@ -4933,10 +5011,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         className={`wg-toggle ${wgTileId !== null ? "open" : ""}`}
         onClick={() => {
           if (battleActive) return;
-          if (wgTileId !== null) { setWgTileId(null); return; }
+          if (wgTileId !== null) { setWgTileId(null); setWgArmedWork(null); return; }
           const sel = selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken) : undefined;
           const target = sel ?? placements[0];
           if (!target) { showHexNotice("Station an Awokin on the field first — the War-Grounds open on the hex an Awokin stands on."); return; }
+          setWgArmedWork(null);
           setWgTileId(target.tileId);
           showHexNotice("The War-Grounds are open — while they are open, dragging on the map chooses wardens. Close them (⚔️) to drag the map again.");
         }}
@@ -5092,16 +5171,19 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             standing={standing}
             tileBuildings={buildings.filter(b => b.tileId === tile.id)}
             energy={energy}
-            onClose={() => setWgTileId(null)}
+            onClose={() => { setWgTileId(null); setWgArmedWork(null); }}
             onPlaceWork={(dir, kind, runeKind, style) => handlePlaceWork(tile.id, dir, kind, runeKind, style)}
             onStrengthenWork={(dir) => handleStrengthenWork(tile.id, dir)}
             onRemoveWork={(dir) => handleRemoveWork(tile.id, dir)}
             onTeachSkill={(awakenedId, skill) => handleTeachSkill(awakenedId, skill)}
+            armedWork={wgArmedWork}
+            onCancelArm={() => setWgArmedWork(null)}
             onChooseBuilding={(def) => {
               setSelectedBuilding(def);
               setPendingTile(tile.id);
               setSelectedBuilders([]);
               setWgTileId(null);
+              setWgArmedWork(null);
             }}
             onDemolish={async (buildingId) => {
               try {
@@ -5114,8 +5196,69 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 showHexNotice(e instanceof Error ? e.message : "The building would not come down.");
               }
             }}
-            onClaimSpark={tile.spark ? () => { setWgTileId(null); void handleSparkClick(tile.id); } : undefined}
+            onClaimSpark={tile.spark ? () => { setWgTileId(null); setWgArmedWork(null); void handleSparkClick(tile.id); } : undefined}
           />
+        );
+      })()}
+      {/* The War-Grounds selection bar (Nigel, 2026-10-18): marching
+          is a War-Grounds function — while the War-Grounds stand
+          open and exactly one placed warden is chosen (no company,
+          no march/patrol flow already open), its orders hang below
+          the radial: a marching warden shows its road's state and
+          the recall, a patrolling one its patrol note, a standing
+          one the door into the march bar (which still leads to the
+          patrol road). The bars it opens never moved. */}
+      {wgTileId !== null && selectedAwoken !== null && selectedGroup.length === 0 && !groupMarchUi && marchUiFor === null && patrolSettingFor === null && (() => {
+        const placement = placements.find(p => p.awakenedId === selectedAwoken);
+        const awoken = tenderItems.find(a => a.id === selectedAwoken);
+        if (!placement || !awoken) return null;
+        return (
+          <div className="patrol-bar wg-orders-bar" ref={wgBarAnchor.ref}
+            style={{ left: `${wgBarAnchor.xPct ?? 50}%`, top: `${wgBarAnchor.yPct ?? 92}%` }}>
+            {placement.marchPath ? (
+              <>
+                <span className="patrol-bar-label">
+                  🚶 {awoken.name} is on the march — arrives in {fmtMarchTime(((placement.marchEnds ?? marchNow) - marchNow) / 1000)}
+                </span>
+                <button
+                  className="stance-btn"
+                  onClick={async () => {
+                    try {
+                      const r = await api.recallMarch({ awakenedId: selectedAwoken });
+                      await refreshMarching();
+                      showHexNotice(r.stepsHome > 0 ? "Recalled — the warden turns for home." : "Recalled — it had barely left its post.");
+                    } catch (e) {
+                      showHexNotice(e instanceof Error ? e.message : "The recall failed.");
+                    }
+                  }}
+                  title="Call the marcher home: it turns where it stands and walks back. The march's energy is spent either way.">
+                  ↩ Recall
+                </button>
+              </>
+            ) : placement.patrolPath ? (
+              <>
+                <span className="patrol-bar-label">
+                  🚶 {awoken.name} walks a patrol — {patrolRoadOf(placement).length} waypoint{patrolRoadOf(placement).length === 1 ? "" : "s"}
+                </span>
+                <button
+                  className="stance-btn"
+                  onClick={() => { setPatrolDraft(patrolRoadOf(placement)); setPatrolSettingFor(selectedAwoken); }}
+                  title="Re-lay or end this warden's patrol road.">
+                  🚶 Patrol road
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="patrol-bar-label">⚔ War-Grounds — {awoken.name}</span>
+                <button
+                  className="stance-btn"
+                  onClick={() => { setMarchUiFor(selectedAwoken); setMarchQuote(null); setStanceMinimized(true); }}
+                  title="March orders: tap a hex and the march is quoted — the road traced, the time and energy calculated — then confirm and it walks. Or lay a patrol road instead.">
+                  ➤ March orders
+                </button>
+              </>
+            )}
+          </div>
         );
       })()}
       {/* The company bar — a drag-chosen company's orders (Nigel,

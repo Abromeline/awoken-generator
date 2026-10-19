@@ -1161,17 +1161,55 @@ body.defeat-flash {
   color: #ffd700; font-family: Georgia, serif; font-size: 13px;
   margin-bottom: 8px; text-align: center;
 }
-.stance-picker-field .stance-buttons {
+/* THE RADIAL (Nigel, 2026-10-18): the picker's seals fan in a
+   shallow smile beneath the heart — round wax, 44px thumbs, the
+   chosen stance lit gold. The arc itself (each seal's lift and
+   tilt) is set inline from the seal's place in the fan. */
+.stance-picker-field .stance-fan {
+  display: flex; justify-content: center; align-items: flex-start;
+  gap: 12px; margin-top: 10px;
+}
+.stance-seal-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.stance-seal {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 2px solid #7a5c2e;
+  background: radial-gradient(circle at 35% 30%, #4a3b22, #241a0c 78%);
+  color: #e8d5a8; font-size: 19px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5), inset 0 0 9px rgba(0,0,0,0.65);
+  padding: 0;
+}
+.stance-seal:hover { border-color: #ffd700; }
+.stance-seal.active {
+  border-color: #ffd700; color: #ffd700;
+  box-shadow: 0 0 14px rgba(255,215,0,0.55), inset 0 0 9px rgba(0,0,0,0.6);
+}
+.stance-seal.ignite {
+  background: linear-gradient(135deg, #ff6600, #ff3300);
+  border-color: #ffb37a; color: #fff;
+}
+.stance-seal.ignite:hover { background: linear-gradient(135deg, #ff7722, #ff4422); }
+.stance-seal-label {
+  font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: #cbbd93;
+}
+/* The Binding menu: the chosen Awokin's taught works, fanned from
+   the radial in the same shell — small, like the radial itself. */
+.stance-binding-menu {
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px solid rgba(184,155,94,0.4);
   display: flex; flex-direction: column; gap: 6px;
 }
-.stance-picker-field .stance-btn {
+.stance-binding-title { font-size: 11px; color: #cbbd93; text-align: center; }
+.stance-binding-none { font-size: 12px; color: #999; text-align: center; font-style: italic; }
+.stance-work-btn {
   background: rgba(30,30,50,0.9); border: 1px solid #666;
   color: #ddd; padding: 6px 10px; border-radius: 4px;
   font-size: 12px; cursor: pointer; text-align: left;
 }
-.stance-picker-field .stance-btn:hover { background: rgba(50,50,80,0.9); }
-.stance-picker-field .stance-btn.active { border-color: #ffd700; color: #ffd700; }
-.stance-picker-field .stance-btn.dissipate { border-color: #8a4a4a; color: #faa; }
+.stance-work-btn:hover { background: rgba(50,50,80,0.9); border-color: #ffd700; }
 
 /* Bottom dock: energy orb + hand */
 .bottom-dock{
@@ -1190,7 +1228,23 @@ body.defeat-flash {
 .energy-orb-fixed{
   position:fixed;bottom:137px;left:16px;z-index:86;
   pointer-events:all;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
 }
+/* The globe's feed-ready face (Nigel, 2026-10-18): while a warden
+   is chosen, the orb is lit gold and tappable — feeding lives here,
+   10⚡ at a time — and its caption names the meal. Unchosen, no
+   feed class arrives and the orb is its present self. */
+.energy-orb.feed-ready{
+  border-color:#ffd700;cursor:pointer;
+  box-shadow:0 0 22px rgba(255,215,0,0.55), inset 0 0 20px rgba(0,0,0,0.6);
+  animation:orb-glow 2s ease-in-out infinite;
+}
+.energy-orb-feed-caption{
+  background:rgba(10,10,20,0.92);border:1px solid #ffd700;border-radius:999px;
+  color:#ffd700;font-size:11px;padding:4px 10px;cursor:pointer;white-space:nowrap;
+  box-shadow:0 2px 10px rgba(0,0,0,0.5);
+}
+.energy-orb-feed-caption:hover{background:rgba(50,40,10,0.95);}
 .energy-orb{
   position:relative;width:64px;height:64px;border-radius:50%;flex-shrink:0;
   background:radial-gradient(circle at 30% 30%, #1a2a3a, #0a0a15);
@@ -2219,8 +2273,7 @@ body.defeat-flash {
 @keyframes spark-center{0%{transform:scale(0.5);opacity:0}50%{transform:scale(1.2);opacity:1}100%{transform:scale(1);opacity:1}}
 @keyframes spark-fly{0%{transform:scale(1);opacity:1}100%{transform:translate(40vw,-40vh) scale(0.3);opacity:0}}
 
-.stance-btn.ignite{background:linear-gradient(135deg,#ff6600,#ff3300);color:white;font-weight:bold}
-.stance-btn.ignite:hover{background:linear-gradient(135deg,#ff7722,#ff4422)}
+/* (The Ignite seal's fire dress lives with the radial seals now.) */
 
 @media (max-width: 768px) {
   /* Light beige text for readability on mobile */
@@ -2392,6 +2445,13 @@ body.defeat-flash {
 @media (max-width: 700px) { .wg-dock { width: 92vw; min-width: 0; } }
 .wg-panel { position: relative; width: 100%; }
 .wg-panel h3 { text-align: center; margin: 0 0 16px 0; }
+/* A work armed in the radial's Binding menu, waiting on its edge. */
+.wg-armed {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px solid #ffd700; border-radius: 8px;
+  background: rgba(50,40,10,0.35); padding: 8px 10px; margin: 0 0 10px 0;
+  font-size: 12px; color: #ffe9a8;
+}
 .wg-sub { text-align: center; margin: -6px 0 6px; }
 .wg-hex-wrap { display: flex; justify-content: center; }
 .wg-note { text-align: center; margin: 4px 0 10px; }
