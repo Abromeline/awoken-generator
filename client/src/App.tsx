@@ -44,7 +44,7 @@ import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorks
 import { toPng } from "html-to-image";
 import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
-import { applyElementPalette, elementPalette, useElementPalette } from "./palette";
+import { applyElementPalette, ELEMENTS, elementPalette, useElementPalette } from "./palette";
 import { BUNDLED_TERRAIN, TERRAIN_ART_ELEMENTS, TERRAIN_ART_QUERY_KEY, useTerrainArt } from "./terrainArt";
 
 export type Awoken = Awakened;
@@ -265,7 +265,10 @@ export function LayeredArt({ item }: { item: Awoken }) {
   );
 }
 
-export function TradingCard({ item, allowDelete = false, framed = true }: { item: Awoken; allowDelete?: boolean; framed?: boolean }) {
+/** Element glyphs for the deck's compact counts (the Zodiac's set). */
+const ELEMENT_GLYPH: Record<string, string> = { tide: "🌊", sky: "🌬️", stone: "🪨", root: "🌿", fire: "🔥" };
+
+export function TradingCard({ item, allowDelete = false, framed = true, elementsOnly = false }: { item: Awoken; allowDelete?: boolean; framed?: boolean; elementsOnly?: boolean }) {
   const queryClient = useQueryClient();
   const cardBorder = useCardBorder();
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
@@ -286,6 +289,23 @@ export function TradingCard({ item, allowDelete = false, framed = true }: { item
   // the card, so nothing in the card's box (or its clipped
   // corners) can cut it. The art is transparent; framed
   // this way, it simply frames.
+  // The deck's compact face (Nigel, 2026-10-18): in My Deck the
+  // piece names give way to the element counts — one line, the
+  // same height on every card, so the grid stops distorting —
+  // and the aspect level rides as three colored dots above the
+  // story dots: filled dots = the total worn aspect level (the
+  // game's own gift measure), colored by the strongest worn
+  // aspect's element; hollow when no aspect is worn.
+  const aspectLayers = item.layers.filter((layer) => layer.category === "aspect");
+  const aspectLevelTotal = aspectLayers.reduce((sum, layer) => sum + ((layer as any).aspectLevel ?? 1), 0);
+  const aspectDotsFilled = Math.min(3, aspectLevelTotal);
+  let aspectStrongest: (typeof aspectLayers)[number] | null = null;
+  for (const layer of aspectLayers) {
+    if (!aspectStrongest || ((layer as any).aspectLevel ?? 1) > ((aspectStrongest as any).aspectLevel ?? 1)) aspectStrongest = layer;
+  }
+  const aspectElement = (aspectStrongest as any)?.aspectElement as string | undefined;
+  const aspectColor = (aspectElement && (elementPalette as Record<string, string>)[aspectElement]) || "#b89b5e";
+  const elementCounts = ELEMENTS.map((el) => ({ el, n: elements.filter((e) => (e as string) === el).length })).filter((c) => c.n > 0);
   return <div className="card-frame-field"><article className={`trading-card${courtClass}`} aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
     <Corner element={tl} className="tcorner tl" />
     <Corner element={tr} className="tcorner tr" />
@@ -298,7 +318,10 @@ export function TradingCard({ item, allowDelete = false, framed = true }: { item
       <div className="tc-pips"><span className="tc-pip">⚔{item.power}</span><span className="tc-pip">🛡{item.toughness}</span></div>
       {item.iteration > 0 && <span className="tc-iteration">{ordinal(item.iteration)}</span>}
     </div>
-    <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>
+    {elementsOnly ? <>
+      <div className="tc-pieces tc-elements" title={litany.map((layer) => layer.name).join(" · ")}>{elementCounts.map((c) => <span key={c.el} className="tc-el"><span aria-hidden="true">{ELEMENT_GLYPH[c.el]}</span>{c.n}</span>)}</div>
+      <div className="tc-aspect-dots" role="img" aria-label={aspectLayers.length ? `Aspect level ${aspectLevelTotal}` : "No aspect worn"} title={aspectLayers.length ? aspectLayers.map((layer) => `${layer.name} — Aspect Lv ${(layer as any).aspectLevel ?? 1}`).join(" · ") : "No aspect worn"}>{[0, 1, 2].map((i) => <span key={i} className={`tc-adot${i < aspectDotsFilled ? " filled" : ""}`} style={i < aspectDotsFilled ? { background: aspectColor, borderColor: aspectColor } : undefined} />)}</div>
+    </> : <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>}
     <div className="tc-stories" title={`${stories} of 3 stories shared`}>{"●".repeat(stories)}{"○".repeat(3 - stories)}</div>
     <div className="tc-watermark" aria-hidden="true">{roman}</div>
     {allowDelete && (
@@ -827,8 +850,8 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
   return <section className={storyteller ? "collection deck-half" : "collection"}><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
     <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header>{selected && <div className="collection-detail"><button type="button" className="quiet-link" onClick={() => setSelectedId(null)}>Close {selected.name}</button><CreatureCard item={selected} storyteller /></div>}<div className="collection-grid trading">{visible.map((item) => storyteller
-      ? <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} /></div>
-      : <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Raise ${item.name} — show its border`} onClick={() => setSelectedId(item.id === selectedId ? null : item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id === selectedId ? null : item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} /></div>)}</div></section>;
+      ? <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} elementsOnly={storyteller} /></div>
+      : <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Raise ${item.name} — show its border`} onClick={() => setSelectedId(item.id === selectedId ? null : item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id === selectedId ? null : item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} elementsOnly={storyteller} /></div>)}</div></section>;
 }
 
 function AspectAssignButton() {

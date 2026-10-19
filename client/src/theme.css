@@ -145,6 +145,11 @@
 .tc-watermark{position:absolute;bottom:26px;right:8px;z-index:1;font-size:60px;color:rgba(0,0,0,.07);font-family:var(--display);pointer-events:none}
 @media(min-width:760px){.collection-grid.trading{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
 .tc-stories{text-align:center;font-size:10px;color:#b89b5e;letter-spacing:.2em;padding:2px 0 6px;position:relative;z-index:2}
+.tc-elements{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap}
+.tc-el{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:#444}
+.tc-aspect-dots{display:flex;justify-content:center;gap:6px;padding:3px 0 0;position:relative;z-index:2}
+.tc-adot{width:7px;height:7px;border-radius:50%;border:1px solid #b89b5e;background:transparent;opacity:.8;box-sizing:border-box}
+.tc-adot.filled{opacity:1}
 /* The Terrain button's new seat (Nigel's directive via Law,
    2026-10-17): the TOP-RIGHT THIRD of the screen, given a
    GLOW, and LOCKED IN PLACE — fixed, it does not scroll,
