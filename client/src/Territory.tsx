@@ -1333,12 +1333,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements);
+      // The blow speaks (Nigel, 2026-10-18: "a blow per order" —
+      // the Attack seal is posture AND key: with targeting armed, a
+      // tap on a cursed square is one strike of the warden's power
+      // against that tile's curse HP). attackTile has always worn
+      // the curse honestly server-side — power per blow, thorns
+      // 2^(ring-1) answering through the damage path, purification
+      // at 0 — but the client swallowed a landed blow in silence.
+      const attackerName = tenderItems.find(a => a.id === selectedAwoken)?.name ?? "Your warden";
+      const thornsDealt = typeof result.thornsDamage === "number" ? result.thornsDamage : (result.thorns ?? 0);
+      const thornClause = thornsDealt > 0
+        ? result.attackerDissipated
+          ? ` Thorns answer for ${thornsDealt} — they take ${attackerName}, who dissipates back to your hand.`
+          : ` Thorns answer for ${thornsDealt} — ${attackerName} at ${result.attackerHp}/${result.attackerMaxHp} HP.`
+        : "";
       if (result.wavePull) {
         // Pulled into the Unraveling! Open a wave battle for this tile.
         setWavePullTile(result.tileId);
         setShowBattleground(true);
       } else if (result.purified) {
-        api.birthNewbornToHand({ tileId, liberatorNames: [] }).catch(() => {});
+        // No newborn follows a purification (Nigel, 2026-10-14) —
+        // the dead client call that still asked for one is gone;
+        // the server refused it every time and the catch hid it.
+        showHexNotice(`⚔ The curse breaks — the tile is purified.${result.sparked ? " The broken land smoulders with fire." : ""}${thornClause}`);
+      } else if (typeof result.hp === "number") {
+        showHexNotice(`⚔ ${attackerName} strikes the curse for ${result.damage} — curse ${result.hp}/${result.maxHp}.${thornClause}`);
       }
       setSelectedAwoken(null);
       setAttackTargeting(false);
