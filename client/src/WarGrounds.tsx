@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { TerritoryTile, EdgeWork } from "./api";
-import { buildingImage } from "./BuildingMenu";
+import { buildingImage, buildingMenuImage, wheatStageImage } from "./BuildingMenu";
 
 /**
  * THE WAR-GROUNDS — the fine-edit panel for ONE hex (War-Ground's
@@ -181,6 +181,17 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
   const verts = hexVerts(CX, CY, SIZE);
   const facePoints = verts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
+  // The hex's two populations (Nigel, 2026-10-18): the building seat
+  // (max two) and the Dream Shroom wedges (max six) beside it — the
+  // crop's own layer, seated at the six flat-edged wedge centroids.
+  const seatBuildings = tileBuildings.filter(b => b.buildingType !== "dream-wheat");
+  const shroomsByAge = tileBuildings.filter(b => b.buildingType === "dream-wheat").sort((a, b) => a.id - b.id);
+  const wedgeOf = (b: any): number => typeof b.wedge === "number" ? b.wedge : Math.max(0, shroomsByAge.findIndex(s => s.id === b.id));
+  const wedgeCentroid = (w: number) => {
+    const a = verts[w], b = verts[(w + 1) % 6];
+    return { x: (CX + a[0] + b[0]) / 3, y: (CY + a[1] + b[1]) / 3 };
+  };
+
   const defName = (type: string) => defs.find(d => d.type === type);
   const busy = (key: string) => busyKey === key;
   const act = (key: string, fn: () => Promise<void>) => { if (busyKey === null) { setBusyKey(key); void fn(); } };
@@ -324,11 +335,16 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
               );
             })}
             {/* The building seat, in the hex's heart */}
-            {tileBuildings.slice(0, 2).map((b, i) => {
-              const bx = tileBuildings.length === 1 ? CX : CX + (i === 0 ? -30 : 30);
+            {seatBuildings.slice(0, 2).map((b, i) => {
+              const bx = seatBuildings.length === 1 ? CX : CX + (i === 0 ? -30 : 30);
               return <image key={b.id} href={buildingImage(b.buildingType)} x={bx - 24} y={CY - 24} width={48} height={48} opacity={b.status === "building" ? 0.6 : 1} />;
             })}
-            {tileBuildings.length === 0 && (
+            {/* The Dream Shrooms, seated at their wedge points */}
+            {shroomsByAge.map(b => {
+              const c = wedgeCentroid(wedgeOf(b));
+              return <image key={b.id} href={wheatStageImage(b)} x={c.x - 15} y={c.y - 15} width={30} height={30} preserveAspectRatio="xMidYMid meet" opacity={b.status === "building" ? 0.6 : 1} pointerEvents="none" />;
+            })}
+            {seatBuildings.length === 0 && shroomsByAge.length === 0 && (
               <text x={CX} y={CY + 5} textAnchor="middle" fontSize={13} fill="rgba(230,220,190,0.55)" pointerEvents="none">— empty seat —</text>
             )}
           </svg>
@@ -470,8 +486,8 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
 
         {/* ── The building seat ────────────────────────────────── */}
         <div className="wg-buildings">
-          <h4>🏰 Building seat {tileBuildings.length > 0 ? `(${tileBuildings.length}/2)` : ""}</h4>
-          {tileBuildings.map(b => {
+          <h4>🏰 Building seat {seatBuildings.length > 0 ? `(${seatBuildings.length}/2)` : ""}</h4>
+          {seatBuildings.map(b => {
             const def = defName(b.buildingType);
             const readyMin = b.readyAt ? Math.max(0, Math.ceil((new Date(b.readyAt).getTime() - Date.now()) / 60000)) : 0;
             return (
@@ -488,24 +504,49 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
               </div>
             );
           })}
-          {!cursed && tileBuildings.length < 2 && (
+          {shroomsByAge.length > 0 && (
+            <>
+              <h4>🍄 Dream Shroom wedges ({shroomsByAge.length}/6)</h4>
+              {shroomsByAge.map(b => {
+                const readyMin = b.readyAt ? Math.max(0, Math.ceil((new Date(b.readyAt).getTime() - Date.now()) / 60000)) : 0;
+                return (
+                  <div key={b.id} className="wg-building-row">
+                    <img src={wheatStageImage(b)} alt="Dream Shroom" className="building-thumb" />
+                    <div className="wg-building-info">
+                      <strong>🍄 Dream Shroom — wedge {wedgeOf(b) + 1}</strong>
+                      <small>{b.status === "building" ? `⏳ Planting — ready in ${readyMin >= 60 ? `${(readyMin / 60).toFixed(1)}h` : `${readyMin}m`}` : "Growing on its own clock — tap it on the map when ripe to harvest"}</small>
+                    </div>
+                    <button className="abtn small" title="Demolish this Dream Shroom"
+                      onClick={() => { if (confirm(`Demolish this Dream Shroom?`)) void onDemolish(b.id); }}>
+                      🔨
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {!cursed && (seatBuildings.length < 2 || shroomsByAge.length < 6) && (
             <div className="building-picker wg-picker">
-              {defs.map(d => (
-                <button key={d.type} className="building-option" disabled={energy < d.cost}
+              {defs.map(d => {
+                const seatFull = d.type !== "dream-wheat" && seatBuildings.length >= 2;
+                const wedgesFull = d.type === "dream-wheat" && shroomsByAge.length >= 6;
+                return (
+                <button key={d.type} className="building-option" disabled={energy < d.cost || seatFull || wedgesFull}
                   onClick={() => onChooseBuilding(d)}
-                  title={energy < d.cost ? `Needs ${d.cost}⚡` : `Build ${d.name} on this hex`}>
-                  <img src={buildingImage(d.type)} alt={d.name} className="building-thumb" />
+                  title={wedgesFull ? "Every wedge of this hex is planted" : seatFull ? "The building seat is full — the shroom wedges beside it remain" : energy < d.cost ? `Needs ${d.cost}⚡` : `Build ${d.name} on this hex`}>
+                  <img src={buildingMenuImage(d.type)} alt={d.name} className="building-thumb" />
                   <div className="building-info">
                     <strong>{d.icon} {d.name}</strong>
                     <small>{d.desc}</small>
                     <span className="building-cost">⚡{d.cost} · ⏱{d.buildMinutes >= 60 ? `${d.buildMinutes / 60}h` : `${d.buildMinutes}m`}</span>
                   </div>
                 </button>
-              ))}
-              {defs.length > 0 && <p className="building-hint">Choose a building — you will assign its builders next, as always.</p>}
+                );
+              })}
+              {defs.length > 0 && <p className="building-hint">Choose a building — you will assign its builders next, as always.{seatBuildings.length >= 2 ? " The seat is full; the Dream Shroom wedges beside it remain." : ""}</p>}
             </div>
           )}
-          {!cursed && tileBuildings.length >= 2 && <p className="quiet">Two buildings stand — this hex is full.</p>}
+          {!cursed && seatBuildings.length >= 2 && shroomsByAge.length >= 6 && <p className="quiet">Two buildings stand and every wedge is planted — this hex is full.</p>}
         </div>
 
         <div className="wave-edit-actions">

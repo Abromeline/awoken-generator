@@ -155,6 +155,29 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
   return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 }
 
+/** The six wedge points of a hex (Nigel, 2026-10-18 — his design):
+ *  the face divides into six FLAT-EDGED triangles — centre plus two
+ *  neighbouring corners each — and the Dream Shroom's plots sit at
+ *  their centroids, fitted evenly at the six points. Wedge i lies
+ *  between corners i and i+1 (0 = the top wedge, then clockwise, in
+ *  the FACE_HEX order). Never a pointy pie slice: the triangle's
+ *  outer edge is the hex's own straight side. */
+function hexWedgePoint(cx: number, cy: number, size: number, wedge: number): { x: number; y: number } {
+  const verts = hexCellVertices(cx, cy, size);
+  const w = ((wedge % 6) + 6) % 6;
+  const a = verts[w], b = verts[(w + 1) % 6];
+  return { x: cx + (a[0] - cx + (b[0] - cx)) / 3, y: cy + (a[1] - cy + (b[1] - cy)) / 3 };
+}
+
+/** The wedge a standing shroom holds: its stored wedge, or — for a
+ *  row planted before the wedges were law — its seat by age among
+ *  the hex's shrooms, exactly as the server seats it. */
+function shroomWedgeOf(b: any, siblingsByAge: any[]): number {
+  if (typeof b.wedge === "number") return b.wedge;
+  const idx = siblingsByAge.findIndex(s => s.id === b.id);
+  return idx >= 0 ? idx : 0;
+}
+
 /** Canonical wall edge key — MUST match the server (placeWall): the
  *  edge lives under the lexicographically smaller of its two tiles,
  *  so a shared border is one wall from either side. Dirs follow the
@@ -312,6 +335,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   }, [pendingTile, selectedBuilding]);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [selectedBuilders, setSelectedBuilders] = useState<number[]>([]);
+  // The Dream Shroom's chosen wedge in the builder popup (Nigel,
+  // 2026-10-18); null lets the popup rest on the first free wedge.
+  const [pendingWedge, setPendingWedge] = useState<number | null>(null);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
   // The First Seed (Nigel via Wake, 2026-10-17): a fresh Tender holds
   // no ground — the empty state is where the Last Bastion begins, not
@@ -2680,6 +2706,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const awoken = awokens[0] ?? null;
       const lift = t.cursed ? 0 : -5;
       const tileBuildings = buildings.filter(b => b.tileId === t.id);
+      // The hex's two populations (Nigel, 2026-10-18): the building
+      // SEATS (max two, the old law) and the Dream Shroom WEDGES
+      // (max six, the crop's own layer beside the seats).
+      const seatBuildings = tileBuildings.filter(b => b.buildingType !== "dream-wheat");
+      const shroomsByAge = tileBuildings.filter(b => b.buildingType === "dream-wheat").sort((a, b) => a.id - b.id);
       const hp = tileHp.get(t.id);
       const showHp = hp !== undefined && hp < 10;
       return (
@@ -2690,8 +2721,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               <text y="3" textAnchor="middle" fontSize="10" fill="#ff6666" fontWeight="bold">♥ {hp}/10</text>
             </g>
           )}
-          {/* Buildings on this tile (max 2) */}
-          {tileBuildings.map((b, bi) => {
+          {/* Buildings on this tile's seats (max 2) */}
+          {seatBuildings.map((b, bi) => {
             const place = BUILDING_PLACE[b.buildingType];
             const bs = s * (BUILDING_BASE_SIZE / HEX_BASE_SIZE);
             // The seat is RECALCULATED for the bigger map (Nigel,
@@ -2706,7 +2737,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             // A building ALONE on its tile anchors on the hex's own
             // heart (Nigel, 2026-10-15); the side offsets exist only
             // for a pair sharing one hex.
-            const bpx = tileBuildings.length === 1 ? { x: cx, y: cy + seatDrop } : { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 + seatDrop };
+            const bpx = seatBuildings.length === 1 ? { x: cx, y: cy + seatDrop } : { x: cx + (bi === 0 ? -s * 0.45 : s * 0.45), y: cy - s * 0.35 + seatDrop };
             const pH = place ? (bs * place.displayH) / place.hFrac : 0;
             const pW = pH * (place?.aspect ?? 1);
             const isBuilding = b.status === "building";
@@ -2785,6 +2816,72 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 />
                 {isBuilding && (
                   <text x={bpx.x} y={bpx.y + bs * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
+                    ⏱ {readyMin >= 60 ? `${Math.floor(readyMin/60)}h${readyMin%60}m` : `${readyMin}m`}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          {/* Dream Shrooms on their wedges: up to six to a hex,
+              seated evenly at the six wedge points, each growing
+              and harvested on its own clock — the seat buildings'
+              tap law (harvest when ripe) rides along. */}
+          {shroomsByAge.map((b) => {
+            const wedge = shroomWedgeOf(b, shroomsByAge);
+            const wp = hexWedgePoint(cx, cy, s, wedge);
+            const bs = s * (BUILDING_BASE_SIZE / HEX_BASE_SIZE);
+            const seatDrop = 0.7174 * (s - bs);
+            const bpx = { x: wp.x, y: wp.y + seatDrop * 0.35 };
+            const wSize = s * 0.55;
+            const isBuilding = b.status === "building";
+            const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
+            const readyMin = Math.max(0, Math.ceil(readyMs / 60000));
+            return (
+              <g key={`shroom-${b.id}`} className={isBuilding ? "building-constructing" : ""}
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  // A shroom stands ON a hex: while a flow is armed,
+                  // a tap here is a tap on that hex (round four).
+                  if (attackTargeting || moveTargeting || battlePool.length > 0) { handleHexTap(t); return; }
+                  if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
+                  if (demoMode) {
+                    if (confirm(`Demolish this Dream Shroom?`)) {
+                      try {
+                        await api.demolishBuilding({ buildingId: b.id });
+                        const rb = await api.getBuildings();
+                        setBuildings(rb.buildings);
+                        onUpdate();
+                      } catch (err) { console.error("Demolish failed", err); }
+                    }
+                    return;
+                  }
+                  if (b.status !== "active") return;
+                  const readyAt = b.readyAt ? new Date(b.readyAt).getTime() : Date.now();
+                  const lastHarvest = b.lastHarvestAt ? new Date(b.lastHarvestAt).getTime() : readyAt;
+                  const growHours = b.growHours ?? 4;
+                  const isReady = Date.now() - lastHarvest >= growHours * 60 * 60 * 1000;
+                  if (isReady) {
+                    try {
+                      await api.call("harvestWheat", { buildingId: b.id });
+                      const rb = await api.getBuildings();
+                      setBuildings(rb.buildings);
+                      onUpdate();
+                    } catch (err) { console.error("Harvest failed", err); }
+                  }
+                }}
+                style={{ cursor: demoMode ? "pointer" : (pendingTile !== null || moveTargeting) ? "default" : "pointer" }}>
+                <image
+                  href={wheatStageImage(b)}
+                  x={bpx.x - wSize / 2}
+                  y={bpx.y - wSize / 2}
+                  width={wSize}
+                  height={wSize}
+                  preserveAspectRatio="xMidYMid meet"
+                  opacity={isBuilding ? 0.7 : 1}
+                  style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
+                />
+                {isBuilding && (
+                  <text x={bpx.x} y={bpx.y + wSize * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
                     ⏱ {readyMin >= 60 ? `${Math.floor(readyMin/60)}h${readyMin%60}m` : `${readyMin}m`}
                   </text>
                 )}
@@ -5083,11 +5180,51 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         const timeDivisor = Math.pow(2, helperCount);
         const baseMinutes = selectedBuilding.buildMinutes;
         const actualMinutes = Math.max(1, Math.floor(baseMinutes / timeDivisor));
+        // The Dream Shroom's wedges (Nigel, 2026-10-18): planting
+        // the crop chooses a wedge of the hex, not a building seat.
+        const isShroomPlant = selectedBuilding.type === "dream-wheat";
+        const tileShrooms = isShroomPlant
+          ? buildings.filter(b => b.tileId === pendingTile && b.buildingType === "dream-wheat").sort((a, b) => a.id - b.id)
+          : [];
+        const takenWedges = new Set(tileShrooms.map(b => shroomWedgeOf(b, tileShrooms)));
+        const chosenWedge = isShroomPlant
+          ? (pendingWedge !== null && !takenWedges.has(pendingWedge) ? pendingWedge : [0, 1, 2, 3, 4, 5].find(w => !takenWedges.has(w)) ?? null)
+          : null;
         return (
-          <div className="admin-popup" onClick={() => { setPendingTile(null); setSelectedBuilders([]); }}>
+          <div className="admin-popup" onClick={() => { setPendingTile(null); setSelectedBuilders([]); setPendingWedge(null); }}>
             <div className="admin-popup-inner" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
-              <h3>🗼 {selectedBuilding.name}</h3>
+              <h3>{selectedBuilding.icon ?? "🗼"} {selectedBuilding.name}</h3>
               <p className="quiet">Tap Awokin on this tile to assign as builders. Each halves the build time.</p>
+              {isShroomPlant && (() => {
+                const verts = hexCellVertices(130, 118, 92);
+                return (
+                  <div className="wedge-picker">
+                    <p className="quiet">Choose its wedge — six plots to a hex, each growing on its own clock. {tileShrooms.length}/6 planted.</p>
+                    <svg viewBox="0 0 260 236" width="220" height="200" role="img" aria-label="Wedge picker">
+                      {[0, 1, 2, 3, 4, 5].map(w => {
+                        const a = verts[w], b = verts[(w + 1) % 6];
+                        const c = hexWedgePoint(130, 118, 92, w);
+                        const taken = takenWedges.has(w);
+                        const shroom = tileShrooms.find(x => shroomWedgeOf(x, tileShrooms) === w);
+                        const chosen = chosenWedge === w;
+                        return (
+                          <g key={w}>
+                            <polygon points={`130,118 ${a[0]},${a[1]} ${b[0]},${b[1]}`}
+                              fill={taken ? "rgba(120,90,40,0.35)" : chosen ? "rgba(255,215,0,0.30)" : "rgba(255,255,255,0.06)"}
+                              stroke={chosen ? "#ffd700" : "rgba(255,215,0,0.5)"} strokeWidth={chosen ? 2.5 : 1.2}
+                              style={{ cursor: taken ? "default" : "pointer" }}
+                              onClick={() => { if (!taken) setPendingWedge(w); }} />
+                            {shroom
+                              ? <image href={wheatStageImage(shroom)} x={c.x - 17} y={c.y - 17} width={34} height={34} preserveAspectRatio="xMidYMid meet" pointerEvents="none" />
+                              : <text x={c.x} y={c.y + 5} textAnchor="middle" fontSize={15} fill={chosen ? "#ffd700" : "rgba(255,215,0,0.75)"} pointerEvents="none">＋</text>}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                    {chosenWedge === null && <p className="notice error">Every wedge of this hex is planted.</p>}
+                  </div>
+                );
+              })()}
               <div className="builder-grid">
                 {tileAwoken.map((aw: any) => {
                   const isSelected = selectedBuilders.includes(aw.id);
@@ -5117,16 +5254,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </div>
               {buildError && <p className="notice error">{buildError}</p>}
               <div className="wave-edit-actions">
-                <button className="abtn" onClick={async () => {
+                <button className="abtn" disabled={isShroomPlant && chosenWedge === null} onClick={async () => {
                   try {
                     setBuildError(null);
                     await api.placeBuilding({
                       tileId: pendingTile,
                       buildingType: selectedBuilding.type,
                       builderIds: selectedBuilders,
+                      wedge: isShroomPlant ? chosenWedge ?? undefined : undefined,
                     });
                     setPendingTile(null);
                     setSelectedBuilders([]);
+                    setPendingWedge(null);
                     setSelectedBuilding(null);
                     const r = await api.getBuildings();
                     setBuildings(r.buildings);
@@ -5135,7 +5274,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     setBuildError((e as Error).message || "Build failed");
                   }
                 }}>Begin Build</button>
-                <button className="abtn small" onClick={() => { setPendingTile(null); setSelectedBuilders([]); }}>Cancel</button>
+                <button className="abtn small" onClick={() => { setPendingTile(null); setSelectedBuilders([]); setPendingWedge(null); }}>Cancel</button>
               </div>
             </div>
           </div>

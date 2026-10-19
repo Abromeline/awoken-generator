@@ -2155,11 +2155,11 @@ async function loadGameConfig() {
 // Single source of truth for building definitions
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number; upkeepPerHour?: number }> = {
   "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
-  "dream-wheat": { name: "Dream Wheat", cost: 2, buildMinutes: 10, desc: "Grows in 4h. Harvest for +4 energy. Regrows automatically.", icon: "🌾" },
+  "dream-wheat": { name: "Dream Shroom", cost: 2, buildMinutes: 10, desc: "Grows in 4h in the hex's six wedges — up to six to a hex, each on its own clock. Harvest for +4 energy. Regrows automatically.", icon: "🍄" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awokin. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops. TAP the standing shrine on the map to turn it to the LAND: the doubling sleeps, and the shrine pours its congregation's dominant element into its own hex and the six around it — one hex about every five hours, its own first.", icon: "🛕" },
   "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
   "sky-bloom": { name: "Sky Bloom", cost: 15, buildMinutes: 25, desc: "Floating sky bloom. Harvest for +10 energy every 8h. Only on sky. Regrows forever.", icon: "☁️", harvestEnergy: 10, growHours: 8 },
-  "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Wheat adjacent grows 25% faster.", icon: "💧" },
+  "awakening-well": { name: "Awakening Well", cost: 2, buildMinutes: 20, desc: "+3 max energy. Dream Shroom adjacent grows 25% faster.", icon: "💧" },
   "thorn-wall": { name: "Thorn Wall", cost: 2, buildMinutes: 5, desc: "1 damage to every attacker. Permanent.", icon: "🌵" },
   "binding-circle": { name: "Binding Circle", cost: 2, buildMinutes: 10, desc: "+50% binding heal. Binding costs 1.", icon: "🔮" },
   "tree": { name: "Dream Tree", cost: 2, buildMinutes: 15, desc: "+1 max energy. Grows on stone/root/neutral/fire hexes.", icon: "🌳" },
@@ -7170,6 +7170,7 @@ export const handlers = {
       buildingType: z.string(),
       element: z.string().optional(),
       builderIds: z.array(z.number().int()).optional(),
+      wedge: z.number().int().min(0).max(5).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid request.");
     const gameConfig = await loadGameConfig();
@@ -7228,7 +7229,7 @@ export const handlers = {
     if (parsed.data.buildingType === "sky-bloom" && tile[0].element !== "sky") {
       badRequest("Sky Bloom only floats on sky.");
     }
-    // Dream Wheat synergy: 25% faster if Awakening Well on same or adjacent hex
+    // Dream Shroom synergy: 25% faster if Awakening Well on same or adjacent hex
     let synergyMultiplier = 1;
     if (parsed.data.buildingType === "dream-wheat") {
       const tileData = tile[0];
@@ -7262,7 +7263,37 @@ export const handlers = {
       ));
     if (parsed.data.buildingType === "watchtower" && existing.length > 0) badRequest("The Tower stands alone upon its tile — no other building may share its hex.");
     if (existing.some((b: any) => b.buildingType === "watchtower")) badRequest("A Tower already stands upon this tile, and it stands alone.");
-    if (existing.length >= 2) badRequest("Max 2 buildings per hex.");
+    // The Dream Shroom's six wedges (Nigel, 2026-10-18): the crop
+    // lives in its own layer beside the building seats — a hex holds
+    // its two buildings AND up to six shrooms, one per wedge, each
+    // growing on its own clock. The Tower and the Hall still stand
+    // alone against everything, wedges included (their checks read
+    // every row of the hex).
+    const isShroom = parsed.data.buildingType === "dream-wheat";
+    const shroomsHere = existing.filter((b: any) => b.buildingType === "dream-wheat");
+    let wedge: number | null = null;
+    if (isShroom) {
+      if (shroomsHere.length >= 6) badRequest("Every wedge of this hex is planted — six Dream Shrooms already grow here.");
+      const taken = new Set<number>();
+      // Rows planted before the wedges were law may carry no wedge
+      // until the boot migration seats them; mirror its seating
+      // (oldest first, first free wedge) so such a row still holds
+      // its ground in the meantime.
+      for (const b of [...shroomsHere].sort((a: any, b: any) => a.id - b.id)) {
+        if (typeof (b as any).wedge === "number") { taken.add((b as any).wedge); continue; }
+        let w = 0; while (taken.has(w)) w++;
+        taken.add(w);
+      }
+      if (parsed.data.wedge !== undefined) {
+        if (taken.has(parsed.data.wedge)) badRequest("That wedge is already planted.");
+        wedge = parsed.data.wedge;
+      } else {
+        let w = 0; while (taken.has(w)) w++;
+        wedge = w;
+      }
+    } else if (existing.filter((b: any) => b.buildingType !== "dream-wheat").length >= 2) {
+      badRequest("Max 2 buildings per hex.");
+    }
     // Hall of Champions: one per tender, alone on its tile; nothing shares its tile.
     if (parsed.data.buildingType === "hall-of-champions") {
       const halls = await db.select().from(schema.territoryBuildings)
@@ -7299,6 +7330,7 @@ export const handlers = {
       readyAt,
       element: parsed.data.element || null,
       builderStances: stanceMemory.length ? JSON.stringify(stanceMemory) : null,
+      wedge,
     }).returning();
     return { ok: true, building };
   },

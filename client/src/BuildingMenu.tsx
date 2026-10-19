@@ -45,6 +45,19 @@ export function buildingImage(type: string): string {
   return BUILDING_IMGS[type] || "";
 }
 
+// The build menu's face for the Dream Shroom (Nigel, 2026-10-18):
+// the menu wears the FULL-GROWN stage — the harvest-ready sprite,
+// the ripest face of the growth cycle (wheat-harvest.png, or the UI
+// Workspace's uploaded override for that stage). Standing shrooms on
+// the map and in the panel keep their true stage art; only the
+// menu's promise is full-grown.
+export function buildingMenuImage(type: string): string {
+  if (type === "dream-wheat") {
+    return wheatStageOverrides["wheat-harvest"] || wheatHarvestImg;
+  }
+  return buildingImage(type);
+}
+
 // Wheat growth stages: 0=planted, 1=half, 2=full, 3=harvest-ready
 export function dreamWeedStageImage(building: any): string {
   if (building.status === "building") {
@@ -132,7 +145,7 @@ export default function BuildingMenu({ onSelect, selected, energy, alwaysOpen = 
         onClick={() => onSelect(selected?.type === d.type ? null : d)}
         disabled={energy < d.cost}
       >
-        <img src={buildingImage(d.type)} alt={d.name} className="building-thumb" />
+        <img src={buildingMenuImage(d.type)} alt={d.name} className="building-thumb" />
         <div className="building-info">
           <strong>{d.icon} {d.name}</strong>
           <small>{d.desc}</small>

@@ -856,6 +856,7 @@ try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN last_seen_at INTEGER`
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN builder_stances TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_harvest_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_upkeep_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN wedge INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN height INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 // Seed the 4 extended battle tracks (with sorrowful violin). Replaces short versions.
@@ -920,6 +921,7 @@ const lateCols: Record<string, [string, string][]> = {
     ["level", "INTEGER NOT NULL DEFAULT 1"],
     ["fund_json", "TEXT"],
     ["upgrade_ready_at", "INTEGER"],
+    ["wedge", "INTEGER"],
   ],
   // Its rebuild migration above also runs pre-CREATE on a fresh DB
   // (empty PRAGMA → skipped), and the CREATE that follows omits this
@@ -938,6 +940,27 @@ for (const [table, cols] of Object.entries(lateCols)) {
     }
   }
 }
+
+// The Dream Shroom wedge seating (Nigel, 2026-10-18): shrooms planted
+// before the wedges were law carry no wedge. Seat each in its hex's
+// first free wedge, oldest first — its rank among the hex's shrooms
+// by planting order (id). Idempotent: only NULL rows are touched, so
+// once every standing shroom is seated this never runs again. (The
+// old law capped a hex at two buildings, so no hex can hold more
+// legacy shrooms than wedges.)
+try {
+  sqlite.exec(`
+    UPDATE territory_buildings
+    SET wedge = (
+      SELECT COUNT(*) FROM territory_buildings o
+      WHERE o.building_type = 'dream-wheat'
+        AND o.owner_key = territory_buildings.owner_key
+        AND o.tile_id = territory_buildings.tile_id
+        AND o.id < territory_buildings.id
+    )
+    WHERE building_type = 'dream-wheat' AND wedge IS NULL;
+  `);
+} catch { /* table may not exist yet on a fresh DB */ }
 
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, { schema });
 

@@ -479,6 +479,12 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   level: integer("level").notNull().default(1),
   fundJson: text("fund_json"),
   upgradeReadyAt: integer("upgrade_ready_at", { mode: "timestamp_ms" }),
+  // The Dream Shroom's wedge (Nigel, 2026-10-18): the crop lives in
+  // its own layer beside the building seats — six flat-edged wedge
+  // plots to a hex, one shroom each (0..5). Null for every other
+  // building, and for shroom rows planted before the wedges were law
+  // (the boot migration in store.ts seats those by age).
+  wedge: integer("wedge"),
 });
 
 // Hall of Champions residents: one Awoken per room, freely swappable.
