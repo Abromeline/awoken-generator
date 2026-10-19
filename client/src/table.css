@@ -227,6 +227,16 @@ button { font-family: inherit; }
   0%, 100% { transform: scale(1); opacity: 0.9; }
   50% { transform: scale(1.18); opacity: 1; }
 }
+/* The runic weapon's hover: it floats at its Tender's side,
+   never quite still (Nigel, 2026-10-19). */
+.ts-weapon-bob {
+  animation: tsWeaponBob 2.6s ease-in-out infinite alternate;
+}
+.ts-weapon-bob.shield { animation-delay: -1.1s; }
+@keyframes tsWeaponBob {
+  from { transform: translateY(-2px); }
+  to { transform: translateY(2px); }
+}
 .field-caption {
   position: absolute;
   left: 10px;

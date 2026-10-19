@@ -75,9 +75,13 @@ export interface TenderProgressView {
   classKey: string | null;
   classRiteAvailable: boolean;
   reclassTokens: number;
+  /** THE RUNIC WEAPON (Nigel, 2026-10-19): the blade, spear or
+   *  bow chosen with the class — null until the choosing's
+   *  second gift is taken. */
+  weaponKey: string | null;
 }
 
-function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number }): TenderProgressView {
+function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number; weaponKey?: string | null }): TenderProgressView {
   const level = levelForExp(totalExp);
   const floor = TENDER_LEVEL_THRESHOLDS[level - 1] ?? 0;
   const next = TENDER_LEVEL_THRESHOLDS[level] ?? null;
@@ -94,6 +98,7 @@ function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string 
     classKey: cls?.classKey ?? null,
     classRiteAvailable: !!cls?.classKey && !cls.classFreeRiteUsed,
     reclassTokens: cls?.reclassTokens ?? 0,
+    weaponKey: cls?.weaponKey ?? null,
   };
 }
 
@@ -112,7 +117,7 @@ function withHeart(ownerKey: string, v: TenderProgressView): TenderProgressView 
 export async function getTenderProgress(ownerKey: string): Promise<TenderProgressView> {
   const [row] = await db.select().from(schema.tenderProgress)
     .where(eq(schema.tenderProgress.ownerKey, ownerKey)).limit(1);
-  if (row) return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes, { classKey: (row as any).classKey ?? null, classFreeRiteUsed: (row as any).classFreeRiteUsed ?? 0, reclassTokens: (row as any).reclassTokens ?? 0 }));
+  if (row) return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes, { classKey: (row as any).classKey ?? null, classFreeRiteUsed: (row as any).classFreeRiteUsed ?? 0, reclassTokens: (row as any).reclassTokens ?? 0, weaponKey: (row as any).weaponKey ?? null }));
   // First reading for a Tender whose waking predates the
   // ledger (2026-10-16): their standing collection is the
   // record of their wakes — seed the ledger from it, so

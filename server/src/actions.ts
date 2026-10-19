@@ -4743,7 +4743,7 @@ export const handlers = {
    *  first time — the bastion rule: his bastion's tile, else the
    *  heart (0,0) once it is pure, else his first purified hex. A
    *  defaulted anchor is written down so it never wanders. */
-  async tenderStand(ownerKey: string, tiles: any[]): Promise<{ tileId: number; classKey: string } | null> {
+  async tenderStand(ownerKey: string, tiles: any[]): Promise<{ tileId: number; classKey: string; weaponKey: string | null } | null> {
     const progress = await getTenderProgress(ownerKey);
     if (!progress.classKey) return null;
     const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
@@ -4771,7 +4771,7 @@ export const handlers = {
         .run(ownerKey, Date.now());
       sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(tileId, ownerKey);
     }
-    return { tileId, classKey: progress.classKey };
+    return { tileId, classKey: progress.classKey, weaponKey: progress.weaponKey };
   },
 
   /** THE MUSTER (the Table's follow law, come home): followers
@@ -9410,6 +9410,44 @@ export const handlers = {
       badRequest("Your class is sealed — the second-thoughts rite is spent. Only a reclass token from the workshop can unmake it now.");
     }
     return { ok: true as const, classKey: want, via, progress: await getTenderProgress(ownerKey) };
+  },
+
+  /** THE RUNIC WEAPON (Nigel, 2026-10-19): the choosing's second
+   *  gift — at Lv 3, with his class, the Tender names the weapon
+   *  that will float at his side: sword & shield (d6, +3 AC),
+   *  sword (d10, +1 AC), spear (d6, +1 range), arrow (d4, range
+   *  4). It is the grimoire's first spell unlock at Lv 3, and it
+   *  takes elemental attunement like an Awokin. Re-picking rides
+   *  the class's own economy: the second-thoughts rite once, then
+   *  reclass tokens — the choosing is one choosing. */
+  async chooseWeapon(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      weaponKey: z.enum(["swordshield", "sword", "spear", "arrow"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name one of the four: Sword & Shield, Sword, Spear, or Arrow.");
+    const ownerKey = ownerKeyFor(ctx);
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) badRequest("The weapon is chosen with a class — the choosing has not opened for you yet.");
+    const row = sqlite.prepare("SELECT weapon_key, class_free_rite_used, reclass_tokens FROM tender_progress WHERE owner_key = ?")
+      .get(ownerKey) as { weapon_key: string | null; class_free_rite_used: number; reclass_tokens: number } | undefined;
+    if (!row) badRequest("The choosing has not opened for you yet.");
+    const want = parsed.data.weaponKey;
+    if (row.weapon_key === want) badRequest("That weapon already floats at your side.");
+    let via: string;
+    if (!row.weapon_key) {
+      sqlite.prepare("UPDATE tender_progress SET weapon_key = ? WHERE owner_key = ?").run(want, ownerKey);
+      via = "the choosing";
+    } else if (!row.class_free_rite_used) {
+      sqlite.prepare("UPDATE tender_progress SET weapon_key = ?, class_free_rite_used = 1 WHERE owner_key = ?").run(want, ownerKey);
+      via = "the second-thoughts rite";
+    } else if (row.reclass_tokens > 0) {
+      sqlite.prepare("UPDATE tender_progress SET weapon_key = ?, reclass_tokens = reclass_tokens - 1 WHERE owner_key = ?").run(want, ownerKey);
+      via = "a reclass token";
+    } else {
+      badRequest("Your weapon is sealed — the second-thoughts rite is spent. Only a reclass token from the workshop can unmake it now.");
+    }
+    return { ok: true as const, weaponKey: want, via, progress: await getTenderProgress(ownerKey) };
   },
 
 

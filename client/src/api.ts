@@ -595,7 +595,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string } | null }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null } | null }>("getTerritory", {}),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; pour?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number }>("castMapWorking", args),
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
@@ -633,7 +633,11 @@ export const api = {
   updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
   claimSpark: (value: { tileId: number }) => post<{ ok: boolean; fireLevel: number }>("claimSpark", value),
   getTenderRank: () => post<{ ok: boolean; myRank: number; myCount: number; totalTenders: number; nearby: { rank: number; name: string; count: number; isMe: boolean }[] }>("getTenderRank", {}),
-  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number }>("getTenderExp", {}),
+  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; weaponKey: string | null }>("getTenderExp", {}),
+  /** THE RUNIC WEAPON (2026-10-19): chosen with the class at
+   *  Lv 3; re-picking rides the second-thoughts economy. */
+  chooseWeapon: (args: { weaponKey: "swordshield" | "sword" | "spear" | "arrow" }) =>
+    post<{ ok: true; weaponKey: string; via: string }>("chooseWeapon", args),
   chooseClass: (value: { classKey: string }) => post<{ ok: true; classKey: string; via: string; progress: any }>("chooseClass", value),
   grantReclassToken: (value: { tenderName: string }) => post<{ ok: boolean; tenderName: string | null; reclassTokens: number }>("grantReclassToken", value),
   setTenderPassword: (value: { password: string }) => post<{ ok: boolean }>("setTenderPassword", value),

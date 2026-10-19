@@ -21,6 +21,7 @@ import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
+import { WEAPONS, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -135,7 +136,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number; away?: boolean; classKey?: string | null }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -165,6 +166,7 @@ interface YouState {
   healAmount?: number;
   wardRuneUnlocked?: boolean;
   classKey?: string | null;
+  weaponKey?: string | null;
   tenderHp?: number;
   maxTenderHp?: number;
   pools?: Record<string, number> | null;
@@ -1395,12 +1397,23 @@ export default function Table() {
     const pose = castPose ?? tenderPose(art, dir, walking, step);
     const mine = !!you && p.key === you.key;
     const img = <image href={pose.src} x={gx - 29} y={gy - 58} width={58} height={58} preserveAspectRatio="xMidYMax meet" />;
+    // THE RUNIC WEAPON floats at his side (Nigel, 2026-10-19):
+    // presence only for now — its lunges land in a later phase.
+    const weaponKey = (p.weaponKey ?? null) as WeaponKey | null;
     figures.push({
       key: `tender-${p.key}`, gy,
       node: (
         <g key={`tender-${p.key}`} pointerEvents="none" opacity={p.fallen ? 0.45 : 1}>
           <ellipse cx={gx} cy={gy + 1} rx={13} ry={3.5} fill="rgba(0,0,0,0.35)" />
           {pose.flip ? <g transform={`translate(${2 * gx} 0) scale(-1 1)`}>{img}</g> : img}
+          {weaponKey && WEAPONS[weaponKey] && (
+            <image className="ts-weapon-bob" href={weaponImg(weaponKey)} x={gx + 17} y={gy - 47} width={30} height={30}
+              preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,215,100,0.55))" }} />
+          )}
+          {weaponKey === "swordshield" && (
+            <image className="ts-weapon-bob shield" href={shieldImg()} x={gx - 44} y={gy - 45} width={27} height={27}
+              preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 4px rgba(255,215,100,0.4))" }} />
+          )}
           <text className="ts-name tender" x={gx} y={gy + 21}>{p.name}</text>
           {mine && (
             <circle cx={gx} cy={gy - 26} r={24} fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}

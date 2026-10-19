@@ -10,6 +10,7 @@ import meteorGif from "./assets/meteor-rain.gif";
 
 import FieldAwoken from "./FieldAwoken";
 import { TENDER_CLASSES, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
+import { WEAPONS, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
@@ -481,9 +482,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // (setTenderTile), so the server keeps the truth of where he
   // stands and his followers muster to that hex. The engine's
   // clocks and mirrors live below, beside refreshTerritory.
-  const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string } | null>(null);
+  const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
   const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number } | null>(null);
-  const tenderStandRef = useRef<{ tileId: number; classKey: string } | null>(null);
+  const tenderStandRef = useRef<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
   const tenderPosRef = useRef<{ x: number; y: number } | null>(null);
   const tenderAnchorRef = useRef<number | null>(null);
   const tenderKeysRef = useRef<Set<string>>(new Set());
@@ -3916,6 +3917,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         <image href={pose.src} x={tenderFig.x - h / 2} y={tenderFig.y + 4 - h} width={h} height={h}
           preserveAspectRatio="xMidYMax meet" />
       );
+      // THE RUNIC WEAPON rides with him (Nigel, 2026-10-19):
+      // presence only on the homeland — it floats at his
+      // shoulder on the map's own clock, gold-lit; the Sword &
+      // Shield's shield keeps the opposite side. Its lunges are
+      // the Table's business, a later phase.
+      const weaponKey = (tenderStand.weaponKey ?? null) as WeaponKey | null;
+      const bob = Math.sin(marchNow / 480) * 2.5;
+      const wh = 30 * zoom;
+      const wcx = tenderFig.x + 26 * zoom;
+      const wcy = tenderFig.y - 34 * zoom + bob;
+      const sh = 26 * zoom;
+      const scx = tenderFig.x - 26 * zoom;
+      const scy = tenderFig.y - 32 * zoom + Math.sin(marchNow / 480 + 1.2) * 2.5;
       return (
         <g key="tender-figure" pointerEvents="none">
           {anchorC && (
@@ -3924,6 +3938,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           )}
           <ellipse cx={tenderFig.x} cy={tenderFig.y + 2} rx={13 * zoom} ry={3.5 * zoom} fill="rgba(0,0,0,0.35)" />
           {pose.flip ? <g transform={`translate(${2 * tenderFig.x} 0) scale(-1 1)`}>{img}</g> : img}
+          {weaponKey && WEAPONS[weaponKey] && (
+            <>
+              <ellipse cx={wcx} cy={wcy} rx={wh * 0.66} ry={wh * 0.66} fill="rgba(255,215,100,0.13)" />
+              <image href={weaponImg(weaponKey)} x={wcx - wh / 2} y={wcy - wh / 2} width={wh} height={wh}
+                preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,215,100,0.55))" }} />
+            </>
+          )}
+          {weaponKey === "swordshield" && (
+            <image href={shieldImg()} x={scx - sh / 2} y={scy - sh / 2} width={sh} height={sh}
+              preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 4px rgba(255,215,100,0.4))" }} />
+          )}
         </g>
       );
     })();

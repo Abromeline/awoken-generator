@@ -159,6 +159,21 @@ export function defaultGrimoire(): GrimoireState {
     forms: { unaligned: "Heal", tide: "Heal", sky: "Heal", stone: "Heal", root: "Heal", fire: "Heal" },
     builtin: true,
   });
+  // THE RUNIC WEAPON (Nigel, 2026-10-19): the Tender's own hand.
+  // With his class at Lv 3 he chooses a weapon that floats at
+  // his side like an Awokin and lunges on its own at what comes
+  // in reach — sword & shield (d6, +3 AC), sword (d10, +1 AC),
+  // spear (d6, +1 range), arrow (d4, range 4 — a lone arrow, no
+  // bow; it flies itself). Each weapon's one upgrade skill
+  // manifests MORE of them. The weapon is the
+  // grimoire's FIRST SPELL UNLOCK at Lv 3; the Attune ability it
+  // feeds on unlocks at Lv 1, and the weapon takes elemental
+  // attunement like an Awokin. Elemental reaches for the company
+  // stand beside it: stone 1, root 2, tide 3, sky 4 — and stone
+  // and root hands passively raise root and stone walls around
+  // the caster against projectiles and advance. (Fire's reach is
+  // the Keeper's pencilled 2 until the Keeper of the world rules.)
+  //
   // THE CASTING LAW (Nigel, 2026-10-19): class selection means
   // something. Each tender class owns a school of spells —
   // Warden the Ward, Runewright the Rune, Binder the Binding

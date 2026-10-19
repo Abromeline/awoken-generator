@@ -474,6 +474,11 @@ export const tenderProgress = sqliteTable("tender_progress", {
    *  from and his followers muster around. Null until first
    *  reckoned (then the bastion rule plants him). */
   tenderTileId: integer("tender_tile_id"),
+  /** THE RUNIC WEAPON (Nigel, 2026-10-19): chosen with the class
+   *  at Lv 3 — swordshield | sword | spear | arrow. It floats at
+   *  his side and lunges on its own; re-picking rides the same
+   *  second-thoughts economy as the class itself. */
+  weaponKey: text("weapon_key"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

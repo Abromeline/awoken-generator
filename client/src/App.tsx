@@ -480,6 +480,9 @@ function ClassDoorChip({ onOpen }: { onOpen: () => void }) {
       ? <button type="button" className="quiet-link tiny class-door-btn" onClick={onOpen} title="The choosing — pick your class">✦ Choose your class</button>
       : <span className="quiet tiny" title="Your class wakes at Lv 3">· class at Lv 3</span>;
   }
+  if (!data.weaponKey) {
+    return <button type="button" className="quiet-link tiny class-door-btn" onClick={onOpen} title="The choosing's second gift — pick your runic weapon">⚔ Choose your runic weapon</button>;
+  }
   const art = TENDER_CLASSES[data.classKey as TenderClassId];
   return art ? <span className="tender-class-name" title="Your chosen class">{art.icon} the {art.label}</span> : null;
 }
