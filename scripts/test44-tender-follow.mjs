@@ -103,7 +103,7 @@ a.send({ type: "tenderMarch", to: landingA });
 await sleep(400);
 check("a second march while on the road is refused", a.errors.some(e => e.includes("already on the road")), a.errors.join(" | "));
 await a.waitFor(c => !meIn(c).march, "the Tender arrives");
-check("the road costs a walker's ⚡1 the hex", energyBefore - a.you.energy === 3, `before=${energyBefore} after=${a.you.energy}`);
+check("the Tender's own road costs nothing (Nigel, 2026-10-19: WASD walking is free)", energyBefore - a.you.energy === 0, `before=${energyBefore} after=${a.you.energy}`);
 check("the Tender stands at the destination", meIn(a).hex === dest);
 
 // The follower musters to the Tender's side — by itself, on
@@ -113,7 +113,7 @@ const marchingNow = (u) => !!u?.march && Date.now() < u.march.endsAt;
 await a.waitFor(c => { const u = unitIn(c, card1.id); return !!u && dist(u.hex, dest) <= 1 && !marchingNow(u); }, "the follower musters and settles");
 check("the follower stands at the Tender's side", dist(unitIn(a, card1.id).hex, dest) <= 1, `unit=${unitIn(a, card1.id).hex} tender=${dest}`);
 check("the follower keeps its order", unitIn(a, card1.id).follow === true);
-check("the muster rode free (no further energy spent)", a.you.energy === energyBefore - 3, `energy=${a.you.energy}`);
+check("the muster rode free (no further energy spent)", a.you.energy === energyBefore, `energy=${a.you.energy}`);
 check("the unordered Awokin never moved", unitIn(a, card2.id).hex === landingA, `hex=${unitIn(a, card2.id).hex}`);
 
 // A direct march order ends the follow.

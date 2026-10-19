@@ -137,6 +137,9 @@ interface Player {
    *  from there. The Storytender holds no ground — she deals. */
   hex?: string;
   march?: { road: string[]; since: number; endsAt: number } | null;
+  /** When this Tender last cast a working — the room's screens
+   *  play their casting gesture from it. */
+  castAt?: number;
 }
 
 /** An Awoken standing on the field. The card rides inside it whole,
@@ -710,7 +713,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null })),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null, castAt: p.castAt ?? 0 })),
     watcherCount: room.players.size - seated.length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -923,9 +926,23 @@ function standingUnits(room: Room): FieldUnit[] {
   return [...room.field.values()].filter(u => !isMarching(u, now));
 }
 
-/** THE TENDER'S GAIT: a walking person's pace, between the
- *  Hollow's drift and the Tangle's creep (seconds per hex). */
-const TENDER_SECONDS_PER_HEX = 2.6;
+/** THE TENDER'S OWN PACE, alone (seconds per hex): a walking
+ *  person's, between the Hollow's drift and the Tangle's
+ *  creep. His road costs nothing: he is not an Awokin being
+ *  ordered — he is the player piece. */
+const TENDER_SOLO_SECONDS_PER_HEX = 2.6;
+/** THE COMPANY PACE (Nigel, 2026-10-19): a Tender whose
+ *  Awokin follow under marching orders moves AT THEIR pace —
+ *  the slowest follower's gait — and the followers' muster
+ *  rides that same pace, so the company travels as one body
+ *  and arrives as one body, as it should be. */
+function companySecondsPerHex(room: Room, tender: Player): number {
+  let pace = 0;
+  for (const u of room.field.values()) {
+    if (u.ownerKey === tender.key && u.follow) pace = Math.max(pace, marchSecondsPerHexFor(u.card));
+  }
+  return pace > 0 ? pace : TENDER_SOLO_SECONDS_PER_HEX;
+}
 function isTenderMarching(p: Player, now = Date.now()): boolean {
   return !!p.march && now < p.march.endsAt;
 }
@@ -957,10 +974,10 @@ function followSlots(room: Room, tender: Player, originId: string | null): strin
 }
 /** Send every following Awokin of this Tender that is not
  *  already at their side to the best free formation slot. The
- *  muster rides free — the road's price was paid by the
- *  Tender's own march; the company moves as their train. A
- *  follower already within a tile of the Tender rests: the
- *  company does not shuffle for inches. */
+ *  muster rides free and at the COMPANY PACE (the slowest
+ *  follower's gait — the same pace the Tender marched at),
+ *  so the company travels as one body. A follower already
+ *  within a tile of the Tender rests: no shuffling for inches. */
 function musterFollowers(room: Room, tender: Player, originId: string | null, now = Date.now()): void {
   if (!tender.hex || isTenderMarching(tender, now)) return;
   const slots = followSlots(room, tender, originId);
@@ -974,7 +991,7 @@ function musterFollowers(room: Room, tender: Player, originId: string | null, no
     if (!road || road.length < 2) continue;
     const hexes = road.length - 1;
     u.hex = slot;
-    u.march = { road, since: now, endsAt: now + Math.round(hexes * marchSecondsPerHexFor(u.card) * 1000) };
+    u.march = { road, since: now, endsAt: now + Math.round(hexes * companySecondsPerHex(room, tender) * 1000) };
     tell(room, `👣 ${u.card.name} musters to ${tender.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road.`);
   }
 }
@@ -2301,6 +2318,13 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — your light takes the field on purified land. Fell the dark that holds it, or grind it down by standing patrols, and it will turn." }));
         return;
       }
+      // SUMMON AT YOUR SIDE (Nigel, 2026-10-19): the light
+      // answers where the Tender stands — their own hex, or
+      // one beside it. No more calling across the map.
+      if (!player.hex || axialDist(player.hex, hex) > 1) {
+        ws.send(JSON.stringify({ type: "error", message: "Your Awokin answers at your side — summon onto your own hex, or one beside it." }));
+        return;
+      }
       if (unitsAt(room, hex).length >= STACK_CAP) {
         ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile, by the March law.` }));
         return;
@@ -2432,15 +2456,12 @@ function handleConnection(ws: WebSocket): void {
       const road = findAnyRoad(player.hex, to);
       if (!road || road.length < 2) { ws.send(JSON.stringify({ type: "error", message: "No road runs there." })); return; }
       const hexes = road.length - 1;
-      const cost = hexes;
-      if (!chargePurse(room, player, cost)) {
-        ws.send(JSON.stringify({ type: "error", message: `The road costs ⚡${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at a walker's ⚡1) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
-        return;
-      }
+      // The Tender's own walking is free — the road's price is
+      // for Awokin under orders; he is the one who gives them.
       const now = Date.now();
       player.hex = to;
-      player.march = { road, since: now, endsAt: now + Math.round(hexes * TENDER_SECONDS_PER_HEX * 1000) };
-      tell(room, `🚶 ${player.name} takes the road — ${hexes} hex${hexes === 1 ? "" : "es"} (⚡${cost}).`);
+      player.march = { road, since: now, endsAt: now + Math.round(hexes * companySecondsPerHex(room, player) * 1000) };
+      tell(room, `🚶 ${player.name} takes the road — ${hexes} hex${hexes === 1 ? "" : "es"}.`);
       sendState(room);
       // The arrival is an event even at a quiet table: when the
       // road runs out, settle and let the room see the company
@@ -2452,7 +2473,7 @@ function handleConnection(ws: WebSocket): void {
         if (tenderRef.march !== marchRef) return;
         settleTenders(roomHere);
         sendState(roomHere);
-      }, hexes * TENDER_SECONDS_PER_HEX * 1000 + 80);
+      }, Math.max(0, marchRef.endsAt - Date.now()) + 80);
       return;
     }
 
@@ -2578,6 +2599,7 @@ function handleConnection(ws: WebSocket): void {
       const toShield = Math.min(unit.maxShield - unit.shield, amount - toHp);
       unit.shield += toShield;
       tell(room, `${player.name} mends ${unit.card.name} — ${toHp + toShield} restored (${dieAmount} by the ${unit.card.element} die${heartHeal ? `, ${heartHeal} by the Heart's mending` : ""}; Heal, Tier ${player.healTier}).`);
+      player.castAt = Date.now();
       sendState(room);
       return;
     }
@@ -2594,7 +2616,10 @@ function handleConnection(ws: WebSocket): void {
       const hexA = String(msg.hexA || "");
       const hexB = String(msg.hexB || "");
       const mine = unitsAt(room, hexA).find(u => u.ownerKey === caster.key);
-      if (!mine) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of a tile your own Awokin holds." })); return; }
+      // The anchor is ground the caster HOLDS: a tile their
+      // Awokin stands on — or the Tender's own ground, now
+      // that the Tender stands on the field themself.
+      if (!mine && caster.hex !== hexA) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of ground you hold — your own tile, or one your Awokin stands on." })); return; }
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
       if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
@@ -2661,7 +2686,8 @@ function handleConnection(ws: WebSocket): void {
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
         hp, maxHp: hp, pour, stops: 0, charges: 0,
       });
-      tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge of ${mine.card.name}'s hex.`);
+      tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge of ${mine ? `${mine.card.name}'s hex` : "their own hex"}.`);
+      caster.castAt = Date.now();
       sendState(room);
       return;
     }
@@ -2771,6 +2797,7 @@ function handleConnection(ws: WebSocket): void {
         ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`
         : `${caster.name} writes ${def.forms[hue] ?? def.name} on the ground of the field.`);
       for (const hx of hexes) springHex(room, hx, new Set());
+      caster.castAt = Date.now();
       sendState(room);
       return;
     }

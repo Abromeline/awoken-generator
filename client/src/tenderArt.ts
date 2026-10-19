@@ -75,6 +75,43 @@ import binder42 from "./assets/tenders/binder-42.png";
 import binder43 from "./assets/tenders/binder-43.png";
 import binder44 from "./assets/tenders/binder-44.png";
 
+import wardenCastS1 from "./assets/tenders/warden-cast-s-1.png";
+import wardenCastS2 from "./assets/tenders/warden-cast-s-2.png";
+import wardenCastS3 from "./assets/tenders/warden-cast-s-3.png";
+import wardenCastS4 from "./assets/tenders/warden-cast-s-4.png";
+import wardenCastE1 from "./assets/tenders/warden-cast-e-1.png";
+import wardenCastE2 from "./assets/tenders/warden-cast-e-2.png";
+import wardenCastE3 from "./assets/tenders/warden-cast-e-3.png";
+import wardenCastE4 from "./assets/tenders/warden-cast-e-4.png";
+import wardenCastN1 from "./assets/tenders/warden-cast-n-1.png";
+import wardenCastN2 from "./assets/tenders/warden-cast-n-2.png";
+import wardenCastN3 from "./assets/tenders/warden-cast-n-3.png";
+import wardenCastN4 from "./assets/tenders/warden-cast-n-4.png";
+import runewrightCastS1 from "./assets/tenders/runewright-cast-s-1.png";
+import runewrightCastS2 from "./assets/tenders/runewright-cast-s-2.png";
+import runewrightCastS3 from "./assets/tenders/runewright-cast-s-3.png";
+import runewrightCastS4 from "./assets/tenders/runewright-cast-s-4.png";
+import runewrightCastE1 from "./assets/tenders/runewright-cast-e-1.png";
+import runewrightCastE2 from "./assets/tenders/runewright-cast-e-2.png";
+import runewrightCastE3 from "./assets/tenders/runewright-cast-e-3.png";
+import runewrightCastE4 from "./assets/tenders/runewright-cast-e-4.png";
+import runewrightCastN1 from "./assets/tenders/runewright-cast-n-1.png";
+import runewrightCastN2 from "./assets/tenders/runewright-cast-n-2.png";
+import runewrightCastN3 from "./assets/tenders/runewright-cast-n-3.png";
+import runewrightCastN4 from "./assets/tenders/runewright-cast-n-4.png";
+import binderCastS1 from "./assets/tenders/binder-cast-s-1.png";
+import binderCastS2 from "./assets/tenders/binder-cast-s-2.png";
+import binderCastS3 from "./assets/tenders/binder-cast-s-3.png";
+import binderCastS4 from "./assets/tenders/binder-cast-s-4.png";
+import binderCastE1 from "./assets/tenders/binder-cast-e-1.png";
+import binderCastE2 from "./assets/tenders/binder-cast-e-2.png";
+import binderCastE3 from "./assets/tenders/binder-cast-e-3.png";
+import binderCastE4 from "./assets/tenders/binder-cast-e-4.png";
+import binderCastN1 from "./assets/tenders/binder-cast-n-1.png";
+import binderCastN2 from "./assets/tenders/binder-cast-n-2.png";
+import binderCastN3 from "./assets/tenders/binder-cast-n-3.png";
+import binderCastN4 from "./assets/tenders/binder-cast-n-4.png";
+
 export type TenderClassId = "warden" | "runewright" | "binder";
 export type TenderDir = "E" | "SE" | "S" | "SW" | "W" | "NW" | "N" | "NE";
 
@@ -133,4 +170,43 @@ export function tenderPose(art: TenderClassArt, dir: TenderDir, walking: boolean
   if (!walking) return { src: art.idle, flip: false };
   const frames = art.dirs[dir];
   return { src: frames[step % frames.length], flip: !!art.flip[dir] };
+}
+
+/** CASTING (Nigel, 2026-10-19): each class casts true to its
+ *  design — the Warden's glyph-staff flares, the Runewright's
+ *  banner streams glyphs off his back, the Binder's ring-staff
+ *  lights green-gold. Four beats (ready, raise, release,
+ *  settle) in three facings; west is east mirrored, diagonals
+ *  borrow the facing they lean toward. */
+export interface TenderCastArt { S: string[]; E: string[]; N: string[] }
+export const TENDER_CASTS: Record<TenderClassId, TenderCastArt> = {
+  warden: {
+    S: [wardenCastS1, wardenCastS2, wardenCastS3, wardenCastS4],
+    E: [wardenCastE1, wardenCastE2, wardenCastE3, wardenCastE4],
+    N: [wardenCastN1, wardenCastN2, wardenCastN3, wardenCastN4],
+  },
+  runewright: {
+    S: [runewrightCastS1, runewrightCastS2, runewrightCastS3, runewrightCastS4],
+    E: [runewrightCastE1, runewrightCastE2, runewrightCastE3, runewrightCastE4],
+    N: [runewrightCastN1, runewrightCastN2, runewrightCastN3, runewrightCastN4],
+  },
+  binder: {
+    S: [binderCastS1, binderCastS2, binderCastS3, binderCastS4],
+    E: [binderCastE1, binderCastE2, binderCastE3, binderCastE4],
+    N: [binderCastN1, binderCastN2, binderCastN3, binderCastN4],
+  },
+};
+export const CAST_MS = 950;
+const CAST_BEATS = [0, 160, 400, 680];
+/** The casting frame at an elapsed moment, or null when the
+ *  gesture has run its course. */
+export function tenderCastPose(art: TenderClassArt, dir: TenderDir, elapsed: number): { src: string; flip: boolean } | null {
+  if (elapsed < 0 || elapsed >= CAST_MS) return null;
+  let beat = 0;
+  for (let i = 0; i < CAST_BEATS.length; i++) if (elapsed >= CAST_BEATS[i]) beat = i;
+  const cast = TENDER_CASTS[art.id];
+  if (dir === "N" || dir === "NE" || dir === "NW") return { src: cast.N[beat], flip: false };
+  if (dir === "E") return { src: cast.E[beat], flip: false };
+  if (dir === "W") return { src: cast.E[beat], flip: true };
+  return { src: cast.S[beat], flip: false };
 }

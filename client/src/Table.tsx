@@ -20,7 +20,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
-import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
+import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -135,7 +135,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -485,13 +485,96 @@ export default function Table() {
   // You, selected: your own figure takes orders like an
   // Awokin — tap a tile and you march there yourself.
   const [selTender, setSelTender] = useState(false);
+  // THE GLYPH WHEEL (Nigel, 2026-10-19): right-click (or a
+  // long press, for the iPad) opens a Zodiac-fashion radial of
+  // your castable workings — glyphs only, no lard text. Left
+  // click chooses the glyph; the next left clicks choose the
+  // target, by the placing laws that already govern casting.
+  const [radial, setRadial] = useState<{ x: number; y: number } | null>(null);
+  // CASTING GESTURES (Nigel, 2026-10-19): who is mid-cast on
+  // this screen, and toward what. Own casts begin the moment
+  // the order is given; other seats' casts arrive on the
+  // server's castAt echo and face their newest working.
+  const castAnimRef = useRef(new Map<string, { startedAt: number; dir: TenderDir }>());
+  const ownCastMarkRef = useRef(0);
+  const seenCastRef = useRef(new Map<string, number>());
+  const beginCast = (targetHexId: string | null) => {
+    if (!you || !shared) return;
+    const me = shared.players.find(p => p.key === you.key);
+    const from = me?.hex ? centerOf(me.hex) : null;
+    const to = targetHexId ? centerOf(targetHexId) : null;
+    const dir = from && to ? tenderDirOf(to.cx - from.cx, to.cy - from.cy) : "S";
+    castAnimRef.current.set(you.key, { startedAt: Date.now(), dir });
+    ownCastMarkRef.current = Date.now();
+  };
+  useEffect(() => {
+    if (!shared) return;
+    for (const p of shared.players) {
+      if (!p.castAt || seenCastRef.current.get(p.key) === p.castAt) continue;
+      seenCastRef.current.set(p.key, p.castAt);
+      if (you && p.key === you.key && Date.now() - ownCastMarkRef.current < 1600) continue;
+      const w = [...shared.workings].reverse().find(wk => wk.ownerKey === p.key);
+      const targetId = w?.hex ?? w?.hexA ?? null;
+      const from = p.hex ? centerOf(p.hex) : null;
+      const to = targetId ? centerOf(targetId) : null;
+      const dir = from && to ? tenderDirOf(to.cx - from.cx, to.cy - from.cy) : "S";
+      castAnimRef.current.set(p.key, { startedAt: Date.now(), dir });
+    }
+  }, [shared]);
+  // WASD WALKS THE TENDER (Nigel, 2026-10-19): the lattice's
+  // own compass — Q/W/E across the top arc, A/S/D below it,
+  // arrows riding the same steps. Each press is one hex of
+  // road; the key's repeat walks him on. Free, as his own
+  // walking is; ignored while placing, while the wheel is
+  // open, or while he is already mid-step.
+  const stepRef = useRef<((dq: number, dr: number) => void) | null>(null);
+  const queuedStepRef = useRef<[number, number] | null>(null);
+  stepRef.current = (dq, dr) => {
+    if (!you || !shared || placing || radial) return;
+    const me = shared.players.find(p => p.key === you.key);
+    if (!me?.hex || me.fallen) return;
+    // Mid-step, a press is not lost: it queues, and walks on
+    // the moment the current step lands — a held key walks.
+    if (me.march && nowMs < me.march.endsAt) { queuedStepRef.current = [dq, dr]; return; }
+    const cur = tileById.get(me.hex);
+    if (!cur) return;
+    const toId = `${cur.q + dq},${cur.r + dr}`;
+    if (!tileById.has(toId) || toId === SEED_TILE_ID) return;
+    setSelTender(true);
+    send({ type: "tenderMarch", to: toId });
+  };
+  useEffect(() => {
+    const q = queuedStepRef.current;
+    if (!q || !you || !shared) return;
+    const me = shared.players.find(p => p.key === you.key);
+    if (!me || (me.march && nowMs < me.march.endsAt)) return;
+    queuedStepRef.current = null;
+    stepRef.current?.(q[0], q[1]);
+  }, [nowMs]);
+  useEffect(() => {
+    const steps: Record<string, [number, number]> = {
+      KeyW: [0, -1], KeyS: [0, 1], KeyQ: [-1, 0], KeyE: [1, -1], KeyA: [-1, 1], KeyD: [1, 0],
+      ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, -1],
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Escape") { setRadial(null); return; }
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const step = steps[e.code];
+      if (!step) return;
+      e.preventDefault();
+      stepRef.current?.(step[0], step[1]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // The stage's manners (Territory's, carried over 2026-10-18):
   // the map pans by drag and zooms by button, in the viewBox's
   // own coordinate space. A tap is a tap only when the pointer
   // barely moved — drags must never read as tile taps.
   const [view, setView] = useState<{ zoom: number; pan: { x: number; y: number } }>({ zoom: 1, pan: { x: 0, y: 0 } });
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean; t: number } | null>(null);
   const suppressTapRef = useRef(false);
   const [diceOpen, setDiceOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -926,6 +1009,13 @@ export default function Table() {
   };
   const sortedTiles = [...tiles].sort((a, b) => tileCenter(a).cy - tileCenter(b).cy);
   const myUnitOn = (tileId: string): boolean => !!you && shared.field.some(u => u.hex === tileId && u.ownerKey === you.key);
+  /** The ground the Tender themself holds (their figure's tile,
+   *  at rest) — a ward may anchor on it as on an Awokin's. */
+  const myTenderOn = (tileId: string): boolean => {
+    if (!you) return false;
+    const me = shared.players.find(p => p.key === you.key);
+    return !!me?.hex && me.hex === tileId && !(me.march && nowMs < me.march.endsAt);
+  };
   const isMarchingNow = (u: FieldUnitView): boolean => !!u.march && nowMs < u.march.endsAt;
 
   // The stage's frame, computed from the map's own extents:
@@ -965,7 +1055,7 @@ export default function Table() {
     });
   };
   const onStageDown = (e: ReactPointerEvent<SVGSVGElement>) => {
-    dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false };
+    dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false, t: Date.now() };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ }
   };
   const onStageMove = (e: ReactPointerEvent<SVGSVGElement>) => {
@@ -979,10 +1069,35 @@ export default function Table() {
     const f = rect && rect.width > 0 ? stageBox.w / rect.width : 1;
     setView(v => ({ ...v, pan: { x: d.panX + dx * f, y: d.panY + dy * f } }));
   };
-  const onStageUp = () => {
+  const onStageUp = (e?: ReactPointerEvent<SVGSVGElement>) => {
     const d = dragRef.current;
     dragRef.current = null;
     if (d?.moved) setTimeout(() => { suppressTapRef.current = false; }, 80);
+    // A long, still press (the iPad's right-click) opens the
+    // glyph wheel where the finger rests.
+    if (e && e.type === "pointerup" && d && !d.moved && Date.now() - d.t >= 500) {
+      const pt = stagePointOf(e.clientX, e.clientY);
+      if (pt && you && shared.players.some(p => p.key === you.key && p.hex)) {
+        suppressTapRef.current = true;
+        setTimeout(() => { suppressTapRef.current = false; }, 120);
+        setRadial(pt);
+      }
+    }
+  };
+  /** A screen point in the stage's own (panned, zoomed)
+   *  coordinates — where the glyph wheel blooms. */
+  const stagePointOf = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    const vx = stageBox.x + (clientX - rect.left) * (stageBox.w / rect.width);
+    const vy = stageBox.y + (clientY - rect.top) * (stageBox.h / rect.height);
+    return { x: (vx - view.pan.x) / view.zoom, y: (vy - view.pan.y) / view.zoom };
+  };
+  const openRadialAt = (clientX: number, clientY: number) => {
+    if (!you) return;
+    if (!shared.players.some(p => p.key === you.key && p.hex)) return;
+    const pt = stagePointOf(clientX, clientY);
+    if (pt) setRadial(pt);
   };
 
   // The selected Awoken and its march price (the land's rate:
@@ -1004,7 +1119,7 @@ export default function Table() {
     if (!placing || !you) return false;
     if (placing.kind === "heal") return myUnitOn(t.id);
     if (placing.kind === "rune") return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
-    if (!wardAnchor) return myUnitOn(t.id);
+    if (!wardAnchor) return myUnitOn(t.id) || myTenderOn(t.id);
     const anchor = tileById.get(wardAnchor);
     return !!anchor && axialDist(anchor, t) === 1;
   };
@@ -1017,7 +1132,7 @@ export default function Table() {
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
     if (placing) {
       if (placing.kind === "heal") {
-        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id }); setPlacing(null); }
+        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id }); beginCast(t.id); setPlacing(null); }
         return;
       }
       if (placing.kind === "rune") {
@@ -1029,15 +1144,17 @@ export default function Table() {
         }
         if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
           send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [t.id], pour: pourPts });
+          beginCast(t.id);
           setPlacing(null); setPourPts(0);
         }
         return;
       }
       // ward: an anchor on my own ground, then a neighbour.
-      if (!wardAnchor) { if (myUnitOn(t.id)) setWardAnchor(t.id); return; }
+      if (!wardAnchor) { if (myUnitOn(t.id) || myTenderOn(t.id)) setWardAnchor(t.id); return; }
       const anchor = tileById.get(wardAnchor);
       if (anchor && axialDist(anchor, t) === 1) {
         send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: t.id, pour: pourPts });
+        beginCast(t.id);
         setPlacing(null); setWardAnchor(null); setPourPts(0);
       } else if (t.id === wardAnchor) setWardAnchor(null);
       return;
@@ -1264,7 +1381,12 @@ export default function Table() {
         step = Math.floor((nowMs - p.march.since) / 150);
       }
     }
-    const pose = tenderPose(art, dir, walking, step);
+    // A cast in flight outranks the road and the rest: the
+    // figure plays its class's casting gesture toward its mark.
+    const anim = castAnimRef.current.get(p.key);
+    const castPose = anim ? tenderCastPose(art, anim.dir, nowMs - anim.startedAt) : null;
+    if (anim && !castPose && nowMs - anim.startedAt > CAST_MS + 500) castAnimRef.current.delete(p.key);
+    const pose = castPose ?? tenderPose(art, dir, walking, step);
     const mine = !!you && p.key === you.key;
     const img = <image href={pose.src} x={gx - 29} y={gy - 58} width={58} height={58} preserveAspectRatio="xMidYMax meet" />;
     figures.push({
@@ -1374,6 +1496,7 @@ export default function Table() {
               onPointerMove={onStageMove}
               onPointerUp={onStageUp}
               onPointerCancel={onStageUp}
+              onContextMenu={(e) => { e.preventDefault(); openRadialAt(e.clientX, e.clientY); }}
             >
             <g transform={`translate(${view.pan.x} ${view.pan.y}) scale(${view.zoom})`}>
               {/* The land itself, back tiles first: every tile
@@ -1395,7 +1518,12 @@ export default function Table() {
                   if (wardAnchor === t.id) overlay = { fill: "#ffd977", opacity: 0.35 };
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
                 } else if (selectedCard) {
-                  if (!t.cursed) overlay = { fill: "#ffd977", opacity: 0.14 };
+                  // Summoning answers at the Tender's side:
+                  // only ground within a hex of their figure
+                  // lights up as lawful.
+                  const meP = you ? shared.players.find(p => p.key === you.key) : null;
+                  const meT = meP?.hex ? tileById.get(meP.hex) : null;
+                  if (!t.cursed && meT && axialDist(meT, t) <= 1) overlay = { fill: "#ffd977", opacity: 0.14 };
                 } else if (strikeArmed && selTile) {
                   if (t.cursed && axialDist(selTile, t) <= 2) overlay = { fill: "#c22333", opacity: 0.3 };
                   else if (t.id !== selUnit?.hex) overlay = { fill: "#ffffff", opacity: 0.05 };
@@ -1506,6 +1634,48 @@ export default function Table() {
               })}
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
+              {/* THE GLYPH WHEEL: your castable workings in a
+                  ring, Zodiac fashion — glyphs only, the cost a
+                  whisper of a numeral beneath each. A left click
+                  chooses; the placing laws choose the target
+                  after. Locked workings hang dimmed. */}
+              {radial && you && (() => {
+                const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; act: () => void }[] = [];
+                for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
+                  offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+                }
+                if (healDef) {
+                  offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
+                }
+                for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
+                  offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+                }
+                const R = 58;
+                return (
+                  <g key="glyph-wheel">
+                    <rect x={radial.x - 900} y={radial.y - 900} width={1800} height={1800} fill="transparent" pointerEvents="all"
+                      onClick={() => setRadial(null)}
+                      onContextMenu={(e) => { e.preventDefault(); setRadial(null); }} />
+                    <circle cx={radial.x} cy={radial.y} r={20} fill="rgba(10,8,16,0.88)" stroke="#c9a227" strokeWidth={1} pointerEvents="none" />
+                    <text x={radial.x} y={radial.y + 5} textAnchor="middle" fontSize={13} fill="#ffd977" pointerEvents="none">✦</text>
+                    {offerings.map((o, i) => {
+                      const a = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(1, offerings.length);
+                      const gx = radial.x + R * Math.cos(a), gy = radial.y + R * Math.sin(a);
+                      return (
+                        <g key={o.key} opacity={o.locked ? 0.32 : 1}
+                          style={o.locked ? undefined : { cursor: "pointer" }}
+                          onClick={o.locked ? undefined : (e) => { e.stopPropagation(); o.act(); setRadial(null); }}>
+                          <circle cx={gx} cy={gy} r={19} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={1} />
+                          {o.glyph
+                            ? <image href={o.glyph} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 5px ${HUE_GLOWS[pourHue]})`, pointerEvents: "none" }} />
+                            : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
+                          <text x={gx} y={gy + 15} textAnchor="middle" fontSize={7.5} fill="#ffd977" pointerEvents="none">⚡{o.cost}</text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              })()}
               {/* The round's strikes, flown on gravity's arc from
                   tile to tile. A shot lives exactly as long as
                   the strikes state keeps it — when the timeout
@@ -1590,7 +1760,7 @@ export default function Table() {
                   {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
-                  {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>your Awokin holds</strong>: the ward will stand on one of its edges.</>}
+                  {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>you hold</strong> — your own ground, or your Awokin's: the ward will stand on one of its edges.</>}
                   {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
                 </span>
                 {placing.kind !== "heal" && ["seal", "trees", "lattice", "shard"].includes(defs[placing.root]?.engine ?? "") && pourHue !== "unaligned" && you?.pools && (() => {
@@ -1612,7 +1782,7 @@ export default function Table() {
                   );
                 })()}
                 {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
-                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); setPlacing(null); setBladePicks([]); setPourPts(0); }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
+                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); beginCast(bladePicks[0] ?? null); setPlacing(null); setBladePicks([]); setPourPts(0); }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
                 )}
                 <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); }}>Set the light down</button>
               </div>
@@ -1628,7 +1798,7 @@ export default function Table() {
                 </span>
                 {!selUnitMarching && (
                   <>
-                    <button className="table-btn" onClick={() => send({ type: "castHeal", hex: selUnit.hex })}>Heal · ⚡{healDef?.cost ?? 2}</button>
+                    <button className="table-btn" onClick={() => { send({ type: "castHeal", hex: selUnit.hex }); beginCast(selUnit.hex); }}>Heal · ⚡{healDef?.cost ?? 2}</button>
                     {strikeArmed ? (
                       <button className="table-btn" onClick={() => setStrikeArm(false)}>Stay the hand</button>
                     ) : curseInReach.length > 0 ? (
@@ -1644,7 +1814,7 @@ export default function Table() {
             {selTender && you && !placing && (
               <div className="placing-bar unit-bar">
                 <span className="placing-text">
-                  🚶 <strong>You</strong> — tap a tile to march there (⚡1 per hex). Where you arrive, your followers muster to you; the rest hold their ground.
+                  🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel; tap a tile to march the long road. Where you arrive, your followers muster to you; the rest hold their ground.
                 </span>
                 <button className="table-btn" onClick={() => setSelTender(false)}>Done</button>
               </div>
@@ -1863,7 +2033,7 @@ export default function Table() {
                         data-element={card.element}
                         role="button"
                         aria-pressed={selected}
-                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap a purified tile of the instance.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
+                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap purified ground at your side.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
                         onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } if (!selected) setSelUnitId(null); setSelectedCardId(selected ? null : card.id); }}
                       >
                         <div className="tcard-banner">
@@ -1882,7 +2052,7 @@ export default function Table() {
                   })}
                 </div>
                 {selectedCard ? (
-                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap a purified tile of the instance to set it standing (⚡{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, heal, strike the curse, recall.</p>
+                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — it answers at your side: tap purified ground on your own hex or one beside it to set it standing (⚡{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
                 ) : you.bound ? (
                   <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (

@@ -168,6 +168,17 @@ check("the tale tells the breaking", a.state.tale.some(t => t.text.includes("bre
 const spare = b.you.hand[0];
 check("a spare card waits in B's hand", !!spare, `hand=${b.you.hand.map(c => c.name).join(",")}`);
 if (spare) {
+  // SUMMON AT YOUR SIDE (Nigel, 2026-10-19): from across the
+  // map the call is refused — the Tender must stand beside
+  // the ground she would fill. B walks to A's landing (one
+  // hex from the mark) and calls from there.
+  b.send({ type: "summon", cardId: spare.id, hex: target });
+  await sleep(500);
+  check("a summon from afar is refused — the light answers at the Tender's side",
+    b.errors.some(e => e.includes("answers at your side")), `errors=${b.errors.join(" | ")}`);
+  const bMe = () => b.state.players.find(p => p.key === b.you.key);
+  b.send({ type: "tenderMarch", to: landing });
+  await b.waitFor(c => bMe() && bMe().hex === landing && !bMe().march, "B's Tender walks to the mark's side", 60000);
   b.send({ type: "summon", cardId: spare.id, hex: target });
   await sleep(600);
   check("the cleared ground takes a summon", b.state.field.some(u => u.hex === target && u.cardId === spare.id),
