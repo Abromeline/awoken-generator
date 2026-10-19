@@ -145,8 +145,10 @@ await a.waitFor(c => c.state.campaign?.stage?.title === "The Gate at Lamplight",
 check("scene is on the shared stage", a.state.campaign.stage.text.includes("held breath"));
 check("narration entered the tale", a.state.tale.some(t => t.text.includes("Something walks the road")));
 
-// Adjourn + resume: everyone leaves (room dies, snapshot
-// rests), then the room reopens with its bank and tale.
+// Adjourn + resume: everyone steps away (AWAY SEATS,
+// 2026-10-19: a closed socket within the grace is a held
+// seat, not a leaving — the room waits, the snapshot rests),
+// then each return is handed their own seat back whole.
 st.send({ type: "stAdjourn" });
 await sleep(300);
 const bankAtAdjourn = a.state.campaign.bank;
@@ -158,13 +160,18 @@ check("adjourned campaign restored its bank", stR.state.campaign.bank === bankAt
 check("adjourned campaign restored its tale", stR.state.tale.some(t => t.text.includes("poured into one bank")));
 const aR = client("A-R");
 await aR.join({ devName: "Tender A", room: ROOM });
-check("rejoined tender pours a fresh stake into the restored bank", aR.state.campaign.bank === bankAtAdjourn + 12, `bank=${aR.state.campaign.bank}`);
+// A return within the grace REBINDS the held seat — it is
+// not a fresh arrival, so no fresh stake is minted into the
+// bank (that pour belongs to genuinely new seats only; a
+// rebind that re-poured would print energy from nothing on
+// every reconnect). The bank stands exactly as adjourned.
+check("rejoined tender's seat is restored whole — no fresh stake minted", aR.state.campaign.bank === bankAtAdjourn, `bank=${aR.state.campaign.bank}`);
 
 // Settlement: the Storytender ends it; the leftover divides.
 stR.send({ type: "stEnd" });
 await aR.waitFor(c => c.state.campaign?.over === "ended", "campaign ended");
 check("campaign ended by choice", aR.state.campaign.over === "ended");
-check("leftover divided to the seated tender", aR.you.energy === Math.floor((bankAtAdjourn + 12) / 1), `energy=${aR.you.energy}`);
+check("leftover divided to the seated tender", aR.you.energy === Math.floor(bankAtAdjourn / 1), `energy=${aR.you.energy}`);
 
 // Casual regression: the ladder still deals in a casual room.
 const cas = client("CAS");

@@ -37,6 +37,11 @@ import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } fr
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 by Nigel 2026-10-18, the night the map grew to 127 tiles
+/** AWAY SEATS (Nigel, 2026-10-19): a dropped connection is a
+ *  Tender stepping away, not leaving — their seat is held this
+ *  long before it lapses into a true leaving. Env-tunable for
+ *  the test harness. */
+const AWAY_GRACE_MS = Number(process.env.TABLE_AWAY_GRACE_MS || 600_000);
 const TALE_CAP = 100;
 
 interface TableCard {
@@ -494,6 +499,12 @@ interface Room {
   bastion: BastionState | null;
   strikes: Strike[];
   players: Map<WebSocket, Player>;
+  /** Seats held for Tenders who stepped away (connection
+   *  dropped): keyed by the seat's own key, with the moment
+   *  they stepped away. A held seat keeps its hand, energy,
+   *  standing and landing whole until it is reclaimed or the
+   *  grace lapses. */
+  away: Map<string, { player: Player; leftAt: number }>;
   tale: TaleEntry[];
   sky: { mood: string; description: string; endsAt: string | null };
   field: Map<string, FieldUnit>;
@@ -717,14 +728,19 @@ async function saveProfile(player: Player): Promise<void> {
 
 function sharedState(room: Room) {
   const seated = [...room.players.values()].filter(p => !p.watcher);
+  // Held seats stand in the party too (marked away), so an
+  // absent Tender's figure stays on their hex for those who
+  // remain — the room does not pretend they were never here.
+  const awaySeated = [...room.away.values()].map(h => h.player).filter(p => !p.watcher);
+  const awayKeys = new Set(awaySeated.map(p => p.key));
   return {
     room: room.id,
     mode: room.mode,
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null, castAt: p.castAt ?? 0 })),
-    watcherCount: room.players.size - seated.length,
+    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null, castAt: p.castAt ?? 0, away: awayKeys.has(p.key) })),
+    watcherCount: [...room.players.values()].filter(p => p.watcher).length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
       bankStart: room.campaign.bankStart,
@@ -826,7 +842,7 @@ async function getRoom(id: string): Promise<Room> {
     const { art } = await resolveCurrentEnemyArt().catch(() => ({ art: {} as Record<string, { url: string } | null> }));
     const campaignMode = id.startsWith("campaign");
     room = {
-      id, players: new Map(), tale: [], sky: await currentSky(),
+      id, players: new Map(), away: new Map(), tale: [], sky: await currentSky(),
       mode: campaignMode ? "campaign" : "casual",
       campaign: campaignMode ? loadCampaign(id) : null,
       field: new Map(),
@@ -860,7 +876,9 @@ function hexDist(a: string, b: string): number {
 
 function seatByKey(room: Room, key: string): Player | undefined {
   for (const p of room.players.values()) if (p.key === key) return p;
-  return undefined;
+  // A held (away) seat is still its owner's seat: landings keep
+  // their names and a working still knows whose it is.
+  return room.away.get(key)?.player;
 }
 
 /** Pay battle EXP to a seat's Tender (bound seats) and keep
@@ -1615,6 +1633,12 @@ function endBattle(room: Room): void {
  *  the old 2.8-second beat, accumulated from the same clock. */
 async function runRound(room: Room): Promise<void> {
   if (!room.battle.active || room.battle.ticking) return;
+  // AWAY SEATS (the Anti-Duolingo law): a battle no seated
+  // Tender is present to watch does not advance — the world
+  // waits rather than punish an absence. (lastTick is left
+  // stale on purpose: the tick's dt is capped at a second, so
+  // a return never fast-forwards the field.)
+  if (![...room.players.values()].some(p => !p.watcher)) return;
   room.battle.ticking = true;
   try {
     const now = Date.now();
@@ -2213,12 +2237,43 @@ function handleConnection(ws: WebSocket): void {
       }
       room = await getRoom(roomId);
       room.sky = await currentSky();
+      // AWAY SEATS (Nigel, 2026-10-19): a returning Tender is
+      // handed their own seat back whole — never re-dealt,
+      // never re-landed. Two roads home: the same identity
+      // still sits live on a stale socket (the new arrival
+      // takes the seat over), or the seat stands held in the
+      // away registry since their connection dropped.
+      if (!watcher) {
+        for (const [oldWs, seated] of room.players) {
+          if (seated.key !== key) continue;
+          room.players.delete(oldWs);
+          try { oldWs.close(); } catch {}
+          player = seated;
+          room.players.set(ws, player);
+          tell(room, `${player.name} returns to the Table — their seat was held.`);
+          sendState(room);
+          return;
+        }
+        const heldSeat = room.away.get(key);
+        if (heldSeat) {
+          room.away.delete(key);
+          player = heldSeat.player;
+          room.players.set(ws, player);
+          tell(room, `${player.name} returns to the Table — their seat was held.`);
+          sendState(room);
+          return;
+        }
+      }
       // THE STORYTENDER'S SEAT (campaign rooms only): one seat,
-      // no hand, never counted among the Tenders.
+      // no hand, never counted among the Tenders. A held seat
+      // counts: the Storytender who stepped away still holds it,
+      // and a full table stays full while its seats are held.
       const wantsStorytender = msg.storytender === true && room.mode === "campaign" && !watcher;
-      const storytenderTaken = [...room.players.values()].some(p => p.storytender);
+      const storytenderTaken = [...room.players.values()].some(p => p.storytender)
+        || [...room.away.values()].some(h => !!h.player.storytender);
       const isStorytender = wantsStorytender && !storytenderTaken;
-      const seatedCount = [...room.players.values()].filter(p => !p.watcher && !p.storytender).length;
+      const seatedCount = [...room.players.values()].filter(p => !p.watcher && !p.storytender).length
+        + [...room.away.values()].filter(h => !h.player.watcher && !h.player.storytender).length;
       if (!watcher && !isStorytender && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no ninth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
       // The full roster stands at the Table (Nigel, 2026-10-16):
@@ -3111,18 +3166,30 @@ function handleConnection(ws: WebSocket): void {
 
   ws.on("close", () => {
     if (room && player) {
+      // AWAY SEATS (Nigel, 2026-10-19): a dropped connection is
+      // a Tender STEPPING AWAY, not leaving. Their seat moves
+      // whole into the room's held registry; only when the
+      // grace lapses unreturned does the seat truly leave (the
+      // reaper in registerTableSocket speaks those words, the
+      // Risk of Confluence among them — not here). A socket
+      // whose seat was stolen by its own returning identity
+      // (players no longer binds THIS socket to the player)
+      // closes as a ghost: the seat lives on elsewhere.
+      const stillBound = room.players.get(ws) === player;
       room.players.delete(ws);
-      if (!player.watcher) tell(room, `${player.name} leaves the Table.`);
-      // THE RISK OF CONFLUENCE (§4.3): a stake poured into a
-      // living campaign stays in the pot when its Tender goes.
-      if (room.campaign?.seeded && !room.campaign.over && !player.watcher && !player.storytender) {
-        tell(room, `${player.name}'s stake stays in the pot (⚡${room.campaign.bank}) — it divides only among those seated when the campaign turns home, unless they return.`);
+      if (!player.watcher && stillBound) {
+        room.away.set(player.key, { player, leftAt: Date.now() });
+        tell(room, `${player.name} steps away from the Table — their seat is held.`);
       }
-      if (room.players.size === 0) {
+      if (room.players.size === 0 && room.away.size === 0) {
         if (room.campaign && !room.campaign.over) saveCampaign(room); // an emptied campaign room adjourns itself
         endBattle(room); rooms.delete(room.id);
+      } else {
+        // No one live, but seats stand held: a living campaign
+        // adjourns itself to disk while the room waits.
+        if (room.players.size === 0 && room.campaign && !room.campaign.over) saveCampaign(room);
+        if (room.players.size > 0) sendState(room);
       }
-      else sendState(room);
     }
   });
   ws.on("error", () => { try { ws.close(); } catch {} });
@@ -3242,4 +3309,37 @@ export function registerTableSocket(server: Server): void {
     }
   }, 30_000);
   sweep.unref?.();
+
+  // AWAY SEATS lapse: a held seat whose Tender has not returned
+  // within the grace becomes a TRUE leaving — this reaper, not
+  // the socket's close, speaks the leaving words (the Risk of
+  // Confluence stake tell among them, exactly as a departure
+  // was always told). A room left with no one live and no seat
+  // held is put away like an emptied room has always been.
+  const reap = setInterval(() => {
+    const now = Date.now();
+    for (const room of [...rooms.values()]) {
+      let lapsed = false;
+      for (const [key, held] of [...room.away]) {
+        if (now - held.leftAt < AWAY_GRACE_MS) continue;
+        room.away.delete(key);
+        lapsed = true;
+        const p = held.player;
+        if (room.players.size > 0) tell(room, `${p.name}'s held seat lapses — they have left the Table.`);
+        // THE RISK OF CONFLUENCE (§4.3): a stake poured into a
+        // living campaign stays in the pot when its Tender goes.
+        if (room.campaign?.seeded && !room.campaign.over && !p.watcher && !p.storytender) {
+          tell(room, `${p.name}'s stake stays in the pot (⚡${room.campaign.bank}) — it divides only among those seated when the campaign turns home, unless they return.`);
+        }
+      }
+      if (!lapsed) continue;
+      if (room.players.size === 0 && room.away.size === 0) {
+        if (room.campaign && !room.campaign.over) saveCampaign(room);
+        endBattle(room); rooms.delete(room.id);
+      } else if (room.players.size > 0) {
+        sendState(room);
+      }
+    }
+  }, 5_000);
+  reap.unref?.();
 }

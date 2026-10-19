@@ -135,7 +135,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number; away?: boolean }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -1428,7 +1428,7 @@ export default function Table() {
           {shared.players.length === 0 && <p className="quiet">No Tenders seated yet.</p>}
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
-              <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}</span>
+              <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}{p.away ? " · away" : ""}</span>
               {p.storytender ? <span className="party-meta">📖 Storytender — she deals</span> : p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>}
             </div>
           ))}
