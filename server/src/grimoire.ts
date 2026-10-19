@@ -159,23 +159,30 @@ export function defaultGrimoire(): GrimoireState {
     forms: { unaligned: "Heal", tide: "Heal", sky: "Heal", stone: "Heal", root: "Heal", fire: "Heal" },
     builtin: true,
   });
-  // The Springleaf Ward (Nigel, 2026-10-17) — written into the
-  // book ahead of its referee: it stands in a marching column's
-  // path, stops it, and turns it back three hexes in a random
-  // direction, before the column re-roads for its original goal.
-  // Columns do not march yet, so no engine runs it; the book says
-  // so plainly (engine "none") and it wakes when the marching pass
-  // is built. Its glyph is owed — one of the five undrawn roots.
+  // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
+  // ward, and no longer a column-breaker: THE BINDING WARD, a
+  // heal in the Binding school. Cast it and a grove stands where
+  // it is planted; the ground inside a very limited area wears
+  // Root aspect artwork as a transparent overlay, its glow
+  // shifting and fading, and every ally standing in that glow
+  // mends passively. Unharmed, the grove seeds SAPLING groves
+  // on neighboring ground, each spreading the glow (and the
+  // mending) with it. LEVELING the skill increases both the
+  // heal and the spread. The 2026-10-17 columns reading is
+  // superseded by this law; the columns engine in actions.ts
+  // still answers to the old text until the spells build-out
+  // reconciles it. Its glyph is owed — one of the five undrawn
+  // roots; meanwhile it wears the drawn Trees glyph.
   spells.push({
     key: "springleaf",
-    name: "The Springleaf Ward",
-    kind: "ward",
+    name: "The Springleaf",
+    kind: "binding",
     engine: "springleaf",
     glyphId: null,
     cost: 3,
-    blurb: "Stands in the path of an incoming column of enemies, stops it, and redirects it back three hexes in a random direction — before the column reroutes to its original goal. Its referee woke with the columns: cast it on the land a column's traced line crosses, and the line breaks on it.",
-    numbers: {},
-    forms: { unaligned: "The Springleaf Ward", tide: "Tide Springleaf", sky: "Sky Springleaf", stone: "Stone Springleaf", root: "Root Springleaf", fire: "Fire Springleaf" },
+    blurb: "A grove planted in the Binding school: allies standing in its root-glow — Root aspect art laid transparent on the ground, shifting and fading — mend passively, a little at a time. Unharmed, it seeds sapling groves on neighboring ground, each spreading the glow. Leveling it deepens the heal and widens the spread.",
+    numbers: { healPerBreath: 1, radiusHexes: 1, saplingCap: 2 },
+    forms: { unaligned: "The Springleaf", tide: "Tide Springleaf", sky: "Sky Springleaf", stone: "Stone Springleaf", root: "Root Springleaf", fire: "Fire Springleaf" },
     builtin: true,
   });
   // SHARD RAIN (Nigel, 2026-10-17): its OWN spell, not the Crown

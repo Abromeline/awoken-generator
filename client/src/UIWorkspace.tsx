@@ -332,19 +332,35 @@ function SpellEditor({ spell, glyphs, saving, onSave, onDelete, onClose }: {
   onClose: () => void;
 }) {
   const [name, setName] = useState(spell?.name ?? "");
-  const [kind, setKind] = useState<GrimoireSpellKind>(spell?.kind ?? "rune");
+  const [kind, setKind] = useState<GrimoireSpellKind>(spell?.kind ?? "spell");
   const [engine, setEngine] = useState(spell?.engine ?? "none");
-  const [cost, setCost] = useState(spell?.cost ?? 2);
+  const [cost, setCost] = useState(spell?.cost ?? 0);
   const [blurb, setBlurb] = useState(spell?.blurb ?? "");
   const [glyphId, setGlyphId] = useState<string | null>(spell?.glyphId ?? null);
   const [numbers, setNumbers] = useState<Record<string, number>>(spell?.numbers ?? {});
+  const [numbersJson, setNumbersJson] = useState(() => JSON.stringify(spell?.numbers ?? {}, null, 1));
   const [forms, setForms] = useState<Record<string, string>>(spell?.forms ?? {});
   const fields = GRIMOIRE_ENGINE_FIELDS[engine] ?? [];
+  const takeNumbers = (next: Record<string, number>) => {
+    setNumbers(next);
+    setNumbersJson(JSON.stringify(next, null, 1));
+  };
   const pickEngine = (e: string) => {
     setEngine(e);
     const seeded: Record<string, number> = {};
     for (const f of GRIMOIRE_ENGINE_FIELDS[e] ?? []) seeded[f.key] = numbers[f.key] ?? f.def;
-    setNumbers(seeded);
+    takeNumbers(seeded);
+  };
+  const save = () => {
+    let parsed: Record<string, number>;
+    try { parsed = JSON.parse(numbersJson.trim() || "{}"); }
+    catch { alert("The raw numbers are not sound JSON — the page was not saved."); return; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || Object.values(parsed).some((v) => typeof v !== "number" || !Number.isFinite(v))) {
+      alert("The raw numbers must be a flat book of numbers, one per key — the page was not saved.");
+      return;
+    }
+    onSave({ key: spell?.key, name: name.trim(), kind, engine, glyphId, cost, blurb, numbers: parsed, forms });
   };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(6,4,2,.72)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
@@ -382,7 +398,7 @@ function SpellEditor({ spell, glyphs, saving, onSave, onDelete, onClose }: {
                 {fields.map((f) => (
                   <label key={f.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                     <span>{f.label}</span>
-                    <input type="number" min={0} max={999} value={numbers[f.key] ?? f.def} onChange={(e) => setNumbers({ ...numbers, [f.key]: Math.max(0, Math.min(999, Number(e.target.value) || 0)) })} style={{ width: 80 }} />
+                    <input type="number" min={0} max={999} value={numbers[f.key] ?? f.def} onChange={(e) => takeNumbers({ ...numbers, [f.key]: Math.max(0, Math.min(999, Number(e.target.value) || 0)) })} style={{ width: 80 }} />
                   </label>
                 ))}
               </div>
@@ -390,6 +406,9 @@ function SpellEditor({ spell, glyphs, saving, onSave, onDelete, onClose }: {
           )}
           {engine === "heal" && <p className="quiet">Heal carries no numbers of its own: the amount mended is the Tender's heal tier (5 × tier), by standing law. The book holds only its price.</p>}
           {engine === "none" && <p className="quiet">A spell with no engine is written in the book — named, priced, numbered — but no referee runs it yet. Give it an engine when its mechanic should live in the world.</p>}
+          <label>Its numbers, raw (JSON — one number per key, each 0–999; the fields above and this page are one and the same)<br />
+            <textarea value={numbersJson} rows={4} spellCheck={false} onChange={(e) => setNumbersJson(e.target.value)} style={{ width: "100%", fontFamily: "monospace" }} placeholder='{"hp": 10}' />
+          </label>
           <label>What it does (shown on its card)<br />
             <textarea value={blurb} maxLength={600} rows={3} onChange={(e) => setBlurb(e.target.value)} style={{ width: "100%" }} placeholder="Describe the working as its card should speak it…" />
           </label>
@@ -406,7 +425,7 @@ function SpellEditor({ spell, glyphs, saving, onSave, onDelete, onClose }: {
           </fieldset>
           <div style={{ display: "flex", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 8 }}>
-              <button disabled={saving || !name.trim()} onClick={() => onSave({ key: spell?.key, name: name.trim(), kind, engine, glyphId, cost, blurb, numbers, forms })}>{saving ? "Saving…" : spell ? "Save the page" : "Write it in the book"}</button>
+              <button disabled={saving || !name.trim()} onClick={save}>{saving ? "Saving…" : spell ? "Save the page" : "Write it in the book"}</button>
               <button onClick={onClose}>Close</button>
             </div>
             {spell && <button disabled={saving} onClick={() => { if (confirm(`Tear “${spell.name}” out of the book? Its casts will be refused everywhere.`)) onDelete(spell.key); }}>Tear out this spell</button>}
@@ -448,6 +467,12 @@ function GrimoireSection() {
   ];
   return (
     <div className="workspace-grid">
+      <div className="workspace-card wide">
+        <h3>🔮 The Spell Proving Ground — the preview, saved in the book</h3>
+        <p className="quiet">The working preview where the radial wheel, the party, and each spell, ward and rune were shaped and proven piece by piece — kept here so every working can be studied and played on its own ground while its page is tuned below. The preview is a saved copy: it teaches and demonstrates, but the <strong>living numbers are the spell pages beneath it</strong> — what is saved there is what the Table and the territory map read. <a href="/spell-preview.html" target="_blank" rel="noreferrer">Open the proving ground full-page ↗</a></p>
+        <iframe title="The spell proving ground — the saved preview" src="/spell-preview.html" loading="lazy" style={{ width: "100%", height: 680, border: "1px solid rgba(184,155,94,.35)", borderRadius: 10, background: "#14100c" }} />
+      </div>
+
       <div className="workspace-card wide">
         <h3>📖 The Grimoire — glyphs</h3>
         <p className="quiet">Every glyph image in the book. <strong>Sort</strong> each one — ward, rune, binding, or spell — and <strong>assign</strong> it to the spell whose face it is. Upload new glyph art as PNGs with transparent ground; the Written Light is drawn in one colour so a hue can dress it. The book's own glyphs can be re-sorted and reassigned but never torn out.</p>
@@ -496,7 +521,7 @@ function GrimoireSection() {
               <button key={sp.key} onClick={() => setEditing(sp)} style={{ display: "flex", gap: 12, alignItems: "center", textAlign: "left", padding: "8px 12px" }}>
                 {img ? <img src={img} alt="" style={{ width: 40, height: 40, objectFit: "contain" }} /> : <span style={{ fontSize: 24, width: 40, textAlign: "center" }}>✦</span>}
                 <span style={{ flex: 1 }}>
-                  <strong>{sp.name}</strong> <small>· {sp.kind} · ⚡{sp.cost}{sp.engine === "none" ? " · not yet seated" : ""}</small><br />
+                  <strong>{sp.name}</strong> <small>· key <code>{sp.key}</code> · {sp.kind} · {sp.engine === "none" ? "engine: none (not yet seated)" : `engine: ${sp.engine}`} · ⚡{sp.cost}</small><br />
                   <small>{sp.blurb}</small>
                 </span>
                 <span>{spellName(sp.key) === sp.name ? "✎" : ""}</span>
