@@ -173,6 +173,19 @@ export const tenders = sqliteTable("tenders", {
     .$defaultFn(() => new Date()),
 });
 
+// Password-reset seals (Nigel, 2026-10-19 — email reset links): one
+// row per asked-for reset. Only the token's HASH is held; the token
+// itself travels once, inside the emailed link, and dies on use or
+// after an hour.
+export const tenderPasswordResets = sqliteTable("tender_password_resets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenderId: integer("tender_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  usedAt: integer("used_at"),
+  createdAt: integer("created_at").notNull(),
+});
+
 // Friendships between Tenders.
 export const friendships = sqliteTable("friendships", {
   id: integer("id").primaryKey({ autoIncrement: true }),

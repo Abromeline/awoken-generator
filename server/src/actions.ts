@@ -20,7 +20,7 @@ import {
   claimTender, destroySession, destroyTenderSessions, loginTender, newTenderNameSuggestion,
   publicTender, setTenderName, suggestTenderCode, tenderOwnerKey,
   type TenderRow,
-} from "./tenders.js";
+  requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
@@ -2923,6 +2923,14 @@ export const handlers = {
 
   async loginTender(args: unknown) {
     return loginTender(args);
+  },
+
+  async requestPasswordReset(args: unknown) {
+    return requestPasswordReset(args);
+  },
+
+  async resetPasswordWithToken(args: unknown) {
+    return resetPasswordWithToken(args);
   },
 
   async logoutTender(args: unknown, ctx?: ActionContext) {

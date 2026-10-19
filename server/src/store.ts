@@ -675,6 +675,14 @@ try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_key TEXT`); } ca
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_free_rite_used INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN reclass_tokens INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_chosen_at INTEGER`); } catch {}
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_password_resets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tender_id INTEGER NOT NULL,
+  token_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  created_at INTEGER NOT NULL
+);`);
 // Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
 // Migration: add pages column to battle_tracks. The ALTER must run AFTER
 // the CREATE as well as before it: on a fresh database the pre-CREATE

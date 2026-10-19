@@ -6,8 +6,9 @@
 // are granted once per tender account, keyed to the tender — not to the
 // soft browser visitor — which closes the clear-storage farming loop.
 
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { eq, and, ne, sql } from "drizzle-orm";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { mailLive, sendPasswordResetMail } from "./mail.js";
+import { eq, and, desc, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "./store.js";
 import { adoptVisitorState } from "./adopt.js";
@@ -160,7 +161,7 @@ function badRequest(message: string): never {
  */
 export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean }> {
   const parsed = z
-    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional() })
+    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional(), email: z.string().trim().email().max(200).optional() })
     .safeParse(args);
   if (!parsed.success) badRequest("A name and password of at least 8 characters.");
   // The key is given, never chosen — it is the account's immutable lock.
@@ -173,7 +174,7 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
   }
   const tenderRows = await db
     .insert(schema.tenders)
-    .values({ code, passwordHash: hashPassword(parsed.data.password), tenderName, createdAt: new Date() })
+    .values({ code, passwordHash: hashPassword(parsed.data.password), tenderName, email: parsed.data.email ?? null, createdAt: new Date() })
     .returning();
   const tender = tenderRows[0];
   if (!tender) badRequest("The Tender could not be gathered.");
@@ -279,6 +280,68 @@ export async function loginTender(args: unknown): Promise<{ token: string; tende
   }
   const token = await createSession(tender.id);
   return { token, tender: publicTender(tender) };
+}
+
+const RESET_TTL_MS = 60 * 60 * 1000;
+const RESET_COOLDOWN_MS = 2 * 60 * 1000;
+const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
+
+/** Ask for a password-reset letter (Nigel, 2026-10-19 — email reset
+ *  links). Unauthenticated by nature. The answer NEVER says whether
+ *  the Tender exists or holds an email — it carries only whether the
+ *  post itself is awake, so the gate can be honest when the mailer is
+ *  still dormant. A letter is written only when the Tender holds an
+ *  email, and at most one per two minutes per Tender; asking again
+ *  retires the earlier seal. */
+export async function requestPasswordReset(args: unknown): Promise<{ ok: true; mailLive: boolean }> {
+  const parsed = z.object({ identity: z.string().trim().min(1).max(200) }).safeParse(args);
+  const live = mailLive();
+  if (!parsed.success) return { ok: true, mailLive: live };
+  const identity = parsed.data.identity;
+  let rows = await db.select().from(schema.tenders).where(sql`lower(${schema.tenders.tenderName}) = lower(${identity})`).limit(1);
+  if (!rows[0]) rows = await db.select().from(schema.tenders).where(sql`lower(${schema.tenders.email}) = lower(${identity})`).limit(1);
+  if (!rows[0]) rows = await db.select().from(schema.tenders).where(eq(schema.tenders.code, identity)).limit(1);
+  const tender = rows[0];
+  if (tender?.email) {
+    const now = Date.now();
+    const recent = await db.select({ createdAt: schema.tenderPasswordResets.createdAt })
+      .from(schema.tenderPasswordResets)
+      .where(eq(schema.tenderPasswordResets.tenderId, tender.id))
+      .orderBy(desc(schema.tenderPasswordResets.id))
+      .limit(1);
+    if (!recent[0] || now - recent[0].createdAt >= RESET_COOLDOWN_MS) {
+      await db.update(schema.tenderPasswordResets)
+        .set({ usedAt: now })
+        .where(and(eq(schema.tenderPasswordResets.tenderId, tender.id), isNull(schema.tenderPasswordResets.usedAt)));
+      const token = randomBytes(32).toString("hex");
+      await db.insert(schema.tenderPasswordResets).values({
+        tenderId: tender.id, tokenHash: sha256(token), expiresAt: now + RESET_TTL_MS, usedAt: null, createdAt: now,
+      });
+      const base = process.env.PUBLIC_BASE_URL ?? "https://awokin.gg";
+      await sendPasswordResetMail(tender.email, `${base}/reset?token=${token}`);
+    }
+  }
+  return { ok: true, mailLive: live };
+}
+
+/** Spend a reset seal: set the new password, retire the seal, kill
+ *  every session the old password ever made, and hand back a fresh
+ *  session so the Tender lands signed in. */
+export async function resetPasswordWithToken(args: unknown): Promise<{ token: string; tender: { code: string; tenderName: string | null } }> {
+  const parsed = z.object({ token: z.string().trim().min(32).max(128), newPassword: z.string().min(8).max(128) }).safeParse(args);
+  if (!parsed.success) badRequest("A reset link and a new password (8+ chars) are needed.");
+  const now = Date.now();
+  const rows = await db.select().from(schema.tenderPasswordResets)
+    .where(and(eq(schema.tenderPasswordResets.tokenHash, sha256(parsed.data.token)), isNull(schema.tenderPasswordResets.usedAt)))
+    .limit(1);
+  const seal = rows[0];
+  if (!seal || seal.expiresAt <= now) badRequest("That reset link has faded — ask for a fresh one.");
+  await db.update(schema.tenders).set({ passwordHash: hashPassword(parsed.data.newPassword) }).where(eq(schema.tenders.id, seal.tenderId));
+  await db.update(schema.tenderPasswordResets).set({ usedAt: now }).where(eq(schema.tenderPasswordResets.id, seal.id));
+  await destroyTenderSessions(seal.tenderId);
+  const token = await createSession(seal.tenderId);
+  const fresh = await db.select().from(schema.tenders).where(eq(schema.tenders.id, seal.tenderId)).limit(1);
+  return { token, tender: publicTender(fresh[0]) };
 }
 
 /** Set (or change) the Tender's name — the naming ritual and later renames.

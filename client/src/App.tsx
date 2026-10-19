@@ -1455,12 +1455,15 @@ function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlo
 
 /** The Tender account gate: claim a secret code (or log in) to begin. */
 function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: string | null }) {
-  const [mode, setMode] = useState<"claim" | "login">("claim");
+  const [mode, setMode] = useState<"claim" | "login" | "forgot">("claim");
   const [suggestedCode, setSuggestedCode] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [tenderName, setTenderName] = useState("");
   const [loginIdentity, setLoginIdentity] = useState("");
+  const [claimEmail, setClaimEmail] = useState("");
+  const [forgotIdentity, setForgotIdentity] = useState("");
+  const [forgotMsg, setForgotMsg] = useState<string | null>(null);
   const [loginPassword, setLoginPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -1474,10 +1477,17 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
       if (password.length < 8) throw new Error("Give your account a password of at least 8 characters.");
       if (password !== confirm) throw new Error("The two passwords do not match.");
       const refCode = new URLSearchParams(window.location.search).get("ref") ?? undefined;
-      return api.claimTender({ password, refCode, tenderName: tenderName.trim() });
+      return api.claimTender({ password, refCode, tenderName: tenderName.trim(), ...(claimEmail.trim() ? { email: claimEmail.trim() } : {}) });
     },
     onSuccess: (data) => onDone(data.token),
     onError: (e) => setError(e instanceof Error ? e.message : "The bond could not be made."),
+  });
+  const forgot = useMutation({
+    mutationFn: () => api.requestPasswordReset({ identity: forgotIdentity.trim() }),
+    onSuccess: (data) => setForgotMsg(data.mailLive
+      ? "If that Tender has an email on file, a reset link is on its way. It lives for one hour."
+      : "Email reset isn't awake yet — ask the Keeper in the Awokin Discord and he will reset you by hand."),
+    onError: (e) => setError(e instanceof Error ? e.message : "The ask could not be carried."),
   });
   const login = useMutation({
     mutationFn: () => api.loginTender({ identity: loginIdentity.trim(), password: loginPassword }),
@@ -1492,7 +1502,7 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
   return <main className="tender-gate">
     <p className="eyebrow">Become a Tender</p>
     <h1>Every Awokin needs someone to wake it.</h1>
-    <p>Choose the name the Awokin will call you, and keep it with a password only you know — together they bind your wakes and your deck to you, wherever you go. No email, no noise.</p>
+    <p>Choose the name the Awokin will call you, and keep it with a password only you know — together they bind your wakes and your deck to you, wherever you go. An email is optional, and used for one thing only: recovering a forgotten password.</p>
     {note && <p className="notice" role="status">{note}</p>}
     <div className="gate-tabs">
       <button type="button" className={mode === "claim" ? "active" : ""} onClick={() => { setMode("claim"); setError(null); }}>New Tender</button>
@@ -1503,6 +1513,7 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
         <label>Choose a tender name<input value={tenderName} onChange={(e) => setTenderName(e.target.value)} autoComplete="username" placeholder="What shall the Awokin call you?" /></label>
         <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></label>
         <label>Again<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></label>
+        <label>Email (optional — password recovery only)<input type="email" value={claimEmail} onChange={(e) => setClaimEmail(e.target.value)} autoComplete="email" placeholder="you@example.com" /></label>
         <button disabled={claim.isPending}>{claim.isPending ? "Binding…" : "Begin"}</button>
       </form>
     ) : (
@@ -1510,8 +1521,46 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
         <label>Tender name<input value={loginIdentity} onChange={(e) => setLoginIdentity(e.target.value)} autoComplete="username" /></label>
         <label>Password<input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} autoComplete="current-password" /></label>
         <button disabled={login.isPending}>{login.isPending ? "Returning…" : "Return"}</button>
+        <p className="quiet"><button type="button" className="quiet-link" onClick={() => { setMode("forgot"); setError(null); setForgotMsg(null); }}>Forgot your password?</button></p>
       </form>
     )}
+    {mode === "forgot" && (
+      <form onSubmit={(event) => { event.preventDefault(); setError(null); forgot.mutate(); }}>
+        <label>Tender name (or the email on file)<input value={forgotIdentity} onChange={(e) => setForgotIdentity(e.target.value)} autoComplete="username" /></label>
+        <button disabled={forgot.isPending || !forgotIdentity.trim()}>{forgot.isPending ? "Asking…" : "Send me a reset link"}</button>
+        {forgotMsg && <p className="notice" role="status">{forgotMsg}</p>}
+        <p className="quiet"><button type="button" className="quiet-link" onClick={() => { setMode("login"); setError(null); }}>Back to signing in</button></p>
+      </form>
+    )}
+    {error && <p className="notice error" role="status">{error}</p>}
+  </main>;
+}
+
+/** The reset landing (Nigel, 2026-10-19): where an emailed reset
+ *  link comes home. A new password, twice, and the seal is spent —
+ *  the server kills every old session and hands back a fresh one. */
+function ResetLanding({ token, onDone }: { token: string; onDone: (token: string) => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const reset = useMutation({
+    mutationFn: () => {
+      if (password.length < 8) throw new Error("Give your account a password of at least 8 characters.");
+      if (password !== confirm) throw new Error("The two passwords do not match.");
+      return api.resetPasswordWithToken({ token, newPassword: password });
+    },
+    onSuccess: (data) => onDone(data.token),
+    onError: (e) => setError(e instanceof Error ? e.message : "That reset link has faded — ask for a fresh one."),
+  });
+  return <main className="tender-gate">
+    <p className="eyebrow">The seal is spent here</p>
+    <h1>Choose a new password.</h1>
+    <p>Your old password — and every session it ever made — ends the moment this lands. You will arrive signed in, on this device.</p>
+    <form onSubmit={(event) => { event.preventDefault(); setError(null); reset.mutate(); }}>
+      <label>New password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></label>
+      <label>Again<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></label>
+      <button disabled={reset.isPending}>{reset.isPending ? "Sealing…" : "Set the new password"}</button>
+    </form>
     {error && <p className="notice error" role="status">{error}</p>}
   </main>;
 }
@@ -2209,6 +2258,12 @@ export function App() {
     window.addEventListener(WORKSHOP_FADED_EVENT, onFaded);
     return () => window.removeEventListener(WORKSHOP_FADED_EVENT, onFaded);
   }, []);
+  // An emailed reset link lands on /reset?token=… — the landing is
+  // read once, before anything else renders.
+  const resetLandingToken = useMemo(() => {
+    if (window.location.pathname !== "/reset") return null;
+    return new URLSearchParams(window.location.search).get("token");
+  }, []);
   const workshopOpen = !lockQuery.data?.locked || !!wtoken;
   const workshopQuery = useQuery({
     queryKey: ["workshopStudio"],
@@ -2241,6 +2296,9 @@ export function App() {
     void queryClient.invalidateQueries({ queryKey: ["welcome"] });
   }
   const assets = useMemo<LayerAsset[]>(() => toLayerAssets(query.data?.assets ?? []), [query.data?.assets]);
+  if (resetLandingToken) {
+    return <><CosmicBackground /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><ResetLanding token={resetLandingToken} onDone={(token) => { window.history.replaceState(null, "", "/"); handleTenderDone(token); }} /></div></>;
+  }
   if (query.isPending) return <><CosmicBackground /><main className="loading-screen">The ink is settling…</main></>;
   if (query.error || !query.data) return <main className="loading-screen error"><span>{mutationError(query.error)}</span><button onClick={() => query.refetch()}>Try again</button></main>;
   const studio = query.data; const tenderItems = studio.awakened.filter((item) => item.collection === "tender"); const focused = studio.awakened.find((item) => item.id === focusId);
