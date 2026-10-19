@@ -17,7 +17,7 @@
 
 import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
-import { takeTableBoot, takeTableSession } from "./tableSdk";
+import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
@@ -660,6 +660,7 @@ export default function Table() {
               s.handshake();
             }
           } catch {}
+          reknockOnHello(sdk);
           await sdk.ready();
         }
         setBootStep("Asking Discord your name…");

@@ -36,8 +36,34 @@ export function knockEarly(): TableBoot | null {
       s.handshake();
     }
   } catch {}
+  reknockOnHello(sdk);
   w[SLOT] = { sdk, clientId: hostId, ready: sdk.ready() };
   return w[SLOT]!;
+}
+
+// THE SECOND KNOCK (2026-10-18): a stuck launch's door record
+// showed Discord's parent GREETING this frame — an op-3 HELLO
+// from discord.com — while our single knock, sent at construction,
+// never drew the READY that ends the knocking step. Our knock can
+// race ahead of the parent's ear; the greeting proves the
+// doorkeeper is listening NOW. So: when the greeting is heard,
+// knock once more. Harmless when the first knock landed (ready
+// resolves on READY either way); decisive when it didn't.
+export function reknockOnHello(sdk: DiscordSDK): void {
+  const onMsg = (ev: MessageEvent) => {
+    try {
+      const d: unknown = ev.data;
+      if (!Array.isArray(d) || d[0] !== 3) return;
+      if (!/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com$/.test(ev.origin)) return;
+      window.removeEventListener("message", onMsg);
+      const s = sdk as unknown as { sourceOrigin?: string; handshake?: () => void };
+      if (s.sourceOrigin && !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com/.test(s.sourceOrigin)) {
+        s.sourceOrigin = "https://discord.com";
+      }
+      if (typeof s.handshake === "function") s.handshake();
+    } catch {}
+  };
+  window.addEventListener("message", onMsg);
 }
 
 export function takeTableBoot(): TableBoot | null {
