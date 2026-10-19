@@ -129,8 +129,15 @@
 .tc-title{position:relative;z-index:2;text-align:center;font-size:10.5px;color:#6b5e45;padding:6px 8px 4px;letter-spacing:.03em}
 .tc-art{position:relative;z-index:2}
 .tc-art img{display:block;width:100%;aspect-ratio:750/971;object-fit:cover;background:#f3f1ea}
-.layered-art{position:relative}
+.layered-art{position:relative;background:#f3f1ea}
 .layered-art .layered-art-layer{position:absolute;inset:0;width:100%;height:100%;min-height:0;aspect-ratio:auto;object-fit:cover}
+/* The paper belongs to the stack's ground, never to its layers:
+   .tc-art img paints #f3f1ea on every card-art image, and a stacked
+   layer wearing that paper covers every layer beneath it — the deck
+   showed heads alone, the topmost layer, though every piece was
+   served. The layers themselves stay transparent; the container
+   keeps the paper field the flattened image always had. */
+.tc-art .layered-art img{background:transparent}
 .tc-pips{position:absolute;bottom:6px;left:0;right:0;display:flex;gap:6px;justify-content:center}
 .tc-pip{background:#1a1a1a;color:#ffd700;border:1px solid #b89b5e;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
 .tc-iteration{position:absolute;left:8px;bottom:8px;padding:5px 7px;background:#11110f;color:#f3f1ea;font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
