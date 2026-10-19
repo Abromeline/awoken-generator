@@ -20,7 +20,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
-import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, type TenderClassId } from "./tenderArt";
+import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -111,6 +111,8 @@ interface FieldUnitView {
   maxShield?: number;
   /** On the march: the road home is read off road + clock. */
   march?: { road: string[]; since: number; endsAt: number } | null;
+  /** FOLLOW: the standing order to trail its Tender. */
+  follow?: boolean;
   level: number | null;
   ownerKey: string;
   ownerName: string;
@@ -133,7 +135,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -480,10 +482,9 @@ export default function Table() {
   // figure stands, and the commute it is walking, if any. The
   // server never hears of it — a figure's place is read off the
   // room's own state (their company's ground, or a rim post).
-  const tenderTrackRef = useRef(new Map<string, {
-    anchorId: string; x: number; y: number;
-    walk: { fromX: number; fromY: number; toX: number; toY: number; since: number; endsAt: number } | null;
-  }>());
+  // You, selected: your own figure takes orders like an
+  // Awokin — tap a tile and you march there yourself.
+  const [selTender, setSelTender] = useState(false);
   // The stage's manners (Territory's, carried over 2026-10-18):
   // the map pans by drag and zooms by button, in the viewBox's
   // own coordinate space. A tap is a tap only when the pointer
@@ -1054,6 +1055,14 @@ export default function Table() {
       }
       return;
     }
+    if (selTender) {
+      const me = shared.players.find(p => p.key === you.key);
+      if (me?.hex && t.id !== me.hex && !(me.march && nowMs < me.march.endsAt)) {
+        send({ type: "tenderMarch", to: t.id });
+      }
+      setSelTender(false);
+      return;
+    }
     if (selUnitId) {
       const unit = shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key);
       if (unit && t.id !== unit.hex && !isMarchingNow(unit)) {
@@ -1084,6 +1093,7 @@ export default function Table() {
     }
     setSelUnitId(u.cardId);
     setSelectedCardId(null);
+    setSelTender(false);
   };
 
   // The standing light, fanned by tile; the marching, apart.
@@ -1165,6 +1175,7 @@ export default function Table() {
           </>
         )}
         {marching && <text x={ax + 16} y={ay - 28} fontSize={9}>🚶</text>}
+        {u.follow && <text x={ax - 16} y={ay - 28} fontSize={9}>👣</text>}
         {mine && !marching && (
           <circle
             cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
@@ -1224,88 +1235,49 @@ export default function Table() {
     figures.push({ key: `m-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, true) });
   }
   // ── THE TENDERS THEMSELVES, standing on the stage ──────────
-  // Every seated tender has a figure now: their class sprite,
-  // standing with their company — at the ground of their newest
-  // standing Awokin, or at a rim post while their roster is
-  // empty. The Storytender keeps beside the seed. When a
-  // tender's ground changes (a summon lands, a company moves),
-  // their figure RUNS to it: the walk is a client-side commute
-  // read off the clock, by the stage's marching law.
-  const tenderTargets = (() => {
-    if (!tiles.length) return [];
-    const ringOf = (t: MapTileView) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
-    const maxRing = Math.max(...tiles.map(ringOf));
-    const posts = tiles
-      .filter(t => ringOf(t) === maxRing)
-      .sort((a, b) => Math.atan2(tileCenter(a).cy, tileCenter(a).cx) - Math.atan2(tileCenter(b).cy, tileCenter(b).cx));
-    const offs: [number, number][] = [[0, 0], [-16, 3], [16, 3]];
-    return shared.players.map((p, i) => {
-      let anchorId: string | null = null;
-      if (p.storytender) {
-        anchorId = SEED_TILE_ID;
-      } else {
-        for (const u of shared.field) if (u.ownerKey === p.key && !isMarchingNow(u)) anchorId = u.hex;
-        if (!anchorId) for (const u of shared.field) if (u.ownerKey === p.key) anchorId = u.hex;
-        if (!anchorId && posts.length) anchorId = posts[Math.floor(i * posts.length / Math.max(1, shared.players.length)) % posts.length].id;
+  // Every seated tender has a figure: their class sprite,
+  // standing where the SERVER says they stand — the Tender
+  // truly takes the field now (Nigel, 2026-10-19): at their
+  // landing, or on the road when they march, the drawn place
+  // read off road + clock like every march. The Storytender
+  // holds no ground; she keeps her post beside the seed.
+  const TENDER_OFFS: [number, number][] = [[0, 0], [-17, 3], [17, 3]];
+  for (const [i, p] of shared.players.entries()) {
+    const art = TENDER_CLASSES[you && p.key === you.key ? myTenderClass : TENDER_CLASS_ORDER[i % TENDER_CLASS_ORDER.length]];
+    let gx: number, gy: number, walking = false, dir: TenderDir = "S", step = 0;
+    if (!p.hex) {
+      const c = centerOf(SEED_TILE_ID);
+      if (!c) continue;
+      gx = c.cx + 20; gy = c.cy - 2;
+    } else {
+      const marching = !!p.march && nowMs < p.march.endsAt;
+      const pos = marching ? marchPosOf(p) : null;
+      const ctr = centerOf(p.hex);
+      if (!pos && !ctr) continue;
+      gx = (pos ? pos.x : ctr!.cx) + TENDER_OFFS[i % TENDER_OFFS.length][0];
+      gy = (pos ? pos.y : ctr!.cy) - 2 + TENDER_OFFS[i % TENDER_OFFS.length][1];
+      if (marching && p.march) {
+        walking = true;
+        const a = centerOf(p.march.road[0]);
+        const b = centerOf(p.march.road[p.march.road.length - 1]);
+        if (a && b) dir = tenderDirOf(b.cx - a.cx, b.cy - a.cy);
+        step = Math.floor((nowMs - p.march.since) / 150);
       }
-      const c = anchorId ? centerOf(anchorId) : null;
-      if (!c) return null;
-      const [ox, oy] = p.storytender ? [20, 0] : offs[i % offs.length];
-      return { p, i, anchorId: anchorId as string, gx: c.cx + ox, gy: c.cy - 2 + oy };
-    }).filter(Boolean) as { p: SharedState["players"][number]; i: number; anchorId: string; gx: number; gy: number }[];
-  })();
-  // Keep the walks honest: a changed anchor starts a commute
-  // from wherever the figure truly stands at this moment.
-  useEffect(() => {
-    const track = tenderTrackRef.current;
-    const seen = new Set<string>();
-    for (const t of tenderTargets) {
-      seen.add(t.p.key);
-      const cur = track.get(t.p.key);
-      if (!cur) {
-        track.set(t.p.key, { anchorId: t.anchorId, x: t.gx, y: t.gy, walk: null });
-        continue;
-      }
-      if (cur.anchorId !== t.anchorId) {
-        let fx = cur.x, fy = cur.y;
-        if (cur.walk) {
-          const k = clamp01((Date.now() - cur.walk.since) / Math.max(1, cur.walk.endsAt - cur.walk.since));
-          fx = cur.walk.fromX + (cur.walk.toX - cur.walk.fromX) * k;
-          fy = cur.walk.fromY + (cur.walk.toY - cur.walk.fromY) * k;
-        }
-        const dist = Math.hypot(t.gx - fx, t.gy - fy);
-        const now = Date.now();
-        track.set(t.p.key, {
-          anchorId: t.anchorId, x: t.gx, y: t.gy,
-          walk: dist > 4 ? { fromX: fx, fromY: fy, toX: t.gx, toY: t.gy, since: now, endsAt: now + dist / 0.085 } : null,
-        });
-      }
-    }
-    for (const k of [...track.keys()]) if (!seen.has(k)) track.delete(k);
-  });
-  for (const t of tenderTargets) {
-    const art = TENDER_CLASSES[you && t.p.key === you.key ? myTenderClass : TENDER_CLASS_ORDER[t.i % TENDER_CLASS_ORDER.length]];
-    const cur = tenderTrackRef.current.get(t.p.key);
-    let gx = t.gx, gy = t.gy, walking = false, dir = tenderDirOf(1, 0), step = 0;
-    if (cur?.walk && nowMs < cur.walk.endsAt) {
-      const k = clamp01((nowMs - cur.walk.since) / Math.max(1, cur.walk.endsAt - cur.walk.since));
-      gx = cur.walk.fromX + (cur.walk.toX - cur.walk.fromX) * k;
-      gy = cur.walk.fromY + (cur.walk.toY - cur.walk.fromY) * k;
-      walking = true;
-      dir = tenderDirOf(cur.walk.toX - cur.walk.fromX, cur.walk.toY - cur.walk.fromY);
-      step = Math.floor((nowMs - cur.walk.since) / 150);
-    } else if (cur?.walk) {
-      dir = tenderDirOf(cur.walk.toX - cur.walk.fromX, cur.walk.toY - cur.walk.fromY);
     }
     const pose = tenderPose(art, dir, walking, step);
+    const mine = !!you && p.key === you.key;
     const img = <image href={pose.src} x={gx - 29} y={gy - 58} width={58} height={58} preserveAspectRatio="xMidYMax meet" />;
     figures.push({
-      key: `tender-${t.p.key}`, gy,
+      key: `tender-${p.key}`, gy,
       node: (
-        <g key={`tender-${t.p.key}`} pointerEvents="none" opacity={t.p.fallen ? 0.45 : 1}>
+        <g key={`tender-${p.key}`} pointerEvents="none" opacity={p.fallen ? 0.45 : 1}>
           <ellipse cx={gx} cy={gy + 1} rx={13} ry={3.5} fill="rgba(0,0,0,0.35)" />
           {pose.flip ? <g transform={`translate(${2 * gx} 0) scale(-1 1)`}>{img}</g> : img}
-          <text className="ts-name tender" x={gx} y={gy + 21}>{t.p.name}</text>
+          <text className="ts-name tender" x={gx} y={gy + 21}>{p.name}</text>
+          {mine && (
+            <circle cx={gx} cy={gy - 26} r={24} fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
+              onClick={(e) => { e.stopPropagation(); if (suppressTapRef.current) return; setSelTender(true); setSelUnitId(null); setSelectedCardId(null); }} />
+          )}
         </g>
       ),
     });
@@ -1662,10 +1634,19 @@ export default function Table() {
                     ) : curseInReach.length > 0 ? (
                       <button className="table-btn" onClick={() => setStrikeArm(true)}>Strike the curse · ⚡1</button>
                     ) : null}
+                    <button className="table-btn" onClick={() => send({ type: "setFollow", cardId: selUnit.cardId, follow: !selUnit.follow })}>{selUnit.follow ? "👣 Following you — hold ground" : "👣 Follow me"}</button>
                     <button className="table-btn" onClick={() => { send({ type: "recall", hex: selUnit.hex, cardId: selUnit.cardId }); setSelUnitId(null); }}>Recall</button>
                   </>
                 )}
                 <button className="table-btn" onClick={() => setSelUnitId(null)}>Done</button>
+              </div>
+            )}
+            {selTender && you && !placing && (
+              <div className="placing-bar unit-bar">
+                <span className="placing-text">
+                  🚶 <strong>You</strong> — tap a tile to march there (⚡1 per hex). Where you arrive, your followers muster to you; the rest hold their ground.
+                </span>
+                <button className="table-btn" onClick={() => setSelTender(false)}>Done</button>
               </div>
             )}
             <div className="battle-bar">

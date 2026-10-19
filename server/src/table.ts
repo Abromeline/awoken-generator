@@ -129,6 +129,14 @@ interface Player {
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
   energy: number;
   maxEnergy: number;
+  /** THE TENDER ON THE FIELD (Nigel, 2026-10-19): where this
+   *  Tender stands on the instance — a tile id. While marching
+   *  it names the DESTINATION, as a unit's hex does, and `march`
+   *  carries the road; clients derive the drawn place from road
+   *  + clock. The Tender arrives at their landing tile and walks
+   *  from there. The Storytender holds no ground — she deals. */
+  hex?: string;
+  march?: { road: string[]; since: number; endsAt: number } | null;
 }
 
 /** An Awoken standing on the field. The card rides inside it whole,
@@ -162,6 +170,11 @@ interface FieldUnit {
    *  does. Marching is a derived state: once now ≥ endsAt the
    *  unit simply stands (see isMarching). */
   march?: { road: string[]; since: number; endsAt: number } | null;
+  /** FOLLOW (Nigel, 2026-10-19): the standing order to trail
+   *  one's Tender — when the Tender arrives anywhere, a
+   *  following Awokin not already at their side musters to a
+   *  formation slot around them. The rest hold their ground. */
+  follow?: boolean;
   /** Has this dark thing struck yet? (War Runewright's
    *  patience, tranche one.) */
   struck?: boolean;
@@ -697,7 +710,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender })),
+    players: seated.map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null })),
     watcherCount: room.players.size - seated.length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -722,6 +735,7 @@ function sharedState(room: Room) {
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
       shield: u.shield, maxShield: u.maxShield,
       march: u.march ?? null,
+      follow: !!u.follow,
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
@@ -735,6 +749,7 @@ function sharedState(room: Room) {
 }
 
 function sendState(room: Room): void {
+  settleTenders(room);
   const state = sharedState(room);
   for (const [ws, player] of room.players) {
     if (ws.readyState !== WebSocket.OPEN) continue;
@@ -906,6 +921,78 @@ function isMarching(u: FieldUnit, now = Date.now()): boolean {
 function standingUnits(room: Room): FieldUnit[] {
   const now = Date.now();
   return [...room.field.values()].filter(u => !isMarching(u, now));
+}
+
+/** THE TENDER'S GAIT: a walking person's pace, between the
+ *  Hollow's drift and the Tangle's creep (seconds per hex). */
+const TENDER_SECONDS_PER_HEX = 2.6;
+function isTenderMarching(p: Player, now = Date.now()): boolean {
+  return !!p.march && now < p.march.endsAt;
+}
+/** A seated Tender stands somewhere: their landing tile first,
+ *  any purified ground for a fallback. Called once a landing is
+ *  assigned (and reset when a seat answers a call elsewhere). */
+function ensureTenderHex(room: Room, player: Player): void {
+  if (player.watcher || player.storytender || player.hex) return;
+  const landing = [...room.map.values()].find(t => t.landingFor === player.key);
+  if (landing) { player.hex = landing.id; return; }
+  const any = [...room.map.values()].find(t => !t.cursed && t.id !== SEED_TILE);
+  if (any) player.hex = any.id;
+}
+/** The formation ground around a Tender: their own tile and
+ *  its ring, the seed never among them — ordered so the
+ *  company builds up BEHIND the Tender (nearest the ground
+ *  they came from first), emptier tiles before fuller. */
+function followSlots(room: Room, tender: Player, originId: string | null): string[] {
+  if (!tender.hex) return [];
+  const cands = [tender.hex, ...neighborsOf(tender.hex)]
+    .filter((id, i, arr) => id !== SEED_TILE && TILE_BY_ID.has(id) && arr.indexOf(id) === i);
+  cands.sort((a, b) => {
+    const da = originId ? axialDist(a, originId) : 0;
+    const db = originId ? axialDist(b, originId) : 0;
+    if (da !== db) return da - db;
+    return unitsAt(room, a).length - unitsAt(room, b).length;
+  });
+  return cands;
+}
+/** Send every following Awokin of this Tender that is not
+ *  already at their side to the best free formation slot. The
+ *  muster rides free — the road's price was paid by the
+ *  Tender's own march; the company moves as their train. A
+ *  follower already within a tile of the Tender rests: the
+ *  company does not shuffle for inches. */
+function musterFollowers(room: Room, tender: Player, originId: string | null, now = Date.now()): void {
+  if (!tender.hex || isTenderMarching(tender, now)) return;
+  const slots = followSlots(room, tender, originId);
+  if (!slots.length) return;
+  for (const u of room.field.values()) {
+    if (u.ownerKey !== tender.key || !u.follow || isMarching(u, now)) continue;
+    if (axialDist(u.hex, tender.hex) <= 1) continue;
+    const slot = slots.find(id => id !== u.hex && unitsAt(room, id).length < STACK_CAP);
+    if (!slot) return;
+    const road = findAnyRoad(u.hex, slot);
+    if (!road || road.length < 2) continue;
+    const hexes = road.length - 1;
+    u.hex = slot;
+    u.march = { road, since: now, endsAt: now + Math.round(hexes * marchSecondsPerHexFor(u.card) * 1000) };
+    tell(room, `👣 ${u.card.name} musters to ${tender.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road.`);
+  }
+}
+/** Arrivals settle before any state is read: a Tender whose
+ *  road has run out stands at their destination, and their
+ *  followers muster. Standing Tenders' followers are checked
+ *  too — the formation heals itself whenever the room is read. */
+function settleTenders(room: Room, now = Date.now()): void {
+  for (const p of room.players.values()) {
+    if (p.watcher || p.storytender || !p.hex) continue;
+    if (p.march && now >= p.march.endsAt) {
+      const origin = p.march.road[0] ?? null;
+      p.march = null;
+      musterFollowers(room, p, origin, now);
+    } else if (!p.march) {
+      musterFollowers(room, p, null, now);
+    }
+  }
 }
 /** The dark registry is keyed by id (see EnemyUnit.id); the
  *  tile lookups scan, as springHex always has. */
@@ -2035,7 +2122,10 @@ function handleConnection(ws: WebSocket): void {
       room = target;
       room.sky = await currentSky();
       room.players.set(ws, player);
+      player.hex = undefined;
+      player.march = null;
       assignLanding(room, player);
+      ensureTenderHex(room, player);
       tell(room, `${player.name} answers the ${String(call.kind).toUpperCase()} call — key ${k} — and takes a seat, Awokin in hand.`);
       sendState(room);
       return;
@@ -2140,6 +2230,7 @@ function handleConnection(ws: WebSocket): void {
       player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
       room.players.set(ws, player);
       assignLanding(room, player);
+      ensureTenderHex(room, player);
       if (isStorytender && room.campaign) {
         room.campaign.storytenderName = name;
         tell(room, `${name} takes the Storytender's seat — the dealing, the scene, and the sky are hers to hold.`);
@@ -2313,9 +2404,77 @@ function handleConnection(ws: WebSocket): void {
       }
       const duration = Math.round(hexes * marchSecondsPerHexFor(unit.card) * 1000);
       const now = Date.now();
+      // A direct order ends the follow: the Awokin goes where
+      // it is sent and holds there (Nigel, 2026-10-19).
+      unit.follow = false;
       unit.hex = to;
       unit.march = { road, since: now, endsAt: now + duration };
       tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (⚡${cost}).`);
+      sendState(room);
+      return;
+    }
+
+    // THE TENDER MARCHES (Nigel, 2026-10-19): the Tender
+    // themself takes the road — tap the land, and they walk it
+    // like anything that walks: a road over any ground, the
+    // destination never the seed. The price is a walker's,
+    // ⚡1 the hex, whatever company they keep; their followers
+    // muster to them when they arrive (see settleTenders).
+    if (msg.type === "tenderMarch") {
+      if (!player) return;
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender takes the road." })); return; }
+      if (!player.hex) { ws.send(JSON.stringify({ type: "error", message: "You stand nowhere yet." })); return; }
+      if (isTenderMarching(player)) { ws.send(JSON.stringify({ type: "error", message: "You are already on the road." })); return; }
+      const to = String(msg.to ?? "");
+      if (!TILE_BY_ID.has(to) || to === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The march ends on the land — never on the star-seed's tile." })); return; }
+      if (to === player.hex) { ws.send(JSON.stringify({ type: "error", message: "You already stand there." })); return; }
+      const road = findAnyRoad(player.hex, to);
+      if (!road || road.length < 2) { ws.send(JSON.stringify({ type: "error", message: "No road runs there." })); return; }
+      const hexes = road.length - 1;
+      const cost = hexes;
+      if (!chargePurse(room, player, cost)) {
+        ws.send(JSON.stringify({ type: "error", message: `The road costs ⚡${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at a walker's ⚡1) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        return;
+      }
+      const now = Date.now();
+      player.hex = to;
+      player.march = { road, since: now, endsAt: now + Math.round(hexes * TENDER_SECONDS_PER_HEX * 1000) };
+      tell(room, `🚶 ${player.name} takes the road — ${hexes} hex${hexes === 1 ? "" : "es"} (⚡${cost}).`);
+      sendState(room);
+      // The arrival is an event even at a quiet table: when the
+      // road runs out, settle and let the room see the company
+      // muster — no one should have to act to make it so.
+      const marchRef = player.march;
+      const tenderRef = player;
+      const roomHere = room;
+      setTimeout(() => {
+        if (tenderRef.march !== marchRef) return;
+        settleTenders(roomHere);
+        sendState(roomHere);
+      }, hexes * TENDER_SECONDS_PER_HEX * 1000 + 80);
+      return;
+    }
+
+    // FOLLOW / HOLD (Nigel, 2026-10-19): the standing order
+    // every Awokin carries. Follow: it trails its Tender,
+    // mustering to their side whenever they arrive somewhere.
+    // Hold: it keeps the ground it stands on. Only Awokin
+    // ordered to follow, follow — the rest hold ground.
+    if (msg.type === "setFollow") {
+      if (!player) return;
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender gives orders." })); return; }
+      const cardId = String(msg.cardId ?? "");
+      const myKey = player.key;
+      const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
+      if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
+      const follow = !!msg.follow;
+      if (!!unit.follow === follow) { sendState(room); return; }
+      unit.follow = follow;
+      tell(room, follow
+        ? `👣 ${unit.card.name} will follow ${player.name} — where they stand, it musters.`
+        : `✋ ${unit.card.name} holds its ground.`);
       sendState(room);
       return;
     }
