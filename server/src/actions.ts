@@ -515,6 +515,26 @@ function parseDbId(sourceId: string) {
   return match?.[1] ? Number(match[1]) : null;
 }
 
+/** The one resolution map every payload builder shares (Nigel,
+ *  2026-10-18): a composition's pieces are resolved to their living
+ *  name, stats and art through THIS map, gated on rarity alone —
+ *  never on the piece's filed category. A piece filed under a
+ *  category string the display schemas reject (the schema enum
+ *  itself carries drifted values the actions layer does not know)
+ *  still HAS art, a name and stats. buildStudio once built its map
+ *  from the category-gated display rows instead, so the deck
+ *  served those layers artless — heads alone on the cards — while
+ *  awakenedPayloadById's rarity-only map let the Table's field
+ *  render the very same Awoken whole. One map, one truth. */
+function assetStatsFromRows(rows: { id: number; name: string; rarity: string; power: number | null; toughness: number | null; element?: string | null; imageBlobKey: string | null }[]): Map<number, AssetStats> {
+  const map = new Map<number, AssetStats>();
+  for (const row of rows) {
+    const rarity = raritySchema.safeParse(row.rarity);
+    if (rarity.success) map.set(row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness, element: row.element ?? null, imageBlobKey: row.imageBlobKey ?? null });
+  }
+  return map;
+}
+
 function parseLayers(value: string, assetStats: Map<number, AssetStats>): z.infer<typeof layerRefShape>[] {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -673,11 +693,7 @@ export async function awakenedPayloadById(id: number) {
   const row = rows[0];
   if (!row) return null;
   const assetRows = await db.select().from(schema.layerAssets);
-  const assetStats = new Map<number, AssetStats>();
-  for (const assetRow of assetRows) {
-    const rarity = raritySchema.safeParse(assetRow.rarity);
-    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null, imageBlobKey: assetRow.imageBlobKey ?? null });
-  }
+  const assetStats = assetStatsFromRows(assetRows);
   const layers = parseLayers(row.compositionJson, assetStats);
   const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
   const allRows = await db.select().from(schema.awakened);
@@ -708,10 +724,7 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
     db.select({ id: schema.layerAssets.id, name: schema.layerAssets.name, rarity: schema.layerAssets.rarity, power: schema.layerAssets.power, toughness: schema.layerAssets.toughness, element: schema.layerAssets.element, imageBlobKey: schema.layerAssets.imageBlobKey }).from(schema.layerAssets),
     db.select({ identityKey: schema.awakened.identityKey, compositionJson: schema.awakened.compositionJson, iteration: schema.awakened.iteration }).from(schema.awakened),
   ]);
-  const currentStats = new Map<number, AssetStats>(currentAssets.flatMap((row) => {
-    const rarity = raritySchema.safeParse(row.rarity);
-    return rarity.success ? [[row.id, { name: row.name, rarity: rarity.data, power: row.power, toughness: row.toughness, element: (row as any).element ?? null, imageBlobKey: row.imageBlobKey ?? null }] as const] : [];
-  }));
+  const currentStats = assetStatsFromRows(currentAssets);
   const canonicalLayers = layers.map((layer) => {
     const id = parseDbId(layer.source_id); const current = id === null ? undefined : currentStats.get(id);
     return { ...layer, rarity: current?.rarity ?? layer.rarity, power: current?.power ?? layer.power, toughness: current?.toughness ?? layer.toughness };
@@ -772,7 +785,11 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
     const category = layerCategorySchema.safeParse(row.category); const rarity = raritySchema.safeParse(row.rarity);
     return category.success && rarity.success ? [{ ...row, category: category.data, rarity: rarity.data }] : [];
   });
-  const assetStats = new Map<number, AssetStats>(supportedAssetRows.map((row) => [row.id, { name: row.name, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null, imageBlobKey: row.imageBlobKey ?? null }]));
+  // Art and stat resolution reads the SHARED map (assetStatsFromRows),
+  // never the display-gated rows below: the pool list may show only
+  // fileable pieces, but a misfiled piece's art must still reach the
+  // deck — that gate is what starved the deck to heads alone.
+  const assetStats = assetStatsFromRows(assetRows);
   const assets = supportedAssetRows.map((row) => ({
     id: row.id, name: row.name, category: row.category, rarity: row.rarity, power: row.power, toughness: row.toughness, element: (row as any).element ?? null,
     image_url: blobUrl(row.imageBlobKey), mime_type: row.mimeType, created_at: row.createdAt.toISOString(),
