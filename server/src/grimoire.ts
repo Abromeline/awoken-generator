@@ -186,7 +186,10 @@ export function defaultGrimoire(): GrimoireState {
   // mastery — when he uses the Attune ability, the ground
   // gains attuneLevel + 2 points while his own attunement pool
   // pays only attuneLevel; the thirty-point cap a hex may hold
-  // stands over even him.
+  // stands over even him. And his company stands taller for
+  // his presence (Nigel, 2026-10-19): Awoken fighting under
+  // a Sage gain +2 AC and +2 attack — at the Table, Fate's
+  // dice will weigh both exactly.
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
