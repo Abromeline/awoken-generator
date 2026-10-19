@@ -182,30 +182,35 @@ export function defaultGrimoire(): GrimoireState {
   // non-sage caster still rolls its spells unmodified (±0), for
   // only the ward, rune and binding schools are closed to
   // outsiders. And the SAGE, who owns no school at all: -3 on
-  // EVERY cast, spells included. His gift is attunement
-  // mastery — when he uses the Attune ability, the ground
-  // gains attuneLevel + 2 points while his own attunement pool
+  // EVERY cast, spells included. Her gift is attunement
+  // mastery — when she uses the Attune ability, the ground
+  // gains attuneLevel + 2 points while her own attunement pool
   // pays only attuneLevel; the thirty-point cap a hex may hold
-  // stands over even him. And his company stands taller for
-  // his presence (Nigel, 2026-10-19): Awoken fighting under
+  // stands over even her. And her company stands taller for
+  // her presence (Nigel, 2026-10-19): Awoken fighting under
   // a Sage gain +2 AC and +2 attack — at the Table, Fate's
-  // dice will weigh both exactly.
+  // dice will weigh both exactly. (The Sage is a woman —
+  // Nigel's correction, 2026-10-19.)
   // WARD SIZE (Nigel, 2026-10-19): a ward cast by a TENDER
   // stands 2.75x the size of one cast by an Awokin; wards
   // from low-level Awoken keep the base size. The preview
   // proves it on the tender's own cast (the Springleaf
-  // grove's radius x2.75; her seeded sapling groves keep
-  // the old measure).
+  // grove's radius x2.75; her summoned saplings heal at
+  // half that measure, per the shape ruled the same day).
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
   // it is planted; the ground inside a very limited area wears
   // Root aspect artwork as a transparent overlay, its glow
   // shifting and fading, and every ally standing in that glow
-  // mends passively. Unharmed, the grove seeds SAPLING groves
-  // on neighboring ground, each spreading the glow (and the
-  // mending) with it. LEVELING the skill increases both the
-  // heal and the spread. The 2026-10-17 columns reading is
+  // mends passively. THE SPRINGLEAF'S SHAPE (Nigel,
+  // 2026-10-19): the cast costs 3 energy; at the cast an
+  // initial BURST heal mends the company within the glow;
+  // and the cast summons 1d4 SAPLING groves — each sapling,
+  // as it takes root, triggers its own radius heal at HALF
+  // the size of the initial burst. The saplings come with
+  // the cast; no per-sapling energy is charged. LEVELING
+  // the skill increases the heal. The 2026-10-17 columns reading is
   // superseded by this law; the columns engine in actions.ts
   // still answers to the old text until the spells build-out
   // reconciles it. Its glyph is owed — one of the five undrawn

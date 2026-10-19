@@ -573,7 +573,7 @@ function loadSpell(key) {
     sayMath(SPELL_NAMES[key] + " — reach " + RANGES[key] + " hexes from the tender. The ring is its light's edge; beyond it, the writing will not hold.");
   } else {
     ring.style.display = "none";
-    sayMath(key === "ward" ? "The Springleaf — a Binding heal now: a grove planted before your facing; allies standing in its root-glow mend, a little at a time." : "Heal — the mending rises around the caster and reaches his company within 2 hexes.");
+    sayMath(key === "ward" ? "The Springleaf — a Binding heal now: a tender-cast ward grove before your facing: a burst of mending at the cast, then 1d4 saplings, each bursting a half-size heal as it roots." : "Heal — the mending rises around the caster and reaches his company within 2 hexes.");
   }
 }
 let slotEls = [];
@@ -658,10 +658,10 @@ renderHotbar(); // the bar stands from birth — slots exist to be dragged onto
 // Yet the Spell school stays OPEN: every other class still
 // rolls its spells at ±0, for only ward, rune and binding are
 // closed to outsiders. And the SAGE, who owns no school at
-// all: -3 on EVERY cast, spells included. His gift is not
-// casting but ATTUNEMENT — his Attune lays attuneLevel + 2
-// points on the ground while his pool pays only attuneLevel,
-// and the hex's thirty-point cap stands over even him.
+// all: -3 on EVERY cast, spells included. Her gift is not
+// casting but ATTUNEMENT — her Attune lays attuneLevel + 2
+// points on the ground while her pool pays only attuneLevel,
+// and the hex's thirty-point cap stands over even her.
 const CLASS_SCHOOL = { warden: "ward", runewright: "rune", binder: "binding", witch: "spell", sage: null };
 const SPELL_SCHOOL = { ward: "binding", blade: "rune", shard: "spell", heal: "binding" };
 const CLASS_BONUS = 2; // at tender Lv 1
@@ -681,7 +681,7 @@ function rollCast(key) {
   const total = roll + mod;
   const holds = roll === 20 || (roll !== 1 && total >= dc);
   const modTxt = mod > 0 ? "+" + mod + " in-school, " + CLS.name.replace("THE ", "")
-    : mod < 0 ? (CLSKEY === "sage" ? mod + " — the Sage owns no school; every cast is foreign to him" : mod + " cross-class")
+    : mod < 0 ? (CLSKEY === "sage" ? mod + " — the Sage owns no school; every cast is foreign to her" : mod + " cross-class")
     : "±0 (the Spell school stands open — no class owns it, and none is foreign to it)";
   const line = "🎲 " + roll + " " + modTxt + " = " + total + " vs DC " + dc + " (spell Lv " + lvl + " + 10)";
   if (holds) {
@@ -776,7 +776,7 @@ function plantGrove(gx, gy, level, radius, treesPx, mother) {
   trees.innerHTML = "<img src=\"" + TREES_GLYPH + "\" style=\"width:" + treesPx + "px;height:" + treesPx + "px;opacity:.94\">";
   el.appendChild(trees);
   field.appendChild(el);
-  const g = { el, glow: gimg, x: gx, y: gy, until: performance.now() + (mother ? 34000 : 20000), born: performance.now(), healAt: 0, level, radius, mother, seeded: 0, tickMs: level === 1 ? 1100 : 800 };
+  const g = { el, glow: gimg, x: gx, y: gy, until: performance.now() + (mother ? 34000 : 20000), born: performance.now(), healAt: 0, level, radius, mother, seeded: 0, saplingsLeft: 0, sapRolled: 0, nextSaplingAt: 0, tickMs: level === 1 ? 1100 : 800 };
   groves.push(g);
   return g;
 }
@@ -786,9 +786,23 @@ function castWard() {
   const v = VEC[dir] || [0, 1];
   const gx = x + v[0] * 60, gy = y + v[1] * 60;
   const radius = (66 + springleafLevel * 12) * 2.75; // WARD SIZE LAW (Nigel, 2026-10-19): a tender-cast ward stands 2.75x the size of an Awokin-cast one
-  plantGrove(gx, gy, springleafLevel, radius, 62, true);
-  sayMath("The Springleaf (Binding) Lv " + springleafLevel + " — a grove before your facing - a tender-cast ward, standing 2.75x the measure of an Awokin-cast one: allies in its root-glow mend " + (springleafLevel >= 3 ? "+2" : "+1") + " every breath, and unharmed she seeds up to " + (1 + springleafLevel) + " sapling groves, each spreading the glow. Deeper levels heal harder and spread wider.");
-  floatText(gx, gy - 108, "🌳 the Springleaf's grove, Lv " + springleafLevel, "#b6ffb0");
+  const g = plantGrove(gx, gy, springleafLevel, radius, 62, true);
+  // THE SPRINGLEAF'S SHAPE (Nigel, 2026-10-19): 3 energy buys the cast,
+  // an initial BURST heal on the company within the glow, and 1d4
+  // saplings summoned with the cast - each sapling, as it takes root,
+  // triggers its own radius heal at HALF the burst's size.
+  const amt = springleafLevel >= 3 ? 2 : 1;
+  for (const m of PARTY) {
+    if (m.state === "out" && m.hp < m.maxHp && Math.hypot(m.x - gx, m.y - gy) < radius) {
+      m.hp = Math.min(m.maxHp, m.hp + amt);
+      spawnFlash(m.x, m.y - 30, "#b6ffb0");
+      floatText(m.x, m.y - 112, "+" + amt + " ✚ the Springleaf bursts", "#b6ffb0");
+    }
+  }
+  const n = 1 + Math.floor(Math.random() * 4);
+  g.saplingsLeft = n; g.sapRolled = n; g.nextSaplingAt = performance.now() + 1600;
+  floatText(gx, gy - 108, "🌳 the Springleaf, Lv " + springleafLevel + " — 🎲 1d4 → " + n + " sapling" + (n > 1 ? "s" : "") + " rise", "#b6ffb0");
+  sayMath("The Springleaf (Binding) Lv " + springleafLevel + " — 3⚡, as the book now writes it: a tender-cast ward (2.75x the measure of an Awokin-cast one) whose first breath is a BURST — the company within its root-glow mends +" + amt + " at once. The cast summons 1d4 saplings (🎲 " + n + " here); each, as it takes root, triggers its own radius heal at half the burst's size. The groves linger and keep mending those who stand within.");
 }
 function layAttunement(cx, cy) {
   let mark = attuneMarks.find(m => Math.hypot(m.x - cx, m.y - cy) < 48);
@@ -809,7 +823,7 @@ function layAttunement(cx, cy) {
   mark.pts += laid;
   mark.label.textContent = "❖ " + mark.pts;
   floatText(cx, cy - 22, "+" + laid + " attunement laid", "#ffd977");
-  sayMath("Attune (Ability) Lv " + attuneLevel + ": " + laid + " points laid on this ground for " + pts + " from the tender's own pool" + (attuneGift() ? " — the Sage's gift: his attunement runs deeper than his purse" : "") + " — " + mark.pts + " of the thirty a hex may hold, here as on the war map and the Table.");
+  sayMath("Attune (Ability) Lv " + attuneLevel + ": " + laid + " points laid on this ground for " + pts + " from the tender's own pool" + (attuneGift() ? " — the Sage's gift: her attunement runs deeper than her purse" : "") + " — " + mark.pts + " of the thirty a hex may hold, here as on the war map and the Table.");
 }
 function castHeal() {
   if (!spend("heal")) return;
@@ -842,13 +856,16 @@ function spellTick() {
     const b = 0.5 + 0.5 * Math.sin(now / 850 + g.born / 1000);
     g.glow.style.opacity = String(0.17 + b * 0.26);
     g.glow.style.transform = "scale(" + (0.96 + b * 0.09) + ")";
-    if (g.mother && g.seeded < 1 + g.level && now - g.born > (6200 - 900 * (g.level - 1)) * (g.seeded + 1)) {
-      const offs = [[0, -62], [62, 0], [0, 62], [-62, 0], [44, -44], [-44, 44]];
-      const o = offs[g.seeded % offs.length];
-      g.seeded++;
-      const sg = { gx: g.x + o[0], gy: g.y + o[1], level: g.level, radius: (66 + g.level * 12) * 0.78 }; // the seeded lesser wards keep the old measure - the 2.75x stands for the tender's own cast only
+    if (g.mother && g.saplingsLeft > 0 && now >= g.nextSaplingAt) {
+      g.nextSaplingAt = now + 1600;
+      const idx = g.sapRolled - g.saplingsLeft;
+      g.saplingsLeft--;
+      const R = g.radius * 0.55;
+      const offs = [[0, -R], [R, 0], [0, R], [-R, 0], [R * 0.7, -R * 0.7], [-R * 0.7, R * 0.7]];
+      const o = offs[idx % offs.length];
+      const sg = { gx: g.x + o[0], gy: g.y + o[1], level: g.level, radius: g.radius * 0.5, burst: true };
       newGroves.push(sg);
-      floatText(sg.gx, sg.gy - 58, "🌱 a sapling grove spreads the glow", "#b6ffb0");
+      floatText(sg.gx, sg.gy - 58, "🌱 a sapling takes root — its heal bursts at half the measure", "#b6ffb0");
     }
     if (now >= g.healAt) {
       g.healAt = now + g.tickMs;
@@ -863,7 +880,19 @@ function spellTick() {
     }
     return true;
   });
-  for (const sg of newGroves) plantGrove(sg.gx, sg.gy, sg.level, sg.radius, 40, false);
+  for (const sg of newGroves) {
+    plantGrove(sg.gx, sg.gy, sg.level, sg.radius, 40, false);
+    if (sg.burst) { // the sapling's arrival triggers its radius heal — half the burst's size, the same mending strength
+      const amt2 = sg.level >= 3 ? 2 : 1;
+      for (const m of PARTY) {
+        if (m.state === "out" && m.hp < m.maxHp && Math.hypot(m.x - sg.gx, m.y - sg.gy) < sg.radius) {
+          m.hp = Math.min(m.maxHp, m.hp + amt2);
+          spawnFlash(m.x, m.y - 30, "#b6ffb0");
+          floatText(m.x, m.y - 112, "+" + amt2 + " ✚ the sapling bursts", "#b6ffb0");
+        }
+      }
+    }
+  }
   // the Blade springs, once, upward — six wounds, as written
   const bladeHit = bladeRunes.findIndex(r => shade.alive && Math.hypot(shade.x - r.x, shade.y - r.y) < 32);
   if (bladeHit >= 0) {
