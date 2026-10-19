@@ -268,7 +268,7 @@ export function LayeredArt({ item }: { item: Awoken }) {
 /** Element glyphs for the deck's compact counts (the Zodiac's set). */
 const ELEMENT_GLYPH: Record<string, string> = { tide: "🌊", sky: "🌬️", stone: "🪨", root: "🌿", fire: "🔥" };
 
-export function TradingCard({ item, allowDelete = false, framed = true, elementsOnly = false }: { item: Awoken; allowDelete?: boolean; framed?: boolean; elementsOnly?: boolean }) {
+export function TradingCard({ item, allowDelete = false, framed = true, elementsOnly = false, aspectUi }: { item: Awoken; allowDelete?: boolean; framed?: boolean; elementsOnly?: boolean; aspectUi?: { pools: Record<string, number> | null; busy?: boolean; onDot: (item: Awoken, dot: { kind: "weave" } | { kind: "deepen"; aspect: any }) => void } }) {
   const queryClient = useQueryClient();
   const cardBorder = useCardBorder();
   const remove = useMutation({ mutationFn: () => api.deleteAwoken({ id: item.id }), onSuccess: () => invalidateStudios(queryClient) });
@@ -289,23 +289,17 @@ export function TradingCard({ item, allowDelete = false, framed = true, elements
   // the card, so nothing in the card's box (or its clipped
   // corners) can cut it. The art is transparent; framed
   // this way, it simply frames.
-  // The deck's compact face (Nigel, 2026-10-18): in My Deck the
-  // piece names give way to the element counts — one line, the
-  // same height on every card, so the grid stops distorting —
-  // and the aspect level rides as three colored dots above the
-  // story dots: filled dots = the total worn aspect level (the
-  // game's own gift measure), colored by the strongest worn
-  // aspect's element; hollow when no aspect is worn.
+  // The deck's aspect buttons (Nigel, 2026-10-18): in My Deck the
+  // card carries no piece names — only three dots above the story
+  // dots, one per aspect slot, so every card stands the same
+  // height. A filled dot is a worn aspect, colored by its own
+  // element; a hollow dot is an open slot. Where the deck wires
+  // aspectUi in, the dots are buttons: a hollow dot weaves a new
+  // aspect from attunement points on the ladder (1, 2, 3 by slot —
+  // the first pick seals the Awokin's element), and a filled dot
+  // deepens its aspect at the ladder's price.
   const aspectLayers = item.layers.filter((layer) => layer.category === "aspect");
-  const aspectLevelTotal = aspectLayers.reduce((sum, layer) => sum + ((layer as any).aspectLevel ?? 1), 0);
-  const aspectDotsFilled = Math.min(3, aspectLevelTotal);
-  let aspectStrongest: (typeof aspectLayers)[number] | null = null;
-  for (const layer of aspectLayers) {
-    if (!aspectStrongest || ((layer as any).aspectLevel ?? 1) > ((aspectStrongest as any).aspectLevel ?? 1)) aspectStrongest = layer;
-  }
-  const aspectElement = (aspectStrongest as any)?.aspectElement as string | undefined;
-  const aspectColor = (aspectElement && (elementPalette as Record<string, string>)[aspectElement]) || "#b89b5e";
-  const elementCounts = ELEMENTS.map((el) => ({ el, n: elements.filter((e) => (e as string) === el).length })).filter((c) => c.n > 0);
+  const aspectSealedEl = aspectLayers.length ? ((aspectLayers[0] as any).aspectElement as string | undefined) : undefined;
   return <div className="card-frame-field"><article className={`trading-card${courtClass}`} aria-label={`${item.name}, power ${item.power}, toughness ${item.toughness}`}>
     <Corner element={tl} className="tcorner tl" />
     <Corner element={tr} className="tcorner tr" />
@@ -318,10 +312,26 @@ export function TradingCard({ item, allowDelete = false, framed = true, elements
       <div className="tc-pips"><span className="tc-pip">⚔{item.power}</span><span className="tc-pip">🛡{item.toughness}</span></div>
       {item.iteration > 0 && <span className="tc-iteration">{ordinal(item.iteration)}</span>}
     </div>
-    {elementsOnly ? <>
-      <div className="tc-pieces tc-elements" title={litany.map((layer) => layer.name).join(" · ")}>{elementCounts.map((c) => <span key={c.el} className="tc-el"><span aria-hidden="true">{ELEMENT_GLYPH[c.el]}</span>{c.n}</span>)}</div>
-      <div className="tc-aspect-dots" role="img" aria-label={aspectLayers.length ? `Aspect level ${aspectLevelTotal}` : "No aspect worn"} title={aspectLayers.length ? aspectLayers.map((layer) => `${layer.name} — Aspect Lv ${(layer as any).aspectLevel ?? 1}`).join(" · ") : "No aspect worn"}>{[0, 1, 2].map((i) => <span key={i} className={`tc-adot${i < aspectDotsFilled ? " filled" : ""}`} style={i < aspectDotsFilled ? { background: aspectColor, borderColor: aspectColor } : undefined} />)}</div>
-    </> : <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>}
+    {elementsOnly ? <div className="tc-aspect-dots" role="group" aria-label={`${item.name} — aspects`}>{[0, 1, 2].map((i) => {
+      const aspect: any = aspectLayers[i];
+      if (aspect) {
+        const lvl = aspect.aspectLevel ?? 1;
+        const el = aspect.aspectElement as string | undefined;
+        const color = (el && (elementPalette as Record<string, string>)[el]) || "#b89b5e";
+        const maxed = lvl >= 4;
+        const label = maxed ? `${aspect.name} — Aspect Lv IV, full` : `${aspect.name} — Aspect Lv ${lvl}${el ? ` of ${el}` : ""}. Tap to deepen for ${lvl} ${el ?? ""} point${lvl > 1 ? "s" : ""}.`;
+        return aspectUi
+          ? <button key={i} type="button" className="tc-adot-btn" title={label} aria-label={label} disabled={aspectUi.busy || maxed} onClick={(event) => { event.stopPropagation(); aspectUi.onDot(item, { kind: "deepen", aspect }); }}><span className="tc-adot filled" style={{ background: color, borderColor: color }} /></button>
+          : <span key={i} className="tc-adot filled" style={{ background: color, borderColor: color }} title={label} />;
+      }
+      const cost = aspectLayers.length + 1;
+      const label = aspectLayers.length
+        ? `Weave another ${aspectSealedEl ?? ""} aspect — ${cost} point${cost > 1 ? "s" : ""}`
+        : `Weave an aspect — ${cost} point. First pick seals the element.`;
+      return aspectUi
+        ? <button key={i} type="button" className="tc-adot-btn" title={label} aria-label={label} disabled={aspectUi.busy} onClick={(event) => { event.stopPropagation(); aspectUi.onDot(item, { kind: "weave" }); }}><span className="tc-adot" /></button>
+        : <span key={i} className="tc-adot" title={label} />;
+    })}</div> : <div className="tc-pieces">{litany.map((layer) => <div key={`${item.id}-${layer.category}`}>{layer.name}</div>)}</div>}
     <div className="tc-stories" title={`${stories} of 3 stories shared`}>{"●".repeat(stories)}{"○".repeat(3 - stories)}</div>
     <div className="tc-watermark" aria-hidden="true">{roman}</div>
     {allowDelete && (
@@ -836,6 +846,40 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
   const [sort, setSort] = useState<"newest" | "power" | "toughness" | "name">("newest");
   const [filter, setFilter] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // The deck's aspect buttons (Nigel, 2026-10-18): the storyteller
+  // deck wires the card dots to the attunement pools — a hollow dot
+  // weaves a new aspect (first pick seals the element), a filled
+  // dot deepens its aspect, both at the ladder's prices. Other
+  // collections pass no wiring and their cards stay as they were.
+  const queryClient = useQueryClient();
+  const attuneQuery = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement(), enabled: storyteller });
+  const pools: Record<string, number> | null = attuneQuery.data?.levels ?? null;
+  const [dotPick, setDotPick] = useState<{ item: Awoken; mode: "weave" | "deepen"; aspect?: any } | null>(null);
+  const [dotMsg, setDotMsg] = useState("");
+  const [dotError, setDotError] = useState("");
+  const [dotBusy, setDotBusy] = useState(false);
+  const refreshDeck = () => { invalidateStudios(queryClient); void queryClient.invalidateQueries({ queryKey: ["aspectAttunement"] }); };
+  const doWeave = async (element: string) => {
+    if (!dotPick) return;
+    setDotBusy(true); setDotError("");
+    try {
+      const r: any = await api.call("weaveAspect", { awakenedId: dotPick.item.id, element });
+      setDotMsg(`${r.targetName} woven into ${dotPick.item.name} — ${r.element} Lv I, sealed to ${r.element}. ${r.cost} point${r.cost > 1 ? "s" : ""} spent.`);
+      setDotPick(null); refreshDeck();
+    } catch (e) { setDotError(e instanceof Error ? e.message : "The weaving failed."); }
+    setDotBusy(false);
+  };
+  const doDeepen = async () => {
+    if (!dotPick?.aspect) return;
+    setDotBusy(true); setDotError("");
+    try {
+      const r: any = await api.call("deepenAspect", { awakenedId: dotPick.item.id, targetAspectKey: dotPick.aspect.source_id });
+      setDotMsg(`${r.targetName ?? dotPick.aspect.name} deepened to Lv ${r.newLevel} on ${dotPick.item.name}.`);
+      setDotPick(null); refreshDeck();
+    } catch (e) { setDotError(e instanceof Error ? e.message : "The deepening failed."); }
+    setDotBusy(false);
+  };
+  const aspectUi = storyteller ? { pools, busy: dotBusy, onDot: (item: Awoken, dot: { kind: "weave" } | { kind: "deepen"; aspect: any }) => { setDotError(""); setDotPick({ item, mode: dot.kind, aspect: (dot as any).aspect }); } } : undefined;
   const selected = storyteller ? items.find((item) => item.id === selectedId) ?? null : null;
   const visible = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -848,10 +892,19 @@ function CollectionView({ items, title, note, allowDelete = false, focusId = nul
     }
   }, [items, sort, filter]);
   if (!items.length) return <section className="empty-state"><p className="eyebrow">Collection</p><h1>{title}</h1><p>{note}</p></section>;
+  const pickAspects = dotPick ? dotPick.item.layers.filter((layer) => layer.category === "aspect") : [];
+  const pickSealedEl = pickAspects.length ? ((pickAspects[0] as any).aspectElement as string | undefined) : undefined;
+  const pickCost = pickAspects.length + 1;
+  const pickAspectLvl = (dotPick?.aspect as any)?.aspectLevel ?? 1;
+  const pickAspectEl = (dotPick?.aspect as any)?.aspectElement as string | undefined;
+  const fireFound = typeof window !== "undefined" && window.localStorage.getItem("awoken-fire-found") === "1";
+  const pickElements = dotPick?.mode === "weave"
+    ? (pickSealedEl ? ELEMENTS.filter((el) => el === pickSealedEl) : ELEMENTS.filter((el) => el !== "fire" || fireFound))
+    : [];
   return <section className={storyteller ? "collection deck-half" : "collection"}><header><div><p className="eyebrow">{items.length} awakened</p><h1>{title}</h1></div><p>{note}</p>
-    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header>{selected && <div className="collection-detail"><button type="button" className="quiet-link" onClick={() => setSelectedId(null)}>Close {selected.name}</button><CreatureCard item={selected} storyteller /></div>}<div className="collection-grid trading">{visible.map((item) => storyteller
-      ? <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} elementsOnly={storyteller} /></div>
-      : <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Raise ${item.name} — show its border`} onClick={() => setSelectedId(item.id === selectedId ? null : item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id === selectedId ? null : item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} elementsOnly={storyteller} /></div>)}</div></section>;
+    <div className="deck-toolbar"><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort the deck"><option value="newest">Newest</option><option value="power">Power</option><option value="toughness">Toughness</option><option value="name">Name</option></select></label><label>Find<input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="a name…" aria-label="Find by name" /></label>{(sort !== "newest" || filter.trim()) && <span className="deck-count">{visible.length} shown</span>}</div></header>{selected && <div className="collection-detail"><button type="button" className="quiet-link" onClick={() => setSelectedId(null)}>Close {selected.name}</button><CreatureCard item={selected} storyteller /></div>}{dotMsg && <p className="deck-dot-msg" role="status">{dotMsg} <button type="button" className="quiet-link tiny" onClick={() => setDotMsg("")}>dismiss</button></p>}<div className="collection-grid trading">{visible.map((item) => storyteller
+      ? <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Open ${item.name} — tell it a story`} onClick={() => setSelectedId(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} elementsOnly={storyteller} aspectUi={aspectUi} /></div>
+      : <div key={item.id} className={`card-tap${item.id === selectedId ? " selected" : ""}`} role="button" tabIndex={0} aria-label={`Raise ${item.name} — show its border`} onClick={() => setSelectedId(item.id === selectedId ? null : item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id === selectedId ? null : item.id); } }}><TradingCard item={item} allowDelete={allowDelete} framed={item.id === selectedId} elementsOnly={storyteller} aspectUi={aspectUi} /></div>)}</div>{dotPick && <div className="aspect-picker" role="dialog" aria-label={dotPick.mode === "weave" ? `Weave an aspect into ${dotPick.item.name}` : `Deepen an aspect on ${dotPick.item.name}`}><div className="aspect-picker-card">{dotPick.mode === "weave" ? <><h3>Weave an aspect into {dotPick.item.name}</h3><p className="quiet">{pickAspects.length ? <>Sealed to <strong>{pickSealedEl}</strong> by its first aspect — only {pickSealedEl} can be woven now. This aspect costs <strong>{pickCost} point{pickCost > 1 ? "s" : ""}</strong>.</> : <>The first pick is a choice of any element — and it <strong>seals</strong> {dotPick.item.name} to that element for every aspect after. This one costs <strong>1 point</strong>.</>}</p><div className="deck-weave-list">{pickElements.map((el) => { const have = Math.floor(pools?.[el] ?? 0); const afford = have >= pickCost; return <button key={el} type="button" className="deck-weave-row" disabled={!afford || dotBusy} onClick={() => void doWeave(el)}><span aria-hidden="true">{ELEMENT_GLYPH[el]}</span><strong>{el}</strong><span>{pickCost} pt · pool {have}</span>{!afford && <em>not enough</em>}</button>; })}</div></> : <><h3>{dotPick.aspect?.name}</h3><p className="quiet">Aspect Lv {pickAspectLvl}{pickAspectEl ? ` of ${pickAspectEl}` : ""} on {dotPick.item.name}. Deepening to Lv {pickAspectLvl + 1} costs <strong>{pickAspectLvl} {pickAspectEl ?? ""} point{pickAspectLvl > 1 ? "s" : ""}</strong> (pool {Math.floor(pools?.[pickAspectEl ?? ""] ?? 0)}), and gives +1/+1.</p><button type="button" className="abtn" disabled={dotBusy || Math.floor(pools?.[pickAspectEl ?? ""] ?? 0) < pickAspectLvl} onClick={() => void doDeepen()}>{dotBusy ? "Deepening…" : `Deepen — ${pickAspectLvl} pt`}</button></>}{dotError && <p className="name-popup-error">{dotError}</p>}<button type="button" className="abtn" onClick={() => setDotPick(null)} disabled={dotBusy}>Not now</button></div></div>}</section>;
 }
 
 function AspectAssignButton() {

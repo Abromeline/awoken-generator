@@ -3690,6 +3690,19 @@ export const handlers = {
         .where(eq(schema.awakened.id, parsed.data.awakenedId));
       return { ok: true as const, element, newLevel, upgraded: true as const, cost, targetName: match.name, targetKey: match.source_id, imageUrl: match.imageBlobKey ? blobUrl(match.imageBlobKey) : null, stacked: worn.length };
     }
+    // THE SEAL (Nigel, 2026-10-18): an Awokin's first aspect seals
+    // its element — every later aspect it takes, by stored piece or
+    // by woven points alike, must be of the sealed element. (Raising
+    // a worn aspect of the added element is deepening, not a new
+    // pick, and stands outside the seal.) A stack that already mixes
+    // elements from before the seal was law keeps what it wears; its
+    // seal is its first aspect's element.
+    if (worn.length && !match) {
+      const sealEl = worn[0].aspectElement || (await compositionElements([worn[0]]))[0];
+      if (sealEl && sealEl !== "neutral" && sealEl !== element) {
+        badRequest(`This Awokin is sealed to ${sealEl} by its first aspect — a ${element} aspect cannot be woven into it. Nothing was spent or consumed.`);
+      }
+    }
     if (worn.length >= ASPECT_STACK_MAX) {
       badRequest(`This Awokin already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one with attunement points instead.`);
     }
@@ -3716,6 +3729,94 @@ export const handlers = {
     await db.delete(schema.aspectInventory)
       .where(eq(schema.aspectInventory.id, parsed.data.inventoryAspectId));
     return { ok: true as const, element, newLevel: 1, upgraded: false as const, targetName: aspect.name, targetKey: `aspect-inv:${aspect.id}`, imageUrl: aspect.imageBlobKey ? blobUrl(aspect.imageBlobKey) : null, stacked: worn.length + 1 };
+  },
+
+  // Weave an aspect from attunement points alone (Nigel,
+  // 2026-10-18 — the deck's aspect buttons): no stored piece is
+  // consumed; the points are the price, on the aspect ladder — the
+  // first aspect costs 1, the second 2, the third 3, paid from the
+  // pool of the element woven. The FIRST pick is a choice of any
+  // element, and that pick seals the Awokin: every later aspect it
+  // ever takes must be of the sealed element (the same seal
+  // applyAspect now honors). The aspect itself is drawn from the
+  // pieces filed under the element — never level-art (the birth
+  // rule), never a piece this Awokin already wears — and stands at
+  // level I for the usual +1/+1 gift.
+  async weaveAspect(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      element: z.enum(["tide", "sky", "stone", "root", "fire"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid request.");
+    const element = parsed.data.element as Element5;
+    const aw = await db.select().from(schema.awakened)
+      .where(and(
+        eq(schema.awakened.id, parsed.data.awakenedId),
+        eq(schema.awakened.ownerKey, ownerKey)
+      )).limit(1);
+    const awakened = aw[0];
+    if (!awakened) badRequest("Awokin not found.");
+    let layers: any[];
+    try { layers = JSON.parse(awakened.compositionJson || "[]"); }
+    catch { layers = []; }
+    const worn = layers.filter((l: any) => l.category === "aspect");
+    const ASPECT_STACK_MAX = 3;
+    if (worn.length >= ASPECT_STACK_MAX) {
+      badRequest(`This Awokin already wears ${ASPECT_STACK_MAX} aspects — its stack is full. Deepen one instead.`);
+    }
+    if (worn.length) {
+      const sealEl = worn[0].aspectElement || (await compositionElements([worn[0]]))[0];
+      if (sealEl && sealEl !== "neutral" && sealEl !== element) {
+        badRequest(`This Awokin is sealed to ${sealEl} by its first aspect — only ${sealEl} aspects can be woven into it now. Nothing was spent.`);
+      }
+    }
+    // The ladder (Nigel, 2026-10-18): "the same cost as normal
+    // aspects — 1 for 1, 2 for 2, 3 for 3."
+    const cost = worn.length + 1;
+    const pool = await db.select().from(schema.aspectAttunement)
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, element as any)
+      )).limit(1);
+    const points = pool.length ? (pool[0].points ?? 0) : 0;
+    if (points < cost) {
+      badRequest(`Weaving a ${element} aspect costs ${cost} ${element} attunement point${cost > 1 ? "s" : ""} — the pool holds ${Math.floor(points)}. Nothing was spent.`);
+    }
+    const assetRows = await db.select().from(schema.layerAssets)
+      .where(eq(schema.layerAssets.category, "aspect"));
+    const wornIds = new Set(worn.map((l: any) => String(l.source_id ?? "")));
+    const eligible = birthableAspects(assetRows as any[], element)
+      .filter((a: any) => !wornIds.has(`db:${a.id}`));
+    if (!eligible.length) {
+      badRequest(`No unworn aspect of ${element} waits to be woven — when a piece of ${element} is filed as an aspect in the workshop, this button can spend points on it. Nothing was spent.`);
+    }
+    const piece: any = eligible[Math.floor(Math.random() * eligible.length)];
+    await db.update(schema.aspectAttunement)
+      .set({ points: points - cost, updatedAt: new Date() })
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, element as any)
+      ));
+    layers.push({
+      source_id: `db:${piece.id}`,
+      name: piece.name,
+      category: "aspect",
+      rarity: (piece as any).rarity ?? "common",
+      power: null,
+      toughness: null,
+      aspectLevel: 1,
+      aspectElement: element,
+      imageBlobKey: piece.imageBlobKey,
+    });
+    await db.update(schema.awakened)
+      .set({
+        compositionJson: JSON.stringify(layers),
+        bonusPower: (awakened.bonusPower ?? 0) + 1,
+        bonusToughness: (awakened.bonusToughness ?? 0) + 1,
+      })
+      .where(eq(schema.awakened.id, parsed.data.awakenedId));
+    return { ok: true as const, element, cost, newLevel: 1, targetName: piece.name, targetKey: `db:${piece.id}`, imageUrl: piece.imageBlobKey ? blobUrl(piece.imageBlobKey) : null, stacked: worn.length + 1, sealed: element };
   },
 
   // grantAspectPoint is GONE (War-Ground fix, 2026-10-15): it minted a
