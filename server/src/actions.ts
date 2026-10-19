@@ -465,9 +465,19 @@ function mysticalLegacyName(category: string, name: string) {
   return legacyNames[key][index] ?? null;
 }
 
+/** A STORED composition ref is a historical record, not a live
+ *  write: a piece woken under an older scale may carry stored stats
+ *  above today's cap, and this gate must never silently discard the
+ *  whole piece over it — the layer then vanishes from every surface
+ *  at once (Nigel, 2026-10-18: an Awoken stood with no body and no
+ *  arms, twice). Stored stats are read tolerantly and clamped to
+ *  the live cap; live writes keep the strict statSchema, and
+ *  parseLayers re-stamps from the living asset whenever it survives,
+ *  so the stored number is only ever a fallback. */
+const storedStatSchema = z.number().int().min(0).transform((v) => Math.min(v, 3));
 const storedLayerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
-  rarity: raritySchema, power: statSchema.nullable().optional(), toughness: statSchema.nullable().optional(),
+  rarity: raritySchema, power: storedStatSchema.nullable().optional(), toughness: storedStatSchema.nullable().optional(),
   element: z.enum(["tide", "sky", "stone", "root", "fire", "neutral"]).nullable().optional(),
   // An equipped aspect's own record (Nigel, 2026-10-16): these rode
   // in the composition all along but were stripped at this gate, so

@@ -19,12 +19,25 @@ interface Props {
 export default function FieldAwoken({ awoken, assets, x, y, width, height, showFieldBornMarker = true }: Props) {
   const assetMap = useMemo(() => {
     const m = new Map<string, string>();
-    assets.forEach(a => m.set(a.sourceId, a.imageUrl));
+    assets.forEach(a => {
+      m.set(a.sourceId, a.imageUrl);
+      // Legacy compositions name their piece by bare asset id;
+      // parseLayers resolves those for reading, and the field must
+      // resolve them too — a bare-id body or arms missed this lookup
+      // and silently never drew (Nigel, 2026-10-18: an Awoken stood
+      // on the main page with no body and no arms).
+      const bare = /^db:(\d+)$/.exec(a.sourceId);
+      if (bare?.[1] && !m.has(bare[1])) m.set(bare[1], a.imageUrl);
+    });
     return m;
   }, [assets]);
   const assetCatMap = useMemo(() => {
     const m = new Map<string, string>();
-    assets.forEach(a => m.set(a.sourceId, (a.category || "").toLowerCase().trim()));
+    assets.forEach(a => {
+      m.set(a.sourceId, (a.category || "").toLowerCase().trim());
+      const bare = /^db:(\d+)$/.exec(a.sourceId);
+      if (bare?.[1] && !m.has(bare[1])) m.set(bare[1], (a.category || "").toLowerCase().trim());
+    });
     return m;
   }, [assets]);
 
