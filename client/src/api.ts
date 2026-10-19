@@ -502,7 +502,7 @@ export interface FirstSeedEvent {
   wavesCleared: number;
   nextWave: number;
   nextWaveAt: number;
-  newbornClaimed: boolean;
+  reward: { element: string } | null;
   defenders: { awakenedId: number; hp: number; maxHp: number }[];
 }
 export interface IncursionsView {
@@ -723,6 +723,7 @@ export const api = {
   birthNewbornToHand: (args: { tileId?: number; liberatorNames: string[] }) => post<{ ok: true; id: number }>("birthNewbornToHand", args),
   ensureFirstSeed: () => post<{ ok: true; created: boolean; seedId?: number; tileId?: number }>("ensureFirstSeed", {}),
   getFirstSeedEvent: () => post<{ event: FirstSeedEvent | null }>("getFirstSeedEvent", {}),
+  claimFirstSeedReward: () => post<{ ok: true; element: string; aspectSpawned: boolean }>("claimFirstSeedReward", {}),
   deployFirstSeed: (args: { awakenedIds: number[] }) => post<{ ok: true; cost: number }>("deployFirstSeed", args),
   startFirstSeedHold: () => post<{ ok: true; nextWaveAt: number; nextWave: number }>("startFirstSeedHold", {}),
   endFirstSeedRun: () => post<{ ok: true }>("endFirstSeedRun", {}),

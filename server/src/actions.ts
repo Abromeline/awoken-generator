@@ -351,24 +351,34 @@ function consumeAspectGrant(ownerKey: string): { elements: AspectElement[]; sour
 
 type AspectElement = "tide" | "sky" | "stone" | "root";
 
+/** Every element an attunement pool can hold — the palette's
+ *  five. The aspect GRANTS above roll among four (fire is found,
+ *  never dealt), but a pool is a pool: the first seed's reward
+ *  and the fell drizzle below may light on any of the five, and
+ *  the panel shows whichever pools hold points. */
+type AttunementElement = AspectElement | "fire";
+const ATTUNEMENT_ELEMENTS: AttunementElement[] = ["root", "tide", "sky", "stone", "fire"];
+
 /**
- * Add ONE attunement point to an element for an owner — the exact arithmetic
- * aspect grants have always run: +1 point (insert or update, updatedAt
- * touched), and at >= 10 points an aspect is born into the inventory when a
- * level piece FILED as this element exists (10 points are then spent;
- * without such a piece the points stay). The birth chooses by the filed
- * element, never by a name pattern (Nigel, 2026-10-16 — the same law the
- * getTerritory pool birth already kept). Lifetime gains are never
- * touched. Returns true when an aspect spawned.
+ * Add attunement points to an element's pool for an owner — the exact
+ * arithmetic aspect grants have always run: +amount (insert or
+ * update, updatedAt touched), and at >= 10 points an aspect is born
+ * into the inventory when a level piece FILED as this element exists
+ * (10 points are then spent; without such a piece the points stay).
+ * The birth chooses by the filed element, never by a name pattern
+ * (Nigel, 2026-10-16 — the same law the getTerritory pool birth
+ * already kept). Lifetime gains are never touched. Amounts may be
+ * fractional — the fell drizzle pays in tenths. Returns true when
+ * an aspect spawned.
  */
-async function addAspectPoint(ownerKey: string, element: AspectElement): Promise<boolean> {
+async function addAspectPoints(ownerKey: string, element: AttunementElement, amount: number): Promise<boolean> {
   const row = await db.select().from(schema.aspectAttunement)
     .where(and(
       eq(schema.aspectAttunement.ownerKey, ownerKey),
       eq(schema.aspectAttunement.element, element)
     )).limit(1);
   const current = row[0]?.points ?? 0;
-  const newPoints = current + 1;
+  const newPoints = current + amount;
   if (row[0]) {
     await db.update(schema.aspectAttunement)
       .set({ points: newPoints, updatedAt: new Date() })
@@ -399,6 +409,12 @@ async function addAspectPoint(ownerKey: string, element: AspectElement): Promise
     }
   }
   return false;
+}
+
+/** Add ONE whole attunement point — the grants' historic step,
+ *  kept as the thin wrapper its callers have always known. */
+async function addAspectPoint(ownerKey: string, element: AspectElement): Promise<boolean> {
+  return addAspectPoints(ownerKey, element, 1);
 }
 
 /** Record a gift from The Ancient Creator (drives the Tender's gift notice). */
@@ -999,16 +1015,24 @@ async function ensureFrontierBuffer(ownerKey: string) {
    the seed (the center purifies, the pool fills); fail before the
    bank and the seed simply WAITS — no loss, no clawback. Casting
    never closes. And at the seed's third rising (level 3, wave 9)
-   the hold is a boss equivalent (Nigel, 2026-10-18): a newborn
-   claim is recorded, exactly once ever, as a verified boss
-   victory records one in resolveBossBattle. */
+   the event lays up its reward, exactly once ever: a single
+   attunement point of a random element, waiting to be gathered
+   by hand (claimFirstSeedReward). A NEWBORN once stood here —
+   the hold counted as a boss equivalent (Nigel, 2026-10-18) —
+   struck (Nigel, 2026-10-19): births handed out by an event
+   drop the value of minted cards, and creation belongs to the
+   Awoken Forge he plans. Boss victories still free newborns;
+   this event no longer pretends to be one. */
 const FIRST_SEED_MAX_WAVE = 12;
 const FIRST_SEED_MAX_LEVEL = 4;
 
 type FirstSeedEventRow = {
   owner_key: string; seed_id: number; state: string; banked: number;
   waves_cleared: number; next_wave_at: number;
+  // newborn_claimed_at rests: written by the struck law until
+  // 2026-10-19, never written again — kept so old rows read true.
   newborn_claimed_at: number | null; created_at: number; updated_at: number;
+  reward_element: string | null; reward_claimed_at: number | null;
 };
 
 function firstSeedEventRow(ownerKey: string): FirstSeedEventRow | null {
@@ -1018,9 +1042,9 @@ function firstSeedEventRow(ownerKey: string): FirstSeedEventRow | null {
 
 function saveFirstSeedEvent(ev: FirstSeedEventRow): void {
   sqlite.prepare(`UPDATE first_seed_events
-    SET state = ?, banked = ?, waves_cleared = ?, next_wave_at = ?, newborn_claimed_at = ?, updated_at = ?
+    SET state = ?, banked = ?, waves_cleared = ?, next_wave_at = ?, newborn_claimed_at = ?, reward_element = ?, reward_claimed_at = ?, updated_at = ?
     WHERE owner_key = ?`)
-    .run(ev.state, ev.banked, ev.waves_cleared, ev.next_wave_at, ev.newborn_claimed_at, Date.now(), ev.owner_key);
+    .run(ev.state, ev.banked, ev.waves_cleared, ev.next_wave_at, ev.newborn_claimed_at, ev.reward_element, ev.reward_claimed_at, Date.now(), ev.owner_key);
 }
 
 /** When the wave AFTER `cleared` waves lands: the first three
@@ -1104,9 +1128,10 @@ async function dominantClaimElement(standingRows: Array<{ compositionJson: strin
  *  fell numbers through the map's own seams (+3⚡ capped to the
  *  slayer's Tender per Fray felled, +2 XP to the slayer, +10
  *  defense XP to every Awoken who stood), then settles the ladder:
- *  bank at wave 3, a rising every three, the newborn claim at the
- *  first reaching of level 3, and the run's end whenever the
- *  defense falls. */
+ *  bank at wave 3, a rising every three, the reward laid up at
+ *  the first reaching of level 3 (the newborn claim that once
+ *  stood there is struck — Nigel, 2026-10-19), and the run's end
+ *  whenever the defense falls. */
 async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Promise<void> {
   const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
   if (!seed) { ev.state = "done"; ev.next_wave_at = 0; saveFirstSeedEvent(ev); return; }
@@ -1176,6 +1201,20 @@ async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Pr
           .where(eq(schema.tenderResources.ownerKey, ownerKey));
       }
     }
+    // THE DRIZZLE (Nigel, 2026-10-19): the felled also drop
+    // elemental energy — random, and only a fraction of a point,
+    // "enough to barely move the attunement bar: 50 Fray = 1
+    // point, that kind of math, but at least it's raising." Each
+    // Fray felled has a 20% chance to drip +0.1 into a random
+    // element's pool — an expectation of exactly that: 0.02 per
+    // fell, one point per fifty. Silent bookkeeping: the waves
+    // settle lazily on read, so no live enemy stands here to
+    // pop from.
+    for (let fell = 0; fell < totalFells; fell++) {
+      if (Math.random() < 0.2) {
+        await addAspectPoints(ownerKey, ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)], 0.1);
+      }
+    }
     // Every Awoken who stood in the wave stood in its defense.
     for (const id of stoodIds) {
       await grantEventXp(xpById, id, XP_PER_DEFENSE);
@@ -1230,12 +1269,16 @@ async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Pr
     }
     if (newLevel > Number(seed.level ?? 1)) {
       sqlite.prepare("UPDATE star_seeds SET level = ? WHERE id = ?").run(newLevel, seed.id);
-      // THE THIRD RISING (Nigel, 2026-10-18): at level 3 the hold
-      // counts as a boss — a newborn claim is recorded here, once
-      // ever, through the same ledger a verified boss victory uses.
-      if (newLevel === 3 && !ev.newborn_claimed_at) {
-        recordNewbornClaim(ownerKey, "firstSeedHold");
-        ev.newborn_claimed_at = Date.now();
+      // THE THIRD RISING (Nigel, 2026-10-19): the newborn claim
+      // that stood here is STRUCK — births from an event drop the
+      // value of minted cards, and creation belongs to the Forge
+      // he plans. In its place, once ever, the event lays up its
+      // reward: a single attunement point of a random element,
+      // shining on the Tender's home until gathered by hand
+      // (claimFirstSeedReward). The guard is the reward itself:
+      // once laid up it is never laid up again, claimed or not.
+      if (newLevel === 3 && !ev.reward_element) {
+        ev.reward_element = ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
       }
     }
     if (wave >= FIRST_SEED_MAX_WAVE) {
@@ -6515,10 +6558,32 @@ export const handlers = {
         wavesCleared: ev.waves_cleared,
         nextWave: ev.waves_cleared + 1,
         nextWaveAt: ev.next_wave_at,
-        newbornClaimed: !!ev.newborn_claimed_at,
+        reward: ev.reward_element && !ev.reward_claimed_at ? { element: ev.reward_element } : null,
         defenders,
       },
     };
+  },
+
+  /** Gather the third rising's reward (Nigel, 2026-10-19): the
+      shining point the event laid up when the seed first reached
+      level 3. One tap gathers it into its element's attunement
+      pool through the grants' own arithmetic — should the pool
+      stand at ten with this point, the aspect-birth inside that
+      arithmetic may answer, and says so. The grant lands BEFORE
+      the claim is marked: a crash between them is the only
+      double-pay window, the same one the house's other grants
+      live with; a marked claim can never pay twice. An unclaimed
+      reward simply waits — no expiry, no nagging. */
+  async claimFirstSeedReward(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await settleFirstSeedEvent(ownerKey);
+    const ev = firstSeedEventRow(ownerKey);
+    if (!ev || !ev.reward_element || ev.reward_claimed_at) badRequest("No reward waits to be gathered.");
+    const element = ev!.reward_element as AttunementElement;
+    const aspectSpawned = await addAspectPoints(ownerKey, element, 1);
+    ev!.reward_claimed_at = Date.now();
+    saveFirstSeedEvent(ev!);
+    return { ok: true, element, aspectSpawned };
   },
 
   /** Send Awoken onto the seed's hex. The field's own deploy law

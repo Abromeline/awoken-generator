@@ -1275,21 +1275,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
-  // When the seed's third rising frees the newborn (Nigel,
-  // 2026-10-18: at level 3 the hold is a boss equivalent), the
-  // claim the server recorded is gathered through Wake One —
-  // once, by the claim's own ledger, never twice.
-  const newbornGatheredRef = useRef(false);
-  useEffect(() => {
-    if (!firstSeedEv?.newbornClaimed || newbornGatheredRef.current) return;
-    newbornGatheredRef.current = true;
-    const liberatorNames = firstSeedEv.defenders
-      .map(d => tenderItems.find(a => a.id === d.awakenedId)?.name)
-      .filter((n): n is string => !!n);
-    api.birthNewbornToHand({ tileId: firstSeedEv.tileId, liberatorNames }).catch(e =>
-      console.error("[Birth] Newborn failed — game continues", e)
-    );
-  }, [firstSeedEv?.newbornClaimed]);
+  // The seed's third rising once freed a newborn here, gathered
+  // through Wake One (Nigel, 2026-10-18) — STRUCK (Nigel,
+  // 2026-10-19): the event grants no birth. Its reward now is a
+  // single attunement point, gathered from the shining pop on
+  // the Tender's home face (claimFirstSeedReward).
 
   const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding", opts?: { keepOpen?: boolean }) => {
     // Collapse bubble so tiles behind are clickable — except when
@@ -3900,18 +3890,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <p className="eyebrow">The Last Bastion · The First Seed</p>
             <h2>A starseed lies in the cursed heart of your land.</h2>
             {ev.state === "done" ? (
-              <p>The seed's rising is complete — it rests at <strong>level {ev.seedLevel}</strong>, banked on your first ground, and it will not be tested again.{ev.newbornClaimed ? " The hold freed a newborn at its third rising — it waits for you at the Wake." : ""}</p>
+              <p>The seed's rising is complete — it rests at <strong>level {ev.seedLevel}</strong>, banked on your first ground, and it will not be tested again.</p>
             ) : ev.state === "holding" ? (
               <>
                 <p>The hold is underway. <strong>{ev.wavesCleared} wave{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · seed level <strong>{ev.seedLevel}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Wave {ev.nextWave} comes in <strong>{waveInSec}s</strong> — {ev.nextWave} Fray ride with it.</> : ""}</p>
                 <p>Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
               </>
             ) : ev.banked ? (
-              <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three waves, a rising. <strong>Hold the seed to its third rising — level 3 — and the hold frees a newborn.</strong>{ev.newbornClaimed ? " (Freed — it waits for you at the Wake.)" : ""}</p>
+              <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three waves, a rising. <strong>Hold the seed to its third rising — level 3 — and it lays up a shining point of attunement, yours to gather.</strong></p>
             ) : (
               <>
                 <p>Send your Awokin onto the seed's hex, then begin the hold. Waves of Fray will come, one upon the next — <strong>clear three waves and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
-                <p><strong>Hold the seed to its third rising — level 3 — and the hold frees a newborn.</strong></p>
+                <p><strong>Hold the seed to its third rising — level 3 — and it lays up a shining point of attunement, yours to gather.</strong></p>
               </>
             )}
             {initialPatrolIds && initialPatrolIds.length > 0 && standing.length === 0 && seedTeam.length > 0 && ev.state !== "done" && (

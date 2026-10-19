@@ -154,12 +154,6 @@ try {
 } catch {
   // Column already exists
 }
-// Migration: curse attrition watermark (Nigel, 2026-10-19)
-try {
-  sqlite.exec("ALTER TABLE field_placements ADD COLUMN curse_since INTEGER");
-} catch {
-  // Column already exists
-}
 // Migration: terrain attunement bank (Nigel, 2026-10-14)
 try {
   sqlite.exec("ALTER TABLE territory_tiles ADD COLUMN attune_points REAL NOT NULL DEFAULT 0");
@@ -211,6 +205,16 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS hall_residents (
   housed_at INTEGER NOT NULL
 )`);
 sqlite.exec(DDL);
+// Migration: curse attrition watermark (Nigel, 2026-10-19).
+// This MUST run after the DDL above creates field_placements:
+// attempted before it, a fresh database swallowed the failure
+// as "already exists" and the column was never born (found by
+// test46 on a first-boot world, 2026-10-19).
+try {
+  sqlite.exec("ALTER TABLE field_placements ADD COLUMN curse_since INTEGER");
+} catch {
+  // Column already exists
+}
 // Migration: optional email on tenders — must run AFTER the DDL so a
 // fresh database (where tenders does not exist yet) gets the column
 // too; running it before swallowed the "no such table" error and the
@@ -598,8 +602,9 @@ try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN bastion_building_id INTEGER
 // no other system hunts, fetches, or holds a 'first' seed), and
 // this row is the hold's own ledger: whether a run is underway,
 // how many waves the ladder has banked, when the next wave lands,
-// and whether the level-3 newborn claim has ever been recorded.
-// One row per Tender, keyed by owner.
+// and whether the level-3 newborn claim has ever been recorded
+// (struck 2026-10-19 — the reward columns below carry the hold's
+// gift now). One row per Tender, keyed by owner.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS first_seed_events (
   owner_key TEXT PRIMARY KEY,
   seed_id INTEGER NOT NULL,
@@ -611,6 +616,15 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS first_seed_events (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );`);
+// The third rising's reward (Nigel, 2026-10-19): the level-3
+// newborn claim that once rode this ledger is struck (see
+// actions.ts) — in its place the event lays up ONE pending
+// reward, a single attunement point of a random element,
+// gathered by hand. reward_element NULL = none granted yet;
+// reward_claimed_at NULL while it waits. newborn_claimed_at
+// stays in the table, unwritten, for the rows history made.
+try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN reward_element TEXT"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN reward_claimed_at INTEGER"); } catch { /* exists */ }
 
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
