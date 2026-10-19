@@ -159,6 +159,22 @@ export function defaultGrimoire(): GrimoireState {
     forms: { unaligned: "Heal", tide: "Heal", sky: "Heal", stone: "Heal", root: "Heal", fire: "Heal" },
     builtin: true,
   });
+  // THE CASTING LAW (Nigel, 2026-10-19): class selection means
+  // something. Each tender class owns a school of spells —
+  // Warden the Ward, Runewright the Rune, Binder the Binding
+  // (the Spell school stands unclassed, neutral to all). A cast
+  // made IN the caster's school takes +2 on its attack rolls
+  // and power rolls, the bonus growing with tender level (+1 at
+  // Lv 3, 6, 9 — the Keeper's ladder, awaiting ratification);
+  // a CROSS-class spell or rune cast takes -3. And every spell
+  // and rune cast now ROLLS for its standing: d20 + that
+  // modifier against the spell's CASTING DC, which is the
+  // spell's LEVEL + 10. A spell's level lives in its numbers
+  // (level, defaulting to 1) and is worked in the workshop like
+  // every other number on its page. On a failed roll the Keeper's
+  // present call — awaiting the Ancient One's word — is that the
+  // energy is spent and the working unravels; abilities (like
+  // Attune) are not casts and roll no die.
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
@@ -181,7 +197,7 @@ export function defaultGrimoire(): GrimoireState {
     glyphId: null,
     cost: 3,
     blurb: "A grove planted in the Binding school: allies standing in its root-glow — Root aspect art laid transparent on the ground, shifting and fading — mend passively, a little at a time. Unharmed, it seeds sapling groves on neighboring ground, each spreading the glow. Leveling it deepens the heal and widens the spread.",
-    numbers: { healPerBreath: 1, radiusHexes: 1, saplingCap: 2 },
+    numbers: { healPerBreath: 1, radiusHexes: 1, saplingCap: 2, level: 1 },
     forms: { unaligned: "The Springleaf", tide: "Tide Springleaf", sky: "Sky Springleaf", stone: "Stone Springleaf", root: "Root Springleaf", fire: "Fire Springleaf" },
     builtin: true,
   });
