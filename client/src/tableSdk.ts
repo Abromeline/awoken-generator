@@ -36,34 +36,57 @@ export function knockEarly(): TableBoot | null {
       s.handshake();
     }
   } catch {}
-  reknockOnHello(sdk);
-  w[SLOT] = { sdk, clientId: hostId, ready: sdk.ready() };
+  const ready = sdk.ready();
+  reknockOnHello(sdk, ready);
+  w[SLOT] = { sdk, clientId: hostId, ready };
   return w[SLOT]!;
 }
 
-// THE SECOND KNOCK (2026-10-18): a stuck launch's door record
-// showed Discord's parent GREETING this frame — an op-3 HELLO
-// from discord.com — while our single knock, sent at construction,
-// never drew the READY that ends the knocking step. Our knock can
-// race ahead of the parent's ear; the greeting proves the
-// doorkeeper is listening NOW. So: when the greeting is heard,
-// knock once more. Harmless when the first knock landed (ready
-// resolves on READY either way); decisive when it didn't.
-export function reknockOnHello(sdk: DiscordSDK): void {
+// THE SECOND KNOCK (2026-10-18, refined the same night): a stuck
+// launch's door record showed Discord's parent GREETING this
+// frame — an op-3 HELLO from discord.com — while our knock, sent
+// at construction, never drew the READY that ends the knocking
+// step. The knock can race ahead of the parent's ear, so the
+// greeting earns a second knock. But the first refinement taught
+// its own lesson the same night: the door then OPENED (HELLO,
+// then FRAME READY DISPATCH in the record — the knocking step
+// passed for the first time) and the parent then sent CLOSE and
+// the authorize step hung in a dead pipe. A duplicate handshake
+// landing mid-session is the likely poison: when the first knock
+// HAD landed, the greeting is merely step one of its answer, and
+// knocking again is a stranger barging in. So the second knock
+// now waits a grace beat: if READY has not answered the greeting
+// within it, the first knock was truly missed, and only then do
+// we knock again. The moment ready settles, the listener dies.
+export function reknockOnHello(sdk: DiscordSDK, ready: Promise<void>): void {
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const off = () => {
+    window.removeEventListener("message", onMsg);
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
   const onMsg = (ev: MessageEvent) => {
     try {
+      if (settled || timer) return;
       const d: unknown = ev.data;
       if (!Array.isArray(d) || d[0] !== 3) return;
       if (!/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com$/.test(ev.origin)) return;
-      window.removeEventListener("message", onMsg);
-      const s = sdk as unknown as { sourceOrigin?: string; handshake?: () => void };
-      if (s.sourceOrigin && !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com/.test(s.sourceOrigin)) {
-        s.sourceOrigin = "https://discord.com";
-      }
-      if (typeof s.handshake === "function") s.handshake();
+      timer = setTimeout(() => {
+        timer = null;
+        if (settled) return;
+        off();
+        try {
+          const s = sdk as unknown as { sourceOrigin?: string; handshake?: () => void };
+          if (s.sourceOrigin && !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com/.test(s.sourceOrigin)) {
+            s.sourceOrigin = "https://discord.com";
+          }
+          if (typeof s.handshake === "function") s.handshake();
+        } catch {}
+      }, 1200);
     } catch {}
   };
   window.addEventListener("message", onMsg);
+  ready.then(() => { settled = true; off(); }, () => { settled = true; off(); });
 }
 
 export function takeTableBoot(): TableBoot | null {

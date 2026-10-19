@@ -660,8 +660,9 @@ export default function Table() {
               s.handshake();
             }
           } catch {}
-          reknockOnHello(sdk);
-          await sdk.ready();
+          const readyP = sdk.ready();
+          reknockOnHello(sdk, readyP);
+          await readyP;
         }
         setBootStep("Asking Discord your name…");
         const { code } = await sdk.commands.authorize({
