@@ -79,9 +79,20 @@ export interface TenderProgressView {
    *  bow chosen with the class — null until the choosing's
    *  second gift is taken. */
   weaponKey: string | null;
+  /** THE ARSENAL (Nigel, 2026-10-19): all four weapons, each
+   *  leveled and attuned separately; weaponKey above is the one
+   *  in hand. Pools ride along so the attune pour shows honest
+   *  numbers (the Tender's aspect_attunement balances). */
+  arsenal: { key: string; level: number; xp: number; element: string | null; depth: number }[];
+  pools: Record<string, number>;
 }
 
-function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number; weaponKey?: string | null }): TenderProgressView {
+export const ARSENAL_KEYS = ["swordshield", "sword", "spear", "arrow"];
+export function defaultArsenal() {
+  return ARSENAL_KEYS.map((key) => ({ key, level: 1, xp: 0, element: null as string | null, depth: 0 }));
+}
+
+function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number; weaponKey?: string | null }, extra?: { arsenal: TenderProgressView["arsenal"]; pools: Record<string, number> }): TenderProgressView {
   const level = levelForExp(totalExp);
   const floor = TENDER_LEVEL_THRESHOLDS[level - 1] ?? 0;
   const next = TENDER_LEVEL_THRESHOLDS[level] ?? null;
@@ -99,6 +110,8 @@ function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string 
     classRiteAvailable: !!cls?.classKey && !cls.classFreeRiteUsed,
     reclassTokens: cls?.reclassTokens ?? 0,
     weaponKey: cls?.weaponKey ?? null,
+    arsenal: extra?.arsenal ?? defaultArsenal(),
+    pools: extra?.pools ?? {},
   };
 }
 
@@ -117,7 +130,19 @@ function withHeart(ownerKey: string, v: TenderProgressView): TenderProgressView 
 export async function getTenderProgress(ownerKey: string): Promise<TenderProgressView> {
   const [row] = await db.select().from(schema.tenderProgress)
     .where(eq(schema.tenderProgress.ownerKey, ownerKey)).limit(1);
-  if (row) return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes, { classKey: (row as any).classKey ?? null, classFreeRiteUsed: (row as any).classFreeRiteUsed ?? 0, reclassTokens: (row as any).reclassTokens ?? 0, weaponKey: (row as any).weaponKey ?? null }));
+  if (row) {
+    const wrows = await db.select().from(schema.tenderWeapons)
+      .where(eq(schema.tenderWeapons.ownerKey, ownerKey));
+    const arsenal = defaultArsenal().map((d) => {
+      const r = wrows.find((w) => w.weaponKey === d.key);
+      return r ? { key: d.key, level: r.level, xp: r.xp, element: r.attunementElement ?? null, depth: r.attunementDepth } : d;
+    });
+    const prows = await db.select().from(schema.aspectAttunement)
+      .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
+    const pools: Record<string, number> = {};
+    for (const pr of prows) pools[pr.element] = pr.points;
+    return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes, { classKey: (row as any).classKey ?? null, classFreeRiteUsed: (row as any).classFreeRiteUsed ?? 0, reclassTokens: (row as any).reclassTokens ?? 0, weaponKey: (row as any).weaponKey ?? null }, { arsenal, pools }));
+  }
   // First reading for a Tender whose waking predates the
   // ledger (2026-10-16): their standing collection is the
   // record of their wakes — seed the ledger from it, so

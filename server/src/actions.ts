@@ -9450,6 +9450,63 @@ export const handlers = {
     return { ok: true as const, weaponKey: want, via, progress: await getTenderProgress(ownerKey) };
   },
 
+  /** WIELD (Nigel, 2026-10-19 — the Arsenal law): weapons are
+   *  gear, not vows. Any classed Tender owns all four and may
+   *  take any of them in hand, freely, as often as they like;
+   *  tender_progress.weapon_key is only the pointer to the one
+   *  in hand. (chooseWeapon above remains the choosing's first
+   *  grant.) */
+  async wieldWeapon(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      weaponKey: z.enum(["swordshield", "sword", "spear", "arrow"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name one of the four: Sword & Shield, Sword, Spear, or Arrow.");
+    const ownerKey = ownerKeyFor(ctx);
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) badRequest("The arsenal opens with your class — the choosing has not opened for you yet.");
+    sqlite.prepare("UPDATE tender_progress SET weapon_key = ? WHERE owner_key = ?")
+      .run(parsed.data.weaponKey, ownerKey);
+    return { ok: true as const, weaponKey: parsed.data.weaponKey, progress: await getTenderProgress(ownerKey) };
+  },
+
+  /** ATTUNE A WEAPON (Nigel, 2026-10-19 + the Powering law):
+   *  deepen one weapon's elemental attunement by pouring the
+   *  Tender's own aspect points into it — the raise FROM depth
+   *  D costs D+1 points of that element, cap IV. A weapon holds
+   *  ONE element: pouring a different element starts its
+   *  attunement over (depth resets), and the pour is refused
+   *  whole if the pool cannot pay — nothing is half-spent. */
+  async attuneWeapon(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      weaponKey: z.enum(["swordshield", "sword", "spear", "arrow"]),
+      element: z.enum(["root", "tide", "sky", "stone", "fire"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name a weapon and one of the five elements.");
+    const ownerKey = ownerKeyFor(ctx);
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) badRequest("The arsenal opens with your class — the choosing has not opened for you yet.");
+    const { weaponKey, element } = parsed.data;
+    sqlite.prepare(`INSERT OR IGNORE INTO tender_weapons (owner_key, weapon_key) VALUES (?, ?)`)
+      .run(ownerKey, weaponKey);
+    const wrow = sqlite.prepare("SELECT attunement_element, attunement_depth FROM tender_weapons WHERE owner_key = ? AND weapon_key = ?")
+      .get(ownerKey, weaponKey) as { attunement_element: string | null; attunement_depth: number };
+    const switching = wrow.attunement_element !== null && wrow.attunement_element !== element;
+    const fromDepth = switching ? 0 : wrow.attunement_depth;
+    if (fromDepth >= 4) badRequest("That attunement is already at its deepest (IV).");
+    const cost = fromDepth + 1;
+    const prow = sqlite.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = ?")
+      .get(ownerKey, element) as { points: number } | undefined;
+    const have = prow?.points ?? 0;
+    if (have < cost) badRequest(`The pour needs ${cost} ${element} point${cost === 1 ? "" : "s"} — your pool holds ${have}. Nothing was spent.`);
+    sqlite.prepare("UPDATE aspect_attunement SET points = points - ? WHERE owner_key = ? AND element = ?")
+      .run(cost, ownerKey, element);
+    sqlite.prepare("UPDATE tender_weapons SET attunement_element = ?, attunement_depth = ? WHERE owner_key = ? AND weapon_key = ?")
+      .run(element, fromDepth + 1, ownerKey, weaponKey);
+    return { ok: true as const, weaponKey, element, depth: fromDepth + 1, cost, progress: await getTenderProgress(ownerKey) };
+  },
+
 
   async getTenderRank(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

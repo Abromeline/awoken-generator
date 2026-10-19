@@ -979,15 +979,17 @@ const SPEAR_IMG = inkCanvas(90, 150, (g) => {
 });
 const ARROW_IMG = inkCanvas(150, 110, (g) => {
   g.save(); g.translate(75, 55); g.rotate(-0.5);
-  g.strokeStyle = "#e8dcc3"; g.lineWidth = 4.4; g.lineCap = "round";
+  g.strokeStyle = "#e8dcc3"; g.lineWidth = 2.6; g.lineCap = "round";
   g.beginPath(); g.moveTo(-64, 0); g.lineTo(38, 0); g.stroke();
-  g.fillStyle = "#ffe9ad"; g.strokeStyle = "#8a6d35"; g.lineWidth = 1.6;
-  g.beginPath(); g.moveTo(70, 0); g.lineTo(40, -10); g.lineTo(46, 0); g.lineTo(40, 10); g.closePath(); g.fill(); g.stroke();
-  g.strokeStyle = "#e8dcc3"; g.lineWidth = 2.6;
-  g.beginPath(); g.moveTo(-64, 0); g.lineTo(-46, -13); g.stroke();
-  g.beginPath(); g.moveTo(-64, 0); g.lineTo(-46, 13); g.stroke();
-  g.beginPath(); g.moveTo(-52, 0); g.lineTo(-36, -11); g.stroke();
-  g.beginPath(); g.moveTo(-52, 0); g.lineTo(-36, 11); g.stroke();
+  g.fillStyle = "#ffe9ad"; g.strokeStyle = "#8a6d35"; g.lineWidth = 1.4;
+  g.beginPath(); g.moveTo(66, 0); g.lineTo(40, -8); g.lineTo(46, 0); g.lineTo(40, 8); g.closePath(); g.fill(); g.stroke();
+  // Fletching REVERSED (Nigel): the fan opens at the TAIL, as a
+  // flying arrow wears its feathers.
+  g.strokeStyle = "#e8dcc3"; g.lineWidth = 1.7;
+  g.beginPath(); g.moveTo(-42, 0); g.lineTo(-64, -12); g.stroke();
+  g.beginPath(); g.moveTo(-42, 0); g.lineTo(-64, 12); g.stroke();
+  g.beginPath(); g.moveTo(-52, 0); g.lineTo(-66, -8); g.stroke();
+  g.beginPath(); g.moveTo(-52, 0); g.lineTo(-66, 8); g.stroke();
   g.restore();
 });
 const SHIELD_IMG = inkCanvas(100, 112, (g) => {
@@ -1009,6 +1011,15 @@ const WEAPONS = {
   spear: { name: "Spear", die: 6, note: "+1 range", range: 178, cool: 1100, img: SPEAR_IMG, tipDown: false, h: 96 },
   arrow: { name: "Arrow", die: 4, note: "range 4 · it flies itself", range: 335, cool: 1300, img: ARROW_IMG, tipDown: false, h: 64, fly: true },
 };
+// THE TRACER (Nigel, 2026-10-19): a light line that fades
+// behind the flying arrow, ~0.4 of a second of memory.
+const tracer = document.createElement("canvas");
+tracer.style.cssText = "position:absolute;inset:0;pointer-events:none";
+const sizeTracer = () => { tracer.width = innerWidth; tracer.height = innerHeight; };
+sizeTracer(); addEventListener("resize", sizeTracer); fx.appendChild(tracer);
+const tctx = tracer.getContext("2d");
+const trailPts = [];
+window.__trail = trailPts;
 const W = { key: "sword", el: null, shieldEl: null, orbit: 0.6, state: "orbit",
   t0: 0, fx: 0, fy: 0, tx: 0, ty: 0, coolUntil: 0, strikes: 0, lastDmg: 0, x: 0, y: 0,
   mode: "orbit", heading: 0, pass: 0, passes: 1 };
@@ -1021,7 +1032,7 @@ function weaponLine() {
     + (W.strikes ? " · last lunge: " + W.lastDmg : "");
 }
 function setWeapon(k) {
-  W.key = k; W.state = "orbit"; W.mode = "orbit"; W.strikes = 0; W.lastDmg = 0;
+  W.key = k; W.state = "orbit"; W.mode = "orbit"; W.strikes = 0; W.lastDmg = 0; trailPts.length = 0;
   document.querySelectorAll(".wpnbtn").forEach(b => b.classList.toggle("on", b.dataset.w === k));
   if (!W.el) {
     W.el = document.createElement("img");
@@ -1133,6 +1144,17 @@ function weaponTick() {
     }
     W.el.style.left = W.x + "px"; W.el.style.top = W.y + "px";
     if (W.glowEl) { W.glowEl.style.left = W.x + "px"; W.glowEl.style.top = W.y + "px"; }
+  }
+  if (W.key === "arrow" && W.el && W.mode !== "orbit") trailPts.push({ x: W.x, y: W.y, t: now });
+  while (trailPts.length && now - trailPts[0].t > 420) trailPts.shift();
+  tctx.clearRect(0, 0, tracer.width, tracer.height);
+  if (trailPts.length > 1) {
+    tctx.lineCap = "round"; tctx.lineWidth = 1.6;
+    for (let i = 1; i < trailPts.length; i++) {
+      const p = trailPts[i], q = trailPts[i - 1], age = (now - p.t) / 420;
+      tctx.strokeStyle = "rgba(255,236,180," + (0.55 * (1 - age)).toFixed(3) + ")";
+      tctx.beginPath(); tctx.moveTo(q.x, q.y); tctx.lineTo(p.x, p.y); tctx.stroke();
+    }
   }
   requestAnimationFrame(weaponTick);
 }

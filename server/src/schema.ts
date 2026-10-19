@@ -484,6 +484,21 @@ export const tenderProgress = sqliteTable("tender_progress", {
     .$defaultFn(() => new Date()),
 });
 
+/** THE ARSENAL (Nigel, 2026-10-19): every Tender may wield any
+ *  runic weapon — each is LEVELED and ATTUNED separately, and
+ *  the difference between Tenders is which they power up, and
+ *  with which element. tender_progress.weapon_key is only the
+ *  pointer to the one in hand. Attunement depth mirrors the
+ *  aspect ladder (cap IV), poured from the Tender's own pools. */
+export const tenderWeapons = sqliteTable("tender_weapons", {
+  ownerKey: text("owner_key").notNull(),
+  weaponKey: text("weapon_key").notNull(),
+  level: integer("level").notNull().default(1),
+  xp: integer("xp").notNull().default(0),
+  attunementElement: text("attunement_element"),
+  attunementDepth: integer("attunement_depth").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.weaponKey] })]);
+
 export const tenderResources = sqliteTable("tender_resources", {
   ownerKey: text("owner_key").primaryKey(),
   energy: integer("energy").notNull().default(5),

@@ -75,7 +75,7 @@ const SPEAR_IMG = inkCanvas(90, 150, (g) => {
 const ARROW_IMG = inkCanvas(150, 110, (g) => {
   g.translate(75, 55); g.rotate(-Math.PI / 6); g.lineCap = "round";
   // The shaft, with its grain line.
-  g.strokeStyle = "#e8dcc3"; g.lineWidth = 4;
+  g.strokeStyle = "#e8dcc3"; g.lineWidth = 2.6;
   g.beginPath(); g.moveTo(-64, 0); g.lineTo(38, 0); g.stroke();
   g.strokeStyle = "rgba(60,40,10,.5)"; g.lineWidth = 1.6;
   g.beginPath(); g.moveTo(-62, 2.2); g.lineTo(36, 2.2); g.stroke();
@@ -86,10 +86,10 @@ const ARROW_IMG = inkCanvas(150, 110, (g) => {
   g.strokeStyle = "rgba(138,109,53,.8)"; g.beginPath(); g.moveTo(36, 0); g.lineTo(64, 0); g.stroke();
   // The fletching — plain cream feathers lying along the shaft,
   //  angled back toward the tail as a flying arrow wears them.
-  g.strokeStyle = "#e8dcc3"; g.lineWidth = 3;
+  g.strokeStyle = "#e8dcc3"; g.lineWidth = 1.8;
   g.beginPath(); g.moveTo(-38, 0); g.lineTo(-60, -14); g.stroke();
   g.beginPath(); g.moveTo(-38, 0); g.lineTo(-60, 14); g.stroke();
-  g.lineWidth = 2;
+  g.lineWidth = 1.4;
   g.beginPath(); g.moveTo(-46, 0); g.lineTo(-62, -9); g.stroke();
   g.beginPath(); g.moveTo(-46, 0); g.lineTo(-62, 9); g.stroke();
 });
