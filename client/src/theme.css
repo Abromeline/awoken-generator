@@ -682,7 +682,11 @@ body.defeat-flash {
 }
 .patrol-bar {
   position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-  z-index: 60; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  /* Same tier as .hex-confirm (90), for the same reason as the
+     stance picker above: the march/company/patrol orders bar sits
+     at the foot of the screen, where the bottom dock (85) and the
+     energy orb (86) otherwise paint and click over it. */
+  z-index: 90; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
   background: rgba(10,10,25,0.95); border: 2px solid #b89b5e; border-radius: 999px;
   padding: 10px 16px; max-width: 94vw;
   box-shadow: 0 4px 24px rgba(0,0,0,0.5);
@@ -1118,7 +1122,14 @@ body.defeat-flash {
 }
 
 .stance-picker-field {
-  position: absolute; z-index: 60;
+  /* Tiered with .hex-confirm (90): the picker is the surface the
+     Tender is actively pressing, so it must paint and click ABOVE
+     the bottom dock (85) and the energy orb (86). At 60 the dock's
+     full-width, pointer-events:all children covered the picker's
+     foot — where the ➤ Move button lives — whenever the chosen
+     Awokin stood on a low hex (Nigel, 2026-10-18: "the move and
+     marching orders button is hidden behind the desk"). */
+  position: absolute; z-index: 90;
   transform: translate(-50%, -120%);
   background: rgba(10,10,20,0.95); border: 1px solid #b89b5e;
   border-radius: 8px; padding: 10px 12px;
