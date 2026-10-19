@@ -4266,125 +4266,75 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </button>
             )}
             {!stanceMinimized && (<>
-            <div className="stance-picker-name">{awoken.name}</div>
-            <div className="stance-picker-stats">
-              <span title="Power">⚔ {awoken.power}</span>
-              <span title="Toughness">🛡 {awoken.toughness}</span>
-              <span title="Health">❤ {awokenHp.get(awoken.id) ?? awoken.toughness}/{awoken.toughness}</span>
-              <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
-              <span title="Experience">✦ {awoken.experience ?? 0} XP{typeof awoken.xp_into_level === "number" && typeof awoken.xp_for_next_level === "number" ? ` (${awoken.xp_into_level}/${awoken.xp_for_next_level} to Lv ${(awoken.level ?? 0) + 1})` : ""}</span>
-            </div>
-            <div className="stance-picker-elements">
-              {(() => {
-                // Elemental points: pieces = 1 pt; aspects = 1 pt per level (I/II/III).
-                // Feeds the stronger-element calc for terraforming.
-                const pts: Record<string, number> = {};
-                for (const l of (awoken.layers || [])) {
-                  const el = elementForPiece(l.name || "", (l as any).element);
-                  if (el === "neutral") continue;
-                  const w = l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
-                  pts[el] = (pts[el] ?? 0) + w;
-                }
-                return Object.entries(pts).map(([el, n]) => (
-                  <span key={el} className={`element-tag ${el}`} title={`${n} ${el} point${n === 1 ? "" : "s"}`}>
-                    {el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥"} {el} {n}
-                  </span>
-                ));
-              })()}
-            </div>
-            {/* THE RADIAL (Nigel, 2026-10-18): the pop-up shrinks to
-                a small radial — Attack, Defense, Binding as wax seals
-                fanned in a shallow smile beneath the heart (name,
-                stats, element levels above). Raise Wall, the
-                War-Grounds button, Dissipate and the feed row have
-                left this menu: walls ride the War-Grounds panel,
-                marching is a War-Grounds function, feeding lives in
-                the energy globe. Ignite keeps a conditional seal —
-                it is a Fire III working, not a stance. */}
+            {/* THE STAR CHART (Nigel's dress ruling, 2026-10-18 —
+                Panel IV of the radial dreams): astrolabe rings and
+                hairline spokes behind; the three stances as star-
+                seals in their wax colours, bound by spokes to a
+                heart that is the Smile Arc's torn-paper card — the
+                warden's name and its element levels (glyph, word,
+                numeral) written on the map-scrap. Binding's second
+                menu is a small constellation sprouting off the
+                Binding star: its taught works as dark little stars,
+                each a door into the one placeEdgeWork flow through
+                the War-Grounds panel. The bones do not change:
+                below-figure anchor, clamping, z-90, thumbs ≥40px,
+                the chosen stance lit gold. */}
             {(() => {
-              // Check if this Awoken has Fire III aspect. Judged by
-              // the aspect's own record alone — its filed element
-              // and its level — never by its name (Nigel, 2026-10-16;
-              // the name tests that stood here could crown a
-              // fire-named level-I aspect as Fire III).
-              const layers = awoken.layers || [];
-              const aspect = layers.find((l: any) => l.category === "aspect");
+              // Elemental points: pieces = 1 pt; aspects = 1 pt per
+              // level (I/II/III). Feeds the stronger-element calc for
+              // terraforming — and the heart card's element levels.
+              const elPts: Record<string, number> = {};
+              for (const l of (awoken.layers || [])) {
+                const el = elementForPiece(l.name || "", (l as any).element);
+                if (el === "neutral") continue;
+                const w = l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
+                elPts[el] = (elPts[el] ?? 0) + w;
+              }
+              const elGlyph = (el: string) => el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥";
+              const elWord = (el: string) => el.charAt(0).toUpperCase() + el.slice(1);
+              const roman = (n: number): string => {
+                if (n < 1) return "0";
+                const table: [number, string][] = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+                let out = ""; let rest = n;
+                for (const [v, s] of table) { while (rest >= v) { out += s; rest -= v; } }
+                return out;
+              };
+              // Fire III is judged by the aspect's own record alone —
+              // its filed element and its level — never by its name
+              // (Nigel, 2026-10-16). Ignite keeps its conditional
+              // seal, raised to the chart's top star.
+              const aspect = (awoken.layers || []).find((l: any) => l.category === "aspect");
               const isFireIII = !!aspect &&
                 ((aspect as any).aspectElement === "fire" || (aspect as any).element === "fire") &&
                 (aspect as any).aspectLevel === 3;
-              const seals: { key: string; glyph: string; label: string; title: string; active: boolean; cls?: string; onPick: () => void }[] = [
+              const sealDefs: { key: string; glyph: string; label: string; title: string; active: boolean; x: string; y: string; onPick: () => void }[] = [
                 {
-                  key: "attack", glyph: "⚔", label: "Attack",
+                  key: "attack", glyph: "⚔", label: "Attack", x: "23.9%", y: "28.1%",
                   title: "Focus all power on one tile. Attack an adjacent cursed tile to purify it.",
                   active: placement.stance === "attack",
                   onPick: () => { setBindingMenuOpen(false); void handleSetStance(selectedAwoken, "attack"); },
                 },
                 {
-                  key: "defense", glyph: "🛡", label: "Defense",
+                  key: "defense", glyph: "🛡", label: "Defense", x: "76.7%", y: "28.7%",
                   title: "Hold ground. Generates 1 energy. Protects your purified land.",
                   active: placement.stance === "defense",
                   onPick: () => { setBindingMenuOpen(false); void handleSetStance(selectedAwoken, "defense"); },
                 },
                 {
-                  key: "binding", glyph: "✦", label: "Binding",
+                  key: "binding", glyph: "✦", label: "Binding", x: "51.7%", y: "78.7%",
                   title: "Channel power into the land: feeds attunement and mends the wounded. Costs 2 energy. Opens this Awokin's taught runes and wards.",
                   active: placement.stance === "binding",
                   onPick: () => { void handleSetStance(selectedAwoken, "binding", { keepOpen: true }); setBindingMenuOpen(true); },
                 },
               ];
-              if (isFireIII) {
-                seals.push({
-                  key: "ignite", glyph: "🔥", label: "Ignite", cls: "ignite",
-                  title: "Ignite wildfire (13 energy). Requires Fire III aspect.",
-                  active: false,
-                  onPick: () => {
-                    setBindingMenuOpen(false);
-                    void (async () => {
-                      try {
-                        const result = await api.igniteWildfire({ awakenedId: selectedAwoken, tileId: placement.tileId });
-                        alert(`Wildfire ignited! ${result.ignitedTileIds.length} tiles burning.`);
-                        const refreshed = await api.getTerritory();
-                        setTiles(refreshed.tiles);
-                        onUpdate();
-                      } catch (e) {
-                        alert((e as Error).message || "Ignition failed");
-                      }
-                    })();
-                  },
-                });
-              }
-              const n = seals.length;
-              return (
-                <div className="stance-fan">
-                  {seals.map((s, i) => {
-                    const t = n <= 1 ? 0 : (i - (n - 1) / 2) / ((n - 1) / 2);
-                    return (
-                      <div key={s.key} className="stance-seal-wrap">
-                        <button
-                          className={`stance-seal${s.cls ? ` ${s.cls}` : ""}${s.active ? " active" : ""}`}
-                          style={{ transform: `translateY(${-Math.round(t * t * 7)}px) rotate(${Math.round(t * 9)}deg)` }}
-                          onClick={s.onPick}
-                          title={s.title}>
-                          {s.glyph}
-                        </button>
-                        <span className="stance-seal-label">{s.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-            {/* The Binding menu (Nigel, 2026-10-18): the chosen
-                Awokin's taught works, fanned from the radial. A work
-                chosen here ARMS it and opens the War-Grounds panel
-                on the warden's hex — the edge is chosen there, by
-                the panel's own flow, through the one placeEdgeWork
-                law. Nothing parallel is built. Costs are display
-                mirrors; the server is the law. */}
-            {bindingMenuOpen && (() => {
+              // The Binding constellation: the chosen Awokin's
+              // taught works from the skills ledger (steering, Nigel
+              // 2026-10-18). A work chosen here ARMS it and opens the
+              // War-Grounds panel on the warden's hex — the edge is
+              // chosen there, by the panel's own flow, through the
+              // one placeEdgeWork law. Nothing parallel is built.
+              // Costs are display mirrors; the server is the law.
               const taught = skills.filter(s => s.awakenedId === selectedAwoken).map(s => s.skill);
-              const hasWard = taught.includes("warding");
-              const hasRune = taught.includes("runeing");
               const arm = (kind: "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
                 setWgArmedWork({ kind, runeKind });
                 setBindingMenuOpen(false);
@@ -4397,27 +4347,136 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 harm: "Heavy damage, no stop — 6 wounds, doubling with each strengthening.",
                 meld: "Some of both — 3 wounds and the strike never comes.",
               };
+              const works: { key: string; glyph: string; label: string; title: string; onPick: () => void }[] = [];
+              if (taught.includes("warding")) {
+                works.push({ key: "ward", glyph: "🔷", label: "Ward · 3⚡", title: "A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15.", onPick: () => arm("ward") });
+              }
+              if (taught.includes("runeing")) {
+                for (const rk of ["snare", "harm", "meld"] as const) {
+                  works.push({ key: rk, glyph: "🔶", label: `${rk.charAt(0).toUpperCase() + rk.slice(1)} · 3⚡`, title: runeBlurbs[rk], onPick: () => arm("rune", rk) });
+                }
+              }
+              // Where each taught work hangs in the constellation,
+              // sprouting off the Binding star (Panel IV's places,
+              // the nodes enlarged to the 40px tap law; a fourth
+              // work — the meld rune beside a taught ward — hangs
+              // lowest, chained off the second star).
+              const nodeSpots = [
+                { x: "66.7%", y: "68.0%" }, { x: "77.6%", y: "72.5%" },
+                { x: "65.0%", y: "84.3%" }, { x: "84.0%", y: "88.5%" },
+              ];
               return (
-                <div className="stance-binding-menu">
-                  <div className="stance-binding-title">✦ Taught works — choose one, then choose its edge in the War-Grounds</div>
-                  {!hasWard && !hasRune && (
-                    <div className="stance-binding-none">No runes or wards taught.</div>
-                  )}
-                  {hasWard && (
-                    <button className="stance-work-btn" onClick={() => arm("ward")}
-                      title="A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15.">
-                      🔷 Ward · 3⚡
-                    </button>
-                  )}
-                  {hasRune && (["snare", "harm", "meld"] as const).map(rk => (
-                    <button key={rk} className="stance-work-btn" onClick={() => arm("rune", rk)}
-                      title={runeBlurbs[rk]}>
-                      🔶 {rk.charAt(0).toUpperCase() + rk.slice(1)} rune · 3⚡
+                <div className="stance-chart-wrap">
+                  <svg className="stance-chart" viewBox="0 0 360 356" aria-hidden="true">
+                    <circle cx="180" cy="172" r="150" fill="none" stroke="#2c3350" strokeWidth="1" />
+                    <circle cx="180" cy="172" r="120" fill="none" stroke="#232839" strokeWidth="1" />
+                    <circle cx="180" cy="172" r="86" fill="none" stroke="#1d2233" strokeWidth="1" />
+                    <g stroke="#3a4160" strokeWidth="1">
+                      <line x1="180" y1="22" x2="180" y2="36" /><line x1="180" y1="308" x2="180" y2="322" />
+                      <line x1="30" y1="172" x2="44" y2="172" /><line x1="316" y1="172" x2="330" y2="172" />
+                      <line x1="74" y1="66" x2="84" y2="76" /><line x1="276" y1="268" x2="286" y2="278" />
+                      <line x1="286" y1="66" x2="276" y2="76" /><line x1="84" y1="268" x2="74" y2="278" />
+                    </g>
+                    <g fill="#7a6530">
+                      <circle cx="302" cy="84" r="1.4" /><circle cx="324" cy="216" r="1.6" />
+                      <circle cx="50" cy="242" r="1.3" /><circle cx="240" cy="40" r="1.3" /><circle cx="116" cy="320" r="1.5" />
+                    </g>
+                    {/* Spokes bind the stars to the heart. They start
+                        beneath the card, so the card's own height can
+                        never unbind them. */}
+                    <g stroke="#c9a44a" strokeWidth="1" opacity="0.8">
+                      <line x1="180" y1="185" x2="102" y2="118" />
+                      <line x1="180" y1="185" x2="256" y2="120" />
+                      <line x1="180" y1="185" x2="184" y2="252" />
+                      {isFireIII && <line x1="180" y1="185" x2="180" y2="72" />}
+                    </g>
+                    {bindingMenuOpen && works.length > 0 && (
+                      <g stroke="#c9a44a" strokeWidth="0.8" opacity="0.75">
+                        <polyline points="204,266 240,242 279,258" fill="none" />
+                        <line x1="204" y1="270" x2="234" y2="300" />
+                        {works.length > 3 && <line x1="279" y1="258" x2="302" y2="315" />}
+                      </g>
+                    )}
+                  </svg>
+                  <div className="stance-heart">
+                    <div className="stance-heart-card">
+                      <div className="stance-heart-name">{awoken.name}</div>
+                      <div className="stance-heart-elements">
+                        {Object.entries(elPts).map(([el, n]) => (
+                          <span key={el} className="stance-element" title={`${n} ${el} point${n === 1 ? "" : "s"}`}>
+                            {elGlyph(el)} {elWord(el)} {roman(n)}
+                          </span>
+                        ))}
+                        {Object.keys(elPts).length === 0 && (
+                          <span className="stance-element">No element yet</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {sealDefs.map(s => (
+                    <button key={s.key} type="button"
+                      className={`star-seal ${s.key}${s.active ? " active" : ""}`}
+                      style={{ left: s.x, top: s.y }}
+                      onClick={s.onPick} title={s.title}>
+                      <svg className="star-seal-rays" viewBox="0 0 72 72" aria-hidden="true">
+                        <g stroke="#c9a44a" strokeWidth="1.6">
+                          <line x1="36" y1="1" x2="36" y2="9" /><line x1="36" y1="63" x2="36" y2="71" />
+                          <line x1="1" y1="36" x2="9" y2="36" /><line x1="63" y1="36" x2="71" y2="36" />
+                        </g>
+                      </svg>
+                      <span className="star-seal-glyph">{s.glyph}</span>
+                      <span className="star-seal-label">{s.label}</span>
                     </button>
                   ))}
+                  {isFireIII && (
+                    <button type="button" className="star-seal ignite"
+                      style={{ left: "50%", top: "12.4%" }}
+                      onClick={() => {
+                        setBindingMenuOpen(false);
+                        void (async () => {
+                          try {
+                            const result = await api.igniteWildfire({ awakenedId: selectedAwoken, tileId: placement.tileId });
+                            alert(`Wildfire ignited! ${result.ignitedTileIds.length} tiles burning.`);
+                            const refreshed = await api.getTerritory();
+                            setTiles(refreshed.tiles);
+                            onUpdate();
+                          } catch (e) {
+                            alert((e as Error).message || "Ignition failed");
+                          }
+                        })();
+                      }}
+                      title="Ignite wildfire (13 energy). Requires Fire III aspect.">
+                      <svg className="star-seal-rays" viewBox="0 0 72 72" aria-hidden="true">
+                        <g stroke="#c9a44a" strokeWidth="1.6">
+                          <line x1="36" y1="1" x2="36" y2="9" /><line x1="36" y1="63" x2="36" y2="71" />
+                          <line x1="1" y1="36" x2="9" y2="36" /><line x1="63" y1="36" x2="71" y2="36" />
+                        </g>
+                      </svg>
+                      <span className="star-seal-glyph">🔥</span>
+                      <span className="star-seal-label">Ignite</span>
+                    </button>
+                  )}
+                  {bindingMenuOpen && works.map((w, i) => (
+                    <button key={w.key} type="button" className="stance-node"
+                      style={{ left: nodeSpots[i].x, top: nodeSpots[i].y }}
+                      onClick={w.onPick} title={`${w.title} Choose it, then choose its edge in the War-Grounds.`}>
+                      <span className="stance-node-glyph">{w.glyph}</span>
+                      <span className="stance-node-label">{w.label}</span>
+                    </button>
+                  ))}
+                  {bindingMenuOpen && works.length === 0 && (
+                    <div className="stance-binding-none">No runes or wards taught.</div>
+                  )}
                 </div>
               );
             })()}
+            <div className="stance-picker-stats">
+              <span title="Power">⚔ {awoken.power}</span>
+              <span title="Toughness">🛡 {awoken.toughness}</span>
+              <span title="Health">❤ {awokenHp.get(awoken.id) ?? awoken.toughness}/{awoken.toughness}</span>
+              <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
+              <span title="Experience">✦ {awoken.experience ?? 0} XP{typeof awoken.xp_into_level === "number" && typeof awoken.xp_for_next_level === "number" ? ` (${awoken.xp_into_level}/${awoken.xp_for_next_level} to Lv ${(awoken.level ?? 0) + 1})` : ""}</span>
+            </div>
             {/* Feeding lives in the energy globe now (Nigel,
                 2026-10-18) — the globe feeds the chosen warden,
                 10⚡ at a time. The Hall keeps its own feeding: a

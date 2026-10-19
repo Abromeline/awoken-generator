@@ -1148,10 +1148,13 @@ body.defeat-flash {
      rather than ever flipping it behind the hand. */
   position: absolute; z-index: 90;
   transform: translate(-50%, 0);
-  background: rgba(10,10,20,0.95); border: 1px solid #b89b5e;
-  border-radius: 8px; padding: 10px 12px;
+  /* The Star Chart dress (Nigel, 2026-10-18) carries no card of
+     its own — the chart floats on the map; its rings, spokes and
+     torn-paper heart give it what frame it needs. */
+  background: transparent; border: none; box-shadow: none;
+  border-radius: 0; padding: 2px;
   pointer-events: all;
-  min-width: 180px;
+  min-width: 0;
 }
 .stance-picker-field.minimized {
   min-width: 0; padding: 4px;
@@ -1164,59 +1167,130 @@ body.defeat-flash {
   font-size: 16px; cursor: pointer; color: #fff;
   display: flex; align-items: center; justify-content: center;
 }
-.stance-picker-field .stance-picker-name {
-  color: #ffd700; font-family: Georgia, serif; font-size: 13px;
-  margin-bottom: 8px; text-align: center;
+/* THE STAR CHART (Nigel's dress ruling, 2026-10-18 — Panel IV of
+   the radial dreams, with the Smile Arc's heart): astrolabe rings
+   and hairline spokes on a 360×356 stage; the heart a torn-paper
+   card carrying the name and the element levels; the stances
+   star-seals in their wax colours (crimson Attack, teal Defence,
+   violet Binding); Binding's taught works a small constellation
+   of dark stars sprouting off the Binding star. */
+.stance-chart-wrap {
+  position: relative;
+  width: min(320px, 84vw);
+  aspect-ratio: 360 / 356;
+  container-type: inline-size;
 }
-/* THE RADIAL (Nigel, 2026-10-18): the picker's seals fan in a
-   shallow smile beneath the heart — round wax, 44px thumbs, the
-   chosen stance lit gold. The arc itself (each seal's lift and
-   tilt) is set inline from the seal's place in the fan. */
-.stance-picker-field .stance-fan {
-  display: flex; justify-content: center; align-items: flex-start;
-  gap: 12px; margin-top: 10px;
+.stance-chart-wrap::before {
+  /* The chart's air: a soft dark well so the hairlines read over
+     bright land — the rings themselves stay at the panel's faint
+     weights rather than brightening to shout over the map. */
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle, rgba(8,10,16,0.55) 0%, rgba(8,10,16,0.30) 55%, rgba(8,10,16,0) 72%);
 }
-.stance-seal-wrap {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
+.stance-chart { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* The heart: the Smile's torn-paper card. The gold rim is a twin
+   clip — the wrapper wears the torn polygon in gold, the card
+   inside it in dark map-paper, so the edge reads as a gilt tear. */
+.stance-heart {
+  position: absolute; left: 50%; top: 52%;
+  transform: translate(-50%, -50%);
+  width: 47%;
+  background: #7a6530;
+  clip-path: polygon(2.5% 3.4%, 97.5% 0%, 100% 86.2%, 91.1% 100%, 5.1% 98.3%, 0% 48.3%);
+  padding: 1.5px;
+  filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));
 }
-.stance-seal {
-  width: 44px; height: 44px; border-radius: 50%;
-  border: 2px solid #7a5c2e;
-  background: radial-gradient(circle at 35% 30%, #4a3b22, #241a0c 78%);
-  color: #e8d5a8; font-size: 19px; line-height: 1; cursor: pointer;
+.stance-heart-card {
+  clip-path: polygon(2.5% 3.4%, 97.5% 0%, 100% 86.2%, 91.1% 100%, 5.1% 98.3%, 0% 48.3%);
+  background: linear-gradient(rgba(26,20,11,0.90), rgba(26,20,11,0.90)), url("./assets/paper-map.jpg") center / cover;
+  padding: 8px 10px 9px;
+  text-align: center;
+}
+.stance-heart-name {
+  color: #e8c877; font-family: Georgia, serif;
+  font-size: clamp(10px, 4cqw, 13px);
+  letter-spacing: 0.18em; text-transform: uppercase;
+  border-top: 1px solid rgba(122,101,48,0.6);
+  padding-top: 4px;
+}
+.stance-heart-elements {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 1px 10px; margin-top: 3px;
+}
+.stance-element {
+  color: #d8c49a; font-size: clamp(9px, 3.2cqw, 11px); white-space: nowrap;
+}
+/* The star-seals: wax discs in their stance colours, gold rays at
+   the four compass points, a dashed gold inner ring — Panel IV's
+   stars, held to the tap law: 15.5% of the stage is ≈46px at full
+   width and ≈40px on a small phone. */
+.star-seal {
+  position: absolute; width: 15.5%; aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%; border: 2px solid #2c060e;
+  color: #e8c877; cursor: pointer; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.5), inset 0 0 9px rgba(0,0,0,0.65);
-  padding: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.55), inset 0 0 9px rgba(0,0,0,0.6);
 }
-.stance-seal:hover { border-color: #ffd700; }
-.stance-seal.active {
-  border-color: #ffd700; color: #ffd700;
-  box-shadow: 0 0 14px rgba(255,215,0,0.55), inset 0 0 9px rgba(0,0,0,0.6);
+.star-seal::after {
+  content: ""; position: absolute; inset: 11%; border-radius: 50%;
+  border: 1px dashed rgba(232,200,119,0.65); pointer-events: none;
 }
-.stance-seal.ignite {
-  background: linear-gradient(135deg, #ff6600, #ff3300);
-  border-color: #ffb37a; color: #fff;
+.star-seal.attack { background: radial-gradient(circle at 35% 30%, #7a1626, #5c1120 55%, #3d0a16); border-color: #2c060e; }
+.star-seal.defense { background: radial-gradient(circle at 35% 30%, #14655c, #0f4a44 55%, #082e2a); border-color: #04100e; }
+.star-seal.binding { background: radial-gradient(circle at 35% 30%, #4a3273, #37255c 55%, #241743); border-color: #170f2b; }
+.star-seal.ignite { background: radial-gradient(circle at 35% 30%, #8a3a10, #6e2405 55%, #471a03); border-color: #2a1202; color: #ffd9a8; }
+.star-seal:hover { border-color: #e8c877; }
+.star-seal.active {
+  border-color: #e8c877;
+  box-shadow: 0 0 0 5px rgba(201,164,74,0.30), 0 0 16px rgba(232,200,119,0.5), inset 0 0 9px rgba(0,0,0,0.55);
 }
-.stance-seal.ignite:hover { background: linear-gradient(135deg, #ff7722, #ff4422); }
-.stance-seal-label {
-  font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase;
-  color: #cbbd93;
+.star-seal-rays {
+  position: absolute; left: 50%; top: 50%; width: 138%;
+  transform: translate(-50%, -50%); pointer-events: none;
 }
-/* The Binding menu: the chosen Awokin's taught works, fanned from
-   the radial in the same shell — small, like the radial itself. */
-.stance-binding-menu {
-  margin-top: 10px; padding-top: 8px;
-  border-top: 1px solid rgba(184,155,94,0.4);
-  display: flex; flex-direction: column; gap: 6px;
+.star-seal-glyph { font-size: clamp(15px, 6.2cqw, 21px); line-height: 1; }
+.star-seal-label {
+  position: absolute; top: calc(100% + 3px); left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(8px, 2.9cqw, 9.5px); letter-spacing: 0.14em;
+  text-transform: uppercase; color: #d8c49a; white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
 }
-.stance-binding-title { font-size: 11px; color: #cbbd93; text-align: center; }
-.stance-binding-none { font-size: 12px; color: #999; text-align: center; font-style: italic; }
-.stance-work-btn {
-  background: rgba(30,30,50,0.9); border: 1px solid #666;
-  color: #ddd; padding: 6px 10px; border-radius: 4px;
-  font-size: 12px; cursor: pointer; text-align: left;
+.star-seal.active .star-seal-label { color: #f4dd96; }
+/* Binding's constellation: taught works as small dark stars off
+   the Binding star — 40px tap discs at any stage width. */
+.stance-node {
+  position: absolute; width: 40px; height: 40px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%; background: #12151d;
+  border: 1.5px solid #7a6530; color: #e8c877;
+  cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
 }
-.stance-work-btn:hover { background: rgba(50,50,80,0.9); border-color: #ffd700; }
+.stance-node:hover { border-color: #e8c877; }
+.stance-node-glyph { font-size: 15px; line-height: 1; }
+.stance-node-label {
+  position: absolute; top: calc(100% + 2px); left: 50%;
+  transform: translateX(-50%);
+  font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #9a8f74; white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+.stance-chart-wrap .stance-binding-none {
+  position: absolute; left: 69%; top: 78%;
+  transform: translate(-50%, -50%); width: 36%;
+  font-size: 11px; color: #9a8f74; text-align: center; font-style: italic;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+/* The close rides the chart's top-right corner, now the shell
+   has no card edge of its own. */
+.stance-picker-field .stance-close {
+  position: absolute; top: -2px; right: -2px; z-index: 5;
+  margin-left: 0; color: #cbbd93;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
 /* The Dream Shroom wedge picker in the builder popup (Nigel,
    2026-10-18): the hex in its six flat-edged wedges; a planted
    wedge wears its shroom's stage art, a free one invites. */
@@ -1393,12 +1467,13 @@ body.defeat-flash {
 
 /* Stance picker */
 .stance-picker{position:relative;background:rgba(10,10,10,0.95);border:1px solid #b89b5e;border-radius:8px;padding:10px 12px;margin:0 0 10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.stance-picker-name{font-weight:bold;color:#e8d5a8;font-size:14px}
+/* (The picker's name moved into the Star Chart's torn-paper
+   heart — .stance-heart-name — with the dress, Nigel 2026-10-18.) */
 .stance-buttons{display:flex;gap:8px}
 .stance-btn{background:#1a1a1a;border:1px solid #444;color:#ccc;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer}
 .stance-btn.active{background:#2a2418;border-color:#b89b5e;color:#ffd700}
 .stance-btn:hover{border-color:#b89b5e}
-.attack-hint{color:#ff8888;font-size:12px;font-style:italic}
+.attack-hint{color:#ff8888;font-size:12px;font-style:italic;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,0.9)}
 .stance-close{background:none;border:none;color:#b8b8b8;font-size:16px;cursor:pointer;margin-left:auto}
 
 /* Trial title */
@@ -1983,10 +2058,12 @@ body.defeat-flash {
 .tc-delete:hover{background:#ff2222}
 .trading-card{position:relative}
 
-.stance-picker-stats{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 10px;padding:6px 10px;background:rgba(0,0,0,0.3);border-radius:6px;font-size:12px}
+.stance-picker-stats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:fit-content;max-width:100%;margin:4px auto 2px;padding:6px 10px;background:rgba(8,10,16,0.55);border-radius:6px;font-size:12px;color:#d8c49a;text-shadow:0 1px 3px rgba(0,0,0,0.9)}
 .stance-picker-stats span{white-space:nowrap}
 
-.stance-picker-elements{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+/* (The picker's element tags moved into the Star Chart's heart —
+   .stance-element — with the dress, Nigel 2026-10-18. The
+   .element-tag colours below remain for other surfaces.) */
 .element-tag{font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);text-transform:capitalize}
 .element-tag.tide{border-color:var(--elem-tide)}
 .element-tag.sky{border-color:var(--elem-sky)}
