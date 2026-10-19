@@ -4736,6 +4736,86 @@ export const handlers = {
     })) };
   },
 
+  /** THE TENDER'S STAND (Nigel, 2026-10-19 — one field system,
+   *  two grounds): where the Tender's body stands in his homeland.
+   *  Only a CLASSED Tender has a stand at all (the Class Gate: no
+   *  choosing, no figure). The anchor is the stored hex, or — the
+   *  first time — the bastion rule: his bastion's tile, else the
+   *  heart (0,0) once it is pure, else his first purified hex. A
+   *  defaulted anchor is written down so it never wanders. */
+  async tenderStand(ownerKey: string, tiles: any[]): Promise<{ tileId: number; classKey: string } | null> {
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) return null;
+    const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
+    const row = sqlite.prepare("SELECT tender_tile_id AS tileId FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { tileId: number | null } | undefined;
+    let tileId = row?.tileId ?? null;
+    if (tileId != null && !byId.has(tileId)) tileId = null;
+    if (tileId == null) {
+      let chosen: number | null = null;
+      try {
+        const b = sqlite.prepare("SELECT b.tile_id AS tileId FROM star_seeds s JOIN territory_buildings b ON b.id = s.bastion_building_id WHERE s.owner_key = ? AND s.bastion_building_id IS NOT NULL LIMIT 1").get(ownerKey) as { tileId: number } | undefined;
+        if (b && byId.has(b.tileId)) chosen = b.tileId;
+      } catch { /* no bastion yet — the chain walks on */ }
+      if (chosen == null) {
+        const heart = tiles.find((t: any) => t.q === 0 && t.r === 0 && !t.cursed);
+        if (heart) chosen = heart.id;
+      }
+      if (chosen == null) {
+        const pure = tiles.filter((t: any) => !t.cursed)
+          .sort((a: any, b: any) => (Math.abs(a.q) + Math.abs(a.r)) - (Math.abs(b.q) + Math.abs(b.r)) || a.id - b.id);
+        if (pure[0]) chosen = pure[0].id;
+      }
+      if (chosen == null) return null;
+      tileId = chosen;
+      sqlite.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 0, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET tender_tile_id = excluded.tender_tile_id")
+        .run(ownerKey, Date.now());
+      sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(tileId, ownerKey);
+    }
+    return { tileId, classKey: progress.classKey };
+  },
+
+  /** THE MUSTER (the Table's follow law, come home): followers
+   *  standing beyond the Tender's ring are given a free march to
+   *  the nearest open ring hex, at their own gait — the homeland
+   *  twin of the Table's musterFollowers, settled lazily on read
+   *  exactly where marches already settle. */
+  async settleTenderMuster(ownerKey: string, tiles: any[], anchorTileId: number): Promise<void> {
+    const anchor = tiles.find((t: any) => t.id === anchorTileId);
+    if (!anchor) return;
+    const dist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const followers = (placements as any[]).filter(p => p.follow === 1 && !p.marchPath);
+    if (!followers.length) return;
+    const slots = tiles.filter((t: any) => !t.cursed && dist(t, anchor) <= 1)
+      .sort((a: any, b: any) => dist(a, anchor) - dist(b, anchor) || a.id - b.id);
+    if (!slots.length) return;
+    const loadOf = (tileId: number) => (placements as any[]).reduce((n, p) => {
+      if (p.tileId === tileId && !p.marchPath) return n + 1;
+      if (p.marchPath) { try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r[r.length - 1] === tileId) return n + 1; } catch { /* broken roads hold no room */ } }
+      return n;
+    }, 0);
+    const now = Date.now();
+    for (const p of followers) {
+      const home = tiles.find((t: any) => t.id === p.tileId);
+      if (!home || dist(home, anchor) <= 1) continue;
+      for (const slot of slots) {
+        if (loadOf(slot.id) >= 4) continue;
+        const road = findRoad(tiles as any, p.tileId, slot.id);
+        if (!road || road.length < 2) continue;
+        const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, p.awakenedId)).limit(1);
+        const aw = awRows[0] as any;
+        let layers: { element?: string | null }[] = [];
+        try { layers = JSON.parse(aw?.compositionJson ?? "[]"); } catch { layers = []; }
+        const secPerHex = marchSecondsPerHexFor(layers, aw?.experience ?? 0);
+        await db.update(schema.fieldPlacements)
+          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round((road.length - 1) * secPerHex * 1000) })
+          .where(eq(schema.fieldPlacements.id, p.id));
+        p.marchPath = JSON.stringify(road);
+        break;
+      }
+    }
+  },
+
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // Marches land before the territory is read (War-Ground, 2026-10-16).
@@ -4782,8 +4862,12 @@ export const handlers = {
       await db.update(schema.territoryTiles).set(clean as any).where(eq(schema.territoryTiles.id, t.id));
       Object.assign(t, clean);
     }
+    // The Tender's body settles before the field is read: his
+    // stand is reckoned, and his followers muster to his ring.
+    const tenderStand = await this.tenderStand(ownerKey, tiles as any[]);
+    if (tenderStand) await this.settleTenderMuster(ownerKey, tiles as any[], tenderStand.tileId);
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
-    
+
     // Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
     // Binding Circle (real mechanic): binders on or beside an active circle
     // pay 1/hour instead — "Binding costs 1."
@@ -5291,7 +5375,39 @@ export const handlers = {
       .all(ownerKey);
     const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges, pour, max_hp AS maxHp FROM territory_workings WHERE owner_key = ? ORDER BY id")
       .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
-    return { tiles, placements, buildings, mood, walls, skills, workings };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderStand };
+  },
+
+  /** The Tender walks his own land: the client reports the hex
+   *  his body has entered, and the anchor follows. Any hex of his
+   *  own map may hold him — the curse is the company's peril, and
+   *  his falls are reckoned by other laws. */
+  async setTenderTile(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ tileId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("A hex is needed.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    if (!tiles.some((t: any) => t.id === parsed.data.tileId)) badRequest("That hex is not yours to stand on.");
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) badRequest("A Tender shows on his land only once he has chosen a class.");
+    sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(parsed.data.tileId, ownerKey);
+    return { ok: true, tileId: parsed.data.tileId };
+  },
+
+  /** Follow the Tender (the homeland twin of the Table's order):
+   *  a following Awokin musters to the Tender's ring whenever the
+   *  field is read. The order is the Tender's to give and lift. */
+  async setPlacementFollow(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ placementId: z.number().int().positive(), follow: z.boolean() }).safeParse(args);
+    if (!parsed.success) badRequest("A placement and its order are needed.");
+    const own = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.id, parsed.data.placementId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    if (!own[0]) badRequest("That Awokin does not stand on your field.");
+    await db.update(schema.fieldPlacements).set({ follow: parsed.data.follow ? 1 : 0 }).where(eq(schema.fieldPlacements.id, parsed.data.placementId));
+    return { ok: true, follow: parsed.data.follow };
   },
 
   async deployAwoken(args: unknown, ctx?: ActionContext) {

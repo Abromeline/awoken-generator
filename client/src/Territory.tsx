@@ -9,6 +9,7 @@ import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
 
 import FieldAwoken from "./FieldAwoken";
+import { TENDER_CLASSES, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
@@ -134,6 +135,18 @@ export const BUILDING_BASE_SIZE = 36;
 function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
   const { u, v } = isoBasis(size);
   return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
+}
+
+/** A tile's screen center for a given camera — the SAME math as
+ *  renderGrid's tilePos (origin 250,170, pan, tray lift), factored
+ *  out so the Tender's glide engine, which lives outside renderGrid,
+ *  reads the land through the one geometry and can never drift from
+ *  what is drawn. */
+function tileCenterScreen(t: { q: number; r: number; height?: number }, pan: { x: number; y: number }, zoom: number): { cx: number; cy: number } {
+  const size = HEX_BASE_SIZE * zoom;
+  const TRAY_LIFT = Math.round(size * 0.2);
+  const { px, py } = isoOffset(t.q, t.r, size);
+  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT };
 }
 
 /** The painted face, measured from the tile art (source px, relative
@@ -458,6 +471,32 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   }, []);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [zoom, setZoom] = useState(1);
+  // ── THE TENDER'S BODY ON THE HOMELAND (Nigel, 2026-10-19) ──────
+  // The server holds the ANCHOR: the hex the Tender stands on
+  // (getTerritory's tender field — null until a class is chosen;
+  // the Class Gate: no choosing, no figure). The GLIDE between
+  // anchors is local and presentational, as every march on this
+  // map is: the figure walks freely in screen space by key or by
+  // tap, and the hex it crosses into is reported back
+  // (setTenderTile), so the server keeps the truth of where he
+  // stands and his followers muster to that hex. The engine's
+  // clocks and mirrors live below, beside refreshTerritory.
+  const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string } | null>(null);
+  const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number } | null>(null);
+  const tenderStandRef = useRef<{ tileId: number; classKey: string } | null>(null);
+  const tenderPosRef = useRef<{ x: number; y: number } | null>(null);
+  const tenderAnchorRef = useRef<number | null>(null);
+  const tenderKeysRef = useRef<Set<string>>(new Set());
+  const tenderTargetRef = useRef<{ x: number; y: number } | null>(null);
+  const tenderFacingRef = useRef<TenderDir>("S");
+  const tenderTravelRef = useRef(0);
+  const tenderWasMovingRef = useRef(false);
+  const tenderReportRef = useRef(0);
+  const tenderRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tenderTilesRef = useRef<TerritoryTile[]>([]);
+  const tenderPanRef = useRef({ x: 0, y: 0 });
+  const tenderZoomRef = useRef(1);
+  const tenderInputBlockedRef = useRef(false);
   const [energy, setEnergy] = useState(10);
   // The energy CAP is the server's word alone (calculateMaxEnergy:
   // the doubled scale over everything owned, plus building bonuses).
@@ -1050,6 +1089,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         }
         setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []);
         setWorkings(t.workings ?? []);
+        setTenderStand(t.tender ?? null);
       } catch (e) {
         console.error("[Territory] getTerritory failed:", e);
       } finally {
@@ -1088,7 +1128,178 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTiles(refreshed.tiles); setPlacements(refreshed.placements);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
+    setTenderStand(refreshed.tender ?? null);
   };
+
+  // ── THE TENDER'S GLIDE ENGINE ─────────────────────────────────
+  // Mirror the live land, camera and input gates into refs the
+  // engine's clocks read (the state block sits beside the zoom).
+  useEffect(() => {
+    tenderTilesRef.current = tiles;
+    tenderPanRef.current = pan;
+    tenderZoomRef.current = zoom;
+    tenderStandRef.current = tenderStand;
+    tenderInputBlockedRef.current = !!(
+      castMode || moveTargeting || groupMarchUi || attackTargeting ||
+      patrolSettingFor !== null || marchUiFor !== null || battlePool.length > 0 ||
+      showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
+    );
+  });
+
+  const tenderTileCenter = (tileId: number) => {
+    const t = tenderTilesRef.current.find(t => t.id === tileId);
+    return t ? tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current) : null;
+  };
+
+  /** Report the hex under the figure's feet — the anchor follows
+   *  the body. Fire-and-forget: the server's word returns on the
+   *  next read, and the debounced refresh lets the musters his
+   *  followers owe him visibly set out. */
+  const reportTenderAnchor = () => {
+    const pos = tenderPosRef.current;
+    if (!pos || !tenderStandRef.current || tenderTilesRef.current.length === 0) return;
+    let bestId: number | null = null;
+    let bestD = Infinity;
+    for (const t of tenderTilesRef.current) {
+      const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
+      const d = Math.hypot(c.cx - pos.x, c.cy - pos.y);
+      if (d < bestD) { bestD = d; bestId = t.id; }
+    }
+    if (bestId === null || bestId === tenderAnchorRef.current) return;
+    // The reach is the lattice's own nearest-neighbour spacing: a
+    // body between its land's hexes belongs to the nearest one, and
+    // a body past the land's edge keeps its last true stand.
+    const size = HEX_BASE_SIZE * tenderZoomRef.current;
+    const e = isoOffset(1, 0, size);
+    const se = isoOffset(0, 1, size);
+    const spacing = Math.min(
+      Math.hypot(e.px, e.py), Math.hypot(se.px, se.py),
+      Math.hypot(e.px - se.px, e.py - se.py),
+    );
+    if (bestD > spacing) return;
+    tenderAnchorRef.current = bestId;
+    tenderReportRef.current = Date.now();
+    void api.setTenderTile({ tileId: bestId }).catch(() => {});
+    if (tenderRefreshTimerRef.current) clearTimeout(tenderRefreshTimerRef.current);
+    tenderRefreshTimerRef.current = setTimeout(() => { void refreshTerritory(); }, 800);
+  };
+
+  // Spawn / re-anchor: when the server's stand first appears — or
+  // changes beneath a still body — the figure takes its tile. A
+  // body mid-glide is never snapped by a read.
+  useEffect(() => {
+    if (!tenderStand) {
+      tenderPosRef.current = null;
+      tenderAnchorRef.current = null;
+      tenderTargetRef.current = null;
+      tenderKeysRef.current.clear();
+      setTenderFig(null);
+      return;
+    }
+    const midGlide = tenderKeysRef.current.size > 0 || tenderTargetRef.current !== null;
+    if (tenderPosRef.current === null || (!midGlide && tenderAnchorRef.current !== tenderStand.tileId)) {
+      const c = tenderTileCenter(tenderStand.tileId);
+      if (c) {
+        tenderPosRef.current = { x: c.cx, y: c.cy };
+        tenderAnchorRef.current = tenderStand.tileId;
+        setTenderFig({ x: c.cx, y: c.cy, dir: tenderFacingRef.current, walking: false, step: 0 });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenderStand]);
+
+  // Camera moves are deliberate: on pan or zoom the body re-anchors
+  // to the hex the server holds, and any tap-road is forgotten.
+  const tenderCamKey = `${pan.x}|${pan.y}|${zoom}`;
+  useEffect(() => {
+    if (tenderAnchorRef.current === null) return;
+    const c = tenderTileCenter(tenderAnchorRef.current);
+    if (!c) return;
+    tenderPosRef.current = { x: c.cx, y: c.cy };
+    tenderTargetRef.current = null;
+    setTenderFig(f => (f ? { ...f, x: c.cx, y: c.cy, walking: false } : f));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenderCamKey]);
+
+  // Keys: WASD and the arrows walk the body. Text fields keep
+  // their keys, and so does every armed flow — the body answers
+  // only on open ground, only when it stands on the map at all.
+  useEffect(() => {
+    const MOVE_KEYS = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
+    const isTextTarget = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return false;
+      return t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
+    };
+    const down = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (!MOVE_KEYS.has(k)) return;
+      if (isTextTarget(e) || tenderInputBlockedRef.current || !tenderStandRef.current) return;
+      e.preventDefault();
+      tenderKeysRef.current.add(k);
+      tenderTargetRef.current = null; // the hand outranks the tap
+    };
+    const up = (e: KeyboardEvent) => { tenderKeysRef.current.delete(e.key.toLowerCase()); };
+    const blur = () => tenderKeysRef.current.clear();
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+    };
+  }, []);
+
+  // The stride: a 50 ms clock while the body walks — keys held, or
+  // a tapped hex still ahead of it — at the preview's pace,
+  // ~115 px/s. Facing follows the stride; the last facing is kept
+  // at rest. Anchors are reported as hexes are crossed (~150 ms)
+  // and once more when the body comes to rest.
+  useEffect(() => {
+    const SPEED = 115;
+    const iv = setInterval(() => {
+      const pos = tenderPosRef.current;
+      if (!pos || !tenderStandRef.current) return;
+      let vx = 0, vy = 0;
+      const keys = tenderKeysRef.current;
+      if (keys.size > 0) {
+        if (keys.has("a") || keys.has("arrowleft")) vx -= 1;
+        if (keys.has("d") || keys.has("arrowright")) vx += 1;
+        if (keys.has("w") || keys.has("arrowup")) vy -= 1;
+        if (keys.has("s") || keys.has("arrowdown")) vy += 1;
+        const len = Math.hypot(vx, vy);
+        if (len > 0) { vx /= len; vy /= len; }
+      } else if (tenderTargetRef.current) {
+        const dx = tenderTargetRef.current.x - pos.x;
+        const dy = tenderTargetRef.current.y - pos.y;
+        const d = Math.hypot(dx, dy);
+        if (d <= 4) tenderTargetRef.current = null;
+        else { vx = dx / d; vy = dy / d; }
+      }
+      if (vx === 0 && vy === 0) {
+        if (tenderWasMovingRef.current) {
+          tenderWasMovingRef.current = false;
+          reportTenderAnchor();
+        }
+        setTenderFig(f => (f && f.walking ? { ...f, walking: false } : f));
+        return;
+      }
+      tenderWasMovingRef.current = true;
+      const stepLen = SPEED * 0.05;
+      pos.x += vx * stepLen;
+      pos.y += vy * stepLen;
+      tenderTravelRef.current += stepLen;
+      tenderFacingRef.current = tenderDirOf(vx, vy);
+      setTenderFig({
+        x: pos.x, y: pos.y, dir: tenderFacingRef.current, walking: true,
+        step: Math.floor(tenderTravelRef.current / 14) % 2,
+      });
+      if (Date.now() - tenderReportRef.current >= 150) reportTenderAnchor();
+    }, 50);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const refreshWorkings = async () => {
     await refreshTerritory();
@@ -1522,6 +1733,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     } else if (battlePool.length > 0) {
       if (touchMode) raiseHexConfirm("deploy", tile.id);
       else { setTargetHexId(tile.id); handleDeploy(tile.id); }
+    }
+    // A plain tap on open ground, with a classed Tender standing
+    // on it: his body glides to the tapped hex — the tap is a road
+    // for him, as the keys are. Every armed flow above claimed its
+    // own tap and returned; the trailing chain's taps are
+    // re-checked here, so a tap that reaches this line unclaimed
+    // and unarmed is his to answer. The tap's old behaviour is
+    // untouched — a plain tap never did anything else.
+    if (tenderStandRef.current && !selectedBuilding && !attackTargeting && !moveTargeting && battlePool.length === 0) {
+      const full = tiles.find(t => t.id === tile.id);
+      if (full) {
+        const c = tileCenterScreen(full, pan, zoom);
+        tenderTargetRef.current = { x: c.cx, y: c.cy };
+      }
     }
   };
 
@@ -3673,6 +3898,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         width={Math.abs(band.x1 - band.x0)} height={Math.abs(band.y1 - band.y0)}
         fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={1.2} strokeDasharray="5 4" pointerEvents="none" />
     ) : null;
+    // THE TENDER HIMSELF (Nigel, 2026-10-19): drawn last, front-most
+    // — his class figure at his gliding place, a soft shadow under
+    // his feet, and a gold ring lying on the hex the server holds
+    // as his stand. The figure's pose is the Table's own language
+    // (tenderArt: direction by stride, west mirrored about his
+    // centre), sized to stand a head above the company.
+    const tenderLayer = (() => {
+      if (!tenderStand || !tenderFig) return null;
+      const art = TENDER_CLASSES[tenderStand.classKey as TenderClassId];
+      if (!art) return null;
+      const anchorTile = tiles.find(t => t.id === (tenderAnchorRef.current ?? tenderStand.tileId));
+      const anchorC = anchorTile ? tilePos(anchorTile) : null;
+      const pose = tenderPose(art, tenderFig.dir, tenderFig.walking, tenderFig.step);
+      const h = 62 * zoom;
+      const img = (
+        <image href={pose.src} x={tenderFig.x - h / 2} y={tenderFig.y + 4 - h} width={h} height={h}
+          preserveAspectRatio="xMidYMax meet" />
+      );
+      return (
+        <g key="tender-figure" pointerEvents="none">
+          {anchorC && (
+            <ellipse cx={anchorC.cx} cy={anchorC.cy} rx={size * 0.42} ry={size * 0.2}
+              fill="rgba(255,215,0,0.07)" stroke="rgba(255,215,0,0.75)" strokeWidth={1.4} />
+          )}
+          <ellipse cx={tenderFig.x} cy={tenderFig.y + 2} rx={13 * zoom} ry={3.5 * zoom} fill="rgba(0,0,0,0.35)" />
+          {pose.flip ? <g transform={`translate(${2 * tenderFig.x} 0) scale(-1 1)`}>{img}</g> : img}
+        </g>
+      );
+    })();
     return (
       <>
         {elements}
@@ -3692,6 +3946,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {hoverLayer}
         {mistLayer}
         {targetMarker}
+        {tenderLayer}
       </>
     );
   };
@@ -5452,6 +5707,21 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 </button>
               </>
             )}
+            {/* Follow the Tender (2026-10-19): the Table's order,
+                come home — a following Awokin musters to the
+                Tender's ring whenever the field is read, and keeps
+                to him as he walks his land. */}
+            <button
+              className="stance-btn"
+              onClick={async () => {
+                try {
+                  await api.setPlacementFollow({ placementId: placement.id, follow: !placement.follow });
+                  await refreshTerritory();
+                } catch { /* the order failed; the next read tells the truth */ }
+              }}
+              title="A following Awokin musters to the Tender's ring whenever the field is read — it keeps to him as he walks his land.">
+              {placement.follow ? "🧭 Following you ✓" : "🧭 Follow me"}
+            </button>
           </div>
         );
       })()}

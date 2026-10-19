@@ -148,6 +148,9 @@ export interface FieldPlacement {
   marchPath?: string | null;
   marchSince?: number | null;
   marchEnds?: number | null;
+  /** Follow the Tender (2026-10-19): 1 when this Awokin musters
+   *  to the Tender's ring whenever the field is read. */
+  follow?: number;
 }
 
 export interface CreditInfo {
@@ -592,7 +595,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string } | null }>("getTerritory", {}),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; pour?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number }>("castMapWorking", args),
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
@@ -678,6 +681,13 @@ export const api = {
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   setMarch: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true; awakenedId: number; tileId: number; steps: number; seconds: number; energy: number }>("setMarch", args),
+  /** The Tender's body on the homeland (2026-10-19): the client
+   *  reports the hex his figure has entered; followers are ordered
+   *  to muster to his ring (or released from the order). */
+  setTenderTile: (args: { tileId: number }) =>
+    post<{ ok: true; tileId: number }>("setTenderTile", args),
+  setPlacementFollow: (args: { placementId: number; follow: boolean }) =>
+    post<{ ok: true; follow: boolean }>("setPlacementFollow", args),
   recallMarch: (args: { awakenedId: number }) =>
     post<{ ok: true; awakenedId: number; recalled: boolean; stepsHome: number }>("recallMarch", args),
   resolveBossBattle: (args: { victory: boolean; bossLevel: number; survivorIds: number[]; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number; }) =>

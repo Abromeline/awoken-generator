@@ -401,6 +401,9 @@ export const fieldPlacements = sqliteTable("field_placements", {
     .$defaultFn(() => new Date()),
   // Stance: attack | defense | binding. Defense is the default — holding ground.
   stance: text("stance").notNull().default("defense"),
+  // Follow the Tender (Nigel, 2026-10-19, the Table's law come
+  // home): a following Awokin musters to the Tender's ring.
+  follow: integer("follow").notNull().default(0),
   // Binding upkeep: last time the hourly 3-energy charge was applied.
   lastBindingChargeAt: integer("last_binding_charge_at", { mode: "timestamp_ms" }),
   hp: integer("hp"),
@@ -466,6 +469,11 @@ export const tenderProgress = sqliteTable("tender_progress", {
   classFreeRiteUsed: integer("class_free_rite_used").notNull().default(0),
   reclassTokens: integer("reclass_tokens").notNull().default(0),
   classChosenAt: integer("class_chosen_at"),
+  /** THE TENDER'S BODY (Nigel, 2026-10-19): the hex the Tender
+   *  stands on in his homeland — the anchor his figure glides
+   *  from and his followers muster around. Null until first
+   *  reckoned (then the bastion rule plants him). */
+  tenderTileId: integer("tender_tile_id"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

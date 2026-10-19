@@ -675,6 +675,8 @@ try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_key TEXT`); } ca
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_free_rite_used INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN reclass_tokens INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_chosen_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN tender_tile_id INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN follow INTEGER NOT NULL DEFAULT 0`); } catch {}
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_password_resets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tender_id INTEGER NOT NULL,
