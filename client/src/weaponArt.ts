@@ -69,9 +69,9 @@ const SPEAR_IMG = inkCanvas(90, 150, (g) => {
   g.beginPath(); g.moveTo(52, 58); g.lineTo(38, 66); g.stroke();
 });
 
-/** A LONE ARROW, angled up-right as if already loosed — the
- *  arrow the demo laid across its bow, drawn by itself and
- *  larger: shaft, leaf head, fletching, one gold rune tick. */
+/** A LONE ARROW, angled up-right as if already loosed — drawn
+ *  plain by Nigel's word (2026-10-19): shaft, leaf head, and
+ *  cream fletching lying along the shaft. No coloured marks. */
 const ARROW_IMG = inkCanvas(150, 110, (g) => {
   g.translate(75, 55); g.rotate(-Math.PI / 6); g.lineCap = "round";
   // The shaft, with its grain line.
@@ -84,16 +84,14 @@ const ARROW_IMG = inkCanvas(150, 110, (g) => {
   g.beginPath(); g.moveTo(30, 0); g.quadraticCurveTo(46, -10, 70, 0);
   g.quadraticCurveTo(46, 10, 30, 0); g.closePath(); g.fill(); g.stroke();
   g.strokeStyle = "rgba(138,109,53,.8)"; g.beginPath(); g.moveTo(36, 0); g.lineTo(64, 0); g.stroke();
-  // The fletching — two violet feathers at the tail.
-  g.strokeStyle = "#b48be8"; g.lineWidth = 3;
+  // The fletching — plain cream feathers lying along the shaft,
+  //  angled back toward the tail as a flying arrow wears them.
+  g.strokeStyle = "#e8dcc3"; g.lineWidth = 3;
   g.beginPath(); g.moveTo(-38, 0); g.lineTo(-60, -14); g.stroke();
   g.beginPath(); g.moveTo(-38, 0); g.lineTo(-60, 14); g.stroke();
   g.lineWidth = 2;
   g.beginPath(); g.moveTo(-46, 0); g.lineTo(-62, -9); g.stroke();
   g.beginPath(); g.moveTo(-46, 0); g.lineTo(-62, 9); g.stroke();
-  // One gold rune tick, mid-shaft — the mark that lets it fly itself.
-  g.strokeStyle = "#ffd977"; g.lineWidth = 2.4;
-  g.beginPath(); g.moveTo(-4, -8); g.lineTo(5, 0); g.lineTo(-4, 8); g.stroke();
 });
 
 const SHIELD_IMG = inkCanvas(100, 112, (g) => {

@@ -983,13 +983,11 @@ const ARROW_IMG = inkCanvas(150, 110, (g) => {
   g.beginPath(); g.moveTo(-64, 0); g.lineTo(38, 0); g.stroke();
   g.fillStyle = "#ffe9ad"; g.strokeStyle = "#8a6d35"; g.lineWidth = 1.6;
   g.beginPath(); g.moveTo(70, 0); g.lineTo(40, -10); g.lineTo(46, 0); g.lineTo(40, 10); g.closePath(); g.fill(); g.stroke();
-  g.strokeStyle = "#b48be8"; g.lineWidth = 2.6;
+  g.strokeStyle = "#e8dcc3"; g.lineWidth = 2.6;
   g.beginPath(); g.moveTo(-64, 0); g.lineTo(-46, -13); g.stroke();
   g.beginPath(); g.moveTo(-64, 0); g.lineTo(-46, 13); g.stroke();
   g.beginPath(); g.moveTo(-52, 0); g.lineTo(-36, -11); g.stroke();
   g.beginPath(); g.moveTo(-52, 0); g.lineTo(-36, 11); g.stroke();
-  g.strokeStyle = "#ffd977"; g.lineWidth = 2.2;
-  g.beginPath(); g.moveTo(-6, -8); g.lineTo(4, 0); g.lineTo(-6, 8); g.stroke();
   g.restore();
 });
 const SHIELD_IMG = inkCanvas(100, 112, (g) => {
@@ -1012,7 +1010,8 @@ const WEAPONS = {
   arrow: { name: "Arrow", die: 4, note: "range 4 · it flies itself", range: 335, cool: 1300, img: ARROW_IMG, tipDown: false, h: 64, fly: true },
 };
 const W = { key: "sword", el: null, shieldEl: null, orbit: 0.6, state: "orbit",
-  t0: 0, fx: 0, fy: 0, tx: 0, ty: 0, coolUntil: 0, strikes: 0, lastDmg: 0, x: 0, y: 0 };
+  t0: 0, fx: 0, fy: 0, tx: 0, ty: 0, coolUntil: 0, strikes: 0, lastDmg: 0, x: 0, y: 0,
+  mode: "orbit", heading: 0, pass: 0, passes: 1 };
 function weaponLine() {
   const el = document.getElementById("weaponline");
   if (!el) return;
@@ -1022,7 +1021,7 @@ function weaponLine() {
     + (W.strikes ? " · last lunge: " + W.lastDmg : "");
 }
 function setWeapon(k) {
-  W.key = k; W.state = "orbit"; W.strikes = 0; W.lastDmg = 0;
+  W.key = k; W.state = "orbit"; W.mode = "orbit"; W.strikes = 0; W.lastDmg = 0;
   document.querySelectorAll(".wpnbtn").forEach(b => b.classList.toggle("on", b.dataset.w === k));
   if (!W.el) {
     W.el = document.createElement("img");
@@ -1062,8 +1061,35 @@ function weaponTick() {
     const cx = x, cy = y - 58; // he carries it at his shoulder
     W.orbit += dt * 0.75;
     const ox = cx + Math.cos(W.orbit) * 56, oy = cy + Math.sin(W.orbit) * 13 + Math.sin(now / 480) * 3;
+    // THE HOMING ARROW (Nigel, 2026-10-19): no jab. It flies out
+    // steering onto its target, passes THROUGH it, loops wide
+    // back around to its caster, and only then settles — and its
+    // skill (Pierce) lets it strike more targets before returning.
+    if (W.key === "arrow" && W.mode !== "orbit") {
+      const speed = W.mode === "out" ? 580 : 500;
+      const tgt = W.mode === "out" ? { x: shade.x, y: shade.y } : { x: ox, y: oy };
+      const want = Math.atan2(tgt.y - W.y, tgt.x - W.x);
+      let diff = want - W.heading;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      const turn = (W.mode === "out" ? 3.6 : 2.5) * dt;
+      W.heading += Math.max(-turn, Math.min(turn, diff));
+      W.x += Math.cos(W.heading) * speed * dt;
+      W.y += Math.sin(W.heading) * speed * dt;
+      const d = Math.hypot(tgt.x - W.x, tgt.y - W.y);
+      if (W.mode === "out" && d < 20) {
+        if (shade.alive) weaponHit(1 + Math.floor(Math.random() * w.die), true);
+        W.pass++; W.mode = "loop";
+      } else if (W.mode === "loop" && d < 18) {
+        if (W.pass < W.passes && shade.alive && Math.hypot(shade.x - x, shade.y - y) <= w.range * 1.15) W.mode = "out";
+        else { W.mode = "orbit"; W.coolUntil = now + w.cool; }
+      }
+    } else if (W.key === "arrow" && shade.alive && now >= W.coolUntil && Math.hypot(shade.x - x, shade.y - y) <= w.range) {
+      W.mode = "out"; W.pass = 0;
+      W.heading = Math.atan2(shade.y - W.y, shade.x - W.x);
+    }
     if (W.state === "orbit") {
-      W.x = ox; W.y = oy;
+      if (W.key !== "arrow" || W.mode === "orbit") { W.x = ox; W.y = oy; }
       const sway = Math.sin(now / 620) * 7;
       W.el.style.transform = "translate(-50%,-50%) rotate(" + sway + "deg)";
       if (W.shieldEl && w.shield) {
@@ -1071,7 +1097,7 @@ function weaponTick() {
         W.shieldEl.style.left = sx + "px"; W.shieldEl.style.top = sy + "px";
         W.shieldEl.style.transform = "translate(-50%,-50%) rotate(" + Math.sin(now / 700 + 1) * 5 + "deg)";
       }
-      if (shade.alive && now >= W.coolUntil && Math.hypot(shade.x - x, shade.y - y) <= w.range) {
+      if (W.key !== "arrow" && shade.alive && now >= W.coolUntil && Math.hypot(shade.x - x, shade.y - y) <= w.range) {
         W.state = "lunge"; W.t0 = now; W.fx = W.x; W.fy = W.y; W.tx = shade.x; W.ty = shade.y;
         const a = Math.atan2(W.ty - W.fy, W.tx - W.fx) * 180 / Math.PI;
         // The swords rotate tip-to-target; the arrow's art already
@@ -1090,17 +1116,20 @@ function weaponTick() {
       W.x = W.fx + (ox - W.fx) * e; W.y = W.fy + (oy - W.fy) * e;
       if (t >= 1) W.state = "orbit";
     }
-    // THE HUNTING ARROW (Nigel, 2026-10-19): the lone arrow's tip
-    // ALWAYS faces an enemy — hovering, lunging, even sliding
-    // home. (The drawn arrow's tip sits ~28 degrees above its
-    // image axis, hence the +28.) With no foe standing, it faces
-    // the way its Tender faces.
-    if (W.key === "arrow") {
+    // THE HUNTING TIPS (Nigel, 2026-10-19): the arrow's AND the
+    // spear's tips face an enemy in every state — hovering,
+    // striking, returning. On the arrow's loop home its tip
+    // follows its arc instead (that is how it comes around);
+    // the moment it flies out again, its tip is on the foe.
+    // (Arrow art tip: ~28 degrees above its image axis; spear
+    // art tip: straight up, hence +90.) No foe: the Tender's way.
+    if (W.key === "arrow" || W.key === "spear") {
       let gx, gy;
-      if (shade.alive) { gx = shade.x; gy = shade.y; }
+      if (W.key === "arrow" && (W.mode === "loop")) { gx = W.x + Math.cos(W.heading) * 60; gy = W.y + Math.sin(W.heading) * 60; }
+      else if (shade.alive) { gx = shade.x; gy = shade.y; }
       else { const v = VEC[dir] || [0, 1]; gx = x + v[0] * 120; gy = y + v[1] * 120; }
-      const facing = Math.atan2(gy - W.y, gx - W.x) * 180 / Math.PI + 28;
-      W.el.style.transform = "translate(-50%,-50%) rotate(" + facing + "deg)";
+      const aim = Math.atan2(gy - W.y, gx - W.x) * 180 / Math.PI + (W.key === "arrow" ? 28 : 90);
+      W.el.style.transform = "translate(-50%,-50%) rotate(" + aim + "deg)";
     }
     W.el.style.left = W.x + "px"; W.el.style.top = W.y + "px";
     if (W.glowEl) { W.glowEl.style.left = W.x + "px"; W.glowEl.style.top = W.y + "px"; }
