@@ -213,6 +213,9 @@ button { font-family: inherit; }
 }
 .field-board { position: relative; width: min(340px, 80%); margin: 0 auto; }
 .seed-ground { fill: #0d0906; stroke: #000; stroke-width: 2; }
+/* The curse's remaining corruption, numbered under its wear
+   bar (shown once worn, or while a warden stands armed). */
+.curse-hp-label { font-size: 9px; font-weight: bold; fill: #eda3ad; text-anchor: middle; pointer-events: none; }
 .seed-bulb {
   fill: var(--bulb);
   filter: drop-shadow(0 0 9px var(--bulb)) drop-shadow(0 0 22px rgba(63, 167, 255, 0.8));

@@ -2320,6 +2320,68 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
+    // STRIKE THE CURSE (Nigel, 2026-10-18 — the land's
+    // blow-per-order, carried to the Table): the mechanic for
+    // clearing curses for building applies to the Table's
+    // Awoken too. A standing Awokin ordered against a cursed
+    // tile within its lawful reach — the two tiles its strikes
+    // already carry — lands ONE blow: ⚡1, wearing the tile's
+    // corruption by its filed power, the land's attackTile
+    // arithmetic exactly. At nothing the tile turns in the
+    // striker's dominant element, and every consequence of
+    // pure ground follows (the summon gate reads the same
+    // flag). The curse answers as the land's does — thorns of
+    // 2^(ring−1), drunk by the shield first through the
+    // curse's own harm path. Victory and the standing grind
+    // remain the other roads; this is the deliberate one.
+    // The referee's say is final: no client word is trusted
+    // for the wear, the turn, or the thorns.
+    if (msg.type === "strikeCurse") {
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender orders their Awokin against the curse." })); return; }
+      const hex = String(msg.hex ?? "");
+      const targetId = String(msg.target ?? "");
+      const cardId = String(msg.cardId ?? "");
+      const myKey = player.key;
+      const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
+      if (!unit || (hex && unit.hex !== hex)) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand there." })); return; }
+      if (!unitStanding(room, unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} no longer stands on the field.` })); return; }
+      if (isMarching(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` })); return; }
+      const now = Date.now();
+      if ((unit.pinnedUntil ?? 0) > now) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is held fast — it cannot strike.` })); return; }
+      const tile = room.map.get(targetId);
+      if (!tile || targetId === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to strike." })); return; }
+      if (!tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is already pure." })); return; }
+      if (hexDist(unit.hex, targetId) > 2) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes two tiles out." })); return; }
+      const cost = 1;
+      if (!chargePurse(room, player, cost)) {
+        ws.send(JSON.stringify({ type: "error", message: `A curse-strike costs ⚡${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        return;
+      }
+      // The blow is a strike: its cadence comes round, as the
+      // referee's own strikes set it.
+      unit.nextStrike = now + lightIntervalMs(unit);
+      tile.curseHp -= unit.card.power;
+      const purified = tile.curseHp <= 0;
+      // The witness: the blow flies to the TILE, on the same
+      // ledger the referee's strikes fly by.
+      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: unit.hex, to: targetId, element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified });
+      if (purified) {
+        tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
+        purifyTile(room, tile, dominantElement(partsOf(unit.card) as { element?: string | null }[]));
+      } else {
+        tell(room, `⚔️ ${unit.card.name} strikes the curse — its corruption thins to ${Math.ceil(tile.curseHp)} of ${tile.curseMaxHp}.`);
+      }
+      // The curse answers: thorns, 2^(ring−1), as on the land.
+      const thorns = Math.pow(2, Math.max(0, ringOf(targetId) - 1));
+      if (thorns > 0) {
+        hurtByCurse(room, unit, thorns);
+        if (unitStanding(room, unit)) tell(room, `The curse's thorns answer ${unit.card.name}'s blow.`);
+      }
+      sendState(room);
+      return;
+    }
+
     // BEGIN THE UNRAVELING: any standing seat may call the
     // wave down. The referee deals and the rounds begin.
     // THE WRITTEN LIGHT (2026-10-17): wards raised on edges,

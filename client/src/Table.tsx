@@ -141,7 +141,7 @@ interface SharedState {
   dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; march?: { road: string[]; since: number; endsAt: number } | null }[];
   workings: WorkingView[];
   battle: { active: boolean; wave: number };
-  strikes?: { from: string; to: string; element: string; side: "light" | "dark"; hit: boolean; killed: boolean }[];
+  strikes?: { id?: number; at?: number; from: string; to: string; element: string; side: "light" | "dark"; hit: boolean; killed: boolean }[];
   bastion?: {
     callId: number; kind: string; hostName: string; ambush: boolean;
     pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
@@ -419,20 +419,31 @@ export default function Table() {
   // flies them — the attacker's element from its hex to its
   // mark's, the dark answering in a darkened bolt.
   const [shots, setShots] = useState<{ id: number; from: string; to: string; img: string; dark: boolean; hit: boolean; killed: boolean; idx: number }[]>([]);
-  const lastRoundRef = useRef(-1);
   const shotIdRef = useRef(0);
+  // Every strike carries the referee's running id; the Table
+  // flies each one it has not flown, while it is fresh. A
+  // curse-strike ordered between beats therefore flies on
+  // the order itself, not on the next round's turn — and an
+  // antique strike, joined late, is marked seen without
+  // flying, so no shot ever flies twice or out of its time.
+  const flownStrikeRef = useRef(0);
   useEffect(() => {
     if (!shared) return;
-    if (shared.round === lastRoundRef.current) return;
-    lastRoundRef.current = shared.round;
     const strikes = shared.strikes ?? [];
     if (!strikes.length) return;
-    const fresh = strikes.map((st) => ({
+    const now = Date.now();
+    const fresh = strikes.filter((st) => {
+      if (typeof st.id !== "number") return false;
+      if (st.id <= flownStrikeRef.current) return false;
+      flownStrikeRef.current = st.id;
+      return now - (st.at ?? 0) < 1600;
+    }).map((st) => ({
       id: ++shotIdRef.current,
       from: st.from, to: st.to,
       img: st.side === "dark" ? PROJECTILE_GIF.unaligned : (PROJECTILE_GIF[st.element] ?? PROJECTILE_GIF.unaligned),
       dark: st.side === "dark", hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000,
     }));
+    if (!fresh.length) return;
     setShots(prev => [...prev.slice(-30), ...fresh]);
     const ids = new Set(fresh.map(f => f.id));
     const t = setTimeout(() => setShots(prev => prev.filter(x => !ids.has(x.id))), 1500);
@@ -441,6 +452,12 @@ export default function Table() {
   // THE MARCH (2026-10-18): a standing Awoken of mine, chosen
   // to receive orders — march, heal, recall (see the unit bar).
   const [selUnitId, setSelUnitId] = useState<string | null>(null);
+  // STRIKE THE CURSE (Nigel, 2026-10-18): the chosen Awokin is
+  // armed against the curse — its tile taps spend blows on
+  // cursed ground instead of marching (see onTileTap), one
+  // blow per tap, as the land's blow-per-order rules it.
+  const [strikeArm, setStrikeArm] = useState(false);
+  useEffect(() => { setStrikeArm(false); }, [selUnitId]);
   // The stage clock: a marching figure's place is read off
   // road + clock on every screen (Territory's marching-layer
   // law), so the stage ticks gently while anyone watches.
@@ -952,6 +969,13 @@ export default function Table() {
   const selUnit = selUnitId && you ? shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key) ?? null : null;
   const selUnitMarching = !!selUnit && isMarchingNow(selUnit);
   const marchRateOf = (u: FieldUnitView): number => 1 + Math.floor((Math.max(1, u.power) - 1) / 3);
+  // The curse within the chosen one's lawful reach — the two
+  // tiles its strikes carry (the referee's own reach). The
+  // unit bar offers the curse-strike only when such ground
+  // stands in reach; armed, its taps are blows, not marches.
+  const selTile = selUnit ? tileById.get(selUnit.hex) ?? null : null;
+  const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= 2) : [];
+  const strikeArmed = strikeArm && !!selUnit && !selUnitMarching;
 
   // Which tiles the Written Light's placing flows may touch —
   // the same law the old hex field enforced, in axial terms.
@@ -998,6 +1022,18 @@ export default function Table() {
       return;
     }
     if (selectedCard) { send({ type: "summon", cardId: selectedCard.id, hex: t.id }); return; }
+    // Armed against the curse, the chosen one's taps are
+    // blows: cursed ground within two tiles is struck (one
+    // order, one blow, ⚡1 — the server referees the wear);
+    // any other tap is answered plainly, and the arm holds.
+    if (strikeArmed && selUnit && selTile) {
+      if (t.cursed && axialDist(selTile, t) <= 2) {
+        send({ type: "strikeCurse", cardId: selUnit.cardId, hex: selUnit.hex, target: t.id });
+      } else {
+        setNotice(t.cursed ? "Beyond reach — the light strikes two tiles out." : "That ground is not cursed — there is nothing there to strike.");
+      }
+      return;
+    }
     if (selUnitId) {
       const unit = shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key);
       if (unit && t.id !== unit.hex && !isMarchingNow(unit)) {
@@ -1267,6 +1303,9 @@ export default function Table() {
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
                 } else if (selectedCard) {
                   if (!t.cursed) overlay = { fill: "#ffd977", opacity: 0.14 };
+                } else if (strikeArmed && selTile) {
+                  if (t.cursed && axialDist(selTile, t) <= 2) overlay = { fill: "#c22333", opacity: 0.3 };
+                  else if (t.id !== selUnit?.hex) overlay = { fill: "#ffffff", opacity: 0.05 };
                 } else if (selUnit) {
                   if (t.id !== selUnit.hex) overlay = { fill: "#ffffff", opacity: 0.07 };
                 }
@@ -1285,10 +1324,18 @@ export default function Table() {
                     {t.landing && (
                       <polygon points={hexCellPoints(cx, cy, TILE_SIZE, 0.96)} fill="none" stroke="#d9b45c" strokeWidth={2} opacity={0.8} pointerEvents="none" />
                     )}
-                    {t.cursed && t.curseHp < t.curseMaxHp && (
+                    {t.cursed && (
                       <>
+                        {/* The curse made countable: its bar
+                            stands on every cursed tile now, and
+                            its remaining corruption is numbered
+                            once it has been worn — or whenever a
+                            warden stands armed against it. */}
                         <rect x={cx - 17} y={cy + 22} width={34} height={3} fill="#000000" opacity={0.55} pointerEvents="none" />
                         <rect x={cx - 17} y={cy + 22} width={34 * clamp01(t.curseHp / Math.max(1, t.curseMaxHp))} height={3} fill="#c22333" pointerEvents="none" />
+                        {(t.curseHp < t.curseMaxHp || strikeArmed) && (
+                          <text className="curse-hp-label" x={cx} y={cy + 34}>{Math.max(0, Math.ceil(t.curseHp))}</text>
+                        )}
                       </>
                     )}
                     {overlay && <polygon points={hexCellPoints(cx, cy, TILE_SIZE)} fill={overlay.fill} opacity={overlay.opacity} pointerEvents="none" />}
@@ -1480,13 +1527,20 @@ export default function Table() {
             {selUnit && !placing && (
               <div className="placing-bar unit-bar">
                 <span className="placing-text">
-                  🚶 <strong>{selUnit.name}</strong> — {selUnitMarching
+                  {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMarching
                     ? "on the march — it answers when it arrives."
-                    : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.</>}
+                    : strikeArmed
+                      ? <>armed against the curse — tap cursed ground within two tiles: one blow (⚡1) wears its curse by {selUnit.power}. Its thorns answer.</>
+                      : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.</>}
                 </span>
                 {!selUnitMarching && (
                   <>
                     <button className="table-btn" onClick={() => send({ type: "castHeal", hex: selUnit.hex })}>Heal · ⚡{healDef?.cost ?? 2}</button>
+                    {strikeArmed ? (
+                      <button className="table-btn" onClick={() => setStrikeArm(false)}>Stay the hand</button>
+                    ) : curseInReach.length > 0 ? (
+                      <button className="table-btn" onClick={() => setStrikeArm(true)}>Strike the curse · ⚡1</button>
+                    ) : null}
                     <button className="table-btn" onClick={() => { send({ type: "recall", hex: selUnit.hex, cardId: selUnit.cardId }); setSelUnitId(null); }}>Recall</button>
                   </>
                 )}
@@ -1726,7 +1780,7 @@ export default function Table() {
                   })}
                 </div>
                 {selectedCard ? (
-                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap a purified tile of the instance to set it standing (⚡{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, heal, recall.</p>
+                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — tap a purified tile of the instance to set it standing (⚡{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, heal, strike the curse, recall.</p>
                 ) : you.bound ? (
                   <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (
