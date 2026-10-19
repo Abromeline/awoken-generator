@@ -98,6 +98,9 @@ interface Player {
   /** The Tender this seat is bound to (display name), or null when
    *  the seat holds stand-in cards. */
   bound?: string | null;
+  /** The bound Tender's CHOSEN class (the Class Gate, 2026-10-19) —
+   *  their figure at the Table wears it; null for unbound seats. */
+  classKey?: string | null;
   /** The seat's Tender standing (Tender EXP, 2026-10-16): a
    *  bound seat carries its Tender's true level and what it
    *  unlocks; a stand-in seat stands at Lv 1. */
@@ -739,7 +742,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null, castAt: p.castAt ?? 0, away: awayKeys.has(p.key) })),
+    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null })),
     watcherCount: [...room.players.values()].filter(p => p.watcher).length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -821,6 +824,7 @@ function sendState(room: Room): void {
         healTier: player.healTier,
         healAmount: player.healAmount,
         wardRuneUnlocked: player.wardRuneUnlocked,
+        classKey: player.classKey ?? null,
         tenderHp: player.tenderHp,
         maxTenderHp: player.maxTenderHp,
         pools: player.pools ?? null,
@@ -2291,6 +2295,7 @@ function handleConnection(ws: WebSocket): void {
       let wardRuneUnlocked = false;
       let maxTenderHp = tenderMaxHpForLevel(1);
       let expKey: string | null = null;
+      let boundClassKey: string | null = null;
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
@@ -2302,6 +2307,7 @@ function handleConnection(ws: WebSocket): void {
             energy = maxEnergy;
             expKey = tenderOwnerKey(tenderId);
             const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
+            boundClassKey = progress?.classKey ?? null;
             if (progress) {
               tenderLevel = progress.level;
               healTier = progress.healTier;
@@ -2327,7 +2333,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);

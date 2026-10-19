@@ -81,6 +81,7 @@ const WORKSHOP_ACTIONS = new Set([
   "importCompendium",
   "setSiteColor",
   "adminResetTenderPassword",
+  "grantReclassToken",
   "saveGlyph",
   "deleteGlyph",
   "updateLayerAssetRarity",

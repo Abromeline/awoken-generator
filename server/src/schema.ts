@@ -445,6 +445,14 @@ export const tenderProgress = sqliteTable("tender_progress", {
   ownerKey: text("owner_key").primaryKey(),
   totalExp: integer("total_exp").notNull().default(0),
   lifetimeWakes: integer("lifetime_wakes").notNull().default(0),
+  /** THE CLASS GATE (Nigel, 2026-10-19): the Tender's chosen
+   *  class — null until the Lv 3 choosing. The free
+   *  second-thoughts rite is spent once; beyond it only a
+   *  workshop-sent reclass token unseals the class. */
+  classKey: text("class_key"),
+  classFreeRiteUsed: integer("class_free_rite_used").notNull().default(0),
+  reclassTokens: integer("reclass_tokens").notNull().default(0),
+  classChosenAt: integer("class_chosen_at"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

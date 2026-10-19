@@ -669,6 +669,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_progress (
   lifetime_wakes INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
 );`);
+// The class columns (the Class Gate, 2026-10-19): ALTERs after the
+// CREATE, idempotent on every boot, fresh databases included.
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_key TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_free_rite_used INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN reclass_tokens INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_chosen_at INTEGER`); } catch {}
 // Battle tracks: rotating 8-bit music for battlegrounds. Nigel curates in workshop.
 // Migration: add pages column to battle_tracks. The ALTER must run AFTER
 // the CREATE as well as before it: on a fresh database the pre-CREATE

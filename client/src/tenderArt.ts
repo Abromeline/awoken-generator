@@ -1,5 +1,5 @@
 /**
- * Tender class art — the three Written Light classes as walking
+ * Tender class art — the five Written Light classes as walking
  * figures (Nigel's sprite trials, 2026-10-19). The Warden (hood,
  * ward-staff, shield), the Runewright (the great brim, the face
  * lost in its shadow, the glyph-banner on his back), and the
@@ -112,7 +112,75 @@ import binderCastN2 from "./assets/tenders/binder-cast-n-2.png";
 import binderCastN3 from "./assets/tenders/binder-cast-n-3.png";
 import binderCastN4 from "./assets/tenders/binder-cast-n-4.png";
 
-export type TenderClassId = "warden" | "runewright" | "binder";
+import witch01 from "./assets/tenders/witch-01.png";
+import witch02 from "./assets/tenders/witch-02.png";
+import witch03 from "./assets/tenders/witch-03.png";
+import witch04 from "./assets/tenders/witch-04.png";
+import witch05 from "./assets/tenders/witch-05.png";
+import witch06 from "./assets/tenders/witch-06.png";
+import witch07 from "./assets/tenders/witch-07.png";
+import witch08 from "./assets/tenders/witch-08.png";
+import witch09 from "./assets/tenders/witch-09.png";
+import witch10 from "./assets/tenders/witch-10.png";
+import witch11 from "./assets/tenders/witch-11.png";
+import witch12 from "./assets/tenders/witch-12.png";
+import witch13 from "./assets/tenders/witch-13.png";
+import witch14 from "./assets/tenders/witch-14.png";
+import witch15 from "./assets/tenders/witch-15.png";
+import witch16 from "./assets/tenders/witch-16.png";
+import witch17 from "./assets/tenders/witch-17.png";
+import witch18 from "./assets/tenders/witch-18.png";
+import witch19 from "./assets/tenders/witch-19.png";
+import witch20 from "./assets/tenders/witch-20.png";
+import witch21 from "./assets/tenders/witch-21.png";
+import witch22 from "./assets/tenders/witch-22.png";
+import witch23 from "./assets/tenders/witch-23.png";
+import witch24 from "./assets/tenders/witch-24.png";
+import sage01 from "./assets/tenders/sage-01.png";
+import sage02 from "./assets/tenders/sage-02.png";
+import sage03 from "./assets/tenders/sage-03.png";
+import sage04 from "./assets/tenders/sage-04.png";
+import sage05 from "./assets/tenders/sage-05.png";
+import sage06 from "./assets/tenders/sage-06.png";
+import sage09 from "./assets/tenders/sage-09.png";
+import sage10 from "./assets/tenders/sage-10.png";
+import sage11 from "./assets/tenders/sage-11.png";
+import sage12 from "./assets/tenders/sage-12.png";
+import sage13 from "./assets/tenders/sage-13.png";
+import sage14 from "./assets/tenders/sage-14.png";
+import sage15 from "./assets/tenders/sage-15.png";
+import sage16 from "./assets/tenders/sage-16.png";
+import sage17 from "./assets/tenders/sage-17.png";
+import sage18 from "./assets/tenders/sage-18.png";
+import sage19 from "./assets/tenders/sage-19.png";
+import sage20 from "./assets/tenders/sage-20.png";
+import sage21 from "./assets/tenders/sage-21.png";
+import sage22 from "./assets/tenders/sage-22.png";
+import witchCastS1 from "./assets/tenders/witch-cast-s-1.png";
+import witchCastS2 from "./assets/tenders/witch-cast-s-2.png";
+import witchCastS3 from "./assets/tenders/witch-cast-s-3.png";
+import witchCastS4 from "./assets/tenders/witch-cast-s-4.png";
+import witchCastE1 from "./assets/tenders/witch-cast-e-1.png";
+import witchCastE2 from "./assets/tenders/witch-cast-e-2.png";
+import witchCastE3 from "./assets/tenders/witch-cast-e-3.png";
+import witchCastE4 from "./assets/tenders/witch-cast-e-4.png";
+import witchCastN1 from "./assets/tenders/witch-cast-n-1.png";
+import witchCastN2 from "./assets/tenders/witch-cast-n-2.png";
+import witchCastN3 from "./assets/tenders/witch-cast-n-3.png";
+import witchCastN4 from "./assets/tenders/witch-cast-n-4.png";
+import sageCastS1 from "./assets/tenders/sage-cast-s-1.png";
+import sageCastS2 from "./assets/tenders/sage-cast-s-2.png";
+import sageCastS3 from "./assets/tenders/sage-cast-s-3.png";
+import sageCastS4 from "./assets/tenders/sage-cast-s-4.png";
+import sageCastE1 from "./assets/tenders/sage-cast-e-1.png";
+import sageCastE2 from "./assets/tenders/sage-cast-e-2.png";
+import sageCastE3 from "./assets/tenders/sage-cast-e-3.png";
+import sageCastE4 from "./assets/tenders/sage-cast-e-4.png";
+import sageCastN1 from "./assets/tenders/sage-cast-n-1.png";
+import sageCastN2 from "./assets/tenders/sage-cast-n-2.png";
+import sageCastN3 from "./assets/tenders/sage-cast-n-3.png";
+import sageCastN4 from "./assets/tenders/sage-cast-n-4.png";
+export type TenderClassId = "warden" | "runewright" | "binder" | "witch" | "sage";
 export type TenderDir = "E" | "SE" | "S" | "SW" | "W" | "NW" | "N" | "NE";
 
 export interface TenderClassArt {
@@ -150,9 +218,25 @@ export const TENDER_CLASSES: Record<TenderClassId, TenderClassArt> = {
       N: [binder31, binder32], NE: [binder43],
     },
   },
+  witch: {
+    id: "witch", label: "Witch", icon: "🌿", idle: witch01, flip: { W: true },
+    dirs: {
+      E: [witch11, witch12, witch13, witch14, witch15, witch16, witch24], SE: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08, witch09, witch10], S: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08, witch09, witch10],
+      SW: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08, witch09, witch10], W: [witch11, witch12], NW: [witch17, witch18, witch19, witch20, witch21, witch22, witch23],
+      N: [witch17, witch18, witch19, witch20, witch21, witch22, witch23], NE: [witch17, witch18, witch19, witch20, witch21, witch22, witch23],
+    },
+  },
+  sage: {
+    id: "sage", label: "Sage", icon: "🐺", idle: sage01, flip: { W: true },
+    dirs: {
+      E: [sage09, sage10, sage11, sage12, sage13, sage14, sage15, sage16], SE: [sage01, sage02, sage03, sage04, sage05, sage06], S: [sage01, sage02, sage03, sage04, sage05, sage06],
+      SW: [sage01, sage02, sage03, sage04, sage05, sage06], W: [sage09, sage10], NW: [sage17, sage18, sage19, sage20, sage21, sage22],
+      N: [sage17, sage18, sage19, sage20, sage21, sage22], NE: [sage17, sage18, sage19, sage20, sage21, sage22],
+    },
+  },
 };
 
-export const TENDER_CLASS_ORDER: TenderClassId[] = ["warden", "runewright", "binder"];
+export const TENDER_CLASS_ORDER: TenderClassId[] = ["warden", "runewright", "binder", "witch", "sage"];
 
 /** The compass a stage-space stride (dx, dy) faces. The stage is
  *  isometric — its south is squashed — so the y is stretched back
@@ -194,6 +278,16 @@ export const TENDER_CASTS: Record<TenderClassId, TenderCastArt> = {
     S: [binderCastS1, binderCastS2, binderCastS3, binderCastS4],
     E: [binderCastE1, binderCastE2, binderCastE3, binderCastE4],
     N: [binderCastN1, binderCastN2, binderCastN3, binderCastN4],
+  },
+  witch: {
+    S: [witchCastS1, witchCastS2, witchCastS3, witchCastS4],
+    E: [witchCastE1, witchCastE2, witchCastE3, witchCastE4],
+    N: [witchCastN1, witchCastN2, witchCastN3, witchCastN4],
+  },
+  sage: {
+    S: [sageCastS1, sageCastS2, sageCastS3, sageCastS4],
+    E: [sageCastE1, sageCastE2, sageCastE3, sageCastE4],
+    N: [sageCastN1, sageCastN2, sageCastN3, sageCastN4],
   },
 };
 export const CAST_MS = 950;

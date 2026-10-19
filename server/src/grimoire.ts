@@ -197,6 +197,14 @@ export function defaultGrimoire(): GrimoireState {
   // proves it on the tender's own cast (the Springleaf
   // grove's radius x2.75; her summoned saplings heal at
   // half that measure, per the shape ruled the same day).
+  // POWERING (Nigel, 2026-10-19): a spell or rune is made
+  // stronger by PACKING it with elemental attunement —
+  // powering up in the Grimoire is done with attunement
+  // energy, and it is EXPENSIVE. That is how a tender
+  // attunes their runes to be stronger: pour attunement of
+  // the working's hue into it. The cast-time pour in
+  // castSpell is this law's first machinery; the spells
+  // build-out prices every deepening by it.
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where

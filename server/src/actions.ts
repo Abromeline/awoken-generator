@@ -2828,6 +2828,11 @@ export const handlers = {
    *  Tender: minting fades any unspent predecessor. Fifteen minutes. */
   async getTableBindCode(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Sign in as your Tender to take a binding code.");
+    // THE CLASS GATE (Nigel, 2026-10-19): no Tender goes to the
+    // Table without choosing a class — the bind code is the door,
+    // so the door asks here.
+    const gateProgress = await getTenderProgress(`tender:${ctx.tender.id}`);
+    if (!gateProgress.classKey) badRequest("The Table seats only Tenders who have chosen a class — the choosing waits on your character sheet, at Lv 3 and beyond.");
     const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     let code = "";
     for (let i = 0; i < 6; i++) code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
@@ -9171,6 +9176,29 @@ export const handlers = {
     return { ok: true, tenderName: rows[0].tenderName };
   },
 
+  /** Send a RECLASS TOKEN (workshop only; Nigel, 2026-10-19):
+   *  the only key that unseals a class after the free
+   *  second-thoughts rite is spent. The token waits on the
+   *  Tender's ledger until their next re-choosing spends it. */
+  async grantReclassToken(args: unknown, ctx?: ActionContext) {
+    // Workshop only (gated by requireWorkshop in index.ts)
+    const parsed = z.object({
+      tenderName: z.string().trim().min(1).max(64),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("A tender name is needed.");
+    const rows = await db.select().from(schema.tenders)
+      .where(sql`lower(${schema.tenders.tenderName}) = lower(${parsed.data.tenderName})`).limit(1);
+    if (!rows[0]) badRequest("No tender found with that name.");
+    const ownerKey = `tender:${rows[0].id}`;
+    sqlite.prepare("INSERT OR IGNORE INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 0, 0, ?)")
+      .run(ownerKey, Date.now());
+    sqlite.prepare("UPDATE tender_progress SET reclass_tokens = reclass_tokens + 1 WHERE owner_key = ?")
+      .run(ownerKey);
+    const row = sqlite.prepare("SELECT reclass_tokens FROM tender_progress WHERE owner_key = ?")
+      .get(ownerKey) as { reclass_tokens: number };
+    return { ok: true as const, tenderName: rows[0].tenderName, reclassTokens: row.reclass_tokens };
+  },
+
   async setTenderEmail(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({
@@ -9217,6 +9245,47 @@ export const handlers = {
    *  level unlocks (Tender EXP, 2026-10-16). */
   async getTenderExp(args: unknown, ctx?: ActionContext) {
     return getTenderProgress(ownerKeyFor(ctx));
+  },
+
+  /** THE CHOOSING (Nigel, 2026-10-19 — the Class Gate): a Tender
+   *  picks their class at Lv 3. The first choosing is the calling;
+   *  ONE free second-thoughts rite may unmake it; after that the
+   *  class is sealed, and only a reclass token sent by a workshop
+   *  hand (grantReclassToken) opens it again, consumed on use.
+   *  Until a class is chosen the Tender's avatar shows nowhere
+   *  and the Table will not seat them (see getTableBindCode). */
+  async chooseClass(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      classKey: z.enum(["warden", "runewright", "binder", "witch", "sage"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name one of the five classes: Warden, Runewright, Binder, Witch, or Sage.");
+    const ownerKey = ownerKeyFor(ctx);
+    const progress = await getTenderProgress(ownerKey);
+    if (progress.level < 3) badRequest("The choosing comes at Lv 3 — wake, tend, and grow; your class wakes with your third level.");
+    sqlite.prepare("INSERT OR IGNORE INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 0, 0, ?)")
+      .run(ownerKey, Date.now());
+    const row = sqlite.prepare("SELECT class_key, class_free_rite_used, reclass_tokens FROM tender_progress WHERE owner_key = ?")
+      .get(ownerKey) as { class_key: string | null; class_free_rite_used: number; reclass_tokens: number };
+    const want = parsed.data.classKey;
+    if (row.class_key === want) badRequest("That is already your class — the Written Light does not repeat itself.");
+    let via: string;
+    if (!row.class_key) {
+      sqlite.prepare("UPDATE tender_progress SET class_key = ?, class_chosen_at = ? WHERE owner_key = ?")
+        .run(want, Date.now(), ownerKey);
+      via = "the calling";
+    } else if (!row.class_free_rite_used) {
+      sqlite.prepare("UPDATE tender_progress SET class_key = ?, class_free_rite_used = 1, class_chosen_at = ? WHERE owner_key = ?")
+        .run(want, Date.now(), ownerKey);
+      via = "the second-thoughts rite";
+    } else if (row.reclass_tokens > 0) {
+      sqlite.prepare("UPDATE tender_progress SET class_key = ?, reclass_tokens = reclass_tokens - 1, class_chosen_at = ? WHERE owner_key = ?")
+        .run(want, Date.now(), ownerKey);
+      via = "a reclass token";
+    } else {
+      badRequest("Your class is sealed — the second-thoughts rite is spent. Only a reclass token from the workshop can unmake it now.");
+    }
+    return { ok: true as const, classKey: want, via, progress: await getTenderProgress(ownerKey) };
   },
 
 

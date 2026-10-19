@@ -135,7 +135,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number; away?: boolean }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number; away?: boolean; classKey?: string | null }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -164,6 +164,7 @@ interface YouState {
   healTier?: number;
   healAmount?: number;
   wardRuneUnlocked?: boolean;
+  classKey?: string | null;
   tenderHp?: number;
   maxTenderHp?: number;
   pools?: Record<string, number> | null;
@@ -470,14 +471,19 @@ export default function Table() {
     return () => clearInterval(t);
   }, []);
   // THE TENDERS TAKE THE FIELD (Nigel's class sprites, 2026-10-19):
-  // which class figure the local tender wears on the stage. A
-  // trial fitting — the true law (your figure IS your Written
-  // Light path) is still the Ancient One's to rule; until then a
-  // tender chooses, and the choice is kept on this device.
+  // which class figure the local tender wears on the stage. THE
+  // CLASS GATE (ruled 2026-10-19): for a bound Tender the figure IS
+  // their chosen class — the seat's classKey rules and the device
+  // pick yields. The device pick remains only for unbound trial
+  // seats (dev and stand-in play), kept on this device.
   const [myTenderClass, setMyTenderClass] = useState<TenderClassId>(() => {
     const v = localStorage.getItem("table-tender-class");
-    return v === "runewright" || v === "binder" ? v : "warden";
+    return v === "runewright" || v === "binder" || v === "witch" || v === "sage" ? v : "warden";
   });
+  const myServerClass = ((you?.classKey ?? shared?.players.find(p => you && p.key === you.key)?.classKey) ?? null) as TenderClassId | null;
+  useEffect(() => {
+    if (myServerClass) setMyTenderClass(myServerClass);
+  }, [myServerClass]);
   // Each seated tender's walk, kept off the wire: where their
   // figure stands, and the commute it is walking, if any. The
   // server never hears of it — a figure's place is read off the
@@ -1360,7 +1366,7 @@ export default function Table() {
   // holds no ground; she keeps her post beside the seed.
   const TENDER_OFFS: [number, number][] = [[0, 0], [-17, 3], [17, 3]];
   for (const [i, p] of shared.players.entries()) {
-    const art = TENDER_CLASSES[you && p.key === you.key ? myTenderClass : TENDER_CLASS_ORDER[i % TENDER_CLASS_ORDER.length]];
+    const art = (p.classKey ? TENDER_CLASSES[p.classKey as TenderClassId] : undefined) ?? TENDER_CLASSES[you && p.key === you.key ? myTenderClass : TENDER_CLASS_ORDER[i % TENDER_CLASS_ORDER.length]];
     let gx: number, gy: number, walking = false, dir: TenderDir = "S", step = 0;
     if (!p.hex) {
       const c = centerOf(SEED_TILE_ID);
@@ -1433,7 +1439,12 @@ export default function Table() {
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
-          {you && (
+          {you && myServerClass && (
+            <div className="tender-class-row">
+              <span className="quiet">You stand as the {TENDER_CLASSES[myServerClass].label} — your chosen class.</span>
+            </div>
+          )}
+          {you && !myServerClass && (
             <div className="tender-class-row">
               <span className="quiet">You stand as:</span>
               {TENDER_CLASS_ORDER.map(id => (

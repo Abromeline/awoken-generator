@@ -61,7 +61,8 @@ function lockReason(state: SkillTreeState, node: ZodiacNodeView, reached: Set<st
   return null;
 }
 
-export default function Zodiac({ onClose }: { onClose: () => void }) {
+export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void; onChooseClass?: () => void }) {
+  const expQ = useQuery({ queryKey: ["tenderExp"], queryFn: () => api.getTenderExp() });
   const qc = useQueryClient();
   const treeQ = useQuery({ queryKey: ["skillTree"], queryFn: () => api.getSkillTree(), staleTime: 0 });
   const [selectedId, setSelectedId] = useState<string>("heart");
@@ -104,6 +105,9 @@ export default function Zodiac({ onClose }: { onClose: () => void }) {
         )}
         <button type="button" className="zodiac-close" onClick={onClose} aria-label="Close the Zodiac">✕</button>
       </div>
+      {expQ.data && !expQ.data.classKey && (
+        <p className="zodiac-note class-gate-note">✦ No class chosen yet — the Class Gate stands: your avatar shows nowhere and the Table will not seat you until you choose. {onChooseClass && <button type="button" className="quiet-link" onClick={onChooseClass}>Choose your class</button>}</p>
+      )}
       {treeQ.isLoading && <p className="zodiac-note">The wheel is being hung…</p>}
       {treeQ.isError && <p className="zodiac-note">The wheel would not turn — try again in a moment.</p>}
       {state && (
