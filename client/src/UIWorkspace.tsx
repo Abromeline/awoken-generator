@@ -601,7 +601,7 @@ function StarwrightSection() {
       id: `star_${i}`, name: "A New Star", kind: "minor", sector: "heart", x: 360, y: 300,
       effect: "", syn: "", el: null, att: 0, pool: "tree", cost: 1, gate: null, requires: [], anyCore: false, fx: [],
     };
-    setDraft(node); setIsNew(true); setMode("edit"); setMsg("A new star, unwritten — name it, place it, give it its clauses, then Write it. Road it to the wheel in Roads mode once it stands.");
+    setDraft(node); setIsNew(true); setMode("edit"); setMsg("A new star, unwritten — tap anywhere on the sky to place it (or drag its gold ring), name it, give it its clauses, then Write it. Road it to the wheel in Roads mode once it stands.");
   };
   const setFx = (at: number, clause: ZodiacFxClause) => {
     if (!draft) return;
@@ -623,6 +623,15 @@ function StarwrightSection() {
         </div>
         {msg && <p className="notice-line">{msg}</p>}
         <svg ref={svgRef} viewBox="0 0 720 720" style={{ width: "100%", maxWidth: 720, display: "block", background: "radial-gradient(circle at 50% 50%, #171a29 0%, #0b0d16 70%)", borderRadius: 12, touchAction: "none" }}
+          onPointerDown={(e) => {
+            // Placing a new star (Nigel, 2026-10-18): while one is
+            // unwritten, a tap anywhere on the sky sets it down
+            // there — the whole map is the placement surface. Node
+            // taps stand aside while placing (their handlers check
+            // isNew), so a tap meant for the sky never selects a
+            // star instead.
+            if (isNew && draft) { const p = toLocal(e); setDraft({ ...draft, x: Math.round(p.x), y: Math.round(p.y) }); }
+          }}
           onPointerMove={(e) => {
             if (!dragId.current || !draft || draft.id !== dragId.current) return;
             const p = toLocal(e);
@@ -646,8 +655,8 @@ function StarwrightSection() {
             const isFrom = roadFrom === n.id;
             return (
               <g key={n.id} style={{ cursor: "pointer" }}
-                onPointerDown={(e) => { if (mode === "edit") { selectNode(n); dragId.current = n.id; (e.target as Element).setPointerCapture?.(e.pointerId); } }}
-                onClick={() => onNodeTap(n)}
+                onPointerDown={(e) => { if (isNew) return; if (mode === "edit") { selectNode(n); dragId.current = n.id; (e.target as Element).setPointerCapture?.(e.pointerId); } }}
+                onClick={() => { if (!isNew) onNodeTap(n); }}
               >
                 <circle cx={n.x} cy={n.y} r={starR(n) + 6} fill="transparent" />
                 <circle cx={n.x} cy={n.y} r={starR(n)} fill={STAR_SECTORS[n.sector] ?? "#9aa3b8"} stroke={isFrom ? "#ffd76a" : isSel ? "#fff" : "#0b0d16"} strokeWidth={isSel || isFrom ? 2.5 : 1} opacity={0.92} />
@@ -655,9 +664,15 @@ function StarwrightSection() {
               </g>
             );
           })}
-          {draft && isNew && <circle cx={draft.x} cy={draft.y} r={10} fill="none" stroke="#ffd76a" strokeDasharray="3 3" pointerEvents="none" />}
+          {draft && isNew && (
+            <g style={{ cursor: "grab" }} onPointerDown={(e) => { dragId.current = draft.id; (e.target as Element).setPointerCapture?.(e.pointerId); }}>
+              <circle cx={draft.x} cy={draft.y} r={18} fill="transparent" />
+              <circle cx={draft.x} cy={draft.y} r={10} fill="rgba(255,215,106,.14)" stroke="#ffd76a" strokeWidth={1.6} strokeDasharray="3 3" pointerEvents="none" />
+              <circle cx={draft.x} cy={draft.y} r={2.4} fill="#ffd76a" pointerEvents="none" />
+            </g>
+          )}
         </svg>
-        <p className="quiet">{graph.nodes.length} stars · {graph.edges.length} roads. {mode === "edit" ? "Tap a star to edit it; drag it to move it (it saves when you let go)." : "Tap two stars to lay or cut their road; tap a road to cut it."}</p>
+        <p className="quiet">{graph.nodes.length} stars · {graph.edges.length} roads. {isNew ? "Tap anywhere on the sky to place the new star — or drag its gold ring. It is written only when you press ✦ Write this star below." : mode === "edit" ? "Tap a star to edit it; drag it to move it (it saves when you let go)." : "Tap two stars to lay or cut their road; tap a road to cut it."}</p>
       </div>
       {draft && (
         <div className="workspace-card wide">
