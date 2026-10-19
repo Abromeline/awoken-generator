@@ -560,6 +560,14 @@ button { font-family: inherit; }
    the SVG, inked against a dark stroke so they read on any land. */
 .ts-name { font-size: 9px; fill: #e8dcc0; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,0.72); stroke-width: 3px; }
 .ts-name.dark { fill: #f0b8a6; }
+.ts-name.tender { fill: #ffd977; font-size: 9.5px; }
+/* The class fitting: which figure the local tender wears. */
+.tender-class-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tender-class-row button {
+  border: 1px solid rgba(232, 220, 195, 0.35); background: rgba(40, 32, 20, 0.6);
+  color: #e8dcc3; border-radius: 8px; padding: 4px 9px; font-size: 12px; cursor: pointer;
+}
+.tender-class-row button.tc-on { border-color: #d8b25c; color: #ffd977; }
 .ts-tag { font-size: 8.5px; fill: #ffe9b0; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,0.72); stroke-width: 3px; }
 .ts-glyph-fallback { font-size: 20px; fill: #ffd98a; text-anchor: middle; }
 .terrain-stage .ts-dark-img { filter: saturate(.8) brightness(.9); }

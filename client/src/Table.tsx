@@ -20,6 +20,7 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
+import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, type TenderClassId } from "./tenderArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -466,6 +467,23 @@ export default function Table() {
     const t = setInterval(() => setNowMs(Date.now()), 150);
     return () => clearInterval(t);
   }, []);
+  // THE TENDERS TAKE THE FIELD (Nigel's class sprites, 2026-10-19):
+  // which class figure the local tender wears on the stage. A
+  // trial fitting — the true law (your figure IS your Written
+  // Light path) is still the Ancient One's to rule; until then a
+  // tender chooses, and the choice is kept on this device.
+  const [myTenderClass, setMyTenderClass] = useState<TenderClassId>(() => {
+    const v = localStorage.getItem("table-tender-class");
+    return v === "runewright" || v === "binder" ? v : "warden";
+  });
+  // Each seated tender's walk, kept off the wire: where their
+  // figure stands, and the commute it is walking, if any. The
+  // server never hears of it — a figure's place is read off the
+  // room's own state (their company's ground, or a rim post).
+  const tenderTrackRef = useRef(new Map<string, {
+    anchorId: string; x: number; y: number;
+    walk: { fromX: number; fromY: number; toX: number; toY: number; since: number; endsAt: number } | null;
+  }>());
   // The stage's manners (Territory's, carried over 2026-10-18):
   // the map pans by drag and zooms by button, in the viewBox's
   // own coordinate space. A tap is a tap only when the pointer
@@ -1205,6 +1223,93 @@ export default function Table() {
     const ax = p.x, ay = p.y - 4;
     figures.push({ key: `m-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, true) });
   }
+  // ── THE TENDERS THEMSELVES, standing on the stage ──────────
+  // Every seated tender has a figure now: their class sprite,
+  // standing with their company — at the ground of their newest
+  // standing Awokin, or at a rim post while their roster is
+  // empty. The Storytender keeps beside the seed. When a
+  // tender's ground changes (a summon lands, a company moves),
+  // their figure RUNS to it: the walk is a client-side commute
+  // read off the clock, by the stage's marching law.
+  const tenderTargets = (() => {
+    if (!tiles.length) return [];
+    const ringOf = (t: MapTileView) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+    const maxRing = Math.max(...tiles.map(ringOf));
+    const posts = tiles
+      .filter(t => ringOf(t) === maxRing)
+      .sort((a, b) => Math.atan2(tileCenter(a).cy, tileCenter(a).cx) - Math.atan2(tileCenter(b).cy, tileCenter(b).cx));
+    const offs: [number, number][] = [[0, 0], [-16, 3], [16, 3]];
+    return shared.players.map((p, i) => {
+      let anchorId: string | null = null;
+      if (p.storytender) {
+        anchorId = SEED_TILE_ID;
+      } else {
+        for (const u of shared.field) if (u.ownerKey === p.key && !isMarchingNow(u)) anchorId = u.hex;
+        if (!anchorId) for (const u of shared.field) if (u.ownerKey === p.key) anchorId = u.hex;
+        if (!anchorId && posts.length) anchorId = posts[Math.floor(i * posts.length / Math.max(1, shared.players.length)) % posts.length].id;
+      }
+      const c = anchorId ? centerOf(anchorId) : null;
+      if (!c) return null;
+      const [ox, oy] = p.storytender ? [20, 0] : offs[i % offs.length];
+      return { p, i, anchorId: anchorId as string, gx: c.cx + ox, gy: c.cy - 2 + oy };
+    }).filter(Boolean) as { p: SharedState["players"][number]; i: number; anchorId: string; gx: number; gy: number }[];
+  })();
+  // Keep the walks honest: a changed anchor starts a commute
+  // from wherever the figure truly stands at this moment.
+  useEffect(() => {
+    const track = tenderTrackRef.current;
+    const seen = new Set<string>();
+    for (const t of tenderTargets) {
+      seen.add(t.p.key);
+      const cur = track.get(t.p.key);
+      if (!cur) {
+        track.set(t.p.key, { anchorId: t.anchorId, x: t.gx, y: t.gy, walk: null });
+        continue;
+      }
+      if (cur.anchorId !== t.anchorId) {
+        let fx = cur.x, fy = cur.y;
+        if (cur.walk) {
+          const k = clamp01((Date.now() - cur.walk.since) / Math.max(1, cur.walk.endsAt - cur.walk.since));
+          fx = cur.walk.fromX + (cur.walk.toX - cur.walk.fromX) * k;
+          fy = cur.walk.fromY + (cur.walk.toY - cur.walk.fromY) * k;
+        }
+        const dist = Math.hypot(t.gx - fx, t.gy - fy);
+        const now = Date.now();
+        track.set(t.p.key, {
+          anchorId: t.anchorId, x: t.gx, y: t.gy,
+          walk: dist > 4 ? { fromX: fx, fromY: fy, toX: t.gx, toY: t.gy, since: now, endsAt: now + dist / 0.085 } : null,
+        });
+      }
+    }
+    for (const k of [...track.keys()]) if (!seen.has(k)) track.delete(k);
+  });
+  for (const t of tenderTargets) {
+    const art = TENDER_CLASSES[you && t.p.key === you.key ? myTenderClass : TENDER_CLASS_ORDER[t.i % TENDER_CLASS_ORDER.length]];
+    const cur = tenderTrackRef.current.get(t.p.key);
+    let gx = t.gx, gy = t.gy, walking = false, dir = tenderDirOf(1, 0), step = 0;
+    if (cur?.walk && nowMs < cur.walk.endsAt) {
+      const k = clamp01((nowMs - cur.walk.since) / Math.max(1, cur.walk.endsAt - cur.walk.since));
+      gx = cur.walk.fromX + (cur.walk.toX - cur.walk.fromX) * k;
+      gy = cur.walk.fromY + (cur.walk.toY - cur.walk.fromY) * k;
+      walking = true;
+      dir = tenderDirOf(cur.walk.toX - cur.walk.fromX, cur.walk.toY - cur.walk.fromY);
+      step = Math.floor((nowMs - cur.walk.since) / 150);
+    } else if (cur?.walk) {
+      dir = tenderDirOf(cur.walk.toX - cur.walk.fromX, cur.walk.toY - cur.walk.fromY);
+    }
+    const pose = tenderPose(art, dir, walking, step);
+    const img = <image href={pose.src} x={gx - 29} y={gy - 58} width={58} height={58} preserveAspectRatio="xMidYMax meet" />;
+    figures.push({
+      key: `tender-${t.p.key}`, gy,
+      node: (
+        <g key={`tender-${t.p.key}`} pointerEvents="none" opacity={t.p.fallen ? 0.45 : 1}>
+          <ellipse cx={gx} cy={gy + 1} rx={13} ry={3.5} fill="rgba(0,0,0,0.35)" />
+          {pose.flip ? <g transform={`translate(${2 * gx} 0) scale(-1 1)`}>{img}</g> : img}
+          <text className="ts-name tender" x={gx} y={gy + 21}>{t.p.name}</text>
+        </g>
+      ),
+    });
+  }
   figures.sort((a, b) => a.gy - b.gy);
   return (
     <div className="table-room">
@@ -1234,6 +1339,20 @@ export default function Table() {
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
+          {you && (
+            <div className="tender-class-row">
+              <span className="quiet">You stand as:</span>
+              {TENDER_CLASS_ORDER.map(id => (
+                <button
+                  key={id}
+                  className={myTenderClass === id ? "tc-on" : ""}
+                  onClick={() => { setMyTenderClass(id); localStorage.setItem("table-tender-class", id); }}
+                >
+                  {TENDER_CLASSES[id].icon} {TENDER_CLASSES[id].label}
+                </button>
+              ))}
+            </div>
+          )}
           {you && (
             <details className="packing">
               <summary>Your packing</summary>
