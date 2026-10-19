@@ -233,6 +233,7 @@ registerTableRoutes(app);
 // Service for the Activity's application. Plain pages, served before
 // the SPA fallback so /privacy and /terms are truly themselves.
 app.get("/privacy", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "privacy.html")));
+app.get("/support", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "support.html")));
 app.get("/terms", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "legal", "terms.html")));
 app.get("/card-border/birth.png", (_req, res) => res.sendFile(resolve(process.cwd(), "server", "public", "card-border-birth.png")));
 

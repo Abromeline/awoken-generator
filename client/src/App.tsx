@@ -42,7 +42,7 @@ function useAwakeningSprites() {
 }
 import { fileToBase64, SafeAreaTopScrim } from "./sdk-compat";
 import UIWorkspace from "./UIWorkspace";
-import { api, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type AwokenStory, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
+import { api, WORKSHOP_FADED_EVENT, clearTenderToken, clearWorkshopToken, storeTenderToken, storeWorkshopToken, tenderToken as storedTenderToken, workshopToken as storedWorkshopToken, type Asset, type Awakened, type AwokenStory, type Category, type CreditInfo, type LayerRef, type Rarity, type TenderInfo, type TenderLeaderboardEntry, type WaitingAwoken, type WelcomeStatus } from "./api";
 import { toPng } from "html-to-image";
 import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
@@ -1425,6 +1425,12 @@ function TextColors() {
   );
 }
 
+// The paperwork, one quiet line (Nigel, 2026-10-19): support, privacy
+// and terms, served as plain pages by the server.
+function LegalLinks() {
+  return <p className="legal-links"><a href="/support">Support</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>;
+}
+
 function WorkshopUnlock({ onBack, onUnlock, note }: { onBack: () => void; onUnlock: (token: string) => void; note?: string }) {  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const unlock = useMutation({
@@ -1783,7 +1789,10 @@ function TendersPanel() {
       )}
     </div>
     <div className="pw-reset-row" style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <input value={resetName} onChange={(e) => setResetName(e.target.value)} placeholder="Tender name" style={{ maxWidth: 200 }} />
+      <select value={resetName} onChange={(e) => setResetName(e.target.value)} aria-label="Choose a Tender" style={{ maxWidth: 220 }}>
+        <option value="">Choose a Tender…</option>
+        {tenders.map((t) => <option key={t.code} value={t.displayName}>{t.displayName}</option>)}
+      </select>
       <input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="New password (8+ chars)" style={{ maxWidth: 200 }} autoComplete="new-password" />
       <button className="abtn small" disabled={!resetName.trim() || resetPw.length < 8} onClick={() => {
         doAdmin(() => api.adminResetTenderPassword({ tenderName: resetName.trim(), newPassword: resetPw }).then(r => { setResetPw(""); return r; }), "Password reset for " + resetName.trim());
@@ -2186,6 +2195,20 @@ export function App() {
     });
   }, [courtLegendsQ.data, courtHallQ.data]);
   const lockQuery = useQuery({ queryKey: ["workshopStatus"], queryFn: () => api.workshopStatus() });
+  // THE FADED WORD (Nigel, 2026-10-19): when any workshop-gated call
+  // meets the server's locked word (the token died at a redeploy), the
+  // api layer raises the event; the shell drops its dead token and the
+  // workshop door offers the unlock with the faded note, on the spot.
+  const [workshopFaded, setWorkshopFaded] = useState(false);
+  useEffect(() => {
+    const onFaded = () => {
+      setWtoken(null);
+      setWorkshopFaded(true);
+      void queryClient.invalidateQueries({ queryKey: ["workshopStudio"] });
+    };
+    window.addEventListener(WORKSHOP_FADED_EVENT, onFaded);
+    return () => window.removeEventListener(WORKSHOP_FADED_EVENT, onFaded);
+  }, []);
   const workshopOpen = !lockQuery.data?.locked || !!wtoken;
   const workshopQuery = useQuery({
     queryKey: ["workshopStudio"],
@@ -2239,7 +2262,7 @@ export function App() {
     // soft visitors (welcome still resolves) keep their ritual.
     const showGateUI = !tenderTokenState && (showGate || welcomeForbidden);
     if (showGateUI) {
-      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} note={gateNote} /><LoreSection /></main></div></>;
+      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><TenderGate onDone={handleTenderDone} note={gateNote} /><LoreSection /><LegalLinks /></main></div></>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
     // The First Seed (Wake, Nigel 2026-10-17): the first three woken,
@@ -2257,11 +2280,11 @@ export function App() {
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
       {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} initialPatrolIds={patrolIds} onOpenZodiac={() => setShowZodiac(true)} onToggleDeck={() => setShowTenderDeck(v => !v)} deckOpen={showTenderDeck} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} onNeedClaim={needClaim} />{showPatrolBanner && <section className="patrol-banner" aria-live="polite"><p className="eyebrow">The First Seed</p><h2>A starseed has landed!</h2><div className="patrol-banner-faces">{patrolThree.map((a) => <img key={a.id} src={a.image_url} alt={a.name} />)}</div><p><strong>A starseed has landed</strong> on your land — and the curse will test any hold on it, wave upon wave. You can send a patrol to claim it: {patrolThree.map((a) => a.name).join(", ")} stand ready as your first three.</p><p>The energy you will have when you get there grows with every friend you wake here{patrolEnergyQ.data ? <> — your pool stands at <strong>⚡{patrolEnergyQ.data.energy} of {patrolEnergyQ.data.maxEnergy}</strong> now, and each new waking raises it</> : ""}. We might find more powerful friends to bring.</p><p className="whisper-line">A whispering Awoken, thin as thread: “Are you sure? The curse tests all…”</p><button type="button" className="patrol-banner-send" onClick={() => { setPatrolIds(patrolThree.map((a) => a.id)); setShowDeck(true); }}>Send a Patrol →</button><p className="quiet">The seed waits until your patrol claims it.</p></section>}<WakeRitual onPresentedChange={setBirthId} assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}
-    </main><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
+    </main><LegalLinks /><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       </div></>;  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;
   if (lockQuery.data?.locked && !wtoken) {
-    return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><WorkshopUnlock onBack={() => setFace("tender")} onUnlock={(token) => setWtoken(token)} /></div></>;
+    return <><CosmicBackground /><div className="app-shell workshop-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><WorkshopUnlock onBack={() => setFace("tender")} onUnlock={(token) => { setWtoken(token); setWorkshopFaded(false); }} note={workshopFaded ? "The word has faded — speak it again." : undefined} /></div></>;
   }
   if ((workshopQuery.error as { status?: number } | null)?.status === 401) {
     clearWorkshopToken();

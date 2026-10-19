@@ -437,6 +437,24 @@ export function storeWorkshopToken(token: string): void {
   }
 }
 
+// THE FADED WORD (Nigel, 2026-10-19): workshop tokens live in server
+// memory and die at every redeploy, while the client keeps the corpse
+// in localStorage. When the server answers a workshop-gated call with
+// its locked word, drop the dead token and raise the event the app
+// shell listens for, so the Keeper is offered the unlock on the spot
+// instead of a dead "Failed:" line.
+export const WORKSHOP_FADED_EVENT = "awoken:workshop-faded";
+function noteWorkshopFaded(response: Response, data: { error?: string }): void {
+  if (response.status !== 401) return;
+  if (!(data.error ?? "").includes("workshop is locked")) return;
+  clearWorkshopToken();
+  try {
+    window.dispatchEvent(new CustomEvent(WORKSHOP_FADED_EVENT));
+  } catch {
+    /* no window, no word */
+  }
+}
+
 function throwApiError(response: Response, data: { error?: string }): never {
   throw Object.assign(new Error(data.error ?? `Request failed (${response.status}).`), { status: response.status });
 }
@@ -448,6 +466,7 @@ async function post<T>(name: string, args: unknown): Promise<T> {
     body: JSON.stringify(args ?? {}),
   });
   const data = (await response.json()) as { error?: string };
+  if (!response.ok) noteWorkshopFaded(response, data);
   if (!response.ok) throwApiError(response, data);
   return data as T;
 }
@@ -768,6 +787,7 @@ async function postPath<T>(path: string, args?: unknown): Promise<T> {
     body: args === undefined ? undefined : JSON.stringify(args),
   });
   const data = (await response.json()) as { error?: string };
+  if (!response.ok) noteWorkshopFaded(response, data);
   if (!response.ok) throwApiError(response, data);
   return data as T;
 }
