@@ -3782,11 +3782,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const tp = tilePos(target);
           if (col.state === "marching") {
             const op = axialPos(col.originQ, col.originR);
+            // THE COUNTDOWN ON THE LINE (Nigel, 2026-10-19): the
+            // server has always sent arrivesAt; the face never
+            // read it. The remaining march, riding the map's own
+            // 125ms clock, lettered at the line's midpoint —
+            // hours while the road is long, mm:ss as it closes.
+            const remainMs = col.arrivesAt - marchNow;
+            const remainS = Math.max(0, Math.ceil(remainMs / 1000));
+            const eta = remainMs <= 0 ? "at the gates"
+              : remainS >= 3600 ? `${Math.floor(remainS / 3600)}h ${String(Math.floor((remainS % 3600) / 60)).padStart(2, "0")}m`
+              : `${Math.floor(remainS / 60)}:${String(remainS % 60).padStart(2, "0")}`;
+            const midX = (op.cx + tp.cx) / 2, midY = (op.cy + tp.cy) / 2;
             return (
               <g key={col.id}>
                 <line x1={op.cx} y1={op.cy} x2={tp.cx} y2={tp.cy} stroke="#b04df0" strokeWidth={2.5} strokeDasharray="1 8" strokeLinecap="round" opacity={0.85} />
                 <circle cx={tp.cx} cy={tp.cy} r={size * 0.95} fill="none" stroke="#ff5340" strokeWidth={2} opacity={0.8} />
                 <text x={tp.cx} y={tp.cy - size * 1.12} textAnchor="middle" fontSize={size * 0.42}>⚠</text>
+                <text x={midX} y={midY - size * 0.16} textAnchor="middle" fontSize={size * 0.34} fontWeight={700} fill="#ffb4a6"
+                  style={{ paintOrder: "stroke", stroke: "rgba(12,4,18,0.9)", strokeWidth: 3.5, letterSpacing: "0.04em" }}>{eta}</text>
               </g>
             );
           }
