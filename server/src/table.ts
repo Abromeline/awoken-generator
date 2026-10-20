@@ -32,7 +32,7 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
-import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
+import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, pourLaidFor, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -3390,13 +3390,19 @@ function handleConnection(ws: WebSocket): void {
         await spendAttunement(caster.expKey, hue, pour);
         if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
       }
+      // THE WITCH'S POWERING (Nigel, 2026-10-20): her pool
+      // paid `pour` above; what STANDS in the working is the
+      // laid measure — twice the spend for a Witch raising a
+      // spell, rune or ward kind, the common measure for
+      // everyone else (pourLaidFor, the book's one reckoning).
+      const pourLaid = pourLaidFor(caster.classKey, def.kind, pour);
       // The health rating: holding wards are raised with health
       // grown from the book's base, the caster's level, the pour.
       // The Zodiac rides the snapshot (tranche one): Thick
       // Light's +2 on every ward, the Living Wall's +4 more on
       // the Trees, the Seal's deeper stops and answered
       // riposte, the Engine's deeper song.
-      let hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
+      let hp = hpForCast(def, caster.tenderLevel, pourLaid, engineBright(room, caster.key));
       hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0);
       // Lore Warden (tranche one): a ward raised on an edge
       // where one of yours fell stands at +2 HP — the edge
@@ -3411,9 +3417,10 @@ function handleConnection(ws: WebSocket): void {
       room.workings.push({
         id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: wardNums, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
-        hp, maxHp: hp, pour, stops: 0, charges: 0,
+        hp, maxHp: hp, pour: pourLaid, stops: 0, charges: 0,
       });
       tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge of ${mine ? `${mine.card.name}'s hex` : "their own hex"}.`);
+      if (pourLaid > pour) tell(room, `${caster.name}'s powering runs deep — her pour lays ${pourLaid} into the working for the ${pour} her pool paid.`);
       caster.castAt = Date.now();
       sendState(room);
       return;
@@ -3474,7 +3481,11 @@ function handleConnection(ws: WebSocket): void {
         await spendAttunement(caster.expKey, hue, pour);
         if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
       }
-      const hp = hpForCast(def, caster.tenderLevel, pour, false);
+      // THE WITCH'S POWERING (Nigel, 2026-10-20), as at the
+      // ward's raising: her pool paid `pour`; the working
+      // holds the laid measure (pourLaidFor).
+      const pourLaid = pourLaidFor(caster.classKey, def.kind, pour);
+      const hp = hpForCast(def, caster.tenderLevel, pourLaid, false);
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // LEVEL in the spell's element is snapshotted at the cast,
       // as HP is — the rain that falls later rolls by the sky
@@ -3513,7 +3524,7 @@ function handleConnection(ws: WebSocket): void {
         const wNew: Working = {
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp, maxHp: hp, pour, stops: 0, charges: chargesNow, maxCharges: chargesNow,
+          hp, maxHp: hp, pour: pourLaid, stops: 0, charges: chargesNow, maxCharges: chargesNow,
           group,
         };
         // The Ground Remembers (tranche one): the FIRST rune
@@ -3527,6 +3538,7 @@ function handleConnection(ws: WebSocket): void {
       tell(room, hexes.length > 1
         ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`
         : `${caster.name} writes ${def.forms[hue] ?? def.name} on the ground of the field.`);
+      if (pourLaid > pour) tell(room, `${caster.name}'s powering runs deep — her pour lays ${pourLaid} into the writing for the ${pour} her pool paid.`);
       for (const hx of hexes) springHex(room, hx, new Set());
       caster.castAt = Date.now();
       sendState(room);
@@ -3573,6 +3585,20 @@ function handleConnection(ws: WebSocket): void {
         if (room30 <= 0) { fail("That working already holds the full thirty points — even a Sage pours no deeper."); return; }
         laid = Math.min(pourWanted + 2, room30);
       }
+      // THE WITCH'S POWERING (Nigel, 2026-10-20): not the
+      // Sage's depth fiction — a RATE. Her pour lays twice
+      // what it costs (pourLaidFor, the book's one reckoning;
+      // the pushed working is always of the rune kind, inside
+      // her gift). The thirty-point cap a working may hold
+      // stands over her as it stands over the Sage, and her
+      // pool still pays only what she named.
+      const witchLaid = pourLaidFor(caster.classKey, def.kind, pourWanted);
+      const isWitchPour = !isSagePour && witchLaid > pourWanted;
+      if (isWitchPour) {
+        const room30 = 30 - (w.pour ?? 0);
+        if (room30 <= 0) { fail("That working already holds the full thirty points — even a Witch pours no deeper."); return; }
+        laid = Math.min(witchLaid, room30);
+      }
       await spendAttunement(caster.expKey, hue, pourWanted);
       if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pourWanted);
       const gained = Math.floor((def.numbers.hpPerPoint ?? 0) * laid);
@@ -3580,6 +3606,8 @@ function handleConnection(ws: WebSocket): void {
       w.hp += gained; w.maxHp += gained;
       tell(room, isSagePour && laid > pourWanted
         ? `${caster.name} pushes ${def.name} toward ${hue} — her mastery lays ${laid} deep for the ${pourWanted} her pool paid, and the rune takes the hue.`
+        : isWitchPour && laid > pourWanted
+        ? `${caster.name} pushes ${def.name} toward ${hue} — her powering lays ${laid} deep for the ${pourWanted} her pool paid, and the rune takes the hue.`
         : `${caster.name} pushes ${def.name} toward ${hue} — poured ${pourWanted} deep, and the rune takes the hue.`);
       sendState(room);
       return;

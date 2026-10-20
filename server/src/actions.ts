@@ -22,7 +22,7 @@ import {
   type TenderRow,
   requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, pourLaidFor, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
@@ -7458,6 +7458,12 @@ export const handlers = {
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, spellKey: spell.key };
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
+      // THE WITCH'S POWERING (Nigel, 2026-10-20): her pool
+      // paid `pour`; the working stands with the laid measure
+      // — twice the spend for a Witch, the common measure for
+      // everyone else (pourLaidFor, the book's one reckoning,
+      // the same the Table calls).
+      const pourLaid = pourLaidFor(progress.classKey, spell.kind, pour);
       // The health rating (Nigel, 2026-10-17): holding wards are
       // raised with health grown from the book's base, the
       // caster's Tender level, and the pour. Bright: an Engine of
@@ -7475,14 +7481,14 @@ export const handlers = {
       if (spell.engine === "engine") mapNums.energyPerRound = (mapNums.energyPerRound ?? 1) + eff.engineEnergy;
       if (spell.engine === "trees" || spell.engine === "seal") {
         const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
-        hp = hpForCast(spell, progress.level, pour, !!bright);
+        hp = hpForCast(spell, progress.level, pourLaid, !!bright);
         hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0);
       }
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pour, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pourLaid, hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour: pourLaid, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -7503,6 +7509,11 @@ export const handlers = {
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, spellKey: spell.key };
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
+      // THE WITCH'S POWERING (Nigel, 2026-10-20), as at the
+      // ward's raising on this ground and at the Table: her
+      // pool paid `pour`; the writing holds the laid measure
+      // (pourLaidFor, the book's one reckoning).
+      const pourLaid = pourLaidFor(progress.classKey, spell.kind, pour);
       const effR = workingEffects(ownerKey);
       const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
@@ -7527,18 +7538,18 @@ export const handlers = {
       }
       // The Lattice holds its ground with a health rating, like
       // the holding wards; harm and snare runes carry none.
-      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pour, false) : 0;
+      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pourLaid, false) : 0;
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pour, hp, Date.now());
+        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pourLaid, hp, Date.now());
       const newId = Number(info.lastInsertRowid);
       // The writing springs the moment it lands, if the dark
       // already stands on its ground or the curse holds that
       // ground (Homeland Casting — the Table's cast-time
       // spring, honored on this ground too).
       const sprungNow = await springHomelandWorking(ownerKey, newId, castTiles as any[]);
-      return { ok: true as const, id: newId, tileId, cost: runeCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
+      return { ok: true as const, id: newId, tileId, cost: runeCost, pour: pourLaid, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
     }
 
     badRequest("That page of the book cannot be cast on the land.");
@@ -7587,12 +7598,18 @@ export const handlers = {
     if ((pools[hue] ?? 0) < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${pools[hue] ?? 0}.`);
     const spent = await spendAttunement(ownerKey, hue, pourWanted);
     if (!spent.ok) badRequest(`The ${hue} pool holds ${spent.held} — the push fails, and nothing is spent.`);
-    const gained = Math.floor((spell.numbers.hpPerPoint ?? 0) * pourWanted);
+    // THE WITCH'S POWERING (Nigel, 2026-10-20): the pool paid
+    // `pourWanted`; the rune takes the laid measure — twice
+    // the spend for a Witch, the common measure for everyone
+    // else (pourLaidFor, the book's one reckoning).
+    const progress = await getTenderProgress(ownerKey);
+    const laid = pourLaidFor(progress.classKey, spell.kind, pourWanted);
+    const gained = Math.floor((spell.numbers.hpPerPoint ?? 0) * laid);
     const maxHp = (row.max_hp ?? 0) + gained;
     const hp = (row.hp ?? 0) + gained;
     sqlite.prepare("UPDATE territory_workings SET hue = ?, pour = ?, hp = ?, max_hp = ? WHERE id = ?")
-      .run(hue, pourWanted, hp, maxHp, id);
-    return { ok: true as const, id, hue, pour: pourWanted, hp, maxHp };
+      .run(hue, laid, hp, maxHp, id);
+    return { ok: true as const, id, hue, pour: laid, hp, maxHp };
   },
 
   /** Teach an Awoken a skill (WARDING or RUNEING). Until the

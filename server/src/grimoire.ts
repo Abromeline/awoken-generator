@@ -193,7 +193,14 @@ export function defaultGrimoire(): GrimoireState {
   // TWO MORE CLASSES (Nigel, 2026-10-19): the WITCH, whose
   // school is the Spell school itself — +2 on spell-school
   // casts and their power rolls, -3 on ward, rune and binding
-  // workings. The Spell school stays OPEN even so: a non-witch,
+  // workings. And her POWERING (Nigel, 2026-10-20): when the
+  // Witch pours attunement into a working of the spell, rune
+  // or ward kind, her pour LAYS TWICE what it costs — the
+  // same points spent, twice the depth standing in the
+  // working, at the cast and at the push, on both grounds;
+  // bindings stand outside the gift. The rate is reckoned
+  // once, in pourLaidFor beside the pour's other law in this
+  // book, and every pour door calls it. The Spell school stays OPEN even so: a non-witch,
   // non-sage caster still rolls its spells unmodified (±0), for
   // only the ward, rune and binding schools are closed to
   // outsiders. And the SAGE, who owns no school at all: -2 on
@@ -336,6 +343,25 @@ export function hpForCast(spell: GrimoireSpell, tenderLevel: number, pour: numbe
     return Math.max(1, Math.floor((n.hp ?? 8) + (bright ? (n.brightHpBonus ?? 2) : 0) + (n.hpPerLevel ?? 1) * tenderLevel + (n.hpPerPoint ?? 2) * pour));
   }
   return 0;
+}
+
+/** THE WITCH'S POWERING (Nigel, 2026-10-20): when a Witch
+ *  pours attunement into a working, her pour LAYS twice what
+ *  it costs — the same points leave her pool, twice the depth
+ *  stands in the working. The gift runs by the working's
+ *  KIND: spell, rune and ward workings drink deep of her;
+ *  BINDINGS stand outside it, as they stand outside the pour
+ *  itself (binding healing is energy only). Every other class
+ *  lays what it spends. This is the one reckoning of the
+ *  rate: both grounds (the Table's cast and push, the
+ *  homeland's cast and push) call it, so it cannot drift.
+ *  It is NOT the Sage's mastery — hers is a depth fiction at
+ *  the Table's push (lays amount + 2, the thirty cap standing
+ *  over her); the Witch's is a clean rate, and the two never
+ *  meet on one caster. */
+export function pourLaidFor(classKey: string | null | undefined, kind: string | null | undefined, wanted: number): number {
+  if (wanted <= 0) return wanted;
+  return classKey === "witch" && (kind === "spell" || kind === "rune" || kind === "ward") ? wanted * 2 : wanted;
 }
 
 /** Spend attunement points of one element from a Tender's pool
