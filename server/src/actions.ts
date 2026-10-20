@@ -954,24 +954,29 @@ async function expandFrontier(ownerKey: string, q: number, r: number, depth: num
   const seen = new Set(existing.map(t => `${t.q},${t.r}`));
   const now = new Date();
   const mood = await getWorldMood();
-  // Expand outward in rings up to depth — ensures a buffer of cursed land
+  // Expand outward in rings up to depth — ensures a buffer of cursed land.
+  // The walk crosses land that already stands (PHASE D, 2026-10-19):
+  // depth is measured in rings from the seed hex, not in rings of
+  // fresh minting, so the push outward holds across the whole rim.
   let frontier = [[q, r]];
+  const queued = new Set([`${q},${r}`]);
   for (let d = 0; d < depth; d++) {
     const next: number[][] = [];
     for (const [cq, cr] of frontier) {
       for (const [dq, dr] of dirs) {
         const nq = cq + dq, nr = cr + dr;
         const key = `${nq},${nr}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const el = elements[Math.floor(Math.random() * elements.length)];
-        const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
-        const hp = curseHpFor(ring, mood.mood);
-        await db.insert(schema.territoryTiles).values({
-          ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
-          curseHp: hp, curseMaxHp: hp,
-        });
-        next.push([nq, nr]);
+        if (!seen.has(key)) {
+          seen.add(key);
+          const el = elements[Math.floor(Math.random() * elements.length)];
+          const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
+          const hp = curseHpFor(ring, mood.mood);
+          await db.insert(schema.territoryTiles).values({
+            ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
+            curseHp: hp, curseMaxHp: hp,
+          });
+        }
+        if (!queued.has(key)) { queued.add(key); next.push([nq, nr]); }
       }
     }
     frontier = next;
@@ -979,26 +984,46 @@ async function expandFrontier(ownerKey: string, q: number, r: number, depth: num
   }
 }
 
-// Self-healing: ensure at least 2 rings of cursed tiles beyond the purified frontier.
-// Called on getTerritory so a stuck map fixes itself on next load.
+// Self-healing: ensure a living buffer of cursed tiles beyond the
+// purified frontier. Called on getTerritory so a stuck map fixes
+// itself on next load. PHASE D — THE CURSED FRONTIER (Nigel,
+// 2026-10-19): the buffer deepens to THREE rings, and the debt is
+// reckoned around the WHOLE purified rim, not at one edge tile —
+// more dark beyond the homeland's edge, to explore and push back.
+const FRONTIER_DEPTH = 3;
 async function ensureFrontierBuffer(ownerKey: string) {
   const tiles = await db.select().from(schema.territoryTiles)
     .where(eq(schema.territoryTiles.ownerKey, ownerKey));
   if (!tiles.length) return;
   const purified = tiles.filter(t => !t.cursed);
   if (!purified.length) return;
-  // Find purified tiles at the edge (adjacent to non-existent tiles)
   const tileSet = new Set(tiles.map(t => `${t.q},${t.r}`));
-  const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  // Every hex within FRONTIER_DEPTH of any purified hex that does
+  // not yet stand is owed to the frontier.
+  const missing = new Set<string>();
   for (const t of purified) {
-    let isEdge = false;
-    for (const [dq, dr] of dirs) {
-      if (!tileSet.has(`${t.q + dq},${t.r + dr}`)) { isEdge = true; break; }
+    for (let dq = -FRONTIER_DEPTH; dq <= FRONTIER_DEPTH; dq++) {
+      for (let dr = Math.max(-FRONTIER_DEPTH, -dq - FRONTIER_DEPTH); dr <= Math.min(FRONTIER_DEPTH, -dq + FRONTIER_DEPTH); dr++) {
+        const key = `${t.q + dq},${t.r + dr}`;
+        if (!tileSet.has(key)) missing.add(key);
+      }
     }
-    if (isEdge) {
-      await expandFrontier(ownerKey, t.q, t.r, 2);
-      return; // One edge tile is enough — expandFrontier covers 2 rings
-    }
+  }
+  if (!missing.size) return;
+  // Mint the debt with the frontier law's own values — the same
+  // element draw and curse reckoning expandFrontier has always used.
+  const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
+  const mood = await getWorldMood();
+  const now = new Date();
+  for (const key of missing) {
+    const [nq, nr] = key.split(",").map(Number);
+    const el = elements[Math.floor(Math.random() * elements.length)];
+    const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
+    const hp = curseHpFor(ring, mood.mood);
+    await db.insert(schema.territoryTiles).values({
+      ownerKey, q: nq, r: nr, element: el, cursed: 1, lastPassiveAt: now,
+      curseHp: hp, curseMaxHp: hp,
+    });
   }
 }
 
@@ -4743,6 +4768,25 @@ export const handlers = {
    *  first time — the bastion rule: his bastion's tile, else the
    *  heart (0,0) once it is pure, else his first purified hex. A
    *  defaulted anchor is written down so it never wanders. */
+  /** THE BASTION ANCHOR (Phase D, 2026-10-19): where a fallen
+   *  Tender wakes. The bastion rule's own chain — his bastion's
+   *  tile, else the pure heart, else his first purified hex —
+   *  walked with one guard tenderStand does not need: the wake
+   *  never lands mid-curse, so a cursed bastion tile is passed
+   *  over for clean ground. */
+  async bastionAnchorTileId(ownerKey: string, tiles: any[]): Promise<number | null> {
+    const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
+    try {
+      const b = sqlite.prepare("SELECT b.tile_id AS tileId FROM star_seeds s JOIN territory_buildings b ON b.id = s.bastion_building_id WHERE s.owner_key = ? AND s.bastion_building_id IS NOT NULL LIMIT 1").get(ownerKey) as { tileId: number } | undefined;
+      if (b && byId.has(b.tileId) && !byId.get(b.tileId).cursed) return b.tileId;
+    } catch { /* no bastion yet — the chain walks on */ }
+    const heart = tiles.find((t: any) => t.q === 0 && t.r === 0 && !t.cursed);
+    if (heart) return heart.id;
+    const pure = tiles.filter((t: any) => !t.cursed)
+      .sort((a: any, b: any) => (Math.abs(a.q) + Math.abs(a.r)) - (Math.abs(b.q) + Math.abs(b.r)) || a.id - b.id);
+    return pure[0]?.id ?? null;
+  },
+
   async tenderStand(ownerKey: string, tiles: any[]): Promise<{ tileId: number; classKey: string; weaponKey: string | null } | null> {
     const progress = await getTenderProgress(ownerKey);
     if (!progress.classKey) return null;
@@ -4816,6 +4860,232 @@ export const handlers = {
     }
   },
 
+  /** PHASE D — TENDER ATTRITION (Nigel, 2026-10-19): the Tender's
+   *  homeland body, settled like his Awokin's curse withering —
+   *  from a watermark, at the same rate (0.01×(ring+1) of his
+   *  greatest health per 2.8s beat, one settle never reckoning
+   *  more than a minute), while he stands on cursed ground. On
+   *  clean ground the land mends him instead, at the heart's
+   *  share (1% per beat). The fall, when it comes, fires ONCE:
+   *  hp rests at 0 under a blackout, and when the blackout lifts
+   *  he WAKES AT THE BASTION, half-healed. */
+  async settleTenderBody(ownerKey: string, tiles: any[], standTileId: number): Promise<number> {
+    const TENDER_BLACKOUT_MS = 15000;
+    const now = Date.now();
+    const progress = await getTenderProgress(ownerKey);
+    const maxHp = progress.maxTenderHp;
+    const row = sqlite.prepare("SELECT hp, curse_watermark AS wm, down_until AS downUntil, fell_count AS fell FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (!row) return standTileId;
+    let hp = row.hp == null ? maxHp : Number(row.hp);
+    if (hp > maxHp) hp = maxHp;
+    let wm: number | null = row.wm ?? null;
+    let downUntil: number | null = row.downUntil ?? null;
+    const save = () => sqlite.prepare("UPDATE tender_progress SET hp = ?, curse_watermark = ?, down_until = ? WHERE owner_key = ?")
+      .run(hp, wm, downUntil, ownerKey);
+    // THE WAKE: the blackout has run out.
+    if (downUntil != null && now >= downUntil) {
+      const anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+      downUntil = null;
+      hp = maxHp / 2;
+      wm = null;
+      save();
+      if (anchor != null) {
+        sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(anchor, ownerKey);
+        return anchor;
+      }
+      return standTileId;
+    }
+    if (downUntil != null) { save(); return standTileId; } // still down: no drain, no mend, no second fall
+    const tile = tiles.find((t: any) => t.id === standTileId);
+    if (!tile) { save(); return standTileId; }
+    if (wm == null) { wm = now; save(); return standTileId; }
+    const elapsed = Math.min(now - wm, 60000);
+    if (elapsed < 1000) { save(); return standTileId; }
+    const beats = elapsed / 2800;
+    if (tile.cursed) {
+      const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+      hp -= maxHp * (0.01 * (ring + 1)) * beats;
+      if (hp <= 0) {
+        // THE FALL — fires once; the blackout holds him at 0.
+        hp = 0;
+        wm = null;
+        downUntil = now + TENDER_BLACKOUT_MS;
+        sqlite.prepare("UPDATE tender_progress SET hp = 0, curse_watermark = NULL, down_until = ?, fell_count = fell_count + 1 WHERE owner_key = ?")
+          .run(downUntil, ownerKey);
+        return standTileId;
+      }
+      wm = now;
+      save();
+      return standTileId;
+    }
+    // Clean ground mends him at the heart's share.
+    hp = Math.min(maxHp, hp + maxHp * 0.01 * beats);
+    wm = now;
+    save();
+    return standTileId;
+  },
+
+  /** One wound to the Tender's homeland body, from a named
+   *  peril (a border Fray's teeth). The shield law holds: this
+   *  path is only ever called when nothing of his stands closer.
+   *  A wound that empties the pool is a fall, with the same
+   *  blackout and ledger as the curse's own. */
+  async woundTender(ownerKey: string, damage: number): Promise<void> {
+    const TENDER_BLACKOUT_MS = 15000;
+    const now = Date.now();
+    const row = sqlite.prepare("SELECT hp, down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (!row || (row.downUntil != null && Number(row.downUntil) > now)) return; // already down: the fallen are not bitten twice
+    const progress = await getTenderProgress(ownerKey);
+    const hp = (row.hp == null ? progress.maxTenderHp : Number(row.hp)) - damage;
+    if (hp <= 0) {
+      sqlite.prepare("UPDATE tender_progress SET hp = 0, curse_watermark = NULL, down_until = ?, fell_count = fell_count + 1 WHERE owner_key = ?")
+        .run(now + TENDER_BLACKOUT_MS, ownerKey);
+    } else {
+      sqlite.prepare("UPDATE tender_progress SET hp = ? WHERE owner_key = ?").run(hp, ownerKey);
+    }
+  },
+
+  /** The Tender's body as the map serves it: the pool, its
+   *  greatest measure, the blackout, and the fall ledger. */
+  async tenderBodyView(ownerKey: string): Promise<{ hp: number; maxHp: number; down: boolean; downUntil: number | null; fellCount: number } | null> {
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) return null;
+    const row = sqlite.prepare("SELECT hp, down_until AS downUntil, fell_count AS fell FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (!row) return null;
+    const now = Date.now();
+    const downUntil = row.downUntil ?? null;
+    return {
+      hp: row.hp == null ? progress.maxTenderHp : Math.min(Number(row.hp), progress.maxTenderHp),
+      maxHp: progress.maxTenderHp,
+      down: downUntil != null && Number(downUntil) > now,
+      downUntil,
+      fellCount: Number(row.fell ?? 0),
+    };
+  },
+
+  /** PHASE D — THE BLIND FRAY LAW (Nigel, 2026-10-19): while the
+   *  Tender is online (his map read is the world's pulse), every
+   *  cursed hex in his view — ring 6 of his stand — rolls 35% on
+   *  each spawn beat (~45s) to birth a Fray. The Fray has no eyes:
+   *  on cursed ground it only wanders, blind; it turns hostile
+   *  ONLY at the purified border, chewing what stands on the
+   *  clean hexes beside it — his fielded Awokin first (the
+   *  shield law), the Tender himself only when nothing stands.
+   *  Purified ground is death to it: the light takes its own.
+   *  Settles lazily on read, like the marches and the columns. */
+  async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number }[] }> {
+    // The chew's targets, read fresh inside the settle — the
+    // response's own placement read happens AFTER this pass, so
+    // what the map serves is the walking's true aftermath.
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.35, VIEW_RING = 6, CAP = 12, CATCHUP_BEATS = 4, CHEW = 0.05;
+    const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    const now = Date.now();
+    const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
+    const byKey = new Map<string, any>(tiles.map((t: any) => [`${t.q},${t.r}`, t]));
+    const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+    // The light takes its own: a wanderer standing on ground that
+    // has been purified is unmade with the curse that bore it.
+    let rows = sqlite.prepare("SELECT id, tile_id AS tileId FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number }[];
+    rows = rows.filter(w => {
+      const t = byId.get(w.tileId);
+      if (t && t.cursed) return true;
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(w.id);
+      return false;
+    });
+    // SPAWN BEATS — rolled per beat due, a capped catch-up so an
+    // absence is weather, not a flood; beats skipped past the cap
+    // are settled as spent, never banked.
+    if (standTileId != null) {
+      const stand = byId.get(standTileId);
+      const prow = sqlite.prepare("SELECT wanderer_anchor_at AS anchor, wanderer_settled_beats AS settled FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+      if (stand && prow) {
+        if (prow.anchor == null) {
+          sqlite.prepare("UPDATE tender_progress SET wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?").run(now, ownerKey);
+        } else {
+          const due = Math.floor((now - Number(prow.anchor)) / SPAWN_BEAT_MS);
+          const fresh = due - Number(prow.settled ?? 0);
+          if (fresh > 0) {
+            const beats = Math.min(fresh, CATCHUP_BEATS);
+            const view = tiles.filter((t: any) => t.cursed && hexDist(t, stand) <= VIEW_RING);
+            for (let b = 0; b < beats && rows.length < CAP; b++) {
+              const occupied = new Set(rows.map(w => w.tileId));
+              for (const t of view) {
+                if (rows.length >= CAP) break;
+                if (occupied.has(t.id)) continue;
+                if (Math.random() < SPAWN_CHANCE) {
+                  const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at) VALUES (?, ?, 'fray', ?)").run(ownerKey, t.id, now);
+                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id });
+                  occupied.add(t.id);
+                }
+              }
+            }
+            sqlite.prepare("UPDATE tender_progress SET wanderer_settled_beats = ? WHERE owner_key = ?").run(due, ownerKey);
+          }
+        }
+      }
+    }
+    // THE WALK — steps of the curse's own beat from the watermark;
+    // one settle never walks more than a minute of them.
+    const dissipated = new Set<number>();
+    const wrow = sqlite.prepare("SELECT wanderer_watermark AS wm FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (wrow) {
+      if (wrow.wm == null) {
+        sqlite.prepare("UPDATE tender_progress SET wanderer_watermark = ? WHERE owner_key = ?").run(now, ownerKey);
+      } else {
+        const elapsed = Math.min(now - Number(wrow.wm), 60000);
+        if (elapsed >= 1000) {
+          sqlite.prepare("UPDATE tender_progress SET wanderer_watermark = ? WHERE owner_key = ?").run(now, ownerKey);
+          const steps = Math.floor(elapsed / 2800);
+          const standTile = standTileId != null ? byId.get(standTileId) : null;
+          // damagePlacement reckons from the row it is handed —
+          // carry each victim's running wounds across this
+          // settle's steps, or no bite would ever deepen.
+          const hpCarry = new Map<number, number>();
+          for (let s = 0; s < steps; s++) {
+            for (const w of rows) {
+              const t = byId.get(w.tileId);
+              if (!t || !t.cursed) continue;
+              const nbrs = DIRS.map(([dq, dr]) => byKey.get(`${t.q + dq},${t.r + dr}`)).filter(Boolean) as any[];
+              const pureNbrs = nbrs.filter(n => !n.cursed);
+              if (pureNbrs.length) {
+                // HOSTILE AT THE BORDER: his Awokin standing on
+                // the clean hexes beside it are chewed first;
+                // the Tender only when nothing of his stands.
+                let chewed = false;
+                for (const n of pureNbrs) {
+                  const cand = placements.find(p => p.tileId === n.id && !dissipated.has(p.id));
+                  if (cand) {
+                    const cMax = await placementMaxHp(cand.awakenedId);
+                    const res = await damagePlacement({ ...cand, hp: hpCarry.get(cand.id) ?? cand.hp } as any, Math.max(1, Math.round(cMax * CHEW)));
+                    hpCarry.set(cand.id, res.hp);
+                    if (res.dissipated) dissipated.add(cand.id);
+                    chewed = true;
+                    break;
+                  }
+                }
+                if (!chewed && standTile && pureNbrs.some(n => n.id === standTile.id)) {
+                  const progress = await getTenderProgress(ownerKey);
+                  await this.woundTender(ownerKey, Math.max(1, Math.round(progress.maxTenderHp * CHEW)));
+                }
+              } else {
+                // BLIND: it wanders its own dark, one hex a step,
+                // never two of its kind to a hex.
+                const open = nbrs.filter(n => n.cursed && !rows.some(o => o !== w && o.tileId === n.id));
+                if (open.length) {
+                  const dest = open[Math.floor(Math.random() * open.length)];
+                  sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ? WHERE id = ?").run(dest.id, w.id);
+                  w.tileId = dest.id;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return { views: rows.map(w => ({ id: w.id, tileId: w.tileId })) };
+  },
+
   async getTerritory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     // Marches land before the territory is read (War-Ground, 2026-10-16).
@@ -4866,6 +5136,22 @@ export const handlers = {
     // stand is reckoned, and his followers muster to his ring.
     const tenderStand = await this.tenderStand(ownerKey, tiles as any[]);
     if (tenderStand) await this.settleTenderMuster(ownerKey, tiles as any[], tenderStand.tileId);
+    // PHASE D — THE LIVING HOMELAND settles on the same read
+    // (Nigel, 2026-10-19): the Tender's own body answers the
+    // curse (and wakes at the bastion), and the Blind Fray walks.
+    // Both passes run BEFORE the field is read for the response,
+    // so a wake's new stand and a chew's wounds are what the map
+    // serves — never their ghosts.
+    let wandererViews: { id: number; tileId: number }[] = [];
+    let tenderView: any = tenderStand;
+    if (tenderStand) {
+      const stoodTileId = await this.settleTenderBody(ownerKey, tiles as any[], tenderStand.tileId);
+      tenderStand.tileId = stoodTileId;
+      const wres = await this.settleWanderers(ownerKey, tiles as any[], tenderStand.tileId);
+      wandererViews = wres.views;
+      const body = await this.tenderBodyView(ownerKey);
+      if (body) tenderView = { ...tenderStand, ...body };
+    }
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
 
     // Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
@@ -5375,7 +5661,7 @@ export const handlers = {
       .all(ownerKey);
     const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges, pour, max_hp AS maxHp FROM territory_workings WHERE owner_key = ? ORDER BY id")
       .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderStand };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -5391,6 +5677,12 @@ export const handlers = {
     if (!tiles.some((t: any) => t.id === parsed.data.tileId)) badRequest("That hex is not yours to stand on.");
     const progress = await getTenderProgress(ownerKey);
     if (!progress.classKey) badRequest("A Tender shows on his land only once he has chosen a class.");
+    // PHASE D: a fallen Tender does not walk. The blackout holds
+    // him where he fell until the bastion wake (settleTenderBody).
+    const bodyRow = sqlite.prepare("SELECT down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (bodyRow?.downUntil != null && Number(bodyRow.downUntil) > Date.now()) {
+      badRequest("Your Tender has fallen — he wakes at the bastion, half-healed, when the blackout lifts.");
+    }
     sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(parsed.data.tileId, ownerKey);
     return { ok: true, tileId: parsed.data.tileId };
   },

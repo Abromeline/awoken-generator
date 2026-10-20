@@ -479,6 +479,19 @@ export const tenderProgress = sqliteTable("tender_progress", {
    *  his side and lunges on its own; re-picking rides the same
    *  second-thoughts economy as the class itself. */
   weaponKey: text("weapon_key"),
+  /** PHASE D — THE LIVING HOMELAND (Nigel, 2026-10-19): the
+   *  Tender's homeland body, real at last — a stored HP pool
+   *  (null until first settled: a whole Tender), the curse
+   *  watermark his attrition is reckoned from, the blackout
+   *  clock of a fall, and the fall ledger. The wanderer fields
+   *  pace the Blind Fray's spawn beats. */
+  hp: real("hp"),
+  curseWatermark: integer("curse_watermark"),
+  downUntil: integer("down_until"),
+  fellCount: integer("fell_count").notNull().default(0),
+  wandererAnchorAt: integer("wanderer_anchor_at"),
+  wandererSettledBeats: integer("wanderer_settled_beats").notNull().default(0),
+  wandererWatermark: integer("wanderer_watermark"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

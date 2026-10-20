@@ -484,7 +484,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // (setTenderTile), so the server keeps the truth of where he
   // stands and his followers muster to that hex. The engine's
   // clocks and mirrors live below, beside refreshTerritory.
-  const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
+  const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string; weaponKey?: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null>(null);
+  // PHASE D — THE BLIND FRAY on the face: the homeland's dark,
+  // served by getTerritory beside the Tender's own body.
+  const [wanderers, setWanderers] = useState<{ id: number; tileId: number }[]>([]);
   const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number } | null>(null);
   /** The locator's pulse (2026-10-19): when the compass's 🧭 is
    *  tapped, the camera swings to the Tender and a gold ring
@@ -1120,6 +1123,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []);
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
+        setWanderers(t.wanderers ?? []);
       } catch (e) {
         console.error("[Territory] getTerritory failed:", e);
       } finally {
@@ -1159,6 +1163,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
+    setWanderers(refreshed.wanderers ?? []);
   };
 
   // ── THE TENDER'S GLIDE ENGINE ─────────────────────────────────
@@ -4022,8 +4027,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const h = 62 * zoom;
       const img = (
         <image href={pose.src} x={tenderFig.x - h / 2} y={tenderFig.y + 4 - h} width={h} height={h}
-          preserveAspectRatio="xMidYMax meet" />
+          preserveAspectRatio="xMidYMax meet" opacity={tenderStand.down ? 0.5 : 1} />
       );
+      // PHASE D: his body is real — the pool rides above his
+      // figure, green to ember as it empties; a fallen Tender
+      // lies dimmed under his sentence until the bastion wake.
+      const bodyBar = tenderStand.maxHp != null ? (() => {
+        const max = tenderStand.maxHp;
+        const hp = Math.max(0, Math.min(max, tenderStand.hp ?? max));
+        const frac = max > 0 ? hp / max : 0;
+        return (
+          <g pointerEvents="none">
+            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom} width={36 * zoom} height={3.6 * zoom}
+              fill="rgba(6,4,10,0.82)" stroke="rgba(201,162,39,0.55)" strokeWidth={0.5} />
+            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom} width={36 * zoom * frac} height={3.6 * zoom}
+              fill={tenderStand.down ? "#8a2f26" : frac <= 0.35 ? "#d05a3a" : "#9dc08b"} />
+            {tenderStand.down && (
+              <text x={tenderFig.x} y={tenderFig.y + 13 * zoom} textAnchor="middle" fontSize={6.5 * zoom} fontWeight={700} fill="#e8a49a"
+                style={{ paintOrder: "stroke", stroke: "rgba(8,2,4,0.9)", strokeWidth: 3 }}>fallen — he wakes at the bastion</text>
+            )}
+          </g>
+        );
+      })() : null;
       // THE RUNIC WEAPON rides with him (Nigel, 2026-10-19):
       // presence only on the homeland — it floats at his
       // shoulder on the map's own clock, gold-lit; the Sword &
@@ -4045,6 +4070,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           )}
           <ellipse cx={tenderFig.x} cy={tenderFig.y + 2} rx={13 * zoom} ry={3.5 * zoom} fill="rgba(0,0,0,0.35)" />
           {pose.flip ? <g transform={`translate(${2 * tenderFig.x} 0) scale(-1 1)`}>{img}</g> : img}
+          {bodyBar}
           {/* THE TENDER'S OWN TAP (touch hands): the figure
               takes the tap itself, and his controller pops —
               the tap never becomes a road through him. */}
@@ -4208,6 +4234,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
       );
     })();
+    // PHASE D — THE BLIND FRAY on the face: each wanderer wears
+    // the Fray's own art (Nigel's drawn face, the workshop's live
+    // choice respected), standing in its hex on the map's clock —
+    // a slow, sightless sway, nothing like a march.
+    const wanderersLayer = (
+      <g key="wanderers" pointerEvents="none">
+        {wanderers.map(w => {
+          const t = tiles.find(t => t.id === w.tileId);
+          if (!t) return null;
+          const { cx, cy } = tilePos(t);
+          const wh = size * 0.95;
+          const sway = Math.sin(marchNow / 620 + w.id * 1.7) * 1.6;
+          return (
+            <g key={w.id}>
+              <ellipse cx={cx} cy={cy + size * 0.17} rx={size * 0.3} ry={size * 0.11} fill="rgba(0,0,0,0.42)" />
+              <image href={enemyImgFor("fray", enemyArtData?.art)} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
+                preserveAspectRatio="xMidYMax meet" opacity={0.95} />
+            </g>
+          );
+        })}
+      </g>
+    );
     return (
       <>
         {elements}
@@ -4221,6 +4269,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {calmLayer}
         {columnsLayer}
         {seedLayer}
+        {wanderersLayer}
         {patrolGuideLayer}
         {marchGuideLayer}
         {bandLayer}

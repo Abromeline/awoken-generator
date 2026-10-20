@@ -677,6 +677,26 @@ try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN reclass_tokens INTEGER
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN class_chosen_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN tender_tile_id INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN weapon_key TEXT`); } catch {}
+// PHASE D — THE LIVING HOMELAND (Nigel, 2026-10-19): the Tender's
+// homeland body is real — a stored HP pool drained by the curse
+// and mended by clean ground, a fall ledger, a blackout clock —
+// and his blind wanderers walk a table of their own, settled like
+// the columns are.
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN hp REAL`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN curse_watermark INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN down_until INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN fell_count INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN wanderer_anchor_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN wanderer_settled_beats INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN wanderer_watermark INTEGER`); } catch {}
+sqlite.exec(`CREATE TABLE IF NOT EXISTS homeland_wanderers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tile_id INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'fray',
+  spawned_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_homeland_wanderers_owner ON homeland_wanderers (owner_key);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   owner_key TEXT NOT NULL,
   weapon_key TEXT NOT NULL,
