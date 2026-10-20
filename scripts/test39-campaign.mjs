@@ -101,7 +101,7 @@ check("the seed tale was told", a.state.tale.some(t => t.text.includes("poured i
 // now nets the bank against the harvest the tale itself
 // records, so what is proven is the charge, exactly.
 const harvestedSoFar = (c) => (c.state.tale ?? []).reduce((sum, t) => {
-  const m = t.text.match(/⚡(\d+) joins the bank/);
+  const m = t.text.match(/✦(\d+) joins the bank/);
   return sum + (m ? Number(m[1]) : 0);
 }, 0);
 const hush = a.you.hand.find(c => c.name === "Hushkeeper");

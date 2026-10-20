@@ -1616,7 +1616,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         key: `cast-${sp.key}`,
         img: grimGlyphImg(sp.key),
         emoji: "✦",
-        label: `${sp.forms[castHue] ?? sp.name} · ⚡${sp.cost}`,
+        label: `${sp.forms[castHue] ?? sp.name} · ✦${sp.cost}`,
         locked,
         lit: castSpellKey === sp.key && castMode,
         pinKey: `cast-${sp.key}`,
@@ -1856,7 +1856,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       const res = await api.strengthenEdgeWork({ tileId, dir });
       await refreshWorks();
-      showHexNotice(`The ${res.work.kind} is strengthened to level ${res.work.level} — the next strengthening would cost ${res.nextCost}⚡.`);
+      showHexNotice(`The ${res.work.kind} is strengthened to level ${res.work.level} — the next strengthening would cost ${res.nextCost}✦.`);
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "The strengthening failed.");
     }
@@ -2104,7 +2104,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // The slip ends the run (Nigel, 2026-10-20): the working
       // leaves the hand and must be readied again to cast on.
       if (res.fizzled) {
-        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}⚡ is spent — and the working slips from your hand. Ready it again to cast on.`);
+        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working slips from your hand. Ready it again to cast on.`);
         endMapCastRun();
         await refreshWorkings();
         void refreshEnergy();
@@ -3333,7 +3333,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   // The globe feeds the chosen warden (Nigel, 2026-10-18): feeding
   // left the individual Awoken screens; the energy globe houses it,
-  // 10⚡ at a time, through the same feedEnergy law — and refusals
+  // 10✦ at a time, through the same feedEnergy law — and refusals
   // speak through the hex notice, as the picker's messages read.
   const feedTarget = selectedAwoken !== null && placements.some(p => p.awakenedId === selectedAwoken)
     ? tenderItems.find(a => a.id === selectedAwoken) ?? null
@@ -3342,7 +3342,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (!feedTarget || selectedAwoken === null) return;
     const amt = 10;
     if (energy < amt) {
-      showHexNotice(`Feeding ${feedTarget.name} takes ${amt}⚡ — the globe holds ${energy}⚡.`);
+      showHexNotice(`Feeding ${feedTarget.name} takes ${amt}✦ — the globe holds ${energy}✦.`);
       return;
     }
     try {
@@ -3351,8 +3351,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setOrbBump(b => b + 1);
       onUpdate();
       showHexNotice(r.leveledUp
-        ? `${feedTarget.name} fed ${amt}⚡ → +${r.xpGain} XP. Level ${r.newLevel}!${r.statPointsGained ? ` +${r.statPointsGained} stat point${r.statPointsGained > 1 ? "s" : ""}.` : ""}`
-        : `${feedTarget.name} fed ${amt}⚡ → +${r.xpGain} XP.`);
+        ? `${feedTarget.name} fed ${amt}✦ → +${r.xpGain} XP. Level ${r.newLevel}!${r.statPointsGained ? ` +${r.statPointsGained} stat point${r.statPointsGained > 1 ? "s" : ""}.` : ""}`
+        : `${feedTarget.name} fed ${amt}✦ → +${r.xpGain} XP.`);
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "Feeding failed");
     }
@@ -3926,7 +3926,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               tile wears it (Nigel, 2026-10-16): ungrown land reads
               Z1 · ⚔0 · ♥0 rather than staying silent, and the power
               carries the crossed-swords mark — the same mark the
-              War-Grounds panel reads stack power by — never ⚡,
+              War-Grounds panel reads stack power by — never ✦,
               which is the Tender's energy and nothing else's. */}
           {!t.cursed && (
             <g pointerEvents="none">
@@ -4865,7 +4865,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             {[1, 5, 10].map(amt => (
               <button key={amt} className="abtn small" disabled={feed.isPending} onClick={() => feed.mutate({ awakenedId: resident.id, energy: amt })} title={`Feed ${amt} energy → ${amt * 2} XP`}>
-                Feed {amt}⚡ → {amt * 2} XP
+                Feed {amt}✦ → {amt * 2} XP
               </button>
             ))}
             <button className="abtn small" onClick={() => unhouse.mutate(room.roomIndex)}>Leave room</button>
@@ -4894,7 +4894,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <div style={{ marginTop: 12 }}>
           <div className="celestial-title" style={{ fontSize: 14 }}>Raise the Hall to Level {hall.level + 1}</div>
           <div style={{ fontSize: 13, display: "grid", gap: 4 }}>
-            <div>⚡ Energy: {fund.energy}/{cost.energy}
+            <div>✦ Energy: {fund.energy}/{cost.energy}
               <button className="abtn small" style={{ marginLeft: 8 }} disabled={fundE.isPending} onClick={() => fundE.mutate(10)}>+10</button>
               <button className="abtn small" style={{ marginLeft: 4 }} disabled={fundE.isPending} onClick={() => fundE.mutate(50)}>+50</button>
             </div>
@@ -5377,11 +5377,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               };
               const works: { key: string; glyph: string; label: string; title: string; onPick: () => void }[] = [];
               if (taught.includes("warding")) {
-                works.push({ key: "ward", glyph: "🔷", label: "Ward · 3⚡", title: "A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15.", onPick: () => arm("ward") });
+                works.push({ key: "ward", glyph: "🔷", label: "Ward · 3✦", title: "A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15.", onPick: () => arm("ward") });
               }
               if (taught.includes("runeing")) {
                 for (const rk of ["snare", "harm", "meld"] as const) {
-                  works.push({ key: rk, glyph: "🔶", label: `${rk.charAt(0).toUpperCase() + rk.slice(1)} · 3⚡`, title: runeBlurbs[rk], onPick: () => arm("rune", rk) });
+                  works.push({ key: rk, glyph: "🔶", label: `${rk.charAt(0).toUpperCase() + rk.slice(1)} · 3✦`, title: runeBlurbs[rk], onPick: () => arm("rune", rk) });
                 }
               }
               // Where each taught work hangs in the constellation,
@@ -5507,7 +5507,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </div>
             {/* Feeding lives in the energy globe now (Nigel,
                 2026-10-18) — the globe feeds the chosen warden,
-                10⚡ at a time. The Hall keeps its own feeding: a
+                10✦ at a time. The Hall keeps its own feeding: a
                 dwelling screen, at the Hall's ×2 rate. */}
             {attackTargeting && placement.stance === "attack" && (
               <div className="attack-hint">Tap an adjacent cursed tile to attack (1 energy)</div>
@@ -5996,7 +5996,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 const readied = !!sp && castSpellKey === sp.key && castMode;
                 return (
                   <button type="button" key={key} className={`tender-slot${!sp ? " dim" : ""}${readied ? " lit" : ""}`}
-                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
+                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ✦${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">✦</span>
@@ -6032,15 +6032,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           text = `${actor?.name ?? "Your Awokin"} will strike this cursed hex — its thorns answer back.`;
           confirmLabel = "Strike";
         } else if (hexConfirm.kind === "move") {
-          text = `${actor?.name ?? "Your Awokin"} will move to this hex — ${actor ? moveCost(actor.power) : 1}⚡.`;
+          text = `${actor?.name ?? "Your Awokin"} will move to this hex — ${actor ? moveCost(actor.power) : 1}✦.`;
           confirmLabel = "Move";
         } else {
           const pooled = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
           const names = pooled.map(a => a.name).join(", ");
           const cost = pooled.reduce((sum, a) => sum + deployCost(a.power), 0);
           text = tile?.cursed
-            ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours. ${cost}⚡.`
-            : `${names || "The readied company"} will take position on this hex. ${cost}⚡.`;
+            ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours. ${cost}✦.`
+            : `${names || "The readied company"} will take position on this hex. ${cost}✦.`;
           confirmLabel = "Send them";
         }
         return (
@@ -6056,13 +6056,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       {/* Bottom dock: energy orb + hand. The orb houses feeding
           now (Nigel, 2026-10-18): while a warden is chosen it wears
           the lit feed-ready face and tapping it — or its caption —
-          feeds that warden 10⚡. Unchosen, it is its present self. */}
+          feeds that warden 10✦. Unchosen, it is its present self. */}
       <div className="energy-orb-fixed">
         <EnergyTimer feedName={feedTarget?.name ?? null} onFeed={handleGlobeFeed} refreshBump={orbBump} />
         {feedTarget && (
           <button type="button" className="energy-orb-feed-caption" onClick={() => void handleGlobeFeed()}
-            title={`Feed ${feedTarget.name} 10⚡ — energy becomes XP (×1 in the field)`}>
-            Feed {feedTarget.name} · 10⚡
+            title={`Feed ${feedTarget.name} 10✦ — energy becomes XP (×1 in the field)`}>
+            Feed {feedTarget.name} · 10<span className="spark-glow">✦</span>
           </button>
         )}
       </div>
@@ -6075,7 +6075,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <div className="dock-row">
         {handTab === "spells" && (<div className="dock-spells"><div style={{ margin: 0, padding: "10px 12px", border: "1px solid rgba(183,166,255,.5)", borderRadius: 10, background: "rgba(24,18,44,.88)" }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ marginLeft: "auto", color: "#cfc4f5" }}>⚡{energy} · Tender Lv {grimGate.level}</span>
+              <span style={{ marginLeft: "auto", color: "#cfc4f5" }}><span className="spark-glow">✦</span>{energy} · Tender Lv {grimGate.level}</span>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
               {(grim?.spells ?? []).map((sp) => {
@@ -6085,9 +6085,9 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 return (
                   <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); }}
                     className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
-                    title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ⚡${sp.cost}. ${sp.blurb}`}>
+                    title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ✦${sp.cost}. ${sp.blurb}`}>
                     {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
-                    {locked ? "🔒 " : ""}{(sp.forms[castHue] ?? sp.name)} · ⚡{sp.cost}
+                    {locked ? "🔒 " : ""}{(sp.forms[castHue] ?? sp.name)} · <span className="spark-glow">✦</span>{sp.cost}
                   </button>
                 );
               })}
@@ -6791,7 +6791,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           ) : (
             <>
               <span className="patrol-bar-label">
-                ⚑ Company march — {groupQuote.orders.filter(o => !o.alreadyThere).length} on the road · {groupQuote.totalEnergy}⚡ · last in ~{fmtMarchTime(groupQuote.slowest)}
+                ⚑ Company march — {groupQuote.orders.filter(o => !o.alreadyThere).length} on the road · {groupQuote.totalEnergy}✦ · last in ~{fmtMarchTime(groupQuote.slowest)}
                 {groupQuote.excluded ? ` · ${groupQuote.excluded} cannot march` : ""}
                 {groupQuote.orders.some(o => o.alreadyThere) ? " · some already stand there" : ""}
               </span>
@@ -6844,7 +6844,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             ) : (
               <>
                 <span className="patrol-bar-label">
-                  ⚑ March to {dest ? `(${dest.q}, ${dest.r})` : "the marked hex"} — {marchQuote.steps} hex{marchQuote.steps === 1 ? "" : "es"} · ~{fmtMarchTime(marchQuote.seconds)} · {marchQuote.energy}⚡
+                  ⚑ March to {dest ? `(${dest.q}, ${dest.r})` : "the marked hex"} — {marchQuote.steps} hex{marchQuote.steps === 1 ? "" : "es"} · ~{fmtMarchTime(marchQuote.seconds)} · {marchQuote.energy}✦
                 </span>
                 <button className="stance-btn" disabled={energy < marchQuote.energy}
                   onClick={async () => {
@@ -6853,7 +6853,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                       setMarchUiFor(null);
                       setMarchQuote(null);
                       await refreshMarching();
-                      showHexNotice(`The order is given — the march will take ~${fmtMarchTime(r.seconds)} and cost ${r.energy}⚡. Boom: it moves.`);
+                      showHexNotice(`The order is given — the march will take ~${fmtMarchTime(r.seconds)} and cost ${r.energy}✦. Boom: it moves.`);
                     } catch (e) {
                       showHexNotice(e instanceof Error ? e.message : "The march could not be given.");
                     }

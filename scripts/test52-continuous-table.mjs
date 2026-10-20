@@ -272,7 +272,7 @@ console.log("\n(c) element reach");
     `hand=${rc.you.hand.map(c => c.name).join(", ")}`);
 
   // The whole band musters on the landing before the deal
-  // (purse: root 1 + stone 2 + sky 7 = 10 of the ⚡12 stake).
+  // (purse: root 1 + stone 2 + sky 7 = 10 of the ✦12 stake).
   rc.send({ type: "summon", cardId: decoyCard.id, hex: landing });
   await rc.waitFor(c => !!unitByName(c, "Rootbound Confessor"), "the decoy stands", 15000);
   rc.send({ type: "summon", cardId: stoneCard.id, hex: landing });

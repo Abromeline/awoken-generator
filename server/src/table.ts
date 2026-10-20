@@ -131,7 +131,7 @@ interface Player {
    *  half-cost ward has been spent. Reset at every deal. */
   secondWallUsed?: boolean;
   /** Steady Attention (the Heart, 2026-10-18): this battle's
-   *  first-working discount (−1⚡) has been spent — one flag
+   *  first-working discount (−1✦) has been spent — one flag
    *  shared by wards and runes. Reset at every deal. */
   steadyUsed?: boolean;
   /** Tranche one, per battle: the Second Thread spent? */
@@ -1867,7 +1867,7 @@ function campaignFell(room: Room, enemy: EnemyUnit, _killer: Player | null): voi
     const share = Math.max(1, Math.floor(harvest / seats.length));
     for (const s of seats) void payBattleExp(room, s, share, "The Harvest divides among the standing.");
   }
-  tell(room, `The ${enemy.label}'s light is harvested — ⚡${harvest} joins the bank (⚡${c.bank}).`);
+  tell(room, `The ${enemy.label}'s light is harvested — ✦${harvest} joins the bank (✦${c.bank}).`);
 }
 
 /** The bank is seeded once, at the campaign's first dealing:
@@ -1884,7 +1884,7 @@ function seedBankIfNeeded(room: Room): void {
   c.bank = total;
   c.bankStart = total;
   c.seeded = true;
-  tell(room, `The stakes are poured into one bank — ⚡${total} of pooled light. What the dark yields joins it; what you cast draws from it; what remains when you turn home divides evenly among you.`);
+  tell(room, `The stakes are poured into one bank — ✦${total} of pooled light. What the dark yields joins it; what you cast draws from it; what remains when you turn home divides evenly among you.`);
 }
 
 /** A campaign ends two ways. BY CHOICE (the Storytender's
@@ -1904,11 +1904,11 @@ function endCampaign(room: Room, how: "ended" | "fallen"): void {
     const share = seats.length ? Math.floor(c.bank / seats.length) : 0;
     for (const p of seats) p.energy += share;
     tell(room, share > 0
-      ? `The campaign turns home. The bank's remaining ⚡${c.bank} divides evenly — ⚡${share} to each Tender still seated. The instance collapses; the growth goes home with you.`
+      ? `The campaign turns home. The bank's remaining ✦${c.bank} divides evenly — ✦${share} to each Tender still seated. The instance collapses; the growth goes home with you.`
       : "The campaign turns home. The bank stands empty — what was gathered was spent in the holding, and the growth goes home with you.");
     c.bank = 0;
   } else {
-    tell(room, `THE BASTION FALLS. The dark takes the star-seed and the pooled light with it — ⚡${c.bank} lost to the curse. This campaign is ended by the enemy's right. Begin again at the lower, poorer pools, when you will — no mark stands against you beyond this tale.`);
+    tell(room, `THE BASTION FALLS. The dark takes the star-seed and the pooled light with it — ✦${c.bank} lost to the curse. This campaign is ended by the enemy's right. Begin again at the lower, poorer pools, when you will — no mark stands against you beyond this tale.`);
     c.bank = 0;
   }
   clearCampaignSave(room.id);
@@ -2146,7 +2146,7 @@ function dealBastion(room: Room): void {
   room.battle.active = true;
   room.roundNo = 0;
   b.begun = true;
-  tell(room, `${b.kind === "siege" ? "The cursed bastion" : "The column"} is met — ${b.size} of the dark stand at the field's edge. ${b.ambush ? "Warned ahead, you strike with the ambush's edge (+1)." : ""} One pool binds you: ⚡${b.pool}.`);
+  tell(room, `${b.kind === "siege" ? "The cursed bastion" : "The column"} is met — ${b.size} of the dark stand at the field's edge. ${b.ambush ? "Warned ahead, you strike with the ambush's edge (+1)." : ""} One pool binds you: ✦${b.pool}.`);
   startBattleTimer(room);
 }
 
@@ -2268,7 +2268,7 @@ async function runRound(room: Room): Promise<void> {
       room.roundNo++;
     // The Returning Breath and Blood (the Heart's spine,
     // 2026-10-18): at the round's opening, a standing holder
-    // breathes — +1⚡ on the same purse the felling-harvest
+    // breathes — +1✦ on the same purse the felling-harvest
     // fills — and the wounded mend 1 HP of their own body.
     for (const p of room.players.values()) {
       if (p.watcher || p.fallen || !p.expKey) continue;
@@ -2400,7 +2400,7 @@ async function runRound(room: Room): Promise<void> {
           owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
           // The Harvest (the Heart, 2026-10-18): when YOUR
           // Awoken fell the dark, the stars' fellHarvest
-          // clauses pay their ⚡ on top of the base three.
+          // clauses pay their ✦ on top of the base three.
           const hv = owner.expKey ? heartEffects(owner.expKey).harvestAmount : 0;
           if (hv !== 0) {
             owner.energy = Math.max(0, Math.min(owner.maxEnergy + 10, owner.energy + hv));
@@ -2742,7 +2742,7 @@ async function runRound(room: Room): Promise<void> {
           c.bank = Math.max(0, c.bank - drain);
           if (now - (room.assaultToldAt ?? 0) > 5000 || c.bank <= 0) {
             room.assaultToldAt = now;
-            tell(room, `No light guards the heart — the dark turns on the star-seed. The bank bleeds (⚡${Math.floor(c.bank)} remains). March a guard to the gate, cast something, anything, or lose the light.`);
+            tell(room, `No light guards the heart — the dark turns on the star-seed. The bank bleeds (✦${Math.floor(c.bank)} remains). March a guard to the gate, cast something, anything, or lose the light.`);
           }
           if (c.bank <= 0) {
             settleShardsAndFade(room);
@@ -2761,7 +2761,7 @@ async function runRound(room: Room): Promise<void> {
         for (const p of seatedAlive) await payBattleExp(room, p, 5, "A bastion held together pays together.");
         await resolveBastionVictory(room);
       } else if (room.campaign) {
-        tell(room, `The Unraveling is broken. The bank stands at ⚡${Math.floor(room.campaign.bank)} — the Storytender may deal again, call a rest, or turn the campaign home.`);
+        tell(room, `The Unraveling is broken. The bank stands at ✦${Math.floor(room.campaign.bank)} — the Storytender may deal again, call a rest, or turn the campaign home.`);
         room.battle.wave++;
       } else {
         tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
@@ -3001,7 +3001,7 @@ function handleConnection(ws: WebSocket): void {
         // A late stake joins the pot entire (the Risk of
         // Confluence runs both ways: arrive invested).
         room.campaign.bank += player.energy;
-        tell(room, `${name}'s stake of ⚡${player.energy} joins the bank (⚡${room.campaign.bank}).`);
+        tell(room, `${name}'s stake of ✦${player.energy} joins the bank (✦${room.campaign.bank}).`);
         player.energy = 0;
       }
       if (!watcher && !isStorytender) {
@@ -3058,7 +3058,7 @@ function handleConnection(ws: WebSocket): void {
 
     // MANIFEST (Phase C): the wielded weapon doubles in the air
     // — one copy, or two for a Tender whose weapon carries the
-    // Manifest node — at ⚡4 from the purse every cast draws on
+    // Manifest node — at ✦4 from the purse every cast draws on
     // (the campaign bank, in a seeded campaign). The copies
     // strike as their own sources for twenty seconds, then
     // fade; a wield-switch dismisses them at once.
@@ -3086,7 +3086,7 @@ function handleConnection(ws: WebSocket): void {
       }
       const cost = 4;
       if (!chargePurse(room, player, cost)) {
-        ws.send(JSON.stringify({ type: "error", message: `Manifest costs ⚡${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        ws.send(JSON.stringify({ type: "error", message: `Manifest costs ✦${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` }));
         return;
       }
       const copies = 1 + (player.weaponManifest ? 1 : 0);
@@ -3096,7 +3096,7 @@ function handleConnection(ws: WebSocket): void {
         ...(room.manifests ?? []).filter(m => m.ownerKey !== myKey),
         { ownerKey: myKey, weaponKey: wk, count: copies, expiresAt: nowM + 20_000, nexts: Array.from({ length: copies }, (_, i) => nowM + i * 200) },
       ];
-      tell(room, `${player.name}'s ${wk} doubles in the air — ${copies === 1 ? "a manifested copy hangs" : `${copies} manifested copies hang`} beside the true weapon (⚡${cost}).`);
+      tell(room, `${player.name}'s ${wk} doubles in the air — ${copies === 1 ? "a manifested copy hangs" : `${copies} manifested copies hang`} beside the true weapon (✦${cost}).`);
       sendState(room);
       return;
     }
@@ -3179,15 +3179,15 @@ function handleConnection(ws: WebSocket): void {
         // One pool binds the muster (Nigel, 2026-10-17): joining
         // Tenders' energy joins the pool, scaled by level.
         if (room.bastion.pool < cost) {
-          ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ⚡${cost} — the pool holds ⚡${room.bastion.pool}.` }));
+          ws.send(JSON.stringify({ type: "error", message: `${card.name} costs ✦${cost} — the pool holds ✦${room.bastion.pool}.` }));
           return;
         }
         room.bastion.pool -= cost;
       } else if (!chargePurse(room, player, cost)) {
         const n = recastCount(room, player.key, card.id);
         ws.send(JSON.stringify({ type: "error", message: room.campaign && !room.campaign.over && room.campaign.seeded
-          ? `${card.name} costs ⚡${cost}${n > 0 ? ` (recast ×${2 ** Math.min(n, 5)})` : ""} — the bank holds ⚡${Math.floor(room.campaign.bank)}.`
-          : `${card.name} costs ⚡${cost} — you hold ⚡${player.energy}.` }));
+          ? `${card.name} costs ✦${cost}${n > 0 ? ` (recast ×${2 ** Math.min(n, 5)})` : ""} — the bank holds ✦${Math.floor(room.campaign.bank)}.`
+          : `${card.name} costs ✦${cost} — you hold ✦${player.energy}.` }));
         return;
       }
       player.hand = player.hand.filter(c => c.id !== cardId);
@@ -3197,7 +3197,7 @@ function handleConnection(ws: WebSocket): void {
         shield, maxShield: shield, speedGauge: 0,
         ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null,
       });
-      tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
+      tell(room, `${player.name} casts ${card.name} onto the field (✦${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
       sendState(room);
       return;
     }
@@ -3231,7 +3231,7 @@ function handleConnection(ws: WebSocket): void {
     // carried to the Table): a standing Awokin walks a road —
     // any road, cursed ground included (the seed-mission road)
     // — to any open tile. The price is the land's: hexes
-    // crossed × (1 + ⌊(power−1)/3⌋)⚡, from the purse (or the
+    // crossed × (1 + ⌊(power−1)/3⌋)✦, from the purse (or the
     // campaign bank). The pace is its element's gait, weighted
     // by its level, and while it walks it neither strikes nor
     // shields — the road is its own exposure.
@@ -3253,7 +3253,7 @@ function handleConnection(ws: WebSocket): void {
       const hexes = road.length - 1;
       const cost = hexes * marchRateFor(unit.card.power);
       if (!chargePurse(room, player, cost)) {
-        ws.send(JSON.stringify({ type: "error", message: `The march costs ⚡${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at ⚡${marchRateFor(unit.card.power)} for ${unit.card.name}'s power) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        ws.send(JSON.stringify({ type: "error", message: `The march costs ✦${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at ✦${marchRateFor(unit.card.power)} for ${unit.card.name}'s power) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` }));
         return;
       }
       // A direct order ends the follow: the Awokin goes where
@@ -3263,7 +3263,7 @@ function handleConnection(ws: WebSocket): void {
       unit.follow = false;
       unit.target = { ...TILE_CENTERS.get(to)! };
       unit.speedPx = Math.max(34, 69 / marchSecondsPerHexFor(unit.card));
-      tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (⚡${cost}).`);
+      tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (✦${cost}).`);
       sendState(room);
       return;
     }
@@ -3324,7 +3324,7 @@ function handleConnection(ws: WebSocket): void {
     // clearing curses for building applies to the Table's
     // Awoken too. A standing Awokin ordered against a cursed
     // tile within its lawful reach — the two tiles its strikes
-    // already carry — lands ONE blow: ⚡1, wearing the tile's
+    // already carry — lands ONE blow: ✦1, wearing the tile's
     // corruption by its filed power, the land's attackTile
     // arithmetic exactly. At nothing the tile turns in the
     // striker's dominant element, and every consequence of
@@ -3362,7 +3362,7 @@ function handleConnection(ws: WebSocket): void {
       if (axialDist(unit.hex, targetId) > (ELEMENT_REACH[unit.card.element] ?? 2)) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes only as far as its element carries." })); return; }
       const cost = 1;
       if (!chargePurse(room, player, cost)) {
-        ws.send(JSON.stringify({ type: "error", message: `A curse-strike costs ⚡${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        ws.send(JSON.stringify({ type: "error", message: `A curse-strike costs ✦${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` }));
         return;
       }
       // The blow is a strike: its cadence comes round, as the
@@ -3404,7 +3404,7 @@ function handleConnection(ws: WebSocket): void {
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = healSpell()?.cost ?? 2;
-      if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` })); return; }
+      if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ✦${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` })); return; }
       // THE CASTING LAW (Phase C): Heal is a binding-school
       // cast and rolls for its standing, energy already spent.
       const healDef = healSpell();
@@ -3471,15 +3471,15 @@ function handleConnection(ws: WebSocket): void {
       let secondWallSpent = false;
       // The Springleaf is a binding cast, not a ward: the
       // ward-side economies (Second Wall, Steady Attention)
-      // do not ride it — its price is the def's ⚡3, plain.
+      // do not ride it — its price is the def's ✦3, plain.
       if (!isSpringleaf && eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
       // Steady Attention (the Heart, 2026-10-18): the first
-      // ward or rune of the battle costs 1⚡ less — it rides
+      // ward or rune of the battle costs 1✦ less — it rides
       // after the Second Wall's halving when both are held.
       let steadySpent = false;
       const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (!isSpringleaf && steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
-      if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — ${purseName(room) === "the bank" ? `the bank holds ⚡${room.campaign!.bank}` : `you hold ⚡${caster.energy}`}.` })); return; }
+      if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       // The Pour (Nigel, 2026-10-17): elemental points of the
       // poured hue, fed into the working at its cast — capped by
       // the book, drawn from the caster's own attunement pool,
@@ -3499,7 +3499,7 @@ function handleConnection(ws: WebSocket): void {
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
-      if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — the purse no longer holds it.` })); return; }
+      if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and the working simply does not happen.
@@ -3608,13 +3608,13 @@ function handleConnection(ws: WebSocket): void {
         if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
       // Steady Attention (the Heart, 2026-10-18): the first
-      // ward or rune of the battle costs 1⚡ less — one flag,
+      // ward or rune of the battle costs 1✦ less — one flag,
       // shared with the ward's raising.
       let runeCost = def.cost;
       let runeSteadySpent = false;
       const runeSteadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (runeSteadyAmt > 0 && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - runeSteadyAmt); runeSteadySpent = true; }
-      if (purseOf(room, caster) < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — ${purseName(room) === "the bank" ? `the bank holds ⚡${room.campaign!.bank}` : `you hold ⚡${caster.energy}`}.` })); return; }
+      if (purseOf(room, caster) < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       // The Pour, as at the ward's raising — one pour feeds the
       // whole cast (the Three Blades drink once, not per hex).
       const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
@@ -3631,7 +3631,7 @@ function handleConnection(ws: WebSocket): void {
         if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
         pour = pourWanted;
       }
-      if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — the purse no longer holds it.` })); return; }
+      if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
@@ -3887,7 +3887,7 @@ function handleConnection(ws: WebSocket): void {
         pool, poolMax: pool, begun: false, resolved: false,
         prepared,
       };
-      tell(room, `${player.name} claims the call: a ${call.kind.toUpperCase()} — ${size} of the dark. Friends, take your seats; the host begins it when the muster is ready. The pool stands at ⚡${pool}.${prepared ? " The bastion stood ready before they came — its walls lend the host and his Awokin +3 AC against this enemy." : ""}`);
+      tell(room, `${player.name} claims the call: a ${call.kind.toUpperCase()} — ${size} of the dark. Friends, take your seats; the host begins it when the muster is ready. The pool stands at ✦${pool}.${prepared ? " The bastion stood ready before they came — its walls lend the host and his Awokin +3 AC against this enemy." : ""}`);
       sendState(room);
       return;
     }
@@ -3970,7 +3970,7 @@ function handleConnection(ws: WebSocket): void {
           R.battle.active = true;
           R.roundNo = 0;
           const threat = [...room.dark.values()].reduce((s, e) => s + e.power, 0);
-          tell(R, `${player.name} deals — ${placed} of the dark take the field (threat ${threat}). The bank stands at ⚡${c.bank}.`);
+          tell(R, `${player.name} deals — ${placed} of the dark take the field (threat ${threat}). The bank stands at ✦${c.bank}.`);
           startBattleTimer(R);
           break;
         }
@@ -4212,7 +4212,7 @@ export function registerTableSocket(server: Server): void {
         // THE RISK OF CONFLUENCE (§4.3): a stake poured into a
         // living campaign stays in the pot when its Tender goes.
         if (room.campaign?.seeded && !room.campaign.over && !p.watcher && !p.storytender) {
-          tell(room, `${p.name}'s stake stays in the pot (⚡${room.campaign.bank}) — it divides only among those seated when the campaign turns home, unless they return.`);
+          tell(room, `${p.name}'s stake stays in the pot (✦${room.campaign.bank}) — it divides only among those seated when the campaign turns home, unless they return.`);
         }
       }
       if (!lapsed) continue;

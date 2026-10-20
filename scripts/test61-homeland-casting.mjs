@@ -318,7 +318,7 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   seedPlacement(n.me, nAw, nHeart, 30);
   const rh = await castRaw(n.token, { spellKey: "heal", hue: "unaligned", awakenedId: nAw });
   const T = await import("../server/dist/table.js");
-  ok("classless: Heal still answers — it rolls at the closed school's −3 against DC 11, and charges its 2⚡ either face",
+  ok("classless: Heal still answers — it rolls at the closed school's −3 against DC 11, and charges its 2✦ either face",
     rh.status === 200 && rh.data.mod === T.castModFor(null, 3, "binding") && rh.data.dc === 11 && energyOf(n.me) === 48,
     `status=${rh.status} mod=${rh.data?.mod} dc=${rh.data?.dc} energy=${energyOf(n.me)}`);
 
@@ -329,7 +329,7 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   await call("chooseClass", { classKey: "warden" }, e.token);
   setEnergy(e.me, 1);
   const re = await castRaw(e.token, { spellKey: "seal", hue: "unaligned", tileId: eHeart, dir: 0 });
-  ok("empty purse: the cast is refused before charge (400), the 1⚡ stays",
+  ok("empty purse: the cast is refused before charge (400), the 1✦ stays",
     re.status === 400 && energyOf(e.me) === 1, `status=${re.status} energy=${energyOf(e.me)}`);
 }
 

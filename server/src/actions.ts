@@ -194,7 +194,7 @@ function workMaxHp(kind: string, level: number): number {
   return base > 0 ? base * Math.pow(2, Math.max(0, level - 1)) : 0;
 }
 /** Cost to strengthen a work FROM `level` to `level + 1`: the base
- *  cost doubles with every level already bought (2⚡→4→8→16…). */
+ *  cost doubles with every level already bought (2✦→4→8→16…). */
 function strengthenCostFor(kind: string, level: number): number {
   return (EDGE_WORK[kind]?.cost ?? 0) * Math.pow(2, Math.max(0, level));
 }
@@ -1333,7 +1333,7 @@ async function dominantClaimElement(standingRows: Array<{ compositionJson: strin
  *  surviving Fray answer against the weakest standing defender,
  *  through damagePlacement — the map's single damage path, so a
  *  defender at 0 HP dissipates back to hand. Pays the Table's
- *  fell numbers through the map's own seams (+3⚡ capped to the
+ *  fell numbers through the map's own seams (+3✦ capped to the
  *  slayer's Tender per Fray felled, +2 XP to the slayer, +10
  *  defense XP to every Awoken who stood), then settles the ladder:
  *  bank at wave 3, a rising every three, the reward laid up at
@@ -2137,7 +2137,7 @@ async function getConceivedTwin(sessionId: number) {
 }
 
 // Experience, exponential (re-curved 2026-10-13, Nigel): the base constant
-// dropped 100 → 20 so the Hall's peaceful path teaches itself — one 10⚡
+// dropped 100 → 20 so the Hall's peaceful path teaches itself — one 10✦
 // feed (20 XP) now takes a fresh Awoken to level 1, while battles (60 XP)
 // remain the faster road. Thresholds: L1=20, L2=50, L3=95, L5=264,
 // L10≈2267. Total XP for level L = 20 * (1.5^L - 1) / (1.5 - 1), rounded.
@@ -2458,7 +2458,7 @@ async function loadGameConfig() {
 
 // Single source of truth for building definitions
 export const BUILDING_DEFS: Record<string, { name: string; cost: number; buildMinutes: number; desc: string; icon: string; harvestEnergy?: number; growHours?: number; energyBonus?: number; upkeepPerHour?: number }> = {
-  "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2⚡/hour upkeep.", icon: "🗼" },
+  "watchtower": { name: "Watchtower", cost: 2, buildMinutes: 15, desc: "+2 power to defenders on tile and adjacent. 3 damage volley at battle start. 2✦/hour upkeep.", icon: "🗼" },
   "dream-wheat": { name: "Dream Shroom", cost: 2, buildMinutes: 10, desc: "Grows in 4h in the hex's six wedges — up to six to a hex, each on its own clock. Harvest for +4 energy. Regrows automatically.", icon: "🍄" },
   "attunement-shrine": { name: "Attunement Shrine", cost: 4, buildMinutes: 20, upkeepPerHour: 3, desc: "Doubles aspect attunement from adjacent Binding Awokin. Costs 3 energy/hour upkeep — unpaid, it falls dormant and the doubling stops. TAP the standing shrine on the map to turn it to the LAND: the doubling sleeps, and the shrine pours its congregation's dominant element into its own hex and the six around it — one hex about every five hours, its own first.", icon: "🛕" },
   "dream-weed": { name: "Dream Weed", cost: 5, buildMinutes: 25, desc: "Energy seaweed. Harvest for +5 energy every 1h. Only in water. Regrows forever.", icon: "🌊", harvestEnergy: 5, growHours: 1 },
@@ -7547,7 +7547,7 @@ export const handlers = {
         if (flying) badRequest("One Standard per Tender — yours already flies on the map.");
       }
       // Ebb Walker (tranche one): a Tide working cast on Tide
-      // or neutral ground costs 1⚡ less.
+      // or neutral ground costs 1✦ less.
       const ebbWard = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
       const wardCost = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
       if (!(await spendEnergy(ownerKey, wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);

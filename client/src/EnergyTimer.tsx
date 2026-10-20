@@ -4,7 +4,7 @@
 //
 // The globe houses FEEDING now (Nigel, 2026-10-18): while a warden
 // is chosen on the field, the orb wears a lit feed-ready face and a
-// tap feeds that warden 10⚡ (Territory owns the feed itself — this
+// tap feeds that warden 10✦ (Territory owns the feed itself — this
 // component only carries the face and the tap). With no warden
 // chosen, no feed props arrive and the orb is its present self.
 import { useState, useEffect } from "react";
@@ -82,7 +82,7 @@ export default function EnergyTimer({ feedName = null, onFeed, refreshBump = 0 }
     onClick={feedName && onFeed ? () => onFeed() : undefined}
     title={
       feedName
-        ? `Feed ${feedName} — 10⚡ becomes XP`
+        ? `Feed ${feedName} — 10✦ becomes XP`
         : isFull
         ? `Energy full (${energy}/${maxEnergy})`
         : `+1 energy in ${mins}:${secs.toString().padStart(2, "0")}`
@@ -100,7 +100,7 @@ export default function EnergyTimer({ feedName = null, onFeed, refreshBump = 0 }
         )}
       </svg>
       <div className="energy-orb-center">
-        <span className="energy-orb-value">⚡{energy}</span>
+        <span className="energy-orb-value"><span className="spark-glow">✦</span>{energy}</span>
         {!isFull && (
           <span className="energy-orb-timer">{mins}:{secs.toString().padStart(2, "0")}</span>
         )}

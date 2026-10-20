@@ -371,8 +371,8 @@ try {
       ], `t58-victim-${label}-${i}`, -4));
       seedAwokin(me, [{ category: "body", element: "root", power: 1, toughness: 2 }]); // a spare, so the hand is a hand
       // Ballast: power-5 Awokin who never field. A roster of
-      // −4-power victims funds a purse of ~⚡10, and marches
-      // (⚡3) and heals (⚡2) bankrupt it mid-battle — the
+      // −4-power victims funds a purse of ~✦10, and marches
+      // (✦3) and heals (✦2) bankrupt it mid-battle — the
       // ballast lifts maxEnergy so the seat can pay its way
       // through the whole count.
       for (let i = 0; i < 10; i++) seedAwokin(me, [{ category: "body", element: "stone", power: 7, toughness: 2 }]);
@@ -454,9 +454,9 @@ try {
           if (gateUnits().length < 2) await postVictim();
           const vu = gateUnit();
           const gd = guardUnit();
-          // Mending is a last resort, not a drip: a ⚡2 cast
+          // Mending is a last resort, not a drip: a ✦2 cast
           // buys ~10 soak while a fresh re-post buys ~28 for a
-          // ⚡3 march — so Heal fires only at death's door, at
+          // ✦3 march — so Heal fires only at death's door, at
           // most one cast every few seconds. (An earlier draft
           // healed at <12 and bankrupted the purse mid-count.)
           if (Date.now() - lastHeal > 4000) {

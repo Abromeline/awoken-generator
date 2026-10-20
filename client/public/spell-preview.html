@@ -70,7 +70,7 @@
   <div id="wheelsub" style="position:absolute;left:50%;top:142px;transform:translateX(-50%);white-space:nowrap;font-size:11px;opacity:.75;color:#e8dcc3"></div>
 </div>
 <div id="mathline" style="position:fixed;left:0;right:0;bottom:12px;text-align:center;font-size:11.5px;letter-spacing:.05em;color:#c9b98f;opacity:.85;pointer-events:none"></div>
-<div id="energyline" style="position:fixed;left:0;right:0;bottom:112px;text-align:center;font-size:14px;letter-spacing:.08em;color:#ffb52e;pointer-events:none;text-shadow:0 1px 3px #000">⚡ 14</div>
+<div id="energyline" style="position:fixed;left:0;right:0;bottom:112px;text-align:center;font-size:14px;letter-spacing:.08em;color:#ffb52e;pointer-events:none;text-shadow:0 1px 3px #000">✦ 14</div>
 <div id="loadedchip" style="position:fixed;left:0;right:0;bottom:86px;text-align:center;font-size:12.5px;letter-spacing:.05em;color:#ffd977;opacity:0;pointer-events:none;text-shadow:0 1px 3px #000"></div>
 <div id="hotbar" style="position:fixed;left:50%;bottom:34px;transform:translateX(-50%);display:flex;gap:5px;z-index:26"></div>
 <div id="pad">
@@ -615,7 +615,7 @@ function partyTick() {
       const k = Math.min(1, dt * 5);
       d.x += (x - d.x) * k; d.y += (y - 26 - d.y) * k;
       if (Math.hypot(x - d.x, y - 26 - d.y) < 16) {
-        if (d.kind === "orb") { energy += 2; renderEnergy(); floatText(x, y - 64, "+⚡ gathered — ⚡" + energy, "#ffb52e"); }
+        if (d.kind === "orb") { energy += 2; renderEnergy(); floatText(x, y - 64, "+✦ gathered — ✦" + energy, "#ffb52e"); }
         else if (d.kind === "attune") { attunePool += 2; renderEnergy(); showLoaded(); floatText(x, y - 64, "+2 ❖ attunement gathered", "#c9b8ff"); }
         else floatText(x, y - 64, "🧪 gathered", "#e89ab2");
         d.el.remove(); return false;
@@ -661,10 +661,10 @@ function rangeRing() {
   }
   return ringEl;
 }
-function renderEnergy() { document.getElementById("energyline").textContent = "⚡ " + energy + " · attunement ❖ " + attunePool; }
+function renderEnergy() { document.getElementById("energyline").textContent = "✦ " + energy + " · attunement ❖ " + attunePool; }
 function spend(key) {
   const c = COSTS[key];
-  if (energy < c) { floatText(x, y - 74, "not enough ⚡ — " + SPELL_NAMES[key] + " costs " + c, "#e89a9a"); return false; }
+  if (energy < c) { floatText(x, y - 74, "not enough ✦ — " + SPELL_NAMES[key] + " costs " + c, "#e89a9a"); return false; }
   energy -= c; renderEnergy(); return true;
 }
 const mathline = document.getElementById("mathline");
@@ -831,7 +831,7 @@ function rollCast(key) {
   }
   energy -= COSTS[key]; renderEnergy(); cast();
   sayMath("Casting roll — " + line + ": THE WORKING UNRAVELS — the energy is spent and nothing stands. (Failure's price is the Keeper's call, awaiting the word.)");
-  floatText(x, y - 88, "🎲 " + total + " < " + dc + " — it unravels, ⚡ spent", "#e87f7f");
+  floatText(x, y - 88, "🎲 " + total + " < " + dc + " — it unravels, ✦ spent", "#e87f7f");
   return null;
 }
 addEventListener("pointerdown", e => {
@@ -843,7 +843,7 @@ addEventListener("pointerdown", e => {
   if (loaded === "ward" || loaded === "heal") {
     // the gate for the self-cast workings: purse, then the die;
     // their own spend() takes the price only if the working stands
-    if (energy < COSTS[loaded]) { floatText(x, y - 64, "not enough energy — ⚡" + energy, "#e89a9a"); return; }
+    if (energy < COSTS[loaded]) { floatText(x, y - 64, "not enough energy — ✦" + energy, "#e89a9a"); return; }
     if (!rollCast(loaded)) return;
     if (loaded === "ward") castWard(); else castHeal();
     return;
@@ -862,7 +862,7 @@ function writeRune(kind, gx, gy) {
     sayMath("Refused: the writing must land within " + RANGES[kind] + " hexes of the tender. Nothing spent.");
     return;
   }
-  if (energy < COSTS[kind]) { floatText(x, y - 64, "not enough energy — ⚡" + energy, "#e89a9a"); return; }
+  if (energy < COSTS[kind]) { floatText(x, y - 64, "not enough energy — ✦" + energy, "#e89a9a"); return; }
   const rc = rollCast(kind);
   if (!rc) return;
   if (!spend(kind)) return;
@@ -942,7 +942,7 @@ function castWard() {
   const n = 1 + Math.floor(Math.random() * 4);
   g.saplingsLeft = n; g.sapRolled = n; g.nextSaplingAt = performance.now() + 1600;
   floatText(gx, gy - 108, "🌳 the Springleaf, Lv " + springleafLevel + " — 🎲 1d4 → " + n + " sapling" + (n > 1 ? "s" : "") + " rise", "#b6ffb0");
-  sayMath("The Springleaf (Binding) Lv " + springleafLevel + " — 3⚡, as the book now writes it: a tender-cast ward (2.75x the measure of an Awokin-cast one) whose first breath is a BURST — the company within its root-glow mends +" + amt + " at once. The cast summons 1d4 saplings (🎲 " + n + " here); each, as it takes root, triggers its own radius heal at half the burst's size. The groves linger and keep mending those who stand within.");
+  sayMath("The Springleaf (Binding) Lv " + springleafLevel + " — 3✦, as the book now writes it: a tender-cast ward (2.75x the measure of an Awokin-cast one) whose first breath is a BURST — the company within its root-glow mends +" + amt + " at once. The cast summons 1d4 saplings (🎲 " + n + " here); each, as it takes root, triggers its own radius heal at half the burst's size. The groves linger and keep mending those who stand within.");
 }
 function layAttunement(cx, cy) {
   let mark = attuneMarks.find(m => Math.hypot(m.x - cx, m.y - cy) < 48);

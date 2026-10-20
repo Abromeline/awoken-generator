@@ -1813,7 +1813,7 @@ function TendersPanel() {
   return <section className="tender-leaderboard">
     <header><p className="eyebrow">The Tenders</p><h1>Those who tend.</h1><p className="quiet">Only you see this. Tenders never see each other's counts.</p>
     <button className="abtn small" onClick={() => doAdmin(() => api.adminRefillAllEnergy(), "All refilled to max")} style={{ marginTop: 8 }}>
-      ⚡ Refill All to Max
+      <span className="spark-glow">✦</span> Refill All to Max
     </button>
     {/* THE WORLD RESET (Nigel's ruling, via Land, 2026-10-16): every
         uncursed tile on every Tender's map back to neutral Z1. Two
@@ -1883,7 +1883,7 @@ function TendersPanel() {
         </div>
         <span className="count">{t.awokenCount} {t.awokenCount === 1 ? "Awokin" : "Awokin"}</span>
         <span className="count" title="Wakes remaining">Wakes: {t.wakeBalance}</span>
-        <span className="energy-level" title="Energy">⚡{t.energy}</span>
+        <span className="energy-level" title="Energy"><span className="spark-glow">✦</span>{t.energy}</span>
         <button 
           className="wave-toggle" 
           title="Set Unraveling number"
@@ -1894,7 +1894,7 @@ function TendersPanel() {
         <time>{new Date(t.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>
         <div className="tender-admin">
           <button className="abtn small" title="Refill energy to max" onClick={() => doAdmin(() => api.adminSetEnergy({ ownerKey: t.ownerKey }), "Energy refilled to max")}>
-            ⚡
+            ✦
           </button>
           <button className="abtn small" title="Clear timers" onClick={() => doAdmin(() => api.adminClearTimers({ ownerKey: t.ownerKey }), "Timers cleared")}>
             🕐
@@ -2345,7 +2345,7 @@ export function App() {
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection. Tap one to tell it a story." storyteller />}
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
-      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} initialPatrolIds={patrolIds} onOpenZodiac={() => setShowZodiac(true)} onToggleDeck={() => setShowTenderDeck(v => !v)} deckOpen={showTenderDeck} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} onNeedClaim={needClaim} />{showPatrolBanner && <section className="patrol-banner" aria-live="polite"><p className="eyebrow">The First Seed</p><h2>A starseed has landed!</h2><div className="patrol-banner-faces">{patrolThree.map((a) => <img key={a.id} src={a.image_url} alt={a.name} />)}</div><p><strong>A starseed has landed</strong> on your land — and the curse will test any hold on it, wave upon wave. You can send a patrol to claim it: {patrolThree.map((a) => a.name).join(", ")} stand ready as your first three.</p><p>The energy you will have when you get there grows with every friend you wake here{patrolEnergyQ.data ? <> — your pool stands at <strong>⚡{patrolEnergyQ.data.energy} of {patrolEnergyQ.data.maxEnergy}</strong> now, and each new waking raises it</> : ""}. We might find more powerful friends to bring.</p><p className="whisper-line">A whispering Awoken, thin as thread: “Are you sure? The curse tests all…”</p><button type="button" className="patrol-banner-send" onClick={() => { setPatrolIds(patrolThree.map((a) => a.id)); setShowDeck(true); }}>Send a Patrol →</button><p className="quiet">The seed waits until your patrol claims it.</p></section>}<WakeRitual onPresentedChange={setBirthId} assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}
+      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} initialPatrolIds={patrolIds} onOpenZodiac={() => setShowZodiac(true)} onToggleDeck={() => setShowTenderDeck(v => !v)} deckOpen={showTenderDeck} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onClaimed={saved} onNeedClaim={needClaim} />{showPatrolBanner && <section className="patrol-banner" aria-live="polite"><p className="eyebrow">The First Seed</p><h2>A starseed has landed!</h2><div className="patrol-banner-faces">{patrolThree.map((a) => <img key={a.id} src={a.image_url} alt={a.name} />)}</div><p><strong>A starseed has landed</strong> on your land — and the curse will test any hold on it, wave upon wave. You can send a patrol to claim it: {patrolThree.map((a) => a.name).join(", ")} stand ready as your first three.</p><p>The energy you will have when you get there grows with every friend you wake here{patrolEnergyQ.data ? <> — your pool stands at <strong><span className="spark-glow">✦</span>{patrolEnergyQ.data.energy} of {patrolEnergyQ.data.maxEnergy}</strong> now, and each new waking raises it</> : ""}. We might find more powerful friends to bring.</p><p className="whisper-line">A whispering Awoken, thin as thread: “Are you sure? The curse tests all…”</p><button type="button" className="patrol-banner-send" onClick={() => { setPatrolIds(patrolThree.map((a) => a.id)); setShowDeck(true); }}>Send a Patrol →</button><p className="quiet">The seed waits until your patrol claims it.</p></section>}<WakeRitual onPresentedChange={setBirthId} assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} /><LoreSection /></>}
     </main><LegalLinks /><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       </div></>;  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;

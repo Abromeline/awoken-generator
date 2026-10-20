@@ -1024,7 +1024,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         </div>
       )}
       <div className="battle-hud">
-        <div className="energy-display">⚡ {energyLeft}/{maxEnergy}</div>
+        <div className="energy-display"><span className="spark-glow">✦</span> {energyLeft}/{maxEnergy}</div>
         <button 
           className={`abtn small ${autoBattle ? "active" : ""}`} 
           onClick={() => setAutoBattle(!autoBattle)}
@@ -1137,7 +1137,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               onClick={() => playCard(i)}
               style={{ opacity: energyLeft >= cost ? 1 : 0.4 }}
             >
-              {!isNewborn && <div className="mini-cost">⚡{cost}</div>}
+              {!isNewborn && <div className="mini-cost"><span className="spark-glow">✦</span>{cost}</div>}
               {isNewborn ? (
                 <>
                   <div className="newborn-dot" />

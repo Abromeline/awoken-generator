@@ -159,7 +159,7 @@ function EntryDisc({ entry, radius, angDeg, size, pinnedKeys, onTogglePin, onDro
       }}
       onPointerDown={onPointerDown}>
       {entryFace(entry)}
-      <small>{entry.label + (entry.locked ? " · locked" : "")}</small>
+      <small>{(entry.label + (entry.locked ? " · locked" : "")).split("✦").map((part, i) => i === 0 ? part : <span key={i}><span className="spark-glow">✦</span>{part}</span>)}</small>
       {entry.pinKey && (
         <span className={"gw-pin" + (pinnedKeys.includes(entry.pinKey) ? " on" : "")}
           role="button" aria-label={pinnedKeys.includes(entry.pinKey) ? "Loose from the hotbar" : "Key to the hotbar"}

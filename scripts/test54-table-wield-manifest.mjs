@@ -18,7 +18,7 @@
 //     killing blow counted at its remaining hp) divided by
 //     attributed hit strikes, over foes that provably died.
 //     Lv 3's mean must clear Lv 1's by ≥0.5, KEEN's by ≥0.4.
-// (d) MANIFEST: a quiet-room cast costs exactly ⚡4 and files
+// (d) MANIFEST: a quiet-room cast costs exactly ✦4 and files
 //     manifests:[{ownerKey, weaponKey, count:1, expiresAt}]
 //     ~20s out; in battle the copies strike on their own
 //     (copy:true) while the original strikes too; no copy
@@ -369,7 +369,7 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
   const myManifests = (cc) => (cc.state.manifests ?? []).filter(m => m.ownerKey === cc.you.key);
 
   // The quiet-room cast: no battle runs, no harvest can move
-  // the purse — the ⚡4 is measured exactly.
+  // the purse — the ✦4 is measured exactly.
   const energy0 = meIn(c).energy;
   c.send({ type: "manifest" });
   await c.waitFor(cc => myManifests(cc).length === 1, "the manifest files in state", 8000);
@@ -379,7 +379,7 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
     JSON.stringify(m0));
   check("the copy's life is ~20s", m0.expiresAt - Date.now() > 14000 && m0.expiresAt - Date.now() <= 20500,
     `ttl=${m0.expiresAt - Date.now()}ms`);
-  check("manifest costs exactly ⚡4", energy0 - meIn(c).energy === 4, `${energy0} → ${meIn(c).energy}`);
+  check("manifest costs exactly ✦4", energy0 - meIn(c).energy === 4, `${energy0} → ${meIn(c).energy}`);
 
   // Into battle: parked at a gate foe's side, the copy strikes
   // on its own cadence while the true weapon strikes too.
@@ -403,7 +403,7 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
   }
   if (copyStrikes.length < 2) {
     // The referee lawfully refuses a cast from a fallen Tender
-    // or a purse under ⚡4 — and mid-battle either can hold for
+    // or a purse under ✦4 — and mid-battle either can hold for
     // the whole gather: he rises only between waves, and the
     // purse refills only on a wave break's harvest. The first
     // form of this branch merely OFFERED the cast while
@@ -443,7 +443,7 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
   // Top-up: a fast wave can die under three strike sources
   // before the copies have flown twice. Keep dealing waves,
   // parking at the gate, and re-casting (harvest and wave
-  // breaks refill the purse faster than ⚡4 drains it) until
+  // breaks refill the purse faster than ✦4 drains it) until
   // two copy strikes stand on the ledger.
   {
     const topStart = Date.now();
@@ -522,7 +522,7 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
   c.send({ type: "manifest" });
   await c.waitFor(cc => myManifests(cc).length === 1, "the node cast files", 8000);
   check("with the node, the cast files TWO copies", myManifests(c)[0].count === 2, JSON.stringify(myManifests(c)));
-  check("the node cast also costs exactly ⚡4", energy1 - meIn(c).energy === 4, `${energy1} → ${meIn(c).energy}`);
+  check("the node cast also costs exactly ✦4", energy1 - meIn(c).energy === 4, `${energy1} → ${meIn(c).energy}`);
   c.send({ type: "wield", weaponKey: "spear" });
   await c.waitFor(cc => meIn(cc).weaponKey === "spear", "the spear is in hand", 8000);
   check("a wield switch dismisses live copies at once (same push: spear in hand, manifests empty)",

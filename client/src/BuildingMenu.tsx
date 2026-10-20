@@ -149,7 +149,7 @@ export default function BuildingMenu({ onSelect, selected, energy, alwaysOpen = 
         <div className="building-info">
           <strong>{d.icon} {d.name}</strong>
           <small>{d.desc}</small>
-          <span className="building-cost">⚡{d.cost} · ⏱{d.buildMinutes >= 60 ? `${d.buildMinutes/60}h` : `${d.buildMinutes}m`}</span>
+          <span className="building-cost"><span className="spark-glow">✦</span>{d.cost} · ⏱{d.buildMinutes >= 60 ? `${d.buildMinutes/60}h` : `${d.buildMinutes}m`}</span>
         </div>
       </button>)}
       {selected && <p className="building-hint">Tap a purified tile to place {selected.name}. Tap again to cancel.</p>}

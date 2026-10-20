@@ -123,7 +123,7 @@ function SeedMissions({ tile, seed, fieldParty, onFetchSeed, onHoldSeed }: {
         : "Its hex is purified: fetch its energy home, or raise a bastion and HOLD it — a held seed can grow into the heart of a new city."}</p>
       {!seed.tileCursed && onHoldSeed && (
         <button className="abtn" disabled={busy} onClick={async () => { setBusy(true); try { await onHoldSeed(seed.id); } finally { setBusy(false); } }}>
-          🏯 HOLD — raise a bastion (6⚡)
+          🏯 HOLD — raise a bastion (6<span className="spark-glow">✦</span>)
         </button>
       )}
       {onFetchSeed && (
@@ -204,15 +204,15 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
     const icon = skill === "warding" ? "🔷" : "🔶";
     const candidates = standing.filter(a => !a.skills.includes(skill) && (a.level ?? 0) >= TEACH_MIN_LEVEL);
     if (candidates.length === 0) {
-      return <p className="quiet wg-teach-note">{icon} {label} is a milestone teaching — an Awokin of level {TEACH_MIN_LEVEL}+ standing here could learn it for {TEACH_COST}⚡. None standing can yet.</p>;
+      return <p className="quiet wg-teach-note">{icon} {label} is a milestone teaching — an Awokin of level {TEACH_MIN_LEVEL}+ standing here could learn it for {TEACH_COST}✦. None standing can yet.</p>;
     }
     return (
       <div className="wg-teach-row">
         {candidates.map(a => (
           <button key={a.id} className="abtn small" disabled={energy < TEACH_COST || busyKey !== null}
             onClick={() => act(`teach-${a.id}-${skill}`, () => onTeachSkill(a.id, skill))}
-            title={`Teach ${a.name} the ${label} skill (${TEACH_COST}⚡)`}>
-            {icon} Teach {label} — {a.name} (Lv {a.level}) · {TEACH_COST}⚡
+            title={`Teach ${a.name} the ${label} skill (${TEACH_COST}✦)`}>
+            {icon} Teach {label} — {a.name} (Lv {a.level}) · {TEACH_COST}✦
           </button>
         ))}
       </div>
@@ -243,7 +243,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
           {el.emoji} {tile.element} hex · ({tile.q}, {tile.r})
           {cursed ? " · 💀 cursed ground" : " · held ground"}
           {(tile.height ?? 1) > 1 ? ` · ${tile.height} trays` : ""}
-          {` · ⚡ ${energy}`}
+          {` · ✦ ${energy}`}
         </p>
 
         {/* ── The hex, enlarged: edges are the controls ─────────── */}
@@ -399,7 +399,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
                         act(`place-${pickDir}-${choice.key}`, () => onPlaceWork(pickDir, kind, undefined, choice.style));
                       }}
                       title={choice.blurb}>
-                      <strong>{choice.icon} {choice.name} <span className="wg-cost">· {def.cost}⚡</span></strong>
+                      <strong>{choice.icon} {choice.name} <span className="wg-cost">· {def.cost}<span className="spark-glow">✦</span></span></strong>
                       <small>{needsSkill ? (kind === "ward" ? "Needs the Warding skill — no hand standing here holds it. Teach it below." : "Needs the Runeing skill — no hand standing here holds it. Teach it below.") : choice.blurb}</small>
                     </button>
                   ));
@@ -411,7 +411,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
                   <button key={rk} className="wg-work-btn" disabled={energy < WORK_DEFS.rune.cost || busyKey !== null}
                     onClick={() => act(`place-${pickDir}-rune-${rk}`, () => onPlaceWork(pickDir, "rune", rk))}
                     title={RUNE_DEFS[rk].blurb}>
-                    <strong>🔶 {RUNE_DEFS[rk].name} rune <span className="wg-cost">· {WORK_DEFS.rune.cost}⚡</span></strong>
+                    <strong>🔶 {RUNE_DEFS[rk].name} rune <span className="wg-cost">· {WORK_DEFS.rune.cost}<span className="spark-glow">✦</span></span></strong>
                     <small>{RUNE_DEFS[rk].blurb}</small>
                   </button>
                 ))}
@@ -445,7 +445,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
                   <button className="abtn small" disabled={energy < cost || busyKey !== null || skillMissing}
                     onClick={() => act(`str-${selDir}`, () => onStrengthenWork(selDir))}
                     title={skillMissing ? "Cast work — the skilled hand must stand on the hex." : `Strengthen to level ${selWork.level + 1}`}>
-                    ⬆ Strengthen — {cost}⚡{skillMissing ? " (skilled hand required)" : ""}
+                    ⬆ Strengthen — {cost}<span className="spark-glow">✦</span>{skillMissing ? " (skilled hand required)" : ""}
                   </button>
                 );
               })()}
@@ -533,12 +533,12 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
                 return (
                 <button key={d.type} className="building-option" disabled={energy < d.cost || seatFull || wedgesFull}
                   onClick={() => onChooseBuilding(d)}
-                  title={wedgesFull ? "Every wedge of this hex is planted" : seatFull ? "The building seat is full — the shroom wedges beside it remain" : energy < d.cost ? `Needs ${d.cost}⚡` : `Build ${d.name} on this hex`}>
+                  title={wedgesFull ? "Every wedge of this hex is planted" : seatFull ? "The building seat is full — the shroom wedges beside it remain" : energy < d.cost ? `Needs ${d.cost}✦` : `Build ${d.name} on this hex`}>
                   <img src={buildingMenuImage(d.type)} alt={d.name} className="building-thumb" />
                   <div className="building-info">
                     <strong>{d.icon} {d.name}</strong>
                     <small>{d.desc}</small>
-                    <span className="building-cost">⚡{d.cost} · ⏱{d.buildMinutes >= 60 ? `${d.buildMinutes / 60}h` : `${d.buildMinutes}m`}</span>
+                    <span className="building-cost"><span className="spark-glow">✦</span>{d.cost} · ⏱{d.buildMinutes >= 60 ? `${d.buildMinutes / 60}h` : `${d.buildMinutes}m`}</span>
                   </div>
                 </button>
                 );

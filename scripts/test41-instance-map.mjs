@@ -129,7 +129,7 @@ a.send({ type: "march", cardId: rootb.id, from: landingA, to: stepTile });
 await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), stepTile), "the march begins");
 check("the march is bound for the cursed tile's center", rootUnit().moving === true && tgtNear(rootUnit(), stepTile),
   `tgt=${JSON.stringify(rootUnit().tgt)} center=${JSON.stringify(centerOf(stepTile))}`);
-check("the march was priced by the land's law (1 hex × ⚡1 for power 1)", a.you.energy === 7, `energy=${a.you.energy}`);
+check("the march was priced by the land's law (1 hex × ✦1 for power 1)", a.you.energy === 7, `energy=${a.you.energy}`);
 await a.waitFor(c => !rootUnit()?.moving && rootUnit()?.hex === stepTile, "the march arrives", 20000);
 a.send({ type: "march", cardId: rootb.id, from: stepTile, to: landingA });
 await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), landingA), "the march back is accepted — arrival proven");

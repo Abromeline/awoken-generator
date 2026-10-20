@@ -2,7 +2,7 @@
 // blow-per-order for clearing curses applies to the Table's
 // Awoken too. Proven here: the refusals speak and charge
 // nothing (pure ground, the seed's tile, beyond the two-tile
-// reach, another Tender's warden); a lawful blow costs ⚡1 and
+// reach, another Tender's warden); a lawful blow costs ✦1 and
 // wears the tile's corruption by the striker's filed power —
 // the land's attackTile arithmetic — with the strike flown on
 // the shared ledger (from the warden's hex, to the TILE) and
@@ -142,7 +142,7 @@ await sleep(400);
 const worn = tileOf(a, target);
 check("one blow wears the curse by the striker's filed power",
   worn.curseHp === 10 - before.power, `curseHp=${worn.curseHp}, power=${before.power}`);
-check("the blow cost ⚡1", a.you.energy === energyBefore - 1, `energy=${a.you.energy} vs ${energyBefore}`);
+check("the blow cost ✦1", a.you.energy === energyBefore - 1, `energy=${a.you.energy} vs ${energyBefore}`);
 check("the tale speaks the thinning",
   a.state.tale.some(t => t.text.includes("strikes the curse") && t.text.includes(String(10 - before.power))),
   `tale=${a.state.tale.slice(-3).map(t => t.text).join(" | ")}`);

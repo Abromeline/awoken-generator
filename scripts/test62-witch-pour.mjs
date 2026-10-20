@@ -149,7 +149,7 @@ async function joinBound(tt, room, label) {
   await c.waitFor(cc => !!meIn(cc)?.pos, "the tender stands in pixel space");
   return c;
 }
-/** Cast until the working stands (a fizzle spends the ⚡ and
+/** Cast until the working stands (a fizzle spends the ✦ and
  *  places nothing — cast again, as a player would). */
 async function castUntil(c, msg, find, what, tries = 18) {
   for (let i = 0; i < tries; i++) {

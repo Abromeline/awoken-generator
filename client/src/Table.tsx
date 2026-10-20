@@ -878,11 +878,11 @@ export default function Table() {
         // cast run stands armed, the ONLY refusal that can
         // answer is the cast's own — placing owns the taps,
         // so nothing else spends from this seat — and every
-        // cast refusal names its price ("…costs ⚡…"). A
+        // cast refusal names its price ("…costs ✦…"). A
         // refusal that answers a cast fired moments ago (the
         // fire's own mark) ends the run: the working leaves
         // the hand. The refusal itself shows above, as always.
-        if (placingRef.current && /costs ⚡/.test(m) && Date.now() - ownCastMarkRef.current < 6000) {
+        if (placingRef.current && /costs ✦/.test(m) && Date.now() - ownCastMarkRef.current < 6000) {
           unloadCastRef.current?.();
         }
       }
@@ -1402,7 +1402,7 @@ export default function Table() {
     // Awokin chosen, the cursed ground inside its strike
     // reach stands MARKED — its corruption numbered on the
     // tile for all to read — and tapping the mark IS the
-    // order: one blow, ⚡1, the referee's arithmetic. No
+    // order: one blow, ✦1, the referee's arithmetic. No
     // separate arming stands between the eye and the blow
     // any longer; the unit bar's button still arms the old
     // road beside this one.
@@ -1412,7 +1412,7 @@ export default function Table() {
     }
     // Armed against the curse, the chosen one's taps are
     // blows: cursed ground within two tiles is struck (one
-    // order, one blow, ⚡1 — the server referees the wear);
+    // order, one blow, ✦1 — the server referees the wear);
     // any other tap is answered plainly, and the arm holds.
     if (strikeArmed && selUnit && selTile) {
       if (t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) {
@@ -1674,7 +1674,7 @@ export default function Table() {
     for (const wk of WEAPON_ORDER) {
       nodes.push({ key: `wp-${wk}`, img: weaponImg(wk), emoji: "⚔", label: WEAPONS[wk].name.split(" ")[0], lit: myWeapon === wk, locked: false, act: () => send({ type: "wield", weaponKey: wk }) });
     }
-    nodes.push({ key: "manifest", img: myWeapon ? weaponImg(myWeapon) : null, emoji: "❖", label: "⚡4", lit: false, locked: myEnergy < 4, act: () => send({ type: "manifest" }) });
+    nodes.push({ key: "manifest", img: myWeapon ? weaponImg(myWeapon) : null, emoji: "❖", label: "✦4", lit: false, locked: myEnergy < 4, act: () => send({ type: "manifest" }) });
     return nodes;
   };
 
@@ -1693,7 +1693,7 @@ export default function Table() {
         key: hotKey,
         img: off.glyph,
         emoji: off.emoji,
-        label: `${d.root} · ⚡${d.cost}`,
+        label: `${d.root} · ✦${d.cost}`,
         locked: off.locked,
         lit: placing?.root === d.key,
         pinKey: hotKey,
@@ -1743,7 +1743,7 @@ export default function Table() {
         return buildAbilityNodes().map(n => n.key === "manifest"
           ? {
               key: n.key, sigil: "manifest", label: "Manifest", locked: n.locked, pinKey: "manifest",
-              act: n.locked ? () => setNotice("Manifest wants ⚡4 in the purse — the copies answer only a full call.") : n.act,
+              act: n.locked ? () => setNotice("Manifest wants ✦4 in the purse — the copies answer only a full call.") : n.act,
             }
           : {
               key: n.key, img: n.img, emoji: n.emoji,
@@ -1755,7 +1755,7 @@ export default function Table() {
   const wheelCaption = (): string => {
     const drag = " · drag an entry onto the hotbar to key it";
     switch (wheelTab) {
-      case "weapon": return "Ability — Weapon — wield the runic weapon · Manifest (⚡4) calls its copies for 20s";
+      case "weapon": return "Ability — Weapon — wield the runic weapon · Manifest (✦4) calls its copies for 20s";
       case "spell": return Object.values(defs).some(d => d.kind === "spell")
         ? `Spell — castings from the hand and the sky${drag}`
         : "Spell — no spell-school pages stand in the book yet · the Witch's school wakes with its first page";
@@ -1844,10 +1844,10 @@ export default function Table() {
     if (off) {
       const d = Object.values(defs).find(dd => `w-${dd.key}` === key || `b-${dd.key}` === key || `r-${dd.key}` === key);
       const root = key === "heal" ? "heal" : d?.key;
-      return { img: off.glyph, emoji: off.emoji, label: `⚡${off.cost}`, dim: off.locked, lit: !!root && placing?.root === root, title: `${d?.root ?? "Heal"} — tap to ready it, then tap its ground (right-click the slot to loose it)` };
+      return { img: off.glyph, emoji: off.emoji, label: `✦${off.cost}`, dim: off.locked, lit: !!root && placing?.root === root, title: `${d?.root ?? "Heal"} — tap to ready it, then tap its ground (right-click the slot to loose it)` };
     }
     const node = buildAbilityNodes().find(n => n.key === key);
-    if (node) return { img: node.img, emoji: node.emoji, label: node.label, dim: node.locked, lit: node.lit, title: node.key === "manifest" ? "Manifest — tap to call the copies (⚡4)" : `${node.label} — tap to wield it (right-click the slot to loose it)` };
+    if (node) return { img: node.img, emoji: node.emoji, label: node.label, dim: node.locked, lit: node.lit, title: node.key === "manifest" ? "Manifest — tap to call the copies (✦4)" : `${node.label} — tap to wield it (right-click the slot to loose it)` };
     return { img: null, emoji: "✦", label: "?", dim: true, lit: false, title: "A locked thing the Table no longer knows — right-click to loose it" };
   };
   return (
@@ -1856,7 +1856,7 @@ export default function Table() {
         <span className="sky-reign">☁ <strong>{sky.mood}</strong>{sky.description ? ` — ${sky.description}` : ""}</span>
         <span className="sky-round">The Table · {shared.mode === "campaign" ? "campaign room" : "casual room"}</span>
         {shared.campaign?.seeded && !shared.campaign.over && (
-          <span className="bank-chip" title="The party's one bank — every cast draws from it, every harvest joins it, and what remains divides evenly when the campaign turns home">🌟 The Bank ⚡{shared.campaign.bank}</span>
+          <span className="bank-chip" title="The party's one bank — every cast draws from it, every harvest joins it, and what remains divides evenly when the campaign turns home">🌟 The Bank <span className="spark-glow">✦</span>{shared.campaign.bank}</span>
         )}
         {shared.campaign?.over === "fallen" && <span className="bank-chip fallen">🌑 The Bastion has fallen</span>}
         {shared.campaign?.over === "ended" && <span className="bank-chip">🏠 The campaign has turned home</span>}
@@ -1874,7 +1874,7 @@ export default function Table() {
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
               <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}{p.away ? " · away" : ""}</span>
-              {p.storytender ? <span className="party-meta">📖 Storytender — she deals</span> : p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · ⚡ {p.energy} · 🂠 {p.handCount} in roster</span>}
+              {p.storytender ? <span className="party-meta">📖 Storytender — she deals</span> : p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · <span className="spark-glow">✦</span> {p.energy} · 🂠 {p.handCount} in roster</span>}
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
@@ -2179,7 +2179,7 @@ export default function Table() {
                       onClick={() => actHotbar(key)}
                       onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                       {m.img ? <img src={m.img} alt="" /> : <span className="table-slot-emoji">{m.emoji}</span>}
-                      <span className="table-slot-label">{m.label}</span>
+                      <span className="table-slot-label">{m.label.split("✦").map((part, i) => i === 0 ? part : <span key={i}><span className="spark-glow">✦</span>{part}</span>)}</span>
                     </button>
                   );
                 })}
@@ -2204,7 +2204,7 @@ export default function Table() {
             {placing && (
               <div className="placing-bar">
                 <span className="placing-text">
-                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ⚡{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
@@ -2219,7 +2219,7 @@ export default function Table() {
                     send({ type: "castRune", root: placing.root, hue: pourHue, hexes: picks });
                     beginCast(picks[0] ?? null);
                     setBladePicks([]);
-                  }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
+                  }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · <span className="spark-glow">✦</span>{defs[placing.root]?.cost ?? 4}</button>
                 )}
                 <button className="table-btn" onClick={unloadCast}>Set the light down</button>
               </div>
@@ -2230,18 +2230,18 @@ export default function Table() {
                   {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMoving
                     ? "on the move — it answers when it arrives."
                     : strikeArmed
-                      ? <>armed against the curse — tap cursed ground within reach: one blow (⚡1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
-                      : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.{curseInReach.length > 0 && <> The cursed ground in its reach stands <strong>marked with its corruption</strong> — tap the mark and {selUnit.name} strikes it (⚡1 a blow).</>}</>}
+                      ? <>armed against the curse — tap cursed ground within reach: one blow (✦1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
+                      : <>tap a tile to march (✦{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.{curseInReach.length > 0 && <> The cursed ground in its reach stands <strong>marked with its corruption</strong> — tap the mark and {selUnit.name} strikes it (✦1 a blow).</>}</>}
                 </span>
                 {!selUnitMoving && (
                   <>
                     <button className="table-btn" onClick={() => {
                       send({ type: "castHeal", hex: selUnit.hex }); beginCast(selUnit.hex);
-                    }}>Heal · ⚡{healDef?.cost ?? 2}</button>
+                    }}>Heal · <span className="spark-glow">✦</span>{healDef?.cost ?? 2}</button>
                     {strikeArmed ? (
                       <button className="table-btn" onClick={() => setStrikeArm(false)}>Stay the hand</button>
                     ) : curseInReach.length > 0 ? (
-                      <button className="table-btn" onClick={() => setStrikeArm(true)}>Strike the curse · ⚡1</button>
+                      <button className="table-btn" onClick={() => setStrikeArm(true)}>Strike the curse · <span className="spark-glow">✦</span>1</button>
                     ) : null}
                     <button className="table-btn" onClick={() => send({ type: "setFollow", cardId: selUnit.cardId, follow: !selUnit.follow })}>{selUnit.follow ? "👣 Following you — hold ground" : "👣 Follow me"}</button>
                     <button className="table-btn" onClick={() => { send({ type: "recall", hex: selUnit.hex, cardId: selUnit.cardId }); setSelUnitId(null); }}>Recall</button>
@@ -2268,7 +2268,7 @@ export default function Table() {
                     ? "🌑 The Bastion has fallen — this campaign is ended by the enemy's right. A new campaign opens at the door."
                     : shared.campaign.over === "ended"
                       ? "🏠 The campaign has turned home — its growth goes with you. A new campaign opens at the door."
-                      : <>📖 A campaign table — {shared.campaign.storytenderName ? <>{shared.campaign.storytenderName} deals the dark.</> : "awaiting a Storytender to deal."}{shared.campaign.seeded ? <> The bank ⚡{shared.campaign.bank} binds you.</> : null}</>}
+                      : <>📖 A campaign table — {shared.campaign.storytenderName ? <>{shared.campaign.storytenderName} deals the dark.</> : "awaiting a Storytender to deal."}{shared.campaign.seeded ? <> The bank ✦{shared.campaign.bank} binds you.</> : null}</>}
                 </span>
                 {!shared.campaign.over && !shared.campaign.storytenderName && you && (
                   <button className="table-btn battle-btn" onClick={() => send({ type: "stEnd" })}>🏠 Turn the campaign home</button>
@@ -2278,7 +2278,7 @@ export default function Table() {
                 <>
                 {shared.bastion ? (
                   <div className="bastion-banner">
-                    ⚔ {shared.bastion.kind.toUpperCase()} — {shared.bastion.hostName}'s call · One pool ⚡{shared.bastion.pool}/{shared.bastion.poolMax}
+                    ⚔ {shared.bastion.kind.toUpperCase()} — {shared.bastion.hostName}'s call · One pool ✦{shared.bastion.pool}/{shared.bastion.poolMax}
                     {shared.bastion.ambush ? " · Ambush: strikes +1" : ""}
                     {shared.bastion.resolved ? " · the day is decided" : shared.bastion.begun ? " · the battle is joined" : " · waiting for the host to begin"}
                     {!shared.bastion.begun && !shared.bastion.resolved && you?.yourCall?.id === shared.bastion.callId && (
@@ -2366,7 +2366,7 @@ export default function Table() {
             <div className="st-head">
               <strong>📖 The Storytender's Panel</strong>
               <span className="quiet small">
-                The bank ⚡{you.storytender.bank}
+                The bank ✦{you.storytender.bank}
                 {you.storytender.seeded ? " — every cast draws from it; every harvest joins it." : " — it seeds at your first dealing, from the party's poured stakes."}
                 {you.storytender.over ? " This campaign is over." : ""}
               </span>
@@ -2453,7 +2453,7 @@ export default function Table() {
                   </button>
                 ))}
               </div>
-              <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law">⚡ {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
+              <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law"><span className="spark-glow">✦</span> {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
               <span className="my-band" title="Your travelling company — how many of your Awokin may stand on the field at once. Your level widens it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
               <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice">🎲 Your dice</button>
             </div>
@@ -2472,7 +2472,7 @@ export default function Table() {
                         data-element={card.element}
                         role="button"
                         aria-pressed={selected}
-                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap purified ground at your side.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
+                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ✦${cost}. Tap, then tap purified ground at your side.` : `${card.name} costs ✦${cost} — you hold ✦${you.energy ?? 0}.`}
                         onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } if (!selected) setSelUnitId(null); setSelectedCardId(selected ? null : card.id); }}
                       >
                         <button type="button" className={`tcard-pin${hotbarKeys.includes(`card-${card.id}`) ? " on" : ""}`}
@@ -2489,14 +2489,14 @@ export default function Table() {
                         ) : (
                           <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
                         )}
-                        <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span><span className="cost-chip">⚡{cost}</span></div>
+                        <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span><span className="cost-chip"><span className="spark-glow">✦</span>{cost}</span></div>
                         {selected && cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
                       </div>
                     );
                   })}
                 </div>
                 {selectedCard ? (
-                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — it answers at your side: tap purified ground on your own hex or one beside it to set it standing (⚡{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
+                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — it answers at your side: tap purified ground on your own hex or one beside it to set it standing (✦{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
                 ) : you.bound ? (
                   <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (
@@ -2529,11 +2529,11 @@ export default function Table() {
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, choose the hex your Awokin holds, then its neighbour.`}>
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, choose the hex your Awokin holds, then its neighbour.`}>
                       {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✦</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
-                        <em>{d.root} · Ward · ⚡{d.cost}</em>
+                        <em>{d.root} · Ward · <span className="spark-glow">✦</span>{d.cost}</em>
                         <span>{d.blurb}</span>
                       </span>
                     </button>
@@ -2546,11 +2546,11 @@ export default function Table() {
               <div className="arts-list">
                 <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
                   onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
-                  title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ⚡${healDef?.cost ?? 2}`}>
+                  title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ✦${healDef?.cost ?? 2}`}>
                   {healDef?.glyph ? <img src={healDef.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✚</span>}
                   <span className="working-text">
                     <strong>Heal · Tier {you.healTier ?? 1}</strong>
-                    <em>The mending art · ⚡{healDef?.cost ?? 2} · yours from Tender Lv 1</em>
+                    <em>The mending art · <span className="spark-glow">✦</span>{healDef?.cost ?? 2} · yours from Tender Lv 1</em>
                     <span>Restore {you.healAmount ?? 5} HP to one of your standing Awokin. In our lore, the healers are the Binders.</span>
                   </span>
                 </button>
@@ -2560,11 +2560,11 @@ export default function Table() {
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, choose the hex your Awokin holds, then the hex the grove roots on.`}>
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, choose the hex your Awokin holds, then the hex the grove roots on.`}>
                       {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">🌿</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
-                        <em>{d.root} · Binding · ⚡{d.cost}</em>
+                        <em>{d.root} · Binding · <span className="spark-glow">✦</span>{d.cost}</em>
                         <span>{d.blurb}</span>
                       </span>
                     </button>
@@ -2576,11 +2576,11 @@ export default function Table() {
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, then write it on a hex's ground.`}>
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, then write it on a hex's ground.`}>
                       {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✦</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
-                        <em>{d.root} · {d.kind === "spell" ? "Spell" : "Rune"} · ⚡{d.cost}</em>
+                        <em>{d.root} · {d.kind === "spell" ? "Spell" : "Rune"} · <span className="spark-glow">✦</span>{d.cost}</em>
                         <span>{d.blurb}</span>
                       </span>
                     </button>

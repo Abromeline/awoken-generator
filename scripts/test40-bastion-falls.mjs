@@ -84,8 +84,8 @@ st.send({ type: "stDeal" });
 await a.waitFor(c => c.state.campaign?.seeded && c.state.dark.length === 12, "doom dealt");
 check("bank seeded at one stake (12)", a.state.campaign.bank === 12, `bank=${a.state.campaign.bank}`);
 
-// Spend the bank to nothing: Spark (⚡7) + Mothwing (⚡4)
-// + Hushkeeper (⚡1) = 12, a full band of three — the only
+// Spend the bank to nothing: Spark (✦7) + Mothwing (✦4)
+// + Hushkeeper (✦1) = 12, a full band of three — the only
 // exact-12 muster the dealt hand holds. (The Instance Map:
 // the muster stands together on the seat's purified
 // landing tile — stacking carries the band.)
@@ -101,10 +101,10 @@ for (let i = 0; i < 3; i++) {
 // The muster spent the whole stake — read net of the
 // harvest the band's first strikes may already have won
 // back during the muster itself (side-spawned Unravelers
-// can begin inside sky's reach, and a felling pays ⚡9 in
+// can begin inside sky's reach, and a felling pays ✦9 in
 // the same breath; the spend is exact either way).
 const harvestedSoFar = (c) => (c.state.tale ?? []).reduce((sum, t) => {
-  const m = t.text.match(/⚡(\d+) joins the bank/);
+  const m = t.text.match(/✦(\d+) joins the bank/);
   return sum + (m ? Number(m[1]) : 0);
 }, 0);
 check("bank spent dry by the muster", a.state.campaign.bank === harvestedSoFar(a),

@@ -378,7 +378,7 @@ function SpellEditor({ spell, glyphs, saving, onSave, onDelete, onClose }: {
                 <option value="spell">Spell (cast)</option>
               </select>
             </label>
-            <label>Cost ⚡ <input type="number" min={0} max={99} value={cost} onChange={(e) => setCost(Math.max(0, Math.min(99, Number(e.target.value) || 0)))} style={{ width: 70 }} /></label>
+            <label>Cost ✦ <input type="number" min={0} max={99} value={cost} onChange={(e) => setCost(Math.max(0, Math.min(99, Number(e.target.value) || 0)))} style={{ width: 70 }} /></label>
             <label>Its glyph&nbsp;
               <select value={glyphId ?? ""} onChange={(e) => setGlyphId(e.target.value || null)}>
                 <option value="">— none yet —</option>
@@ -521,7 +521,7 @@ function GrimoireSection() {
               <button key={sp.key} onClick={() => setEditing(sp)} style={{ display: "flex", gap: 12, alignItems: "center", textAlign: "left", padding: "8px 12px" }}>
                 {img ? <img src={img} alt="" style={{ width: 40, height: 40, objectFit: "contain" }} /> : <span style={{ fontSize: 24, width: 40, textAlign: "center" }}>✦</span>}
                 <span style={{ flex: 1 }}>
-                  <strong>{sp.name}</strong> <small>· key <code>{sp.key}</code> · {sp.kind} · {sp.engine === "none" ? "engine: none (not yet seated)" : `engine: ${sp.engine}`} · ⚡{sp.cost}</small><br />
+                  <strong>{sp.name}</strong> <small>· key <code>{sp.key}</code> · {sp.kind} · {sp.engine === "none" ? "engine: none (not yet seated)" : `engine: ${sp.engine}`} · ✦{sp.cost}</small><br />
                   <small>{sp.blurb}</small>
                 </span>
                 <span>{spellName(sp.key) === sp.name ? "✎" : ""}</span>
@@ -1116,27 +1116,27 @@ export default function UIWorkspace() {
               </div>
               {CONFIG_BUILDINGS.has(name) && (
               <div className="stat-rows">
-                <label>Cost ⚡ <input type="number" value={getVal(`building.${name}.cost`)} onChange={e => setVal(`building.${name}.cost`, +e.target.value)} /></label>
+                <label>Cost ✦ <input type="number" value={getVal(`building.${name}.cost`)} onChange={e => setVal(`building.${name}.cost`, +e.target.value)} /></label>
                 <label>Build (min) <input type="number" value={getVal(`building.${name}.buildMinutes`)} onChange={e => setVal(`building.${name}.buildMinutes`, +e.target.value)} /></label>
                 {name === "watchtower" && (
                   <>
                     <label>Volley dmg <input type="number" value={getVal("building.watchtower.damage")} onChange={e => setVal("building.watchtower.damage", +e.target.value)} /></label>
                     <label>Power bonus <input type="number" value={getVal("building.watchtower.powerBonus")} onChange={e => setVal("building.watchtower.powerBonus", +e.target.value)} /></label>
-                    <label>Upkeep ⚡/hr <input type="number" value={getVal("building.watchtower.upkeepPerHour")} onChange={e => setVal("building.watchtower.upkeepPerHour", +e.target.value)} /></label>
+                    <label>Upkeep ✦/hr <input type="number" value={getVal("building.watchtower.upkeepPerHour")} onChange={e => setVal("building.watchtower.upkeepPerHour", +e.target.value)} /></label>
                   </>
                 )}
                 {name === "thorn-wall" && (
                   <label>Damage <input type="number" value={getVal("building.thorn-wall.damage")} onChange={e => setVal("building.thorn-wall.damage", +e.target.value)} /></label>
                 )}
                 {name === "dream-wheat" && (
-                  <label>Harvest ⚡ <input type="number" value={getVal("building.dream-wheat.harvestEnergy")} onChange={e => setVal("building.dream-wheat.harvestEnergy", +e.target.value)} /></label>
+                  <label>Harvest ✦ <input type="number" value={getVal("building.dream-wheat.harvestEnergy")} onChange={e => setVal("building.dream-wheat.harvestEnergy", +e.target.value)} /></label>
                 )}
                 {name === "attunement-shrine" && (
-                  <label>Upkeep ⚡/hr <input type="number" value={getVal("building.attunement-shrine.upkeepPerHour")} onChange={e => setVal("building.attunement-shrine.upkeepPerHour", +e.target.value)} /></label>
+                  <label>Upkeep ✦/hr <input type="number" value={getVal("building.attunement-shrine.upkeepPerHour")} onChange={e => setVal("building.attunement-shrine.upkeepPerHour", +e.target.value)} /></label>
                 )}
                 {(name === "dream-weed" || name === "sky-bloom") && (
                   <>
-                    <label>Harvest ⚡ <input type="number" value={getVal(`building.${name}.harvestEnergy`)} onChange={e => setVal(`building.${name}.harvestEnergy`, +e.target.value)} /></label>
+                    <label>Harvest ✦ <input type="number" value={getVal(`building.${name}.harvestEnergy`)} onChange={e => setVal(`building.${name}.harvestEnergy`, +e.target.value)} /></label>
                     <label>Grow (hrs) <input type="number" value={getVal(`building.${name}.growHours`)} onChange={e => setVal(`building.${name}.growHours`, +e.target.value)} /></label>
                   </>
                 )}

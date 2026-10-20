@@ -574,6 +574,11 @@ body.defeat-flash {
   display: flex; flex-direction: column; align-items: center; z-index: 1;
 }
 .energy-orb-value { font-size: 14px; font-weight: 700; color: #88ccff; font-family: monospace; }
+/* The Spark (✦) aglow — "gorple white" (Nigel, 2026-10-20): a luminous
+   pale white carrying a gold-and-purple shimmer, with a soft halo.
+   (Keeper's reading of his coinage: gold + purple. The bare glyph
+   stands everywhere the marker lives inside a plain string.) */
+.spark-glow { color: #fdfaff; text-shadow: 0 0 4px rgba(255,255,255,.9), 0 0 9px rgba(255,205,110,.75), 0 0 15px rgba(176,132,255,.6); }
 .energy-orb.full .energy-orb-value { color: #88ff88; }
 .energy-orb-timer { font-size: 9px; color: #aaa; font-family: monospace; margin-top: 2px; }
 /* Buildings */
@@ -1329,7 +1334,7 @@ body.defeat-flash {
 }
 /* The globe's feed-ready face (Nigel, 2026-10-18): while a warden
    is chosen, the orb is lit gold and tappable — feeding lives here,
-   10⚡ at a time — and its caption names the meal. Unchosen, no
+   10✦ at a time — and its caption names the meal. Unchosen, no
    feed class arrives and the orb is its present self. */
 .energy-orb.feed-ready{
   border-color:#ffd700;cursor:pointer;

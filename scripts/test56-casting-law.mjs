@@ -14,7 +14,7 @@
 //     Binder/Warden contrast at N=120 a side, and the Sage's
 //     rate over N=240 pooled casts inside her new law's own
 //     2.5σ band. Energy is measured exactly: every cast,
-//     fizzle or stand, spends the def's ⚡3 — refilled by
+//     fizzle or stand, spends the def's ✦3 — refilled by
 //     seeding each Tender a wide roster (the game's own
 //     max-energy law pays +2 per held Awokin).
 //     (Binding defs were chosen over heal/runes because Heal
@@ -268,9 +268,9 @@ console.log("\n(a) rollCast — binder vs warden vs sage on the binding school (
   // that pip; the dice prove the referee's rolls truly run
   // at her softened rate, not at the open school's ±0
   // (240 × .50 = 120, above the band) nor near the Binder's
-  // line. Purses: N×⚡3 — 360 for the 120s, 720 for the
+  // line. Purses: N×✦3 — 360 for the 120s, 720 for the
   // Sage's 240; max energy is 10 + 2 per power-2 filler, so
-  // her seed carries 360 fillers (730⚡).
+  // her seed carries 360 fillers (730✦).
   const N = 120, NS = 240;
   async function castN(c, n) {
     // A stand is counted by the mother's own id, never by
@@ -315,8 +315,8 @@ console.log("\n(a) rollCast — binder vs warden vs sage on the binding school (
   const rb = await castN(binder, N);
   const rw2 = await castN(warden, N);
   const rs = await castN(sage, NS);
-  console.log(`  binder ${rb.ok}/${N} stood (spent ⚡${rb.spent}); warden ${rw2.ok}/${N} (⚡${rw2.spent}); sage ${rs.ok}/${NS} (⚡${rs.spent})`);
-  check("every cast spent exactly ⚡3, fizzle or stand (120×3 and 240×3)",
+  console.log(`  binder ${rb.ok}/${N} stood (spent ✦${rb.spent}); warden ${rw2.ok}/${N} (✦${rw2.spent}); sage ${rs.ok}/${NS} (✦${rs.spent})`);
+  check("every cast spent exactly ✦3, fizzle or stand (120×3 and 240×3)",
     rb.spent === 360 && rw2.spent === 360 && rs.spent === 720, `spent=${rb.spent}/${rw2.spent}/${rs.spent}`);
   check("the fizzles were told as unravels", binder.state.tale.some(t => t.text.includes("unravels — the roll falls short")),
     `tale tail=${binder.state.tale.slice(-3).map(t => t.text).join(" | ")}`);
@@ -682,7 +682,7 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
     // CENTRE, and veers to a light only when that light is
     // nearer than the centre. One guard tile cannot cover
     // the halt circle (a lone guard watched a tangle drain
-    // ⚡1.06/s forever, 83.8px away across the seed), and
+    // ✦1.06/s forever, 83.8px away across the seed), and
     // the seed's own tile refuses marches by law. So all
     // four Awokin ring the seed: one on each ring-1 tile
     // whose centre is <69.2px out — the 47.6px v-pair and
@@ -738,7 +738,7 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
       // none, draining the bank to FALLEN while its whole
       // company stands idle (seen: control bank 102 → 0 at
       // dark=3, field=4, campaign over). When the bank
-      // bleeds ≥12⚡ off its high-water mark while dark
+      // bleeds ≥12✦ off its high-water mark while dark
       // stand, the nearest standing guard marches to the
       // bleeder's side — inside its reach the drain stops
       // and the fight the tally exists to witness happens.

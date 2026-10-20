@@ -34,11 +34,11 @@ export function heldSkills(ownerKey: string | null | undefined): Set<string> {
  *                              applied at the Table seat, not the
  *                              map's energy law, as its copy says)
  *    c_heal The Mending Art    Heal +3
- *    c_harv The Harvest        your Awoken fell the dark: +1⚡
- *    c_steady Steady Attention first ward or rune each battle −1⚡
+ *    c_harv The Harvest        your Awoken fell the dark: +1✦
+ *    c_steady Steady Attention first ward or rune each battle −1✦
  *    c_hp2  The Long Watch     Tender HP +5 and Heal +2
  *    p_constitution Ember Constitution  Tender HP +4
- *    p_breath The Returning Breath      +1⚡ at each battle round's start
+ *    p_breath The Returning Breath      +1✦ at each battle round's start
  *    p_blood  The Returning Blood       mend 1 HP at each battle round's start
  *    p_skin   The Thickened Skin        strikes against your Tender deal 1 less (min 1)
  *  HP and Heal ride the Tender-progress view (tenderExp), so
@@ -158,12 +158,12 @@ export interface WorkingEffects {
   bladeSprings: number;
   /** The Second Humming: the Coil may turn twice. */
   coilTurns: number;
-  /** Ebb Walker: the Coil returns +1⚡ more per dark turned. */
+  /** Ebb Walker: the Coil returns +1✦ more per dark turned. */
   coilReturn: number;
-  /** Millwright: the Engine sings +1⚡ more, and its brightening is +2. */
+  /** Millwright: the Engine sings +1✦ more, and its brightening is +2. */
   millwright: boolean;
   engineEnergy: number;
-  /** Hungry Ink: when your rune fells the dark, +1⚡. */
+  /** Hungry Ink: when your rune fells the dark, +1✦. */
   hungryInk: boolean;
   /** The Lowered Crown: the Crown Shard feeds on power 4+. */
   crownThreshold: number | null;
@@ -181,7 +181,7 @@ export interface WorkingEffects {
   /** Brand Walker: dark standing beside your Fire workings
    *  strikes at −1 power, lit and wary. */
   brandWalker: boolean;
-  /** Ebb Walker: your Tide workings cost 1⚡ less on Tide or
+  /** Ebb Walker: your Tide workings cost 1✦ less on Tide or
    *  neutral ground (the land's clause; the Table's field
    *  has no ground to judge, so it sleeps there). */
   ebbWalker: boolean;
@@ -195,7 +195,7 @@ export interface WorkingEffects {
    *  later at half strength. */
   loreBinder: boolean;
   /** Lore Runewright: the first time each of your runes
-   *  springs in a battle, it pays you +1⚡. */
+   *  springs in a battle, it pays you +1✦. */
   loreRunewright: boolean;
   /** The Remembering Ray: +1 Tender EXP whenever one of your
    *  wards or runes springs in battle. */

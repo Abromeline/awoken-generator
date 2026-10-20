@@ -685,7 +685,7 @@ await terrH(); // the first read settles the stand and the watermarks
       spring is isolated to the SETTLE: the coil is written
       on empty ground (it stands, charged), then the
       wanderer is set on it, and one read springs it — so
-      the ⚡ delta across that read is the refund alone.
+      the ✦ delta across that read is the refund alone.
       The stage stands at (2,2), beyond the runic weapon's
       reach of his stand (the homeland referee strikes
       wanderers who stray within it — that wound is not
@@ -703,7 +703,7 @@ await terrH(); // the first read settles the stand and the watermarks
   const w = wandererRow(wid);
   const newTile = w ? db.prepare("SELECT q, r, cursed FROM territory_tiles WHERE id = ?").get(w.tile_id) : null;
   const dist = newTile ? (Math.abs(newTile.q - 2) + Math.abs(newTile.r - 2) + Math.abs((newTile.q + newTile.r) - 4)) / 2 : 0;
-  ok("AUDIT coil @home: the wanderer is THROWN to far cursed ground (≥3 hexes), whole, and the coil's turning refunds its ⚡ (+1 for the one turned)",
+  ok("AUDIT coil @home: the wanderer is THROWN to far cursed ground (≥3 hexes), whole, and the coil's turning refunds its ✦ (+1 for the one turned)",
     !!stood && !!w && w.tile_id !== tileIds["2,2"] && !!newTile?.cursed && dist >= 3 && energyH() === e0 + 1,
     `tile=${w?.tile_id} -> ${JSON.stringify(newTile)} dist=${dist}; energy ${e0} -> ${energyH()}`);
 }

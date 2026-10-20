@@ -24,7 +24,7 @@ export const WORKING_DEFS = {
   "kind": "ward",
   "glyph": "glyph-06.png",
   "cost": 4,
-  "blurb": "Mounted on an edge: you gain +1⚡ each round, and your other workings burn a degree brighter while it stands.",
+  "blurb": "Mounted on an edge: you gain +1✦ each round, and your other workings burn a degree brighter while it stands.",
   "forms": {
    "unaligned": "The Plain Engine",
    "tide": "Engine of the Millrace",
@@ -152,7 +152,7 @@ export const WORKING_DEFS = {
   "kind": "rune",
   "glyph": "glyph-03.png",
   "cost": 3,
-  "blurb": "Ground-writing: when it springs, every dark thing on the hex is thrown back to far ground, its strike forgotten — and you take +1⚡ for each turning.",
+  "blurb": "Ground-writing: when it springs, every dark thing on the hex is thrown back to far ground, its strike forgotten — and you take +1✦ for each turning.",
   "forms": {
    "unaligned": "The Plain Coil",
    "tide": "Coil of the Eddy",
