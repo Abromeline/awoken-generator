@@ -377,6 +377,29 @@ if (!tileCols.some((col) => col.name === "top_points")) {
 if (!tileCols.some((col) => col.name === "attune_anchor_at")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN attune_anchor_at INTEGER`);
 }
+// THE BUILDING SYSTEM (Nigel, 2026-10-19): the creation stages on
+// territory tiles — the tile's plane (z), the stage now filling,
+// its fill, the branch chosen at the sky/tide fork, the fire
+// finish (baked / lowered), the sealed charge, and the terrain
+// bank this tile has paid so a fall can take exactly its gift
+// back. The terrain bank itself rides on tender_resources.
+for (const colDef of [
+  "z INTEGER NOT NULL DEFAULT 0",
+  "build_stage INTEGER NOT NULL DEFAULT 0",
+  "build_points REAL NOT NULL DEFAULT 0",
+  "build_branch TEXT",
+  "baked INTEGER NOT NULL DEFAULT 0",
+  "lowered INTEGER NOT NULL DEFAULT 0",
+  "build_finish TEXT",
+  "build_charge REAL NOT NULL DEFAULT 0",
+  "bank_paid INTEGER NOT NULL DEFAULT 0",
+]) {
+  const colName = colDef.split(" ")[0];
+  if (!tileCols.some((c) => c.name === colName)) {
+    sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN ${colDef}`);
+  }
+}
+
 // Binding upkeep tracking.
 if (!placementCols.some((col) => col.name === "last_binding_charge_at")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN last_binding_charge_at INTEGER`);
@@ -941,6 +964,7 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS compendium_entries (
 );`);
 // Additive migrations for existing tables
 try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN last_seen_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_resources ADD COLUMN terrain_bank INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN builder_stances TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_harvest_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE territory_buildings ADD COLUMN last_upkeep_at INTEGER`); } catch {}

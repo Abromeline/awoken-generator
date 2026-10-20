@@ -361,6 +361,31 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   sealedTrays: integer("sealed_trays").notNull().default(0),
   growPoints: real("grow_points").notNull().default(0),
   topPoints: real("top_points"),
+  // THE BUILDING SYSTEM (Nigel, 2026-10-19): land is CREATED,
+  // hex by hex, through four elemental stages — stone coalesces,
+  // root weaves, tide lakes or sky raises, fire bakes or lowers —
+  // each stage filled by pours of 10 (aspect points from the
+  // Tender, fast; a standing company's press, slow). z is the
+  // tile's plane: 0 = the ground; 1 = a floating isle, raised by
+  // the sky branch, with a NEW NEUTRAL TILE born beneath it at
+  // z 0 (the born-underneath law). buildStage: 0 = natural tile;
+  // 1..4 = the stage now filling (coalesce/weave/branch/fire —
+  // walkable once stage 1 completes); 5 = a finished work.
+  // buildPoints is the fill of the stage now filling (0–30).
+  // buildBranch is chosen at stage 3 ("tide" | "sky"); the fire
+  // finish is baked (sealed cell, charge held) or lowered (deep
+  // yield). bankPaid counts the terrain-bank points this tile's
+  // stages have paid, so a fallen tile takes exactly its own
+  // gift back out of the vessel.
+  z: integer("z").notNull().default(0),
+  buildStage: integer("build_stage").notNull().default(0),
+  buildPoints: real("build_points").notNull().default(0),
+  buildBranch: text("build_branch"),
+  baked: integer("baked").notNull().default(0),
+  lowered: integer("lowered").notNull().default(0),
+  buildFinish: text("build_finish"),
+  buildCharge: real("build_charge").notNull().default(0),
+  bankPaid: integer("bank_paid").notNull().default(0),
   // Curse HP: attacks dwindle this; at 0 the tile becomes neutral.
   curseHp: integer("curse_hp"),
   curseMaxHp: integer("curse_max_hp"),
@@ -522,6 +547,13 @@ export const tenderWeapons = sqliteTable("tender_weapons", {
 export const tenderResources = sqliteTable("tender_resources", {
   ownerKey: text("owner_key").primaryKey(),
   energy: integer("energy").notNull().default(5),
+  // THE TERRAIN BANK (Nigel, 2026-10-19): +1 for every stage of
+  // completeness a created hex reaches (+1 more when fire
+  // lowers it deep). The bank is the vessel: it raises the home
+  // energy cap point for point (calculateMaxEnergy), and it is
+  // safe unless the territory falls — a created tile lost to
+  // the curse takes its own stages' gift back, nothing nibbles.
+  terrainBank: integer("terrain_bank").notNull().default(0),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

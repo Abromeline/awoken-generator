@@ -132,6 +132,21 @@ export interface TerritoryTile {
   trayStage?: number;
   topHp?: number;
   stackPower?: number;
+  /** The Building System (Nigel, 2026-10-19): the tile's plane
+   *  (0 ground, 1 floating isle) and its creation state — the
+   *  stage now filling (0 natural, 1 coalesce, 2 weave, 3 branch,
+   *  4 fire, 5 finished), its fill in pours of 10 up to 30, the
+   *  chosen branch/finish, the fire finish's marks, the sealed
+   *  charge, and the terrain-bank points this tile has paid. */
+  z?: number;
+  buildStage?: number;
+  buildPoints?: number;
+  buildBranch?: string | null;
+  buildFinish?: string | null;
+  baked?: number;
+  lowered?: number;
+  buildCharge?: number;
+  bankPaid?: number;
 }
 
 export interface FieldPlacement {
@@ -609,7 +624,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number }[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number }[]; terrainBank?: number }>("getTerritory", {}),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; pour?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number }>("castMapWorking", args),
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
@@ -708,8 +723,15 @@ export const api = {
   /** The Tender's body on the homeland (2026-10-19): the client
    *  reports the hex his figure has entered; followers are ordered
    *  to muster to his ring (or released from the order). */
-  setTenderTile: (args: { tileId: number }) =>
+  setTenderTile: (args: { tileId: number; airborne?: boolean }) =>
     post<{ ok: true; tileId: number }>("setTenderTile", args),
+  /** The Building System (Nigel, 2026-10-19): found a hex of new
+   *  land on the void at the land's edge, and pour 10 of the
+   *  stage's element from your pools into the work. */
+  beginBuild: (args: { q: number; r: number }) =>
+    post<{ ok: true; tileId: number; buildStage: number; buildPoints: number; wanted: string; terrainBank: number }>("beginBuild", args),
+  pourBuild: (args: { tileId: number; branch?: "tide" | "sky"; finish?: "bake" | "lower" }) =>
+    post<{ ok: true; tileId: number; buildStage: number; buildPoints: number; buildBranch: string | null; buildFinish: string | null; baked: number; lowered: number; z: number; element: string; wanted: string | null; pool: number; terrainBank: number; maxEnergy: number }>("pourBuild", args),
   setPlacementFollow: (args: { placementId: number; follow: boolean }) =>
     post<{ ok: true; follow: boolean }>("setPlacementFollow", args),
   recallMarch: (args: { awakenedId: number }) =>

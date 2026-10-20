@@ -217,11 +217,14 @@ function marchSecondsPerHexFor(layers: { element?: string | null }[], experience
     patrols may enter cursed tiles by ruling — a fetch party rides
     where the march of settlement may not. Same breadth-first walk
     as findRoad, with the curse filter lifted. */
-function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number }[], fromId: number, toId: number): number[] | null {
+function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number): number[] | null {
   const byId = new Map(tiles.map(t => [t.id, t]));
-  const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+  // Roads run on the ground (z 0) over gathered land: a floating
+  // isle is no road's rung, and stone still coalescing holds no
+  // march (the Building System, 2026-10-19).
+  const byCoord = new Map(tiles.filter(t => (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1).map(t => [`${t.q},${t.r}`, t]));
   const from = byId.get(fromId), to = byId.get(toId);
-  if (!from || !to) return null;
+  if (!from || !to || (to.z ?? 0) !== 0 || (to.buildStage ?? 0) === 1) return null;
   if (fromId === toId) return [fromId];
   const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
   const prev = new Map<number, number>([[fromId, fromId]]);
@@ -244,11 +247,11 @@ function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number }
   return null;
 }
 
-function findRoad(tiles: { id: number; q: number; r: number; cursed: number }[], fromId: number, toId: number): number[] | null {
+function findRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number): number[] | null {
   const byId = new Map(tiles.map(t => [t.id, t]));
-  const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+  const byCoord = new Map(tiles.filter(t => (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1).map(t => [`${t.q},${t.r}`, t]));
   const from = byId.get(fromId), to = byId.get(toId);
-  if (!from || !to || to.cursed) return null;
+  if (!from || !to || to.cursed || (to.z ?? 0) !== 0 || (to.buildStage ?? 0) === 1) return null;
   if (fromId === toId) return [fromId];
   const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
   const prev = new Map<number, number>([[fromId, fromId]]);
@@ -415,6 +418,163 @@ async function addAspectPoints(ownerKey: string, element: AttunementElement, amo
  *  kept as the thin wrapper its callers have always known. */
 async function addAspectPoint(ownerKey: string, element: AspectElement): Promise<boolean> {
   return addAspectPoints(ownerKey, element, 1);
+}
+
+/* ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ────────────────────
+ * Land is CREATED, not found: the Tender founds a hex on empty
+ * ground at his land's edge, and four elemental stages make it —
+ * (1) STONE coalesces piece by piece until the ground is walkable,
+ * (2) ROOT weaves it together and greens it, (3) a branch: TIDE
+ * comes in as a lake, or SKY lifts the tile off the ground into a
+ * floating isle — and A NEW NEUTRAL TILE IS BORN UNDERNEATH IT —
+ * (4) FIRE finishes: BAKE it sealed and hardened, or LOWER it a
+ * level, and the deep land yields the richer pool for it.
+ * Every stage fills in POURS OF 10: thirty points seal a stage.
+ * Two roads fill it: the Tender pours his own attunement points
+ * directly (fast), or Awokin standing on the work attune it by
+ * presence at the day-long quest's tempo (free, slow).
+ * Every stage of completeness a created hex reaches pays +1 to
+ * the TERRAIN BANK (the fire-lower pays +2 — the deep vessel
+ * holds more), and the bank is a VESSEL: it raises the home
+ * energy cap point for point, and is safe unless the territory
+ * falls — a created tile lost to the curse takes back exactly
+ * the gift its own stages paid, never more. */
+const BUILD_POUR = 10;
+const BUILD_STAGE_SEAL = 30;
+const BUILD_LAKE_YIELD = 10; // pool points of tide a lowered hex pays at its finishing
+function buildStageOf(t: any): number { return t?.buildStage ?? 0; }
+function buildUnderway(t: any): boolean { const s = buildStageOf(t); return s >= 1 && s <= 4; }
+/** The ground holds a body: natural land, and created work once
+ *  its stone has coalesced (stage 1 still filling = no floor). */
+function buildWalkable(t: any): boolean { const s = buildStageOf(t); return s === 0 || s >= 2; }
+/** The element a stage drinks. Stage 3 drinks its branch once
+ *  chosen (null until then: tide or sky may still crown it). */
+function stageWantedElement(t: any): string | null {
+  const s = buildStageOf(t);
+  if (s === 1) return "stone";
+  if (s === 2) return "root";
+  if (s === 3) return (t.buildBranch as string | null) ?? null;
+  if (s === 4) return "fire";
+  return null;
+}
+async function terrainBankFor(ownerKey: string): Promise<number> {
+  const row = sqlite.prepare("SELECT terrain_bank AS bank FROM tender_resources WHERE owner_key = ?").get(ownerKey) as { bank: number } | undefined;
+  return row?.bank ?? 0;
+}
+async function addTerrainBank(ownerKey: string, delta: number): Promise<number> {
+  sqlite.prepare("INSERT OR IGNORE INTO tender_resources (owner_key, energy, terrain_bank, updated_at) VALUES (?, 10, 0, ?)").run(ownerKey, Date.now());
+  sqlite.prepare("UPDATE tender_resources SET terrain_bank = MAX(0, terrain_bank + ?) WHERE owner_key = ?").run(delta, ownerKey);
+  return terrainBankFor(ownerKey);
+}
+/** Spend whole attunement points from a pool — the pour road's
+ *  other end. A plain decrement, as attuneWeapon spends: no
+ *  births ride on money leaving the pool. */
+async function spendAspectPoints(ownerKey: string, element: string, amount: number): Promise<boolean> {
+  const row = await db.select().from(schema.aspectAttunement)
+    .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, element as any))).limit(1);
+  const current = row[0]?.points ?? 0;
+  if (current < amount) return false;
+  await db.update(schema.aspectAttunement)
+    .set({ points: current - amount, updatedAt: new Date() })
+    .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, element as any)));
+  return true;
+}
+async function aspectPoolFor(ownerKey: string, element: string): Promise<number> {
+  const row = await db.select().from(schema.aspectAttunement)
+    .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, element as any))).limit(1);
+  return row[0]?.points ?? 0;
+}
+/** A created stage seals: its gift lands in the terrain bank and
+ *  the land itself changes. Mutates the tile row object and its
+ *  stored fields; the caller keeps filling or finishes. */
+async function completeBuildStage(ownerKey: string, tile: any): Promise<void> {
+  const stage = buildStageOf(tile);
+  let bankGain = 1;
+  if (stage === 1) {
+    // The stone has coalesced: the hex is walkable ground,
+    // born at Z1 like any purified land — one growing tray.
+    tile.height = 1; tile.sealedTrays = 0; tile.growPoints = 0; tile.topPoints = null;
+  } else if (stage === 2) {
+    // Root has woven it through: the hex greens — its filed
+    // element is root until the branch crowns it otherwise.
+    tile.element = "root";
+  } else if (stage === 3 && tile.buildBranch === "tide") {
+    tile.element = "tide";
+  } else if (stage === 3 && tile.buildBranch === "sky") {
+    // THE BORN-UNDERNEATH LAW: the tile rises into the sky as a
+    // floating isle (z 1), and a new neutral tile is born on the
+    // ground it vacated — clean, at Z1, nobody's work yet.
+    tile.element = "sky";
+    tile.z = 1;
+    await db.insert(schema.territoryTiles).values({
+      ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 0, spark: 0,
+      hp: 10, height: 1, sealedTrays: 0, growPoints: 0, topPoints: null, z: 0, buildStage: 0,
+    } as any);
+  } else if (stage === 4 && tile.buildFinish === "lower") {
+    // FIRE LOWERS: the deep land yields — a pour's worth of
+    // tide comes back into the Tender's pool, and the sunken
+    // vessel counts double in the bank.
+    tile.lowered = 1;
+    bankGain = 2;
+    await addAspectPoints(ownerKey, "tide", BUILD_LAKE_YIELD);
+  } else if (stage === 4) {
+    // FIRE BAKES: a sealed cell. The charge of every pour the
+    // hex ever drank is held in it (4 stages × 30) without
+    // leaking, and sealed land neither turns nor erodes under
+    // a company's press — its charge radiates into its own
+    // stack's growth instead.
+    tile.baked = 1;
+    tile.buildCharge = BUILD_STAGE_SEAL * 4;
+  }
+  tile.bankPaid = (tile.bankPaid ?? 0) + bankGain;
+  tile.buildStage = stage + 1;
+  tile.buildPoints = Math.max(0, (tile.buildPoints ?? 0) - BUILD_STAGE_SEAL);
+  await addTerrainBank(ownerKey, bankGain);
+  await db.update(schema.territoryTiles).set({
+    element: tile.element, height: tile.height, z: tile.z ?? 0,
+    sealedTrays: tile.sealedTrays ?? 0, growPoints: tile.growPoints ?? 0, topPoints: tile.topPoints ?? null,
+    buildStage: tile.buildStage, buildPoints: tile.buildPoints,
+    buildBranch: tile.buildBranch ?? null, buildFinish: tile.buildFinish ?? null,
+    baked: tile.baked ?? 0, lowered: tile.lowered ?? 0,
+    buildCharge: tile.buildCharge ?? 0, bankPaid: tile.bankPaid ?? 0,
+  } as any).where(eq(schema.territoryTiles.id, tile.id));
+}
+/** Feed points of an element into the stage now filling: the one
+ *  funnel both construction roads pour through. The stage must
+ *  want the element (stage 3 unbranched accepts tide or sky and
+ *  is crowned by the first of them). Returns false when the work
+ *  refuses the drink. */
+async function feedBuild(ownerKey: string, tile: any, element: string, points: number): Promise<boolean> {
+  if (!buildUnderway(tile)) return false;
+  const stage = buildStageOf(tile);
+  if (stage === 3 && !tile.buildBranch) {
+    if (element !== "tide" && element !== "sky") return false;
+    tile.buildBranch = element;
+    await db.update(schema.territoryTiles).set({ buildBranch: element } as any).where(eq(schema.territoryTiles.id, tile.id));
+  }
+  const wanted = stageWantedElement(tile);
+  if (!wanted || wanted !== element) return false;
+  tile.buildPoints = (tile.buildPoints ?? 0) + points;
+  let guard = 0;
+  while (buildUnderway(tile) && (tile.buildPoints ?? 0) >= BUILD_STAGE_SEAL && guard++ < 5) {
+    await completeBuildStage(ownerKey, tile);
+  }
+  if (buildUnderway(tile) || buildStageOf(tile) === 5) {
+    await db.update(schema.territoryTiles).set({ buildPoints: tile.buildPoints ?? 0 } as any).where(eq(schema.territoryTiles.id, tile.id));
+  }
+  return true;
+}
+/** The work between two hexes, if any: the kind standing on the
+ *  edge they share, read off the canonical edge (the same form
+ *  placeWall stores). */
+function edgeKindBetween(ownerKey: string, a: { q: number; r: number }, b: { q: number; r: number }): string | null {
+  const d = WALL_DIRS.findIndex(([dq, dr]) => a.q + dq === b.q && a.r + dr === b.r);
+  if (d < 0) return null;
+  const flip = b.q < a.q || (b.q === a.q && b.r < a.r);
+  const cq = flip ? b.q : a.q, cr = flip ? b.r : a.r, cdir = flip ? WALL_OPP[d] : d;
+  const row = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?")
+    .get(ownerKey, `${cq},${cr},${cdir}`) as { kind: string } | undefined;
+  return row?.kind ?? null;
 }
 
 /** Record a gift from The Ancient Creator (drives the Tender's gift notice). */
@@ -1405,6 +1565,12 @@ export async function calculateMaxEnergy(ownerKey: string): Promise<number> {
       eq(schema.territoryBuildings.status, "active"),
     ));
   max += skyBlooms.length * (gameConfig.buildings["sky-bloom"]?.energyBonus ?? 3);
+  // THE VESSEL (the Building System, Nigel 2026-10-19): the land
+  // a Tender creates and holds is a vessel for his energy — the
+  // terrain bank raises the home cap point for point. Safe
+  // unless the territory falls: nothing nibbles the bank, and a
+  // created tile lost to the curse takes back only its own gift.
+  max += await terrainBankFor(ownerKey);
   return max;
 }
 
@@ -4877,7 +5043,7 @@ export const handlers = {
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     const followers = (placements as any[]).filter(p => p.follow === 1 && !p.marchPath);
     if (!followers.length) return;
-    const slots = tiles.filter((t: any) => !t.cursed && dist(t, anchor) <= 1)
+    const slots = tiles.filter((t: any) => !t.cursed && (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1 && dist(t, anchor) <= 1)
       .sort((a: any, b: any) => dist(a, anchor) - dist(b, anchor) || a.id - b.id);
     if (!slots.length) return;
     const loadOf = (tileId: number) => (placements as any[]).reduce((n, p) => {
@@ -5402,7 +5568,15 @@ export const handlers = {
           cursed: 1, curseHp: curse, curseMaxHp: curse, spark: 0,
           attunePoints: 0, attuneElement: null,
           sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
+          // A created work falls with its land (the Building
+          // System, 2026-10-19): the curse takes the hex back
+          // whole — no stages, no branch, no seal — and the
+          // terrain bank gives back exactly what this tile's
+          // stages paid into the vessel, never a point more.
+          z: 0, buildStage: 0, buildPoints: 0, buildBranch: null, buildFinish: null,
+          baked: 0, lowered: 0, buildCharge: 0, bankPaid: 0,
         };
+        if ((t.bankPaid ?? 0) > 0) await addTerrainBank(ownerKey, -(t.bankPaid ?? 0));
         await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, t.id));
         Object.assign(t, upd);
       };
@@ -5411,6 +5585,10 @@ export const handlers = {
       // broke (the witness rule's spirit) — it does not sprint
       // down the stack in a single answer.
       const damageTopTray = async (t: any, dmg: number) => {
+        // BAKED LAND DOES NOT ERODE (the Building System,
+        // 2026-10-19): fire sealed the cell — a company's
+        // mismatched press cannot wear what the kiln hardened.
+        if ((t as any).baked) return;
         if ((t.sealedTrays ?? 0) > 0) {
           const hp = (t.topPoints ?? TRAY_SEAL) - dmg;
           if (hp > 0) { t.topPoints = hp; await persistTray(t); return; }
@@ -5494,6 +5672,30 @@ export const handlers = {
           tile.attuneAnchorAt = new Date(nowMs) as any;
           continue;
         }
+        // THE BUILDING SYSTEM — THE PRESENCE ROAD (Nigel,
+        // 2026-10-19): a company standing on a work under
+        // construction BUILDS it instead of attuning it — free,
+        // and slow, at the day-long quest's own tempo. The press
+        // must speak the stage's element; at stage 3's fork, tide
+        // or sky crowns the branch by standing there. Fire's
+        // finish by presence is always the BAKE — lowering is
+        // the Tender's deliberate act, by his own pours only.
+        if (buildUnderway(tile)) {
+          let stepsB = Math.floor((nowMs - anchor) / QUEST_STEP_MS);
+          if (stepsB <= 0) continue;
+          stepsB = Math.min(stepsB, QUEST_MAX_STEPS);
+          const perStepB = dom.pts / PRESS_DIVISOR;
+          for (let s = 0; s < stepsB; s++) {
+            anchor += QUEST_STEP_MS;
+            if (!dom.el || perStepB <= 0) continue;
+            if (buildStageOf(tile) === 4 && !tile.buildFinish) tile.buildFinish = "bake";
+            await feedBuild(ownerKey, tile, dom.el, perStepB);
+          }
+          await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(anchor) } as any)
+            .where(eq(schema.territoryTiles.id, tile.id));
+          tile.attuneAnchorAt = new Date(anchor) as any;
+          continue;
+        }
         let steps = Math.floor((nowMs - anchor) / QUEST_STEP_MS);
         if (steps <= 0) continue;
         steps = Math.min(steps, QUEST_MAX_STEPS);
@@ -5503,6 +5705,15 @@ export const handlers = {
           // An inert company (net of zero or less) pours nothing,
           // but its standing still holds the clock honest.
           if (!dom.el || perStep <= 0) continue;
+          if ((tile as any).baked) {
+            // SEALED (the Building System, 2026-10-19): the
+            // baked cell takes no press into its bank — its
+            // element cannot turn, its trays cannot erode — and
+            // the charge it holds radiates into its own stack:
+            // its own element's company grows it twice as fast.
+            if (dom.el === tile.element) await growStack(tile, perStep * 2);
+            continue;
+          }
           const elementBefore = tile.element as string;
           const upd = pour(tile, dom.el, perStep);
           if (upd) {
@@ -5708,30 +5919,135 @@ export const handlers = {
       .all(ownerKey);
     const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges, pour, max_hp AS maxHp FROM territory_workings WHERE owner_key = ? ORDER BY id")
       .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, terrainBank: await terrainBankFor(ownerKey) };
   },
 
   /** The Tender walks his own land: the client reports the hex
    *  his body has entered, and the anchor follows. Any hex of his
    *  own map may hold him — the curse is the company's peril, and
-   *  his falls are reckoned by other laws. */
+   *  his falls are reckoned by other laws.
+   *  THE TRAVERSAL LAW (Nigel, 2026-10-19) rides here: a leap is
+   *  the only road over a WALL, up a rise of two trays or more,
+   *  or onto a FLOATING ISLE — and no leap crosses a WARD (a wall
+   *  the sky cannot ignore), nor spans more than one hex. The
+   *  client reports airborne only while its jump engine is
+   *  truly off the ground; the crossings are judged here, on
+   *  the server's own map, never on the client's say-so. */
   async setTenderTile(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
     const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ tileId: z.number().int().positive() }).safeParse(args);
+    const parsed = z.object({ tileId: z.number().int().positive(), airborne: z.boolean().optional() }).safeParse(args);
     if (!parsed.success) badRequest("A hex is needed.");
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
-    if (!tiles.some((t: any) => t.id === parsed.data.tileId)) badRequest("That hex is not yours to stand on.");
+    const next = tiles.find((t: any) => t.id === parsed.data.tileId) as any;
+    if (!next) badRequest("That hex is not yours to stand on.");
     const progress = await getTenderProgress(ownerKey);
     if (!progress.classKey) badRequest("A Tender shows on his land only once he has chosen a class.");
     // PHASE D: a fallen Tender does not walk. The blackout holds
     // him where he fell until the bastion wake (settleTenderBody).
-    const bodyRow = sqlite.prepare("SELECT down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    const bodyRow = sqlite.prepare("SELECT down_until AS downUntil, tender_tile_id AS prevId FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
     if (bodyRow?.downUntil != null && Number(bodyRow.downUntil) > Date.now()) {
       badRequest("Your Tender has fallen — he wakes at the bastion, half-healed, when the blackout lifts.");
     }
+    const airborne = parsed.data.airborne === true;
+    if ((next.buildStage ?? 0) === 1) {
+      badRequest("The stone has not finished gathering — that ground cannot hold you yet.");
+    }
+    if ((next.z ?? 0) > 0 && !airborne) {
+      badRequest("No road climbs to the floating isle — leap, and land at its height.");
+    }
+    const prev = bodyRow?.prevId != null ? (tiles.find((t: any) => t.id === bodyRow.prevId) as any) : null;
+    if (prev && prev.id !== next.id) {
+      const dist = (Math.abs(prev.q - next.q) + Math.abs(prev.q + prev.r - next.q - next.r) + Math.abs(prev.r - next.r)) / 2;
+      if (airborne && dist > 1) {
+        badRequest("A leap crosses one hex — that far is a road, not a jump.");
+      }
+      if (dist === 1) {
+        const kind = edgeKindBetween(ownerKey, prev, next);
+        if (kind === "ward") {
+          badRequest("A ward is a wall the sky cannot ignore — land before it, never past it.");
+        }
+        if (kind === "wall" && !airborne) {
+          badRequest("A wall closes that edge — leap it, or walk the long way round.");
+        }
+        if (((next.height ?? 0) - (prev.height ?? 0)) >= 2 && !airborne) {
+          badRequest("That rise stands two trays tall — no walking climbs it. Leap.");
+        }
+      }
+    }
     sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(parsed.data.tileId, ownerKey);
     return { ok: true, tileId: parsed.data.tileId };
+  },
+
+  /* ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ──────────────────
+   * Found a hex of new land on the empty ground at the land's
+   * edge: the stone begins to coalesce the moment the work does.
+   * Building never buries the curse — a cursed hex must be won
+   * by the standing law first; creation happens on the void
+   * beyond, and the founding itself is free: the pours are the
+   * price, as attunement has always been the price of shaping. */
+  async beginBuild(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ q: z.number().int(), r: z.number().int() }).safeParse(args);
+    if (!parsed.success) badRequest("The work needs a hex (q, r).");
+    const { q, r } = parsed.data;
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    if ((tiles as any[]).some(t => t.q === q && t.r === r)) badRequest("Land already stands there — build on the void, or not at all.");
+    const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    const touches = (tiles as any[]).some(t => (t.z ?? 0) === 0 && DIRS.some(([dq, dr]) => t.q + dq === q && t.r + dr === r));
+    if (!touches) badRequest("New land must rise beside your own — the work begins at the edge of what you hold.");
+    const ins: any = await db.insert(schema.territoryTiles).values({
+      ownerKey, q, r, element: "stone", cursed: 0, spark: 0, hp: 10,
+      height: 0, sealedTrays: 0, growPoints: 0, topPoints: null,
+      z: 0, buildStage: 1, buildPoints: 0,
+    } as any).returning({ id: schema.territoryTiles.id });
+    return { ok: true as const, tileId: ins[0].id, buildStage: 1, buildPoints: 0, wanted: "stone", terrainBank: await terrainBankFor(ownerKey) };
+  },
+
+  /* Pour ten of the stage's element from the Tender's own pool
+   * into the work — the fast road. Stage 3's first pour chooses
+   * the branch (tide's lake or sky's isle); stage 4's first pour
+   * chooses the finish (bake it sealed, or lower it deep — and
+   * only a lake may be lowered; the sky is not unmade by fire). */
+  async pourBuild(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      tileId: z.number().int().positive(),
+      branch: z.enum(["tide", "sky"]).optional(),
+      finish: z.enum(["bake", "lower"]).optional(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The pour needs a work and, at the forks, its choosing.");
+    const rows = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    const tile = rows[0] as any;
+    if (!tile) badRequest("That hex is not yours to build.");
+    if (!buildUnderway(tile)) badRequest(buildStageOf(tile) === 5 ? "That work stands finished — its stages are sealed in the bank." : "No work is begun on that hex.");
+    if (buildStageOf(tile) === 3 && !tile.buildBranch) {
+      if (!parsed.data.branch) badRequest("The branch must be chosen: pour tide for a lake, or sky for an isle.");
+      tile.buildBranch = parsed.data.branch;
+      await db.update(schema.territoryTiles).set({ buildBranch: tile.buildBranch } as any).where(eq(schema.territoryTiles.id, tile.id));
+    }
+    if (buildStageOf(tile) === 4 && !tile.buildFinish) {
+      if (!parsed.data.finish) badRequest("The finish must be chosen: bake it sealed, or lower it deep.");
+      if (parsed.data.finish === "lower" && tile.buildBranch === "sky") badRequest("Fire does not unmake the sky — an isle may be baked, never lowered back.");
+      tile.buildFinish = parsed.data.finish;
+      await db.update(schema.territoryTiles).set({ buildFinish: tile.buildFinish } as any).where(eq(schema.territoryTiles.id, tile.id));
+    }
+    const wanted = stageWantedElement(tile)!;
+    const pool = await aspectPoolFor(ownerKey, wanted);
+    if (pool < BUILD_POUR) badRequest(`The ${wanted} pool holds ${Math.floor(pool)} — a pour needs ${BUILD_POUR}.`);
+    if (!(await spendAspectPoints(ownerKey, wanted, BUILD_POUR))) badRequest(`The ${wanted} pool would not give up its pour.`);
+    await feedBuild(ownerKey, tile, wanted, BUILD_POUR);
+    return {
+      ok: true as const, tileId: tile.id,
+      buildStage: buildStageOf(tile), buildPoints: tile.buildPoints ?? 0,
+      buildBranch: tile.buildBranch ?? null, buildFinish: tile.buildFinish ?? null,
+      baked: tile.baked ?? 0, lowered: tile.lowered ?? 0, z: tile.z ?? 0, element: tile.element,
+      wanted: stageWantedElement(tile), pool: await aspectPoolFor(ownerKey, wanted),
+      terrainBank: await terrainBankFor(ownerKey), maxEnergy: await calculateMaxEnergy(ownerKey),
+    };
   },
 
   /** Follow the Tender (the homeland twin of the Table's order):
@@ -5784,6 +6100,11 @@ export const handlers = {
     if (!tile.length) badRequest("That tile is not yours.");
     if (tile[0].cursed) badRequest("Cursed tiles must be broken by attacks first.");
     if (tile[0].cursed) badRequest("Cannot deploy on cursed land.");
+    // THE BUILDING SYSTEM (2026-10-19): no Awokin stands where
+    // stone is still gathering, and no road climbs to a floating
+    // isle — the isle waits for wings the company does not have.
+    if (((tile[0] as any).buildStage ?? 0) === 1) badRequest("The stone has not finished gathering — that ground cannot hold them yet.");
+    if (((tile[0] as any).z ?? 0) > 0) badRequest("No road climbs to the floating isle — it waits for wings.");
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
     if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");

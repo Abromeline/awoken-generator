@@ -27,6 +27,7 @@ import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
 import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey } from "./hotbar";
+import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, type JumpEngine } from "./jump";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
 import glyphBeacon from "./assets/glyphs/beacon.png";
@@ -509,6 +510,21 @@ export default function Table() {
   useEffect(() => {
     if (myServerClass) setMyTenderClass(myServerClass);
   }, [myServerClass]);
+  // THE JUMP at the Table (Nigel, 2026-10-19): my own figure's
+  // leap, kept in a ref like the walk — the Ground's engine, the
+  // class's own arc. Motion only; the referee never hears of it.
+  const myJumpRef = useRef<JumpEngine>(createJumpEngine());
+  const myClassRef = useRef<string | null>(null);
+  useEffect(() => { myClassRef.current = myServerClass ?? myTenderClass; }, [myServerClass, myTenderClass]);
+  useEffect(() => {
+    (window as any).__tableJump = {
+      press: () => jumpPress(myJumpRef.current, myClassRef.current ?? "warden", Date.now()),
+      height: () => myJumpRef.current.h,
+      airborne: () => jumpAirborne(myJumpRef.current, Date.now()),
+      flipped: () => jumpFlipped(myJumpRef.current, Date.now()),
+    };
+    return () => { delete (window as any).__tableJump; };
+  }, []);
   // Each seated tender's walk, kept off the wire: where their
   // figure stands, and the commute it is walking, if any. The
   // server never hears of it — a figure's place is read off the
@@ -629,6 +645,19 @@ export default function Table() {
       if (e.code === "Escape") { setRadial(null); setRadialAbility(false); setControllerOpen(false); return; }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      // SPACE LEAPS (Nigel, 2026-10-19) — at the Table the leap
+      // is MOTION, honestly: the figure rises on the class's own
+      // arc, but the referee's movement law is untouched — no
+      // crossing changes hands here, and the jump crosses
+      // nothing the glide could not. (The homeland, where his
+      // body is his own, carries the true traversal law.)
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (!e.repeat && !glideGuardRef.current.placing && !glideGuardRef.current.fallen) {
+          jumpPress(myJumpRef.current, myClassRef.current ?? "warden", Date.now());
+        }
+        return;
+      }
       const step = GLIDE_STEPS[e.code];
       if (!step) return;
       e.preventDefault();
@@ -1464,7 +1493,14 @@ export default function Table() {
     if (anim && !castPose && nowMs - anim.startedAt > CAST_MS + 500) castAnimRef.current.delete(p.key);
     const pose = castPose ?? tenderPose(art, dir, walking, step);
     const mine = !!you && p.key === you.key;
-    const img = <image href={pose.src} x={gx - 29} y={gy - 58} width={58} height={58} preserveAspectRatio="xMidYMax meet" />;
+    // MY leap rides my figure (motion only — see the Space law
+    // above): the arc scales to this body (58 against the
+    // Ground's ~117), the shadow stays home and shrinks.
+    const jpose = mine ? jumpPoseInfo(myJumpRef.current, nowMs) : null;
+    const jh = jpose ? jpose.h * (58 / 117) : 0;
+    const jFlip = jpose?.flipU != null && jpose.flipU > 0 && jpose.flipU < 1 ? jpose.flipU * 360 : 0;
+    const imgRaw = <image href={pose.src} x={gx - 29} y={gy - 58 - jh} width={58} height={58} preserveAspectRatio="xMidYMax meet" />;
+    const img = jFlip ? <g transform={`rotate(${jFlip} ${gx} ${gy - 29 - jh})`}>{imgRaw}</g> : imgRaw;
     // THE RUNIC WEAPON floats at his side (Nigel, 2026-10-19):
     // presence only for now — its lunges land in a later phase.
     const weaponKey = (p.weaponKey ?? null) as WeaponKey | null;
@@ -1472,7 +1508,7 @@ export default function Table() {
       key: `tender-${p.key}`, gy,
       node: (
         <g key={`tender-${p.key}`} pointerEvents="none" opacity={p.fallen ? 0.45 : 1}>
-          <ellipse cx={gx} cy={gy + 1} rx={13} ry={3.5} fill="rgba(0,0,0,0.35)" />
+          <ellipse cx={gx} cy={gy + 1} rx={13 * (1 - 0.32 * Math.min(1, jh / (46 * (58 / 117))))} ry={3.5 * (1 - 0.32 * Math.min(1, jh / (46 * (58 / 117))))} fill="rgba(0,0,0,0.35)" fillOpacity={1 - 0.35 * Math.min(1, jh / (46 * (58 / 117)))} />
           {pose.flip ? <g transform={`translate(${2 * gx} 0) scale(-1 1)`}>{img}</g> : img}
           {weaponKey && WEAPONS[weaponKey] && (
             <image className="ts-weapon-bob" href={weaponImg(weaponKey)} x={gx + 17} y={gy - 47} width={30} height={30}

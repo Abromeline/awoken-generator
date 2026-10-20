@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
@@ -13,6 +13,7 @@ import { TENDER_CLASSES, tenderDirOf, tenderPose, type TenderClassId, type Tende
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey } from "./hotbar";
+import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, JPHYS, type JumpEngine } from "./jump";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
@@ -145,11 +146,17 @@ function isoOffset(q: number, r: number, size: number): { px: number; py: number
  *  out so the Tender's glide engine, which lives outside renderGrid,
  *  reads the land through the one geometry and can never drift from
  *  what is drawn. */
-function tileCenterScreen(t: { q: number; r: number; height?: number }, pan: { x: number; y: number }, zoom: number): { cx: number; cy: number } {
+/** A floating isle's hover above its own ground (the Building
+ *  System, 2026-10-19): the risen tile floats about half a hex
+ *  above the newborn beneath it — near the Sage's leap peak, so
+ *  a jump at its height reads as landing on the isle's face. */
+export function floatLift(size: number): number { return Math.round(size * 0.48); }
+
+function tileCenterScreen(t: { q: number; r: number; height?: number; z?: number }, pan: { x: number; y: number }, zoom: number): { cx: number; cy: number } {
   const size = HEX_BASE_SIZE * zoom;
   const TRAY_LIFT = Math.round(size * 0.2);
   const { px, py } = isoOffset(t.q, t.r, size);
-  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT };
+  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0) };
 }
 
 /** The painted face, measured from the tile art (source px, relative
@@ -488,7 +495,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // PHASE D — THE BLIND FRAY on the face: the homeland's dark,
   // served by getTerritory beside the Tender's own body.
   const [wanderers, setWanderers] = useState<{ id: number; tileId: number }[]>([]);
-  const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number } | null>(null);
+  const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number; jh?: number; flipU?: number | null } | null>(null);
+  // THE JUMP (Nigel, 2026-10-19) come home to the real map: the
+  // Proving Ground's engine (client/src/jump.ts) rides the stride
+  // clock — Space leaps, the class's own arc raises the figure,
+  // and the traversal law judges his crossings (walls, wards,
+  // two-tray rises, floating isles) on the stride and the anchor
+  // report, with the server's setTenderTile as the final word.
+  const tenderJumpRef = useRef<JumpEngine>(createJumpEngine());
+  const tenderWallsRef = useRef<EdgeWork[]>([]);
+  // THE BUILDING SYSTEM's face (Nigel, 2026-10-19): the terrain
+  // bank the land has paid, and the open build card — a ghost hex
+  // on the void, or a work already rising.
+  const [terrainBank, setTerrainBank] = useState(0);
+  const [buildSel, setBuildSel] = useState<{ kind: "ghost"; q: number; r: number } | { kind: "tile"; tileId: number } | null>(null);
+  const [buildPools, setBuildPools] = useState<Record<string, number> | null>(null);
   /** The locator's pulse (2026-10-19): when the compass's 🧭 is
    *  tapped, the camera swings to the Tender and a gold ring
    *  breathes over him for a moment — on a grown map a planted
@@ -642,6 +663,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
+  useEffect(() => { tenderWallsRef.current = walls; }, [walls]);
   // An armed work (chosen in the radial's Binding menu) is spent the
   // moment a work action resolves into fresh walls — the laying is
   // done; a refusal leaves the walls untouched and the arm in hand.
@@ -1187,6 +1209,50 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
     setWanderers(refreshed.wanderers ?? []);
+    if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
+  };
+
+  // ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ──────────────────
+  // The map is the UI: a dashed ghost on the void founds the
+  // work; a tap on a rising work opens its card; pours of 10
+  // from the Tender's own pools fill its stages (the presence
+  // of Awokin standing on it builds slowly for free).
+  const fetchBuildPools = async () => {
+    try {
+      const att = await api.getAspectAttunement();
+      setBuildPools(att.levels ?? {});
+    } catch { setBuildPools(null); }
+  };
+  const openBuildGhost = (q: number, r: number) => {
+    setBuildSel({ kind: "ghost", q, r });
+    void fetchBuildPools();
+  };
+  const openBuildTile = (tileId: number) => {
+    setBuildSel({ kind: "tile", tileId });
+    void fetchBuildPools();
+  };
+  const handleBeginBuild = async (q: number, r: number) => {
+    try {
+      const res = await api.beginBuild({ q, r });
+      await refreshTerritory();
+      setBuildSel({ kind: "tile", tileId: res.tileId });
+      showHexNotice("The work is founded — stone begins to gather, piece by piece.");
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The work would not begin.");
+    }
+  };
+  const handlePourBuild = async (tileId: number, opts?: { branch?: "tide" | "sky"; finish?: "bake" | "lower" }) => {
+    try {
+      const res = await api.pourBuild({ tileId, ...opts });
+      await refreshTerritory();
+      await fetchBuildPools();
+      if (res.buildStage >= 5) showHexNotice(res.lowered ? "The work stands finished — lowered deep, and the tide paid its yield." : "The work stands finished — baked sealed, its charge held fast.");
+      else if (res.buildStage === 4) showHexNotice("The branch is crowned. Fire finishes what the elements began.");
+      else if (res.buildStage === 3) showHexNotice("The hex is woven whole and green. Now the branch: tide's lake, or sky's isle.");
+      else if (res.buildStage === 2) showHexNotice("The stone has coalesced — the ground holds. Root weaves it together now.");
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The pour was refused.");
+    }
   };
 
   // ── THE TENDER'S GLIDE ENGINE ─────────────────────────────────
@@ -1209,24 +1275,91 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     return t ? tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current) : null;
   };
 
+  // ── THE TRAVERSAL LAW, the client's half (Nigel, 2026-10-19) ──
+  // The same judgements the server makes on the anchor report,
+  // kept here so the figure never presses its face into a closed
+  // edge: a WALL stops a walk but not a leap; a WARD stops even
+  // the sky; a rise of two trays wants a leap; a FLOATING ISLE
+  // wants the leap at its height.
+  const WALL_DIRS6: ReadonlyArray<readonly [number, number]> = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
+  const WALL_OPP6: ReadonlyArray<number> = [3, 4, 5, 0, 1, 2];
+  const hexDistOf = (a: { q: number; r: number }, b: { q: number; r: number }) =>
+    (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+  const edgeKindClient = (a: TerritoryTile, b: TerritoryTile): string | null => {
+    const d = WALL_DIRS6.findIndex(([dq, dr]) => a.q + dq === b.q && a.r + dr === b.r);
+    if (d < 0) return null;
+    const flip = b.q < a.q || (b.q === a.q && b.r < a.r);
+    const cq = flip ? b.q : a.q, cr = flip ? b.r : a.r, cdir = flip ? WALL_OPP6[d] : d;
+    const w = tenderWallsRef.current.find(w => w.q === cq && w.r === cr && w.dir === cdir);
+    return w?.kind ?? null;
+  };
+  const crossingBlocked = (a: TerritoryTile, b: TerritoryTile, now: number): boolean => {
+    const eng = tenderJumpRef.current;
+    if ((b.z ?? 0) > 0) return !jumpApex(eng, now);
+    if (hexDistOf(a, b) === 1) {
+      const kind = edgeKindClient(a, b);
+      if (kind === "ward") return true;
+      if (kind === "wall" && !jumpAirborne(eng, now)) return true;
+      if (((b.height ?? 1) - (a.height ?? 1)) >= 2 && !jumpAirborne(eng, now)) return true;
+    }
+    return false;
+  };
+  const crossingNeedsAir = (a: TerritoryTile, b: TerritoryTile): boolean => {
+    if ((b.z ?? 0) > 0) return true;
+    if (hexDistOf(a, b) === 1) {
+      if (edgeKindClient(a, b) === "wall") return true;
+      if (((b.height ?? 1) - (a.height ?? 1)) >= 2) return true;
+    }
+    return false;
+  };
+  /** The hex under a screen point, for the stride's judgement:
+   *  the ground does the choosing; the isle above the winning
+   *  hex is taken at a leap's height — or kept, while he stands
+   *  on it (an isle holds its Tender until he walks off its air). */
+  const tileUnderPoint = (x: number, y: number, now: number): TerritoryTile | null => {
+    let best: TerritoryTile | null = null;
+    let bestD = Infinity;
+    for (const t of tenderTilesRef.current) {
+      if ((t.z ?? 0) > 0) continue;
+      const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
+      const d = Math.hypot(c.cx - x, c.cy - y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return null;
+    const cur = tenderTilesRef.current.find(t => t.id === tenderAnchorRef.current);
+    if (cur && (cur.z ?? 0) > 0 && cur.q === best.q && cur.r === best.r) return cur;
+    if (jumpApex(tenderJumpRef.current, now)) {
+      const isle = tenderTilesRef.current.find(t => (t.z ?? 0) > 0 && t.q === best!.q && t.r === best!.r);
+      if (isle) return isle;
+    }
+    return best;
+  };
+
+  /** Leap: the Ground's engine, on the map's own body. */
+  const pressTenderJump = () => {
+    const stand = tenderStandRef.current;
+    if (!stand) return;
+    jumpPress(tenderJumpRef.current, stand.classKey, Date.now());
+  };
+
   /** Report the hex under the figure's feet — the anchor follows
    *  the body. Fire-and-forget: the server's word returns on the
    *  next read, and the debounced refresh lets the musters his
-   *  followers owe him visibly set out. */
+   *  followers owe him visibly set out. Crossings the traversal
+   *  law guards are reported with the airborne word, and only
+   *  while the leap is truly off the ground. */
   const reportTenderAnchor = () => {
     const pos = tenderPosRef.current;
     if (!pos || !tenderStandRef.current || tenderTilesRef.current.length === 0) return;
-    let bestId: number | null = null;
-    let bestD = Infinity;
-    for (const t of tenderTilesRef.current) {
-      const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
-      const d = Math.hypot(c.cx - pos.x, c.cy - pos.y);
-      if (d < bestD) { bestD = d; bestId = t.id; }
-    }
-    if (bestId === null || bestId === tenderAnchorRef.current) return;
+    const now = Date.now();
+    const best = tileUnderPoint(pos.x, pos.y, now);
+    if (!best) return;
+    if (best.id === tenderAnchorRef.current) return;
     // The reach is the lattice's own nearest-neighbour spacing: a
     // body between its land's hexes belongs to the nearest one, and
     // a body past the land's edge keeps its last true stand.
+    const c = tileCenterScreen(best, tenderPanRef.current, tenderZoomRef.current);
+    const bestD = Math.hypot(c.cx - pos.x, c.cy - pos.y);
     const size = HEX_BASE_SIZE * tenderZoomRef.current;
     const e = isoOffset(1, 0, size);
     const se = isoOffset(0, 1, size);
@@ -1235,9 +1368,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       Math.hypot(e.px - se.px, e.py - se.py),
     );
     if (bestD > spacing) return;
-    tenderAnchorRef.current = bestId;
+    const cur = tenderTilesRef.current.find(t => t.id === tenderAnchorRef.current);
+    const airborne = !!(cur && crossingNeedsAir(cur, best) && jumpAirborne(tenderJumpRef.current, now));
+    tenderAnchorRef.current = best.id;
     tenderReportRef.current = Date.now();
-    void api.setTenderTile({ tileId: bestId }).catch(() => {});
+    void api.setTenderTile({ tileId: best.id, ...(airborne ? { airborne: true } : {}) }).catch(() => {});
     if (tenderRefreshTimerRef.current) clearTimeout(tenderRefreshTimerRef.current);
     tenderRefreshTimerRef.current = setTimeout(() => { void refreshTerritory(); }, 800);
   };
@@ -1290,6 +1425,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       return t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
     };
     const down = (e: KeyboardEvent) => {
+      // SPACE LEAPS (Nigel, 2026-10-19): the jump is the body's
+      // own verb — it answers even mid-glide, and the Runewright
+      // answers it again off his rune.
+      if (e.key === " ") {
+        if (isTextTarget(e) || tenderInputBlockedRef.current || !tenderStandRef.current) return;
+        e.preventDefault();
+        if (!e.repeat) pressTenderJump();
+        return;
+      }
       const k = e.key.toLowerCase();
       if (!MOVE_KEYS.has(k)) return;
       if (isTextTarget(e) || tenderInputBlockedRef.current || !tenderStandRef.current) return;
@@ -1381,9 +1525,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // and once more when the body comes to rest.
   useEffect(() => {
     const SPEED = 115;
+    // The Ground's figure stands ~117 demo px tall; the map's
+    // stands 62 — the arc scales to the body it raises.
+    const JUMP_SCALE = 62 / 117;
     const iv = setInterval(() => {
       const pos = tenderPosRef.current;
       if (!pos || !tenderStandRef.current) return;
+      const now = Date.now();
+      const jpose = jumpPoseInfo(tenderJumpRef.current, now);
+      const jh = jpose.h * JUMP_SCALE * tenderZoomRef.current;
       let vx = 0, vy = 0;
       const keys = tenderKeysRef.current;
       if (keys.size > 0) {
@@ -1405,22 +1555,61 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           tenderWasMovingRef.current = false;
           reportTenderAnchor();
         }
-        setTenderFig(f => (f && f.walking ? { ...f, walking: false } : f));
+        // A leap in place still rides the clock: the figure
+        // rises, hangs, and lands where it stands.
+        if (jpose.active) {
+          setTenderFig(f => (f ? { ...f, walking: false, jh, flipU: jpose.flipU } : f));
+        } else {
+          setTenderFig(f => (f && (f.walking || f.jh) ? { ...f, walking: false, jh: 0, flipU: null } : f));
+        }
+        return;
+      }
+      const stepLen = SPEED * 0.05;
+      const nx = pos.x + vx * stepLen;
+      const ny = pos.y + vy * stepLen;
+      // THE TRAVERSAL LAW on the stride: a closed crossing
+      // refuses the step — the body stops at the wall, the
+      // ward, the tall rise, the isle's empty air — and a
+      // tap-road dies at the barrier it cannot cross.
+      const here = tileUnderPoint(pos.x, pos.y, now);
+      const there = tileUnderPoint(nx, ny, now);
+      if (here && there && there.id !== here.id && crossingBlocked(here, there, now)) {
+        tenderTargetRef.current = null;
+        setTenderFig(f => (f ? { ...f, walking: false, jh, flipU: jpose.flipU } : f));
         return;
       }
       tenderWasMovingRef.current = true;
-      const stepLen = SPEED * 0.05;
-      pos.x += vx * stepLen;
-      pos.y += vy * stepLen;
+      pos.x = nx;
+      pos.y = ny;
       tenderTravelRef.current += stepLen;
       tenderFacingRef.current = tenderDirOf(vx, vy);
       setTenderFig({
         x: pos.x, y: pos.y, dir: tenderFacingRef.current, walking: true,
         step: Math.floor(tenderTravelRef.current / 14) % 2,
+        jh, flipU: jpose.flipU,
       });
       if (Date.now() - tenderReportRef.current >= 150) reportTenderAnchor();
     }, 50);
     return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Proofs ride the same hooks the Ground keeps (window.__jump
+  // there; __tenderJump here): the leap measured on the real
+  // map's real body, never a stand-in.
+  useEffect(() => {
+    (window as any).__tenderJump = {
+      press: () => pressTenderJump(),
+      height: () => tenderJumpRef.current.h,
+      airborne: () => jumpAirborne(tenderJumpRef.current, Date.now()),
+      apex: () => jumpApex(tenderJumpRef.current, Date.now()),
+      flipped: () => jumpFlipped(tenderJumpRef.current, Date.now()),
+      runed: () => jumpRuned(tenderJumpRef.current, Date.now()),
+      classKey: () => tenderStandRef.current?.classKey ?? null,
+      anchor: () => tenderAnchorRef.current,
+      pos: () => tenderPosRef.current ? { ...tenderPosRef.current } : null,
+    };
+    return () => { delete (window as any).__tenderJump; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1832,6 +2021,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         energy: steps * moveCost(aw.power),
       });
       return;
+    }
+    // THE BUILDING SYSTEM: a tap on a work under construction
+    // opens its card — the pours are given there, never by the
+    // road. (Armed modes above have already claimed their taps.)
+    {
+      const bt = tiles.find(t => t.id === tile.id);
+      const bs = (bt as any)?.buildStage ?? 0;
+      if (bt && bs >= 1 && bs <= 4 && marchUiFor === null && !selectedBuilding && !attackTargeting && !moveTargeting && battlePool.length === 0) {
+        openBuildTile(bt.id);
+        return;
+      }
     }
     if (patrolSettingFor !== null) {
       // Laying a patrol road: taps name waypoints, nothing else.
@@ -2958,7 +3158,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const tilePos = (t: any) => {
       const { px, py } = isoOffset(t.q, t.r, size);
       const cx = originX + px + pan.x;
-      const cy = originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT;
+      // A floating isle hovers above its own ground (the Building
+      // System): the risen tile draws at its lift, its shadow
+      // stays on the newborn beneath (drawn in the tile's face).
+      const cy = originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
       return { cx, cy };
     };
     // The marching layer's derivation (lives here, beside tilePos —
@@ -3413,6 +3616,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
       return (
         <g key={t.id} transform={`translate(0,${lift})`}>
+          {/* A FLOATING ISLE's shadow (the Building System,
+              2026-10-19): the risen tile's shade lies on the
+              ground it left — the newborn beneath wears it. */}
+          {(t as any).z > 0 && (
+            <ellipse cx={cx} cy={cy + floatLift(s) + s * 0.12} rx={s * 1.05} ry={s * 0.5}
+              fill="rgba(0,0,0,0.32)" pointerEvents="none" />
+          )}
           {/* Isometric tile: 1920x1280 PNG; painted face measured 1730×944
               with its center at (964, 546) source px. The x/y place the
               image so the face center lands exactly on the tile's
@@ -3493,6 +3703,37 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 {`Z${(t as any).height ?? 1} · ⚔${(((t as any).stackPower ?? 0) as number).toFixed(1).replace(/\.0$/, "")} · ♥${(t as any).topHp ?? 0}`}
               </text>
             </g>
+          )}
+          {/* THE BUILDING SYSTEM on the face (Nigel, 2026-10-19):
+              a work under construction wears its stage — the
+              element it is drinking, and the fill of its pours —
+              because the stages ARE the animation: every pour of
+              10 visibly fills the bar. A finished work wears its
+              fire finish: the gold seal of the bake, or the deep
+              mark of the lowering. */}
+          {!t.cursed && ((t as any).buildStage ?? 0) >= 1 && ((t as any).buildStage ?? 0) <= 4 && (() => {
+            const stage = (t as any).buildStage as number;
+            const fill = Math.max(0, Math.min(30, (t as any).buildPoints ?? 0)) / 30;
+            const el = stage === 1 ? "stone" : stage === 2 ? "root" : stage === 3 ? ((t as any).buildBranch ?? null) : "fire";
+            const col = el === "tide" ? "#7db8e8" : el === "sky" ? "#bfe3ff" : el === "stone" ? "#cbb493" : el === "root" ? "#9dc08b" : el === "fire" ? "#e89a6a" : "#d4af6a";
+            const glyph = stage === 1 ? "🪨" : stage === 2 ? "🌿" : stage === 3 ? ((t as any).buildBranch === "sky" ? "☁" : "🌊") : "🔥";
+            const word = stage === 1 ? "coalescing" : stage === 2 ? "weaving" : stage === 3 ? ((t as any).buildBranch === "sky" ? "rising" : (t as any).buildBranch === "tide" ? "flooding" : "the branch") : "the fire";
+            return (
+              <g pointerEvents="none">
+                <circle cx={cx} cy={cy - s * 0.18} r={s * 0.34} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6} />
+                <text x={cx} y={cy - s * 0.06} textAnchor="middle" fontSize={s * 0.36}>{glyph}</text>
+                <rect x={cx - s * 0.62} y={cy + s * 0.34} width={s * 1.24} height={s * 0.17} rx={s * 0.08} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={0.8} />
+                <rect x={cx - s * 0.62} y={cy + s * 0.34} width={s * 1.24 * fill} height={s * 0.17} rx={s * 0.08} fill={col} />
+                <text x={cx} y={cy + s * 0.78} textAnchor="middle" fontSize={s * 0.24} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3} paintOrder="stroke">
+                  {`${word} · ${Math.floor((t as any).buildPoints ?? 0)}/30`}
+                </text>
+              </g>
+            );
+          })()}
+          {!t.cursed && ((t as any).buildStage ?? 0) === 5 && ((t as any).baked || (t as any).lowered) && (
+            <text pointerEvents="none" x={cx} y={cy + s * 1.34} textAnchor="middle" fontSize={s * 0.24} fill={(t as any).baked ? "#ffd977" : "#7db8e8"} stroke="rgba(0,0,0,0.9)" strokeWidth={3} paintOrder="stroke">
+              {(t as any).baked ? `🔥 sealed · charge ${Math.round((t as any).buildCharge ?? 0)}` : "▽ lowered deep"}
+            </text>
           )}
           {t.cursed && (
             <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
@@ -3596,6 +3837,41 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
       );
     });
+    // THE VOID AT THE EDGE (the Building System, 2026-10-19):
+    // empty hexes beside the land are the founding ground — a
+    // faint dashed cell on the nothing, and a tap opens the
+    // work. The map is the UI: no panel decides where land may
+    // be born; the edge itself offers.
+    const ghostLayer = (() => {
+      const have = new Set(tiles.map(t => `${t.q},${t.r}`));
+      const seen = new Set<string>();
+      const ghosts: { q: number; r: number }[] = [];
+      const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      for (const t of tiles) {
+        if ((t.z ?? 0) > 0) continue;
+        for (const [dq, dr] of DIRS6) {
+          const q = t.q + dq, r = t.r + dr, key = `${q},${r}`;
+          if (have.has(key) || seen.has(key)) continue;
+          seen.add(key);
+          ghosts.push({ q, r });
+        }
+      }
+      return (
+        <g key="build-ghosts">
+          {ghosts.map(g => {
+            const c = tilePos({ q: g.q, r: g.r, height: 1 } as any);
+            return (
+              <polygon key={`ghost-${g.q},${g.r}`} points={hexCellPoints(c.cx, c.cy, size, 0.94)}
+                fill="rgba(212,175,106,0.05)" stroke="rgba(212,175,106,0.4)" strokeWidth={1.1} strokeDasharray="4 4" strokeLinejoin="round"
+                style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); openBuildGhost(g.q, g.r); }}>
+                <title>Unmade ground — found a new hex here</title>
+              </polygon>
+            );
+          })}
+        </g>
+      );
+    })();
     // Selection layers (fix list #13, refined) — drawn as the LAST
     // layers of the map, above terrain art and creatures, below the
     // modal UI, all from the fitted cell geometry:
@@ -4048,10 +4324,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const anchorC = anchorTile ? tilePos(anchorTile) : null;
       const pose = tenderPose(art, tenderFig.dir, tenderFig.walking, tenderFig.step);
       const h = 62 * zoom;
+      // THE JUMP on the face: the figure rises by the stride's
+      // measured height; the Sage's backflip turns the sprite
+      // itself (the game's sheets hold no flip frames — the
+      // Ground's frames are its own; the rotation is honest
+      // motion, not a borrowed drawing).
+      const jh = tenderFig.jh ?? 0;
+      const flipDeg = tenderFig.flipU != null && tenderFig.flipU > 0 && tenderFig.flipU < 1 ? tenderFig.flipU * 360 : 0;
       const img = (
-        <image href={pose.src} x={tenderFig.x - h / 2} y={tenderFig.y + 4 - h} width={h} height={h}
+        <image href={pose.src} x={tenderFig.x - h / 2} y={tenderFig.y + 4 - h - jh} width={h} height={h}
           preserveAspectRatio="xMidYMax meet" opacity={tenderStand.down ? 0.5 : 1} />
       );
+      const imgTurned = flipDeg
+        ? <g transform={`rotate(${flipDeg} ${tenderFig.x} ${tenderFig.y - h / 2 - jh})`}>{img}</g>
+        : img;
       // PHASE D: his body is real — the pool rides above his
       // figure, green to ember as it empties; a fallen Tender
       // lies dimmed under his sentence until the bastion wake.
@@ -4061,9 +4347,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         const frac = max > 0 ? hp / max : 0;
         return (
           <g pointerEvents="none">
-            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom} width={36 * zoom} height={3.6 * zoom}
+            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom - jh} width={36 * zoom} height={3.6 * zoom}
               fill="rgba(6,4,10,0.82)" stroke="rgba(201,162,39,0.55)" strokeWidth={0.5} />
-            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom} width={36 * zoom * frac} height={3.6 * zoom}
+            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom - jh} width={36 * zoom * frac} height={3.6 * zoom}
               fill={tenderStand.down ? "#8a2f26" : frac <= 0.35 ? "#d05a3a" : "#9dc08b"} />
             {tenderStand.down && (
               <text x={tenderFig.x} y={tenderFig.y + 13 * zoom} textAnchor="middle" fontSize={6.5 * zoom} fontWeight={700} fill="#e8a49a"
@@ -4081,18 +4367,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const bob = Math.sin(marchNow / 480) * 2.5;
       const wh = 30 * zoom;
       const wcx = tenderFig.x + 26 * zoom;
-      const wcy = tenderFig.y - 34 * zoom + bob;
+      const wcy = tenderFig.y - 34 * zoom + bob - jh;
       const sh = 26 * zoom;
       const scx = tenderFig.x - 26 * zoom;
-      const scy = tenderFig.y - 32 * zoom + Math.sin(marchNow / 480 + 1.2) * 2.5;
+      const scy = tenderFig.y - 32 * zoom + Math.sin(marchNow / 480 + 1.2) * 2.5 - jh;
+      // The ground shadow stays home and shrinks with height —
+      // the Ground's own telling of how high he is.
+      const hRatio = Math.min(1, jh / (46 * (62 / 117) * zoom));
       return (
         <g key="tender-figure" pointerEvents="none">
           {anchorC && (
             <ellipse cx={anchorC.cx} cy={anchorC.cy} rx={size * 0.42} ry={size * 0.2}
               fill="rgba(255,215,0,0.07)" stroke="rgba(255,215,0,0.75)" strokeWidth={1.4} />
           )}
-          <ellipse cx={tenderFig.x} cy={tenderFig.y + 2} rx={13 * zoom} ry={3.5 * zoom} fill="rgba(0,0,0,0.35)" />
-          {pose.flip ? <g transform={`translate(${2 * tenderFig.x} 0) scale(-1 1)`}>{img}</g> : img}
+          <ellipse cx={tenderFig.x} cy={tenderFig.y + 2} rx={13 * zoom * (1 - 0.32 * hRatio)} ry={3.5 * zoom * (1 - 0.32 * hRatio)} fill="rgba(0,0,0,0.35)" fillOpacity={1 - 0.35 * hRatio} />
+          {pose.flip ? <g transform={`translate(${2 * tenderFig.x} 0) scale(-1 1)`}>{imgTurned}</g> : imgTurned}
           {bodyBar}
           {/* THE TENDER'S OWN TAP (touch hands): the figure
               takes the tap itself, and his controller pops —
@@ -4299,6 +4588,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {hoverLayer}
         {mistLayer}
         {targetMarker}
+        {ghostLayer}
         {tenderLayer}
         {tenderRadialLayer}
       </>
@@ -5469,6 +5759,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <div className="tender-ctl-side">
               <button type="button" className="tender-ctl-btn" aria-label="Open the Tender's wheel"
                 onClick={() => { if (tenderFig) { setTenderRadial({ x: tenderFig.x, y: tenderFig.y }); setRadialBranch(null); } }}>✦</button>
+              <button type="button" className="tender-ctl-btn" aria-label="Leap — Space's own verb, under the thumb"
+                onClick={() => pressTenderJump()}>⤒</button>
               <button type="button" className="tender-ctl-btn small" aria-label="Put the controller away"
                 onClick={() => { padClear(); setTenderCtl(false); }}>✕</button>
             </div>
@@ -5994,6 +6286,96 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           />
         </div>
       )}
+
+      {/* THE BUILD CARD (the Building System, 2026-10-19): the
+          work's own face — its stage, its fill, the pool it
+          drinks from, and the pour. The terrain bank rides the
+          header: every stage the land completes is a point in
+          the vessel, and the vessel lifts the energy cap. */}
+      {buildSel && (() => {
+        const cardStyle: React.CSSProperties = {
+          position: "absolute", left: "50%", bottom: 86, transform: "translateX(-50%)",
+          width: "min(430px, calc(100vw - 24px))", zIndex: 95,
+          background: "rgba(10,8,16,0.96)", border: "1px solid #c9a227", borderRadius: 12,
+          padding: "12px 14px", color: "#f0e6cc", boxShadow: "0 10px 34px rgba(0,0,0,0.6)",
+        };
+        const pourBtn = (label: string, el: string, act: () => void) => {
+          const pool = buildPools?.[el] ?? 0;
+          const short = pool < 10;
+          return (
+            <button className="abtn" disabled={short} onClick={act}
+              style={{ marginTop: 8, marginRight: 8, ...(short ? { opacity: 0.45 } : {}) }}>
+              {label}{short ? ` — the ${el} pool holds ${Math.floor(pool)}` : ` · pool ${Math.floor(pool)}`}
+            </button>
+          );
+        };
+        if (buildSel.kind === "ghost") {
+          return (
+            <div style={cardStyle}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <strong>Unmade ground</strong>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>terrain bank {terrainBank} · the vessel lifts your energy cap</span>
+              </div>
+              <p style={{ margin: "8px 0 0", fontSize: 13.5, lineHeight: 1.45 }}>
+                Found a new hex here, at your land's edge. Stone will gather first, piece by piece, until the
+                ground holds; then root weaves it, tide or sky crowns it, and fire finishes it. Every stage
+                the land completes pays a point into your terrain bank.
+              </p>
+              <button className="abtn" style={{ marginTop: 10 }} onClick={() => void handleBeginBuild(buildSel.q, buildSel.r)}>🪨 Found the work — let stone gather</button>
+              <button className="abtn small" style={{ marginLeft: 8 }} onClick={() => setBuildSel(null)}>✕</button>
+            </div>
+          );
+        }
+        const t = tiles.find(t => t.id === buildSel.tileId);
+        if (!t) return null;
+        const stage = (t as any).buildStage ?? 0;
+        const pts = Math.floor((t as any).buildPoints ?? 0);
+        const stageName = stage === 1 ? "I · Stone coalesces" : stage === 2 ? "II · Root weaves" : stage === 3 ? "III · The branch" : stage === 4 ? "IV · Fire finishes" : "Finished";
+        const wanted = stage === 1 ? "stone" : stage === 2 ? "root" : stage === 3 ? ((t as any).buildBranch ?? null) : stage === 4 ? "fire" : null;
+        return (
+          <div style={cardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <strong>{(t as any).z > 0 ? "A floating isle" : "A work rising"} — {stageName}</strong>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>terrain bank {terrainBank}</span>
+            </div>
+            {stage >= 1 && stage <= 4 && (
+              <>
+                <div style={{ marginTop: 8, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(pts / 30) * 100}%`, background: "#c9a227" }} />
+                </div>
+                <p style={{ margin: "8px 0 0", fontSize: 13.5, lineHeight: 1.45 }}>
+                  {stage === 1 && "Stone gathers piece by piece. When the fill seals, the ground will hold a walker."}
+                  {stage === 2 && "Root weaves the stone together and greens the hex over."}
+                  {stage === 3 && !(t as any).buildBranch && "The branch is chosen by the first pour: tide comes in as a lake — or sky lifts the tile into an isle, and a new neutral hex is born beneath it."}
+                  {stage === 3 && (t as any).buildBranch === "tide" && "Tide fills the hex — a lake takes the land."}
+                  {stage === 3 && (t as any).buildBranch === "sky" && "The tile has risen. A new neutral hex lies beneath it, born of its rising."}
+                  {stage === 4 && "Fire finishes the work: bake it sealed — a cell that holds its charge and cannot be unmade by pressure —" + ((t as any).buildBranch === "tide" ? " or lower it deep, and the sunken land pays tide back into your pools and double into the bank." : ".")}
+                  {" "}Fill {pts}/30. Awokin standing on the work build it slowly by their press, for free.
+                </p>
+                {stage === 3 && !(t as any).buildBranch ? (
+                  <>
+                    {pourBtn("🌊 Pour 10 tide — a lake", "tide", () => void handlePourBuild(t.id, { branch: "tide" }))}
+                    {pourBtn("☁ Pour 10 sky — an isle", "sky", () => void handlePourBuild(t.id, { branch: "sky" }))}
+                  </>
+                ) : stage === 4 && !(t as any).buildFinish ? (
+                  <>
+                    {pourBtn("🔥 Pour 10 fire — bake it sealed", "fire", () => void handlePourBuild(t.id, { finish: "bake" }))}
+                    {(t as any).buildBranch === "tide" && pourBtn("▽ Pour 10 fire — lower it deep", "fire", () => void handlePourBuild(t.id, { finish: "lower" }))}
+                  </>
+                ) : wanted ? (
+                  pourBtn(`Pour 10 ${wanted}`, wanted, () => void handlePourBuild(t.id))
+                ) : null}
+              </>
+            )}
+            {stage >= 5 && (
+              <p style={{ margin: "8px 0 0", fontSize: 13.5, lineHeight: 1.45 }}>
+                {(t as any).lowered ? "Lowered deep by fire: its yield is paid, and it counts double in the vessel." : (t as any).baked ? `Baked sealed by fire: it holds a charge of ${Math.round((t as any).buildCharge ?? 0)}, turns for no pressure, and grows its own stack the faster for the charge it keeps.` : "The work stands finished."}
+              </p>
+            )}
+            <button className="abtn small" style={{ marginTop: 10 }} onClick={() => setBuildSel(null)}>✕ Close</button>
+          </div>
+        );
+      })()}
 
       {/* Builder selection popup */}
       {pendingTile !== null && selectedBuilding && (() => {
