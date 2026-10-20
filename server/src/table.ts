@@ -283,6 +283,11 @@ interface Working {
    *  measure) and the elemental points poured into it at the cast
    *  (the Pour, Nigel 2026-10-17) — both snapshotted at the cast. */
   maxHp: number;
+  /** The curse's accrued wither (2026-10-20): fractional
+   *  attrition against the working's body — its health, or
+   *  its charges where the book gives it no health — not yet
+   *  eaten whole. */
+  wither?: number;
   pour: number;
   stops: number;
   charges: number;
@@ -598,6 +603,11 @@ interface Room {
   strikeSeq?: number;
   integrateAt?: number;
   driftTimer?: ReturnType<typeof setInterval> | null;
+  /** THE ROOM'S STANDING PULSE (2026-10-20): every room's
+   *  heartbeat for the curse's out-of-battle law, and the
+   *  stamp its withering was last reckoned from. */
+  pulseTimer?: ReturnType<typeof setInterval> | null;
+  witherAt?: number;
   assaultToldAt?: number;
   roundNo: number;
   /** Lore Warden: edges where a ward has FALLEN this sitting
@@ -1097,6 +1107,12 @@ async function getRoom(id: string): Promise<Room> {
     };
     rooms.set(id, room);
     if (campaignMode) restoreCampaignTale(room);
+    // The standing pulse starts with the room (see roomPulse):
+    // the curse's withering is standing law, owed even when
+    // no battle has been called.
+    const madeRoom = room;
+    madeRoom.pulseTimer = setInterval(() => { roomPulse(madeRoom); }, 250);
+    madeRoom.pulseTimer.unref?.();
   }
   return room;
 }
@@ -1223,6 +1239,13 @@ function integrate(room: Room, now: number): void {
     const standing = standingUnits(room);
     const seedCenter = TILE_CENTERS.get(SEED_TILE)!;
     for (const e of room.dark.values()) {
+      // THE PIN HOLDS THE FEET TOO (audit of 2026-10-20): a
+      // dark the Lattice has bound "stands pinned" — the
+      // book's own words — but the glide below never asked
+      // after the pin, so a bound dark went on walking to
+      // the seed while only its strike was held. A pinned
+      // dark does not step.
+      if ((e.pinnedUntil ?? 0) > now) { e.target = null; continue; }
       // STEERING: the nearest standing light, if it can be clawed
       // or is nearer than the seed; otherwise the seed itself —
       // but at the gate (ring 1) it halts and assaults.
@@ -1407,6 +1430,164 @@ function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
     if (owner) owner.hand = [...owner.hand, u.card];
     tell(room, `The curse unbinds ${u.card.name} where it stood — it dissipates to its Tender's roster.`);
   }
+}
+
+/** THE CURSE WITHERS, THE LIGHT GRINDS (the Instance Map;
+ *  attrition ruled 2026-10-19): every Awokin standing on
+ *  cursed ground pays the ring's attrition — a share of
+ *  its greatest health per beat — and its presence wears
+ *  the tile's corruption down by its power, unless the
+ *  dark itself holds that tile. A tile ground to nothing
+ *  turns, in the element of the strongest light upon it.
+ *  THE TENDER WITHERS TOO: he may walk the cursed land —
+ *  it is his road as much as theirs — and it takes the
+ *  same share of him, standing or gliding, until he
+ *  falls where he stands.
+ *  This settle once lived only inside runRound, whose
+ *  gate is a called battle — so at a quiet table the
+ *  cursed land never withered anyone (Nigel's report,
+ *  2026-10-20: "the cursed lands are not doing any
+ *  damage"). Attrition is standing law, not a battle
+ *  effect: runRound still calls it on the battle clock,
+ *  and the room's standing pulse calls it whenever no
+ *  battle runs. Returns true when anything visibly
+ *  changed — a guest burned, or a tile ground down. */
+function settleCurseWithering(room: Room, dtSec: number): boolean {
+  let changed = false;
+  const grind = new Map<string, { dmg: number; best: FieldUnit | null }>();
+  const rate = dtSec / (BEAT_MS / 1000); // the old round's share of this tick
+  for (const p of room.players.values()) {
+    if (p.watcher || p.storytender || p.fallen || !p.hex) continue;
+    const tile = room.map.get(p.hex);
+    if (!tile || !tile.cursed) continue;
+    p.tenderHp -= p.maxTenderHp * curseAttritionPct(ringOf(tile.id)) * rate;
+    changed = true;
+    if (p.tenderHp <= 0) {
+      p.tenderHp = 0;
+      p.fallen = true;
+      p.target = null;
+      tell(room, `The curse's attrition takes ${p.name} — they fall where they stand. The Bastion mourns — and fights on.`);
+    }
+  }
+  for (const u of standingUnits(room)) {
+    const tile = room.map.get(u.hex);
+    if (!tile || !tile.cursed) continue;
+    changed = true;
+    hurtByCurse(room, u, u.maxHp * curseAttritionPct(ringOf(tile.id)) * rate);
+    if (!unitStanding(room, u)) continue; // the burn unbound it
+    if (darkOn(room, tile.id)) continue; // the dark holds this ground
+    const g = grind.get(tile.id) ?? { dmg: 0, best: null };
+    g.dmg += u.card.power * rate;
+    if (!g.best || u.card.power > g.best.card.power) g.best = u;
+    grind.set(tile.id, g);
+  }
+  for (const [tileId, g] of grind) {
+    const tile = room.map.get(tileId);
+    if (!tile || !tile.cursed || !g.best) continue;
+    tile.curseHp -= g.dmg;
+    changed = true;
+    if (tile.curseHp <= 0) {
+      purifyTile(room, tile, dominantElement(partsOf(g.best.card) as { element?: string | null }[]));
+    }
+  }
+  return changed;
+}
+
+/** THE WRITTEN LIGHT WITHERS TOO (Nigel, 2026-10-20):
+ *  wards and runes may now be cast ANYWHERE — and what
+ *  stands on cursed ground suffers the curse's attrition,
+ *  like the Tender: the ring's share of its greatest
+ *  measure per beat, until it falls or the ground turns.
+ *  A working's measure is the body the book gives it: its
+ *  health rating where it carries one (the Seal, the
+ *  Trees, the Lattice, the passive walls). A rune the book
+ *  gives no health carries its CHARGES instead — they are
+ *  its springs, the only endurance on its page — so the
+ *  curse eats them at the same fractional rate, a whole
+ *  charge at a time (the Keeper's reading, 2026-10-20:
+ *  the wither accrues against charges exactly as against
+ *  health, so a bodiless rune lives 1/rate beats on cursed
+ *  ground, as a bodied one does). Workings with neither
+ *  health nor charges (the Engine, the Standard, the
+ *  Beacon) have no body for the curse to eat — the book
+ *  gives them none, and none is invented here.
+ *  A ward stands on the edge between two hexes: it pays
+ *  for the worse of its two grounds, as a guest pays for
+ *  the one tile he stands on (the Keeper's reading).
+ *  Runs on the battle clock (runRound) and on the room's
+ *  standing pulse alike. Returns true when a working's
+ *  body visibly moved or a working fell. */
+function settleWorkingWithering(room: Room, dtSec: number): boolean {
+  const rate = dtSec / (BEAT_MS / 1000);
+  if (rate <= 0) return false;
+  let changed = false;
+  for (const w of [...room.workings]) {
+    if (w.kind === "grove") continue;
+    const ground = w.kind === "rune"
+      ? (w.hex ? [w.hex] : [])
+      : [w.hexA, w.hexB].filter((h): h is string => !!h);
+    let worst = -1;
+    for (const hx of ground) {
+      const t = room.map.get(hx);
+      if (t && t.cursed) worst = Math.max(worst, ringOf(t.id));
+    }
+    if (worst < 0) continue;
+    const pct = curseAttritionPct(worst);
+    if (w.maxHp > 0) {
+      w.wither = (w.wither ?? 0) + w.maxHp * pct * rate;
+      const whole = Math.floor(w.wither);
+      if (whole >= 1) {
+        w.wither -= whole;
+        w.hp -= whole;
+        changed = true;
+        if (w.hp <= 0) {
+          room.workings = room.workings.filter(x => x !== w);
+          tell(room, `The curse eats ${w.name} where it stands — unwritten by the ground it was written on.`);
+        }
+      }
+    } else if (w.charges > 0) {
+      w.wither = (w.wither ?? 0) + w.charges * pct * rate;
+      const whole = Math.floor(w.wither);
+      if (whole >= 1) {
+        w.wither -= whole;
+        w.charges -= whole;
+        changed = true;
+        if (w.charges <= 0) {
+          room.workings = room.workings.filter(x => x !== w);
+          tell(room, `The curse eats ${w.name} where it stands — unwritten by the ground it was written on.`);
+        } else {
+          tell(room, `The curse thins ${w.name} — ${w.charges} spring${w.charges === 1 ? "" : "s"} of it remain.`);
+        }
+      }
+    }
+  }
+  return changed;
+}
+
+/** THE ROOM'S STANDING PULSE (the fix of 2026-10-20): a
+ *  light 250 ms heartbeat every room keeps from its
+ *  making, so the curse's standing law — the withering
+ *  of guests and of the written light, and the light's
+ *  grind — runs whenever a seated Tender is present,
+ *  battle or no battle. While a battle runs, runRound's
+ *  clock owns the settling and the pulse stands aside;
+ *  when the room is put away the pulse stops itself.
+ *  State is pushed only when the settling changed
+ *  something — a quiet room stays quiet. */
+function roomPulse(room: Room): void {
+  if (!rooms.get(room.id)) {
+    if (room.pulseTimer) { clearInterval(room.pulseTimer); room.pulseTimer = null; }
+    return;
+  }
+  if (room.battle.active) { room.witherAt = undefined; return; }
+  if (![...room.players.values()].some(p => !p.watcher)) { room.witherAt = undefined; return; }
+  const now = Date.now();
+  const dtMs = Math.min(1000, Math.max(0, now - (room.witherAt ?? now)));
+  room.witherAt = now;
+  if (dtMs <= 0) return;
+  integrate(room, now);
+  const changed = settleCurseWithering(room, dtMs / 1000) || settleWorkingWithering(room, dtMs / 1000);
+  if (changed) sendState(room);
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -2518,52 +2699,14 @@ async function runRound(room: Room): Promise<void> {
         // (in integrate) closes the distance.
       }
     }
-    // THE CURSE WITHERS, THE LIGHT GRINDS (the Instance Map;
-    // attrition ruled 2026-10-19): every Awokin standing on
-    // cursed ground pays the ring's attrition — a share of
-    // its greatest health per beat — and its presence wears
-    // the tile's corruption down by its power, unless the
-    // dark itself holds that tile. A tile ground to nothing
-    // turns, in the element of the strongest light upon it.
-    // THE TENDER WITHERS TOO: he may walk the cursed land —
-    // it is his road as much as theirs — and it takes the
-    // same share of him, standing or gliding, until he
-    // falls where he stands.
-    {
-      const grind = new Map<string, { dmg: number; best: FieldUnit | null }>();
-      const rate = dtSec / (BEAT_MS / 1000); // the old round's share of this tick
-      for (const p of room.players.values()) {
-        if (p.watcher || p.storytender || p.fallen || !p.hex) continue;
-        const tile = room.map.get(p.hex);
-        if (!tile || !tile.cursed) continue;
-        p.tenderHp -= p.maxTenderHp * curseAttritionPct(ringOf(tile.id)) * rate;
-        if (p.tenderHp <= 0) {
-          p.tenderHp = 0;
-          p.fallen = true;
-          p.target = null;
-          tell(room, `The curse's attrition takes ${p.name} — they fall where they stand. The Bastion mourns — and fights on.`);
-        }
-      }
-      for (const u of standingUnits(room)) {
-        const tile = room.map.get(u.hex);
-        if (!tile || !tile.cursed) continue;
-        hurtByCurse(room, u, u.maxHp * curseAttritionPct(ringOf(tile.id)) * rate);
-        if (!unitStanding(room, u)) continue; // the burn unbound it
-        if (darkOn(room, tile.id)) continue; // the dark holds this ground
-        const g = grind.get(tile.id) ?? { dmg: 0, best: null };
-        g.dmg += u.card.power * rate;
-        if (!g.best || u.card.power > g.best.card.power) g.best = u;
-        grind.set(tile.id, g);
-      }
-      for (const [tileId, g] of grind) {
-        const tile = room.map.get(tileId);
-        if (!tile || !tile.cursed || !g.best) continue;
-        tile.curseHp -= g.dmg;
-        if (tile.curseHp <= 0) {
-          purifyTile(room, tile, dominantElement(partsOf(g.best.card) as { element?: string | null }[]));
-        }
-      }
-    }
+    // THE CURSE WITHERS, THE LIGHT GRINDS — settled by
+    // settleCurseWithering below, on this same clock; the
+    // workings written on cursed ground wither beside their
+    // guests, by settleWorkingWithering. Both also run on the
+    // room's standing pulse when no battle is called (the
+    // fix of 2026-10-20: the curse does not wait for a wave).
+    settleCurseWithering(room, dtSec);
+    settleWorkingWithering(room, dtSec);
     // THE SEED ASSAULTED (campaign, TABLE-DESIGN §4.4, made
     // physical by the Instance Map): dark standing AT THE
     // GATE — the seed's own ring — EXPOSED, with no standing
@@ -3202,7 +3345,14 @@ function handleConnection(ws: WebSocket): void {
       const tile = room.map.get(targetId);
       if (!tile || targetId === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to strike." })); return; }
       if (!tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is already pure." })); return; }
-      if (distPx(unit.pos, TILE_CENTERS.get(targetId)!) > (ELEMENT_REACH[unit.card.element] ?? 2) * 69) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes two tiles out." })); return; }
+      // The reach is reckoned in HEXES, as the law speaks it
+      // ("the light strikes two tiles out") — the pixel
+      // measure it replaces disagreed with the land's own
+      // geometry by a hair (an iso step is 69.09 px against
+      // the 69 allowed), so a strike at an element's full
+      // reach was refused in four of six directions
+      // (found by the test-pass audit, 2026-10-20).
+      if (axialDist(unit.hex, targetId) > (ELEMENT_REACH[unit.card.element] ?? 2)) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes only as far as its element carries." })); return; }
       const cost = 1;
       if (!chargePurse(room, player, cost)) {
         ws.send(JSON.stringify({ type: "error", message: `A curse-strike costs ⚡${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
@@ -3290,11 +3440,14 @@ function handleConnection(ws: WebSocket): void {
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
       const hexA = String(msg.hexA || "");
       const hexB = String(msg.hexB || "");
-      const mine = unitsAt(room, hexA).find(u => u.ownerKey === caster.key);
-      // The anchor is ground the caster HOLDS: a tile their
-      // Awokin stands on — or the Tender's own ground, now
-      // that the Tender stands on the field themself.
-      if (!mine && caster.hex !== hexA) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of ground you hold — your own tile, or one your Awokin stands on." })); return; }
+      // WARDS STAND ANYWHERE (Nigel, 2026-10-20): "wards and
+      // runes should be able to be cast anywhere." The held-
+      // ground anchor is LIFTED — any edge of the map may
+      // take a ward, cursed ground included. What the freedom
+      // costs stands in settleWorkingWithering: a ward on
+      // cursed ground suffers the curse's attrition, like the
+      // Tender. The edge itself must still exist — the two
+      // tiles share a side — for that is geometry, not ground.
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
       if (!isSpringleaf) {
         const standingEdge = room.workings.find(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)));
@@ -3419,7 +3572,7 @@ function handleConnection(ws: WebSocket): void {
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
         hp, maxHp: hp, pour: pourLaid, stops: 0, charges: 0,
       });
-      tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge of ${mine ? `${mine.card.name}'s hex` : "their own hex"}.`);
+      tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge between ${hexA} and ${hexB}.`);
       if (pourLaid > pour) tell(room, `${caster.name}'s powering runs deep — her pour lays ${pourLaid} into the working for the ${pour} her pool paid.`);
       caster.castAt = Date.now();
       sendState(room);

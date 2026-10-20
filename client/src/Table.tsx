@@ -290,6 +290,21 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
  *  same drawing serves a radius-3 flower or a radius-5 one. */
 const TILE_SIZE = 40;
 const SEED_TILE_ID = "0,0";
+/** The strike's reach by the striker's element — the
+ *  referee's own ELEMENT_REACH (table.ts), the same table
+ *  the Zodiac reads: stone 1, root 2, fire 2, tide 3, sky 4. */
+const STRIKE_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+/** A cast held for its confirm (STOP AND CONFIRM, Nigel
+ *  2026-10-20): the target is chosen, the Tender stands
+ *  still, nothing is charged — `fire` runs the very send
+ *  the tap once ran, at the confirm alone. */
+type PendingCast = {
+  key: string;
+  label: string;
+  cost: number;
+  targetIds: string[];
+  fire: () => void;
+};
 const TILE_K = TILE_SIZE / ISO_DEN;
 
 /** How a tile's painted face is drawn — Territory's seating law,
@@ -490,6 +505,16 @@ export default function Table() {
   // blow per tap, as the land's blow-per-order rules it.
   const [strikeArm, setStrikeArm] = useState(false);
   useEffect(() => { setStrikeArm(false); }, [selUnitId]);
+  // STOP AND CONFIRM (Nigel, 2026-10-20): a chosen cast
+  // target no longer fires the cast — it raises a pending
+  // cast, the Tender stops, and only the confirm (a second
+  // tap on the same ground, the ✓ in the bar, never Esc)
+  // sends it. The purse is charged by the server at the
+  // confirm, as it always was at the cast.
+  const [pendingCast, setPendingCast] = useState<PendingCast | null>(null);
+  const pendingCastRef = useRef<PendingCast | null>(null);
+  pendingCastRef.current = pendingCast;
+  const cancelCastRef = useRef<(() => void) | null>(null);
   // The stage clock: the stage ticks gently while anyone
   // watches, so smoothed figures lerp across server ticks.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -580,6 +605,35 @@ export default function Table() {
     castAnimRef.current.set(you.key, { startedAt: Date.now(), dir });
     ownCastMarkRef.current = Date.now();
   };
+
+  // STOP AND CONFIRM — the held cast's three acts. Raising
+  // one halts the Tender where he stands (glideStop — his
+  // own word to the referee); the confirm runs the send
+  // the target tap once ran, untouched in shape; the
+  // cancel drops the whole placing flow uncharged, as
+  // "Set the light down" always did. A second offer of
+  // the SAME cast (the same ground tapped again, the same
+  // button pressed again) IS the confirm.
+  const raisePendingCast = (p: PendingCast) => {
+    send({ type: "glideStop" });
+    setPendingCast(p);
+  };
+  const confirmPendingCast = () => {
+    const p = pendingCastRef.current;
+    if (!p) return;
+    setPendingCast(null);
+    setPlacing(null); setWardAnchor(null); setBladePicks([]); setPourPts(0);
+    p.fire();
+  };
+  const cancelPendingCast = () => {
+    setPendingCast(null);
+    setPlacing(null); setWardAnchor(null); setBladePicks([]); setPourPts(0);
+  };
+  cancelCastRef.current = cancelPendingCast;
+  const offerCast = (p: PendingCast) => {
+    if (pendingCastRef.current && pendingCastRef.current.key === p.key) { confirmPendingCast(); return; }
+    raisePendingCast(p);
+  };
   useEffect(() => {
     if (!shared) return;
     for (const p of shared.players) {
@@ -652,7 +706,11 @@ export default function Table() {
       if (glideTimerRef.current) { clearInterval(glideTimerRef.current); glideTimerRef.current = null; }
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Escape") { setRadial(null); setControllerOpen(false); return; }
+      if (e.code === "Escape") {
+        // A held cast is set down first — uncharged, always.
+        if (pendingCastRef.current) { cancelCastRef.current?.(); return; }
+        setRadial(null); setControllerOpen(false); return;
+      }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       // The belt under the number keys, as the Ground teaches:
@@ -1152,13 +1210,6 @@ export default function Table() {
   };
   const sortedTiles = [...tiles].sort((a, b) => tileCenter(a).cy - tileCenter(b).cy);
   const myUnitOn = (tileId: string): boolean => !!you && shared.field.some(u => u.hex === tileId && u.ownerKey === you.key);
-  /** The ground the Tender themself holds (their figure's tile,
-   *  at rest) — a ward may anchor on it as on an Awokin's. */
-  const myTenderOn = (tileId: string): boolean => {
-    if (!you) return false;
-    const me = shared.players.find(p => p.key === you.key);
-    return !!me?.hex && me.hex === tileId && !me.moving;
-  };
   const isMovingNow = (u: FieldUnitView): boolean => u.moving;
   // SMOOTHING: lerp a drawn position toward the server's
   // continuous position; snap when far (a fresh figure, or a
@@ -1291,7 +1342,8 @@ export default function Table() {
   // unit bar offers the curse-strike only when such ground
   // stands in reach; armed, its taps are blows, not marches.
   const selTile = selUnit ? tileById.get(selUnit.hex) ?? null : null;
-  const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= 2) : [];
+  const strikeReachOf = (u: FieldUnitView): number => STRIKE_REACH[u.element ?? ""] ?? 2;
+  const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) : [];
   const strikeArmed = strikeArm && !!selUnit && !selUnitMoving;
 
   // Which tiles the Written Light's placing flows may touch —
@@ -1300,7 +1352,7 @@ export default function Table() {
     if (!placing || !you) return false;
     if (placing.kind === "heal") return myUnitOn(t.id);
     if (placing.kind === "rune") return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
-    if (!wardAnchor) return myUnitOn(t.id) || myTenderOn(t.id);
+    if (!wardAnchor) return true; // WARDS STAND ANYWHERE (2026-10-20): any hex may anchor a ward.
     const anchor = tileById.get(wardAnchor);
     return !!anchor && axialDist(anchor, t) === 1;
   };
@@ -1313,7 +1365,13 @@ export default function Table() {
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
     if (placing) {
       if (placing.kind === "heal") {
-        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id }); beginCast(t.id); setPlacing(null); }
+        if (myUnitOn(t.id)) {
+          const hex = t.id;
+          offerCast({
+            key: `heal:${hex}`, label: `Heal — mend your own standing on ${hex}`, cost: healDef?.cost ?? 2, targetIds: [hex],
+            fire: () => { send({ type: "castHeal", hex }); beginCast(hex); },
+          });
+        }
         return;
       }
       if (placing.kind === "rune") {
@@ -1324,32 +1382,49 @@ export default function Table() {
           return;
         }
         if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
-          send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [t.id], pour: pourPts });
-          beginCast(t.id);
-          setPlacing(null); setPourPts(0);
+          const root = placing.root, hue = pourHue, pour = pourPts, hex = t.id;
+          offerCast({
+            key: `rune:${root}:${hex}`, label: `${defs[root]?.forms[hue] ?? defs[root]?.root ?? root} — write it on ${hex}`, cost: defs[root]?.cost ?? 0, targetIds: [hex],
+            fire: () => { send({ type: "castRune", root, hue, hexes: [hex], pour }); beginCast(hex); },
+          });
         }
         return;
       }
-      // ward: an anchor on my own ground, then a neighbour.
-      if (!wardAnchor) { if (myUnitOn(t.id) || myTenderOn(t.id)) setWardAnchor(t.id); return; }
+      // ward: an anchor hex — ANY hex now (Nigel, 2026-10-20:
+      // wards stand anywhere) — then a neighbour, for its edge.
+      if (!wardAnchor) { setWardAnchor(t.id); return; }
       const anchor = tileById.get(wardAnchor);
       if (anchor && axialDist(anchor, t) === 1) {
-        send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: t.id, pour: pourPts });
-        beginCast(t.id);
-        setPlacing(null); setWardAnchor(null); setPourPts(0);
-      } else if (t.id === wardAnchor) setWardAnchor(null);
+        const root = placing.root, hue = pourHue, pour = pourPts, hexA = wardAnchor, hexB = t.id;
+        offerCast({
+          key: `ward:${root}:${hexA}:${hexB}`, label: `${defs[root]?.forms[hue] ?? defs[root]?.root ?? root} — raise it on the edge of ${hexA} and ${hexB}`, cost: defs[root]?.cost ?? 0, targetIds: [hexB],
+          fire: () => { send({ type: "castWard", root, hue, hexA, hexB, pour }); beginCast(hexB); },
+        });
+      } else if (t.id === wardAnchor) { setWardAnchor(null); setPendingCast(null); }
       return;
     }
     if (selectedCard) { send({ type: "summon", cardId: selectedCard.id, hex: t.id }); return; }
+    // THE MARKED CURSE (Nigel, 2026-10-20): with one of my
+    // Awokin chosen, the cursed ground inside its strike
+    // reach stands MARKED — its corruption numbered on the
+    // tile for all to read — and tapping the mark IS the
+    // order: one blow, ⚡1, the referee's arithmetic. No
+    // separate arming stands between the eye and the blow
+    // any longer; the unit bar's button still arms the old
+    // road beside this one.
+    if (selUnit && selTile && !selUnitMoving && t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) {
+      send({ type: "strikeCurse", cardId: selUnit.cardId, hex: selUnit.hex, target: t.id });
+      return;
+    }
     // Armed against the curse, the chosen one's taps are
     // blows: cursed ground within two tiles is struck (one
     // order, one blow, ⚡1 — the server referees the wear);
     // any other tap is answered plainly, and the arm holds.
     if (strikeArmed && selUnit && selTile) {
-      if (t.cursed && axialDist(selTile, t) <= 2) {
+      if (t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) {
         send({ type: "strikeCurse", cardId: selUnit.cardId, hex: selUnit.hex, target: t.id });
       } else {
-        setNotice(t.cursed ? "Beyond reach — the light strikes two tiles out." : "That ground is not cursed — there is nothing there to strike.");
+        setNotice(t.cursed ? "Beyond its reach — the light strikes only as far as its element carries." : "That ground is not cursed — there is nothing there to strike.");
       }
       return;
     }
@@ -1429,6 +1504,11 @@ export default function Table() {
             <rect x={ax - 13} y={ay + 17} width={26 * clamp01((u.shield ?? 0) / Math.max(1, u.maxShield ?? 1))} height={2} fill="#cfd8dc" />
           </>
         )}
+        {/* THE WITHERING, WITNESSED (2026-10-20): a mote of
+            the curse's own red pulses under a figure standing
+            on cursed ground — the burn is visible before the
+            bar has visibly moved. */}
+        {tileById.get(u.hex)?.cursed && <circle className="wither-mote" cx={ax} cy={ay + 22} r={2.4} fill="#c22333" />}
         {moving && <text x={ax + 16} y={ay - 28} fontSize={9}>🚶</text>}
         {u.follow && <text x={ax - 16} y={ay - 28} fontSize={9}>👣</text>}
         {mine && !moving && (
@@ -1557,6 +1637,7 @@ export default function Table() {
             })
           ))}
           <text className="ts-name tender" x={gx} y={gy + 21}>{p.name}</text>
+          {p.hex && tileById.get(p.hex)?.cursed && <circle className="wither-mote" cx={gx} cy={gy + 27} r={2.4} fill="#c22333" />}
           {mine && (
             <circle cx={gx} cy={gy - 26} r={24} fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
               onClick={(e) => { e.stopPropagation(); if (suppressTapRef.current) return; setSelTender(true); setSelUnitId(null); setSelectedCardId(null); if (coarsePointer()) setControllerOpen(true); }} />
@@ -1892,6 +1973,7 @@ export default function Table() {
                   if (tilePickable(t)) overlay = { fill: "#ffd977", opacity: 0.22 };
                   if (wardAnchor === t.id) overlay = { fill: "#ffd977", opacity: 0.35 };
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
+                  if (pendingCast?.targetIds.includes(t.id)) overlay = { fill: "#ffd977", opacity: 0.48 };
                 } else if (selectedCard) {
                   // Summoning answers at the Tender's side:
                   // only ground within a hex of their figure
@@ -1899,11 +1981,12 @@ export default function Table() {
                   const meP = you ? shared.players.find(p => p.key === you.key) : null;
                   const meT = meP?.hex ? tileById.get(meP.hex) : null;
                   if (!t.cursed && meT && axialDist(meT, t) <= 1) overlay = { fill: "#ffd977", opacity: 0.14 };
-                } else if (strikeArmed && selTile) {
-                  if (t.cursed && axialDist(selTile, t) <= 2) overlay = { fill: "#c22333", opacity: 0.3 };
-                  else if (t.id !== selUnit?.hex) overlay = { fill: "#ffffff", opacity: 0.05 };
-                } else if (selUnit) {
-                  if (t.id !== selUnit.hex) overlay = { fill: "#ffffff", opacity: 0.07 };
+                } else if (selUnit && selTile) {
+                  // The marked curse: cursed ground inside the
+                  // chosen one's reach burns dark red, armed
+                  // or not — the mark is the invitation.
+                  if (t.cursed && !selUnitMoving && axialDist(selTile, t) <= strikeReachOf(selUnit)) overlay = { fill: "#c22333", opacity: 0.32 };
+                  else if (t.id !== selUnit.hex) overlay = { fill: "#ffffff", opacity: strikeArmed ? 0.05 : 0.07 };
                 }
                 return (
                   <g key={t.id}>
@@ -1929,7 +2012,7 @@ export default function Table() {
                             warden stands armed against it. */}
                         <rect x={cx - 17} y={cy + 22} width={34} height={3} fill="#000000" opacity={0.55} pointerEvents="none" />
                         <rect x={cx - 17} y={cy + 22} width={34 * clamp01(t.curseHp / Math.max(1, t.curseMaxHp))} height={3} fill="#c22333" pointerEvents="none" />
-                        {(t.curseHp < t.curseMaxHp || strikeArmed) && (
+                        {(t.curseHp < t.curseMaxHp || strikeArmed || (selUnit && selTile && !selUnitMoving && axialDist(selTile, t) <= strikeReachOf(selUnit))) && (
                           <text className="curse-hp-label" x={cx} y={cy + 34}>{Math.max(0, Math.ceil(t.curseHp))}</text>
                         )}
                       </>
@@ -2157,14 +2240,14 @@ export default function Table() {
             {placing && (
               <div className="placing-bar">
                 <span className="placing-text">
-                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to restore {you?.healAmount ?? 5} HP (⚡{healDef?.cost ?? 2}).</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
+                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to hold the cast (restores {you?.healAmount ?? 5} HP, ⚡{healDef?.cost ?? 2}); tap it again to loose the mending.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to hold the writing there; tap the same ground again to loose the cast. It springs the moment the dark stands on it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>you hold</strong> — your own ground, or your Awokin's — to anchor the grove.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>you hold</strong> — your own ground, or your Awokin's: the ward will stand on one of its edges.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it. The cast waits for your confirm.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap any hex: the ward will stand on one of its edges. Wards stand anywhere now — but cursed ground eats what stands on it.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two, held for your confirm.</>}
                 </span>
                 {placing.kind !== "heal" && ["seal", "trees", "lattice", "shard"].includes(defs[placing.root]?.engine ?? "") && pourHue !== "unaligned" && you?.pools && (() => {
                   const def = defs[placing.root];
@@ -2185,9 +2268,24 @@ export default function Table() {
                   );
                 })()}
                 {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
-                  <button className="table-btn primary" onClick={() => { send({ type: "castRune", root: placing.root, hue: pourHue, hexes: bladePicks, pour: pourPts }); beginCast(bladePicks[0] ?? null); setPlacing(null); setBladePicks([]); setPourPts(0); }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
+                  <button className="table-btn primary" onClick={() => {
+                    const root = placing.root, hue = pourHue, pour = pourPts, picks = [...bladePicks];
+                    offerCast({
+                      key: `runes:${root}:${picks.join(".")}`, label: `${defs[root]?.forms[hue] ?? defs[root]?.root ?? root} — write it across ${picks.length} hex${picks.length === 1 ? "" : "es"}`, cost: defs[root]?.cost ?? 0, targetIds: picks,
+                      fire: () => { send({ type: "castRune", root, hue, hexes: picks, pour }); beginCast(picks[0] ?? null); },
+                    });
+                  }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
                 )}
-                <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); }}>Set the light down</button>
+                <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); setPendingCast(null); }}>Set the light down</button>
+              </div>
+            )}
+            {pendingCast && (
+              <div className="placing-bar pending-bar">
+                <span className="placing-text">
+                  ✋ <strong>{pendingCast.label}</strong> — your Tender stands still, the working held. Nothing is charged until you loose it: tap the marked ground again, or loose it here.
+                </span>
+                <button className="table-btn primary" onClick={confirmPendingCast}>✓ Loose it · ⚡{pendingCast.cost}</button>
+                <button className="table-btn" onClick={cancelPendingCast}>✕ Set it down</button>
               </div>
             )}
             {selUnit && !placing && (
@@ -2196,12 +2294,18 @@ export default function Table() {
                   {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMoving
                     ? "on the move — it answers when it arrives."
                     : strikeArmed
-                      ? <>armed against the curse — tap cursed ground within two tiles: one blow (⚡1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
-                      : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.</>}
+                      ? <>armed against the curse — tap cursed ground within reach: one blow (⚡1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
+                      : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.{curseInReach.length > 0 && <> The cursed ground in its reach stands <strong>marked with its corruption</strong> — tap the mark and {selUnit.name} strikes it (⚡1 a blow).</>}</>}
                 </span>
                 {!selUnitMoving && (
                   <>
-                    <button className="table-btn" onClick={() => { send({ type: "castHeal", hex: selUnit.hex }); beginCast(selUnit.hex); }}>Heal · ⚡{healDef?.cost ?? 2}</button>
+                    <button className="table-btn" onClick={() => {
+                      const hex = selUnit.hex;
+                      offerCast({
+                        key: `heal:${hex}`, label: `Heal — mend ${selUnit.name} where it stands`, cost: healDef?.cost ?? 2, targetIds: [hex],
+                        fire: () => { send({ type: "castHeal", hex }); beginCast(hex); },
+                      });
+                    }}>Heal · ⚡{healDef?.cost ?? 2}</button>
                     {strikeArmed ? (
                       <button className="table-btn" onClick={() => setStrikeArm(false)}>Stay the hand</button>
                     ) : curseInReach.length > 0 ? (

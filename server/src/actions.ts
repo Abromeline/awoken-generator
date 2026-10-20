@@ -3021,6 +3021,80 @@ async function settleHomelandWorkings(ownerKey: string, tiles: any[]): Promise<v
   for (const r of rows) await springHomelandWorking(ownerKey, r.id, tiles);
 }
 
+/** THE WRITTEN LIGHT WITHERS AT HOME (Nigel, 2026-10-20):
+ *  wards and runes may be cast anywhere on the homeland —
+ *  and what stands on cursed ground suffers the curse's
+ *  attrition, like the Tender: 0.01×(ring+1) of its greatest
+ *  measure per 2.8 s beat, reckoned from each working's own
+ *  watermark (wither_wm), one read never reckoning more
+ *  than a minute — the Tender body's own caps and rate,
+ *  exactly. The measure is the body the book gives the
+ *  working: its health rating where it carries one (the
+ *  Seal, the Trees, the Lattice); where it carries none,
+ *  its charges are its body (the Keeper's reading, the
+ *  same the Table keeps: the wither accrues against the
+ *  charges at the same fractional rate, a whole charge at
+ *  a time). A ward stands on an edge: it pays for the
+ *  worse of its two grounds, as a guest pays for the one
+ *  tile he stands on. Workings the curse has eaten whole
+ *  are lifted from the land; getTerritory serves the
+ *  workings fresh after this pass, so the fall is seen on
+ *  the same read that reckoned it. */
+async function settleHomelandWorkingAttrition(ownerKey: string, tiles: any[]): Promise<void> {
+  const rows = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND kind IN ('ward', 'rune', 'spell')").all(ownerKey) as any[];
+  if (!rows.length) return;
+  const now = Date.now();
+  const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
+  const byQR = new Map<string, any>(tiles.map((t: any) => [`${t.q},${t.r}`, t]));
+  const ringOfTile = (t: any) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+  for (const w of rows) {
+    const wm = Number(w.wither_wm ?? 0);
+    if (!wm) { sqlite.prepare("UPDATE territory_workings SET wither_wm = ? WHERE id = ?").run(now, w.id); continue; }
+    const elapsed = Math.min(now - wm, 60000);
+    if (elapsed < 1000) continue;
+    let groundTiles: any[] = [];
+    if (w.kind === "ward") {
+      const a = byQR.get(`${w.q},${w.r}`);
+      const d = WALL_DIRS[Number(w.dir ?? 0)] ?? [0, 0];
+      const b = byQR.get(`${Number(w.q) + d[0]},${Number(w.r) + d[1]}`);
+      groundTiles = [a, b].filter(Boolean);
+    } else {
+      const t = byId.get(w.tile_id);
+      if (t) groundTiles = [t];
+    }
+    let worst = -1;
+    for (const t of groundTiles) if (t.cursed) worst = Math.max(worst, ringOfTile(t));
+    sqlite.prepare("UPDATE territory_workings SET wither_wm = ? WHERE id = ?").run(now, w.id);
+    if (worst < 0) continue;
+    const beats = elapsed / 2800;
+    const pct = 0.01 * (worst + 1);
+    const maxHp = Number(w.max_hp ?? 0);
+    const charges = Number(w.charges ?? 0);
+    let wither = Number(w.wither ?? 0);
+    if (maxHp > 0) {
+      wither += maxHp * pct * beats;
+      const whole = Math.floor(wither);
+      if (whole >= 1) {
+        const hp = Number(w.hp ?? 0) - whole;
+        if (hp <= 0) { sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id); continue; }
+        sqlite.prepare("UPDATE territory_workings SET hp = ?, wither = ? WHERE id = ?").run(hp, wither - whole, w.id);
+      } else {
+        sqlite.prepare("UPDATE territory_workings SET wither = ? WHERE id = ?").run(wither, w.id);
+      }
+    } else if (charges > 0) {
+      wither += charges * pct * beats;
+      const whole = Math.floor(wither);
+      if (whole >= 1) {
+        const left = charges - whole;
+        if (left <= 0) { sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id); continue; }
+        sqlite.prepare("UPDATE territory_workings SET charges = ?, wither = ? WHERE id = ?").run(left, wither - whole, w.id);
+      } else {
+        sqlite.prepare("UPDATE territory_workings SET wither = ? WHERE id = ?").run(wither, w.id);
+      }
+    }
+  }
+}
+
 /** The Springleaf's grove, tended on the homeland settle
  *  (Homeland Casting): saplings root on their schedule and
  *  burst their half-heal; every living grove mends the
@@ -5930,6 +6004,11 @@ export const handlers = {
       // spring, lattices pin, coils throw back — before the
       // weapon looks for its quarry among the survivors.
       await settleHomelandWorkings(ownerKey, tiles as any[]);
+      // THE CURSE EATS THE WRITTEN LIGHT (Nigel, 2026-10-20):
+      // the workings standing on cursed ground wither beside
+      // their guests, on this same read — wards and runes are
+      // cast anywhere now, and the cursed ground is the price.
+      await settleHomelandWorkingAttrition(ownerKey, tiles as any[]);
       // THE HOMELAND WEAPON REFEREE settles after the walk
       // (Nigel, 2026-10-20): his weapon answers the dark that
       // stands within its reach of him. The wanderer views are
@@ -7427,13 +7506,18 @@ export const handlers = {
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not yours to ward.");
       assertCastReach(tile);
-      const standing = await db.select().from(schema.fieldPlacements)
-        .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
-      // The anchor (Homeland Casting): at the Table a ward
-      // may be raised on the hex the caster himself stands
-      // on; the homeland keeps that word — his own stand is
-      // an anchor beside his Awokin's.
-      if (!standing.length && tileId !== stand?.tileId) badRequest("A ward stands on the edge of a hex your own Awokin holds — or on the ground you stand on yourself. Neither holds there.");
+      // WARDS STAND ANYWHERE (Nigel, 2026-10-20): "wards and
+      // runes should be able to be cast anywhere." The held-
+      // ground anchor is LIFTED on this ground as at the
+      // Table's — a ward may rise on the edge of ANY hex of
+      // his land within his reach, cursed hexes included;
+      // his Awokin need not hold it, nor he stand on it.
+      // What the freedom costs stands in
+      // settleHomelandWorkingAttrition: a ward on cursed
+      // ground suffers the curse's attrition, like the
+      // Tender. (The edge must still be free — one work
+      // per edge — and the hex still his: those are the
+      // land's shape, not a holding.)
       const [dq, dr] = WALL_DIRS[dir];
       const nq = tile.q + dq, nr = tile.r + dr;
       const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
@@ -7500,7 +7584,15 @@ export const handlers = {
       assertCastReach(tile);
       const existing = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell')").get(ownerKey, tileId) as any;
       if (existing) badRequest("That ground is already written — one writing per hex.");
-      if (spell.engine === "blades") badRequest("The Three Blades are planted a hex at a time on the map — cast once per hex here.");
+      // THE THREE BLADES ON THE MAP (the audit of 2026-10-20):
+      // this branch once REFUSED the Blades outright — "planted
+      // a hex at a time on the map" — so the page could never be
+      // cast on this ground at all, though its springing stood
+      // ready in springHomelandWorking. The refusal's own words
+      // were the law: a hex at a time. The cast below writes ONE
+      // of the three on the named hex, at the book's price per
+      // cast, with the Table's own charges — cast it thrice for
+      // the volley, as the Table plants it on up to three hexes.
       const ebbRune = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
       const runeCost = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
       if (!(await spendEnergy(ownerKey, runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
@@ -7515,7 +7607,7 @@ export const handlers = {
       // (pourLaidFor, the book's one reckoning).
       const pourLaid = pourLaidFor(progress.classKey, spell.kind, pour);
       const effR = workingEffects(ownerKey);
-      const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
+      const charges = (spell.engine === "blade" || spell.engine === "blades") ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // level in the spell's element rides inside the stored
       // numbers, snapshotted at the cast as HP is — on the map

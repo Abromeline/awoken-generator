@@ -695,8 +695,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // The Tender's own castings from the book: standings served by
   // getTerritory, the book itself by getGrimoire, the Lv 3 gate by
   // getTenderExp. Casting mode turns hex taps into castings: a ward
-  // wants an anchor hex (mine standing on it) then one of its edges;
-  // a rune wants a hex's floor; Heal wants a hex my wounded stand on.
+  // wants an anchor hex (ANY hex of his land, since 2026-10-20)
+  // then one of its edges; a rune wants a hex's floor; Heal wants
+  // a hex my wounded stand on. Every tap now only CHOOSES the
+  // ground — the cast itself waits for the confirm (2026-10-20).
   const [workings, setWorkings] = useState<MapWorking[]>([]);
   const [grim, setGrim] = useState<GrimoireState | null>(null);
   const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
@@ -717,6 +719,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // wears the same frame as the arena and the Table.
   const cardBorder = useCardBorder();
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
+  // STOP AND CONFIRM (Nigel, 2026-10-20): a chosen cast
+  // target no longer fires the cast on the tap — it raises
+  // a PENDING CAST: the Tender stops gliding, the target
+  // hex wears the gold marker, and only the confirm calls
+  // castMapWorking (the server charges at the confirm,
+  // before the roll, as it always did at the cast). The
+  // cancel leaves the purse untouched and the working
+  // readied — the homeland's cast mode is sticky, as built.
+  const [pendingMapCast, setPendingMapCast] = useState<{ label: string; cost: number; args: { tileId?: number; dir?: number; awakenedId?: number }; tileId: number | null } | null>(null);
+  const stopTenderGlide = () => {
+    tenderKeysRef.current.clear();
+    tenderTargetRef.current = null;
+  };
   const [fadePick, setFadePick] = useState<number | null>(null);
   const [pushHue, setPushHue] = useState<string>("root");
   const [pushPour, setPushPour] = useState(0);
@@ -1620,7 +1635,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
           showHexNotice(locked
             ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
-            : `${sp.name} readied — tap the land to cast it.`);
+            : `${sp.name} readied — tap the land to choose its ground; the cast waits for your confirm.`);
         },
       } as WheelEntry;
     });
@@ -1679,7 +1694,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!sp) { toggleHotbar(key); return; }
       if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
       setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
-      showHexNotice(`${sp.name} readied — tap the land to cast it.`);
+      showHexNotice(`${sp.name} readied — tap the land to choose its ground; the cast waits for your confirm.`);
       return;
     }
     toggleHotbar(key);
@@ -2112,26 +2127,52 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice(e instanceof Error ? e.message : "The casting would not take.");
     }
   };
+  // STOP AND CONFIRM — the held cast's two doors. The
+  // offer stops the Tender where he stands and marks the
+  // target with the gold shine (targetHexId, the game's own
+  // "about to touch" marker); the confirm runs doCastMap
+  // with the very args the tap once fired; the cancel
+  // drops the promise and keeps the working readied.
+  const offerMapCast = (args: { tileId?: number; dir?: number; awakenedId?: number }, tileId: number | null, label: string) => {
+    if (!castSpell) return;
+    stopTenderGlide();
+    setPendingMapCast({ label, cost: castSpell.cost, args, tileId });
+    setTargetHexId(tileId);
+    showHexNotice(`${label} — held for your word. Confirm to loose it; nothing is spent yet.`);
+  };
+  const confirmMapCast = () => {
+    const p = pendingMapCast;
+    if (!p) return;
+    setPendingMapCast(null);
+    setTargetHexId(null);
+    void doCastMap(p.args);
+  };
+  const cancelMapCast = () => {
+    setPendingMapCast(null);
+    setTargetHexId(null);
+    showHexNotice("The cast is set down — nothing spent, the working still readied.");
+  };
   const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
     if (!castSpell) { showHexNotice("Choose a working from the book first."); return; }
     // The Springleaf is a binding by the book's filing, but
     // she is planted on GROUND, not cast on a body — the tap
     // names her hex (Homeland Casting).
-    if (castSpell.engine === "springleaf") { void doCastMap({ tileId: tile.id }); return; }
+    if (castSpell.engine === "springleaf") { offerMapCast({ tileId: tile.id }, tile.id, `${castSpell.forms[castHue] ?? castSpell.name} — plant the grove on this hex (⚡${castSpell.cost})`); return; }
     if (castSpell.engine === "heal" || castSpell.kind === "binding") {
       const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
         const a = tenderItems.find((x) => x.id === p.awakenedId);
-        return { id: p.awakenedId, hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
+        return { id: p.awakenedId, name: a?.name ?? "your Awokin", hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
       }).filter((x) => x.max > 0 && x.hp < x.max).sort((x, y) => (x.hp / x.max) - (y.hp / y.max));
       if (!wounded.length) { showHexNotice("No wounded Awokin stands on that hex."); return; }
-      void doCastMap({ awakenedId: wounded[0].id });
+      offerMapCast({ awakenedId: wounded[0].id }, tile.id, `${castSpell.forms[castHue] ?? castSpell.name} — mend ${wounded[0].name} (⚡${castSpell.cost})`);
       return;
     }
     if (castSpell.kind === "ward") {
       if (castAnchor === null) {
-        // The anchor: a hex his Awokin holds — or the ground
-        // the Tender himself stands on (Homeland Casting).
-        if (!placements.some((p) => p.tileId === tile.id) && tile.id !== tenderStandRef.current?.tileId) { showHexNotice("A ward stands on the edge of a hex your own Awokin holds — or on the ground you stand on. Tap such a hex first."); return; }
+        // WARDS STAND ANYWHERE (Nigel, 2026-10-20): any hex
+        // of his land may anchor a ward now — his Awokin
+        // need not hold it, nor he stand on it. Cursed
+        // ground is lawful too; it eats what stands on it.
         setCastAnchor(tile.id);
         showHexNotice("Now tap one of the glowing edges of that hex.");
         return;
@@ -2140,7 +2181,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice("Tap one of the glowing edges — or the anchor hex again to choose another.");
       return;
     }
-    void doCastMap({ tileId: tile.id });
+    offerMapCast({ tileId: tile.id }, tile.id, `${castSpell.forms[castHue] ?? castSpell.name} — write it on this hex's ground (⚡${castSpell.cost})`);
   };
 
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
@@ -4202,7 +4243,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3} strokeDasharray="6 4" pointerEvents="none" />
                 {!taken && (
                   <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26} strokeLinecap="round" style={{ cursor: "pointer" }}
-                    onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d }); }} />
+                    onClick={(e) => { e.stopPropagation(); offerMapCast({ tileId: t.id, dir: d }, t.id, `${castSpell?.forms[castHue] ?? castSpell?.name ?? "The ward"} — raise it on this edge (⚡${castSpell?.cost ?? 0})`); }} />
                 )}
               </g>
             );
@@ -5954,7 +5995,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 const readied = !!sp && castSpellKey === sp.key && castMode;
                 return (
                   <button type="button" key={key} className={`tender-slot${!sp ? " dim" : ""}${readied ? " lit" : ""}`}
-                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
+                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to choose its ground (the cast waits for your confirm), or tap here to unready" : "tap to ready, then tap the land to choose its ground"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">✦</span>
@@ -6011,6 +6052,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         );
       })()}
+      {pendingMapCast && (
+        <div className="hex-confirm" role="dialog" aria-live="polite">
+          <p>✋ {pendingMapCast.label} — your Tender stands still, the working held. Nothing is charged until you loose it.</p>
+          <div className="hex-confirm-actions">
+            <button type="button" className="abtn" onClick={confirmMapCast}>✓ Loose it · ⚡{pendingMapCast.cost}</button>
+            <button type="button" className="abtn ghost" onClick={cancelMapCast}>✕ Set it down</button>
+          </div>
+        </div>
+      )}
       {/* Bottom dock: energy orb + hand. The orb houses feeding
           now (Nigel, 2026-10-18): while a warden is chosen it wears
           the lit feed-ready face and tapping it — or its caption —

@@ -216,6 +216,12 @@ button { font-family: inherit; }
 /* The curse's remaining corruption, numbered under its wear
    bar (shown once worn, or while a warden stands armed). */
 .curse-hp-label { font-size: 9px; font-weight: bold; fill: #eda3ad; text-anchor: middle; pointer-events: none; }
+/* THE WITHERING, WITNESSED (2026-10-20): the curse's mote
+   pulses under any figure standing on cursed ground. */
+.wither-mote { animation: witherPulse 1.6s ease-in-out infinite; pointer-events: none; }
+@keyframes witherPulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
+/* STOP AND CONFIRM (2026-10-20): the held cast's bar. */
+.pending-bar { border-color: rgba(255, 217, 119, 0.55); }
 .seed-bulb {
   fill: var(--bulb);
   filter: drop-shadow(0 0 9px var(--bulb)) drop-shadow(0 0 22px rgba(63, 167, 255, 0.8));

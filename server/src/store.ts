@@ -543,6 +543,14 @@ sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_territory_workings_owner ON territor
 // raised with (its health rating's full measure — hp wears down
 // from here; regrow returns toward it, never past it).
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN pour INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+// THE CURSE EATS THE WRITTEN LIGHT (Nigel, 2026-10-20): a
+// homeland working standing on cursed ground suffers curse
+// attrition like the Tender — wither_wm is its own watermark
+// for the reckoning; wither is the fractional attrition accrued
+// against its body (health, or charges where it has none) that
+// has not yet been eaten whole.
+try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN wither_wm INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN wither REAL NOT NULL DEFAULT 0"); } catch { /* exists */ }
 
 // THE COLUMNS (Nigel, 2026-10-17): the Curse's attention and the
 // incursions it sends. tender_attention is the Eye's ledger —
