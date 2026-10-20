@@ -142,6 +142,8 @@ import sage03 from "./assets/tenders/sage-03.png";
 import sage04 from "./assets/tenders/sage-04.png";
 import sage05 from "./assets/tenders/sage-05.png";
 import sage06 from "./assets/tenders/sage-06.png";
+import sage07 from "./assets/tenders/sage-07.png";
+import sage08 from "./assets/tenders/sage-08.png";
 import sage09 from "./assets/tenders/sage-09.png";
 import sage10 from "./assets/tenders/sage-10.png";
 import sage11 from "./assets/tenders/sage-11.png";
@@ -156,6 +158,8 @@ import sage19 from "./assets/tenders/sage-19.png";
 import sage20 from "./assets/tenders/sage-20.png";
 import sage21 from "./assets/tenders/sage-21.png";
 import sage22 from "./assets/tenders/sage-22.png";
+import sage23 from "./assets/tenders/sage-23.png";
+import sage24 from "./assets/tenders/sage-24.png";
 import witchCastS1 from "./assets/tenders/witch-cast-s-1.png";
 import witchCastS2 from "./assets/tenders/witch-cast-s-2.png";
 import witchCastS3 from "./assets/tenders/witch-cast-s-3.png";
@@ -221,17 +225,17 @@ export const TENDER_CLASSES: Record<TenderClassId, TenderClassArt> = {
   witch: {
     id: "witch", label: "Witch", icon: "🌿", idle: witch01, flip: { W: true },
     dirs: {
-      E: [witch11, witch12, witch13, witch14, witch15, witch16, witch24], SE: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08, witch09, witch10], S: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08, witch09, witch10],
-      SW: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08, witch09, witch10], W: [witch11, witch12], NW: [witch17, witch18, witch19, witch20, witch21, witch22, witch23],
-      N: [witch17, witch18, witch19, witch20, witch21, witch22, witch23], NE: [witch17, witch18, witch19, witch20, witch21, witch22, witch23],
+      E: [witch09, witch10, witch11, witch12, witch13, witch14, witch15, witch16], SE: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08], S: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08],
+      SW: [witch01, witch02, witch03, witch04, witch05, witch06, witch07, witch08], W: [witch09, witch10], NW: [witch17, witch18, witch19, witch20, witch21, witch22, witch23, witch24],
+      N: [witch17, witch18, witch19, witch20, witch21, witch22, witch23, witch24], NE: [witch17, witch18, witch19, witch20, witch21, witch22, witch23, witch24],
     },
   },
   sage: {
     id: "sage", label: "Sage", icon: "🐺", idle: sage01, flip: { W: true },
     dirs: {
-      E: [sage09, sage10, sage11, sage12, sage13, sage14, sage15, sage16], SE: [sage01, sage02, sage03, sage04, sage05, sage06], S: [sage01, sage02, sage03, sage04, sage05, sage06],
-      SW: [sage01, sage02, sage03, sage04, sage05, sage06], W: [sage09, sage10], NW: [sage17, sage18, sage19, sage20, sage21, sage22],
-      N: [sage17, sage18, sage19, sage20, sage21, sage22], NE: [sage17, sage18, sage19, sage20, sage21, sage22],
+      E: [sage09, sage10, sage11, sage12, sage13, sage14, sage15, sage16], SE: [sage01, sage02, sage03, sage04, sage05, sage06, sage07, sage08], S: [sage01, sage02, sage03, sage04, sage05, sage06, sage07, sage08],
+      SW: [sage01, sage02, sage03, sage04, sage05, sage06, sage07, sage08], W: [sage09, sage10], NW: [sage17, sage18, sage19, sage20, sage21, sage22, sage23, sage24],
+      N: [sage17, sage18, sage19, sage20, sage21, sage22, sage23, sage24], NE: [sage17, sage18, sage19, sage20, sage21, sage22, sage23, sage24],
     },
   },
 };
