@@ -183,19 +183,11 @@ export default function ClassChoosing({
               {current && progress.reclassTokens > 0 && ` You hold ${progress.reclassTokens} reclass token${progress.reclassTokens > 1 ? "s" : ""} from the workshop.`}
             </p>
             {current && myWeapon && (
-              <>
-                <p className="class-choosing-law">
-                  Your runic weapon: <strong>{WEAPONS[myWeapon].name}</strong> — d{WEAPONS[myWeapon].die} · {WEAPONS[myWeapon].note}.
-                  It floats at your side like an Awokin and lunges at what comes within reach.
-                </p>
-                {progress.classRiteAvailable ? (
-                  <div className="class-choosing-row"><button type="button" className="abtn gold" onClick={() => setRepick(true)}>Re-choose your weapon — your second-thoughts rite</button></div>
-                ) : progress.reclassTokens > 0 ? (
-                  <div className="class-choosing-row"><button type="button" className="abtn gold" onClick={() => setRepick(true)}>Re-choose your weapon — spends a reclass token (you hold {progress.reclassTokens})</button></div>
-                ) : (
-                  <p className="quiet">Your weapon is sealed with your class; only a reclass token, sent by a workshop hand, can unmake either.</p>
-                )}
-              </>
+              <p className="class-choosing-law">
+                Your runic weapon: <strong>{WEAPONS[myWeapon].name}</strong> — d{WEAPONS[myWeapon].die} · {WEAPONS[myWeapon].note}.
+                It floats at your side like an Awokin and lunges at what comes within reach.
+                Day-to-day wielding no longer lives on this sheet: take any weapon in hand from the character menu — open the Skill Zodiac and use its Grimoire → Weapons tree.
+              </p>
             )}
             <div className="class-choosing-grid">
               {TENDER_CLASS_ORDER.map((id) => (

@@ -237,6 +237,16 @@ button { font-family: inherit; }
   from { transform: translateY(-2px); }
   to { transform: translateY(2px); }
 }
+/* MANIFEST copies (Phase C): paler twins of the true weapon,
+   breathing on a shorter pulse while they last. */
+.ts-manifest-copy {
+  animation: tsManifestPulse 1.5s ease-in-out infinite alternate;
+  opacity: 0.85;
+}
+@keyframes tsManifestPulse {
+  from { opacity: 0.55; }
+  to { opacity: 0.95; }
+}
 .field-caption {
   position: absolute;
   left: 10px;
@@ -579,6 +589,9 @@ button { font-family: inherit; }
 }
 .tender-class-row button.tc-on { border-color: #d8b25c; color: #ffd977; }
 .ts-tag { font-size: 8.5px; fill: #ffe9b0; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,0.72); stroke-width: 3px; }
+/* THE SPRINGLEAF'S GROVE (Phase C): the root-glow breathes. */
+@keyframes grovePulse { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
+.grove-glow { animation: grovePulse 3.2s ease-in-out infinite; }
 .ts-glyph-fallback { font-size: 20px; fill: #ffd98a; text-anchor: middle; }
 .terrain-stage .ts-dark-img { filter: saturate(.8) brightness(.9); }
 /* The map's manners: pan by drag, zoom by these. */

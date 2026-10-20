@@ -9507,6 +9507,57 @@ export const handlers = {
     return { ok: true as const, weaponKey, element, depth: fromDepth + 1, cost, progress: await getTenderProgress(ownerKey) };
   },
 
+  /** BUY A WEAPON NODE (Phase C, 2026-10-19): the weapon tree's
+   *  two bought nodes — MANIFEST (casts +1 copy) and SIGNATURE
+   *  (the weapon's own gift: arrow Pierce, spear Longshaft,
+   *  sword Keen, swordshield Aegis). Each costs a flat 3 aspect
+   *  points, paid from the weapon's attunement element pool when
+   *  the weapon is attuned (depth ≥ 1), else from the Tender's
+   *  richest pool. Refused WHOLE — pool under 3 or node already
+   *  owned spends nothing. The spend rides the real
+   *  aspect_attunement rows, exactly as attuneWeapon's pour does. */
+  async buyWeaponNode(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      weaponKey: z.enum(["swordshield", "sword", "spear", "arrow"]),
+      node: z.enum(["manifest", "signature"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name a weapon and a node: manifest or signature.");
+    const ownerKey = ownerKeyFor(ctx);
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) badRequest("The arsenal opens with your class — the choosing has not opened for you yet.");
+    const { weaponKey, node } = parsed.data;
+    const COST = 3;
+    sqlite.prepare(`INSERT OR IGNORE INTO tender_weapons (owner_key, weapon_key) VALUES (?, ?)`)
+      .run(ownerKey, weaponKey);
+    const wrow = sqlite.prepare("SELECT attunement_element, attunement_depth, manifest_node, signature_node FROM tender_weapons WHERE owner_key = ? AND weapon_key = ?")
+      .get(ownerKey, weaponKey) as { attunement_element: string | null; attunement_depth: number; manifest_node: number; signature_node: number };
+    const owned = node === "manifest" ? wrow.manifest_node : wrow.signature_node;
+    if (owned) badRequest(`That ${node} node is already yours — the tree does not sell the same star twice.`);
+    // Which pool pays: the attuned element's, else the richest.
+    let payElement: string | null = null;
+    if (wrow.attunement_depth >= 1 && wrow.attunement_element) {
+      payElement = wrow.attunement_element;
+    } else {
+      const pools = sqlite.prepare("SELECT element, points FROM aspect_attunement WHERE owner_key = ?")
+        .all(ownerKey) as { element: string; points: number }[];
+      pools.sort((a, b) => (b.points - a.points) || a.element.localeCompare(b.element));
+      payElement = pools[0]?.element ?? null;
+    }
+    const prow = payElement
+      ? sqlite.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = ?").get(ownerKey, payElement) as { points: number } | undefined
+      : undefined;
+    const have = prow?.points ?? 0;
+    if (!payElement || have < COST) {
+      badRequest(`The ${node} node costs ${COST} aspect points${payElement ? ` from your ${payElement} pool` : ""} — that pool holds ${have}. Nothing was spent.`);
+    }
+    sqlite.prepare("UPDATE aspect_attunement SET points = points - ? WHERE owner_key = ? AND element = ?")
+      .run(COST, ownerKey, payElement);
+    sqlite.prepare(`UPDATE tender_weapons SET ${node === "manifest" ? "manifest_node" : "signature_node"} = 1 WHERE owner_key = ? AND weapon_key = ?`)
+      .run(ownerKey, weaponKey);
+    return { ok: true as const, weaponKey, node, element: payElement, cost: COST, progress: await getTenderProgress(ownerKey) };
+  },
+
 
   async getTenderRank(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

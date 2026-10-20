@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type SkillTreeState, type ZodiacNodeView } from "./api";
+import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
+import { WEAPONS, WEAPON_ORDER, weaponImg, type WeaponKey } from "./weaponArt";
 
 /**
  * THE SKILL ZODIAC (Nigel's directive via Law, 2026-10-17):
@@ -24,6 +26,19 @@ const GOD_NAMES: Record<string, string> = {
   grove: "The Grove", land: "Land", wake: "Wake", voice: "The Voice", law: "Law",
 };
 const EL_EMOJI: Record<string, string> = { tide: "🌊", sky: "🌬️", stone: "🪨", root: "🌿", fire: "🔥" };
+const ELEMENTS = ["root", "tide", "sky", "stone", "fire"] as const;
+type ElementKey = (typeof ELEMENTS)[number];
+/** Reach law (Phase C): an attuned weapon reaches as its element
+ *  reaches; unattuned, it keeps its base reach. */
+const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+const BASE_REACH: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
+const SIGNATURES: Record<string, { name: string; desc: string }> = {
+  arrow: { name: "Pierce", desc: "+1 target per pass" },
+  spear: { name: "Longshaft", desc: "+1 hex reach" },
+  sword: { name: "Keen", desc: "+2 damage" },
+  swordshield: { name: "Aegis", desc: "+1 AC" },
+};
+const ROMAN = ["0", "I", "II", "III", "IV"];
 
 function reachedSet(state: SkillTreeState): Set<string> {
   const owned = new Set(state.unlocked);
@@ -78,6 +93,46 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     onSuccess: (st) => { apply(st); setMsg(""); },
     onError: (e: any) => setMsg(e?.message ?? "The wheel refused."),
   });
+  // ── THE CHARACTER MENU (Phase C): the Zodiac screen is the
+  // character hub — profile card on the right with Profile |
+  // Inventory | Grimoire tabs. Every pour/buy/wield refreshes
+  // the tender record so the card never lies.
+  const [tab, setTab] = useState<"profile" | "inventory" | "grimoire">("profile");
+  const [grimTab, setGrimTab] = useState<"weapons" | "spells" | "runes">("weapons");
+  const [charMsg, setCharMsg] = useState("");
+  const [charErr, setCharErr] = useState("");
+  const studioQ = useQuery({ queryKey: ["zodiacStudio"], queryFn: () => api.getStudio() });
+  const grimoireQ = useQuery({ queryKey: ["grimoire"], queryFn: () => api.getGrimoire(), enabled: tab === "grimoire" });
+  const refreshProgress = () => { void qc.invalidateQueries({ queryKey: ["tenderExp"] }); void qc.invalidateQueries({ queryKey: ["skillTree"] }); };
+  const charOk = (m: string) => { setCharMsg(m); setCharErr(""); refreshProgress(); };
+  const charFail = (e: any) => setCharErr(e?.message ?? "The record refused.");
+  const wieldM = useMutation({
+    mutationFn: (k: WeaponKey) => api.wieldWeapon({ weaponKey: k }),
+    onSuccess: (r) => charOk(`${WEAPONS[r.weaponKey as WeaponKey]?.name ?? r.weaponKey} is in hand.`),
+    onError: charFail,
+  });
+  const attuneM = useMutation({
+    mutationFn: (a: { weaponKey: WeaponKey; element: ElementKey }) => api.attuneWeapon(a),
+    onSuccess: (r) => charOk(`${WEAPONS[r.weaponKey as WeaponKey]?.name ?? r.weaponKey} attuned to ${r.element} at depth ${ROMAN[r.depth] ?? r.depth} — ${r.cost} pt${r.cost === 1 ? "" : "s"} poured.`),
+    onError: charFail,
+  });
+  const buyNodeM = useMutation({
+    mutationFn: (a: { weaponKey: WeaponKey; node: "manifest" | "signature" }) => api.buyWeaponNode(a),
+    onSuccess: (r) => charOk(`${r.node === "manifest" ? "Manifest" : "Signature"} node taken for ${WEAPONS[r.weaponKey as WeaponKey]?.name ?? r.weaponKey} — ${r.cost} ${r.element} pts spent.`),
+    onError: charFail,
+  });
+  const charBusy = wieldM.isPending || attuneM.isPending || buyNodeM.isPending;
+  const exp = expQ.data;
+  /** Which pool a node buy would draw on — the client mirror of
+   *  the server's law (attuned element, else the richest pool);
+   *  the server judges. */
+  const payPoolFor = (w: { element: string | null; depth: number }) => {
+    if (!exp) return { el: null as string | null, points: 0 };
+    if (w.depth >= 1 && w.element) return { el: w.element, points: exp.pools[w.element] ?? 0 };
+    let best: string | null = null; let bestPts = 0;
+    for (const el of ELEMENTS) { const p = exp.pools[el] ?? 0; if (p > bestPts) { best = el; bestPts = p; } }
+    return { el: best, points: bestPts };
+  };
   const state = treeQ.data;
   const reached = useMemo(() => (state ? reachedSet(state) : new Set<string>()), [state]);
   const selected = state?.nodes.find(n => n.id === selectedId) ?? null;
@@ -91,6 +146,10 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
       return { god, cx, cy };
     }).filter(Boolean) as { god: string; cx: number; cy: number }[];
   }, [state]);
+  const classArt = exp?.classKey ? TENDER_CLASSES[exp.classKey as TenderClassId] ?? null : null;
+  const wieldedKey = (exp?.weaponKey as WeaponKey | null) ?? null;
+  const tenderName = studioQ.data?.tender?.tenderName ?? "Nameless Tender";
+  const arsenalOf = (key: string) => exp?.arsenal.find(w => w.key === key);
 
   return (
     <div className="zodiac-overlay" role="dialog" aria-label="The Skill Zodiac">
@@ -110,6 +169,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
       )}
       {treeQ.isLoading && <p className="zodiac-note">The wheel is being hung…</p>}
       {treeQ.isError && <p className="zodiac-note">The wheel would not turn — try again in a moment.</p>}
+      <div className="character-layout">
       {state && (
         <div className="zodiac-body">
           <svg className="zodiac-wheel" viewBox="0 0 720 720" role="img" aria-label="The skill wheel: roads from the Heart to the callings, clusters, rim, and the gods' constellations">
@@ -179,6 +239,150 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
           </aside>
         </div>
       )}
+      <aside className="character-card" aria-label="Character menu">
+        {!exp ? <p className="zodiac-note">Your record is gathering…</p> : (
+          <>
+            <div className="character-head">
+              {classArt ? <img className="character-avatar" src={classArt.idle} alt="" /> : <div className="character-avatar character-avatar-none" aria-hidden="true">?</div>}
+              <div className="character-id">
+                <h3>{tenderName}</h3>
+                <p className="zodiac-kind">{classArt ? `${classArt.icon} The ${classArt.label}` : "No class chosen"} · Tender Lv {exp.level}</p>
+                <p className="character-exp">{exp.totalExp} EXP · {exp.lifetimeWakes} lifetime wakes</p>
+                {wieldedKey ? (
+                  <p className="character-wield"><img src={weaponImg(wieldedKey)} alt="" /> Wielding <strong>{WEAPONS[wieldedKey].name}</strong> (d{WEAPONS[wieldedKey].die} · {WEAPONS[wieldedKey].note})</p>
+                ) : <p className="character-wield">No weapon in hand yet.</p>}
+              </div>
+            </div>
+            <div className="character-tabs" role="tablist" aria-label="Character menu tabs">
+              {(["profile", "inventory", "grimoire"] as const).map(t => (
+                <button key={t} type="button" role="tab" aria-selected={tab === t} className={`character-tab${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>{t === "profile" ? "Profile" : t === "inventory" ? "Inventory" : "Grimoire"}</button>
+              ))}
+            </div>
+            {charMsg && <p className="character-msg" role="status">{charMsg}</p>}
+            {charErr && <p className="zodiac-lock" role="alert">{charErr}</p>}
+
+            {tab === "profile" && (
+              <div className="character-pane">
+                <h4>The choosing record</h4>
+                <ul className="character-list">
+                  <li>Class: <strong>{classArt ? `The ${classArt.label}` : "not chosen yet"}</strong></li>
+                  <li>Free second-thoughts rite: <strong>{!exp.classKey ? "waits for the choosing" : exp.classRiteAvailable ? "still available" : "spent"}</strong></li>
+                  <li>Reclass tokens held: <strong>{exp.reclassTokens}</strong></li>
+                  <li>Lifetime wakes: <strong>{exp.lifetimeWakes}</strong></li>
+                  <li>Heal: tier {exp.healTier} ({exp.healAmount} HP) · Max Tender HP {exp.maxTenderHp}</li>
+                </ul>
+                <h4>Arsenal at a glance</h4>
+                <p className="zodiac-note small">Read-only here — powering and wielding live in the Grimoire tab.</p>
+                <ul className="character-list">
+                  {WEAPON_ORDER.map(key => { const w = arsenalOf(key); if (!w) return null; return (
+                    <li key={key} className={exp.weaponKey === key ? "in-hand" : ""}>
+                      <strong>{WEAPONS[key].name}</strong> — Lv {w.level} · {w.xp} xp · {w.element ? `${EL_EMOJI[w.element] ?? ""} ${w.element} depth ${ROMAN[w.depth] ?? w.depth}` : "unattuned"}
+                      {" "}· Manifest {w.manifest ? "✓" : "·"} · Signature {w.signature ? "✓" : "·"}{exp.weaponKey === key ? " · ⚔ in hand" : ""}
+                    </li>); })}
+                </ul>
+              </div>
+            )}
+
+            {tab === "inventory" && (
+              <div className="character-pane">
+                <h4>Aspect pools</h4>
+                <ul className="character-list">
+                  {ELEMENTS.map(el => <li key={el}>{EL_EMOJI[el]} {el}: <strong>{exp.pools[el] ?? 0}</strong> pts · attunement Lv {state?.attunementLevels[el] ?? 0}</li>)}
+                </ul>
+                <h4>Attunement standing</h4>
+                <p>{ELEMENTS.map(el => `${el} ${state?.attunement[el] ?? exp.pools[el] ?? 0}`).join(" · ")}</p>
+                <h4>Wake credits</h4>
+                <p>{studioQ.data ? <><strong>{studioQ.data.credits.balance}</strong> wake{studioQ.data.credits.balance === 1 ? "" : "s"} remaining</> : "Gathering…"}</p>
+                <h4>Arsenal summary</h4>
+                <ul className="character-list">
+                  {WEAPON_ORDER.map(key => { const w = arsenalOf(key); if (!w) return null; return (
+                    <li key={key}>{WEAPONS[key].name}: Lv {w.level} · {w.element ? `${w.element} ${ROMAN[w.depth] ?? w.depth}` : "unattuned"} · M{w.manifest ? "✓" : "—"} S{w.signature ? "✓" : "—"}{exp.weaponKey === key ? " · in hand" : ""}</li>); })}
+                </ul>
+              </div>
+            )}
+
+            {tab === "grimoire" && (
+              <div className="character-pane">
+                <div className="character-tabs sub" role="tablist" aria-label="Grimoire tabs">
+                  {(["weapons", "spells", "runes"] as const).map(t => (
+                    <button key={t} type="button" role="tab" aria-selected={grimTab === t} className={`character-tab${grimTab === t ? " active" : ""}`} onClick={() => setGrimTab(t)}>{t === "weapons" ? "Weapons" : t === "spells" ? "Spells" : "Runes/Wards"}</button>
+                  ))}
+                </div>
+
+                {grimTab === "weapons" && (
+                  <div className="weapon-tree">
+                    <p className="zodiac-note small">One tree, four branches. Damage rises +1 per weapon level. Attunement pours follow the ladder: from depth D the next node costs D+1 points of that element, cap IV — pouring a different element starts that weapon over at depth I for 1 pt. Manifest and Signature each cost a flat 3 pts (from the attuned element's pool, or your richest pool when unattuned).</p>
+                    {WEAPON_ORDER.map(key => { const w = arsenalOf(key); if (!w) return null; const sig = SIGNATURES[key]; const reach = w.element && w.depth >= 1 ? (ELEMENT_REACH[w.element] ?? BASE_REACH[key]) : BASE_REACH[key]; const pay = payPoolFor(w); const nextCost = w.depth + 1; return (
+                      <section key={key} className={`weapon-branch${exp.weaponKey === key ? " in-hand" : ""}`}>
+                        <header>
+                          <img src={weaponImg(key)} alt="" />
+                          <div><h5>{WEAPONS[key].name}</h5><p>d{WEAPONS[key].die} · {WEAPONS[key].note} · {WEAPONS[key].blurb}</p></div>
+                          {exp.weaponKey === key ? <span className="weapon-held">⚔ In hand</span> : <button type="button" className="zodiac-btn" disabled={charBusy || !exp.classKey} onClick={() => wieldM.mutate(key)}>Wield</button>}
+                        </header>
+                        <p>Level <strong>{w.level}</strong> · {w.xp} xp · damage <strong>+{w.level}</strong> (+1 per level) · Reach <strong>{reach}</strong> {w.element && w.depth >= 1 ? `(${w.element} reach while attuned)` : "(base reach)"}</p>
+                        <div className="attune-row" aria-label={`${WEAPONS[key].name} attunement`}>
+                          <span>Attunement {w.element ? `${EL_EMOJI[w.element] ?? ""} ${w.element}` : "— none"}:</span>
+                          {[1, 2, 3, 4].map(d => <span key={d} className={`attune-node${w.depth >= d ? " lit" : ""}`} title={`Node ${ROMAN[d]}`}>{ROMAN[d]}</span>)}
+                        </div>
+                        {w.depth >= 4 ? <p className="zodiac-held">Attunement at its deepest (IV).</p> : w.element ? (
+                          <div className="weapon-actions">
+                            <button type="button" className="zodiac-btn take" disabled={charBusy || (exp.pools[w.element] ?? 0) < nextCost} onClick={() => attuneM.mutate({ weaponKey: key, element: w.element as ElementKey })}>Pour {w.element} — node {ROMAN[w.depth + 1]} for {nextCost} pt{nextCost === 1 ? "" : "s"} (pool {exp.pools[w.element] ?? 0})</button>
+                            <details className="weapon-switch"><summary>Start a different element over (resets depth, 1 pt)</summary>
+                              <div className="weapon-actions">{ELEMENTS.filter(el => el !== w.element).map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} {el} — 1 pt</button>)}</div>
+                            </details>
+                          </div>
+                        ) : (
+                          <div className="weapon-actions">{ELEMENTS.map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} Attune {el} — node I for 1 pt (pool {exp.pools[el] ?? 0})</button>)}</div>
+                        )}
+                        <div className="weapon-nodes">
+                          <div className="weapon-node">
+                            <strong>Manifest</strong><span> — casts +1 copy</span>
+                            {w.manifest ? <p className="zodiac-held">✓ Owned</p> : <><button type="button" className="zodiac-btn take" title="Manifest casts +1 copy" disabled={charBusy || !exp.classKey || pay.points < 3} onClick={() => buyNodeM.mutate({ weaponKey: key, node: "manifest" })}>Buy Manifest — 3 pts</button><p className="zodiac-note small">{pay.el ? `Pays from your ${pay.el} pool (${pay.points}).` : "No aspect pool holds points yet."}{pay.points < 3 ? " Needs 3." : ""}</p></>}
+                          </div>
+                          <div className="weapon-node">
+                            <strong>Signature · {sig.name}</strong><span> — {sig.desc}</span>
+                            {w.signature ? <p className="zodiac-held">✓ Owned</p> : <><button type="button" className="zodiac-btn take" title={`${sig.name}: ${sig.desc}`} disabled={charBusy || !exp.classKey || pay.points < 3} onClick={() => buyNodeM.mutate({ weaponKey: key, node: "signature" })}>Buy {sig.name} — 3 pts</button><p className="zodiac-note small">{pay.el ? `Pays from your ${pay.el} pool (${pay.points}).` : "No aspect pool holds points yet."}{pay.points < 3 ? " Needs 3." : ""}</p></>}
+                          </div>
+                        </div>
+                      </section>); })}
+                    {!exp.classKey && <p className="zodiac-lock">The arsenal opens with your class — choose a class first.</p>}
+                  </div>
+                )}
+
+                {grimTab === "spells" && (
+                  <div>
+                    <p className="zodiac-note small">The book's record — read-only. Spell powering machinery does not exist yet, so nothing here pours or buys; this tab does not pretend otherwise.</p>
+                    <p className="casting-law">Casting law: <strong>+2</strong> within your school, <strong>−3</strong> across the closed schools (the Sage pays −3 on every cast; the Spell school stays open to all). Every cast rolls d20 + gift against the working's level + 10, and a failed cast still spends its energy.</p>
+                    {grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
+                    {grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
+                    <ul className="character-list spells">
+                      {(grimoireQ.data?.spells ?? []).map(s => (
+                        <li key={s.key}><strong>{s.name}</strong> — school: {s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}{s.blurb ? <><br /><span>{s.blurb}</span></> : null}</li>
+                      ))}
+                    </ul>
+                    {grimoireQ.data && grimoireQ.data.spells.length === 0 && <p className="zodiac-note">No spells are written in the book yet.</p>}
+                  </div>
+                )}
+
+                {grimTab === "runes" && (
+                  <div>
+                    <p className="zodiac-note small">Read-only standing — ward and rune workings are cast on the land and at the Table, not powered from this page.</p>
+                    <ul className="character-list">
+                      <li>Ward &amp; Rune arts: <strong>{exp.wardRuneUnlocked ? "unlocked" : "locked"}</strong> — {exp.wardRuneUnlocked ? "opened at Tender Lv 3." : `opens at Tender Lv 3 (you are Lv ${exp.level}).`}</li>
+                      <li>Ward workings in the book: <strong>{(grimoireQ.data?.spells ?? []).filter(s => s.kind === "ward").length}</strong> · Rune workings: <strong>{(grimoireQ.data?.spells ?? []).filter(s => s.kind === "rune").length}</strong></li>
+                    </ul>
+                    <h4>The filling energy — attunement pools</h4>
+                    <ul className="character-list">
+                      {ELEMENTS.map(el => <li key={el}>{EL_EMOJI[el]} {el}: <strong>{exp.pools[el] ?? 0}</strong> pts · attunement Lv {state?.attunementLevels[el] ?? 0}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </aside>
+      </div>
     </div>
   );
 }

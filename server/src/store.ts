@@ -684,8 +684,12 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   xp INTEGER NOT NULL DEFAULT 0,
   attunement_element TEXT,
   attunement_depth INTEGER NOT NULL DEFAULT 0,
+  manifest_node INTEGER NOT NULL DEFAULT 0,
+  signature_node INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner_key, weapon_key)
 )`);
+try { sqlite.exec(`ALTER TABLE tender_weapons ADD COLUMN manifest_node INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_weapons ADD COLUMN signature_node INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN follow INTEGER NOT NULL DEFAULT 0`); } catch {}
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_password_resets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

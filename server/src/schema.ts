@@ -497,6 +497,8 @@ export const tenderWeapons = sqliteTable("tender_weapons", {
   xp: integer("xp").notNull().default(0),
   attunementElement: text("attunement_element"),
   attunementDepth: integer("attunement_depth").notNull().default(0),
+  manifestNode: integer("manifest_node").notNull().default(0),
+  signatureNode: integer("signature_node").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.weaponKey] })]);
 
 export const tenderResources = sqliteTable("tender_resources", {

@@ -2713,6 +2713,49 @@ body.defeat-flash {
 .zodiac-note{max-width:1180px;margin:10px auto;color:#9aa3b8;font-size:13.5px}
 .zodiac-note.small{font-size:11.5px;margin-top:12px;line-height:1.45}
 
+/* ── THE CHARACTER MENU (Phase C, 2026-10-19): the Zodiac
+   screen as character hub — wheel left, profile card right. */
+.character-layout{display:flex;gap:14px;max-width:1460px;margin:0 auto;align-items:flex-start;flex-wrap:wrap}
+.character-layout .zodiac-body{flex:2 1 640px;max-width:none;margin:0}
+.character-card{flex:1 1 360px;max-width:520px;min-width:300px;background:rgba(18,16,26,0.92);border:1px solid rgba(240,214,140,0.32);border-radius:14px;padding:16px;color:#e6e1d2;max-height:calc(100vh - 90px);overflow:auto}
+.character-head{display:flex;gap:12px;align-items:flex-start}
+.character-avatar{width:84px;height:104px;object-fit:contain;object-position:bottom center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.5))}
+.character-avatar-none{display:flex;align-items:center;justify-content:center;font-size:30px;color:#9aa3b8;border:1px dashed rgba(240,214,140,.35);border-radius:10px}
+.character-id h3{margin:0 0 4px;font-size:19px;color:#f0d68c}
+.character-exp{margin:0 0 6px;font-size:12.5px;color:#cfd3e2}
+.character-wield{display:flex;align-items:center;gap:7px;margin:0;font-size:13px}
+.character-wield img{width:26px;height:34px;object-fit:contain}
+.character-tabs{display:flex;gap:6px;margin:12px 0 10px;flex-wrap:wrap}
+.character-tabs.sub{margin-top:0}
+.character-tab{padding:6px 13px;border-radius:999px;border:1px solid rgba(240,214,140,0.4);background:rgba(255,255,255,0.03);color:#cfd3e2;cursor:pointer;font-size:12.5px;letter-spacing:.03em}
+.character-tab.active{color:#14161f;background:#f0d68c;border-color:#f0d68c;font-weight:700}
+.character-msg{color:#9ed07e;font-size:13px}
+.character-pane h4{margin:14px 0 6px;color:#f0d68c;font-size:14px}
+.character-pane h4:first-child{margin-top:4px}
+.character-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13px;line-height:1.45}
+.character-list li.in-hand{color:#f0d68c}
+.character-list.spells li{border-bottom:1px solid rgba(240,214,140,0.12);padding-bottom:6px}
+.casting-law{font-size:12.5px;line-height:1.5;color:#cfd3e2}
+.weapon-branch{border:1px solid rgba(240,214,140,0.22);border-radius:11px;padding:11px 12px;margin-bottom:11px}
+.weapon-branch.in-hand{border-color:#f0d68c}
+.weapon-branch header{display:flex;gap:10px;align-items:flex-start}
+.weapon-branch header img{width:34px;height:48px;object-fit:contain}
+.weapon-branch h5{margin:0 0 3px;font-size:15px;color:#f0d68c}
+.weapon-branch header p{margin:0;font-size:11.5px;color:#9aa3b8;line-height:1.4}
+.weapon-branch p{font-size:12.5px;line-height:1.45}
+.weapon-held{margin-left:auto;color:#9ed07e;font-size:12.5px;white-space:nowrap}
+.weapon-branch header .zodiac-btn{margin-left:auto;margin-top:0;white-space:nowrap}
+.attune-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin:6px 0}
+.attune-node{border:1px solid rgba(240,214,140,0.4);border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;color:#9aa3b8}
+.attune-node.lit{background:rgba(240,214,140,0.85);color:#14161f;font-weight:700}
+.weapon-actions{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0}
+.weapon-actions .zodiac-btn{margin-top:0;font-size:12px;padding:7px 10px}
+.weapon-switch{width:100%;font-size:12.5px;color:#9aa3b8}
+.weapon-nodes{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}
+.weapon-node{border:1px solid rgba(240,214,140,0.16);border-radius:9px;padding:8px 9px;font-size:12.5px}
+.weapon-node .zodiac-btn{font-size:12px;padding:7px 10px}
+@media (max-width: 820px){.character-card{max-height:none}.weapon-nodes{grid-template-columns:1fr}}
+
 /* The deepen door on the front page (Nigel, 2026-10-18):
    it stands only while the attunement panel stands open —
    the front page carries no extra attunement bar of its

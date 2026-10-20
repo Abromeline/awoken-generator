@@ -21,7 +21,7 @@ import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { BUNDLED_ENEMIES } from "./enemyArt";
 import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
-import { WEAPONS, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
+import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -65,10 +65,17 @@ const HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#57c8ff
 const HUE_LABELS: Record<string, string> = { unaligned: "Unaligned", tide: "Tide", sky: "Sky", stone: "Stone", root: "Root", fire: "Fire" };
 
 interface WorkingView {
-  id: string; kind: "ward" | "rune"; root: string; name: string; hue: string;
+  id: string; kind: "ward" | "rune" | "grove"; root: string; name: string; hue: string;
+  engine?: string;
   ownerKey: string; ownerName: string;
   hex: string | null; hexA: string | null; hexB: string | null;
   hp: number; stops: number; charges: number;
+  /** GROVES (the Springleaf, Phase C): centre in stage px,
+   *  radius, and expiry — the grove is drawn from these. */
+  pos?: { x: number; y: number } | null;
+  radiusPx?: number;
+  expiresAt?: number;
+  mother?: boolean;
 }
 
 interface TableCard {
@@ -138,7 +145,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null; weaponLevel?: number; weaponElement?: string | null; weaponDepth?: number; weaponManifest?: boolean; weaponSignature?: boolean }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -146,8 +153,14 @@ interface SharedState {
   enemies: EnemyView[];
   dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; pos: { x: number; y: number }; tgt: { x: number; y: number } | null; moving: boolean }[];
   workings: WorkingView[];
+  /** SHARD RAIN FALLS (Phase C): the moment the sky opened,
+   *  and over which hexes — the drawn rain shows there. */
+  rainFalls?: { id: string; at: number; hexes: string[] }[];
   battle: { active: boolean; wave: number };
-  strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean }[];
+  strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean }[];
+  /** MANIFEST (Phase C): live copies of a Tender's weapon,
+   *  orbiting their figure until they fade. */
+  manifests?: { ownerKey: string; weaponKey: string; count: number; expiresAt: number }[];
   bastion?: {
     callId: number; kind: string; hostName: string; ambush: boolean;
     pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
@@ -169,6 +182,11 @@ interface YouState {
   wardRuneUnlocked?: boolean;
   classKey?: string | null;
   weaponKey?: string | null;
+  weaponLevel?: number;
+  weaponElement?: string | null;
+  weaponDepth?: number;
+  weaponManifest?: boolean;
+  weaponSignature?: boolean;
   tenderHp?: number;
   maxTenderHp?: number;
   pools?: Record<string, number> | null;
@@ -503,6 +521,10 @@ export default function Table() {
   // click chooses the glyph; the next left clicks choose the
   // target, by the placing laws that already govern casting.
   const [radial, setRadial] = useState<{ x: number; y: number } | null>(null);
+  // The wheel's ABILITY sub-ring (Phase C): the four weapons to
+  // wield between, and Manifest — opened from the main ring's
+  // ABILITY entry, in the same geometry and language.
+  const [radialAbility, setRadialAbility] = useState(false);
   // CASTING GESTURES (Nigel, 2026-10-19): who is mid-cast on
   // this screen, and toward what. Own casts begin the moment
   // the order is given; other seats' casts arrive on the
@@ -584,7 +606,7 @@ export default function Table() {
       if (glideTimerRef.current) { clearInterval(glideTimerRef.current); glideTimerRef.current = null; }
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Escape") { setRadial(null); return; }
+      if (e.code === "Escape") { setRadial(null); setRadialAbility(false); return; }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       const step = GLIDE_STEPS[e.code];
@@ -1152,6 +1174,7 @@ export default function Table() {
       if (pt && you && shared.players.some(p => p.key === you.key && p.hex)) {
         suppressTapRef.current = true;
         setTimeout(() => { suppressTapRef.current = false; }, 120);
+        setRadialAbility(false);
         setRadial(pt);
       }
     }
@@ -1169,7 +1192,7 @@ export default function Table() {
     if (!you) return;
     if (!shared.players.some(p => p.key === you.key && p.hex)) return;
     const pt = stagePointOf(clientX, clientY);
-    if (pt) setRadial(pt);
+    if (pt) { setRadialAbility(false); setRadial(pt); }
   };
 
   // The selected Awoken and its march price (the land's rate:
@@ -1427,6 +1450,19 @@ export default function Table() {
             <image className="ts-weapon-bob shield" href={shieldImg()} x={gx - 44} y={gy - 45} width={27} height={27}
               preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 4px rgba(255,215,100,0.4))" }} />
           )}
+          {/* MANIFEST copies (Phase C): small twin weapons
+              orbiting opposite the true one while they last. */}
+          {(shared.manifests ?? []).filter(m => m.ownerKey === p.key).map(m => (
+            Array.from({ length: m.count }, (_, ci) => {
+              const ang = nowMs / 900 + Math.PI + (ci * 2 * Math.PI) / Math.max(1, m.count);
+              const ox = gx + Math.cos(ang) * 27, oy = gy - 26 + Math.sin(ang) * 9;
+              const mk = m.weaponKey as WeaponKey;
+              return WEAPONS[mk] ? (
+                <image key={`manifest-${ci}`} className="ts-manifest-copy" href={weaponImg(mk)} x={ox - 10} y={oy - 10} width={20} height={20}
+                  preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(205,185,255,0.8))" }} />
+              ) : null;
+            })
+          ))}
           <text className="ts-name tender" x={gx} y={gy + 21}>{p.name}</text>
           {mine && (
             <circle cx={gx} cy={gy - 26} r={24} fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
@@ -1613,6 +1649,23 @@ export default function Table() {
               {shared.workings.map((w) => {
                 const img = defs[w.root]?.glyph ?? GLYPHS[w.root] ?? null;
                 const filter = `${HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 6px ${HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
+                if (w.kind === "grove" && w.pos && w.radiusPx) {
+                  // THE SPRINGLEAF'S GROVE (Phase C): a soft
+                  // green root-glow circle on the ground (the
+                  // Root aspect's colour language), the drawn
+                  // Trees glyph at its heart, fading as its
+                  // lent time runs out.
+                  const left = w.expiresAt ? Math.max(0, w.expiresAt - nowMs) : 20000;
+                  const fade = Math.min(1, left / 6000);
+                  return (
+                    <g key={w.id} pointerEvents="none" className="grove-glow">
+                      <circle cx={w.pos.x} cy={w.pos.y} r={w.radiusPx} fill="#7dd069" opacity={0.10 + 0.05 * fade} />
+                      <circle cx={w.pos.x} cy={w.pos.y} r={w.radiusPx} fill="none" stroke="#7dd069" strokeWidth={1.6} opacity={0.28 + 0.25 * fade} style={{ filter: "drop-shadow(0 0 7px #7dd069)" }} />
+                      <image href={ANIMATED_GLYPH.trees} x={w.pos.x - 17} y={w.pos.y - 17} width={34} height={34} opacity={0.55 + 0.4 * fade} />
+                      <text className="ts-tag" x={w.pos.x} y={w.pos.y + 27}>{w.mother ? "🌿" : "🌱"} {Math.max(0, Math.ceil(left / 1000))}s</text>
+                    </g>
+                  );
+                }
                 if (w.kind === "rune" && w.hex) {
                   const c = centerOf(w.hex);
                   if (!c) return null;
@@ -1645,6 +1698,22 @@ export default function Table() {
                 }
                 return null;
               })}
+              {/* SHARD RAIN FALLS (Phase C): when the rain
+                  springs, Nigel's drawn shard-rain.gif falls
+                  over every covered hex for the fall's moment.
+                  (The standing rune already wears the same gif
+                  as its glyph — ANIMATED_GLYPH.shardrain in
+                  effects.ts IS shard-rain.gif — this is the
+                  fall itself, at the hexes it covers.) */}
+              {(shared.rainFalls ?? []).filter(f => nowMs - f.at < 1800).map(f => (
+                <g key={`rain-${f.id}`} pointerEvents="none">
+                  {f.hexes.map(hx => {
+                    const c = centerOf(hx);
+                    if (!c) return null;
+                    return <image key={hx} href={ANIMATED_GLYPH.shardrain} x={c.cx - 40} y={c.cy - 44} width={80} height={80} opacity={0.92} style={{ filter: "drop-shadow(0 0 6px #cdb9ff)" }} />;
+                  })}
+                </g>
+              ))}
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
               {/* THE GLYPH WHEEL: your castable workings in a
@@ -1653,17 +1722,65 @@ export default function Table() {
                   chooses; the placing laws choose the target
                   after. Locked workings hang dimmed. */}
               {radial && you && (() => {
-                const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; act: () => void }[] = [];
+                const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
                 for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
                   offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
                 }
                 if (healDef) {
                   offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
                 }
+                // THE SPRINGLEAF (Phase C): a binding-school
+                // def the server routes through castWard — it
+                // places by the ward flow (held anchor, then
+                // the target hex the grove roots on).
+                for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
+                  offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+                }
                 for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
                   offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
                 }
+                // ABILITY (Phase C): the ring's last entry opens
+                // the weapon sub-ring instead of casting.
+                offerings.push({ key: "ability", glyph: null, emoji: "⚔", cost: -1, locked: false, keepOpen: true, act: () => setRadialAbility(true) });
                 const R = 58;
+                const meP = shared.players.find(p => p.key === you.key);
+                const myEnergy = meP?.energy ?? you.energy ?? 0;
+                const myWeapon = (meP?.weaponKey ?? you.weaponKey ?? null) as WeaponKey | null;
+                if (radialAbility) {
+                  // THE ABILITY SUB-RING: the four weapons (the
+                  // wielded one lit) and MANIFEST at its ⚡4 —
+                  // greyed, and silent, when the purse is short.
+                  const nodes: { key: string; img: string | null; emoji: string; label: string; lit: boolean; locked: boolean; act: () => void }[] = [];
+                  for (const wk of WEAPON_ORDER) {
+                    nodes.push({ key: `wp-${wk}`, img: weaponImg(wk), emoji: "⚔", label: WEAPONS[wk].name.split(" ")[0], lit: myWeapon === wk, locked: false, act: () => send({ type: "wield", weaponKey: wk }) });
+                  }
+                  nodes.push({ key: "manifest", img: myWeapon ? weaponImg(myWeapon) : null, emoji: "❖", label: "⚡4", lit: false, locked: myEnergy < 4, act: () => send({ type: "manifest" }) });
+                  return (
+                    <g key="ability-wheel">
+                      <rect x={radial.x - 900} y={radial.y - 900} width={1800} height={1800} fill="transparent" pointerEvents="all"
+                        onClick={() => { setRadial(null); setRadialAbility(false); }}
+                        onContextMenu={(e) => { e.preventDefault(); setRadial(null); setRadialAbility(false); }} />
+                      <circle cx={radial.x} cy={radial.y} r={20} fill="rgba(10,8,16,0.88)" stroke="#c9a227" strokeWidth={1} pointerEvents="all"
+                        style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setRadialAbility(false); }} />
+                      <text x={radial.x} y={radial.y + 5} textAnchor="middle" fontSize={13} fill="#ffd977" pointerEvents="none">⚔</text>
+                      {nodes.map((o, i) => {
+                        const a = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(1, nodes.length);
+                        const gx = radial.x + R * Math.cos(a), gy = radial.y + R * Math.sin(a);
+                        return (
+                          <g key={o.key} opacity={o.locked ? 0.32 : o.lit ? 1 : 0.85}
+                            style={o.locked ? undefined : { cursor: "pointer" }}
+                            onClick={o.locked ? undefined : (e) => { e.stopPropagation(); o.act(); setRadial(null); setRadialAbility(false); }}>
+                            <circle cx={gx} cy={gy} r={19} fill="rgba(10,8,16,0.92)" stroke={o.lit ? "#ffd977" : "#c9a227"} strokeWidth={o.lit ? 2 : 1} />
+                            {o.img
+                              ? <image href={o.img} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: o.lit ? "drop-shadow(0 0 6px #ffd977)" : undefined, pointerEvents: "none" }} />
+                              : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
+                            <text x={gx} y={gy + 15} textAnchor="middle" fontSize={7.5} fill="#ffd977" pointerEvents="none">{o.label}</text>
+                          </g>
+                        );
+                      })}
+                    </g>
+                  );
+                }
                 return (
                   <g key="glyph-wheel">
                     <rect x={radial.x - 900} y={radial.y - 900} width={1800} height={1800} fill="transparent" pointerEvents="all"
@@ -1677,12 +1794,12 @@ export default function Table() {
                       return (
                         <g key={o.key} opacity={o.locked ? 0.32 : 1}
                           style={o.locked ? undefined : { cursor: "pointer" }}
-                          onClick={o.locked ? undefined : (e) => { e.stopPropagation(); o.act(); setRadial(null); }}>
+                          onClick={o.locked ? undefined : (e) => { e.stopPropagation(); o.act(); if (!o.keepOpen) setRadial(null); }}>
                           <circle cx={gx} cy={gy} r={19} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={1} />
                           {o.glyph
                             ? <image href={o.glyph} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 5px ${HUE_GLOWS[pourHue]})`, pointerEvents: "none" }} />
                             : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
-                          <text x={gx} y={gy + 15} textAnchor="middle" fontSize={7.5} fill="#ffd977" pointerEvents="none">⚡{o.cost}</text>
+                          <text x={gx} y={gy + 15} textAnchor="middle" fontSize={o.key === "ability" ? 6 : 7.5} fill="#ffd977" pointerEvents="none">{o.key === "ability" ? "ABILITY" : `⚡${o.cost}`}</text>
                         </g>
                       );
                     })}
@@ -1772,8 +1889,10 @@ export default function Table() {
                   {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
-                  {placing.kind === "ward" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>you hold</strong> — your own ground, or your Awokin's: the ward will stand on one of its edges.</>}
-                  {placing.kind === "ward" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>you hold</strong> — your own ground, or your Awokin's — to anchor the grove.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex <strong>you hold</strong> — your own ground, or your Awokin's: the ward will stand on one of its edges.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two.</>}
                 </span>
                 {placing.kind !== "heal" && ["seal", "trees", "lattice", "shard"].includes(defs[placing.root]?.engine ?? "") && pourHue !== "unaligned" && you?.pools && (() => {
                   const def = defs[placing.root];
@@ -2124,6 +2243,22 @@ export default function Table() {
                     <span>Restore {you.healAmount ?? 5} HP to one of your standing Awokin. In our lore, the healers are the Binders.</span>
                   </span>
                 </button>
+                {Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf").map(d => {
+                  const formName = d.forms[pourHue] ?? d.root;
+                  const locked = !you.wardRuneUnlocked;
+                  return (
+                    <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
+                      onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
+                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ⚡${d.cost}. Tap, choose the hex your Awokin holds, then the hex the grove roots on.`}>
+                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">🌿</span>}
+                      <span className="working-text">
+                        <strong>{locked ? "🔒 " : ""}{formName}</strong>
+                        <em>{d.root} · Binding · ⚡{d.cost}</em>
+                        <span>{d.blurb}</span>
+                      </span>
+                    </button>
+                  );
+                })}
                 {Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell").map(d => {
                   const formName = d.forms[pourHue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;

@@ -83,13 +83,13 @@ export interface TenderProgressView {
    *  leveled and attuned separately; weaponKey above is the one
    *  in hand. Pools ride along so the attune pour shows honest
    *  numbers (the Tender's aspect_attunement balances). */
-  arsenal: { key: string; level: number; xp: number; element: string | null; depth: number }[];
+  arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[];
   pools: Record<string, number>;
 }
 
 export const ARSENAL_KEYS = ["swordshield", "sword", "spear", "arrow"];
 export function defaultArsenal() {
-  return ARSENAL_KEYS.map((key) => ({ key, level: 1, xp: 0, element: null as string | null, depth: 0 }));
+  return ARSENAL_KEYS.map((key) => ({ key, level: 1, xp: 0, element: null as string | null, depth: 0, manifest: false, signature: false }));
 }
 
 function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number; weaponKey?: string | null }, extra?: { arsenal: TenderProgressView["arsenal"]; pools: Record<string, number> }): TenderProgressView {
@@ -135,7 +135,7 @@ export async function getTenderProgress(ownerKey: string): Promise<TenderProgres
       .where(eq(schema.tenderWeapons.ownerKey, ownerKey));
     const arsenal = defaultArsenal().map((d) => {
       const r = wrows.find((w) => w.weaponKey === d.key);
-      return r ? { key: d.key, level: r.level, xp: r.xp, element: r.attunementElement ?? null, depth: r.attunementDepth } : d;
+      return r ? { key: d.key, level: r.level, xp: r.xp, element: r.attunementElement ?? null, depth: r.attunementDepth, manifest: !!(r as any).manifestNode, signature: !!(r as any).signatureNode } : d;
     });
     const prows = await db.select().from(schema.aspectAttunement)
       .where(eq(schema.aspectAttunement.ownerKey, ownerKey));

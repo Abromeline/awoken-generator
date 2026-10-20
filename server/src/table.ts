@@ -103,6 +103,17 @@ interface Player {
   classKey?: string | null;
   /** THE RUNIC WEAPON (Nigel, 2026-10-19): floats at his side. */
   weaponKey?: string | null;
+  /** THE WEAPON CONTRACT (Phase C): the wielded weapon's own
+   *  standing, read fresh from its tender_weapons row (via the
+   *  progress view's arsenal entry, with the row itself as the
+   *  fallback) at bind time and at every wield — level, attuned
+   *  element and depth, and the Manifest / Signature nodes.
+   *  Defaults (Lv 1, unattuned, no nodes) when no row stands. */
+  weaponLevel?: number;
+  weaponElement?: string | null;
+  weaponDepth?: number;
+  weaponManifest?: boolean;
+  weaponSignature?: boolean;
   /** The seat's Tender standing (Tender EXP, 2026-10-16): a
    *  bound seat carries its Tender's true level and what it
    *  unlocks; a stand-in seat stands at Lv 1. */
@@ -250,7 +261,7 @@ interface EnemyUnit {
  *  hangs unfed, has fallen where it must. */
 interface Working {
   id: string;
-  kind: "ward" | "rune";
+  kind: "ward" | "rune" | "grove";
   root: string;
   /** The Grimoire spell's engine and its numbers, snapshotted
    *  at the cast (Nigel, 2026-10-17): tuning the book changes
@@ -282,6 +293,21 @@ interface Working {
   maxCharges?: number;
   /** The Ground Remembers: this rune waits out the fade. */
   rememberMark?: boolean;
+  /** GROVES (the Springleaf, Phase C): a grove working carries
+   *  its centre in pixels, its radius, its expiry, its sapling
+   *  schedule (due times + pre-rolled rooting points), its last
+   *  mend beat, and whether it is the mother grove of its cast. */
+  pos?: Pt | null;
+  radiusPx?: number;
+  expiresAt?: number;
+  saplingDue?: number[];
+  saplingPos?: Pt[];
+  lastMend?: number;
+  mother?: boolean;
+  /** PASSIVE WALLS (Phase C): the unit key sustaining a passive
+   *  ward — when that unit no longer stands on one of the
+   *  ward's two hexes, the wall comes down. */
+  sustainer?: string;
 }
 
 const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
@@ -487,6 +513,8 @@ interface Strike {
   killed: boolean;
   weapon?: string | null;
   pierce?: boolean;
+  /** Struck by a Manifest copy, not the true weapon. */
+  copy?: boolean;
 }
 
 /** A CAMPAIGN at the Table (Phase B, 2026-10-18; design of
@@ -514,8 +542,25 @@ interface CampaignState {
   storytenderName: string | null;
 }
 
+/** MANIFEST (Phase C): copies of a Tender's wielded weapon,
+ *  lent by the light for twenty seconds. Each copy is its own
+ *  strike source, anchored at its Tender's position, striking
+ *  on the true weapon's cadence — `nexts` holds each copy's
+ *  next strike moment, first strikes staggered ~200ms apart. */
+interface ManifestSet {
+  ownerKey: string;
+  weaponKey: string;
+  count: number;
+  expiresAt: number;
+  nexts: number[];
+}
+
 interface Room {
   id: string;
+  /** Live Manifest sets, by the room — they fade at expiry
+   *  (in the tick) and die at once when their Tender wields
+   *  another weapon. */
+  manifests: ManifestSet[];
   /** "campaign" rooms (id begins "campaign") run Phase B;
    *  every other room is the casual Table, unchanged. */
   mode: "casual" | "campaign";
@@ -553,6 +598,13 @@ interface Room {
   prevWardEdges?: Set<string>;
   /** Lore Binder: bindings scheduled to echo a round later. */
   pendingEchoes?: { hex: string; pin: number; due: number }[];
+  /** SHARD RAIN FALLS (Phase C): the rain's fall is an event,
+   *  not a standing working — the moment the sky opens over
+   *  covered hexes, so clients can show the drawn rain there. */
+  rainFalls?: { id: string; at: number; hexes: string[] }[];
+  /** PASSIVE WALLS (Phase C): when a passive ward on an edge
+   *  is broken, the moment it may re-raise (edge|owner → at). */
+  passiveRearm?: Map<string, number>;
 }
 
 const edgeKeyOf = (a: string, b: string): string => [a, b].sort().join("|");
@@ -640,6 +692,81 @@ const WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6
 const WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
 const WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
 const WEAPON_AC: Record<string, number> = { swordshield: 3, sword: 1, spear: 0, arrow: 0 };
+const WEAPON_KEYS = ["swordshield", "sword", "spear", "arrow"];
+/** One weapon's contract standing (Phase C), as the menu
+ *  stream files it: tender_weapons rows carry level,
+ *  attunement_element, attunement_depth and the two node
+ *  columns (manifest_node, signature_node); the progress
+ *  view's arsenal entries mirror them as
+ *  { level, element, depth, manifest, signature }. */
+export interface WeaponContract { level: number; element: string | null; depth: number; manifest: boolean; signature: boolean; }
+function defaultWeaponContract(): WeaponContract {
+  return { level: 1, element: null, depth: 0, manifest: false, signature: false };
+}
+/** Read a weapon's contract FRESH, tolerating the contract
+ *  columns/view fields being absent until the menu stream's
+ *  build lands: the arsenal view first (when it carries the
+ *  nodes), then the row itself for whatever columns stand. */
+async function weaponContractFor(expKey: string | null, weaponKey: string | null): Promise<WeaponContract> {
+  const c = defaultWeaponContract();
+  if (!expKey || !weaponKey) return c;
+  try {
+    const progress = await getTenderProgress(expKey).catch(() => null) as any;
+    const entry = progress?.arsenal?.find((w: any) => w.key === weaponKey);
+    if (entry) {
+      if (typeof entry.level === "number") c.level = entry.level;
+      c.element = entry.element ?? null;
+      if (typeof entry.depth === "number") c.depth = entry.depth;
+      if (typeof entry.manifest === "boolean") c.manifest = entry.manifest;
+      if (typeof entry.signature === "boolean") c.signature = entry.signature;
+    }
+  } catch { /* the contract is a reading; never let it break the room */ }
+  try {
+    const row = sqlite.prepare("SELECT * FROM tender_weapons WHERE owner_key = ? AND weapon_key = ?")
+      .get(expKey, weaponKey) as any;
+    if (row) {
+      if (typeof row.level === "number") c.level = row.level;
+      if ("attunement_element" in row) c.element = row.attunement_element ?? null;
+      if (typeof row.attunement_depth === "number") c.depth = row.attunement_depth;
+      if ("manifest_node" in row) c.manifest = !!row.manifest_node;
+      if ("signature_node" in row) c.signature = !!row.signature_node;
+    }
+  } catch { /* as above */ }
+  return c;
+}
+function applyWeaponContract(p: Player, c: WeaponContract): void {
+  p.weaponLevel = c.level;
+  p.weaponElement = c.element;
+  p.weaponDepth = c.depth;
+  p.weaponManifest = c.manifest;
+  p.weaponSignature = c.signature;
+}
+/** The wielded weapon's reach in hexes (Phase C referee law):
+ *  its base reach, or — once attuned (depth ≥ 1, an element
+ *  set) — its ELEMENT's reach instead. The spear's Signature
+ *  (LONGSHAFT) adds one hex on top of whichever applies. */
+function weaponRangeHexOf(p: Player): number {
+  const wk = p.weaponKey ?? "";
+  let range = WEAPON_RANGE_HEX[wk] ?? 0;
+  if ((p.weaponDepth ?? 0) >= 1 && p.weaponElement && ELEMENT_REACH[p.weaponElement] != null) {
+    range = ELEMENT_REACH[p.weaponElement];
+  }
+  if (wk === "spear" && p.weaponSignature) range += 1;
+  return range;
+}
+/** The wielded weapon's harm roll (Phase C): its die, plus a
+ *  point per level past the first, plus the sword Signature's
+ *  KEEN edge (+2) — all before Fate's mitigation. */
+function weaponDamageOf(p: Player, wk: string): number {
+  return dN(WEAPON_DIE[wk])
+    + Math.max(0, (p.weaponLevel ?? 1) - 1)
+    + (wk === "sword" && p.weaponSignature ? 2 : 0);
+}
+/** A wield-switch (or a fade) dismisses a Tender's live
+ *  Manifest copies at once. */
+function dismissManifests(room: Room, ownerKey: string): void {
+  if (room.manifests) room.manifests = room.manifests.filter(m => m.ownerKey !== ownerKey);
+}
 const DARK_ARMOR: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
 const DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
 function dN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
@@ -676,6 +803,48 @@ function fateDarkDamage(enemy: EnemyUnit, crit: boolean): number {
 /** AC beyond toughness: skills, spells, and runes will add
  *  here (Nigel's naming). Nothing adds yet. */
 function acBonusOf(_unit: FieldUnit): number { return 0; }
+
+// ── THE CASTING LAW AT THE TABLE (Phase C; the book's law,
+// grimoire.ts): each class owns a school — Warden the Ward,
+// Runewright the Rune, Binder the Binding, Witch the Spell
+// school itself. A cast IN the caster's school takes +2 plus
+// the level ladder (fateLevelBonus: +1 at Lv 3, 6, 9…). The
+// Spell school stands OPEN: any other tender casts it at ±0.
+// Cross-class on the closed schools (ward / rune / binding)
+// takes −3. The SAGE owns no school: −3 on EVERY cast, spells
+// included. Classless and unknown classes stand as no school
+// (spell ±0, closed schools −3). Every cast ROLLS: d20 + mod
+// against DC = the spell's level (numbers.level, default 1)
+// + 10. A natural 20 always stands; a natural 1 always
+// unravels — the Keeper's manners, as Fate keeps them.
+const CLASS_SCHOOL: Record<string, string | null> = {
+  warden: "ward", runewright: "rune", binder: "binding", witch: "spell", sage: null,
+};
+function rollCast(player: Player, def: { kind: string; name: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number } {
+  const school = def.kind;
+  let mod: number;
+  if (player.classKey === "sage") mod = -3;
+  else if (player.classKey && CLASS_SCHOOL[player.classKey] === school) mod = 2 + fateLevelBonus(player.tenderLevel);
+  else if (school === "spell") mod = 0;
+  else mod = -3;
+  const dc = (def.numbers?.level ?? 1) + 10;
+  const roll = dN(20);
+  const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
+  return { ok, roll, mod, dc };
+}
+/** A fizzled cast (the Casting Law): the energy is already
+ *  spent — the working simply does not happen. The tale names
+ *  the unravel, and the caster's gesture still plays. */
+function castUnravels(room: Room, player: Player, spellName: string): void {
+  player.castAt = Date.now();
+  tell(room, `${player.name}'s ${spellName} unravels — the roll falls short.`);
+}
+/** Is this seat a seated Sage? (Her company stands taller —
+ *  keyed per-owner, so two sages in a room bless only their
+ *  own companies.) */
+function ownerIsSage(room: Room, ownerKey: string): boolean {
+  return seatByKey(room, ownerKey)?.classKey === "sage";
+}
 
 export async function deckForTender(tenderId: number): Promise<TableCard[]> {
   const ownerKey = tenderOwnerKey(tenderId);
@@ -775,7 +944,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null })),
+    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null, weaponLevel: p.weaponLevel ?? 1, weaponElement: p.weaponElement ?? null, weaponDepth: p.weaponDepth ?? 0, weaponManifest: !!p.weaponManifest, weaponSignature: !!p.weaponSignature })),
     watcherCount: [...room.players.values()].filter(p => p.watcher).length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -805,6 +974,8 @@ function sharedState(room: Room) {
     })),
     enemies: room.enemies,
     strikes: room.strikes,
+    rainFalls: (room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
+    manifests: (room.manifests ?? []).filter(m => m.expiresAt > Date.now()).map(m => ({ ownerKey: m.ownerKey, weaponKey: m.weaponKey, count: m.count, expiresAt: m.expiresAt })),
     bastion: room.bastion ? {
       callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
       ambush: room.bastion.ambush, pool: Math.floor(room.bastion.pool), poolMax: room.bastion.poolMax,
@@ -859,6 +1030,11 @@ function sendState(room: Room): void {
         wardRuneUnlocked: player.wardRuneUnlocked,
         classKey: player.classKey ?? null,
         weaponKey: player.weaponKey ?? null,
+        weaponLevel: player.weaponLevel ?? 1,
+        weaponElement: player.weaponElement ?? null,
+        weaponDepth: player.weaponDepth ?? 0,
+        weaponManifest: !!player.weaponManifest,
+        weaponSignature: !!player.weaponSignature,
         tenderHp: player.tenderHp,
         maxTenderHp: player.maxTenderHp,
         pools: player.pools ?? null,
@@ -880,7 +1056,7 @@ async function getRoom(id: string): Promise<Room> {
     const { art } = await resolveCurrentEnemyArt().catch(() => ({ art: {} as Record<string, { url: string } | null> }));
     const campaignMode = id.startsWith("campaign");
     room = {
-      id, players: new Map(), away: new Map(), tale: [], sky: await currentSky(),
+      id, players: new Map(), away: new Map(), manifests: [], tale: [], sky: await currentSky(),
       mode: campaignMode ? "campaign" : "casual",
       campaign: campaignMode ? loadCampaign(id) : null,
       field: new Map(),
@@ -1237,6 +1413,123 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, fellEleme
   }
 }
 
+// ── GROVES AND PASSIVE WALLS (Phase C) ────────────────────
+/** One burst of the Springleaf's healing: the mended one's
+ *  OWN element die, rolled once through the castHeal
+ *  machinery's dice (FATE_DIE), applied hp-then-shield as
+ *  Heal applies it. `half` halves the roll (min 1) — the
+ *  saplings' measure. Returns the amount that truly landed. */
+function groveBurstHeal(u: FieldUnit, half: boolean): number {
+  let amount = dN(FATE_DIE[u.card.element] ?? 6);
+  if (half) amount = Math.max(1, Math.floor(amount / 2));
+  const toHp = Math.min(u.maxHp - u.hp, amount);
+  u.hp += toHp;
+  const toShield = Math.min(u.maxShield - u.shield, amount - toHp);
+  u.shield += toShield;
+  return toHp + toShield;
+}
+/** Every ally standing in a grove's glow: the caster's company
+ *  and every seated Tender's — at the Table the party is the
+ *  alliance, and the field holds no other light. */
+function alliesInRadius(room: Room, centre: Pt, radiusPx: number): FieldUnit[] {
+  return [...room.field.values()].filter(u => distPx(u.pos, centre) <= radiusPx);
+}
+/** The groves' tending, on the referee's tick (runRound):
+ *  saplings root on their schedule (~1.6s apart) and burst a
+ *  half heal as they root; every living grove mends its
+ *  allies +1 hp per beat (its own lastMend stamp); groves
+ *  past their expiry fade. The mother lingers 34s from the
+ *  cast, each sapling 20s from its rooting. */
+function processGroves(room: Room, now: number): void {
+  // Sapling rootings due.
+  for (const mother of [...room.workings]) {
+    if (mother.kind !== "grove" || !mother.mother || !mother.saplingDue?.length) continue;
+    while (mother.saplingDue.length && mother.saplingDue[0] <= now) {
+      mother.saplingDue.shift();
+      const pos = mother.saplingPos?.shift() ?? mother.pos ?? { x: 0, y: 0 };
+      const radiusPx = (mother.radiusPx ?? 0) / 2;
+      const sapling: Working = {
+        id: randomUUID(), kind: "grove", root: mother.root, engine: "springleaf", nums: mother.nums,
+        name: mother.name, hue: mother.hue, ownerKey: mother.ownerKey, ownerName: mother.ownerName,
+        hex: nearestTileId(pos), hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
+        pos: { ...pos }, radiusPx, expiresAt: now + 20_000, lastMend: now, mother: false,
+      };
+      room.workings.push(sapling);
+      let mended = 0;
+      for (const u of alliesInRadius(room, pos, radiusPx)) mended += groveBurstHeal(u, true);
+      tell(room, `A sapling of ${mother.name} takes root — its first breath mends ${mended} among those standing in its glow.`);
+    }
+  }
+  // The per-beat mend, and expiry.
+  for (const g of [...room.workings]) {
+    if (g.kind !== "grove") continue;
+    if ((g.expiresAt ?? 0) <= now) {
+      room.workings = room.workings.filter(w => w !== g);
+      tell(room, `${g.name}'s grove fades — its glow was lent, not given.`);
+      continue;
+    }
+    if (now - (g.lastMend ?? 0) >= BEAT_MS) {
+      g.lastMend = now;
+      if (g.pos && g.radiusPx) {
+        for (const u of alliesInRadius(room, g.pos, g.radiusPx)) {
+          if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + 1);
+        }
+      }
+    }
+  }
+}
+/** PASSIVE WALLS (Phase C): a standing Awokin of stone or
+ *  root raises walls around the caster on the edges of its
+ *  derived hex — passive ward workings whose HP is the
+ *  holding rating (hpForCast) at the unit's level: the Seal's
+ *  rating for stone, the Trees' for root, the hue the unit's
+ *  own element. Maintained on the referee's tick: a broken
+ *  edge re-raises ~2.8s later while the unit stands; a real
+ *  cast ward on an edge wins and the passive skips it; when
+ *  the unit no longer stands on the edge, the wall comes down.
+ *  HOW THEY BLOCK — plainly: cast wards at the Table do NOT
+ *  block movement anywhere (the dark's steering in integrate
+ *  never reads workings); the one interaction the written
+ *  light has with a blow is the strike-side answer in
+ *  blowOnce (the Seal stops, the Trees absorb, across the
+ *  edge between the striker's hex and the victim's). Passive
+ *  walls ride THAT interaction, in blowOnce below. */
+function maintainPassiveWalls(room: Room, now: number): void {
+  room.passiveRearm ??= new Map();
+  const desired = new Map<string, { unit: FieldUnit; hexA: string; hexB: string }>();
+  for (const u of standingUnits(room)) {
+    if (u.card.element !== "stone" && u.card.element !== "root") continue;
+    for (const nb of neighborsOf(u.hex)) {
+      const key = edgeKeyOf(u.hex, nb);
+      if (!desired.has(key)) desired.set(key, { unit: u, hexA: u.hex, hexB: nb });
+    }
+  }
+  // Walls whose sustaining ground is gone come down.
+  room.workings = room.workings.filter(w => {
+    if (w.engine !== "passive") return true;
+    const d = desired.get(edgeKeyOf(w.hexA ?? "", w.hexB ?? ""));
+    return !!d && d.unit.ownerKey === w.ownerKey && w.sustainer === unitKeyOf(d.unit);
+  });
+  // Missing walls rise.
+  for (const [key, d] of desired) {
+    const onEdge = room.workings.filter(w => w.kind === "ward" && edgeKeyOf(w.hexA ?? "", w.hexB ?? "") === key);
+    if (onEdge.some(w => w.engine !== "passive")) continue; // a real cast ward holds this edge — it wins
+    if (onEdge.length) continue; // a passive already stands here
+    const rearmKey = `${key}|${d.unit.ownerKey}`;
+    if (now < (room.passiveRearm.get(rearmKey) ?? 0)) continue;
+    const rootKey = d.unit.card.element === "stone" ? "seal" : "trees";
+    const hpDef = spellByKey(rootKey);
+    if (!hpDef) continue;
+    const hp = hpForCast(hpDef, d.unit.card.level ?? 1, 0, false);
+    room.workings.push({
+      id: randomUUID(), kind: "ward", root: rootKey, engine: "passive", nums: { ...hpDef.numbers },
+      name: d.unit.card.element === "stone" ? "Stone Wall" : "Root Wall", hue: d.unit.card.element,
+      ownerKey: d.unit.ownerKey, ownerName: d.unit.ownerName, hex: null, hexA: d.hexA, hexB: d.hexB,
+      hp, maxHp: hp, pour: 0, stops: 0, charges: 0, sustainer: unitKeyOf(d.unit),
+    });
+  }
+}
+
 // ── THE CAMPAIGN (Phase B, 2026-10-18) ───────────────────
 // The Harvest economy and the Storytender's instruments.
 // Tuning named where the design left it open (§8): the
@@ -1500,6 +1793,10 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       for (let i = 0; i < dice; i++) { const r = 1 + Math.floor(Math.random() * 6); rolls.push(r); pool += r; }
       const share = Math.floor(pool / foes.length);
       let rem = pool - share * foes.length;
+      // THE FALL IS AN EVENT (Phase C): clients show Nigel's
+      // drawn shard-rain.gif over the covered hexes as it falls.
+      room.rainFalls = [...(room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
+        { id: randomUUID(), at: Date.now(), hexes: [...hexSet].filter((h): h is string => !!h) }];
       tell(room, `${rune.name} FALLS — the sky opens over ${hexSet.size} hex${hexSet.size === 1 ? "" : "es"}: ${dice} dice (${rolls.join(" + ")}) make a pool of ${pool}, split over ${foes.length} of the dark — ${share} harm each${rem ? `, and ${rem} of them take one more` : ""}.`);
       for (const e of foes) {
         const d = share + (rem > 0 ? (rem--, 1) : 0);
@@ -1741,8 +2038,16 @@ async function runRound(room: Room): Promise<void> {
     if (beatDue) room.battle.beatAcc = 0;
     // Shots age off the ledger; clients fly what is fresh.
     room.strikes = room.strikes.filter(s => now - (s.at ?? 0) < 1200);
-    const witness = (from: Pt, to: Pt, element: string | null, side: "light" | "dark", hit: boolean, killed: boolean, weapon?: string | null) => {
-      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" ? { pierce: true } : {}) });
+    // MANIFEST copies fade when their twenty seconds run out.
+    if (room.manifests?.length) {
+      const kept = room.manifests.filter(m => now < m.expiresAt);
+      if (kept.length < room.manifests.length) {
+        room.manifests = kept;
+        tell(room, "The manifested weapons fade back into the light that lent them.");
+      }
+    }
+    const witness = (from: Pt, to: Pt, element: string | null, side: "light" | "dark", hit: boolean, killed: boolean, weapon?: string | null, extra?: { copy?: boolean; pierce?: boolean }) => {
+      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" || extra?.pierce ? { pierce: true } : {}), ...(extra?.copy ? { copy: true } : {}) });
     };
     if (beatDue) {
       await refreshGrimoire().catch(() => {});
@@ -1810,6 +2115,11 @@ async function runRound(room: Room): Promise<void> {
     }
     } // — the beat's bookkeeping ends; the clock's work follows.
     integrate(room, now);
+    // GROVES + PASSIVE WALLS (Phase C): positions are derived
+    // now — saplings root, groves mend and fade, and stone /
+    // root hands raise their passive walls on this same tick.
+    processGroves(room, now);
+    maintainPassiveWalls(room, now);
     // The standing strike first — under FATE (Nigel,
     // 2026-10-17): a d20 against the dark thing's armor;
     // the element and the level lend the bonus; landed harm
@@ -1849,6 +2159,7 @@ async function runRound(room: Room): Promise<void> {
       const roll = dN(20);
       const bonus = (ELEMENT_HIT_BONUS[unit.card.element] ?? 0)
         + fateLevelBonus(unit.card.level ?? 1)
+        + (ownerIsSage(room, unit.ownerKey) ? 2 : 0) // THE SAGE'S COMPANY (Phase C): her Awokin strike at +2
         + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush lends its edge to the roll
       const hit = roll === 20 || (roll !== 1 && roll + bonus >= target.armor);
       if (!hit) {
@@ -1898,34 +2209,67 @@ async function runRound(room: Room): Promise<void> {
     // weapon — its key read LIVE at strike time, never
     // snapshotted — strikes the nearest dark in its range,
     // even while its Tender glides (the one exemption).
+    // Phase C: the range is the contract's (an attuned weapon
+    // reaches as its element reaches; the spear's LONGSHAFT
+    // Signature stretches further), the harm roll carries the
+    // weapon's level and the sword's KEEN Signature, a
+    // Signature arrow PIERCES to the next-nearest dark in the
+    // same beat, and Manifest copies strike as their own
+    // sources under the same law. One firing routine serves
+    // the true weapon and its copies alike.
+    const fireWeapon = (p: Player, wk: string, copy: boolean): boolean => {
+      if (!p.pos) return false;
+      const rangePx = weaponRangeHexOf(p) * 69;
+      const inRange = [...room.dark.values()]
+        .map(e => ({ e, d: distPx(p.pos!, e.pos) }))
+        .filter(x => x.d <= rangePx)
+        .sort((a, b) => a.d - b.d);
+      if (!inRange.length) return false;
+      const strikeFoe = (foe: EnemyUnit, pierce: boolean): void => {
+        const roll = dN(20);
+        const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(p.tenderLevel) >= foe.armor);
+        if (!hit) {
+          witness(p.pos!, foe.pos, null, "light", false, false, wk, { copy, pierce });
+          return;
+        }
+        const dmg = fateMitigate(weaponDamageOf(p, wk), foe.armor, p.tenderLevel);
+        foe.hp -= dmg;
+        if (foe.hp <= 0) {
+          p.weaponKills = (p.weaponKills ?? 0) + 1;
+          witness(p.pos!, foe.pos, null, "light", true, true, wk, { copy, pierce });
+          fellDark(room, foe, p, "neutral");
+          tell(room, `${p.name}'s ${wk} unravels the ${foe.label}!`);
+        } else {
+          witness(p.pos!, foe.pos, null, "light", true, false, wk, { copy, pierce });
+        }
+      };
+      strikeFoe(inRange[0].e, false);
+      // PIERCE (the arrow's Signature): the same beat carries
+      // through to the next-nearest distinct dark in range.
+      if (wk === "arrow" && p.weaponSignature && inRange[1]) strikeFoe(inRange[1].e, true);
+      return true;
+    };
     for (const p of room.players.values()) {
       if (p.watcher || p.storytender || p.fallen || !p.pos) continue;
       const wk = p.weaponKey ?? null;
       if (!wk || !WEAPON_DIE[wk]) continue;
       if (now < (p.weaponNext ?? 0)) continue;
-      let foe: EnemyUnit | null = null;
-      let foeD = Infinity;
-      for (const e of room.dark.values()) {
-        const d = distPx(p.pos, e.pos);
-        if (d <= WEAPON_RANGE_HEX[wk] * 69 && d < foeD) { foeD = d; foe = e; }
-      }
-      if (!foe) continue;
+      if (!fireWeapon(p, wk, false)) continue;
       p.weaponNext = now + WEAPON_COOLDOWN_MS[wk];
-      const roll = dN(20);
-      const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(p.tenderLevel) >= foe.armor);
-      if (!hit) {
-        witness(p.pos, foe.pos, null, "light", false, false, wk);
-        continue;
-      }
-      const dmg = fateMitigate(dN(WEAPON_DIE[wk]), foe.armor, p.tenderLevel);
-      foe.hp -= dmg;
-      if (foe.hp <= 0) {
-        p.weaponKills = (p.weaponKills ?? 0) + 1;
-        witness(p.pos, foe.pos, null, "light", true, true, wk);
-        fellDark(room, foe, p, "neutral");
-        tell(room, `${p.name}'s ${wk} unravels the ${foe.label}!`);
-      } else {
-        witness(p.pos, foe.pos, null, "light", true, false, wk);
+    }
+    // MANIFEST COPIES STRIKE: each copy its own source on the
+    // true weapon's cadence, anchored at its Tender's side.
+    if (room.manifests?.length) {
+      for (const m of [...room.manifests]) {
+        const p = [...room.players.values()].find(pl => pl.key === m.ownerKey);
+        if (!p || p.watcher || p.storytender || p.fallen || !p.pos || p.weaponKey !== m.weaponKey) {
+          room.manifests = room.manifests.filter(x => x !== m);
+          continue;
+        }
+        for (let i = 0; i < m.count; i++) {
+          if (now < (m.nexts[i] ?? 0)) continue;
+          if (fireWeapon(p, m.weaponKey, true)) m.nexts[i] = now + WEAPON_COOLDOWN_MS[m.weaponKey];
+        }
       }
     }
     // THE DARK ACTS (Phase B): steering (in integrate) has
@@ -1975,7 +2319,8 @@ async function runRound(room: Room): Promise<void> {
           enemy.struck = true;
           const roll = dN(20);
           const bonus = fateLevelBonus(enemy.lvl);
-          const ac = victim.card.toughness + acBonusOf(victim);
+          const ac = victim.card.toughness + acBonusOf(victim)
+            + (ownerIsSage(room, victim.ownerKey) ? 2 : 0); // THE SAGE'S COMPANY (Phase C): her Awokin stand at +2 AC
           const hit = roll === 20 || (roll !== 1 && roll + bonus >= ac);
           if (!hit) {
             witness(enemy.pos, victim.pos, "dark", "dark", false, false);
@@ -2054,6 +2399,25 @@ async function runRound(room: Room): Promise<void> {
               tell(room, `${trees.name} are broken — for this battle. The seed remembers them.`);
             }
           }
+          // PASSIVE WALLS (Phase C): a stone / root hand's wall
+          // on the edge between the striker's hex and the
+          // victim's takes the blow the way the Trees do —
+          // whoever owns the victim; a wall is a wall. (This
+          // strike-side answer is the only blocking the Table's
+          // wards have ever had: movement is never blocked.)
+          const passiveWall = room.workings.find(w => w.kind === "ward" && w.engine === "passive" &&
+            ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
+          if (dmg > 0 && passiveWall) {
+            passiveWall.hp -= dmg;
+            dmg = 0;
+            tell(room, `${passiveWall.name} takes the blow meant for ${victim.card.name}.`);
+            if (passiveWall.hp <= 0) {
+              room.workings = room.workings.filter(w => w !== passiveWall);
+              room.passiveRearm ??= new Map();
+              room.passiveRearm.set(`${edgeKeyOf(passiveWall.hexA ?? "", passiveWall.hexB ?? "")}|${passiveWall.ownerKey}`, now + BEAT_MS);
+              tell(room, `${passiveWall.name} is broken — the hand that raised it will raise it again.`);
+            }
+          }
           let felled = false;
           if (dmg > 0) {
             if (enemy.kind === "tangle") victim.pinnedUntil = Math.max(victim.pinnedUntil ?? 0, now + BEAT_MS);
@@ -2092,8 +2456,11 @@ async function runRound(room: Room): Promise<void> {
         // stars' tenderSkin clauses, never below 1.
         const skinAmt = tender.expKey ? heartEffects(tender.expKey).skinAmount : 0;
         // The bare Tender's AC: 10 plus the runic weapon's
-        // guard, its key read LIVE (Phase B).
-        const wac = WEAPON_AC[tender.weaponKey ?? ""] ?? 0;
+        // guard, its key read LIVE (Phase B) — plus one more
+        // for AEGIS, the Sword & Shield's Signature (Phase C;
+        // this bare-Tender path only, never acBonusOf).
+        const wac = (WEAPON_AC[tender.weaponKey ?? ""] ?? 0)
+          + (tender.weaponKey === "swordshield" && tender.weaponSignature ? 1 : 0);
         const roll = dN(20);
         const ac = 10 + wac;
         const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(enemy.lvl) >= ac);
@@ -2381,6 +2748,7 @@ function handleConnection(ws: WebSocket): void {
       let expKey: string | null = null;
       let boundClassKey: string | null = null;
       let boundWeaponKey: string | null = null;
+      let boundWeaponContract: WeaponContract | null = null;
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
@@ -2394,6 +2762,9 @@ function handleConnection(ws: WebSocket): void {
             const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
             boundClassKey = progress?.classKey ?? null;
             boundWeaponKey = progress?.weaponKey ?? null;
+            // The initially wielded weapon's contract rides the
+            // seat from the first state push (Phase C).
+            if (boundWeaponKey) boundWeaponContract = await weaponContractFor(expKey, boundWeaponKey);
             if (progress) {
               tenderLevel = progress.level;
               healTier = progress.healTier;
@@ -2419,7 +2790,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -2445,6 +2816,94 @@ function handleConnection(ws: WebSocket): void {
     }
 
     if (!room || !player) return;
+
+    // WIELD ON THE WIRE (Phase C): a seated, bound Tender takes
+    // another of the four weapons in hand, mid-room, freely —
+    // the same law wieldWeapon keeps on the site: the pointer
+    // in tender_progress moves, nothing else is spent. The
+    // seat's live record follows at once (key + the new
+    // weapon's contract, read fresh), and any live Manifest
+    // copies of the old weapon are dismissed in the same beat.
+    if (msg.type === "wield") {
+      if (player.watcher) {
+        ws.send(JSON.stringify({ type: "error", message: "Watchers hold no weapon — bind in the game to take a seat." }));
+        return;
+      }
+      if (player.storytender) {
+        ws.send(JSON.stringify({ type: "error", message: "The Storytender holds no weapon — she deals the dark, not the light." }));
+        return;
+      }
+      if (!player.expKey) {
+        ws.send(JSON.stringify({ type: "error", message: "Only a bound Tender holds the arsenal — bind in the game first." }));
+        return;
+      }
+      const weaponKey = String(msg.weaponKey ?? "");
+      if (!WEAPON_KEYS.includes(weaponKey)) {
+        ws.send(JSON.stringify({ type: "error", message: "Name one of the four: Sword & Shield, Sword, Spear, or Arrow." }));
+        return;
+      }
+      // Dismissal and the key land BEFORE the fresh contract is
+      // read, so even a tick interleaved with the read never
+      // shows copies of a weapon no longer in hand.
+      dismissManifests(room, player.key);
+      player.weaponKey = weaponKey;
+      player.weaponNext = 0;
+      try {
+        sqlite.prepare("INSERT OR IGNORE INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 0, 0, ?)")
+          .run(player.expKey, Date.now());
+        sqlite.prepare("UPDATE tender_progress SET weapon_key = ? WHERE owner_key = ?")
+          .run(weaponKey, player.expKey);
+      } catch { /* the pointer is a courtesy copy; the seat's live record below is the room's truth */ }
+      applyWeaponContract(player, await weaponContractFor(player.expKey, weaponKey));
+      tell(room, `${player.name} takes the ${weaponKey} in hand.`);
+      sendState(room);
+      return;
+    }
+
+    // MANIFEST (Phase C): the wielded weapon doubles in the air
+    // — one copy, or two for a Tender whose weapon carries the
+    // Manifest node — at ⚡4 from the purse every cast draws on
+    // (the campaign bank, in a seeded campaign). The copies
+    // strike as their own sources for twenty seconds, then
+    // fade; a wield-switch dismisses them at once.
+    if (msg.type === "manifest") {
+      if (player.watcher) {
+        ws.send(JSON.stringify({ type: "error", message: "Watchers hold no weapon to manifest — bind in the game to take a seat." }));
+        return;
+      }
+      if (player.storytender) {
+        ws.send(JSON.stringify({ type: "error", message: "The Storytender holds no weapon — she deals the dark, not the light." }));
+        return;
+      }
+      if (player.fallen) {
+        ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." }));
+        return;
+      }
+      if (!player.expKey) {
+        ws.send(JSON.stringify({ type: "error", message: "Only a bound Tender holds the arsenal — bind in the game first." }));
+        return;
+      }
+      const wk = player.weaponKey ?? null;
+      if (!wk || !WEAPON_DIE[wk]) {
+        ws.send(JSON.stringify({ type: "error", message: "No runic weapon floats at your side — the choosing grants the first." }));
+        return;
+      }
+      const cost = 4;
+      if (!chargePurse(room, player, cost)) {
+        ws.send(JSON.stringify({ type: "error", message: `Manifest costs ⚡${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
+        return;
+      }
+      const copies = 1 + (player.weaponManifest ? 1 : 0);
+      const nowM = Date.now();
+      const myKey = player.key;
+      room.manifests = [
+        ...(room.manifests ?? []).filter(m => m.ownerKey !== myKey),
+        { ownerKey: myKey, weaponKey: wk, count: copies, expiresAt: nowM + 20_000, nexts: Array.from({ length: copies }, (_, i) => nowM + i * 200) },
+      ];
+      tell(room, `${player.name}'s ${wk} doubles in the air — ${copies === 1 ? "a manifested copy hangs" : `${copies} manifested copies hang`} beside the true weapon (⚡${cost}).`);
+      sendState(room);
+      return;
+    }
 
     if (msg.type === "roll") {
       if (player.watcher) {
@@ -2743,6 +3202,10 @@ function handleConnection(ws: WebSocket): void {
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = healSpell()?.cost ?? 2;
       if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ⚡${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` })); return; }
+      // THE CASTING LAW (Phase C): Heal is a binding-school
+      // cast and rolls for its standing, energy already spent.
+      const healDef = healSpell();
+      if (healDef && !rollCast(player, healDef).ok) { castUnravels(room, player, healDef.name); sendState(room); return; }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -2771,8 +3234,12 @@ function handleConnection(ws: WebSocket): void {
       const caster = player;
       if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers raise no wards — bind in the game to cast." })); return; }
       const def = spellByKey(String(msg.root || ""));
-      if (!def || def.kind !== "ward") { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
-      if (def.engine === "springleaf") { ws.send(JSON.stringify({ type: "error", message: "The Springleaf Ward answers columns on the land — it has no purchase on the Table's dark." })); return; }
+      // THE SPRINGLEAF (Phase C): its def kind is "binding",
+      // not "ward" — it is routed through this handler with an
+      // engine branch below, the old refusal gone for this
+      // engine only. Every other non-ward def is still refused.
+      const isSpringleaf = def?.engine === "springleaf";
+      if (!def || (def.kind !== "ward" && !isSpringleaf)) { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
       const hexA = String(msg.hexA || "");
@@ -2783,7 +3250,12 @@ function handleConnection(ws: WebSocket): void {
       // that the Tender stands on the field themself.
       if (!mine && caster.hex !== hexA) { ws.send(JSON.stringify({ type: "error", message: "A ward stands on the edge of ground you hold — your own tile, or one your Awokin stands on." })); return; }
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
-      if (room.workings.some(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)))) { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
+      if (!isSpringleaf) {
+        const standingEdge = room.workings.find(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)));
+        if (standingEdge && standingEdge.engine !== "passive") { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
+        // A passive wall yields to a real cast ward — the cast ward wins the edge.
+        if (standingEdge) room.workings = room.workings.filter(w => w !== standingEdge);
+      }
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
       // The Zodiac's workings tranche (2026-10-17): the
       // holder's skills ride the cast. Second Wall: once per
@@ -2791,13 +3263,16 @@ function handleConnection(ws: WebSocket): void {
       const eff = workingEffects(caster.expKey);
       let castCost = def.cost;
       let secondWallSpent = false;
-      if (eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
+      // The Springleaf is a binding cast, not a ward: the
+      // ward-side economies (Second Wall, Steady Attention)
+      // do not ride it — its price is the def's ⚡3, plain.
+      if (!isSpringleaf && eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
       // Steady Attention (the Heart, 2026-10-18): the first
       // ward or rune of the battle costs 1⚡ less — it rides
       // after the Second Wall's halving when both are held.
       let steadySpent = false;
       const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
-      if (steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
+      if (!isSpringleaf && steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
       if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — ${purseName(room) === "the bank" ? `the bank holds ⚡${room.campaign!.bank}` : `you hold ⚡${caster.energy}`}.` })); return; }
       // The Pour (Nigel, 2026-10-17): elemental points of the
       // poured hue, fed into the working at its cast — capped by
@@ -2819,6 +3294,50 @@ function handleConnection(ws: WebSocket): void {
         pour = pourWanted;
       }
       if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${castCost} — the purse no longer holds it.` })); return; }
+      // THE CASTING LAW (Phase C): the roll comes after the
+      // purse is charged — on a fizzle the energy is spent
+      // and the working simply does not happen.
+      if (!rollCast(caster, def).ok) { castUnravels(room, caster, def.name); sendState(room); return; }
+      if (isSpringleaf) {
+        // THE SPRINGLEAF AT THE TABLE (Phase C; shape ruled in
+        // the book): a GROVE stands at the target hex — hexB,
+        // the second hex the client names, its anchor hexA
+        // held ground by this handler's existing law. Its
+        // radius is the tender ward size: (66 + 12 × level)
+        // × 2.75, read in Table pixels (× 69/80).
+        const centre = TILE_CENTERS.get(hexB);
+        if (!centre) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." })); return; }
+        const radiusPx = (66 + 12 * caster.tenderLevel) * 2.75 * (69 / 80);
+        const groveHue = hue === "unaligned" ? "root" : hue;
+        // The BURST: every ally in the glow rolls its own
+        // element die once, hp-then-shield.
+        let burst = 0;
+        for (const u of alliesInRadius(room, centre, radiusPx)) burst += groveBurstHeal(u, false);
+        // 1d4 saplings, rooting ~1.6s apart within 0.55 × the
+        // radius — their rooting points are rolled now, their
+        // rooting itself rides processGroves on the tick.
+        const sapCount = dN(4);
+        const nowG = Date.now();
+        const saplingDue: number[] = [];
+        const saplingPos: Pt[] = [];
+        for (let i = 0; i < sapCount; i++) {
+          saplingDue.push(nowG + 1600 * (i + 1));
+          const ang = Math.random() * Math.PI * 2;
+          const rad = Math.random() * 0.55 * radiusPx;
+          saplingPos.push({ x: centre.x + Math.cos(ang) * rad, y: centre.y + Math.sin(ang) * rad });
+        }
+        room.workings.push({
+          id: randomUUID(), kind: "grove", root: def.key, engine: "springleaf", nums: { ...def.numbers },
+          name: def.forms[hue] ?? def.name, hue: groveHue,
+          ownerKey: caster.key, ownerName: caster.name, hex: hexB, hexA: null, hexB: null,
+          hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
+          pos: { ...centre }, radiusPx, expiresAt: nowG + 34_000, saplingDue, saplingPos, lastMend: nowG, mother: true,
+        });
+        tell(room, `${caster.name} plants ${def.forms[hue] ?? def.name} — a grove takes root on ${hexB}, its first breath mending ${burst} among those in its glow. ${sapCount} sapling${sapCount === 1 ? "" : "s"} will follow.`);
+        caster.castAt = Date.now();
+        sendState(room);
+        return;
+      }
       if (secondWallSpent) { caster.secondWallUsed = true; tell(room, `${caster.name}'s Second Wall rises at half its price — the Warden's economy.`); }
       if (steadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       if (pour > 0 && caster.expKey) {
@@ -2900,6 +3419,10 @@ function handleConnection(ws: WebSocket): void {
         pour = pourWanted;
       }
       if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ⚡${runeCost} — the purse no longer holds it.` })); return; }
+      // THE CASTING LAW (Phase C): the roll comes after the
+      // purse is charged — on a fizzle the energy is spent
+      // and no writing stands.
+      if (!rollCast(caster, def).ok) { castUnravels(room, caster, def.name); sendState(room); return; }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       if (pour > 0 && caster.expKey) {
         await spendAttunement(caster.expKey, hue, pour);
@@ -2991,12 +3514,27 @@ function handleConnection(ws: WebSocket): void {
       const cap = attunementLevel(pools[hue] ?? 0);
       if (pourWanted > cap) { fail(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.`); return; }
       if ((pools[hue] ?? 0) < pourWanted) { fail(`Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${pools[hue] ?? 0}.`); return; }
+      // THE SAGE'S ATTUNE MASTERY (Phase C; the book's law):
+      // her pour LAYS amount + 2 into the working while her
+      // pool PAYS only `amount`. The thirty-point cap a
+      // working may hold stands over even her — the laid
+      // amount clamps at it, still charging only `amount`;
+      // a working already at the cap refuses the pour.
+      const isSagePour = caster.classKey === "sage";
+      let laid = pourWanted;
+      if (isSagePour) {
+        const room30 = 30 - (w.pour ?? 0);
+        if (room30 <= 0) { fail("That working already holds the full thirty points — even a Sage pours no deeper."); return; }
+        laid = Math.min(pourWanted + 2, room30);
+      }
       await spendAttunement(caster.expKey, hue, pourWanted);
       if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pourWanted);
-      const gained = Math.floor((def.numbers.hpPerPoint ?? 0) * pourWanted);
-      w.hue = hue; w.pour = (w.pour ?? 0) + pourWanted; w.name = def.forms[hue] ?? w.name;
+      const gained = Math.floor((def.numbers.hpPerPoint ?? 0) * laid);
+      w.hue = hue; w.pour = (w.pour ?? 0) + laid; w.name = def.forms[hue] ?? w.name;
       w.hp += gained; w.maxHp += gained;
-      tell(room, `${caster.name} pushes ${def.name} toward ${hue} — poured ${pourWanted} deep, and the rune takes the hue.`);
+      tell(room, isSagePour && laid > pourWanted
+        ? `${caster.name} pushes ${def.name} toward ${hue} — her mastery lays ${laid} deep for the ${pourWanted} her pool paid, and the rune takes the hue.`
+        : `${caster.name} pushes ${def.name} toward ${hue} — poured ${pourWanted} deep, and the rune takes the hue.`);
       sendState(room);
       return;
     }
