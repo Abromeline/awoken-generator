@@ -140,13 +140,16 @@ interface Player {
   energy: number;
   maxEnergy: number;
   /** THE TENDER ON THE FIELD (Nigel, 2026-10-19): where this
-   *  Tender stands on the instance — a tile id. While marching
-   *  it names the DESTINATION, as a unit's hex does, and `march`
-   *  carries the road; clients derive the drawn place from road
-   *  + clock. The Tender arrives at their landing tile and walks
-   *  from there. The Storytender holds no ground — she deals. */
+   *  Tender stands on the instance — a tile id, derived from
+   *  `pos` by the continuous referee. The Tender arrives at
+   *  their landing tile and glides from there. The
+   *  Storytender holds no ground — she deals. */
   hex?: string;
-  march?: { road: string[]; since: number; endsAt: number } | null;
+  pos?: Pt;
+  target?: Pt | null;
+  /** The runic weapon's next strike moment, and its tally. */
+  weaponNext?: number;
+  weaponKills?: number;
   /** When this Tender last cast a working — the room's screens
    *  play their casting gesture from it. */
   castAt?: number;
@@ -156,6 +159,9 @@ interface Player {
  *  so a recall returns exactly what was cast. */
 interface FieldUnit {
   hex: string;
+  pos: Pt;
+  target: Pt | null;
+  speedPx?: number;
   card: TableCard;
   hp: number;
   maxHp: number;
@@ -175,14 +181,6 @@ interface FieldUnit {
   /** When this unit may next strike (the clock's cadence —
    *  swifter elements sooner). */
   nextStrike?: number;
-  /** THE MARCH: while set, the unit is on the road — it does
-   *  not strike, cannot be struck, and does not shield its
-   *  Tender. `hex` already names the DESTINATION (it reserves
-   *  its place in the stack there); clients derive its drawn
-   *  position from road + clock, as the land's marching layer
-   *  does. Marching is a derived state: once now ≥ endsAt the
-   *  unit simply stands (see isMarching). */
-  march?: { road: string[]; since: number; endsAt: number } | null;
   /** FOLLOW (Nigel, 2026-10-19): the standing order to trail
    *  one's Tender — when the Tender arrives anywhere, a
    *  following Awokin not already at their side musters to a
@@ -218,6 +216,9 @@ interface EnemyUnit {
    *  the dark may also share one tile, as the light stacks. */
   id: string;
   hex: string;
+  pos: Pt;
+  target: Pt | null;
+  lastTile?: string;
   kind: string;
   label: string;
   art: string | null;
@@ -237,11 +238,6 @@ interface EnemyUnit {
   pinnedUntil: number;
   /** When this dark thing may next strike. */
   nextStrike?: number;
-  /** THE ADVANCE: while set, the dark thing is travelling
-   *  its road toward the seed or the nearest light — the
-   *  clock carries it, as it carries the marching light.
-   *  `hex` tracks the tile it stands on as it comes. */
-  march?: { road: string[]; since: number; endsAt: number } | null;
   /** Has this dark thing struck yet? (War Runewright's patience.) */
   struck?: boolean;
 }
@@ -323,6 +319,36 @@ for (let q = -MAP_RADIUS; q <= MAP_RADIUS; q++) {
 }
 const TILE_BY_ID = new Map(TILE_DEFS.map(t => [t.id, t]));
 const SEED_TILE = "0,0";
+/** CONTINUOUS GEOMETRY (Phase B, ported from client/src/Table.tsx:240-298):
+ *  the same iso basis the client draws by, so a pixel means the
+ *  same ground on both sides of the wire. */
+const ISO_E: [number, number] = [1292, 470];
+const ISO_SE: [number, number] = [0, 948];
+const ISO_DEN = 796;
+const TILE_SIZE = 40;
+function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
+  const k = size / ISO_DEN;
+  const u: [number, number] = [ISO_E[0] * k, ISO_E[1] * k];
+  const v: [number, number] = [ISO_SE[0] * k, ISO_SE[1] * k];
+  return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
+}
+type Pt = { x: number; y: number };
+/** One stable centre per tile — WITHOUT the client's 5px tray lift. */
+const TILE_CENTERS: Map<string, { x: number; y: number }> = new Map(TILE_DEFS.map(t => {
+  const { px, py } = isoOffset(t.q, t.r, TILE_SIZE);
+  return [t.id, { x: px, y: py }] as [string, { x: number; y: number }];
+}));
+function distPx(a: Pt, b: Pt): number { return Math.hypot(a.x - b.x, a.y - b.y); }
+function nearestTileId(pos: Pt): string {
+  let best = SEED_TILE;
+  let bestD = Infinity;
+  for (const [id, c] of TILE_CENTERS) {
+    const d = distPx(pos, c);
+    if (d < bestD) { bestD = d; best = id; }
+  }
+  return best;
+}
+function roundPos(p: Pt): Pt { return { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 }; }
 const STANDABLE_TILES = TILE_DEFS.filter(t => t.id !== SEED_TILE).map(t => t.id);
 /** How many of the light may share one tile — the March law's
  *  destination capacity, carried to the Table (design §2). */
@@ -404,15 +430,6 @@ function lightIntervalMs(u: FieldUnit): number {
 function darkIntervalMs(e: EnemyUnit): number {
   return Math.round(BEAT_MS * 5 / ((DARK_SPEED[e.kind] ?? 1) + 4));
 }
-/** Where a travelling thing stands right now: the tile of its
- *  road its journey's fraction has reached. */
-function roadTileAt(march: { road: string[]; since: number; endsAt: number }, now: number): string {
-  const road = march.road;
-  if (road.length < 2) return road[0];
-  const frac = Math.min(1, Math.max(0, (now - march.since) / Math.max(1, march.endsAt - march.since)));
-  return road[Math.min(road.length - 1, Math.floor(frac * (road.length - 1)))];
-}
-
 /** The Dark roster the room shows — names and tellings; the faces
  *  resolve live from the game's current enemy art. */
 const ENEMY_ROSTER = [
@@ -462,12 +479,14 @@ interface Strike {
    *  referee's clients dedupe and age shots by these. */
   id?: number;
   at?: number;
-  from: string;
-  to: string;
-  element: string;
+  from: Pt;
+  to: Pt;
+  element: string | null;
   side: "light" | "dark";
   hit: boolean;
   killed: boolean;
+  weapon?: string | null;
+  pierce?: boolean;
 }
 
 /** A CAMPAIGN at the Table (Phase B, 2026-10-18; design of
@@ -524,6 +543,8 @@ interface Room {
   /** The continuous referee's strike ledger counter, and the
    *  last moment the seed-assault's warning was told. */
   strikeSeq?: number;
+  integrateAt?: number;
+  driftTimer?: ReturnType<typeof setInterval> | null;
   assaultToldAt?: number;
   roundNo: number;
   /** Lore Warden: edges where a ward has FALLEN this sitting
@@ -609,6 +630,16 @@ function dominantElement(layers: { element?: string | null }[]): string {
 // acOf() below, returning 0 until content fills them.
 const FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
 const ELEMENT_HIT_BONUS: Record<string, number> = { stone: 1, root: 2, tide: 3, sky: 4, fire: 5 };
+/** ELEMENT REACH (Phase B): how many hexes (×69px) an element's
+ *  light strikes across the continuous field. */
+const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+/** THE RUNIC WEAPON (Phase A2, striking from Phase B): its die,
+ *  its reach in hexes, its cadence, and the AC it lends a bare
+ *  Tender, by wielded key. The key is read LIVE at strike time. */
+const WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6, arrow: 4 };
+const WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
+const WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
+const WEAPON_AC: Record<string, number> = { swordshield: 3, sword: 1, spear: 0, arrow: 0 };
 const DARK_ARMOR: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
 const DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
 function dN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
@@ -744,7 +775,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, march: p.march ?? null, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null })),
+    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null })),
     watcherCount: [...room.players.values()].filter(p => p.watcher).length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -761,14 +792,14 @@ function sharedState(room: Room) {
       curseHp: Math.ceil(t.curseHp), curseMaxHp: t.curseMaxHp,
       landing: t.landingFor ? (seatByKey(room, t.landingFor)?.name ?? null) : null,
     })),
-    dark: [...room.dark.values()].map(e => ({ ...e })),
+    dark: [...room.dark.values()].map(e => ({ ...e, pos: roundPos(e.pos), target: e.target ? roundPos(e.target) : null, moving: isMoving(e) })),
     workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
     field: [...room.field.values()].map(u => ({
       hex: u.hex, cardId: u.card.id, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
       shield: u.shield, maxShield: u.maxShield,
-      march: u.march ?? null,
+      pos: roundPos(u.pos), tgt: u.target ? roundPos(u.target) : null, moving: isMoving(u),
       follow: !!u.follow,
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
@@ -952,34 +983,81 @@ function unitStanding(room: Room, u: FieldUnit): boolean {
 }
 function placeUnit(room: Room, u: FieldUnit): void { room.field.set(unitKeyOf(u), u); }
 function removeUnit(room: Room, u: FieldUnit): void { room.field.delete(unitKeyOf(u)); }
-function isMarching(u: FieldUnit, now = Date.now()): boolean {
-  return !!u.march && now < u.march.endsAt;
+/** CONTINUOUS MOVEMENT (Phase B): a thing moves while it has a
+ *  target further than a step away. There are no roads on
+ *  entities any more — only a position and a destination. */
+function isMoving(e: { pos: Pt; target: Pt | null }): boolean {
+  return !!e.target && distPx(e.pos, e.target) > 2;
 }
 /** The standing light: fielded, arrived, and able to be met. */
 function standingUnits(room: Room): FieldUnit[] {
-  const now = Date.now();
-  return [...room.field.values()].filter(u => !isMarching(u, now));
+  return [...room.field.values()].filter(u => !isMoving(u));
 }
-
-/** THE TENDER'S OWN PACE, alone (seconds per hex): a walking
- *  person's, between the Hollow's drift and the Tangle's
- *  creep. His road costs nothing: he is not an Awokin being
- *  ordered — he is the player piece. */
-const TENDER_SOLO_SECONDS_PER_HEX = 2.6;
-/** THE COMPANY PACE (Nigel, 2026-10-19): a Tender whose
- *  Awokin follow under marching orders moves AT THEIR pace —
- *  the slowest follower's gait — and the followers' muster
- *  rides that same pace, so the company travels as one body
- *  and arrives as one body, as it should be. */
-function companySecondsPerHex(room: Room, tender: Player): number {
-  let pace = 0;
-  for (const u of room.field.values()) {
-    if (u.ownerKey === tender.key && u.follow) pace = Math.max(pace, marchSecondsPerHexFor(u.card));
+/** Step one entity toward its target at `speedPx` px/s over `dt`
+ *  seconds; on arrival the position is the target's copy and the
+ *  target clears. */
+function stepToward(e: { pos: Pt; target: Pt | null }, speedPx: number, dt: number): void {
+  if (!e.target) return;
+  const d = distPx(e.pos, e.target);
+  const step = speedPx * dt;
+  if (d <= 2 || step >= d) { e.pos = { ...e.target }; e.target = null; return; }
+  e.pos = { x: e.pos.x + (e.target.x - e.pos.x) / d * step, y: e.pos.y + (e.target.y - e.pos.y) / d * step };
+}
+/** THE INTEGRATOR: advance every position by the time since the
+ *  last integration, steer the dark (in battle), then derive
+ *  every entity's hex from its position. Enemies crossing into
+ *  a new tile spring its runes. */
+function integrate(room: Room, now: number): void {
+  const dt = Math.min(1, Math.max(0, (now - (room.integrateAt ?? now)) / 1000));
+  room.integrateAt = now;
+  for (const p of room.players.values()) {
+    if (p.watcher || p.storytender || !p.pos) continue;
+    if (p.target) stepToward(p as { pos: Pt; target: Pt | null }, 120, dt);
   }
-  return pace > 0 ? pace : TENDER_SOLO_SECONDS_PER_HEX;
-}
-function isTenderMarching(p: Player, now = Date.now()): boolean {
-  return !!p.march && now < p.march.endsAt;
+  for (const u of room.field.values()) {
+    if (u.target) stepToward(u, u.speedPx ?? 110, dt);
+  }
+  if (room.battle.active) {
+    const standing = standingUnits(room);
+    const seedCenter = TILE_CENTERS.get(SEED_TILE)!;
+    for (const e of room.dark.values()) {
+      // STEERING: the nearest standing light, if it can be clawed
+      // or is nearer than the seed; otherwise the seed itself —
+      // but at the gate (ring 1) it halts and assaults.
+      let light: FieldUnit | null = null;
+      let lightD = Infinity;
+      for (const u of standing) {
+        const d = distPx(e.pos, u.pos);
+        if (d < lightD) { lightD = d; light = u; }
+      }
+      if (light && lightD <= 69) {
+        e.target = null; // clawHalt: in reach — it fights where it stands
+      } else if (light && lightD < distPx(e.pos, seedCenter)) {
+        e.target = { ...light.pos };
+      } else if (distPx(e.pos, seedCenter) <= 69) {
+        // THE GATE HALT: within claw reach of the seed's heart
+        // it stops and claws. The halt is measured in px from
+        // the seed's center, NOT at the derived ring's edge —
+        // a dark that stopped at the ring-1 cell's outer edge
+        // stood ~96px out, beyond a root light's answer and
+        // clawing nothing, and a dealt wave could hang
+        // unresolved forever (probe41's stalemate).
+        e.target = null;
+      } else {
+        e.target = { ...seedCenter };
+      }
+      if (e.target) stepToward(e, 69 / (DARK_GAIT[e.kind] ?? 2.8), dt);
+    }
+  }
+  for (const p of room.players.values()) {
+    if (p.pos) p.hex = nearestTileId(p.pos);
+  }
+  for (const u of room.field.values()) u.hex = nearestTileId(u.pos);
+  for (const e of room.dark.values()) {
+    const hex = nearestTileId(e.pos);
+    e.hex = hex;
+    if (hex !== e.lastTile) { e.lastTile = hex; springHex(room, hex, new Set()); }
+  }
 }
 /** A seated Tender stands somewhere: their landing tile first,
  *  any purified ground for a fallback. Called once a landing is
@@ -987,9 +1065,9 @@ function isTenderMarching(p: Player, now = Date.now()): boolean {
 function ensureTenderHex(room: Room, player: Player): void {
   if (player.watcher || player.storytender || player.hex) return;
   const landing = [...room.map.values()].find(t => t.landingFor === player.key);
-  if (landing) { player.hex = landing.id; return; }
+  if (landing) { player.hex = landing.id; player.pos = { ...TILE_CENTERS.get(landing.id)! }; player.target = null; return; }
   const any = [...room.map.values()].find(t => !t.cursed && t.id !== SEED_TILE);
-  if (any) player.hex = any.id;
+  if (any) { player.hex = any.id; player.pos = { ...TILE_CENTERS.get(any.id)! }; player.target = null; }
 }
 /** The formation ground around a Tender: their own tile and
  *  its ring, the seed never among them — ordered so the
@@ -1007,44 +1085,47 @@ function followSlots(room: Room, tender: Player, originId: string | null): strin
   });
   return cands;
 }
-/** Send every following Awokin of this Tender that is not
- *  already at their side to the best free formation slot. The
- *  muster rides free and at the COMPANY PACE (the slowest
- *  follower's gait — the same pace the Tender marched at),
- *  so the company travels as one body. A follower already
- *  within a tile of the Tender rests: no shuffling for inches. */
-function musterFollowers(room: Room, tender: Player, originId: string | null, now = Date.now()): void {
-  if (!tender.hex || isTenderMarching(tender, now)) return;
-  const slots = followSlots(room, tender, originId);
-  if (!slots.length) return;
-  for (const u of room.field.values()) {
-    if (u.ownerKey !== tender.key || !u.follow || isMarching(u, now)) continue;
-    if (axialDist(u.hex, tender.hex) <= 1) continue;
-    const slot = slots.find(id => id !== u.hex && unitsAt(room, id).length < STACK_CAP);
-    if (!slot) return;
-    const road = findAnyRoad(u.hex, slot);
-    if (!road || road.length < 2) continue;
-    const hexes = road.length - 1;
-    u.hex = slot;
-    u.march = { road, since: now, endsAt: now + Math.round(hexes * companySecondsPerHex(room, tender) * 1000) };
-    tell(room, `👣 ${u.card.name} musters to ${tender.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road.`);
-  }
-}
-/** Arrivals settle before any state is read: a Tender whose
- *  road has run out stands at their destination, and their
- *  followers muster. Standing Tenders' followers are checked
- *  too — the formation heals itself whenever the room is read. */
+/** Positions settle before any state is read: integrate first,
+ *  then the muster — a standing Tender's following Awokin that
+ *  are not already at their side glide to a formation slot.
+ *  A follower already within a tile rests: no shuffling. */
 function settleTenders(room: Room, now = Date.now()): void {
+  integrate(room, now);
   for (const p of room.players.values()) {
-    if (p.watcher || p.storytender || !p.hex) continue;
-    if (p.march && now >= p.march.endsAt) {
-      const origin = p.march.road[0] ?? null;
-      p.march = null;
-      musterFollowers(room, p, origin, now);
-    } else if (!p.march) {
-      musterFollowers(room, p, null, now);
+    if (p.watcher || p.storytender || !p.pos || p.target) continue;
+    if (!p.hex) continue;
+    const slots = followSlots(room, p, null);
+    if (!slots.length) continue;
+    for (const u of room.field.values()) {
+      if (u.ownerKey !== p.key || !u.follow || u.target || !unitStanding(room, u)) continue;
+      if (axialDist(u.hex, p.hex) <= 1) continue;
+      const slot = slots.find(id => id !== u.hex && unitsAt(room, id).length < STACK_CAP);
+      if (!slot) break;
+      u.target = { ...TILE_CENTERS.get(slot)! };
+      u.speedPx = 110;
     }
   }
+  ensureDrift(room);
+}
+function stopDrift(room: Room): void {
+  if (room.driftTimer) { clearInterval(room.driftTimer); room.driftTimer = null; }
+}
+/** THE DRIFT: while anything glides at a quiet table (no battle
+ *  timer running), a light 250ms pulse keeps the room's state
+ *  flowing so the movement is seen. It stops itself when every
+ *  target is spent and no battle runs. */
+function ensureDrift(room: Room): void {
+  const anyMovers = () =>
+    [...room.players.values()].some(p => !!p.target)
+    || [...room.field.values()].some(u => !!u.target)
+    || [...room.dark.values()].some(e => !!e.target);
+  if (!anyMovers() || room.driftTimer || room.battle.timer) return;
+  room.driftTimer = setInterval(() => {
+    if (!rooms.get(room.id)) { stopDrift(room); return; }
+    sendState(room);
+    if (!anyMovers() && !room.battle.active) stopDrift(room);
+  }, 250);
+  room.driftTimer.unref?.();
 }
 /** The dark registry is keyed by id (see EnemyUnit.id); the
  *  tile lookups scan, as springHex always has. */
@@ -1393,6 +1474,9 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       if (!free.length) break;
       const spot = free.splice(Math.floor(Math.random() * free.length), 1)[0];
       e.hex = spot; // registered by id: the throw is just a new tile
+      e.pos = { ...TILE_CENTERS.get(spot)! };
+      e.target = null;
+      e.lastTile = spot;
       moved++;
     }
     if (caster && moved) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + Math.min(rune.nums.energyCap ?? 3, moved * (rune.nums.energyPerDark ?? 1)));
@@ -1513,7 +1597,7 @@ function dealWave(room: Room): void {
     const foe: EnemyUnit = {
       id: nextDarkId(),
       hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
-      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, march: null,
+      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
       armor: base.armor + Math.floor((wave - 1) / 3), lvl: wave, speedGauge: 0,
     };
     room.dark.set(foe.id, foe);
@@ -1541,7 +1625,7 @@ function dealBastion(room: Room): void {
       const foe: EnemyUnit = {
         id: nextDarkId(),
         hex, kind: entry.kind, label: face?.label ?? entry.kind, art: face?.art ?? null,
-        power: entry.power, hp: entry.hp, maxHp: entry.hp, pinnedUntil: 0, march: null,
+        power: entry.power, hp: entry.hp, maxHp: entry.hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
         armor: (entry as { armor?: number }).armor ?? DARK_ARMOR[entry.kind] ?? 5, lvl: b.tier, speedGauge: 0,
       };
       room.dark.set(foe.id, foe);
@@ -1657,8 +1741,8 @@ async function runRound(room: Room): Promise<void> {
     if (beatDue) room.battle.beatAcc = 0;
     // Shots age off the ledger; clients fly what is fresh.
     room.strikes = room.strikes.filter(s => now - (s.at ?? 0) < 1200);
-    const witness = (from: string, to: string, element: string, side: "light" | "dark", hit: boolean, killed: boolean) => {
-      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from, to, element, side, hit, killed });
+    const witness = (from: Pt, to: Pt, element: string | null, side: "light" | "dark", hit: boolean, killed: boolean, weapon?: string | null) => {
+      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" ? { pierce: true } : {}) });
     };
     if (beatDue) {
       await refreshGrimoire().catch(() => {});
@@ -1725,6 +1809,7 @@ async function runRound(room: Room): Promise<void> {
       }
     }
     } // — the beat's bookkeeping ends; the clock's work follows.
+    integrate(room, now);
     // The standing strike first — under FATE (Nigel,
     // 2026-10-17): a d20 against the dark thing's armor;
     // the element and the level lend the bonus; landed harm
@@ -1736,11 +1821,12 @@ async function runRound(room: Room): Promise<void> {
       let target: EnemyUnit | null = null;
       let best = Infinity;
       for (const e of room.dark.values()) {
-        // REACH (the Instance Map): the light strikes two
-        // tiles out — beyond that, the dark is a shape on the
-        // road, not yet a foe in hand.
-        if (hexDist(unit.hex, e.hex) > 2) continue;
-        const dd = hexDist(unit.hex, e.hex) - e.hp * 0.01;
+        // REACH (Phase B): the light strikes across its
+        // element's reach — beyond that, the dark is a shape
+        // on the field, not yet a foe in hand.
+        const d = distPx(unit.pos, e.pos);
+        if (d > (ELEMENT_REACH[unit.card.element] ?? 2) * 69) continue;
+        const dd = d - e.hp * 0.01;
         if (dd < best) { best = dd; target = e; }
       }
       if (!target) return;
@@ -1766,7 +1852,7 @@ async function runRound(room: Room): Promise<void> {
         + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush lends its edge to the roll
       const hit = roll === 20 || (roll !== 1 && roll + bonus >= target.armor);
       if (!hit) {
-        witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", false, false);
+        witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", false, false);
         if (roll === 1) tell(room, `${unit.card.name}'s strike goes wide — a cast of one, and the dark keeps its ground.`);
         return;
       }
@@ -1775,7 +1861,7 @@ async function runRound(room: Room): Promise<void> {
         + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
       const dmg = fateMitigate(raw, target.armor, unit.card.level ?? 1);
       target.hp -= dmg;
-      witness(unit.hex, target.hex, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
+      witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
       if (roll === 20) tell(room, `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`);
       if (target.hp <= 0) {
         room.dark.delete(target.id);
@@ -1801,41 +1887,53 @@ async function runRound(room: Room): Promise<void> {
     for (const unit of [...room.field.values()]) {
       if (!unitStanding(room, unit)) continue;
       if (room.dark.size === 0) break;
-      if (isMarching(unit, now)) continue; // on the road: no strikes
+      if (isMoving(unit)) continue; // on the move: no strikes
       if ((unit.pinnedUntil ?? 0) > now) continue; // pinned: the moments pass
       if (now < (unit.nextStrike ?? 0)) continue; // the cadence has not come round
-      if (![...room.dark.values()].some(e => hexDist(unit.hex, e.hex) <= 2)) continue;
+      if (![...room.dark.values()].some(e => distPx(unit.pos, e.pos) <= (ELEMENT_REACH[unit.card.element] ?? 2) * 69)) continue;
       unit.nextStrike = now + lightIntervalMs(unit);
       await strikeOnce(unit);
     }
-    // THE DARK ADVANCES (the Instance Map, on the clock): a
-    // dark thing with no foe in claw's reach travels its road
-    // toward the seed — or toward the nearest standing light,
-    // when the light is nearer — at its kind's gait. A patrol
-    // posted on its road stops it: within a tile, it halts and
-    // fights. The Hollow only drifts and drains, at a rate.
-    const beginAdvance = (enemy: EnemyUnit): void => {
-      if (enemy.march) return;
-      const standingNow = standingUnits(room);
-      let quarry = SEED_TILE;
-      let bestD = hexDist(enemy.hex, SEED_TILE);
-      for (const u of standingNow) {
-        const d = hexDist(enemy.hex, u.hex);
-        if (d < bestD) { bestD = d; quarry = u.hex; }
+    // THE RUNIC WEAPON STRIKES (Phase B): a Tender's wielded
+    // weapon — its key read LIVE at strike time, never
+    // snapshotted — strikes the nearest dark in its range,
+    // even while its Tender glides (the one exemption).
+    for (const p of room.players.values()) {
+      if (p.watcher || p.storytender || p.fallen || !p.pos) continue;
+      const wk = p.weaponKey ?? null;
+      if (!wk || !WEAPON_DIE[wk]) continue;
+      if (now < (p.weaponNext ?? 0)) continue;
+      let foe: EnemyUnit | null = null;
+      let foeD = Infinity;
+      for (const e of room.dark.values()) {
+        const d = distPx(p.pos, e.pos);
+        if (d <= WEAPON_RANGE_HEX[wk] * 69 && d < foeD) { foeD = d; foe = e; }
       }
-      if (quarry === enemy.hex) return;
-      // AT THE GATE: a dark thing already standing on the
-      // seed's own ring with the seed as its quarry HAS
-      // arrived — it does not march the last step onto the
-      // seed's tile (the travel law would halt it at the gate
-      // again, forever). It claws the seed from here; the
-      // assault reckons what that costs.
-      if (quarry === SEED_TILE && ringOf(enemy.hex) <= 1) return;
-      const road = findAnyRoad(enemy.hex, quarry);
-      if (!road || road.length < 2) return;
-      const gait = DARK_GAIT[enemy.kind] ?? 2.8;
-      enemy.march = { road, since: now, endsAt: now + Math.round((road.length - 1) * gait * 1000) };
-    };
+      if (!foe) continue;
+      p.weaponNext = now + WEAPON_COOLDOWN_MS[wk];
+      const roll = dN(20);
+      const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(p.tenderLevel) >= foe.armor);
+      if (!hit) {
+        witness(p.pos, foe.pos, null, "light", false, false, wk);
+        continue;
+      }
+      const dmg = fateMitigate(dN(WEAPON_DIE[wk]), foe.armor, p.tenderLevel);
+      foe.hp -= dmg;
+      if (foe.hp <= 0) {
+        p.weaponKills = (p.weaponKills ?? 0) + 1;
+        witness(p.pos, foe.pos, null, "light", true, true, wk);
+        fellDark(room, foe, p, "neutral");
+        tell(room, `${p.name}'s ${wk} unravels the ${foe.label}!`);
+      } else {
+        witness(p.pos, foe.pos, null, "light", true, false, wk);
+      }
+    }
+    // THE DARK ACTS (Phase B): steering (in integrate) has
+    // already carried it — toward the nearest standing light,
+    // or the seed, halting at claw's reach and at the gate.
+    // Here it only claws what stands within 69px, drains (the
+    // Hollow), or, with no light standing, claws a bare Tender
+    // at the gate. The Hollow only drifts and drains, at a rate.
     for (const enemy of [...room.dark.values()]) {
       if (enemy.kind === "hollow") {
         // The Hollow drains the air itself, at a rate — the
@@ -1850,37 +1948,11 @@ async function runRound(room: Room): Promise<void> {
         }
       }
       if ((enemy.pinnedUntil ?? 0) > now) continue;
-      // Travel: settle where the road has carried it.
-      if (enemy.march) {
-        const here = roadTileAt(enemy.march, now);
-        if (here !== enemy.hex) { enemy.hex = here; springHex(room, here, new Set()); }
-        const arrived = now >= enemy.march.endsAt;
-        const blocked = standingUnits(room).some(u => hexDist(u.hex, here) <= 1);
-        // The gate halts only a march whose road ENDS at the
-        // seed. A hunt for a light beyond the ring passes
-        // through the ring — transit is lawful — and the old
-        // blanket halt froze those hunters on the seed's door-
-        // step, where the seed became their quarry by default
-        // and nothing could ever move again (probe40's stall).
-        const dest = enemy.march.road[enemy.march.road.length - 1];
-        const atGate = dest === SEED_TILE && ringOf(here) <= 1 && !blocked;
-        if (arrived || blocked || atGate) {
-          enemy.hex = arrived ? enemy.march.road[enemy.march.road.length - 1] : here;
-          enemy.march = null;
-          springHex(room, enemy.hex, new Set());
-        } else {
-          continue; // still on the road: it does not strike
-        }
-      }
       const standing = standingUnits(room);
-      const inReach = standing.filter(u => hexDist(enemy.hex, u.hex) <= 1);
+      const inReach = standing.filter(u => distPx(enemy.pos, u.pos) <= 69);
       if (enemy.kind === "hollow") {
-        // It never claws — but it COMES: a Hollow left standing
-        // on the rim would haunt the air forever, beyond every
-        // reach, and no battle against it could ever end. It
-        // drifts its road until the gate or a standing light
-        // stops it, and drains where it stands.
-        if (!enemy.march && ringOf(enemy.hex) > 1) beginAdvance(enemy);
+        // It never claws: steering in integrate moves and
+        // halts it; here it only drains (above).
         continue;
       }
       if (inReach.length > 0) {
@@ -1894,7 +1966,7 @@ async function runRound(room: Room): Promise<void> {
         // the SHIELD burns before the body. The written
         // light answers a landed blow as it always has.
         const blowOnce = async (): Promise<void> => {
-          const standingNow = standingUnits(room).filter(u => hexDist(enemy.hex, u.hex) <= 1);
+          const standingNow = standingUnits(room).filter(u => distPx(enemy.pos, u.pos) <= 69);
           if (!standingNow.length) return;
           let victim: FieldUnit;
           if (enemy.kind === "unraveler") victim = standingNow.reduce((a, b) => (b.card.power > a.card.power ? b : a));
@@ -1906,7 +1978,7 @@ async function runRound(room: Room): Promise<void> {
           const ac = victim.card.toughness + acBonusOf(victim);
           const hit = roll === 20 || (roll !== 1 && roll + bonus >= ac);
           if (!hit) {
-            witness(enemy.hex, victim.hex, "dark", "dark", false, false);
+            witness(enemy.pos, victim.pos, "dark", "dark", false, false);
             if (roll === 1) tell(room, `The ${enemy.label}'s blow goes wide — a cast of one.`);
             return;
           }
@@ -1946,7 +2018,7 @@ async function runRound(room: Room): Promise<void> {
                 }
               }
             }
-            witness(victim.hex, enemy.hex, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", true, enemy.hp <= 0);
+            witness(victim.pos, enemy.pos, seal.hue && seal.hue !== "unaligned" ? seal.hue : "unaligned", "light", true, enemy.hp <= 0);
             // The Seal's health rating (Nigel, 2026-10-17):
             // every blow it stops costs it that blow's power.
             seal.hp -= enemy.power;
@@ -1994,7 +2066,7 @@ async function runRound(room: Room): Promise<void> {
             victim.hp -= wound;
             felled = victim.hp <= 0;
           }
-          witness(enemy.hex, victim.hex, "dark", "dark", true, felled);
+          witness(enemy.pos, victim.pos, "dark", "dark", true, felled);
           if (roll === 20) tell(room, `The ${enemy.label} rolls a natural twenty — the blow lands true and terrible!`);
           if (felled) {
             noteDissipation(room, victim);
@@ -2007,9 +2079,9 @@ async function runRound(room: Room): Promise<void> {
         await blowOnce();
       } else if (standing.length === 0) {
         // Nothing stands: the shield law leaves the Tenders
-        // bare — but the blow lands only at the gate. Out on
-        // the road, the dark is still coming.
-        if (ringOf(enemy.hex) > 1) { beginAdvance(enemy); continue; }
+        // bare — but the blow lands only at the gate. Beyond
+        // it, steering brings the dark on.
+        if (ringOf(enemy.hex) > 1) continue;
         if (now < (enemy.nextStrike ?? 0)) continue;
         enemy.nextStrike = now + darkIntervalMs(enemy);
         const bare = [...room.players.values()].filter(p => !p.watcher && !p.storytender && !p.fallen);
@@ -2019,16 +2091,25 @@ async function runRound(room: Room): Promise<void> {
         // strikes against the Tender are blunted by the
         // stars' tenderSkin clauses, never below 1.
         const skinAmt = tender.expKey ? heartEffects(tender.expKey).skinAmount : 0;
-        const blow = Math.max(1, enemy.power - skinAmt);
-        tender.tenderHp -= blow;
-        if (tender.tenderHp <= 0) {
-          tender.tenderHp = 0;
-          tender.fallen = true;
-          tell(room, `${tender.name} has fallen. The Bastion mourns — and fights on.`);
+        // The bare Tender's AC: 10 plus the runic weapon's
+        // guard, its key read LIVE (Phase B).
+        const wac = WEAPON_AC[tender.weaponKey ?? ""] ?? 0;
+        const roll = dN(20);
+        const ac = 10 + wac;
+        const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(enemy.lvl) >= ac);
+        if (tender.pos) witness(enemy.pos, tender.pos, "dark", "dark", hit, false);
+        if (hit) {
+          const blow = Math.max(1, enemy.power - skinAmt);
+          tender.tenderHp -= blow;
+          if (tender.tenderHp <= 0) {
+            tender.tenderHp = 0;
+            tender.fallen = true;
+            tell(room, `${tender.name} has fallen. The Bastion mourns — and fights on.`);
+          }
         }
       } else {
-        // Light stands, but beyond claw's reach: the dark comes on.
-        beginAdvance(enemy);
+        // Light stands, but beyond claw's reach: steering
+        // (in integrate) closes the distance.
       }
     }
     // THE CURSE WITHERS, THE LIGHT GRINDS (the Instance Map;
@@ -2040,21 +2121,20 @@ async function runRound(room: Room): Promise<void> {
     // turns, in the element of the strongest light upon it.
     // THE TENDER WITHERS TOO: he may walk the cursed land —
     // it is his road as much as theirs — and it takes the
-    // same share of him, standing or mid-march, until he
+    // same share of him, standing or gliding, until he
     // falls where he stands.
     {
       const grind = new Map<string, { dmg: number; best: FieldUnit | null }>();
       const rate = dtSec / (BEAT_MS / 1000); // the old round's share of this tick
       for (const p of room.players.values()) {
         if (p.watcher || p.storytender || p.fallen || !p.hex) continue;
-        const hereId = p.march ? roadTileAt(p.march, now) : p.hex;
-        const tile = room.map.get(hereId);
+        const tile = room.map.get(p.hex);
         if (!tile || !tile.cursed) continue;
         p.tenderHp -= p.maxTenderHp * curseAttritionPct(ringOf(tile.id)) * rate;
         if (p.tenderHp <= 0) {
           p.tenderHp = 0;
           p.fallen = true;
-          if (p.march) { p.hex = hereId; p.march = null; }
+          p.target = null;
           tell(room, `The curse's attrition takes ${p.name} — they fall where they stand. The Bastion mourns — and fights on.`);
         }
       }
@@ -2099,7 +2179,7 @@ async function runRound(room: Room): Promise<void> {
     if (room.campaign && !room.campaign.over && room.campaign.seeded && room.battle.active && room.dark.size > 0) {
       const c = room.campaign;
       const standing = standingUnits(room);
-      const exposed = [...room.dark.values()].filter(e => !e.march && ringOf(e.hex) <= 1 && !standing.some(u => hexDist(u.hex, e.hex) <= 2));
+      const exposed = [...room.dark.values()].filter(e => !isMoving(e) && ringOf(e.hex) <= 1 && !standing.some(u => distPx(u.pos, e.pos) <= (ELEMENT_REACH[u.card.element] ?? 2) * 69));
       if (exposed.length) {
         const drain = exposed.reduce((s, e) => s + e.power, 0) * dtSec / (BEAT_MS / 1000);
         if (drain > 0) {
@@ -2199,7 +2279,8 @@ function handleConnection(ws: WebSocket): void {
       room.sky = await currentSky();
       room.players.set(ws, player);
       player.hex = undefined;
-      player.march = null;
+      player.pos = undefined;
+      player.target = null;
       assignLanding(room, player);
       ensureTenderHex(room, player);
       tell(room, `${player.name} answers the ${String(call.kind).toUpperCase()} call — key ${k} — and takes a seat, Awokin in hand.`);
@@ -2459,7 +2540,7 @@ function handleConnection(ws: WebSocket): void {
       placeUnit(room, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
         shield, maxShield: shield, speedGauge: 0,
-        ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, march: null,
+        ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null,
       });
       tell(room, `${player.name} casts ${card.name} onto the field (⚡${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
       sendState(room);
@@ -2480,7 +2561,7 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: "No Awokin of yours stands there to recall." }));
         return;
       }
-      if (isMarching(unit)) {
+      if (isMoving(unit)) {
         ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` }));
         return;
       }
@@ -2508,7 +2589,7 @@ function handleConnection(ws: WebSocket): void {
       const myKey = player.key;
       const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
       if (!unit || unit.hex !== from) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand there." })); return; }
-      if (isMarching(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is already on the march.` })); return; }
+      if (isMoving(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is already on the march.` })); return; }
       if (!TILE_BY_ID.has(to) || to === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The march ends on the land — never on the star-seed's tile." })); return; }
       if (to === from) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} already stands there.` })); return; }
       if (unitsAt(room, to).length >= STACK_CAP) { ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile.` })); return; }
@@ -2520,54 +2601,43 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: `The march costs ⚡${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at ⚡${marchRateFor(unit.card.power)} for ${unit.card.name}'s power) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
         return;
       }
-      const duration = Math.round(hexes * marchSecondsPerHexFor(unit.card) * 1000);
-      const now = Date.now();
       // A direct order ends the follow: the Awokin goes where
-      // it is sent and holds there (Nigel, 2026-10-19).
+      // it is sent and holds there (Nigel, 2026-10-19). Its
+      // hex is NOT set — the integrator derives it from the
+      // gliding position; its pace rides from its gait.
       unit.follow = false;
-      unit.hex = to;
-      unit.march = { road, since: now, endsAt: now + duration };
+      unit.target = { ...TILE_CENTERS.get(to)! };
+      unit.speedPx = Math.max(34, 69 / marchSecondsPerHexFor(unit.card));
       tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (⚡${cost}).`);
       sendState(room);
       return;
     }
 
-    // THE TENDER MARCHES (Nigel, 2026-10-19): the Tender
-    // themself takes the road — tap the land, and they walk it
-    // like anything that walks: a road over any ground, the
-    // destination never the seed. The price is a walker's,
-    // ⚡1 the hex, whatever company they keep; their followers
-    // muster to them when they arrive (see settleTenders).
-    if (msg.type === "tenderMarch") {
+    // THE TENDER GLIDES (Phase B): the Tender themself moves
+    // continuously — a tap names a point on the field, and they
+    // glide to it at a walker's pace (120px/s, in integrate).
+    // A point on the star-seed's tile is refused; a point far
+    // from any tile centre clamps to that centre.
+    if (msg.type === "glide") {
       if (!player) return;
       if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
       if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender takes the road." })); return; }
-      if (!player.hex) { ws.send(JSON.stringify({ type: "error", message: "You stand nowhere yet." })); return; }
-      if (isTenderMarching(player)) { ws.send(JSON.stringify({ type: "error", message: "You are already on the road." })); return; }
-      const to = String(msg.to ?? "");
-      if (!TILE_BY_ID.has(to) || to === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The march ends on the land — never on the star-seed's tile." })); return; }
-      if (to === player.hex) { ws.send(JSON.stringify({ type: "error", message: "You already stand there." })); return; }
-      const road = findAnyRoad(player.hex, to);
-      if (!road || road.length < 2) { ws.send(JSON.stringify({ type: "error", message: "No road runs there." })); return; }
-      const hexes = road.length - 1;
-      // The Tender's own walking is free — the road's price is
-      // for Awokin under orders; he is the one who gives them.
-      const now = Date.now();
-      player.hex = to;
-      player.march = { road, since: now, endsAt: now + Math.round(hexes * companySecondsPerHex(room, player) * 1000) };
-      tell(room, `🚶 ${player.name} takes the road — ${hexes} hex${hexes === 1 ? "" : "es"}.`);
+      if (!player.pos) { ws.send(JSON.stringify({ type: "error", message: "You stand nowhere yet." })); return; }
+      const tx = Number(msg.tx), ty = Number(msg.ty);
+      if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
+      const point: Pt = { x: tx, y: ty };
+      const nearest = nearestTileId(point);
+      if (nearest === SEED_TILE && distPx(point, TILE_CENTERS.get(SEED_TILE)!) <= 69) { ws.send(JSON.stringify({ type: "error", message: "The glide ends on the land — never on the star-seed's tile." })); return; }
+      player.target = distPx(point, TILE_CENTERS.get(nearest)!) > 69 ? { ...TILE_CENTERS.get(nearest)! } : { x: tx, y: ty };
       sendState(room);
-      // The arrival is an event even at a quiet table: when the
-      // road runs out, settle and let the room see the company
-      // muster — no one should have to act to make it so.
-      const marchRef = player.march;
-      const tenderRef = player;
-      const roomHere = room;
-      setTimeout(() => {
-        if (tenderRef.march !== marchRef) return;
-        settleTenders(roomHere);
-        sendState(roomHere);
-      }, Math.max(0, marchRef.endsAt - Date.now()) + 80);
+      return;
+    }
+
+    // GLIDE STOP: the Tender halts where they glide.
+    if (msg.type === "glideStop") {
+      if (!player) return;
+      player.target = null;
+      sendState(room);
       return;
     }
 
@@ -2621,13 +2691,13 @@ function handleConnection(ws: WebSocket): void {
       const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
       if (!unit || (hex && unit.hex !== hex)) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand there." })); return; }
       if (!unitStanding(room, unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} no longer stands on the field.` })); return; }
-      if (isMarching(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` })); return; }
+      if (isMoving(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` })); return; }
       const now = Date.now();
       if ((unit.pinnedUntil ?? 0) > now) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is held fast — it cannot strike.` })); return; }
       const tile = room.map.get(targetId);
       if (!tile || targetId === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to strike." })); return; }
       if (!tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is already pure." })); return; }
-      if (hexDist(unit.hex, targetId) > 2) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes two tiles out." })); return; }
+      if (distPx(unit.pos, TILE_CENTERS.get(targetId)!) > (ELEMENT_REACH[unit.card.element] ?? 2) * 69) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes two tiles out." })); return; }
       const cost = 1;
       if (!chargePurse(room, player, cost)) {
         ws.send(JSON.stringify({ type: "error", message: `A curse-strike costs ⚡${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ⚡${Math.floor(room.campaign.bank)}` : `you hold ⚡${player.energy}`}.` }));
@@ -2640,7 +2710,7 @@ function handleConnection(ws: WebSocket): void {
       const purified = tile.curseHp <= 0;
       // The witness: the blow flies to the TILE, on the same
       // ledger the referee's strikes fly by.
-      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: unit.hex, to: targetId, element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified });
+      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos(TILE_CENTERS.get(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
       if (purified) {
         tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
         purifyTile(room, tile, dominantElement(partsOf(unit.card) as { element?: string | null }[]));
@@ -3085,7 +3155,7 @@ function handleConnection(ws: WebSocket): void {
             const foe: EnemyUnit = {
               id: nextDarkId(),
               hex, kind, label: face?.label ?? kind, art: face?.art ?? null,
-              power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, march: null,
+              power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
               armor: base.armor + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
             };
             R.dark.set(foe.id, foe);

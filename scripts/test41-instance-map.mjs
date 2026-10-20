@@ -71,6 +71,19 @@ const neighborsOf = (id) => {
   const [q, r] = id.split(",").map(Number);
   return [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].map(([dq, dr]) => `${q + dq},${r + dr}`);
 };
+// THE CONTINUOUS TABLE (Phase B): positions are pixels now —
+// a tile's center by the iso math, and a unit's tgt is the
+// march's destination point, proven within a hair of it.
+const U = [1292 * 40 / 796, 470 * 40 / 796], V = [0, 948 * 40 / 796];
+const centerOf = (id) => {
+  const [q, r] = id.split(",").map(Number);
+  return { x: q * U[0] + r * V[0], y: q * U[1] + r * V[1] };
+};
+const tgtNear = (u, id, tol = 1.5) => {
+  if (!u?.tgt) return false;
+  const ctr = centerOf(id);
+  return Math.hypot(u.tgt.x - ctr.x, u.tgt.y - ctr.y) <= tol;
+};
 
 // ── The casual instance ────────────────────────────────────
 const a = client("A");
@@ -113,19 +126,20 @@ check("the muster was charged (12 − 1 − 2 − 1)", a.you.energy === 8, `ener
 const rootUnit = () => a.state.field.find(u => u.name === "Rootbound Confessor");
 const stepTile = neighborsOf(landingA).map(id => tileOf(a, id)).find(t => t && t.cursed && ringOf(t.id) === 1).id;
 a.send({ type: "march", cardId: rootb.id, from: landingA, to: stepTile });
-await a.waitFor(c => rootUnit()?.hex === stepTile && !!rootUnit()?.march, "the march begins");
-const road = rootUnit().march.road;
-check("the road runs from the landing to the cursed tile", road[0] === landingA && road[road.length - 1] === stepTile, `road=${road.join("→")}`);
+await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), stepTile), "the march begins");
+check("the march is bound for the cursed tile's center", rootUnit().moving === true && tgtNear(rootUnit(), stepTile),
+  `tgt=${JSON.stringify(rootUnit().tgt)} center=${JSON.stringify(centerOf(stepTile))}`);
 check("the march was priced by the land's law (1 hex × ⚡1 for power 1)", a.you.energy === 7, `energy=${a.you.energy}`);
-await a.waitFor(c => Date.now() > rootUnit().march.endsAt + 300, "the march arrives", 20000);
+await a.waitFor(c => !rootUnit()?.moving && rootUnit()?.hex === stepTile, "the march arrives", 20000);
 a.send({ type: "march", cardId: rootb.id, from: stepTile, to: landingA });
-await a.waitFor(c => rootUnit()?.hex === landingA && !!rootUnit()?.march, "the march back is accepted — arrival proven");
-check("arrival proven by the march back", rootUnit().hex === landingA);
-await a.waitFor(c => Date.now() > rootUnit().march.endsAt + 300, "the return lands", 20000);
+await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), landingA), "the march back is accepted — arrival proven");
+check("arrival proven by the march back (accepted from the cursed tile)", rootUnit().moving === true && tgtNear(rootUnit(), landingA));
+await a.waitFor(c => !rootUnit()?.moving && rootUnit()?.hex === landingA, "the return lands", 20000);
+check("the return stands on the landing", rootUnit().hex === landingA && !rootUnit().moving);
 // March out again and stand patrol on the cursed tile.
 a.send({ type: "march", cardId: rootb.id, from: landingA, to: stepTile });
-await a.waitFor(c => rootUnit()?.hex === stepTile && !!rootUnit()?.march, "patrol march begins");
-await a.waitFor(c => Date.now() > rootUnit().march.endsAt + 300, "patrol arrives", 20000);
+await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), stepTile), "patrol march begins");
+await a.waitFor(c => !rootUnit()?.moving && rootUnit()?.hex === stepTile, "patrol arrives", 20000);
 
 // The wave: the dark is dealt onto cursed ground only, and a
 // felling frees the tile it held.
@@ -158,7 +172,7 @@ check("the grind tile starts at the ring law's corruption (10)", tileOf(cb, grin
 cb.send({ type: "march", cardId: spark.id, from: cLanding, to: grindTile });
 await cb.waitFor(c => c.state.field.find(u => u.name.startsWith("Spark"))?.hex === grindTile, "Spark marches to the cursed tile");
 const sparkUnit = () => cb.state.field.find(u => u.name.startsWith("Spark"));
-await cb.waitFor(c => Date.now() > sparkUnit().march.endsAt + 300, "Spark arrives on patrol", 20000);
+await cb.waitFor(c => !sparkUnit()?.moving, "Spark arrives on patrol", 20000);
 const maxShield = sparkUnit().maxShield;
 
 // ONE HOLLOW, dealt alone: it never strikes — it only drifts
@@ -166,14 +180,48 @@ const maxShield = sparkUnit().maxShield;
 // point Spark's shield loses on the cursed tile is the BURN's
 // alone, and her body must stay whole. On the clock, the
 // grind is a rate: Spark's power 7 against corruption 10.
+//
+// CONTINUOUS-FIELD NOTE (Phase B): the grind is the referee's
+// work and the referee ticks only while a battle runs — and
+// under the ruled reach table a sky Awoken strikes four
+// hexes out, so the drifting hollow is sniped down long
+// before it can wander the field as it did under the old
+// two-hex law, and each skirmish ends in seconds. The
+// Storytender therefore keeps feeding hollows to the field
+// while the grind is measured, so a battle — and so the
+// referee — stays alive until the tile turns. What is
+// proven is unchanged: the grind's rate, the turning, the
+// element, and that the burn alone cost Spark her shield.
 st.send({ type: "stAdd", kind: "hollow" });
 await st.waitFor(c => c.you?.storytender?.reserve.length === 1, "one hollow held");
 st.send({ type: "stDeal" });
 await cb.waitFor(c => c.state.campaign?.seeded && c.state.dark.length === 1, "the hollow is dealt");
 check("the bank seeded from what the muster left (2)", cb.state.campaign.bank === 2, `bank=${cb.state.campaign.bank}`);
-await cb.waitFor(c => tileOf(c, grindTile).curseHp <= 8 && tileOf(c, grindTile).curseHp > 0, "the grind bites", 20000);
-check("the standing light grinds the corruption down, as a rate", tileOf(cb, grindTile).curseHp <= 8);
-await cb.waitFor(c => tileOf(c, grindTile).cursed === false, "the tile turns", 30000);
+{
+  // The grind is observed across the kept-alive skirmish:
+  // the lowest corruption seen while the tile still holds,
+  // and the turning itself. (A single skirmish may end
+  // before two points are ground — the hollow can spawn
+  // inside Spark's reach and die at her first strike — so
+  // the rate is read over the whole feeding, not one deal.)
+  let minCurse = tileOf(cb, grindTile).curseHp;
+  const turnStart = Date.now();
+  while (Date.now() - turnStart < 90000) {
+    const t = tileOf(cb, grindTile);
+    if (t.curseHp > 0) minCurse = Math.min(minCurse, t.curseHp);
+    if (t.cursed === false) break;
+    if (cb.state.dark.length === 0 && !cb.state.battle.active) {
+      st.send({ type: "stAdd", kind: "hollow" });
+      await st.waitFor(c => (c.you?.storytender?.reserve.length ?? 0) >= 1, "another hollow held", 10000).catch(() => {});
+      st.send({ type: "stDeal" });
+      await cb.waitFor(c => c.state.dark.length === 1, "another hollow dealt", 10000).catch(() => {});
+    }
+    await sleep(400);
+  }
+  check("the standing light grinds the corruption down, as a rate", minCurse <= 8, `minCurseHp=${minCurse}`);
+  check("the tile turns under a kept-alive skirmish", tileOf(cb, grindTile).cursed === false,
+    `cursed=${tileOf(cb, grindTile).cursed} curseHp=${tileOf(cb, grindTile).curseHp}`);
+}
 check("ground to nothing, the tile purifies", tileOf(cb, grindTile).cursed === false);
 check("it turns in the grinder's element (sky)", tileOf(cb, grindTile).element === "sky", `element=${tileOf(cb, grindTile).element}`);
 check("the curse burned back — the shield alone paid (no blow ever landed)", sparkUnit().shield < maxShield && sparkUnit().hp === sparkUnit().maxHp,

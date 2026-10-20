@@ -91,24 +91,56 @@ check("tender's purse view is the bank", a.you.energy === 24, `energy=${a.you.en
 check("the seed tale was told", a.state.tale.some(t => t.text.includes("poured into one bank")));
 
 // A cast draws on the bank.
+//
+// CONTINUOUS-FIELD NOTE (Phase B): under the ruled reach
+// table the lone Hushkeeper (tide, three hexes) fells
+// approaching dark from the first seconds — under the old
+// two-hex road law the dealt three were still walking when
+// this check read the bank, and it read exactly 23. The
+// cast's charge is the same law it always was; the check
+// now nets the bank against the harvest the tale itself
+// records, so what is proven is the charge, exactly.
+const harvestedSoFar = (c) => (c.state.tale ?? []).reduce((sum, t) => {
+  const m = t.text.match(/⚡(\d+) joins the bank/);
+  return sum + (m ? Number(m[1]) : 0);
+}, 0);
 const hush = a.you.hand.find(c => c.name === "Hushkeeper");
 // The Instance Map: summons land on the seat's own purified
 // landing tile (stacking lets the band share it).
 const freeHex = a.you.landing;
 a.send({ type: "summon", cardId: hush.id, hex: freeHex });
 await a.waitFor(c => c.state.field.some(u => u.name === "Hushkeeper"), "hushkeeper stands");
-check("cast charged the bank (24 → 23)", a.state.campaign.bank === 23, `bank=${a.state.campaign.bank}`);
+check("cast charged the bank (24 → 23, plus the light's own harvest)",
+  a.state.campaign.bank === 23 + harvestedSoFar(a),
+  `bank=${a.state.campaign.bank} harvested=${harvestedSoFar(a)}`);
 
 // The kill: under the old referee the first dealing's dark
 // struck from anywhere and the lone Hushkeeper fell to it.
 // On the clock and the big map she fells each approaching
 // thing at reach, one strike at a time — what brings her
-// down is a swarm arriving faster than her cadence: ten
-// Fray, skittering, more claws than she can answer.
-for (let i = 0; i < 10; i++) st.send({ type: "stAdd", kind: "fray" });
-await st.waitFor(c => c.you?.storytender?.reserve.length === 10, "the swarm held");
+// down is a swarm arriving faster than her cadence: Fray,
+// skittering, more claws than she can answer.
+//
+// CONTINUOUS-FIELD NOTE (Phase B): the swarm is twenty, not
+// ten. On the continuous field the hunt spreads the dark —
+// some run at her, the rest gate at the seed and are felled
+// at her reach one by one — and ten no longer guarantees
+// the overwhelm: in one run of this test she beat ten
+// outright. Twenty restores the premise the law needs —
+// more claws arrive than one cadence can answer — and the
+// dissipation it proves is the same event it always was.
+for (let i = 0; i < 20; i++) st.send({ type: "stAdd", kind: "fray" });
+await st.waitFor(c => c.you?.storytender?.reserve.length === 20, "the swarm held");
+// The first deal's three may already be felled and harvested
+// (the note above) — the swarm is ten MORE dark, counted
+// against however many still stand.
+const aliveBeforeSwarm = a.state.dark.length;
 st.send({ type: "stDeal" });
-await a.waitFor(c => c.state.dark.length === 13, "the swarm is dealt");
+// A rise of six or more can only be the swarm arriving —
+// an exact count is not readable here: the first deal's
+// survivors are still falling to the Hushkeeper's reach
+// while the count is being taken.
+await a.waitFor(c => c.state.dark.length > aliveBeforeSwarm + 5, "the swarm is dealt");
 
 // The Unraveler hunts it; wait for the dissipation, then the
 // recast must cost double.
@@ -116,10 +148,17 @@ await a.waitFor(c => c.you?.recasts?.[hush.id] === 1, "dissipation counted", 900
 check("dissipation counted for the recast law", a.you.recasts[hush.id] === 1);
 check("the card returned to the roster", a.you.hand.some(c => c.id === hush.id));
 const bankBefore = a.state.campaign.bank;
+const harvestBefore = harvestedSoFar(a);
 const freeHex2 = a.you.landing;
 a.send({ type: "summon", cardId: hush.id, hex: freeHex2 });
 await a.waitFor(c => c.state.field.some(u => u.name === "Hushkeeper"), "recast stands");
-check("recast charged double (bank fell by 2)", bankBefore - a.state.campaign.bank === 2, `delta=${bankBefore - a.state.campaign.bank}`);
+// Netted against the interval's harvest, as the cast check
+// above: the recast Hushkeeper strikes at tide's reach the
+// moment she stands, and a felling in the same breath must
+// not be allowed to mask the double charge.
+check("recast charged double (bank fell by 2, net of harvest)",
+  (bankBefore - a.state.campaign.bank) + (harvestedSoFar(a) - harvestBefore) === 2,
+  `bankDelta=${bankBefore - a.state.campaign.bank} harvestDelta=${harvestedSoFar(a) - harvestBefore}`);
 
 // The swarm is still on the field, clawing at the gate —
 // the Storytender calls it off entirely (mercy, unharvested),

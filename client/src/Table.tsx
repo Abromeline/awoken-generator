@@ -110,8 +110,10 @@ interface FieldUnitView {
   maxHp: number;
   shield?: number;
   maxShield?: number;
-  /** On the march: the road home is read off road + clock. */
-  march?: { road: string[]; since: number; endsAt: number } | null;
+  /** Continuous position on the stage (Phase B). */
+  pos: { x: number; y: number };
+  tgt: { x: number; y: number } | null;
+  moving: boolean;
   /** FOLLOW: the standing order to trail its Tender. */
   follow?: boolean;
   level: number | null;
@@ -136,16 +138,16 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; march?: { road: string[]; since: number; endsAt: number } | null; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null }[];
+  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
   field: FieldUnitView[];
   enemies: EnemyView[];
-  dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; march?: { road: string[]; since: number; endsAt: number } | null }[];
+  dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; pos: { x: number; y: number }; tgt: { x: number; y: number } | null; moving: boolean }[];
   workings: WorkingView[];
   battle: { active: boolean; wave: number };
-  strikes?: { id?: number; at?: number; from: string; to: string; element: string; side: "light" | "dark"; hit: boolean; killed: boolean }[];
+  strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean }[];
   bastion?: {
     callId: number; kind: string; hostName: string; ambush: boolean;
     pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
@@ -424,8 +426,11 @@ export default function Table() {
   // every strike of the round it just resolved; the Table
   // flies them — the attacker's element from its hex to its
   // mark's, the dark answering in a darkened bolt.
-  const [shots, setShots] = useState<{ id: number; from: string; to: string; img: string; dark: boolean; hit: boolean; killed: boolean; idx: number }[]>([]);
+  const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; img: string; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean }[]>([]);
   const shotIdRef = useRef(0);
+  // SMOOTHING (Phase B): drawn positions, lerped across ticks
+  // toward the server's continuous positions.
+  const smoothedPosRef = useRef(new Map<string, { x: number; y: number }>());
   // Every strike carries the referee's running id; the Table
   // flies each one it has not flown, while it is fresh. A
   // curse-strike ordered between beats therefore flies on
@@ -446,8 +451,8 @@ export default function Table() {
     }).map((st) => ({
       id: ++shotIdRef.current,
       from: st.from, to: st.to,
-      img: st.side === "dark" ? PROJECTILE_GIF.unaligned : (PROJECTILE_GIF[st.element] ?? PROJECTILE_GIF.unaligned),
-      dark: st.side === "dark", hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000,
+      img: st.side === "dark" ? PROJECTILE_GIF.unaligned : ((st.element ? PROJECTILE_GIF[st.element] : undefined) ?? PROJECTILE_GIF.unaligned),
+      dark: st.side === "dark", hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000, pierce: st.pierce,
     }));
     if (!fresh.length) return;
     setShots(prev => [...prev.slice(-30), ...fresh]);
@@ -464,9 +469,8 @@ export default function Table() {
   // blow per tap, as the land's blow-per-order rules it.
   const [strikeArm, setStrikeArm] = useState(false);
   useEffect(() => { setStrikeArm(false); }, [selUnitId]);
-  // The stage clock: a marching figure's place is read off
-  // road + clock on every screen (Territory's marching-layer
-  // law), so the stage ticks gently while anyone watches.
+  // The stage clock: the stage ticks gently while anyone
+  // watches, so smoothed figures lerp across server ticks.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 150);
@@ -491,7 +495,7 @@ export default function Table() {
   // server never hears of it — a figure's place is read off the
   // room's own state (their company's ground, or a rim post).
   // You, selected: your own figure takes orders like an
-  // Awokin — tap a tile and you march there yourself.
+  // Awokin — tap a tile and you glide there yourself.
   const [selTender, setSelTender] = useState(false);
   // THE GLYPH WHEEL (Nigel, 2026-10-19): right-click (or a
   // long press, for the iPad) opens a Zodiac-fashion radial of
@@ -509,7 +513,7 @@ export default function Table() {
   const beginCast = (targetHexId: string | null) => {
     if (!you || !shared) return;
     const me = shared.players.find(p => p.key === you.key);
-    const from = me?.hex ? centerOf(me.hex) : null;
+    const from = me?.pos ? { cx: me.pos.x, cy: me.pos.y } : me?.hex ? centerOf(me.hex) : null;
     const to = targetHexId ? centerOf(targetHexId) : null;
     const dir = from && to ? tenderDirOf(to.cx - from.cx, to.cy - from.cy) : "S";
     castAnimRef.current.set(you.key, { startedAt: Date.now(), dir });
@@ -523,58 +527,104 @@ export default function Table() {
       if (you && p.key === you.key && Date.now() - ownCastMarkRef.current < 1600) continue;
       const w = [...shared.workings].reverse().find(wk => wk.ownerKey === p.key);
       const targetId = w?.hex ?? w?.hexA ?? null;
-      const from = p.hex ? centerOf(p.hex) : null;
-      const to = targetId ? centerOf(targetId) : null;
-      const dir = from && to ? tenderDirOf(to.cx - from.cx, to.cy - from.cy) : "S";
+      const fromC = p.hex ? centerOf(p.hex) : null;
+      const from = p.pos ? { x: p.pos.x, y: p.pos.y } : fromC ? { x: fromC.cx, y: fromC.cy } : null;
+      const toC = targetId ? centerOf(targetId) : null;
+      const to = toC ? { x: toC.cx, y: toC.cy } : null;
+      const dir = from && to ? tenderDirOf(to.x - from.x, to.y - from.y) : "S";
       castAnimRef.current.set(p.key, { startedAt: Date.now(), dir });
     }
   }, [shared]);
-  // WASD WALKS THE TENDER (Nigel, 2026-10-19): the lattice's
-  // own compass — Q/W/E across the top arc, A/S/D below it,
-  // arrows riding the same steps. Each press is one hex of
-  // road; the key's repeat walks him on. Free, as his own
-  // walking is; ignored while placing, while the wheel is
-  // open, or while he is already mid-step.
-  const stepRef = useRef<((dq: number, dr: number) => void) | null>(null);
-  const queuedStepRef = useRef<[number, number] | null>(null);
-  stepRef.current = (dq, dr) => {
+  // WASD GLIDES THE TENDER (Phase B): the lattice's own
+  // compass — Q/W/E across the top arc, A/S/D below it,
+  // arrows riding the same steps. Held keys sum into one
+  // direction; the tender glides continuously toward a point
+  // 420px that way, refreshed every 120ms while keys are held.
+  // Free, as his own walking is; ignored while placing, while
+  // the wheel is open, or while he has fallen.
+  const GLIDE_STEPS: Record<string, [number, number]> = {
+    KeyW: [0, -1], KeyS: [0, 1], KeyQ: [-1, 0], KeyE: [1, -1], KeyA: [-1, 1], KeyD: [1, 0],
+    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, -1],
+  };
+  const heldKeysRef = useRef<Set<string>>(new Set());
+  const glideTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const myPosRef = useRef<{ x: number; y: number } | null>(null);
+  myPosRef.current = you && shared ? (shared.players.find(p => p.key === you.key)?.pos ?? null) : null;
+  const glideGuardRef = useRef({ placing: false, radial: false, fallen: false });
+  glideGuardRef.current = {
+    placing: !!placing,
+    radial: !!radial,
+    fallen: !!(you && shared && shared.players.find(p => p.key === you.key)?.fallen),
+  };
+  const sendGlideRef = useRef<(() => void) | null>(null);
+  sendGlideRef.current = () => {
+    const pos = myPosRef.current;
+    if (!pos || heldKeysRef.current.size === 0) return;
     if (!you || !shared || placing || radial) return;
     const me = shared.players.find(p => p.key === you.key);
-    if (!me?.hex || me.fallen) return;
-    // Mid-step, a press is not lost: it queues, and walks on
-    // the moment the current step lands — a held key walks.
-    if (me.march && nowMs < me.march.endsAt) { queuedStepRef.current = [dq, dr]; return; }
-    const cur = tileById.get(me.hex);
-    if (!cur) return;
-    const toId = `${cur.q + dq},${cur.r + dr}`;
-    if (!tileById.has(toId) || toId === SEED_TILE_ID) return;
+    if (!me || me.fallen) return;
+    let dq = 0, dr = 0;
+    for (const code of heldKeysRef.current) {
+      const s = GLIDE_STEPS[code];
+      if (s) { dq += s[0]; dr += s[1]; }
+    }
+    const { u, v } = isoBasis(TILE_SIZE);
+    const vx = dq * u[0] + dr * v[0];
+    const vy = dq * u[1] + dr * v[1];
+    const len = Math.hypot(vx, vy);
+    if (len === 0) return;
+    const nx = vx / len, ny = vy / len;
+    send({ type: "glide", tx: pos.x + nx * 420, ty: pos.y + ny * 420 });
     setSelTender(true);
-    send({ type: "tenderMarch", to: toId });
   };
+  const sendGlideStopRef = useRef<(() => void) | null>(null);
+  sendGlideStopRef.current = () => { send({ type: "glideStop" }); };
   useEffect(() => {
-    const q = queuedStepRef.current;
-    if (!q || !you || !shared) return;
-    const me = shared.players.find(p => p.key === you.key);
-    if (!me || (me.march && nowMs < me.march.endsAt)) return;
-    queuedStepRef.current = null;
-    stepRef.current?.(q[0], q[1]);
-  }, [nowMs]);
-  useEffect(() => {
-    const steps: Record<string, [number, number]> = {
-      KeyW: [0, -1], KeyS: [0, 1], KeyQ: [-1, 0], KeyE: [1, -1], KeyA: [-1, 1], KeyD: [1, 0],
-      ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, -1],
+    const clearGlideTimer = () => {
+      if (glideTimerRef.current) { clearInterval(glideTimerRef.current); glideTimerRef.current = null; }
     };
-    const onKey = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Escape") { setRadial(null); return; }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      const step = steps[e.code];
+      const step = GLIDE_STEPS[e.code];
       if (!step) return;
       e.preventDefault();
-      stepRef.current?.(step[0], step[1]);
+      if (e.repeat || heldKeysRef.current.has(e.code)) return;
+      heldKeysRef.current.add(e.code);
+      if (glideGuardRef.current.placing || glideGuardRef.current.radial || glideGuardRef.current.fallen) return;
+      sendGlideRef.current?.();
+      if (!glideTimerRef.current) {
+        glideTimerRef.current = setInterval(() => { sendGlideRef.current?.(); }, 120);
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onKeyUp = (e: KeyboardEvent) => {
+      const step = GLIDE_STEPS[e.code];
+      if (!step) return;
+      e.preventDefault();
+      heldKeysRef.current.delete(e.code);
+      if (heldKeysRef.current.size === 0) {
+        clearGlideTimer();
+        sendGlideStopRef.current?.();
+      } else {
+        sendGlideRef.current?.();
+      }
+    };
+    const onBlur = () => {
+      heldKeysRef.current.clear();
+      clearGlideTimer();
+      sendGlideStopRef.current?.();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      clearGlideTimer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // The stage's manners (Territory's, carried over 2026-10-18):
   // the map pans by drag and zooms by button, in the viewBox's
@@ -1022,9 +1072,23 @@ export default function Table() {
   const myTenderOn = (tileId: string): boolean => {
     if (!you) return false;
     const me = shared.players.find(p => p.key === you.key);
-    return !!me?.hex && me.hex === tileId && !(me.march && nowMs < me.march.endsAt);
+    return !!me?.hex && me.hex === tileId && !me.moving;
   };
-  const isMarchingNow = (u: FieldUnitView): boolean => !!u.march && nowMs < u.march.endsAt;
+  const isMovingNow = (u: FieldUnitView): boolean => u.moving;
+  // SMOOTHING: lerp a drawn position toward the server's
+  // continuous position; snap when far (a fresh figure, or a
+  // teleport across the stage).
+  const smoothedPos = (key: string, pos: { x: number; y: number }): { x: number; y: number } => {
+    const prev = smoothedPosRef.current.get(key);
+    if (!prev || Math.hypot(pos.x - prev.x, pos.y - prev.y) > 240) {
+      const snapped = { x: pos.x, y: pos.y };
+      smoothedPosRef.current.set(key, snapped);
+      return snapped;
+    }
+    const next = { x: prev.x + (pos.x - prev.x) * 0.5, y: prev.y + (pos.y - prev.y) * 0.5 };
+    smoothedPosRef.current.set(key, next);
+    return next;
+  };
 
   // The stage's frame, computed from the map's own extents:
   // the tiles' base centers (lift aside, so the frame never
@@ -1111,7 +1175,7 @@ export default function Table() {
   // The selected Awoken and its march price (the land's rate:
   // 1 + ⌊(power−1)/3⌋ per hex crossed).
   const selUnit = selUnitId && you ? shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key) ?? null : null;
-  const selUnitMarching = !!selUnit && isMarchingNow(selUnit);
+  const selUnitMoving = !!selUnit && isMovingNow(selUnit);
   const marchRateOf = (u: FieldUnitView): number => 1 + Math.floor((Math.max(1, u.power) - 1) / 3);
   // The curse within the chosen one's lawful reach — the two
   // tiles its strikes carry (the referee's own reach). The
@@ -1119,7 +1183,7 @@ export default function Table() {
   // stands in reach; armed, its taps are blows, not marches.
   const selTile = selUnit ? tileById.get(selUnit.hex) ?? null : null;
   const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= 2) : [];
-  const strikeArmed = strikeArm && !!selUnit && !selUnitMarching;
+  const strikeArmed = strikeArm && !!selUnit && !selUnitMoving;
 
   // Which tiles the Written Light's placing flows may touch —
   // the same law the old hex field enforced, in axial terms.
@@ -1182,21 +1246,22 @@ export default function Table() {
     }
     if (selTender) {
       const me = shared.players.find(p => p.key === you.key);
-      if (me?.hex && t.id !== me.hex && !(me.march && nowMs < me.march.endsAt)) {
-        send({ type: "tenderMarch", to: t.id });
+      if (me?.hex && t.id !== me.hex) {
+        const c = tileCenter(t);
+        send({ type: "glide", tx: c.cx, ty: c.cy });
       }
       setSelTender(false);
       return;
     }
     if (selUnitId) {
       const unit = shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key);
-      if (unit && t.id !== unit.hex && !isMarchingNow(unit)) {
+      if (unit && t.id !== unit.hex && !unit.moving) {
         send({ type: "march", cardId: unit.cardId, from: unit.hex, to: t.id });
         setSelUnitId(null);
         return;
       }
     }
-    const mineHere = shared.field.filter(u => u.hex === t.id && u.ownerKey === you.key && !isMarchingNow(u));
+    const mineHere = shared.field.filter(u => u.hex === t.id && u.ownerKey === you.key && !u.moving);
     if (mineHere.length) {
       const idx = mineHere.findIndex(u => u.cardId === selUnitId);
       setSelUnitId(mineHere[(idx + 1) % mineHere.length].cardId);
@@ -1221,55 +1286,11 @@ export default function Table() {
     setSelTender(false);
   };
 
-  // The standing light, fanned by tile; the marching, apart.
-  const standingByTile = new Map<string, FieldUnitView[]>();
-  const marchingUnits: FieldUnitView[] = [];
-  for (const u of shared.field) {
-    if (isMarchingNow(u)) { marchingUnits.push(u); continue; }
-    const arr = standingByTile.get(u.hex) ?? [];
-    arr.push(u);
-    standingByTile.set(u.hex, arr);
-  }
-  // The dark travels too (continuous time): a marching enemy's
-  // hex names where it will stand, not where it walks.
-  const marchingDark = shared.dark.filter(e => !!e.march && nowMs < e.march.endsAt);
-
-  // A marching figure's place, walked segment by segment along
-  // its road by the fraction of its hour gone — Territory's
-  // patrolPositionOf derivation, carried to the Table. The
-  // dark walks by the same clock (continuous time, 2026-10-18):
-  // its `hex` names its destination while it marches.
-  const marchPosOf = (u: { march?: { road: string[]; since: number; endsAt: number } | null }): { x: number; y: number } | null => {
-    if (!u.march) return null;
-    const centers = u.march.road.map(id => centerOf(id)).filter(Boolean) as { cx: number; cy: number }[];
-    if (!centers.length) return null;
-    if (centers.length === 1) return { x: centers[0].cx, y: centers[0].cy };
-    const frac = clamp01((nowMs - u.march.since) / Math.max(1, u.march.endsAt - u.march.since));
-    const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number }[] = [];
-    let total = 0;
-    for (let i = 0; i < centers.length - 1; i++) {
-      const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy);
-      segs.push({ a: centers[i], b: centers[i + 1], len });
-      total += len;
-    }
-    if (total <= 0) return { x: centers[0].cx, y: centers[0].cy };
-    let d = frac * total;
-    for (const s of segs) {
-      if (d <= s.len) {
-        const k = s.len ? d / s.len : 0;
-        return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k };
-      }
-      d -= s.len;
-    }
-    const last = centers[centers.length - 1];
-    return { x: last.cx, y: last.cy };
-  };
-
   // One figure of the light at its ground point (ax, ay): the
   // piece art itself — body → arms → head, background and aura
   // layers never stand on a field (the game's one law) — its
   // name, its health and shield, and its owner's ring.
-  const renderUnitFigure = (u: FieldUnitView, ax: number, ay: number, marching: boolean): ReactNode => {
+  const renderUnitFigure = (u: FieldUnitView, ax: number, ay: number, moving: boolean): ReactNode => {
     const mine = !!you && u.ownerKey === you.key;
     const cutout = (u.layers ?? [])
       .filter(l => {
@@ -1299,9 +1320,9 @@ export default function Table() {
             <rect x={ax - 13} y={ay + 17} width={26 * clamp01((u.shield ?? 0) / Math.max(1, u.maxShield ?? 1))} height={2} fill="#cfd8dc" />
           </>
         )}
-        {marching && <text x={ax + 16} y={ay - 28} fontSize={9}>🚶</text>}
+        {moving && <text x={ax + 16} y={ay - 28} fontSize={9}>🚶</text>}
         {u.follow && <text x={ax - 16} y={ay - 28} fontSize={9}>👣</text>}
-        {mine && !marching && (
+        {mine && !moving && (
           <circle
             cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
             style={{ cursor: "pointer" }}
@@ -1315,10 +1336,10 @@ export default function Table() {
   // One of the dark at its ground point: its art mirrored to
   // face the light, its name, its health. Standing or walking,
   // it is drawn the same — only its place differs.
-  const renderDarkFigure = (e: SharedState["dark"][number], ax: number, ay: number, marching: boolean): ReactNode => {
+  const renderDarkFigure = (e: SharedState["dark"][number], ax: number, ay: number, moving: boolean): ReactNode => {
     const art = e.art ?? BUNDLED_ENEMIES[e.kind as keyof typeof BUNDLED_ENEMIES] ?? null;
     return (
-      <g key={`${marching ? "dm" : "d"}-${e.id}`} pointerEvents="none">
+      <g key={`${moving ? "dm" : "d"}-${e.id}`} pointerEvents="none">
         {art
           ? <g transform={`translate(${2 * ax} 0) scale(-1 1)`}><image className="ts-dark-img" href={art} x={ax - 20} y={ay - 38} width={40} height={40} /></g>
           : <text x={ax} y={ay - 13} textAnchor="middle" fontSize={20}>🕳️</text>}
@@ -1331,62 +1352,54 @@ export default function Table() {
 
   // Everyone on the stage, back to front by ground point.
   const figures: { key: string; gy: number; node: ReactNode }[] = [];
-  for (const [tileId, units] of standingByTile) {
-    const c = centerOf(tileId);
-    if (!c) continue;
-    units.forEach((u, i) => {
-      const [dx, dy] = STACK_OFF[i % STACK_OFF.length];
-      const ax = c.cx + dx, ay = c.cy - 4 + dy;
-      figures.push({ key: `u-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, false) });
-    });
+  const hexGroupCount = new Map<string, number>();
+  for (const u of shared.field) {
+    const idx = hexGroupCount.get(u.hex) ?? 0;
+    hexGroupCount.set(u.hex, idx + 1);
+    const [dx, dy] = STACK_OFF[idx % STACK_OFF.length];
+    const unitKey = `${u.ownerKey}|${u.cardId}`;
+    const anchor = smoothedPos(unitKey, u.pos);
+    const ax = anchor.x + dx, ay = anchor.y - 4 + dy;
+    figures.push({ key: `u-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, u.moving) });
   }
   for (const e of shared.dark) {
-    if (e.march && nowMs < e.march.endsAt) continue; // walking — drawn below, on its road
-    const c = centerOf(e.hex);
-    if (!c) continue;
-    const ax = c.cx, ay = c.cy - 4;
-    figures.push({ key: `d-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, false) });
-  }
-  for (const e of marchingDark) {
-    const p = marchPosOf(e);
-    if (!p) continue;
-    const ax = p.x, ay = p.y - 4;
-    figures.push({ key: `dm-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, true) });
-  }
-  for (const u of marchingUnits) {
-    const p = marchPosOf(u);
-    if (!p) continue;
-    const ax = p.x, ay = p.y - 4;
-    figures.push({ key: `m-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, true) });
+    const anchor = smoothedPos(e.id, e.pos);
+    const ax = anchor.x, ay = anchor.y - 4;
+    figures.push({ key: `d-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, e.moving) });
   }
   // ── THE TENDERS THEMSELVES, standing on the stage ──────────
   // Every seated tender has a figure: their class sprite,
   // standing where the SERVER says they stand — the Tender
   // truly takes the field now (Nigel, 2026-10-19): at their
-  // landing, or on the road when they march, the drawn place
-  // read off road + clock like every march. The Storytender
+  // continuous position, smoothed across ticks, falling back
+  // to their hex, then to the seed post. The Storytender
   // holds no ground; she keeps her post beside the seed.
   const TENDER_OFFS: [number, number][] = [[0, 0], [-17, 3], [17, 3]];
   for (const [i, p] of shared.players.entries()) {
     const art = (p.classKey ? TENDER_CLASSES[p.classKey as TenderClassId] : undefined) ?? TENDER_CLASSES[you && p.key === you.key ? myTenderClass : TENDER_CLASS_ORDER[i % TENDER_CLASS_ORDER.length]];
     let gx: number, gy: number, walking = false, dir: TenderDir = "S", step = 0;
-    if (!p.hex) {
+    const anchor = p.pos ? smoothedPos(p.key, p.pos) : null;
+    if (anchor) {
+      gx = anchor.x + TENDER_OFFS[i % TENDER_OFFS.length][0];
+      gy = anchor.y - 2 + TENDER_OFFS[i % TENDER_OFFS.length][1];
+      walking = p.moving;
+      if (walking && p.tgt && p.pos) {
+        dir = tenderDirOf(p.tgt.x - p.pos.x, p.tgt.y - p.pos.y);
+        step = Math.floor(nowMs / 150);
+      }
+    } else if (!p.hex) {
       const c = centerOf(SEED_TILE_ID);
       if (!c) continue;
       gx = c.cx + 20; gy = c.cy - 2;
     } else {
-      const marching = !!p.march && nowMs < p.march.endsAt;
-      const pos = marching ? marchPosOf(p) : null;
       const ctr = centerOf(p.hex);
-      if (!pos && !ctr) continue;
-      gx = (pos ? pos.x : ctr!.cx) + TENDER_OFFS[i % TENDER_OFFS.length][0];
-      gy = (pos ? pos.y : ctr!.cy) - 2 + TENDER_OFFS[i % TENDER_OFFS.length][1];
-      if (marching && p.march) {
-        walking = true;
-        const a = centerOf(p.march.road[0]);
-        const b = centerOf(p.march.road[p.march.road.length - 1]);
-        if (a && b) dir = tenderDirOf(b.cx - a.cx, b.cy - a.cy);
-        step = Math.floor((nowMs - p.march.since) / 150);
+      if (!ctr) continue;
+      gx = ctr.cx + TENDER_OFFS[i % TENDER_OFFS.length][0];
+      gy = ctr.cy - 2 + TENDER_OFFS[i % TENDER_OFFS.length][1];
+      walking = p.moving;
+      if (walking && p.tgt && p.pos) {
+        dir = tenderDirOf(p.tgt.x - p.pos.x, p.tgt.y - p.pos.y);
+        step = Math.floor(nowMs / 150);
       }
     }
     // A cast in flight outranks the road and the rest: the
@@ -1632,30 +1645,6 @@ export default function Table() {
                 }
                 return null;
               })}
-              {/* The roads of the marching, drawn dashed under
-                  the feet that walk them. */}
-              {marchingUnits.map((u) => {
-                const centers = (u.march?.road ?? []).map(id => centerOf(id)).filter(Boolean) as { cx: number; cy: number }[];
-                if (centers.length < 2) return null;
-                return (
-                  <polyline
-                    key={`road-${u.ownerKey}-${u.cardId}`}
-                    points={centers.map(c => `${c.cx},${c.cy}`).join(" ")}
-                    fill="none" stroke="#d9b45c" strokeWidth={1.5} strokeDasharray="3 5" opacity={0.5} pointerEvents="none"
-                  />
-                );
-              })}
-              {marchingDark.map((e, i) => {
-                const centers = (e.march?.road ?? []).map(id => centerOf(id)).filter(Boolean) as { cx: number; cy: number }[];
-                if (centers.length < 2) return null;
-                return (
-                  <polyline
-                    key={`droad-${e.id}-${i}`}
-                    points={centers.map(c => `${c.cx},${c.cy}`).join(" ")}
-                    fill="none" stroke="#8e2434" strokeWidth={1.5} strokeDasharray="3 5" opacity={0.45} pointerEvents="none"
-                  />
-                );
-              })}
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
               {/* THE GLYPH WHEEL: your castable workings in a
@@ -1707,12 +1696,11 @@ export default function Table() {
                   on the field. */}
               <g className="shots-layer">
                 {shots.map((shot) => {
-                  const a = centerOf(shot.from);
-                  const b = centerOf(shot.to);
-                  if (!a || !b) return null;
-                  const dist = Math.hypot(b.cx - a.cx, b.cy - a.cy);
-                  const qx = (a.cx + b.cx) / 2;
-                  const qy = Math.min(a.cy, b.cy) - (26 + dist * 0.38);
+                  const a = shot.from;
+                  const b = shot.to;
+                  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+                  const qx = (a.x + b.x) / 2;
+                  const qy = shot.pierce ? (a.y + b.y) / 2 : Math.min(a.y, b.y) - (26 + dist * 0.38);
                   return (
                     <image
                       key={shot.id}
@@ -1720,7 +1708,7 @@ export default function Table() {
                       x={-13} y={-13} width={26} height={26}
                       className={shot.dark ? "dark-shot" : undefined}
                     >
-                      <animateMotion dur="0.55s" fill="freeze" rotate="auto" path={`M ${a.cx} ${a.cy} Q ${qx} ${qy} ${b.cx} ${b.cy}`} />
+                      <animateMotion dur="0.55s" fill="freeze" rotate="auto" path={`M ${a.x} ${a.y} Q ${qx} ${qy} ${b.x} ${b.y}`} />
                     </image>
                   );
                 })}
@@ -1814,13 +1802,13 @@ export default function Table() {
             {selUnit && !placing && (
               <div className="placing-bar unit-bar">
                 <span className="placing-text">
-                  {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMarching
-                    ? "on the march — it answers when it arrives."
+                  {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMoving
+                    ? "on the move — it answers when it arrives."
                     : strikeArmed
                       ? <>armed against the curse — tap cursed ground within two tiles: one blow (⚡1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
                       : <>tap a tile to march (⚡{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.</>}
                 </span>
-                {!selUnitMarching && (
+                {!selUnitMoving && (
                   <>
                     <button className="table-btn" onClick={() => { send({ type: "castHeal", hex: selUnit.hex }); beginCast(selUnit.hex); }}>Heal · ⚡{healDef?.cost ?? 2}</button>
                     {strikeArmed ? (
@@ -1838,7 +1826,7 @@ export default function Table() {
             {selTender && you && !placing && (
               <div className="placing-bar unit-bar">
                 <span className="placing-text">
-                  🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel; tap a tile to march the long road. Where you arrive, your followers muster to you; the rest hold their ground.
+                  🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel; tap a tile and you glide there. Where you arrive, your followers muster to you; the rest hold their ground.
                 </span>
                 <button className="table-btn" onClick={() => setSelTender(false)}>Done</button>
               </div>

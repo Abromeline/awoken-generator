@@ -72,6 +72,13 @@ const dist = (a, b) => {
   return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs((aq + ar) - (bq + br))) / 2;
 };
 const tileOf = (c, id) => c.state.map.find(t => t.id === id);
+// THE CONTINUOUS TABLE (Phase B): a tile's center in pixels,
+// by the iso math — glide targets are points, not hexes.
+const U = [1292 * 40 / 796, 470 * 40 / 796], V = [0, 948 * 40 / 796];
+const centerOf = (id) => {
+  const [q, r] = id.split(",").map(Number);
+  return { x: q * U[0] + r * V[0], y: q * U[1] + r * V[1] };
+};
 const neighborsOf = (id) => {
   const [q, r] = id.split(",").map(Number);
   return [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].map(([dq, dr]) => `${q + dq},${r + dr}`);
@@ -140,7 +147,16 @@ check("the tale speaks the thinning",
   a.state.tale.some(t => t.text.includes("strikes the curse") && t.text.includes(String(10 - before.power))),
   `tale=${a.state.tale.slice(-3).map(t => t.text).join(" | ")}`);
 check("the strike flew on the shared ledger — to the TILE",
-  (a.state.strikes ?? []).some(s => s.from === landing && s.to === target && s.side === "light" && s.hit === true),
+  (a.state.strikes ?? []).some(s => {
+    // Phase B (continuous): strikes carry POSITIONS now, not
+    // tile ids — the blow flies from the striker's ground point
+    // to the TILE's center.
+    const fc = centerOf(landing), tc = centerOf(target);
+    return !!s.from && !!s.to
+      && Math.hypot(s.from.x - fc.x, s.from.y - fc.y) <= 1.5
+      && Math.hypot(s.to.x - tc.x, s.to.y - tc.y) <= 1.5
+      && s.side === "light" && s.hit === true;
+  }),
   `strikes=${JSON.stringify(a.state.strikes)}`);
 const after = strikers().find(u => u.cardId === striker.cardId);
 check("the curse does not answer — no thorns (attrition law, 2026-10-19): the striker's flesh is untouched by the blow",
@@ -179,8 +195,9 @@ if (spare) {
   check("a summon from afar is refused — the light answers at the Tender's side",
     b.errors.some(e => e.includes("answers at your side")), `errors=${b.errors.join(" | ")}`);
   const bMe = () => b.state.players.find(p => p.key === b.you.key);
-  b.send({ type: "tenderMarch", to: landing });
-  await b.waitFor(c => bMe() && bMe().hex === landing && !bMe().march, "B's Tender walks to the mark's side", 60000);
+  const landingCtr = centerOf(landing);
+  b.send({ type: "glide", tx: landingCtr.x, ty: landingCtr.y });
+  await b.waitFor(c => bMe() && bMe().hex === landing && !bMe().moving, "B's Tender glides to the mark's side", 60000);
   b.send({ type: "summon", cardId: spare.id, hex: target });
   await sleep(600);
   check("the cleared ground takes a summon", b.state.field.some(u => u.hex === target && u.cardId === spare.id),

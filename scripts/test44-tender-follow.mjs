@@ -1,12 +1,12 @@
 // test44 — THE TENDER LEADS (Nigel, 2026-10-19): the Tender
 // truly stands on the instance (their landing tile, in the
-// room's shared state), marches the road themself at a
-// walker's ⚡1 the hex, and the company obeys standing
+// room's shared state), glides across it themself —
+// continuous movement, free — and the company obeys standing
 // orders: an Awokin ordered to FOLLOW musters to a formation
 // slot at the Tender's side when they arrive; one never
 // ordered holds its ground; a direct march order ends the
-// follow. Refusals proven: the seed's tile, and a second
-// march while already on the road.
+// follow. Refusals proven: the seed's tile (a glide onto the
+// seed's center is refused); a glide mid-glide simply retargets.
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,12 +64,29 @@ const dist = (a, b) => {
 };
 const meIn = (c) => c.state.players.find(p => p.key === c.you.key);
 const unitIn = (c, cardId) => c.state.field.find(u => u.cardId === cardId);
+// THE CONTINUOUS TABLE (Phase B): a tile's center in pixels,
+// by the iso math — glide targets are points, and a Tender's
+// tgt is where they are gliding to, proven within a hair.
+const U = [1292 * 40 / 796, 470 * 40 / 796], V = [0, 948 * 40 / 796];
+const centerOf = (id) => {
+  const [q, r] = parse(id);
+  return { x: q * U[0] + r * V[0], y: q * U[1] + r * V[1] };
+};
+const tgtNear = (p, id, tol = 1.5) => {
+  if (!p?.tgt) return false;
+  const ctr = centerOf(id);
+  return Math.hypot(p.tgt.x - ctr.x, p.tgt.y - ctr.y) <= tol;
+};
+const glideTo = (c, id) => {
+  const ctr = centerOf(id);
+  c.send({ type: "glide", tx: ctr.x, ty: ctr.y });
+};
 
 const a = client("A");
 await a.join({ devName: "Lead Sue", room: "follow-room-1" });
 const landingA = a.you.landing;
 check("the Tender stands on the instance — at their landing", meIn(a).hex === landingA, `hex=${meIn(a).hex} landing=${landingA}`);
-check("the Tender is not on the road at rest", !meIn(a).march);
+check("the Tender is not moving at rest", !meIn(a).moving);
 
 const b = client("B");
 await b.join({ devName: "Watch Tom", room: "follow-room-1" });
@@ -89,27 +106,34 @@ check("the follow order shows in the room's state", unitIn(a, card1.id).follow =
 check("the unordered Awokin holds no follow", !unitIn(a, card2.id).follow);
 
 // Refusals.
-a.send({ type: "tenderMarch", to: "0,0" });
+a.send({ type: "glide", tx: 0, ty: 0 });
 await sleep(400);
-check("the seed's tile refuses the Tender's march", a.errors.some(e => e.includes("star-seed")), a.errors.join(" | "));
+check("the seed's tile refuses the Tender's glide", a.errors.some(e => e.includes("star-seed")), a.errors.join(" | "));
 
-// The Tender marches three hexes out; a second order mid-road is refused.
+// The Tender glides three hexes out; a glide mid-glide retargets.
 const dest = a.state.map.map(t => t.id).find(id => dist(id, landingA) === 3);
 const energyBefore = a.you.energy;
-a.send({ type: "tenderMarch", to: dest });
-await a.waitFor(c => !!meIn(c).march, "the Tender takes the road");
-check("the Tender is on the road, bound for the destination", meIn(a).march.road[meIn(a).march.road.length - 1] === dest && meIn(a).hex === dest);
-a.send({ type: "tenderMarch", to: landingA });
-await sleep(400);
-check("a second march while on the road is refused", a.errors.some(e => e.includes("already on the road")), a.errors.join(" | "));
-await a.waitFor(c => !meIn(c).march, "the Tender arrives");
-check("the Tender's own road costs nothing (Nigel, 2026-10-19: WASD walking is free)", energyBefore - a.you.energy === 0, `before=${energyBefore} after=${a.you.energy}`);
+glideTo(a, dest);
+await a.waitFor(c => meIn(c).moving === true, "the Tender glides");
+check("the Tender is gliding, bound for the destination", tgtNear(meIn(a), dest), `tgt=${JSON.stringify(meIn(a).tgt)} center=${JSON.stringify(centerOf(dest))}`);
+glideTo(a, landingA);
+// Sample fast: tgt is the live heading and clears on arrival,
+// so the retarget is caught in flight, not after the fact.
+let retargetSeen = false;
+for (let i = 0; i < 60 && !retargetSeen; i++) {
+  if (tgtNear(meIn(a), landingA)) retargetSeen = true;
+  else await sleep(25);
+}
+check("a glide mid-glide retargets (the road law is gone)", retargetSeen, `tgt=${JSON.stringify(meIn(a).tgt)} center=${JSON.stringify(centerOf(landingA))}`);
+glideTo(a, dest);
+await a.waitFor(c => !meIn(c).moving && meIn(c).hex === dest, "the Tender arrives");
+check("the Tender's own glide costs nothing (Nigel, 2026-10-19: WASD walking is free)", energyBefore - a.you.energy === 0, `before=${energyBefore} after=${a.you.energy}`);
 check("the Tender stands at the destination", meIn(a).hex === dest);
 
 // The follower musters to the Tender's side — by itself, on
-// arrival. (A unit's march record persists in state; standing
-// is derived from the clock, as every client reads it.)
-const marchingNow = (u) => !!u?.march && Date.now() < u.march.endsAt;
+// arrival. (A unit's moving flag is the road, read directly
+// from state, as every client reads it.)
+const marchingNow = (u) => !!u?.moving;
 await a.waitFor(c => { const u = unitIn(c, card1.id); return !!u && dist(u.hex, dest) <= 1 && !marchingNow(u); }, "the follower musters and settles");
 check("the follower stands at the Tender's side", dist(unitIn(a, card1.id).hex, dest) <= 1, `unit=${unitIn(a, card1.id).hex} tender=${dest}`);
 check("the follower keeps its order", unitIn(a, card1.id).follow === true);
@@ -150,14 +174,14 @@ check("the hold order clears the follow", unitIn(a, card1.id).follow === false);
     const staging = a.state.map
       .filter(t => t.id !== "0,0" && dist(me.hex, t.id) <= 3 && neighborsOf(t.id).some(n => tileOf(a, n)?.cursed))
       .sort((x, y) => dist(me.hex, x.id) - dist(me.hex, y.id))[0];
-    a.send({ type: "tenderMarch", to: staging.id });
-    await a.waitFor(c => { const m = meIn(c); return m.hex === staging.id && !m.march; }, "the Tender stages beside the curse", 30000);
+    glideTo(a, staging.id);
+    await a.waitFor(c => { const m = meIn(c); return m.hex === staging.id && !m.moving; }, "the Tender stages beside the curse", 30000);
     me = meIn(a);
     cursedStep = neighborsOf(me.hex).map(id => tileOf(a, id)).find(t => t && t.cursed)?.id;
   }
   check("a cursed tile waits beside the Tender", !!cursedStep);
-  a.send({ type: "tenderMarch", to: cursedStep });
-  await a.waitFor(c => { const m = meIn(c); return m.hex === cursedStep && !m.march; }, "the Tender steps into the cursed land", 30000);
+  glideTo(a, cursedStep);
+  await a.waitFor(c => { const m = meIn(c); return m.hex === cursedStep && !m.moving; }, "the Tender steps into the cursed land", 30000);
   const hpBefore = meIn(a).tenderHp;
   const maxHp = meIn(a).maxTenderHp;
   a.send({ type: "startWave" });
