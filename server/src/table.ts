@@ -1211,6 +1211,13 @@ function isMoving(e: { pos: Pt; target: Pt | null }): boolean {
 function standingUnits(room: Room): FieldUnit[] {
   return [...room.field.values()].filter(u => !isMoving(u));
 }
+/** TENDER PACE LAW (Nigel, 2026-10-20): the Tender's glide
+ *  at the Table runs at a QUARTER of its old 120 px/s. And
+ *  cursed ground halves the pace again — for the Tender and
+ *  for every Awoken, on both grounds (the dark is NOT
+ *  slowed; the ruling names the light). The homeland keeps
+ *  its own stride law, halved the same day. */
+const TENDER_GLIDE_PX = 30;
 /** Step one entity toward its target at `speedPx` px/s over `dt`
  *  seconds; on arrival the position is the target's copy and the
  *  target clears. */
@@ -1230,10 +1237,10 @@ function integrate(room: Room, now: number): void {
   room.integrateAt = now;
   for (const p of room.players.values()) {
     if (p.watcher || p.storytender || !p.pos) continue;
-    if (p.target) stepToward(p as { pos: Pt; target: Pt | null }, 120, dt);
+    if (p.target) stepToward(p as { pos: Pt; target: Pt | null }, TENDER_GLIDE_PX * (p.hex && room.map.get(p.hex)?.cursed ? 0.5 : 1), dt);
   }
   for (const u of room.field.values()) {
-    if (u.target) stepToward(u, u.speedPx ?? 110, dt);
+    if (u.target) stepToward(u, (u.speedPx ?? 110) * (u.hex && room.map.get(u.hex)?.cursed ? 0.5 : 1), dt);
   }
   if (room.battle.active) {
     const standing = standingUnits(room);

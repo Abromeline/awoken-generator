@@ -43,7 +43,6 @@ const GRIM_HUE_FILTERS: Record<string, string> = {
   fire: "hue-rotate(-30deg) saturate(1.6) brightness(1.06)",
 };
 const GRIM_HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#57c8ff", sky: "#cdb9ff", stone: "#e8a33d", root: "#7dd069", fire: "#ff7a33" };
-const GRIM_HUES = ["unaligned", "tide", "sky", "stone", "root", "fire"];
 import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
@@ -697,8 +696,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // getTenderExp. Casting mode turns hex taps into castings: a ward
   // wants an anchor hex (ANY hex of his land, since 2026-10-20)
   // then one of its edges; a rune wants a hex's floor; Heal wants
-  // a hex my wounded stand on. Every tap now only CHOOSES the
-  // ground — the cast itself waits for the confirm (2026-10-20).
+  // a hex my wounded stand on. A tap CASTS — no confirm stands
+  // between the tap and the cast (Nigel, 2026-10-20: a misscast
+  // is a skill issue) — and the mode is sticky: it casts on
+  // until the player sets it down, the purse refuses, or a
+  // roll fizzles and the working slips from the hand.
   const [workings, setWorkings] = useState<MapWorking[]>([]);
   const [grim, setGrim] = useState<GrimoireState | null>(null);
   const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
@@ -710,31 +712,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the tab, and the old Written Light button is gone.
   const [handTab, setHandTab] = useState<"awoken" | "spells">("awoken");
   const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
-  const [castHue, setCastHue] = useState<string>("unaligned");
-  // The Pour (Nigel, 2026-10-17): elemental points of the poured
-  // hue fed into the working at its cast, chosen here in the bar.
-  const [castPour, setCastPour] = useState(0);
-  const grimPoolsQ = useQuery({ queryKey: ["aspectAttunement"], queryFn: () => api.getAspectAttunement(), staleTime: 0 });
+  // THE POUR MENU IS GONE (Nigel, 2026-10-20): no hue/points
+  // choice stands between readying and casting — casts go
+  // unaligned and unpoured until powering re-homes into the
+  // Grimoire; the server's pour doors stand dormant.
+  const castHue = "unaligned";
   // The chosen card border (Nigel, 2026-10-17): the hand in the dock
   // wears the same frame as the arena and the Table.
   const cardBorder = useCardBorder();
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
-  // STOP AND CONFIRM (Nigel, 2026-10-20): a chosen cast
-  // target no longer fires the cast on the tap — it raises
-  // a PENDING CAST: the Tender stops gliding, the target
-  // hex wears the gold marker, and only the confirm calls
-  // castMapWorking (the server charges at the confirm,
-  // before the roll, as it always did at the cast). The
-  // cancel leaves the purse untouched and the working
-  // readied — the homeland's cast mode is sticky, as built.
-  const [pendingMapCast, setPendingMapCast] = useState<{ label: string; cost: number; args: { tileId?: number; dir?: number; awakenedId?: number }; tileId: number | null } | null>(null);
-  const stopTenderGlide = () => {
-    tenderKeysRef.current.clear();
-    tenderTargetRef.current = null;
-  };
   const [fadePick, setFadePick] = useState<number | null>(null);
-  const [pushHue, setPushHue] = useState<string>("root");
-  const [pushPour, setPushPour] = useState(0);
 
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
@@ -1489,10 +1476,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     };
   }, []);
 
-  // Escape puts the wheel and the controller away.
+  // Escape puts the wheel and the controller away — and
+  // unloads a readied cast run with them (Nigel, 2026-10-20:
+  // a run ends when the player sets it down; Esc is one of
+  // the standing unloads, as at the Table).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setTenderRadial(null); setTenderCtl(false); }
+      if (e.key === "Escape") { setTenderRadial(null); setTenderCtl(false); endMapCastRunRef.current(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1635,7 +1625,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
           showHexNotice(locked
             ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
-            : `${sp.name} readied — tap the land to choose its ground; the cast waits for your confirm.`);
+            : `${sp.name} readied — tap the land to cast it.`);
         },
       } as WheelEntry;
     });
@@ -1694,7 +1684,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!sp) { toggleHotbar(key); return; }
       if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
       setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
-      showHexNotice(`${sp.name} readied — tap the land to choose its ground; the cast waits for your confirm.`);
+      showHexNotice(`${sp.name} readied — tap the land to cast it.`);
       return;
     }
     toggleHotbar(key);
@@ -1702,12 +1692,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   hotbarActRef.current = (i: number) => { const k = hotbarKeys[i]; if (k) actTerritorySlot(k); };
 
   // The stride: a 50 ms clock while the body walks — keys held, or
-  // a tapped hex still ahead of it — at the preview's pace,
-  // ~115 px/s. Facing follows the stride; the last facing is kept
-  // at rest. Anchors are reported as hexes are crossed (~150 ms)
-  // and once more when the body comes to rest.
+  // a tapped hex still ahead of it — at ~57 px/s (PACE LAW,
+  // Nigel 2026-10-20: the homeland stride is HALF the preview's
+  // old ~115 px/s, and cursed ground halves it again while he
+  // stands on it). Facing follows the stride; the last facing is
+  // kept at rest. Anchors are reported as hexes are crossed
+  // (~150 ms) and once more when the body comes to rest.
   useEffect(() => {
-    const SPEED = 115;
+    const SPEED = 57.5;
     // The Ground's figure stands ~117 demo px tall; the map's
     // stands 62 — the arc scales to the body it raises.
     const JUMP_SCALE = 62 / 117;
@@ -1747,14 +1739,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         }
         return;
       }
-      const stepLen = SPEED * 0.05;
+      const here = tileUnderPoint(pos.x, pos.y, now);
+      const stepLen = SPEED * 0.05 * (here?.cursed ? 0.5 : 1);
       const nx = pos.x + vx * stepLen;
       const ny = pos.y + vy * stepLen;
       // THE TRAVERSAL LAW on the stride: a closed crossing
       // refuses the step — the body stops at the wall, the
       // ward, the tall rise, the isle's empty air — and a
       // tap-road dies at the barrier it cannot cross.
-      const here = tileUnderPoint(pos.x, pos.y, now);
       const there = tileUnderPoint(nx, ny, now);
       if (here && there && there.id !== here.id && crossingBlocked(here, there, now)) {
         tenderTargetRef.current = null;
@@ -2091,17 +2083,29 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const g = sp ? grim?.glyphs.find((x) => x.id === sp.glyphId) : null;
     return g?.imageUrl ?? (g?.assetKey ? GRIM_BUNDLED[g.assetKey] ?? null : null) ?? GRIM_BUNDLED[spellKey] ?? null;
   };
+  // A cast run's end (Nigel, 2026-10-20): the readied
+  // working leaves the hand — the mode unloads whole. Casts
+  // themselves never end it (the mode is sticky); only the
+  // player's own unload, the purse's refusal, or a fizzle's
+  // slip does.
+  const endMapCastRun = () => { setCastMode(false); setCastSpellKey(null); setCastAnchor(null); };
+  // The mount-once Escape handler reaches the run's end
+  // through this ref, kept current every render.
+  const endMapCastRunRef = useRef<() => void>(() => {});
+  endMapCastRunRef.current = endMapCastRun;
   const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number }) => {
     if (!castSpell) return;
     try {
-      const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, pour: castSpell.engine === "heal" ? undefined : castPour, ...args });
+      const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, ...args });
       const formName = castSpell.forms[castHue] ?? castSpell.name;
       // The fizzle (Homeland Casting): the purse was charged
       // and the roll fell short — the client only speaks what
       // the server's roll said, never invents the outcome.
+      // The slip ends the run (Nigel, 2026-10-20): the working
+      // leaves the hand and must be readied again to cast on.
       if (res.fizzled) {
-        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}⚡ is spent.`);
-        setCastAnchor(null);
+        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}⚡ is spent — and the working slips from your hand. Ready it again to cast on.`);
+        endMapCastRun();
         await refreshWorkings();
         void refreshEnergy();
         return;
@@ -2120,51 +2124,32 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   ? `${formName} springs as it is written — the dark and the curse take its harm.`
                   : `${formName} is written into the ground — it waits for the dark to stand on it.`);
       setCastAnchor(null);
-      if (castPour > 0) { setCastPour(0); refreshAspects(); }
       await refreshWorkings();
       void refreshEnergy();
     } catch (e) {
-      showHexNotice(e instanceof Error ? e.message : "The casting would not take.");
+      // The refusal shows; and when the purse itself refuses
+      // (the server's "Not enough energy" from castMapWorking),
+      // the run ends too — the working leaves the hand
+      // (Nigel, 2026-10-20). Other refusals (reach, the gate)
+      // keep the mode, as they always have.
+      const msg = e instanceof Error ? e.message : "The casting would not take.";
+      showHexNotice(msg);
+      if (/^Not enough energy/.test(msg)) endMapCastRun();
     }
-  };
-  // STOP AND CONFIRM — the held cast's two doors. The
-  // offer stops the Tender where he stands and marks the
-  // target with the gold shine (targetHexId, the game's own
-  // "about to touch" marker); the confirm runs doCastMap
-  // with the very args the tap once fired; the cancel
-  // drops the promise and keeps the working readied.
-  const offerMapCast = (args: { tileId?: number; dir?: number; awakenedId?: number }, tileId: number | null, label: string) => {
-    if (!castSpell) return;
-    stopTenderGlide();
-    setPendingMapCast({ label, cost: castSpell.cost, args, tileId });
-    setTargetHexId(tileId);
-    showHexNotice(`${label} — held for your word. Confirm to loose it; nothing is spent yet.`);
-  };
-  const confirmMapCast = () => {
-    const p = pendingMapCast;
-    if (!p) return;
-    setPendingMapCast(null);
-    setTargetHexId(null);
-    void doCastMap(p.args);
-  };
-  const cancelMapCast = () => {
-    setPendingMapCast(null);
-    setTargetHexId(null);
-    showHexNotice("The cast is set down — nothing spent, the working still readied.");
   };
   const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
     if (!castSpell) { showHexNotice("Choose a working from the book first."); return; }
     // The Springleaf is a binding by the book's filing, but
     // she is planted on GROUND, not cast on a body — the tap
-    // names her hex (Homeland Casting).
-    if (castSpell.engine === "springleaf") { offerMapCast({ tileId: tile.id }, tile.id, `${castSpell.forms[castHue] ?? castSpell.name} — plant the grove on this hex (⚡${castSpell.cost})`); return; }
+    // casts her on her hex (Homeland Casting).
+    if (castSpell.engine === "springleaf") { void doCastMap({ tileId: tile.id }); return; }
     if (castSpell.engine === "heal" || castSpell.kind === "binding") {
       const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
         const a = tenderItems.find((x) => x.id === p.awakenedId);
         return { id: p.awakenedId, name: a?.name ?? "your Awokin", hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
       }).filter((x) => x.max > 0 && x.hp < x.max).sort((x, y) => (x.hp / x.max) - (y.hp / y.max));
       if (!wounded.length) { showHexNotice("No wounded Awokin stands on that hex."); return; }
-      offerMapCast({ awakenedId: wounded[0].id }, tile.id, `${castSpell.forms[castHue] ?? castSpell.name} — mend ${wounded[0].name} (⚡${castSpell.cost})`);
+      void doCastMap({ awakenedId: wounded[0].id });
       return;
     }
     if (castSpell.kind === "ward") {
@@ -2181,7 +2166,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice("Tap one of the glowing edges — or the anchor hex again to choose another.");
       return;
     }
-    offerMapCast({ tileId: tile.id }, tile.id, `${castSpell.forms[castHue] ?? castSpell.name} — write it on this hex's ground (⚡${castSpell.cost})`);
+    void doCastMap({ tileId: tile.id });
   };
 
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
@@ -3407,18 +3392,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const mRoad = marchRoadOf(p).map(id => tiles.find(t => t.id === id)).filter(Boolean) as TerritoryTile[];
       if (mRoad.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
         const centers = mRoad.map(t => tilePos(t));
-        const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number }[] = [];
-        let total = 0;
+        // CURSED GROUND SLOWS THE MARCH (Nigel, 2026-10-20):
+        // a segment whose destination tile is cursed takes
+        // twice its share of the march's hour — the same
+        // weighting the server lays on marchEnds.
+        const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number; w: number }[] = [];
+        let totalW = 0;
         for (let i = 0; i < centers.length - 1; i++) {
           const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy);
-          segs.push({ a: centers[i], b: centers[i + 1], len }); total += len;
+          const w = mRoad[i + 1].cursed ? 2 : 1;
+          segs.push({ a: centers[i], b: centers[i + 1], len, w }); totalW += len * w;
         }
-        if (total <= 0) return null;
+        if (totalW <= 0) return null;
         const frac = Math.min(1, Math.max(0, (marchNow - p.marchSince) / (p.marchEnds - p.marchSince)));
-        let d = frac * total;
+        let d = frac * totalW;
         for (const s of segs) {
-          if (d <= s.len) { const k = s.len ? d / s.len : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
-          d -= s.len;
+          const wl = s.len * s.w;
+          if (d <= wl) { const k = wl ? d / wl : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
+          d -= wl;
         }
         const last = centers[centers.length - 1];
         return { x: last.cx, y: last.cy };
@@ -3428,12 +3419,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!home || !roadTiles.length || !p.patrolSince) return null;
       const centers = [home, ...roadTiles].map(t => tilePos(t));
       const route = [...centers, ...centers.slice(1, -1).reverse()];
-      const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number }[] = [];
+      const routeTiles = [...[home, ...roadTiles], ...[home, ...roadTiles].slice(1, -1).reverse()];
+      // CURSED GROUND SLOWS THE WALKER (Nigel, 2026-10-20):
+      // a segment walked INTO cursed ground takes twice the
+      // time — its weighted length doubles, here as in the
+      // march law the server keeps.
+      const segs: { a: { cx: number; cy: number }; b: { cx: number; cy: number }; len: number; w: number }[] = [];
       let total = 0;
       for (let i = 0; i < route.length; i++) {
         const a = route[i], b = route[(i + 1) % route.length];
         const len = Math.hypot(b.cx - a.cx, b.cy - a.cy);
-        segs.push({ a, b, len }); total += len;
+        const w = routeTiles[(i + 1) % routeTiles.length]?.cursed ? 2 : 1;
+        segs.push({ a, b, len, w }); total += len * w;
       }
       if (total <= 0) return null;
       // The walker's own pace (MARCH SPEED LAW): its element's gait
@@ -3445,8 +3442,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       let d = ((marchNow - p.patrolSince) / 1000 * pxPerSec) % total;
       if (d < 0) d += total;
       for (const s of segs) {
-        if (d <= s.len) { const k = s.len ? d / s.len : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
-        d -= s.len;
+        const wl = s.len * s.w;
+        if (d <= wl) { const k = wl ? d / wl : 0; return { x: s.a.cx + (s.b.cx - s.a.cx) * k, y: s.a.cy + (s.b.cy - s.a.cy) * k }; }
+        d -= wl;
       }
       return { x: route[0].cx, y: route[0].cy };
     };
@@ -4243,7 +4241,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3} strokeDasharray="6 4" pointerEvents="none" />
                 {!taken && (
                   <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26} strokeLinecap="round" style={{ cursor: "pointer" }}
-                    onClick={(e) => { e.stopPropagation(); offerMapCast({ tileId: t.id, dir: d }, t.id, `${castSpell?.forms[castHue] ?? castSpell?.name ?? "The ward"} — raise it on this edge (⚡${castSpell?.cost ?? 0})`); }} />
+                    onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d }); }} />
                 )}
               </g>
             );
@@ -5795,11 +5793,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             const road = marchRoadOf(p).map(id => tiles.find(tt => tt.id === id)).filter(Boolean) as TerritoryTile[];
             if (road.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
               const centers = road.map(centerOf);
-              const total = centers.reduce((s, c, i) => i === 0 ? 0 : s + Math.hypot(c.cx - centers[i - 1].cx, c.cy - centers[i - 1].cy), 0);
+              // The same cursed weighting the walker's drawn
+              // place uses (a segment into cursed ground takes
+              // twice its share of the hour).
+              const total = centers.reduce((s, c, i) => i === 0 ? 0 : s + Math.hypot(c.cx - centers[i - 1].cx, c.cy - centers[i - 1].cy) * (road[i].cursed ? 2 : 1), 0);
               if (total > 0) {
                 let d = Math.min(1, Math.max(0, (Date.now() - p.marchSince) / (p.marchEnds - p.marchSince))) * total;
                 for (let i = 0; i < centers.length - 1; i++) {
-                  const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy);
+                  const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy) * (road[i + 1].cursed ? 2 : 1);
                   if (d <= len) { const k = len ? d / len : 0; anchor = { cx: centers[i].cx + (centers[i + 1].cx - centers[i].cx) * k, cy: centers[i].cy + (centers[i + 1].cy - centers[i].cy) * k }; break; }
                   d -= len;
                   anchor = centers[centers.length - 1];
@@ -5995,7 +5996,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 const readied = !!sp && castSpellKey === sp.key && castMode;
                 return (
                   <button type="button" key={key} className={`tender-slot${!sp ? " dim" : ""}${readied ? " lit" : ""}`}
-                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to choose its ground (the cast waits for your confirm), or tap here to unready" : "tap to ready, then tap the land to choose its ground"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
+                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">✦</span>
@@ -6052,15 +6053,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         );
       })()}
-      {pendingMapCast && (
-        <div className="hex-confirm" role="dialog" aria-live="polite">
-          <p>✋ {pendingMapCast.label} — your Tender stands still, the working held. Nothing is charged until you loose it.</p>
-          <div className="hex-confirm-actions">
-            <button type="button" className="abtn" onClick={confirmMapCast}>✓ Loose it · ⚡{pendingMapCast.cost}</button>
-            <button type="button" className="abtn ghost" onClick={cancelMapCast}>✕ Set it down</button>
-          </div>
-        </div>
-      )}
       {/* Bottom dock: energy orb + hand. The orb houses feeding
           now (Nigel, 2026-10-18): while a warden is chosen it wears
           the lit feed-ready face and tapping it — or its caption —
@@ -6083,10 +6075,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <div className="dock-row">
         {handTab === "spells" && (<div className="dock-spells"><div style={{ margin: 0, padding: "10px 12px", border: "1px solid rgba(183,166,255,.5)", borderRadius: 10, background: "rgba(24,18,44,.88)" }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <strong style={{ color: "#e6ddff" }}>Pour:</strong>
-              {GRIM_HUES.map((h) => (
-                <button key={h} onClick={() => { setCastHue(h); setCastPour(0); }} className="abtn" style={{ borderColor: castHue === h ? (GRIM_HUE_GLOWS[h]) : "#555", color: castHue === h ? GRIM_HUE_GLOWS[h] : "#ccc", textTransform: "capitalize" }}>{h}</button>
-              ))}
               <span style={{ marginLeft: "auto", color: "#cfc4f5" }}>⚡{energy} · Tender Lv {grimGate.level}</span>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
@@ -6095,7 +6083,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 const img = grimGlyphImg(sp.key);
                 const sel = castSpellKey === sp.key;
                 return (
-                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); setCastPour(0); }}
+                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); }}
                     className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
                     title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ⚡${sp.cost}. ${sp.blurb}`}>
                     {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
@@ -6105,34 +6093,10 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               })}
               {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
             </div>
-            {castSpell && ["seal", "trees", "lattice", "shard"].includes(castSpell.engine) && castHue !== "unaligned" && (() => {
-              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[castHue] ?? 0);
-              const cap = Math.min(3, Math.floor(pool / 10));
-              const maxPour = Math.min(cap, pool);
-              const n = castSpell.numbers;
-              const hpPreview = castSpell.engine === "shard" ? null
-                : Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * grimGate.level + (n.hpPerPoint ?? 2) * castPour
-                  + (castSpell.engine === "trees" && workings.some((w) => w.engine === "engine") ? (n.brightHpBonus ?? 2) : 0)));
-              return (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-                  <strong style={{ color: "#e6ddff" }}>Feed it:</strong>
-                  <button className="abtn" disabled={castPour <= 0} onClick={() => setCastPour((p) => Math.max(0, p - 1))}>−</button>
-                  <span style={{ color: "#cfc4f5", minWidth: 150, textAlign: "center" }}>
-                    Pour {castPour} {castHue} pt{castPour === 1 ? "" : "s"} <span style={{ opacity: 0.75 }}>(pool {pool} · your {castHue} Lv {cap})</span>
-                  </span>
-                  <button className="abtn" disabled={castPour >= maxPour} onClick={() => setCastPour((p) => Math.min(maxPour, p + 1))}>+</button>
-                  <span style={{ color: "#ffd98a" }}>
-                    {castSpell.engine === "shard"
-                      ? `→ +${castPour * (n.harmPerPoint ?? 1)} harm when it falls`
-                      : `→ raised with ❤${hpPreview}`}
-                  </span>
-                </div>
-              );
-            })()}
             <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
               {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
               {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}
-              {castSpell?.kind === "ward" && castAnchor === null && <>Tap a hex <strong>your Awokin holds</strong> — then tap one of its glowing edges.</>}
+              {castSpell?.kind === "ward" && castAnchor === null && <>Tap any hex of <strong>your land</strong> — then tap one of its glowing edges.</>}
               {castSpell?.kind === "ward" && castAnchor !== null && <>Tap a <strong>glowing edge</strong> of the anchor hex — or the hex again to choose another.</>}
               {castSpell && (castSpell.kind === "rune" || castSpell.kind === "spell") && <>Tap a hex's <strong>ground</strong> to write it there — cursed ground takes the light too, ahead of the march. One writing per hex.</>}
             </div>
@@ -6150,27 +6114,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 }}>Fade it</button>
               </div>
             )}
-            {(() => {
-              const picked = workings.find((w) => w.id === fadePick);
-              if (!picked || picked.kind !== "rune" || picked.hue !== "unaligned" || !["lattice", "shard"].includes(picked.engine)) return null;
-              const pool = Math.floor((grimPoolsQ.data?.levels as any)?.[pushHue] ?? 0);
-              const lvl = Math.min(3, Math.floor(pool / 10));
-              return (
-                <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{ color: "#cfc4f5" }}>That rune stands neutral — <strong>push it either way:</strong></span>
-                  <select value={pushHue} onChange={(e) => { setPushHue(e.target.value); setPushPour(0); }}>
-                    {["tide", "sky", "stone", "root", "fire"].map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                  <button className="abtn" disabled={pushPour <= 0} onClick={() => setPushPour((p) => Math.max(0, p - 1))}>−</button>
-                  <span style={{ color: "#cfc4f5" }}>Pour {pushPour} (your {pushHue} Lv {lvl})</span>
-                  <button className="abtn" disabled={pushPour >= lvl} onClick={() => setPushPour((p) => Math.min(lvl, p + 1))}>+</button>
-                  <button className="abtn" disabled={pushPour <= 0} onClick={async () => {
-                    try { await api.pourMapWorking({ id: picked.id, hue: pushHue, pour: pushPour }); setPushPour(0); await refreshWorkings(); showHexNotice(`The rune takes the ${pushHue} — pushed, and burning with it.`); }
-                    catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not be pushed."); }
-                  }}>Push it</button>
-                </div>
-              );
-            })()}
           </div></div>)}
         {handTab === "awoken" && battlePool.length > 0 && (
           <div className="battle-pool">

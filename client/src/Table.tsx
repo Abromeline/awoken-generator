@@ -25,7 +25,7 @@ import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./w
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
-import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
+import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, type JumpEngine } from "./jump";
@@ -65,7 +65,6 @@ const HUE_FILTERS: Record<string, string> = {
   fire: "hue-rotate(-30deg) saturate(1.6) brightness(1.06)",
 };
 const HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#57c8ff", sky: "#cdb9ff", stone: "#e8a33d", root: "#7dd069", fire: "#ff7a33" };
-const HUE_LABELS: Record<string, string> = { unaligned: "Unaligned", tide: "Tide", sky: "Sky", stone: "Stone", root: "Root", fire: "Fire" };
 
 interface WorkingView {
   id: string; kind: "ward" | "rune" | "grove"; root: string; name: string; hue: string;
@@ -294,17 +293,6 @@ const SEED_TILE_ID = "0,0";
  *  referee's own ELEMENT_REACH (table.ts), the same table
  *  the Zodiac reads: stone 1, root 2, fire 2, tide 3, sky 4. */
 const STRIKE_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
-/** A cast held for its confirm (STOP AND CONFIRM, Nigel
- *  2026-10-20): the target is chosen, the Tender stands
- *  still, nothing is charged — `fire` runs the very send
- *  the tap once ran, at the confirm alone. */
-type PendingCast = {
-  key: string;
-  label: string;
-  cost: number;
-  targetIds: string[];
-  fire: () => void;
-};
 const TILE_K = TILE_SIZE / ISO_DEN;
 
 /** How a tile's painted face is drawn — Territory's seating law,
@@ -365,19 +353,6 @@ const ROSTER = [
   { name: "hollow", label: "Hollow", note: "Pure void. Drains energy instead of blood." },
   { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awokin where it stands." },
 ] as const;
-
-function PourRow({ hue, setHue }: { hue: string; setHue: (h: string) => void }) {
-  return (
-    <div className="pour-row">
-      <span className="pour-label">Pour the light as:</span>
-      {HUE_ORDER.map((hu) => (
-        <button key={hu} className={`hue-chip${hue === hu ? " active" : ""}`} onClick={() => setHue(hu)} title={`Pour ${HUE_LABELS[hu]}`}>
-          <span className="hue-dot" style={{ background: HUE_GLOWS[hu] }} />{HUE_LABELS[hu]}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export default function Table() {
   const [phase, setPhase] = useState<Phase>("boot");
@@ -444,17 +419,15 @@ export default function Table() {
     return out;
   })();
   const healDef = Object.values(defs).find((d) => d.engine === "heal");
-  // The Written Light: what is being laid, in which poured hue,
-  // and the placement steps (a ward wants an anchor hex, then a
-  // neighbour; the Three Blades gather up to three hexes).
-  const [pourHue, setPourHue] = useState<string>("unaligned");
-  // The Pour (Nigel, 2026-10-17): elemental points fed into the
-  // working being placed, chosen in the placing bar.
-  const [pourPts, setPourPts] = useState(0);
+  // The Written Light: what is being laid, and the placement
+  // steps (a ward wants an anchor hex, then a neighbour; the
+  // Three Blades gather up to three hexes). THE POUR MENU IS
+  // GONE (Nigel, 2026-10-20): no hue/points choice stands
+  // between readying and casting — casts go unaligned and
+  // unpoured until powering re-homes into the Grimoire; the
+  // server's pour doors stand dormant behind them.
+  const pourHue = "unaligned";
   const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
-  const [pushTargetId, setPushTargetId] = useState<string | null>(null);
-  const [pushHue, setPushHue] = useState<string>("root");
-  const [pushPts, setPushPts] = useState(0);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [callKeyInput, setCallKeyInput] = useState("");
@@ -505,16 +478,20 @@ export default function Table() {
   // blow per tap, as the land's blow-per-order rules it.
   const [strikeArm, setStrikeArm] = useState(false);
   useEffect(() => { setStrikeArm(false); }, [selUnitId]);
-  // STOP AND CONFIRM (Nigel, 2026-10-20): a chosen cast
-  // target no longer fires the cast — it raises a pending
-  // cast, the Tender stops, and only the confirm (a second
-  // tap on the same ground, the ✓ in the bar, never Esc)
-  // sends it. The purse is charged by the server at the
-  // confirm, as it always was at the cast.
-  const [pendingCast, setPendingCast] = useState<PendingCast | null>(null);
-  const pendingCastRef = useRef<PendingCast | null>(null);
-  pendingCastRef.current = pendingCast;
-  const cancelCastRef = useRef<(() => void) | null>(null);
+  // SEAMLESS STICKY CASTING (Nigel, 2026-10-20): a target
+  // tap fires the cast at once — no confirm stands in the
+  // flow, and the readied placing STAYS armed across taps
+  // until the run ends: the player unloads or readies
+  // another working, the purse refuses, or a roll fizzles
+  // and the working slips from the hand. placingRef mirrors
+  // the placing for the socket's own handlers and watchers,
+  // which were bound once and cannot see fresh state.
+  const placingRef = useRef<typeof placing>(null);
+  placingRef.current = placing;
+  // The run's end, reached from the mount-once key handler,
+  // the socket's error path, and the tale watcher — each
+  // bound outside this render's closures.
+  const unloadCastRef = useRef<(() => void) | null>(null);
   // The stage clock: the stage ticks gently while anyone
   // watches, so smoothed figures lerp across server ticks.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -606,34 +583,18 @@ export default function Table() {
     ownCastMarkRef.current = Date.now();
   };
 
-  // STOP AND CONFIRM — the held cast's three acts. Raising
-  // one halts the Tender where he stands (glideStop — his
-  // own word to the referee); the confirm runs the send
-  // the target tap once ran, untouched in shape; the
-  // cancel drops the whole placing flow uncharged, as
-  // "Set the light down" always did. A second offer of
-  // the SAME cast (the same ground tapped again, the same
-  // button pressed again) IS the confirm.
-  const raisePendingCast = (p: PendingCast) => {
-    send({ type: "glideStop" });
-    setPendingCast(p);
+  // THE RUN'S END (Nigel, 2026-10-20): unloading drops the
+  // placing flow whole — the working leaves the hand, the
+  // half-chosen ground (anchor, blade picks) goes with it —
+  // and nothing is charged for the setting down. A fired
+  // cast does NOT come through here: firing keeps the
+  // placing armed (the sticky run), spending only the
+  // cast's own transients (the anchor, the picks) at the
+  // send.
+  const unloadCast = () => {
+    setPlacing(null); setWardAnchor(null); setBladePicks([]);
   };
-  const confirmPendingCast = () => {
-    const p = pendingCastRef.current;
-    if (!p) return;
-    setPendingCast(null);
-    setPlacing(null); setWardAnchor(null); setBladePicks([]); setPourPts(0);
-    p.fire();
-  };
-  const cancelPendingCast = () => {
-    setPendingCast(null);
-    setPlacing(null); setWardAnchor(null); setBladePicks([]); setPourPts(0);
-  };
-  cancelCastRef.current = cancelPendingCast;
-  const offerCast = (p: PendingCast) => {
-    if (pendingCastRef.current && pendingCastRef.current.key === p.key) { confirmPendingCast(); return; }
-    raisePendingCast(p);
-  };
+  unloadCastRef.current = unloadCast;
   useEffect(() => {
     if (!shared) return;
     for (const p of shared.players) {
@@ -649,6 +610,32 @@ export default function Table() {
       const dir = from && to ? tenderDirOf(to.x - from.x, to.y - from.y) : "S";
       castAnimRef.current.set(p.key, { startedAt: Date.now(), dir });
     }
+  }, [shared]);
+  // THE SLIP (Nigel, 2026-10-20): a fizzled roll ends the
+  // run — the working leaves the hand and must be readied
+  // again. The fizzle is read from the room's own tale,
+  // where the referee writes every unravelling by name
+  // ("<name>'s <working> unravels — the roll falls short.");
+  // my own line only counts while a run stands armed and a
+  // cast of mine is fresh (beginCast's mark) — the backlog
+  // from before I sat down is primed past, never acted on.
+  const taleSeenRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!shared || !you) return;
+    const tale = shared.tale ?? [];
+    if (!taleSeenRef.current) {
+      taleSeenRef.current = new Set(tale.map(t => `${t.at}|${t.text}`));
+      return;
+    }
+    const seen = taleSeenRef.current;
+    const fresh = tale.filter(t => !seen.has(`${t.at}|${t.text}`));
+    for (const t of tale) seen.add(`${t.at}|${t.text}`);
+    if (!placingRef.current) return;
+    if (Date.now() - ownCastMarkRef.current > 15000) return;
+    const mine = fresh.find(t => t.text.startsWith(`${you.name}'s `) && t.text.includes("unravels — the roll falls short."));
+    if (!mine) return;
+    unloadCastRef.current?.();
+    setNotice(`${mine.text} The working slips from your hand — ready it again to cast on.`);
   }, [shared]);
   // WASD GLIDES THE TENDER (Phase B): the lattice's own
   // compass — Q/W/E across the top arc, A/S/D below it,
@@ -707,8 +694,10 @@ export default function Table() {
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Escape") {
-        // A held cast is set down first — uncharged, always.
-        if (pendingCastRef.current) { cancelCastRef.current?.(); return; }
+        // An armed cast run is set down first — uncharged,
+        // always (Nigel, 2026-10-20: Esc is a standing
+        // unload). Then the wheel and controller close.
+        if (placingRef.current) { unloadCastRef.current?.(); setRadial(null); setControllerOpen(false); return; }
         setRadial(null); setControllerOpen(false); return;
       }
       const t = e.target as HTMLElement | null;
@@ -883,7 +872,19 @@ export default function Table() {
         setError(String(msg.message || "The Table would not seat you."));
         setPhase("error");
       } else if (msg.type === "error") {
-        setNotice(String(msg.message || ""));
+        const m = String(msg.message || "");
+        setNotice(m);
+        // THE PURSE ENDS THE RUN (Nigel, 2026-10-20): while a
+        // cast run stands armed, the ONLY refusal that can
+        // answer is the cast's own — placing owns the taps,
+        // so nothing else spends from this seat — and every
+        // cast refusal names its price ("…costs ⚡…"). A
+        // refusal that answers a cast fired moments ago (the
+        // fire's own mark) ends the run: the working leaves
+        // the hand. The refusal itself shows above, as always.
+        if (placingRef.current && /costs ⚡/.test(m) && Date.now() - ownCastMarkRef.current < 6000) {
+          unloadCastRef.current?.();
+        }
       }
     };
     ws.onclose = () => {
@@ -1365,13 +1366,9 @@ export default function Table() {
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
     if (placing) {
       if (placing.kind === "heal") {
-        if (myUnitOn(t.id)) {
-          const hex = t.id;
-          offerCast({
-            key: `heal:${hex}`, label: `Heal — mend your own standing on ${hex}`, cost: healDef?.cost ?? 2, targetIds: [hex],
-            fire: () => { send({ type: "castHeal", hex }); beginCast(hex); },
-          });
-        }
+        // The tap casts — and the placing stays armed: mend
+        // another standing, or set the light down to stop.
+        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id }); beginCast(t.id); }
         return;
       }
       if (placing.kind === "rune") {
@@ -1382,25 +1379,22 @@ export default function Table() {
           return;
         }
         if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
-          const root = placing.root, hue = pourHue, pour = pourPts, hex = t.id;
-          offerCast({
-            key: `rune:${root}:${hex}`, label: `${defs[root]?.forms[hue] ?? defs[root]?.root ?? root} — write it on ${hex}`, cost: defs[root]?.cost ?? 0, targetIds: [hex],
-            fire: () => { send({ type: "castRune", root, hue, hexes: [hex], pour }); beginCast(hex); },
-          });
+          send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [t.id] });
+          beginCast(t.id);
         }
         return;
       }
       // ward: an anchor hex — ANY hex now (Nigel, 2026-10-20:
       // wards stand anywhere) — then a neighbour, for its edge.
+      // The cast fires on the neighbour tap; the anchor alone
+      // clears for the next edge, the placing stays armed.
       if (!wardAnchor) { setWardAnchor(t.id); return; }
       const anchor = tileById.get(wardAnchor);
       if (anchor && axialDist(anchor, t) === 1) {
-        const root = placing.root, hue = pourHue, pour = pourPts, hexA = wardAnchor, hexB = t.id;
-        offerCast({
-          key: `ward:${root}:${hexA}:${hexB}`, label: `${defs[root]?.forms[hue] ?? defs[root]?.root ?? root} — raise it on the edge of ${hexA} and ${hexB}`, cost: defs[root]?.cost ?? 0, targetIds: [hexB],
-          fire: () => { send({ type: "castWard", root, hue, hexA, hexB, pour }); beginCast(hexB); },
-        });
-      } else if (t.id === wardAnchor) { setWardAnchor(null); setPendingCast(null); }
+        send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: t.id });
+        beginCast(t.id);
+        setWardAnchor(null);
+      } else if (t.id === wardAnchor) setWardAnchor(null);
       return;
     }
     if (selectedCard) { send({ type: "summon", cardId: selectedCard.id, hex: t.id }); return; }
@@ -1973,7 +1967,6 @@ export default function Table() {
                   if (tilePickable(t)) overlay = { fill: "#ffd977", opacity: 0.22 };
                   if (wardAnchor === t.id) overlay = { fill: "#ffd977", opacity: 0.35 };
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
-                  if (pendingCast?.targetIds.includes(t.id)) overlay = { fill: "#ffd977", opacity: 0.48 };
                 } else if (selectedCard) {
                   // Summoning answers at the Tender's side:
                   // only ground within a hex of their figure
@@ -2208,84 +2201,27 @@ export default function Table() {
               The Bastion is what the party will build around it. Cast from your
               roster onto the field; when the party stands ready, begin the Unraveling.
             </div>
-            {(() => {
-              const neutrals = shared.workings.filter(w => w.kind === "rune" && w.hue === "unaligned" && ["lattice", "shard"].includes(defs[w.root]?.engine ?? ""));
-              if (!neutrals.length) return null;
-              const target = neutrals.find(w => w.id === pushTargetId) ?? null;
-              const pool = Math.floor(you?.pools?.[pushHue] ?? 0);
-              const lvl = Math.min(3, Math.floor(pool / 10));
-              return (
-                <div className="placing-bar">
-                  <span className="placing-text">
-                    {neutrals.map(w => (
-                      <button key={w.id} className="table-btn" onClick={() => { setPushTargetId(target?.id === w.id ? null : w.id); setPushPts(0); }}>
-                        ✦ {w.name} — {w.ownerName}&rsquo;s neutral rune{(target?.id === w.id) ? " (pushing)" : " — push it"}
-                      </button>
-                    ))}
-                    {target && (
-                      <>
-                        <select value={pushHue} onChange={(e) => { setPushHue(e.target.value); setPushPts(0); }}>
-                          {["tide", "sky", "stone", "root", "fire"].map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
-                        <button className="table-btn" disabled={pushPts <= 0} onClick={() => setPushPts(p => Math.max(0, p - 1))}>−</button>
-                        <span>Pour {pushPts} (your {pushHue} Lv {lvl})</span>
-                        <button className="table-btn" disabled={pushPts >= lvl} onClick={() => setPushPts(p => Math.min(lvl, p + 1))}>+</button>
-                        <button className="table-btn primary" disabled={pushPts <= 0} onClick={() => { send({ type: "pourWorking", workingId: target.id, hue: pushHue, pour: pushPts }); setPushTargetId(null); setPushPts(0); }}>Push it toward {pushHue}</button>
-                      </>
-                    )}
-                  </span>
-                </div>
-              );
-            })()}
             {placing && (
               <div className="placing-bar">
                 <span className="placing-text">
-                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to hold the cast (restores {you?.healAmount ?? 5} HP, ⚡{healDef?.cost ?? 2}); tap it again to loose the mending.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to hold the writing there; tap the same ground again to loose the cast. It springs the moment the dark stands on it.</>}
+                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ⚡{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it. The cast waits for your confirm.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap any hex: the ward will stand on one of its edges. Wards stand anywhere now — but cursed ground eats what stands on it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two, held for your confirm.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two. It stays in your hand — raise another edge when this one lands.</>}
                 </span>
-                {placing.kind !== "heal" && ["seal", "trees", "lattice", "shard"].includes(defs[placing.root]?.engine ?? "") && pourHue !== "unaligned" && you?.pools && (() => {
-                  const def = defs[placing.root];
-                  const n = def?.numbers ?? {};
-                  const pool = Math.floor(you.pools[pourHue] ?? 0);
-                  const cap = Math.min(3, Math.floor(pool / 10));
-                  const maxPour = Math.min(cap, pool);
-                  const bright = shared?.workings.some(w => defs[w.root]?.engine === "engine" && w.ownerKey === you.key) ? 1 : 0;
-                  const hpPreview = def?.engine === "shard" ? null
-                    : Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * (you.tenderLevel ?? 1) + (n.hpPerPoint ?? 2) * pourPts + (def?.engine === "trees" ? bright * (n.brightHpBonus ?? 2) : 0)));
-                  return (
-                    <span className="placing-pour">
-                      <button className="table-btn" disabled={pourPts <= 0} onClick={() => setPourPts(p => Math.max(0, p - 1))}>−</button>
-                      <span>Pour {pourPts} {pourHue} pt{pourPts === 1 ? "" : "s"} (pool {pool} · your {pourHue} Lv {cap})</span>
-                      <button className="table-btn" disabled={pourPts >= maxPour} onClick={() => setPourPts(p => Math.min(maxPour, p + 1))}>+</button>
-                      <span className="placing-pour-effect">{def?.engine === "shard" ? `→ +${pourPts * (n.harmPerPoint ?? 1)} harm when it falls` : `→ raised with ❤${hpPreview}`}</span>
-                    </span>
-                  );
-                })()}
                 {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
                   <button className="table-btn primary" onClick={() => {
-                    const root = placing.root, hue = pourHue, pour = pourPts, picks = [...bladePicks];
-                    offerCast({
-                      key: `runes:${root}:${picks.join(".")}`, label: `${defs[root]?.forms[hue] ?? defs[root]?.root ?? root} — write it across ${picks.length} hex${picks.length === 1 ? "" : "es"}`, cost: defs[root]?.cost ?? 0, targetIds: picks,
-                      fire: () => { send({ type: "castRune", root, hue, hexes: picks, pour }); beginCast(picks[0] ?? null); },
-                    });
+                    const picks = [...bladePicks];
+                    send({ type: "castRune", root: placing.root, hue: pourHue, hexes: picks });
+                    beginCast(picks[0] ?? null);
+                    setBladePicks([]);
                   }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · ⚡{defs[placing.root]?.cost ?? 4}</button>
                 )}
-                <button className="table-btn" onClick={() => { setPlacing(null); setWardAnchor(null); setBladePicks([]); setPendingCast(null); }}>Set the light down</button>
-              </div>
-            )}
-            {pendingCast && (
-              <div className="placing-bar pending-bar">
-                <span className="placing-text">
-                  ✋ <strong>{pendingCast.label}</strong> — your Tender stands still, the working held. Nothing is charged until you loose it: tap the marked ground again, or loose it here.
-                </span>
-                <button className="table-btn primary" onClick={confirmPendingCast}>✓ Loose it · ⚡{pendingCast.cost}</button>
-                <button className="table-btn" onClick={cancelPendingCast}>✕ Set it down</button>
+                <button className="table-btn" onClick={unloadCast}>Set the light down</button>
               </div>
             )}
             {selUnit && !placing && (
@@ -2300,11 +2236,7 @@ export default function Table() {
                 {!selUnitMoving && (
                   <>
                     <button className="table-btn" onClick={() => {
-                      const hex = selUnit.hex;
-                      offerCast({
-                        key: `heal:${hex}`, label: `Heal — mend ${selUnit.name} where it stands`, cost: healDef?.cost ?? 2, targetIds: [hex],
-                        fire: () => { send({ type: "castHeal", hex }); beginCast(hex); },
-                      });
+                      send({ type: "castHeal", hex: selUnit.hex }); beginCast(selUnit.hex);
                     }}>Heal · ⚡{healDef?.cost ?? 2}</button>
                     {strikeArmed ? (
                       <button className="table-btn" onClick={() => setStrikeArm(false)}>Stay the hand</button>
@@ -2591,7 +2523,6 @@ export default function Table() {
             )}
             {tab === "II" && (
               <div className="arts-list">
-                <PourRow hue={pourHue} setHue={(h) => { setPourHue(h); setPourPts(0); }} />
                 {Object.values(defs).filter(d => d.kind === "ward").map(d => {
                   const formName = d.forms[pourHue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;
@@ -2608,12 +2539,11 @@ export default function Table() {
                     </button>
                   );
                 })}
-                <p className="quiet small">Wards are walls: they stand on a hex's edge and answer what crosses it. A ward is written for one battle — when the wave breaks, the light fades. The hue names and dresses the working in this first seating; its elemental twists wake with your attunement.</p>
+                <p className="quiet small">Wards are walls: they stand on a hex's edge and answer what crosses it. A ward is written for one battle — when the wave breaks, the light fades. Workings are written plain in this seating; the pouring of hues into them is the Grimoire's craft, not the field's.</p>
               </div>
             )}
             {tab === "III" && (
               <div className="arts-list">
-                <PourRow hue={pourHue} setHue={(h) => { setPourHue(h); setPourPts(0); }} />
                 <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
                   onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
                   title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ⚡${healDef?.cost ?? 2}`}>

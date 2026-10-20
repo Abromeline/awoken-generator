@@ -216,6 +216,20 @@ function marchSecondsPerHexFor(layers: { element?: string | null }[], experience
   const level = Math.max(1, awokenLevelOf(experience));
   return pace * Math.sqrt(Math.pow(1.25, level - 1));
 }
+/** CURSED GROUND SLOWS THE MARCH (Nigel, 2026-10-20): a step
+ *  whose destination tile is cursed takes TWICE as long —
+ *  the gait's own reckoning stands underneath, and this
+ *  weighting rides on top of it. Every march reckoning
+ *  (the muster, the missions, the bastion road, the march
+ *  itself, the recall) shares this one weighting, so the
+ *  quote, the hour, and the road home all agree. The
+ *  client's projections weight their segments the same
+ *  way, by the destination tile. */
+function marchWeightedSeconds(road: number[], secPerHex: number, cursedOf: (tileId: number) => boolean): number {
+  let total = 0;
+  for (let i = 1; i < road.length; i++) total += secPerHex * (cursedOf(road[i]) ? 2 : 1);
+  return total;
+}
 /** The road between two of the Tender's hexes, over their own
  *  uncursed ground only (breadth-first; the grid makes every step
  *  equal). Returns the tile ids, origin first, or null when no road
@@ -5520,8 +5534,9 @@ export const handlers = {
         let layers: { element?: string | null }[] = [];
         try { layers = JSON.parse(aw?.compositionJson ?? "[]"); } catch { layers = []; }
         const secPerHex = marchSecondsPerHexFor(layers, aw?.experience ?? 0);
+        const cursedById = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
         await db.update(schema.fieldPlacements)
-          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round((road.length - 1) * secPerHex * 1000), marchGoal: null })
+          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(road, secPerHex, (id) => !!cursedById.get(id)) * 1000), marchGoal: null })
           .where(eq(schema.fieldPlacements.id, p.id));
         p.marchPath = JSON.stringify(road);
         break;
@@ -8313,7 +8328,8 @@ export const handlers = {
       if (pace > slowest) slowest = pace;
     }
     const now = Date.now();
-    const travelMs = Math.max(5000, Math.round((road.length - 1) * slowest * 1000));
+    const fetchCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
+    const travelMs = Math.max(5000, Math.round(marchWeightedSeconds(road, slowest, (id) => !!fetchCursed.get(id)) * 1000));
     const arriveAt = now + travelMs;
     const ins = sqlite.prepare(`INSERT INTO seed_missions (owner_key, seed_id, kind, party, phase, depart_at, arrive_at)
       VALUES (?, ?, 'fetch', ?, 'out', ?, ?)`).run(ownerKey, seedId, JSON.stringify(awakenedIds), now, arriveAt) as any;
@@ -8535,7 +8551,8 @@ export const handlers = {
     const pace = marchSecondsPerHexFor(layers, Number(aw?.experience ?? 0));
     // The lone road is the slow road (the spec's own words):
     // half again the company's pace.
-    const seconds = (road!.length - 1) * pace * (following ? 1 : 1.5);
+    const bastionCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
+    const seconds = marchWeightedSeconds(road!, pace, (id) => !!bastionCursed.get(id)) * (following ? 1 : 1.5);
     const now = Date.now();
     sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = 'bastion', patrol_path = NULL, patrol_since = NULL WHERE id = ?")
       .run(JSON.stringify(road), now, now + Math.round(seconds * 1000), placement.id);
@@ -8780,7 +8797,8 @@ export const handlers = {
     const payload = await awakenedPayloadById(aw.id);
     const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
     const energy = steps * (1 + Math.floor((power - 1) / 3));
-    const seconds = steps * marchSecondsPerHexFor(layers, aw.experience ?? 0);
+    const marchCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
+    const seconds = marchWeightedSeconds(road, marchSecondsPerHexFor(layers, aw.experience ?? 0), (id) => !!marchCursed.get(id));
     if (!(await spendEnergy(ownerKey, energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
     const now = Date.now();
     await db.update(schema.fieldPlacements).set({
@@ -8831,9 +8849,11 @@ export const handlers = {
     const layers = aw ? parseLayers(aw.compositionJson, assetStats) : [];
     const pace = marchSecondsPerHexFor(layers, aw?.experience ?? 0);
     const homeRoad = road.slice(0, reached + 1).reverse();
+    const recallTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const recallCursed = new Map((recallTiles as any[]).map((t: any) => [t.id, !!t.cursed]));
     const now = Date.now();
     await db.update(schema.fieldPlacements).set({
-      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(reached * pace * 1000), marchGoal: null,
+      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(homeRoad, pace, (id) => !!recallCursed.get(id)) * 1000), marchGoal: null,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
     return { ok: true as const, awakenedId, recalled: true, stepsHome: reached };
   },
