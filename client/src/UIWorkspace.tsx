@@ -468,9 +468,9 @@ function GrimoireSection() {
   return (
     <div className="workspace-grid">
       <div className="workspace-card wide">
-        <h3>🔮 The Spell Proving Ground — the preview, saved in the book</h3>
-        <p className="quiet">The working preview where the radial wheel, the party, and each spell, ward and rune were shaped and proven piece by piece — kept here so every working can be studied and played on its own ground while its page is tuned below. The preview is a saved copy: it teaches and demonstrates, but the <strong>living numbers are the spell pages beneath it</strong> — what is saved there is what the Table and the territory map read. <a href="/spell-preview.html" target="_blank" rel="noreferrer">Open the proving ground full-page ↗</a></p>
-        <iframe title="The spell proving ground — the saved preview" src="/spell-preview.html" loading="lazy" style={{ width: "100%", height: 680, border: "1px solid rgba(184,155,94,.35)", borderRadius: 10, background: "#14100c" }} />
+        <h3>🕯️ The Proving Ground — where spells and fighting are tested</h3>
+        <p className="quiet">The working ground where the classes, the radial wheel, the party, and each spell, ward and rune are shaped and proven piece by piece — kept here so every working can be studied and played on its own ground while its page is tuned below. The preview is a saved copy: it teaches and demonstrates, but the <strong>living numbers are the spell pages beneath it</strong> — what is saved there is what the Table and the territory map read. <a href="/spell-preview.html" target="_blank" rel="noreferrer">Open The Proving Ground full-page ↗</a></p>
+        <iframe title="The Proving Ground — the saved preview" src="/spell-preview.html" loading="lazy" style={{ width: "100%", height: 680, border: "1px solid rgba(184,155,94,.35)", borderRadius: 10, background: "#14100c" }} />
       </div>
 
       <div className="workspace-card wide">

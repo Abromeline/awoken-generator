@@ -484,6 +484,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // clocks and mirrors live below, beside refreshTerritory.
   const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
   const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number } | null>(null);
+  /** The locator's pulse (2026-10-19): when the compass's 🧭 is
+   *  tapped, the camera swings to the Tender and a gold ring
+   *  breathes over him for a moment — on a grown map a planted
+   *  figure needs a way to be FOUND. */
+  const [findPulseAt, setFindPulseAt] = useState(0);
   const tenderStandRef = useRef<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
   const tenderPosRef = useRef<{ x: number; y: number } | null>(null);
   const tenderAnchorRef = useRef<number | null>(null);
@@ -3949,6 +3954,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <image href={shieldImg()} x={scx - sh / 2} y={scy - sh / 2} width={sh} height={sh}
               preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 4px rgba(255,215,100,0.4))" }} />
           )}
+          {findPulseAt > 0 && marchNow - findPulseAt < 2400 && (
+            <circle cx={tenderFig.x} cy={tenderFig.y - 18 * zoom} r={(10 + ((marchNow - findPulseAt) % 800) / 800 * 30) * zoom}
+              fill="none" stroke="#ffd977" strokeWidth={2}
+              opacity={0.8 * (1 - (marchNow - findPulseAt) / 2400)} pointerEvents="none" />
+          )}
         </g>
       );
     })();
@@ -5276,6 +5286,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <button className="compass-btn south" onClick={() => setPan(p => ({ ...p, y: p.y - 40 }))} aria-label="Pan down">▼</button>
         <button className="compass-btn zoom-in" onClick={() => setZoom(z => Math.min(z + 0.2, 3))} aria-label="Zoom in">＋</button>
         <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
+        {tenderStand && (
+          <button className="compass-btn find-tender" aria-label="Find my Tender"
+            onClick={() => {
+              const c = tenderTileCenter(tenderAnchorRef.current ?? tenderStand.tileId);
+              if (c) { setPan(p => ({ x: p.x + (250 - c.cx), y: p.y + (170 - c.cy) })); setFindPulseAt(Date.now()); }
+            }}>🧭</button>
+        )}
         <button className="compass-btn" onClick={() => {
           if (!tracksRef.current.length) {
             tracksRef.current = [{ name: "Aurora", url: "/music/aurora.mp3" }];

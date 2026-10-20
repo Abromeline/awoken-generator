@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>The Warden Runs — a directional sprite trial</title>
+<title>The Proving Ground — Awokin</title>
 <style>
   html,body{margin:0;height:100%;background:#14100c;color:#e8dcc3;font-family:Georgia,serif;overflow:hidden}
   #field{position:fixed;inset:0;background:
@@ -37,7 +37,7 @@
   .wtab.on{border-color:#d8b25c;color:#ffd977}
 </style></head><body>
 <div id="field"><div id="shadow"></div><img id="warden" alt="The Warden"></div>
-<div id="hud"><h1>🕯️ The Classes Take the Field</h1><p>WASD or arrow keys - or hold a pad direction - class buttons above - Space casts - hotbar 1-0</p></div>
+<div id="hud"><h1>🕯️ The Proving Ground</h1><p>WASD or arrow keys - or hold a pad direction - class buttons above - Space casts - hotbar 1-0</p></div>
 <div id="dir">SOUTH · standing</div>
 <div id="clsrow" style="position:fixed;top:120px;left:0;right:0;text-align:center"><button class="clsbtn" data-k="warden" onclick="setClass('warden')" style="background:rgba(40,32,20,.85);color:#e8dcc3;border:1px solid #d8b25c;border-radius:9px;padding:7px 13px;margin:0 3px;font-family:Georgia,serif">Warden</button><button class="clsbtn" data-k="runewright" onclick="setClass('runewright')" style="background:rgba(40,32,20,.85);color:#e8dcc3;border:1px solid rgba(232,220,195,.35);border-radius:9px;padding:7px 13px;margin:0 3px;font-family:Georgia,serif">Runewright</button><button class="clsbtn" data-k="binder" onclick="setClass('binder')" style="background:rgba(40,32,20,.85);color:#e8dcc3;border:1px solid rgba(232,220,195,.35);border-radius:9px;padding:7px 13px;margin:0 3px;font-family:Georgia,serif">Binder</button><button class="clsbtn" data-k="witch" onclick="setClass('witch')" style="background:rgba(40,32,20,.85);color:#e8dcc3;border:1px solid rgba(232,220,195,.35);border-radius:9px;padding:7px 13px;margin:0 3px;font-family:Georgia,serif">Witch</button><button class="clsbtn" data-k="sage" onclick="setClass('sage')" style="background:rgba(40,32,20,.85);color:#e8dcc3;border:1px solid rgba(232,220,195,.35);border-radius:9px;padding:7px 13px;margin:0 3px;font-family:Georgia,serif">Sage</button></div>
 <div style="position:fixed;top:166px;left:0;right:0;text-align:center"><button id="castbtn" onclick="cast()" style="background:rgba(40,32,20,.85);color:#ffd977;border:1px solid #d8b25c;border-radius:9px;padding:8px 22px;font-family:Georgia,serif;font-size:15px;letter-spacing:.08em">✦ Cast</button> <button id="wheelbtn" onclick="openWheelBtn()" style="background:rgba(40,32,20,.85);color:#e8dcc3;border:1px solid rgba(232,220,195,.4);border-radius:9px;padding:8px 16px;font-family:Georgia,serif;font-size:15px">❖ Radial</button></div>
