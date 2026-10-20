@@ -2979,3 +2979,52 @@ svg.eye-glyph .pupil{fill:#8e3a28; stroke:none}
 /* The paperwork line (2026-10-19): support / privacy / terms. */
 .legal-links { text-align: center; font-size: 12px; opacity: .72; padding: 14px 0 22px; margin: 0; }
 .legal-links a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* THE TENDER CONTROLLER + HOTBAR (Nigel, 2026-10-19): the
+   touch hand's furniture on the homeland — a glide pad that
+   pops over the map's lower left when the Tender himself is
+   tapped, the wheel's button at its side, and the belt of
+   locked entries along the bottom. The compass keeps its
+   own post; none of this touches it. */
+.tender-controller {
+  position: absolute; left: 14px; bottom: 14px; z-index: 30;
+  display: flex; align-items: flex-end; gap: 10px;
+}
+.tender-pad {
+  width: 112px; height: 112px; border-radius: 50%;
+  border: 1px solid #c9a227; background: rgba(10, 8, 16, .82);
+  backdrop-filter: blur(3px); touch-action: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .5);
+}
+.tender-pad-knob {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid #ffd977; background: rgba(255, 217, 119, .16);
+  pointer-events: none;
+}
+.tender-ctl-side { display: flex; flex-direction: column; gap: 8px; }
+.tender-ctl-btn {
+  width: 46px; height: 46px; border-radius: 50%; padding: 0;
+  border: 1px solid #c9a227; background: rgba(10, 8, 16, .88);
+  color: #ffd977; font-size: 19px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.tender-ctl-btn.small { width: 34px; height: 34px; font-size: 13px; }
+.tender-hotbar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 12px; z-index: 30; display: flex; gap: 6px;
+}
+.tender-slot {
+  width: 46px; height: 46px; border-radius: 10px; padding: 2px 0 0;
+  border: 1px solid #c9a227; background: rgba(10, 8, 16, .9);
+  color: #ffd977; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.tender-slot img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
+.tender-slot-emoji { font-size: 17px; line-height: 1; pointer-events: none; }
+.tender-slot-label { font-size: 7.5px; letter-spacing: .03em; color: #cbb26a; pointer-events: none; max-width: 42px; overflow: hidden; white-space: nowrap; }
+.tender-slot.dim { opacity: .38; }
+.tender-slot.lit { border-color: #ffd977; box-shadow: 0 0 8px rgba(255, 217, 119, .55); }
+.tender-hotbar.touch .tender-slot { width: 38px; height: 38px; border-radius: 9px; }
+.tender-hotbar.touch .tender-slot img { width: 20px; height: 20px; }
+.tender-hotbar.touch .tender-slot-label { font-size: 6.5px; max-width: 35px; }

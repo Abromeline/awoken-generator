@@ -714,3 +714,58 @@ button { font-family: inherit; }
   border-radius: 8px; color: var(--bone); padding: 9px;
   font-family: inherit; font-size: 14px; resize: vertical; margin-bottom: 8px;
 }
+
+/* THE TENDER CONTROLLER + HOTBAR (Nigel, 2026-10-19): the
+   touch hand's furniture — a glide pad that pops over the
+   field's lower left, the wheel's button at its side, and
+   the belt of locked things along the bottom. */
+.table-controller {
+  position: absolute; left: 12px; bottom: 12px; z-index: 7;
+  display: flex; align-items: flex-end; gap: 10px;
+}
+.table-pad {
+  width: 112px; height: 112px; border-radius: 50%;
+  border: 1px solid var(--gold); background: rgba(16, 12, 9, .82);
+  backdrop-filter: blur(3px); touch-action: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+}
+.table-pad-knob {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--gold-bright); background: rgba(255, 217, 119, .16);
+  pointer-events: none;
+}
+.table-ctl-side { display: flex; flex-direction: column; gap: 8px; }
+.table-ctl-btn {
+  width: 46px; height: 46px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--gold); background: rgba(16, 12, 9, .88);
+  color: var(--gold-bright); font-size: 19px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.table-ctl-btn.small { width: 34px; height: 34px; font-size: 13px; }
+.table-hotbar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 10px; z-index: 7; display: flex; gap: 6px;
+}
+.table-slot {
+  width: 46px; height: 46px; border-radius: 10px; padding: 2px 0 0;
+  border: 1px solid var(--gold); background: rgba(16, 12, 9, .9);
+  color: var(--gold-bright); cursor: pointer; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+}
+.table-slot img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
+.table-slot-emoji { font-size: 17px; line-height: 1; pointer-events: none; }
+.table-slot-label { font-size: 7.5px; letter-spacing: .03em; color: #cbb26a; pointer-events: none; max-width: 42px; overflow: hidden; white-space: nowrap; }
+.table-slot.dim { opacity: .38; }
+.table-slot.lit { border-color: var(--gold-bright); box-shadow: 0 0 8px rgba(255, 217, 119, .55); }
+.table-hotbar.touch .table-slot { width: 38px; height: 38px; border-radius: 9px; }
+.table-hotbar.touch .table-slot img { width: 20px; height: 20px; }
+.table-hotbar.touch .table-slot-label { font-size: 6.5px; max-width: 35px; }
+.tcard-pin {
+  position: absolute; top: 4px; right: 4px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--gold); background: rgba(16, 12, 9, .85);
+  color: #cbb26a; font-size: 11px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.tcard-pin.on { color: #ffd977; border-color: var(--gold-bright); }

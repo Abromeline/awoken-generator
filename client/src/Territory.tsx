@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
@@ -10,7 +10,9 @@ import meteorGif from "./assets/meteor-rain.gif";
 
 import FieldAwoken from "./FieldAwoken";
 import { TENDER_CLASSES, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
-import { WEAPONS, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
+import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
+import { WORKING_DEFS } from "./workingsData";
+import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey } from "./hotbar";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
@@ -489,6 +491,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
    *  breathes over him for a moment — on a grown map a planted
    *  figure needs a way to be FOUND. */
   const [findPulseAt, setFindPulseAt] = useState(0);
+  // THE TENDER CONTROLLER, THE WHEEL, THE HOTBAR (Nigel,
+  // 2026-10-19): on a touch hand, tapping the Tender himself
+  // pops his controller (a glide pad driving this engine's
+  // own held-keys, the wheel's button beside it); on PC a
+  // right-click anywhere on the map — mid-glide — opens the
+  // same radial the Table wears. The wheel's live branches
+  // here are Weapon (the real wield) and Ability (Follow,
+  // the locator); the spell branches are the Grimoire's
+  // trees, read-only — the homeland keeps no casting yet,
+  // and this face will not pretend otherwise.
+  const touchForm = coarsePointer();
+  const [tenderCtl, setTenderCtl] = useState(false);
+  const [tenderRadial, setTenderRadial] = useState<{ x: number; y: number } | null>(null);
+  const [radialBranch, setRadialBranch] = useState<string | null>(null);
+  const TERRITORY_HOTBAR_KEY = "awokin-hotbar-territory";
+  const [hotbarKeys, setHotbarKeys] = useState<string[]>(() => loadHotbar(TERRITORY_HOTBAR_KEY));
+  const toggleHotbar = (key: string) => {
+    setHotbarKeys(ks => { const next = toggleHotbarKey(ks, key); saveHotbar(TERRITORY_HOTBAR_KEY, next); return next; });
+  };
+  const padKeysRef = useRef<string[]>([]);
+  const [padKnob, setPadKnob] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const rightPressRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const tenderStandRef = useRef<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
   const tenderPosRef = useRef<{ x: number; y: number } | null>(null);
   const tenderAnchorRef = useRef<number | null>(null);
@@ -1256,6 +1280,71 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       window.removeEventListener("blur", blur);
     };
   }, []);
+
+  // Escape puts the wheel and the controller away.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setTenderRadial(null); setRadialBranch(null); setTenderCtl(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /** The locator, by name: the camera swings to the Tender
+   *  and the gold pulse breathes over him — the compass
+   *  button's own act, shared with the wheel and the belt. */
+  const findMyTender = () => {
+    if (!tenderStandRef.current) return;
+    const c = tenderTileCenter(tenderAnchorRef.current ?? tenderStandRef.current.tileId);
+    if (c) { setPan(p => ({ x: p.x + (250 - c.cx), y: p.y + (170 - c.cy) })); setFindPulseAt(Date.now()); }
+  };
+
+  // THE CONTROLLER'S PAD: a thumb's held direction, spoken
+  // into the stride engine's own held-keys — the same road
+  // the WASD hand walks, so the body cannot tell the two
+  // apart. Eight ways, snapped like the lattice's compass.
+  const padApply = (keys: string[]) => {
+    for (const k of padKeysRef.current) tenderKeysRef.current.delete(k);
+    padKeysRef.current = [];
+    if (keys.length === 0) return;
+    if (tenderInputBlockedRef.current || !tenderStandRef.current) return;
+    for (const k of keys) { tenderKeysRef.current.add(k); padKeysRef.current.push(k); }
+    tenderTargetRef.current = null; // the hand outranks the tap
+  };
+  const padClear = () => { padApply([]); setPadKnob({ x: 0, y: 0 }); };
+  const onPadVec = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dx = e.clientX - (rect.left + rect.width / 2), dy = e.clientY - (rect.top + rect.height / 2);
+    if (Math.hypot(dx, dy) < 10) { padApply([]); setPadKnob({ x: 0, y: 0 }); return; }
+    const a = Math.atan2(dy, dx);
+    const DIRS: string[][] = [["d"], ["d", "s"], ["s"], ["s", "a"], ["a"], ["a", "w"], ["w"], ["w", "d"]];
+    padApply(DIRS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]);
+    setPadKnob({ x: Math.cos(a) * 26, y: Math.sin(a) * 26 });
+  };
+
+  /** Wield on the homeland: the arsenal's own server law,
+   *  then the land is re-read so the new weapon rides at
+   *  his shoulder. */
+  const wieldOnHomeland = async (wk: WeaponKey) => {
+    try {
+      await api.wieldWeapon({ weaponKey: wk });
+      await refreshTerritory();
+      showHexNotice(`${WEAPONS[wk].name} rides in your hand now.`);
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The wielding was refused.");
+    }
+  };
+
+  /** Follow, toggled from the wheel or the belt: the one
+   *  server order, then the marching read refreshes. */
+  const toggleFollow = async (placementId: number, follow: boolean) => {
+    try {
+      await api.setPlacementFollow({ placementId, follow });
+      await refreshMarching();
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The order was refused.");
+    }
+  };
 
   // The stride: a 50 ms clock while the body walks — keys held, or
   // a tapped hex still ahead of it — at the preview's pace,
@@ -3956,6 +4045,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           )}
           <ellipse cx={tenderFig.x} cy={tenderFig.y + 2} rx={13 * zoom} ry={3.5 * zoom} fill="rgba(0,0,0,0.35)" />
           {pose.flip ? <g transform={`translate(${2 * tenderFig.x} 0) scale(-1 1)`}>{img}</g> : img}
+          {/* THE TENDER'S OWN TAP (touch hands): the figure
+              takes the tap itself, and his controller pops —
+              the tap never becomes a road through him. */}
+          {touchForm && (
+            <circle cx={tenderFig.x} cy={tenderFig.y - 26 * zoom} r={30 * zoom} fill="transparent" pointerEvents="all"
+              style={{ cursor: "pointer" }}
+              onClick={(e) => { e.stopPropagation(); setTenderCtl(true); }} />
+          )}
           {weaponKey && WEAPONS[weaponKey] && (
             <>
               <ellipse cx={wcx} cy={wcy} rx={wh * 0.66} ry={wh * 0.66} fill="rgba(255,215,100,0.13)" />
@@ -3972,6 +4069,142 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               fill="none" stroke="#ffd977" strokeWidth={2}
               opacity={0.8 * (1 - (marchNow - findPulseAt) / 2400)} pointerEvents="none" />
           )}
+        </g>
+      );
+    })();
+    // THE TENDER'S WHEEL ON THE HOMELAND (Nigel, 2026-10-19):
+    // the Table's radial in its own language — gold on dark,
+    // a ring of branches around a ✦ heart. Weapon and Ability
+    // are live law here (the real wield; Follow and the
+    // locator); the spell branches open the Grimoire's trees
+    // READ-ONLY, plainly marked — the homeland keeps no
+    // casting yet, and this face will not pretend otherwise.
+    const tenderRadialLayer = (() => {
+      if (!tenderRadial || !tenderStand || !tenderFig) return null;
+      const s = zoom;
+      const cx = tenderRadial.x, cy = tenderRadial.y;
+      const close = () => { setTenderRadial(null); setRadialBranch(null); };
+      const backdrop = (
+        <rect x={0} y={0} width={500} height={340} fill="transparent" pointerEvents="all"
+          onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
+      );
+      if (!radialBranch) {
+        const branches: { key: string; emoji: string; label: string }[] = [
+          { key: "weapon", emoji: "⚔", label: "WEAPON" },
+          { key: "ability", emoji: "✦", label: "ABILITY" },
+          { key: "spell", emoji: "✧", label: "SPELL" },
+          { key: "ward", emoji: "🛡", label: "WARD" },
+          { key: "rune", emoji: "✶", label: "RUNE" },
+          { key: "binding", emoji: "🌿", label: "BINDING" },
+          { key: "awoken", emoji: "👣", label: "AWOKEN" },
+        ];
+        const R = 47 * s;
+        return (
+          <g key="tender-wheel">
+            {backdrop}
+            {branches.map((b, i) => {
+              const a = -Math.PI / 2 + (i * 2 * Math.PI) / branches.length;
+              const gx = cx + R * Math.cos(a), gy = cy + R * Math.sin(a);
+              return (
+                <g key={b.key} style={{ cursor: "pointer" }} opacity={0.95}
+                  onClick={(e) => { e.stopPropagation(); setRadialBranch(b.key); }}>
+                  <circle cx={gx} cy={gy} r={12.5 * s} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={1} />
+                  <text x={gx} y={gy + 1 * s} textAnchor="middle" fontSize={11 * s} fill="#ffd977" pointerEvents="none">{b.emoji}</text>
+                  <text x={gx} y={gy + 9.5 * s} textAnchor="middle" fontSize={4.6 * s} fill="#ffd977" pointerEvents="none">{b.label}</text>
+                </g>
+              );
+            })}
+            <g style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); close(); }}>
+              <circle cx={cx} cy={cy} r={13 * s} fill="rgba(10,8,16,0.9)" stroke="#c9a227" strokeWidth={1} />
+              <text x={cx} y={cy + 4 * s} textAnchor="middle" fontSize={12 * s} fill="#ffd977" pointerEvents="none">✦</text>
+            </g>
+          </g>
+        );
+      }
+      // A branch opened: rows under a title, in a dark card.
+      const rows: { key: string; img?: string | null; emoji?: string; title: string; sub: string; lit?: boolean; act?: () => void; pin?: string }[] = [];
+      let heading = "";
+      let footLines: string[] = [];
+      if (radialBranch === "weapon") {
+        heading = "Weapon — tap to wield";
+        const wielded = (tenderStand.weaponKey ?? null) as WeaponKey | null;
+        for (const wk of WEAPON_ORDER) {
+          rows.push({
+            key: `wp-${wk}`, img: weaponImg(wk), title: WEAPONS[wk].name,
+            sub: wielded === wk ? "in hand" : "tap to wield", lit: wielded === wk,
+            act: () => { void wieldOnHomeland(wk); close(); },
+            pin: `wp-${wk}`,
+          });
+        }
+      } else if (radialBranch === "ability") {
+        heading = "Ability";
+        rows.push({ key: "findme", emoji: "🧭", title: "Find me", sub: "the camera swings to your Tender", act: () => { findMyTender(); close(); }, pin: "findme" });
+        for (const p of placements.slice(0, 5)) {
+          const a = tenderItems.find(x => x.id === p.awakenedId);
+          rows.push({
+            key: `follow-${p.id}`, emoji: "👣",
+            title: a?.name ?? "An Awokin",
+            sub: p.follow ? "following you — tap to loose" : "holding ground — tap to call to follow",
+            lit: !!p.follow,
+            act: () => { void toggleFollow(p.id, !p.follow); },
+            pin: `follow-${p.id}`,
+          });
+        }
+        if (placements.length === 0) footLines = ["No Awokin stands on your land yet."];
+      } else if (radialBranch === "awoken") {
+        heading = "Your company";
+        for (const p of placements.slice(0, 6)) {
+          const a = tenderItems.find(x => x.id === p.awakenedId);
+          rows.push({ key: `aw-${p.id}`, emoji: "✦", title: a?.name ?? "An Awokin", sub: p.follow ? "following you" : p.stance });
+        }
+        footLines = ["This tree only reads — their orders", "ride their cards, as ever."];
+      } else {
+        heading = radialBranch === "spell" ? "Spells" : radialBranch === "ward" ? "Wards" : radialBranch === "rune" ? "Runes" : "Bindings";
+        for (const d of Object.values(WORKING_DEFS).filter(d => d.kind === radialBranch).slice(0, 6)) {
+          rows.push({ key: `def-${d.key}`, emoji: "✦", title: d.root, sub: `⚡${d.cost}` });
+        }
+        footLines = ["Read-only — the homeland keeps no casting yet.", "These workings live at the Table and in the Grimoire."];
+      }
+      const rowH = 17 * s, headH = 15 * s;
+      const footH = footLines.length ? (footLines.length * 7.5 + 3) * s : 0;
+      const w = 172 * s, h = headH + rows.length * rowH + footH + 5 * s;
+      const x0 = Math.max(4, Math.min(500 - w - 4, cx - w / 2));
+      const y0 = Math.max(4, Math.min(340 - h - 4, cy - h / 2));
+      return (
+        <g key="tender-wheel-branch">
+          {backdrop}
+          <rect x={x0} y={y0} width={w} height={h} rx={7 * s} fill="rgba(10,8,16,0.94)" stroke="#c9a227" strokeWidth={1} />
+          <text x={x0 + w / 2} y={y0 + 10.5 * s} textAnchor="middle" fontSize={8 * s} fill="#ffd977">{heading}</text>
+          <g style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setRadialBranch(null); }}>
+            <circle cx={x0 + w - 9 * s} cy={y0 + 8 * s} r={6 * s} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
+            <text x={x0 + w - 9 * s} y={y0 + 10.4 * s} textAnchor="middle" fontSize={7 * s} fill="#ffd977" pointerEvents="none">‹</text>
+          </g>
+          {rows.map((r, i) => {
+            const ry = y0 + headH + i * rowH;
+            return (
+              <g key={r.key} style={r.act ? { cursor: "pointer" } : undefined}
+                onClick={r.act ? (e) => { e.stopPropagation(); r.act?.(); } : undefined}>
+                <rect x={x0 + 3 * s} y={ry + 1.5 * s} width={w - 6 * s} height={rowH - 3 * s} rx={4 * s}
+                  fill={r.lit ? "rgba(255,217,119,0.14)" : "rgba(255,255,255,0.04)"} />
+                {r.img
+                  ? <image href={r.img} x={x0 + 6 * s} y={ry + 2.5 * s} width={12 * s} height={12 * s} preserveAspectRatio="xMidYMid meet" pointerEvents="none" />
+                  : <text x={x0 + 12 * s} y={ry + 11.5 * s} textAnchor="middle" fontSize={9 * s} fill="#ffd977" pointerEvents="none">{r.emoji ?? "✦"}</text>}
+                <text x={x0 + 21 * s} y={ry + 8 * s} fontSize={7.4 * s} fill="#f3e5c0" pointerEvents="none">{r.title}</text>
+                <text x={x0 + 21 * s} y={ry + 14.5 * s} fontSize={5.6 * s} fill="#cbb26a" pointerEvents="none">{r.sub}</text>
+                {r.pin && (
+                  <g transform={`translate(${x0 + w - 11 * s} ${ry + rowH / 2})`} style={{ cursor: "pointer" }}
+                    onClick={(e) => { e.stopPropagation(); toggleHotbar(r.pin!); }}>
+                    <circle r={10 * s} fill="transparent" />
+                    <circle r={5.5 * s} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
+                    <text y={2.6 * s} textAnchor="middle" fontSize={7.5 * s} fill={hotbarKeys.includes(r.pin) ? "#ffd977" : "#cbb26a"} pointerEvents="none">{hotbarKeys.includes(r.pin) ? "✓" : "＋"}</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+          {footLines.map((line, i) => (
+            <text key={i} x={x0 + w / 2} y={y0 + headH + rows.length * rowH + (8 + i * 7.5) * s} textAnchor="middle" fontSize={5.4 * s} fill="#9d8b5f">{line}</text>
+          ))}
         </g>
       );
     })();
@@ -3995,6 +4228,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {mistLayer}
         {targetMarker}
         {tenderLayer}
+        {tenderRadialLayer}
       </>
     );
   };
@@ -5015,17 +5249,31 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           onMouseDown={(e) => {
             if (e.button === 2) { // Right click
               dragRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+              rightPressRef.current = { x: e.clientX, y: e.clientY, moved: false };
             }
           }}
           onMouseMove={(e) => {
             if (dragRef.current) {
               const dx = e.clientX - dragRef.current.x;
               const dy = e.clientY - dragRef.current.y;
+              if (rightPressRef.current && Math.hypot(dx, dy) > 6) rightPressRef.current.moved = true;
               setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
             }
           }}
           onMouseUp={(e) => {
-            if (e.button === 2) dragRef.current = null;
+            if (e.button === 2) {
+              dragRef.current = null;
+              // A right CLICK — pressed and released unmoved —
+              // calls the wheel (Nigel, 2026-10-19), even
+              // mid-glide; a right DRAG still pans, as ever.
+              // Armed flows keep their right hand.
+              const rp = rightPressRef.current;
+              rightPressRef.current = null;
+              if (rp && !rp.moved && tenderStandRef.current && !tenderInputBlockedRef.current) {
+                const p = svgPoint(e.clientX, e.clientY);
+                if (p) { setTenderRadial(p); setRadialBranch(null); }
+              }
+            }
           }}
           onMouseLeave={() => { dragRef.current = null; }}>
           <defs>
@@ -5062,6 +5310,83 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </g>
           ))}
         </svg>
+        {/* THE TENDER CONTROLLER (Nigel, 2026-10-19): popped by
+            tapping the Tender himself on a touch hand — the
+            glide pad on the left driving the stride engine's
+            own held-keys, the wheel's button beside it. A
+            separate overlay, so the compass zoom and the map
+            stay live under the other hand while he walks. */}
+        {tenderCtl && tenderStand && (
+          <div className="tender-controller" role="group" aria-label="Tender controller">
+            <div className="tender-pad"
+              onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ } onPadVec(e); }}
+              onPointerMove={(e) => { if (e.buttons & 1) onPadVec(e); }}
+              onPointerUp={padClear}
+              onPointerCancel={padClear}>
+              <div className="tender-pad-knob" style={{ transform: `translate(${padKnob.x}px, ${padKnob.y}px)` }} />
+            </div>
+            <div className="tender-ctl-side">
+              <button type="button" className="tender-ctl-btn" aria-label="Open the Tender's wheel"
+                onClick={() => { if (tenderFig) { setTenderRadial({ x: tenderFig.x, y: tenderFig.y }); setRadialBranch(null); } }}>✦</button>
+              <button type="button" className="tender-ctl-btn small" aria-label="Put the controller away"
+                onClick={() => { padClear(); setTenderCtl(false); }}>✕</button>
+            </div>
+          </div>
+        )}
+        {/* THE HOTBAR: the wheel's live entries, locked. A tap
+            runs the entry's own act (the wield, the toggle,
+            the locator); a right-click looses the slot. */}
+        {tenderStand && hotbarKeys.length > 0 && (
+          <div className={`tender-hotbar${touchForm ? " touch" : ""}`} role="toolbar" aria-label="Your hotbar">
+            {hotbarKeys.map(key => {
+              if (key.startsWith("wp-") && WEAPONS[key.slice(3) as WeaponKey]) {
+                const wk = key.slice(3) as WeaponKey;
+                const wielded = tenderStand.weaponKey === wk;
+                return (
+                  <button type="button" key={key} className={`tender-slot${wielded ? " lit" : ""}`}
+                    title={`${WEAPONS[wk].name} — tap to wield (right-click to loose the slot)`}
+                    onClick={() => { void wieldOnHomeland(wk); }}
+                    onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                    <img src={weaponImg(wk)} alt="" />
+                    <span className="tender-slot-label">{WEAPONS[wk].name.split(" ")[0]}</span>
+                  </button>
+                );
+              }
+              if (key === "findme") {
+                return (
+                  <button type="button" key={key} className="tender-slot"
+                    title="Find me — the camera swings to your Tender (right-click to loose the slot)"
+                    onClick={findMyTender}
+                    onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                    <span className="tender-slot-emoji">🧭</span>
+                    <span className="tender-slot-label">Find me</span>
+                  </button>
+                );
+              }
+              if (key.startsWith("follow-")) {
+                const pid = Number(key.slice(7));
+                const p = placements.find(x => x.id === pid) ?? null;
+                const a = p ? tenderItems.find(x => x.id === p.awakenedId) : null;
+                return (
+                  <button type="button" key={key} className={`tender-slot${!p ? " dim" : ""}${p?.follow ? " lit" : ""}`}
+                    title={p ? `${a?.name ?? "Awokin"} — ${p.follow ? "following you; tap to loose them" : "tap to call them to follow"} (right-click to loose the slot)` : "That Awokin no longer stands — tap to loose the slot"}
+                    onClick={() => { if (p) void toggleFollow(p.id, !p.follow); else toggleHotbar(key); }}
+                    onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                    <span className="tender-slot-emoji">👣</span>
+                    <span className="tender-slot-label">{a?.name.split(" ")[0] ?? "gone"}</span>
+                  </button>
+                );
+              }
+              return (
+                <button type="button" key={key} className="tender-slot dim" title="A locked thing this land no longer knows — tap to loose the slot"
+                  onClick={() => toggleHotbar(key)}>
+                  <span className="tender-slot-emoji">✦</span>
+                  <span className="tender-slot-label">loose</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
       {hexNotice && (
         <div className="hex-notice" role="alert" aria-live="polite">
@@ -5301,10 +5626,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
         {tenderStand && (
           <button className="compass-btn find-tender" aria-label="Find my Tender"
-            onClick={() => {
-              const c = tenderTileCenter(tenderAnchorRef.current ?? tenderStand.tileId);
-              if (c) { setPan(p => ({ x: p.x + (250 - c.cx), y: p.y + (170 - c.cy) })); setFindPulseAt(Date.now()); }
-            }}>🧭</button>
+            onClick={findMyTender}>🧭</button>
         )}
         <button className="compass-btn" onClick={() => {
           if (!tracksRef.current.length) {

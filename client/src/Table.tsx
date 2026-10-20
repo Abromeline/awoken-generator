@@ -26,6 +26,7 @@ import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
 import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
+import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey } from "./hotbar";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
 import glyphBeacon from "./assets/glyphs/beacon.png";
@@ -525,6 +526,22 @@ export default function Table() {
   // wield between, and Manifest — opened from the main ring's
   // ABILITY entry, in the same geometry and language.
   const [radialAbility, setRadialAbility] = useState(false);
+  // THE TENDER CONTROLLER + HOTBAR (Nigel, 2026-10-19): on a
+  // touch hand, tapping your own figure pops a dedicated
+  // controller — a hold-to-glide pad on the left and the
+  // wheel's button — while the hotbar carries what the wheel
+  // (and the hand) locked onto it. Desktop keeps its scheme;
+  // the bar simply waits empty until something is locked.
+  const [controllerOpen, setControllerOpen] = useState(false);
+  const TABLE_HOTBAR_KEY = "awokin-hotbar-table";
+  const [hotbarKeys, setHotbarKeys] = useState<string[]>(() => loadHotbar(TABLE_HOTBAR_KEY));
+  const toggleHotbar = (key: string) => {
+    setHotbarKeys(ks => { const next = toggleHotbarKey(ks, key); saveHotbar(TABLE_HOTBAR_KEY, next); return next; });
+  };
+  const padVecRef = useRef<{ x: number; y: number } | null>(null);
+  const padTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const padSendRef = useRef<(() => void) | null>(null);
+  const [padKnob, setPadKnob] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   // CASTING GESTURES (Nigel, 2026-10-19): who is mid-cast on
   // this screen, and toward what. Own casts begin the moment
   // the order is given; other seats' casts arrive on the
@@ -562,8 +579,11 @@ export default function Table() {
   // arrows riding the same steps. Held keys sum into one
   // direction; the tender glides continuously toward a point
   // 420px that way, refreshed every 120ms while keys are held.
-  // Free, as his own walking is; ignored while placing, while
-  // the wheel is open, or while he has fallen.
+  // Free, as his own walking is; ignored while placing, or
+  // while he has fallen. The wheel no longer stills him
+  // (Nigel, 2026-10-19): right-click mid-glide opens the
+  // radial, and the glide rides on under it — the menu comes
+  // to the Tender, not the Tender to the menu.
   const GLIDE_STEPS: Record<string, [number, number]> = {
     KeyW: [0, -1], KeyS: [0, 1], KeyQ: [-1, 0], KeyE: [1, -1], KeyA: [-1, 1], KeyD: [1, 0],
     ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, -1],
@@ -582,7 +602,7 @@ export default function Table() {
   sendGlideRef.current = () => {
     const pos = myPosRef.current;
     if (!pos || heldKeysRef.current.size === 0) return;
-    if (!you || !shared || placing || radial) return;
+    if (!you || !shared || placing) return;
     const me = shared.players.find(p => p.key === you.key);
     if (!me || me.fallen) return;
     let dq = 0, dr = 0;
@@ -606,7 +626,7 @@ export default function Table() {
       if (glideTimerRef.current) { clearInterval(glideTimerRef.current); glideTimerRef.current = null; }
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Escape") { setRadial(null); setRadialAbility(false); return; }
+      if (e.code === "Escape") { setRadial(null); setRadialAbility(false); setControllerOpen(false); return; }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       const step = GLIDE_STEPS[e.code];
@@ -614,7 +634,7 @@ export default function Table() {
       e.preventDefault();
       if (e.repeat || heldKeysRef.current.has(e.code)) return;
       heldKeysRef.current.add(e.code);
-      if (glideGuardRef.current.placing || glideGuardRef.current.radial || glideGuardRef.current.fallen) return;
+      if (glideGuardRef.current.placing || glideGuardRef.current.fallen) return;
       sendGlideRef.current?.();
       if (!glideTimerRef.current) {
         glideTimerRef.current = setInterval(() => { sendGlideRef.current?.(); }, 120);
@@ -1150,13 +1170,21 @@ export default function Table() {
   };
   const onStageDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false, t: Date.now() };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ }
+    // No pointer capture yet (2026-10-19): capturing at the
+    // press retargets the release — and with it the click —
+    // to the stage itself, so the wheel's nodes, the figures
+    // and the tiles never hear their own clicks in browsers
+    // that honor the capture for mouse events. Capture is
+    // taken in the move, once a drag is truly a drag.
   };
   const onStageMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    if (!d.moved) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ }
+    }
     d.moved = true;
     suppressTapRef.current = true;
     const rect = svgRef.current?.getBoundingClientRect();
@@ -1164,6 +1192,10 @@ export default function Table() {
     setView(v => ({ ...v, pan: { x: d.panX + dx * f, y: d.panY + dy * f } }));
   };
   const onStageUp = (e?: ReactPointerEvent<SVGSVGElement>) => {
+    // Release the drag's pointer capture (taken in the move
+    // handler once a drag proved itself) so no held capture
+    // can carry into the next press.
+    if (e) { try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ } }
     const d = dragRef.current;
     dragRef.current = null;
     if (d?.moved) setTimeout(() => { suppressTapRef.current = false; }, 80);
@@ -1466,13 +1498,126 @@ export default function Table() {
           <text className="ts-name tender" x={gx} y={gy + 21}>{p.name}</text>
           {mine && (
             <circle cx={gx} cy={gy - 26} r={24} fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
-              onClick={(e) => { e.stopPropagation(); if (suppressTapRef.current) return; setSelTender(true); setSelUnitId(null); setSelectedCardId(null); }} />
+              onClick={(e) => { e.stopPropagation(); if (suppressTapRef.current) return; setSelTender(true); setSelUnitId(null); setSelectedCardId(null); if (coarsePointer()) setControllerOpen(true); }} />
           )}
         </g>
       ),
     });
   }
   figures.sort((a, b) => a.gy - b.gy);
+
+  // THE WHEEL'S OFFERINGS, built once for two mouths: the
+  // radial itself, and the hotbar — a locked slot runs the
+  // very act its wheel entry runs (Nigel, 2026-10-19).
+  const buildOfferings = (): { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] => {
+    const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
+    for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
+      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+    }
+    if (healDef) {
+      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
+    }
+    // THE SPRINGLEAF: a binding-school def the server routes
+    // through castWard — it places by the ward flow.
+    for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
+      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+    }
+    for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
+      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+    }
+    // ABILITY: the ring's last entry opens the weapon
+    // sub-ring instead of casting.
+    offerings.push({ key: "ability", glyph: null, emoji: "⚔", cost: -1, locked: false, keepOpen: true, act: () => setRadialAbility(true) });
+    return offerings;
+  };
+  const buildAbilityNodes = (): { key: string; img: string | null; emoji: string; label: string; lit: boolean; locked: boolean; act: () => void }[] => {
+    const meP = you && shared ? shared.players.find(p => p.key === you.key) : null;
+    const myEnergy = meP?.energy ?? you?.energy ?? 0;
+    const myWeapon = (meP?.weaponKey ?? you?.weaponKey ?? null) as WeaponKey | null;
+    const nodes: { key: string; img: string | null; emoji: string; label: string; lit: boolean; locked: boolean; act: () => void }[] = [];
+    for (const wk of WEAPON_ORDER) {
+      nodes.push({ key: `wp-${wk}`, img: weaponImg(wk), emoji: "⚔", label: WEAPONS[wk].name.split(" ")[0], lit: myWeapon === wk, locked: false, act: () => send({ type: "wield", weaponKey: wk }) });
+    }
+    nodes.push({ key: "manifest", img: myWeapon ? weaponImg(myWeapon) : null, emoji: "❖", label: "⚡4", lit: false, locked: myEnergy < 4, act: () => send({ type: "manifest" }) });
+    return nodes;
+  };
+
+  // The wheel, opened over your own figure (the controller's
+  // button, the hotbar's Ability slot).
+  const openRadialAtMe = (ability: boolean) => {
+    if (!you || !shared) return;
+    const me = shared.players.find(p => p.key === you.key);
+    if (!me) return;
+    const pt = me.pos ? { x: me.pos.x, y: me.pos.y - 10 }
+      : me.hex ? (() => { const c = centerOf(me.hex); return c ? { x: c.cx, y: c.cy - 10 } : null; })() : null;
+    if (pt) { setRadial(pt); setRadialAbility(ability); }
+  };
+
+  // THE CONTROLLER'S PAD: hold a direction and the Tender
+  // glides that way — the WASD law under a thumb. Intents
+  // refresh on the glide's own 120 ms clock; the stage takes
+  // screen directions as its own (its scale is uniform, its
+  // axes unrotated), and letting go sends the stop.
+  padSendRef.current = () => {
+    const v = padVecRef.current;
+    const pos = myPosRef.current;
+    if (!v || !pos || !you || !shared) return;
+    const me = shared.players.find(p => p.key === you.key);
+    if (!me || me.fallen || placing) return;
+    send({ type: "glide", tx: pos.x + v.x * 420, ty: pos.y + v.y * 420 });
+    setSelTender(true);
+  };
+  const padStart = () => {
+    padSendRef.current?.();
+    if (!padTimerRef.current) padTimerRef.current = setInterval(() => { padSendRef.current?.(); }, 120);
+  };
+  const padStop = () => {
+    padVecRef.current = null;
+    setPadKnob({ x: 0, y: 0 });
+    if (padTimerRef.current) { clearInterval(padTimerRef.current); padTimerRef.current = null; }
+    send({ type: "glideStop" });
+  };
+  const onPadVec = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dx = e.clientX - (rect.left + rect.width / 2), dy = e.clientY - (rect.top + rect.height / 2);
+    const len = Math.hypot(dx, dy);
+    if (len < 10) { padVecRef.current = null; setPadKnob({ x: 0, y: 0 }); return; }
+    padVecRef.current = { x: dx / len, y: dy / len };
+    setPadKnob({ x: (dx / len) * 24, y: (dy / len) * 24 });
+    padStart();
+  };
+
+  // A hotbar slot pressed: the locked thing does what it does
+  // from the wheel (or the hand) — no second language.
+  const actHotbar = (key: string) => {
+    if (key === "ability") { openRadialAtMe(true); return; }
+    if (key.startsWith("card-")) {
+      const id = key.slice(5);
+      if (you?.hand.some(c => c.id === id)) { setSelUnitId(null); setSelectedCardId(id); }
+      else toggleHotbar(key); // the card has left the hand — the slot looses itself
+      return;
+    }
+    const off = buildOfferings().find(o => o.key === key);
+    if (off) { if (!off.locked) off.act(); return; }
+    const node = buildAbilityNodes().find(n => n.key === key);
+    if (node && !node.locked) node.act();
+  };
+  const hotbarMeta = (key: string): { img: string | null; emoji: string; label: string; dim: boolean; lit: boolean; title: string } => {
+    if (key === "ability") return { img: null, emoji: "⚔", label: "ABILITY", dim: false, lit: false, title: "Ability — the wheel's weapon ring, opened over your Tender" };
+    if (key.startsWith("card-")) {
+      const card = you?.hand.find(c => c.id === key.slice(5)) ?? null;
+      return { img: card?.art ?? null, emoji: "✦", label: card ? card.name.split(" ")[0] : "gone", dim: !card, lit: !!card && selectedCardId === card.id, title: card ? `${card.name} — tap to ready the summoning, then tap the ground at your side` : "This Awokin has left your hand — tap to loose the slot" };
+    }
+    const off = buildOfferings().find(o => o.key === key);
+    if (off) {
+      const d = Object.values(defs).find(dd => `w-${dd.key}` === key || `b-${dd.key}` === key || `r-${dd.key}` === key);
+      const root = key === "heal" ? "heal" : d?.key;
+      return { img: off.glyph, emoji: off.emoji, label: `⚡${off.cost}`, dim: off.locked, lit: !!root && placing?.root === root, title: `${d?.root ?? "Heal"} — tap to ready it, then tap its ground (right-click the slot to loose it)` };
+    }
+    const node = buildAbilityNodes().find(n => n.key === key);
+    if (node) return { img: node.img, emoji: node.emoji, label: node.label, dim: node.locked, lit: node.lit, title: node.key === "manifest" ? "Manifest — tap to call the copies (⚡4)" : `${node.label} — tap to wield it (right-click the slot to loose it)` };
+    return { img: null, emoji: "✦", label: "?", dim: true, lit: false, title: "A locked thing the Table no longer knows — right-click to loose it" };
+  };
   return (
     <div className="table-room">
       <header className="skybar">
@@ -1722,39 +1867,13 @@ export default function Table() {
                   chooses; the placing laws choose the target
                   after. Locked workings hang dimmed. */}
               {radial && you && (() => {
-                const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
-                for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
-                  offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
-                }
-                if (healDef) {
-                  offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
-                }
-                // THE SPRINGLEAF (Phase C): a binding-school
-                // def the server routes through castWard — it
-                // places by the ward flow (held anchor, then
-                // the target hex the grove roots on).
-                for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
-                  offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
-                }
-                for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
-                  offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
-                }
-                // ABILITY (Phase C): the ring's last entry opens
-                // the weapon sub-ring instead of casting.
-                offerings.push({ key: "ability", glyph: null, emoji: "⚔", cost: -1, locked: false, keepOpen: true, act: () => setRadialAbility(true) });
+                const offerings = buildOfferings();
                 const R = 58;
-                const meP = shared.players.find(p => p.key === you.key);
-                const myEnergy = meP?.energy ?? you.energy ?? 0;
-                const myWeapon = (meP?.weaponKey ?? you.weaponKey ?? null) as WeaponKey | null;
                 if (radialAbility) {
                   // THE ABILITY SUB-RING: the four weapons (the
                   // wielded one lit) and MANIFEST at its ⚡4 —
                   // greyed, and silent, when the purse is short.
-                  const nodes: { key: string; img: string | null; emoji: string; label: string; lit: boolean; locked: boolean; act: () => void }[] = [];
-                  for (const wk of WEAPON_ORDER) {
-                    nodes.push({ key: `wp-${wk}`, img: weaponImg(wk), emoji: "⚔", label: WEAPONS[wk].name.split(" ")[0], lit: myWeapon === wk, locked: false, act: () => send({ type: "wield", weaponKey: wk }) });
-                  }
-                  nodes.push({ key: "manifest", img: myWeapon ? weaponImg(myWeapon) : null, emoji: "❖", label: "⚡4", lit: false, locked: myEnergy < 4, act: () => send({ type: "manifest" }) });
+                  const nodes = buildAbilityNodes();
                   return (
                     <g key="ability-wheel">
                       <rect x={radial.x - 900} y={radial.y - 900} width={1800} height={1800} fill="transparent" pointerEvents="all"
@@ -1775,6 +1894,13 @@ export default function Table() {
                               ? <image href={o.img} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: o.lit ? "drop-shadow(0 0 6px #ffd977)" : undefined, pointerEvents: "none" }} />
                               : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
                             <text x={gx} y={gy + 15} textAnchor="middle" fontSize={7.5} fill="#ffd977" pointerEvents="none">{o.label}</text>
+                            {/* The hotbar pin: lock this to the belt without wielding it. */}
+                            <g transform={`translate(${gx + 13} ${gy - 13})`} style={{ cursor: "pointer" }}
+                              onClick={(e) => { e.stopPropagation(); toggleHotbar(o.key); }}>
+                              <circle r={11} fill="transparent" />
+                              <circle r={6.5} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
+                              <text y={2.8} textAnchor="middle" fontSize={8} fill={hotbarKeys.includes(o.key) ? "#ffd977" : "#cbb26a"} pointerEvents="none">{hotbarKeys.includes(o.key) ? "✓" : "＋"}</text>
+                            </g>
                           </g>
                         );
                       })}
@@ -1800,6 +1926,15 @@ export default function Table() {
                             ? <image href={o.glyph} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 5px ${HUE_GLOWS[pourHue]})`, pointerEvents: "none" }} />
                             : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
                           <text x={gx} y={gy + 15} textAnchor="middle" fontSize={o.key === "ability" ? 6 : 7.5} fill="#ffd977" pointerEvents="none">{o.key === "ability" ? "ABILITY" : `⚡${o.cost}`}</text>
+                          {/* The hotbar pin: lock this working to the belt without casting it. */}
+                          {!o.locked && (
+                            <g transform={`translate(${gx + 13} ${gy - 13})`} style={{ cursor: "pointer" }}
+                              onClick={(e) => { e.stopPropagation(); toggleHotbar(o.key); }}>
+                              <circle r={11} fill="transparent" />
+                              <circle r={6.5} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
+                              <text y={2.8} textAnchor="middle" fontSize={8} fill={hotbarKeys.includes(o.key) ? "#ffd977" : "#cbb26a"} pointerEvents="none">{hotbarKeys.includes(o.key) ? "✓" : "＋"}</text>
+                            </g>
+                          )}
                         </g>
                       );
                     })}
@@ -1838,6 +1973,44 @@ export default function Table() {
               <button type="button" onClick={() => setView({ zoom: 1, pan: { x: 0, y: 0 } })} aria-label="Reset the map view">⌂</button>
             </div>
             </div>
+            {/* THE TENDER CONTROLLER (Nigel, 2026-10-19): popped
+                by tapping your own figure on a touch hand — the
+                glide pad on the left, the wheel's button beside
+                it. A separate overlay, so the zoom buttons and
+                the map stay live under the other hand. */}
+            {controllerOpen && you && (
+              <div className="table-controller" role="group" aria-label="Tender controller">
+                <div className="table-pad"
+                  onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ } onPadVec(e); }}
+                  onPointerMove={(e) => { if (e.buttons & 1) onPadVec(e); }}
+                  onPointerUp={padStop}
+                  onPointerCancel={padStop}>
+                  <div className="table-pad-knob" style={{ transform: `translate(${padKnob.x}px, ${padKnob.y}px)` }} />
+                </div>
+                <div className="table-ctl-side">
+                  <button type="button" className="table-ctl-btn" onClick={() => openRadialAtMe(false)} aria-label="Open the glyph wheel">✦</button>
+                  <button type="button" className="table-ctl-btn small" onClick={() => { padStop(); setControllerOpen(false); }} aria-label="Put the controller away">✕</button>
+                </div>
+              </div>
+            )}
+            {/* THE HOTBAR: what the wheel and the hand locked
+                onto the belt. A tap runs the locked thing's own
+                act; a right-click looses the slot. */}
+            {you && hotbarKeys.length > 0 && (
+              <div className={`table-hotbar${coarsePointer() ? " touch" : ""}`} role="toolbar" aria-label="Your hotbar">
+                {hotbarKeys.map(key => {
+                  const m = hotbarMeta(key);
+                  return (
+                    <button type="button" key={key} className={`table-slot${m.dim ? " dim" : ""}${m.lit ? " lit" : ""}`} title={m.title}
+                      onClick={() => actHotbar(key)}
+                      onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                      {m.img ? <img src={m.img} alt="" /> : <span className="table-slot-emoji">{m.emoji}</span>}
+                      <span className="table-slot-label">{m.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {shared.campaign?.stage && !shared.battle.active && !stageHidden && (
             <div className="stage-overlay" role="region" aria-label="The Storytender's Stage">
               {shared.campaign.stage.imageUrl && <img className="stage-img" src={shared.campaign.stage.imageUrl} alt="" />}
@@ -1945,7 +2118,7 @@ export default function Table() {
             {selTender && you && !placing && (
               <div className="placing-bar unit-bar">
                 <span className="placing-text">
-                  🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel; tap a tile and you glide there. Where you arrive, your followers muster to you; the rest hold their ground.
+                  🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel — it opens mid-glide and the glide rides on; tap a tile and you glide there. Where you arrive, your followers muster to you; the rest hold their ground. On a touch hand, tap your own figure for the controller pad; the wheel's ＋ pins lock workings, weapons and Awokin onto your hotbar.
                 </span>
                 <button className="table-btn" onClick={() => setSelTender(false)}>Done</button>
               </div>
@@ -2167,6 +2340,11 @@ export default function Table() {
                         title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ⚡${cost}. Tap, then tap purified ground at your side.` : `${card.name} costs ⚡${cost} — you hold ⚡${you.energy ?? 0}.`}
                         onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } if (!selected) setSelUnitId(null); setSelectedCardId(selected ? null : card.id); }}
                       >
+                        <button type="button" className={`tcard-pin${hotbarKeys.includes(`card-${card.id}`) ? " on" : ""}`}
+                          title={hotbarKeys.includes(`card-${card.id}`) ? "Locked to your hotbar — tap to loose it" : "Lock this Awokin to your hotbar"}
+                          onClick={(e) => { e.stopPropagation(); toggleHotbar(`card-${card.id}`); }}>
+                          {hotbarKeys.includes(`card-${card.id}`) ? "✓" : "＋"}
+                        </button>
                         <div className="tcard-banner">
                           <span className="tcard-name">{card.name}</span>
                           <span className="tcard-mark">{card.level ? `Lv ${card.level}` : ""}</span>
