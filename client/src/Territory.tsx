@@ -534,11 +534,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // pops his controller (a glide pad driving this engine's
   // own held-keys, the wheel's button beside it); on PC a
   // right-click anywhere on the map — mid-glide — opens the
-  // same radial the Table wears. The wheel's live branches
-  // here are Weapon (the real wield) and Ability (Follow,
-  // the locator); the spell branches are the Grimoire's
-  // trees, read-only — the homeland keeps no casting yet,
-  // and this face will not pretend otherwise.
+  // same radial the Table wears. The wheel's branches are all
+  // live: Weapon (the real wield), Ability (Follow, the
+  // locator), and — since Homeland Casting (Nigel, 2026-10-20)
+  // — the spell branches: the homeland keeps the Table's own
+  // casting law now, and a row readies its working in the
+  // hand's cast mode for the tap-to-cast on the land.
   const touchForm = coarsePointer();
   const [tenderCtl, setTenderCtl] = useState(false);
   const [tenderRadial, setTenderRadial] = useState<{ x: number; y: number } | null>(null);
@@ -1929,20 +1930,43 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, pour: castSpell.engine === "heal" ? undefined : castPour, ...args });
       const formName = castSpell.forms[castHue] ?? castSpell.name;
+      // The fizzle (Homeland Casting): the purse was charged
+      // and the roll fell short — the client only speaks what
+      // the server's roll said, never invents the outcome.
+      if (res.fizzled) {
+        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}⚡ is spent.`);
+        setCastAnchor(null);
+        await refreshWorkings();
+        void refreshEnergy();
+        return;
+      }
       showHexNotice(castSpell.engine === "heal"
         ? `${formName} mends ${res.healed ?? 0} HP — the binding light, at your word.`
-        : castSpell.kind === "ward"
-          ? `${formName} rises on the edge — the Written Light stands on your land.`
-          : `${formName} is written into the ground — it waits for the dark to stand on it.`);
+        : castSpell.engine === "springleaf"
+          ? `${formName} takes root — a grove of ${res.radiusHexes ?? 1} hexes' glow; its burst mends ${res.burst ?? 0} HP, and ${res.saplings ?? 0} saplings follow.`
+          : castSpell.kind === "ward"
+            ? `${formName} rises on the edge — the Written Light stands on your land, and the border is guarded.`
+            : res.purified
+              ? `${formName} springs — and the curse on that ground BREAKS. The hex is yours.`
+              : res.felled
+                ? `${formName} springs — the dark standing on it falls.`
+                : res.sprung
+                  ? `${formName} springs as it is written — the dark and the curse take its harm.`
+                  : `${formName} is written into the ground — it waits for the dark to stand on it.`);
       setCastAnchor(null);
       if (castPour > 0) { setCastPour(0); refreshAspects(); }
       await refreshWorkings();
+      void refreshEnergy();
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "The casting would not take.");
     }
   };
   const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
     if (!castSpell) { showHexNotice("Choose a working from the book first."); return; }
+    // The Springleaf is a binding by the book's filing, but
+    // she is planted on GROUND, not cast on a body — the tap
+    // names her hex (Homeland Casting).
+    if (castSpell.engine === "springleaf") { void doCastMap({ tileId: tile.id }); return; }
     if (castSpell.engine === "heal" || castSpell.kind === "binding") {
       const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
         const a = tenderItems.find((x) => x.id === p.awakenedId);
@@ -1954,7 +1978,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     if (castSpell.kind === "ward") {
       if (castAnchor === null) {
-        if (!placements.some((p) => p.tileId === tile.id)) { showHexNotice("A ward stands on the edge of a hex your own Awokin holds — tap such a hex first."); return; }
+        // The anchor: a hex his Awokin holds — or the ground
+        // the Tender himself stands on (Homeland Casting).
+        if (!placements.some((p) => p.tileId === tile.id) && tile.id !== tenderStandRef.current?.tileId) { showHexNotice("A ward stands on the edge of a hex your own Awokin holds — or on the ground you stand on. Tap such a hex first."); return; }
         setCastAnchor(tile.id);
         showHexNotice("Now tap one of the glowing edges of that hex.");
         return;
@@ -3975,6 +4001,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const t = w.tileId != null ? tiles.find((tt) => tt.id === w.tileId) : null;
           if (!t) return null;
           const { cx, cy } = tilePos(t);
+          if (w.engine === "springleaf") {
+            // THE GROVE (Homeland Casting): the mother drawn
+            // as her living glow — the radius the server
+            // reckons her mending over — with each rooted
+            // sapling a smaller light of its own. Nothing is
+            // drawn the server did not plant.
+            const gNums = (w.nums ?? {}) as any;
+            const radiusPx = size * (0.95 + Math.max(1, gNums.radiusHexes ?? 1) * 1.45);
+            const saps: { tileId: number; rooted?: boolean }[] = Array.isArray(gNums.saplings) ? gNums.saplings : [];
+            return (
+              <g key={w.id} opacity={0.92}>
+                <title>{`${title} — a living grove; the company standing in her glow mends.`}</title>
+                <circle cx={cx} cy={cy} r={radiusPx} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1} pointerEvents="none" />
+                {saps.filter(s => s.rooted).map((s, i) => {
+                  const st = tiles.find((tt) => tt.id === s.tileId);
+                  if (!st) return null;
+                  const sp2 = tilePos(st);
+                  return <circle key={i} cx={sp2.cx} cy={sp2.cy} r={radiusPx / 2} fill="rgba(125,208,105,0.08)" stroke="rgba(125,208,105,0.25)" strokeWidth={0.7} pointerEvents="none" />;
+                })}
+                {img
+                  ? <image href={img} x={cx - size * 0.34} y={cy - size * 0.34} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />
+                  : <text x={cx} y={cy + size * 0.22} textAnchor="middle" fontSize={size * 0.62} pointerEvents="none">🌿</text>}
+              </g>
+            );
+          }
           return (
             <g key={w.id} opacity={0.92}>
               <title>{title}</title>
@@ -4535,11 +4586,36 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         }
         footLines = ["This tree only reads — their orders", "ride their cards, as ever."];
       } else {
-        heading = radialBranch === "spell" ? "Spells" : radialBranch === "ward" ? "Wards" : radialBranch === "rune" ? "Runes" : "Bindings";
-        for (const d of Object.values(WORKING_DEFS).filter(d => d.kind === radialBranch).slice(0, 6)) {
-          rows.push({ key: `def-${d.key}`, emoji: "✦", title: d.root, sub: `⚡${d.cost}` });
+        // HOMELAND CASTING (Nigel, 2026-10-20): the spell
+        // branches are LIVE — the homeland keeps the Table's
+        // casting law now, and the read-only footnote is
+        // retired. A row readies its working in the hand's
+        // own cast mode; the placing is then tapped out on
+        // the land, the same flow the Table uses.
+        heading = radialBranch === "spell" ? "Spells — tap to ready" : radialBranch === "ward" ? "Wards — tap to ready" : radialBranch === "rune" ? "Runes — tap to ready" : "Bindings — tap to ready";
+        const kindSpells = (grim?.spells ?? []).filter(sp => sp.kind === radialBranch && sp.engine !== "none");
+        for (const sp of kindSpells.slice(0, 6)) {
+          const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
+          rows.push({
+            key: `cast-${sp.key}`, emoji: "✦",
+            title: sp.forms[castHue] ?? sp.name,
+            sub: locked ? "wakes at Tender Lv 3" : `⚡${sp.cost} — tap to ready, then tap the land`,
+            lit: castSpellKey === sp.key,
+            act: () => {
+              setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
+              close();
+              showHexNotice(locked
+                ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
+                : `${sp.name} readied — tap the land to cast it.`);
+            },
+            pin: `cast-${sp.key}`,
+          });
         }
-        footLines = ["Read-only — the homeland keeps no casting yet.", "These workings live at the Table and in the Grimoire."];
+        footLines = kindSpells.length
+          ? ["The roll is the Table's own — a fizzle spends the charge.", "Reach: ring 6 of where you stand."]
+          : radialBranch === "spell"
+            ? ["No spell-school pages stand in the book yet.", "The Witch's school wakes with its first page."]
+            : ["The book holds no such pages yet."];
       }
       const rowH = 17 * s, headH = 15 * s;
       const footH = footLines.length ? (footLines.length * 7.5 + 3) * s : 0;
@@ -5855,6 +5931,29 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">👣</span>
                     <span className="tender-slot-label">{a?.name.split(" ")[0] ?? "gone"}</span>
+                  </button>
+                );
+              }
+              if (key.startsWith("cast-")) {
+                // A pinned working (Homeland Casting): the tap
+                // readies the spell in the hand's cast mode —
+                // the same door the wheel and the book open —
+                // and the placing is tapped out on the land.
+                const spellKey = key.slice(5);
+                const sp = grim?.spells.find(x => x.key === spellKey) ?? null;
+                const readied = !!sp && castSpellKey === sp.key && castMode;
+                return (
+                  <button type="button" key={key} className={`tender-slot${!sp ? " dim" : ""}${readied ? " lit" : ""}`}
+                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
+                    onClick={() => {
+                      if (!sp) { toggleHotbar(key); return; }
+                      if (readied) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
+                      setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
+                      showHexNotice(`${sp.name} readied — tap the land to cast it.`);
+                    }}
+                    onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                    <span className="tender-slot-emoji">✦</span>
+                    <span className="tender-slot-label">{sp ? (sp.forms[castHue] ?? sp.name).split(" ")[0] : "loose"}</span>
                   </button>
                 );
               }

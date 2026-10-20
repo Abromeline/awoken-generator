@@ -727,6 +727,10 @@ sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_homeland_wanderers_owner ON homeland
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN weapon_next_at INTEGER`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN weapon_strike TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN hp REAL`); } catch {}
+// HOMELAND CASTING (Nigel, 2026-10-20): a Lattice written on the
+// land pins the dark that stands on it — the pin is counted in
+// the curse's own beats, decremented as the walk settles.
+try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN pinned_beats INTEGER NOT NULL DEFAULT 0`); } catch {}
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   owner_key TEXT NOT NULL,
   weapon_key TEXT NOT NULL,

@@ -688,7 +688,7 @@ function dominantElement(layers: { element?: string | null }[]): string {
 // as spell harm always has. Skills, spells, and runes that
 // ADD to AC are named for the future — the hooks live in
 // acOf() below, returning 0 until content fills them.
-const FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
+export const FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
 const ELEMENT_HIT_BONUS: Record<string, number> = { stone: 1, root: 2, tide: 3, sky: 4, fire: 5 };
 /** ELEMENT REACH (Phase B): how many hexes (×69px) an element's
  *  light strikes across the continuous field. */

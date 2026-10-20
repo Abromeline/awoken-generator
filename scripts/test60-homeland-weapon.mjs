@@ -122,7 +122,14 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
   ok("first blood: served wounds agree with the strike to the point",
     !!served && !!rec && served.hp === 100 - (rec.hit ? rec.dmg : 0), `served=${served && served.hp} rec=${JSON.stringify(rec)}`);
   ok("first blood: the ledger agrees with the map", !!rec && (wandererRow(wid)?.hp ?? 100) === 100 - (rec.hit ? rec.dmg : 0));
-  if (rec?.hit) ok("first blood: a Lv 3 sword's harm is die-bounded (raw d10 + 2 levels, mitigation only shaves)", rec.dmg >= 3 && rec.dmg <= 12, `dmg=${rec.dmg}`);
+  // The die is fed by the WEAPON's own level (a fresh sword:
+  // Lv 1, so raw d10 alone); the Tender's level feeds the
+  // attack bonus and mitigation's attacker level, never the
+  // die. (Re-derived 2026-10-20 in the homeland-casting pass:
+  // the earlier bound "d10 + 2 levels" misread which level
+  // feeds the die, and a d10 roll of 1 — honest weather, one
+  // run in ten — mitigates to exactly 1 under the true law.)
+  if (rec?.hit) ok("first blood: a fresh sword's harm is die-bounded (raw d10, mitigation only shaves, a landed blow always ≥ 1)", rec.dmg >= 1 && rec.dmg <= 10, `dmg=${rec.dmg}`);
   // The felling: restore the Fray's lawful body and let the
   // cadence finish it — every hit at this measure fells, so
   // the wait is for one honest hit, not for dice weather.

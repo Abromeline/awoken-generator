@@ -25,6 +25,13 @@ import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
+// HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
+// through the Table's OWN casting reckoning — castModFor is
+// imported, never copied, so the two grounds can never drift
+// apart on what a class's cast is worth. (table.ts already
+// imports this module; the binding is only ever called at
+// request time, long after both modules stand.)
+import { castModFor } from "./table.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -2776,6 +2783,320 @@ export function homelandFateMitigate(raw: number, armor: number, attackerLevel: 
   return Math.max(1, Math.round(raw * (1 - cut)));
 }
 
+/* ── HOMELAND CASTING (Nigel, 2026-10-20) ─────────────────────
+ * "casting entirely isn't on the homepage yet and we need it
+ * to be so the tender can defend." The Tender cast only at the
+ * Table; at home his wheel's spell branches stood read-only
+ * because — as far as the Blind Fray's teeth go — no law made
+ * his workings bite here: the map castings of 2026-10-17 stood
+ * as furniture for the Battleground sim, unrolled and unblooded.
+ * Now the homeland keeps the SAME casting law as the Table:
+ * one roll, read from the Table's own castModFor (imported
+ * above, never copied); the purse charged before the roll and
+ * a fizzle spent; and the workings themselves DO their work on
+ * this ground — a cast ward turns the Fray's chew aside, a
+ * written rune springs on the dark that stands on it, strike
+ * workings grind the curse they are sown in, and the
+ * Springleaf's grove mends the company that shelters in it. */
+/** Fate's dice by element, the Table's own table (FATE_DIE in
+ *  table.ts), mirrored for the grove's burst — test61 holds
+ *  the two to the same reading, cell for cell. */
+export const HOMELAND_FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
+/** The homeland casting reach: the Table's whole world is six
+ *  rings, and the homeland reckons what the Tender can see the
+ *  same way Phase D does — ring 6 of his stand (VIEW_RING in
+ *  settleWanderers). A cast named beyond it is refused before
+ *  any charge. */
+export const HOMELAND_CAST_RING = 6;
+/** One cast's roll on the homeland — the Table's rollCast read
+ *  whole: d20 + castModFor(class, level, school) against DC =
+ *  the spell's level + 10; a natural 20 always stands, a
+ *  natural 1 always unravels. The modifier comes from the
+ *  Table's exported reckoning itself, so a proof can read the
+ *  homeland's mouth against the shared table (test61). */
+export function homelandCastRoll(progress: { classKey: string | null; level: number }, spell: { kind: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number } {
+  const mod = castModFor(progress.classKey, progress.level, spell.kind);
+  const dc = (spell.numbers?.level ?? 1) + 10;
+  const roll = homelandDN(20);
+  const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
+  return { ok, roll, mod, dc };
+}
+/** The canonical edge key between two adjacent tiles, in the
+ *  WALL_DIRS tongue the edge ledgers speak (the smaller tile
+ *  first, the direction from that tile) — the same key
+ *  castMapWorking writes a ward under, so the chew can find
+ *  the ward that guards its crossing. */
+export function homelandEdgeKeyBetween(a: { q: number; r: number }, b: { q: number; r: number }): string | null {
+  for (let d = 0; d < 6; d++) {
+    const [dq, dr] = WALL_DIRS[d];
+    if (a.q + dq === b.q && a.r + dr === b.r) {
+      const flip = b.q < a.q || (b.q === a.q && b.r < a.r);
+      return flip ? `${b.q},${b.r},${WALL_OPP[d]}` : `${a.q},${a.r},${d}`;
+    }
+  }
+  return null;
+}
+/** A placement's own element for the grove's dice: the element
+ *  of its strongest part (ties keep the first), read from the
+ *  parts themselves as all element law is read here. */
+export function homelandPlacementElement(layers: { element?: string | null; power?: number }[]): string {
+  let best: string | null = null; let bestPower = -1;
+  for (const l of layers ?? []) {
+    const p = l.power ?? 0;
+    if (l.element && p > bestPower) { best = l.element; bestPower = p; }
+  }
+  return best ?? "neutral";
+}
+
+function hexDistTiles(a: { q: number; r: number }, b: { q: number; r: number }): number {
+  return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+}
+
+/** Mend one standing placement, its hp read fresh at the
+ *  moment of mending (settles overlap; the ledger is the only
+ *  truth). Returns the amount that truly landed. */
+async function mendPlacement(placementId: number, amount: number): Promise<number> {
+  const row = sqlite.prepare("SELECT hp, awakened_id AS awakenedId FROM field_placements WHERE id = ?").get(placementId) as any;
+  if (!row) return 0;
+  const maxHp = await placementMaxHp(row.awakenedId);
+  const cur = row.hp ?? maxHp;
+  const healed = Math.min(maxHp - cur, Math.max(0, Math.floor(amount)));
+  if (healed > 0) sqlite.prepare("UPDATE field_placements SET hp = ? WHERE id = ?").run(cur + healed, placementId);
+  return healed;
+}
+
+/** One burst of the Springleaf's healing on this ground — the
+ *  Table's groveBurstHeal read whole: the mended one's OWN
+ *  element die, rolled once; a sapling's breath is half the
+ *  roll (min 1). */
+async function groveBurstHealPlacement(placementId: number, awakenedId: number, half: boolean): Promise<number> {
+  const payload = await awakenedPayloadById(awakenedId);
+  const element = homelandPlacementElement((payload?.layers ?? []) as any[]);
+  let amount = homelandDN(HOMELAND_FATE_DIE[element] ?? 6);
+  if (half) amount = Math.max(1, Math.floor(amount / 2));
+  return mendPlacement(placementId, amount);
+}
+
+/** Grind a cursed hex's curse HP by a working's harm — the
+ *  strike workings bite the curse they are sown in, as they
+ *  bite everything on their ground (the Single Blade's own
+ *  page: "Harm to everything on its ground"). At 0 the curse
+ *  breaks outright and the tile turns in the working's hue
+ *  (the Awokin's Strike-the-Curse is the precedent; the
+ *  Tender's dice are bigger, and his breaking carries no
+ *  wave-pull — the spell is the hammer, not the summons).
+ *  Mutates the tile row it is handed, so the read that
+ *  settles it serves the ground truth. */
+async function grindHomelandCurse(ownerKey: string, tile: any, harm: number, hue: string): Promise<{ ground: number; purified: boolean }> {
+  if (!tile || !tile.cursed || harm <= 0) return { ground: 0, purified: false };
+  const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+  const maxHp = (tile.curseMaxHp as number | null) ?? curseHpFor(ring, (await getWorldMood()).mood);
+  const curHp = (tile.curseHp as number | null) ?? maxHp;
+  const ground = Math.min(curHp, harm);
+  const next = curHp - ground;
+  if (next > 0) {
+    await db.update(schema.territoryTiles).set({ curseHp: next, curseMaxHp: maxHp }).where(eq(schema.territoryTiles.id, tile.id));
+    tile.curseHp = next; tile.curseMaxHp = maxHp;
+    return { ground, purified: false };
+  }
+  const element = (["tide", "sky", "stone", "root", "fire"] as const).includes(hue as any) ? hue : "neutral";
+  const sparked = Math.random() < 0.05;
+  await db.update(schema.territoryTiles)
+    .set({ cursed: 0, element: element as any, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0, ...PURIFIED_TILE_FIELDS })
+    .where(eq(schema.territoryTiles.id, tile.id));
+  tile.cursed = 0; tile.element = element; tile.curseHp = null; tile.curseMaxHp = null; tile.spark = sparked ? 1 : 0;
+  Object.assign(tile, PURIFIED_TILE_FIELDS);
+  await expandFrontier(ownerKey, tile.q, tile.r);
+  return { ground, purified: true };
+}
+
+/** Spring ONE written working of the land against the dark
+ *  standing on its ground and the curse holding that ground —
+ *  the Table's springHex, in the homeland's tongue. Called at
+ *  the cast (the Table springs a rune the moment it is
+ *  written, if the dark already stands there) and on the
+ *  homeland settle, for the dark that wanders onto written
+ *  ground later. The Crown Shard keeps its own hunger: it
+ *  springs only for dark of power 5+, and no such dark walks
+ *  the homeland — it stands unsprung, as it would at a Table
+ *  where only Fray tread. */
+async function springHomelandWorking(ownerKey: string, workingId: number, tiles: any[]): Promise<{ sprung: boolean; felled: boolean; ground: number; purified: boolean; pinned: boolean; thrown: boolean }> {
+  const none = { sprung: false, felled: false, ground: 0, purified: false, pinned: false, thrown: false };
+  const w = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND id = ?").get(ownerKey, workingId) as any;
+  if (!w || (w.kind !== "rune" && w.kind !== "spell")) return none;
+  const tile = tiles.find((t: any) => t.id === w.tile_id);
+  if (!tile) return none;
+  let nums: Record<string, number> = {};
+  try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
+  const wanderer = sqlite.prepare("SELECT id, hp FROM homeland_wanderers WHERE owner_key = ? AND tile_id = ?").get(ownerKey, w.tile_id) as { id: number; hp: number | null } | undefined;
+  const bright = !!sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey);
+  const harmWanderer = (harm: number): boolean => {
+    if (!wanderer) return false;
+    const cur = wanderer.hp == null ? HOMELAND_FRAY_HP : Number(wanderer.hp);
+    const next = cur - harm;
+    if (next <= 0) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(wanderer.id); return true; }
+    sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, wanderer.id);
+    return false;
+  };
+  const spendCharge = (): void => {
+    const charges = (w.charges ?? 1) - 1;
+    if (charges <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
+    else sqlite.prepare("UPDATE territory_workings SET charges = ? WHERE id = ?").run(charges, w.id);
+  };
+  if (w.engine === "blade" || w.engine === "blades") {
+    if (!wanderer && !tile.cursed) return none;
+    const power = (nums.power ?? (w.engine === "blade" ? 6 : 3)) + (bright ? (nums.brightBonus ?? 1) : 0);
+    spendCharge();
+    const felled = wanderer ? harmWanderer(power) : false;
+    const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, power, w.hue) : { ground: 0, purified: false };
+    return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
+  }
+  if (w.engine === "shardrain") {
+    if (!wanderer && !tile.cursed) return none;
+    // The sky opens ONCE: the pool is rolled whole — the base
+    // dice plus one per attunement level snapshotted at the
+    // cast — and falls on everything under the writing.
+    const dice = Math.max(1, (nums.diceBase ?? 2) + (nums.dicePerLevel ?? 1) * (nums.rainLevel ?? 0));
+    let pool = 0;
+    for (let i = 0; i < dice; i++) pool += homelandDN(6);
+    sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
+    const felled = wanderer ? harmWanderer(pool) : false;
+    const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, pool, w.hue) : { ground: 0, purified: false };
+    return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
+  }
+  if (w.engine === "lattice") {
+    if (!wanderer) return none;
+    // A hold already running is not a new spring — the
+    // lattice does not burn its health re-pinning what it
+    // already holds. When the pin lapses with the dark still
+    // standing on the writing, it springs afresh.
+    const held = sqlite.prepare("SELECT pinned_beats AS pb FROM homeland_wanderers WHERE id = ?").get(wanderer.id) as { pb: number } | undefined;
+    if ((held?.pb ?? 0) > 0) return none;
+    // The dark stands pinned for the book's rounds, counted
+    // in the curse's own beats; pinning costs the lattice
+    // the dark's power from its health rating (Fray power 1).
+    sqlite.prepare("UPDATE homeland_wanderers SET pinned_beats = MAX(pinned_beats, ?) WHERE id = ?").run(Math.max(1, Math.floor(nums.pinRounds ?? 2)), wanderer.id);
+    const hp = (w.hp ?? 0) - 1;
+    if (hp <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
+    else sqlite.prepare("UPDATE territory_workings SET hp = ? WHERE id = ?").run(hp, w.id);
+    return { sprung: true, felled: false, ground: 0, purified: false, pinned: true, thrown: false };
+  }
+  if (w.engine === "coil") {
+    if (!wanderer) return none;
+    // Thrown back to far ground: cursed ground three or more
+    // hexes off, or the farthest dark there is; with no other
+    // cursed ground in the world the Coil cannot spring.
+    const cursedTiles = (tiles as any[]).filter(t => t.cursed && t.id !== tile.id);
+    if (!cursedTiles.length) return none;
+    const far = cursedTiles.filter(t => hexDistTiles(tile, t) >= 3);
+    const poolTiles = far.length ? far : cursedTiles.slice().sort((a, b) => hexDistTiles(tile, b) - hexDistTiles(tile, a)).slice(0, 1);
+    const dest = poolTiles[Math.floor(Math.random() * poolTiles.length)];
+    sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ? WHERE id = ?").run(dest.id, wanderer.id);
+    spendCharge();
+    // The turning pays its energy (capped by the book and by
+    // the Tender's own vessel, as every grant is).
+    const gain = Math.min(nums.energyCap ?? 3, nums.energyPerDark ?? 1);
+    if (gain > 0) {
+      const current = await getEnergyFor(ownerKey);
+      const max = await calculateMaxEnergy(ownerKey);
+      const nextEnergy = Math.min(max, current + gain);
+      if (nextEnergy > current) {
+        await db.update(schema.tenderResources).set({ energy: nextEnergy, updatedAt: new Date() }).where(eq(schema.tenderResources.ownerKey, ownerKey));
+      }
+    }
+    return { sprung: true, felled: false, ground: 0, purified: false, pinned: false, thrown: true };
+  }
+  return none;
+}
+
+/** The settle pass for written ground (Homeland Casting):
+ *  every rune and spell working of the land is read against
+ *  the dark now standing on it and the curse now holding it.
+ *  Runs on the territory read, after the wanderers walk and
+ *  before the weapon answers. */
+async function settleHomelandWorkings(ownerKey: string, tiles: any[]): Promise<void> {
+  const rows = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND kind IN ('rune', 'spell') ORDER BY id").all(ownerKey) as { id: number }[];
+  for (const r of rows) await springHomelandWorking(ownerKey, r.id, tiles);
+}
+
+/** The Springleaf's grove, tended on the homeland settle
+ *  (Homeland Casting): saplings root on their schedule and
+ *  burst their half-heal; every living grove mends the
+ *  company standing in its glow, +healPerBreath per beat of
+ *  the curse's own clock (the Table's per-beat mend, the
+ *  book's measure), one settle never reckoning more than a
+ *  minute of breaths; a grove whose mother and saplings have
+ *  all faded leaves the land. */
+async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<void> {
+  const rows = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine = 'springleaf'").all(ownerKey) as any[];
+  if (!rows.length) return;
+  const now = Date.now();
+  const byId = new Map<number, any>((tiles as any[]).map(t => [t.id, t]));
+  const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+  for (const w of rows) {
+    let nums: any = {};
+    try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
+    const motherTile = byId.get(w.tile_id);
+    if (!motherTile) { sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id); continue; }
+    const radius = Math.max(1, Math.floor(nums.radiusHexes ?? 1));
+    const sapRadius = Math.max(1, Math.floor(radius / 2));
+    const healPerBreath = nums.healPerBreath ?? 1;
+    const saplings: any[] = Array.isArray(nums.saplings) ? nums.saplings : [];
+    let dirty = false;
+    // Sapling rootings due — each takes root with its own
+    // breath, a half-strength burst over its smaller glow.
+    for (const s of saplings) {
+      if (!s.rooted && typeof s.dueAt === "number" && s.dueAt <= now) {
+        s.rooted = true;
+        s.expiresAt = s.dueAt + 20000;
+        dirty = true;
+        const st = byId.get(s.tileId);
+        if (st) {
+          for (const p of placements) {
+            const pt = byId.get(p.tileId);
+            if (pt && hexDistTiles(pt, st) <= sapRadius) await groveBurstHealPlacement(p.id, p.awakenedId, true);
+          }
+        }
+      }
+    }
+    // The per-beat mend, over the living zones (the mother
+    // while she lingers; each rooted sapling while it does).
+    const lastMend = typeof nums.lastMendAt === "number" ? nums.lastMendAt : now;
+    const beats = Math.min(21, Math.floor(Math.max(0, now - lastMend) / 2800));
+    if (beats > 0) {
+      nums.lastMendAt = lastMend + beats * 2800;
+      dirty = true;
+      const zones: { tile: any; radius: number }[] = [];
+      if (now <= (nums.motherExpiresAt ?? 0)) zones.push({ tile: motherTile, radius });
+      for (const s of saplings) {
+        if (s.rooted && now <= (s.expiresAt ?? 0)) {
+          const st = byId.get(s.tileId);
+          if (st) zones.push({ tile: st, radius: sapRadius });
+        }
+      }
+      if (zones.length) {
+        for (const p of placements) {
+          const pt = byId.get(p.tileId);
+          if (!pt) continue;
+          let cover = 0;
+          for (const z of zones) if (hexDistTiles(pt, z.tile) <= z.radius) cover++;
+          if (cover > 0) await mendPlacement(p.id, beats * healPerBreath * cover);
+        }
+      }
+    }
+    const motherLive = now <= (nums.motherExpiresAt ?? 0);
+    const anySapLive = saplings.some(s => s.rooted && now <= (s.expiresAt ?? 0));
+    const anySapPending = saplings.some(s => !s.rooted && typeof s.dueAt === "number" && s.dueAt <= (nums.motherExpiresAt ?? 0));
+    if (!motherLive && !anySapLive && !anySapPending) {
+      sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
+      continue;
+    }
+    if (dirty) {
+      sqlite.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), w.id);
+    }
+  }
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -5258,7 +5579,7 @@ export const handlers = {
     const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
     // The light takes its own: a wanderer standing on ground that
     // has been purified is unmade with the curse that bore it.
-    let rows = sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[];
+    let rows = sqlite.prepare("SELECT id, tile_id AS tileId, hp, pinned_beats AS pinnedBeats FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null; pinnedBeats?: number; pinTouched?: boolean }[];
     rows = rows.filter(w => {
       const t = byId.get(w.tileId);
       if (t && t.cursed) return true;
@@ -5287,7 +5608,7 @@ export const handlers = {
                 if (occupied.has(t.id)) continue;
                 if (Math.random() < SPAWN_CHANCE) {
                   const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp) VALUES (?, ?, 'fray', ?, ?)").run(ownerKey, t.id, now, HOMELAND_FRAY_HP);
-                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, hp: HOMELAND_FRAY_HP });
+                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, hp: HOMELAND_FRAY_HP, pinnedBeats: 0 });
                   occupied.add(t.id);
                 }
               }
@@ -5297,6 +5618,62 @@ export const handlers = {
         }
       }
     }
+    // THE WARDS AT THE BORDER (Homeland Casting, Nigel
+    // 2026-10-20): the Tender's cast wards of the holding kinds
+    // — the Seal, the Trees — stand in the chew's road. Loaded
+    // once per settle; their stops, wounds and breaking are
+    // carried in memory across the walk's steps and written
+    // back at its end, like the victims' hpCarry below. An
+    // Engine standing anywhere on his land burns his workings
+    // a degree brighter, as at the Table.
+    const wardByEdge = new Map<string, any>();
+    let mapBright = false;
+    for (const w of sqlite.prepare("SELECT id, engine, edge_key AS edgeKey, nums, hp, max_hp AS maxHp, stops FROM territory_workings WHERE owner_key = ? AND kind = 'ward'").all(ownerKey) as any[]) {
+      if (w.engine === "engine") mapBright = true;
+      if ((w.engine === "seal" || w.engine === "trees") && w.edgeKey && (w.hp ?? 0) > 0) {
+        try { w.nums = JSON.parse(w.nums ?? "{}"); } catch { w.nums = {}; }
+        wardByEdge.set(w.edgeKey, w);
+      }
+    }
+    const deadWanderers = new Set<number>();
+    /** Turn one bite aside at a warded edge: the ward takes the
+     *  blow that was aimed at what it guards. Returns true when
+     *  a ward stood in the bite's road (the guarded is then
+     *  untouched — the defense Nigel asked casting for). */
+    const turnChewAtWard = (w: { id: number; hp: number | null }, fromTile: any, victimTile: any, bite: number): boolean => {
+      const key = homelandEdgeKeyBetween(fromTile, victimTile);
+      if (!key) return false;
+      const ward = wardByEdge.get(key);
+      if (!ward || ward.spent) return false;
+      if (ward.engine === "seal") {
+        ward.stops = (ward.stops ?? 0) + 1;
+        ward.hp = (ward.hp ?? 0) - bite;
+        ward.touched = true;
+        // The Seal ANSWERS the striker (the book's riposte),
+        // a degree brighter while an Engine burns.
+        const riposte = (ward.nums.riposte ?? 3) + (mapBright ? (ward.nums.brightBonus ?? 1) : 0);
+        const cur = w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp);
+        const next = cur - riposte;
+        w.hp = next;
+        if (next <= 0) {
+          sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(w.id);
+          deadWanderers.add(w.id);
+        } else {
+          sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, w.id);
+        }
+        // The Seal goes out when its stops are spent or its
+        // health is — the Table's two fuses, both honored.
+        if (ward.stops >= (ward.nums.stops ?? 3) || ward.hp <= 0) ward.spent = true;
+        return true;
+      }
+      if (ward.engine === "trees") {
+        ward.hp = (ward.hp ?? 0) - bite;
+        ward.touched = true;
+        if (ward.hp <= 0) ward.spent = true;
+        return true;
+      }
+      return false;
+    };
     // THE WALK — steps of the curse's own beat from the watermark;
     // one settle never walks more than a minute of them.
     const dissipated = new Set<number>();
@@ -5315,9 +5692,23 @@ export const handlers = {
           // settle's steps, or no bite would ever deepen.
           const hpCarry = new Map<number, number>();
           for (let s = 0; s < steps; s++) {
+            // The Trees mend themselves as the curse's beats
+            // pass — their regrow, toward the measure they
+            // were raised with, never past it.
+            for (const ward of wardByEdge.values()) {
+              if (ward.engine === "trees" && !ward.spent) {
+                const grown = Math.min(ward.maxHp ?? ward.hp ?? 0, (ward.hp ?? 0) + (ward.nums.regrow ?? 2));
+                if (grown !== ward.hp) { ward.hp = grown; ward.touched = true; }
+              }
+            }
             for (const w of rows) {
+              if (deadWanderers.has(w.id)) continue;
               const t = byId.get(w.tileId);
               if (!t || !t.cursed) continue;
+              // PINNED (Homeland Casting): a Lattice's hold
+              // stands over this dark — it neither wanders nor
+              // chews while its beats run out.
+              if ((w.pinnedBeats ?? 0) > 0) { w.pinnedBeats = (w.pinnedBeats ?? 0) - 1; w.pinTouched = true; continue; }
               const nbrs = DIRS.map(([dq, dr]) => byKey.get(`${t.q + dq},${t.r + dr}`)).filter(Boolean) as any[];
               const pureNbrs = nbrs.filter(n => !n.cursed);
               if (pureNbrs.length) {
@@ -5329,7 +5720,14 @@ export const handlers = {
                   const cand = placements.find(p => p.tileId === n.id && !dissipated.has(p.id));
                   if (cand) {
                     const cMax = await placementMaxHp(cand.awakenedId);
-                    const res = await damagePlacement({ ...cand, hp: hpCarry.get(cand.id) ?? cand.hp } as any, Math.max(1, Math.round(cMax * CHEW)));
+                    const bite = Math.max(1, Math.round(cMax * CHEW));
+                    // THE WARD AT THE BORDER (Homeland
+                    // Casting): a holding ward on the edge
+                    // between the dark and what it guards
+                    // takes the bite itself — the guarded
+                    // stands untouched while it holds.
+                    if (turnChewAtWard(w, t, n, bite)) { chewed = true; break; }
+                    const res = await damagePlacement({ ...cand, hp: hpCarry.get(cand.id) ?? cand.hp } as any, bite);
                     hpCarry.set(cand.id, res.hp);
                     if (res.dissipated) dissipated.add(cand.id);
                     chewed = true;
@@ -5338,7 +5736,10 @@ export const handlers = {
                 }
                 if (!chewed && standTile && pureNbrs.some(n => n.id === standTile.id)) {
                   const progress = await getTenderProgress(ownerKey);
-                  await this.woundTender(ownerKey, Math.max(1, Math.round(progress.maxTenderHp * CHEW)));
+                  const bite = Math.max(1, Math.round(progress.maxTenderHp * CHEW));
+                  if (!turnChewAtWard(w, t, standTile, bite)) {
+                    await this.woundTender(ownerKey, bite);
+                  }
                 }
               } else {
                 // BLIND: it wanders its own dark, one hex a step,
@@ -5352,10 +5753,22 @@ export const handlers = {
               }
             }
           }
+          // The wards' and pins' new truth is written back
+          // (Homeland Casting): a spent Seal and a broken
+          // Trees leave the land; the standing carry their
+          // wounds and their counted stops; a Lattice's hold
+          // wears by the beats it has held.
+          for (const ward of wardByEdge.values()) {
+            if (ward.spent) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(ward.id);
+            else if (ward.touched) sqlite.prepare("UPDATE territory_workings SET hp = ?, stops = ? WHERE id = ?").run(Math.max(0, Math.floor(ward.hp ?? 0)), ward.stops ?? 0, ward.id);
+          }
+          for (const w of rows) {
+            if (w.pinTouched) sqlite.prepare("UPDATE homeland_wanderers SET pinned_beats = ? WHERE id = ?").run(Math.max(0, w.pinnedBeats ?? 0), w.id);
+          }
         }
       }
     }
-    return { views: rows.map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP })) };
+    return { views: rows.filter(w => !deadWanderers.has(w.id)).map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP })) };
   },
 
   /** THE HOMELAND WEAPON REFEREE (Nigel, 2026-10-20): while
@@ -5502,12 +5915,20 @@ export const handlers = {
       tenderStand.tileId = stoodTileId;
       const wres = await this.settleWanderers(ownerKey, tiles as any[], tenderStand.tileId);
       wandererViews = wres.views;
+      // HOMELAND CASTING (Nigel, 2026-10-20): the written
+      // ground answers the dark now standing on it — blades
+      // spring, lattices pin, coils throw back — before the
+      // weapon looks for its quarry among the survivors.
+      await settleHomelandWorkings(ownerKey, tiles as any[]);
       // THE HOMELAND WEAPON REFEREE settles after the walk
       // (Nigel, 2026-10-20): his weapon answers the dark that
       // stands within its reach of him. The wanderer views are
       // then read FRESH, so what the map serves is the strike's
       // true aftermath — wounds carried, the felled gone.
       weaponStrikeView = await this.settleHomelandWeapon(ownerKey, tiles as any[], tenderStand.tileId);
+      // The Springleaf's groves mend on this same read, after
+      // the fighting has had its say (Homeland Casting).
+      await settleHomelandGroves(ownerKey, tiles as any[]);
       wandererViews = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
         .map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP }));
       const body = await this.tenderBodyView(ownerKey);
@@ -6832,8 +7253,37 @@ export const handlers = {
     if (spell.engine === "none") badRequest(`“${spell.name}” is written in the book but not yet seated — give it an engine in the workshop before it can be cast.`);
     const progress = await getTenderProgress(ownerKey);
 
+    // HOMELAND CASTING (Nigel, 2026-10-20) — the common ground
+    // every homeland cast now stands on. THE SILENCES: while
+    // he lies fallen (Phase D) no cast of any school leaves
+    // him; and a classless Tender has no school at all — the
+    // wards, runes and the grove are refused him below, while
+    // Heal, the Lv 1 art that predates every class, still
+    // answers and rolls at the closed school's word. THE
+    // REACH: a working laid on the land goes no farther than
+    // ring 6 of his stand — the Table's whole world, Phase
+    // D's own in-view ring — and a cast named beyond it is
+    // refused before any charge. THE ROLL: one law with the
+    // Table — the purse is charged BEFORE the roll, a fizzle
+    // spends the charge and lands nothing, and the pour is
+    // spent only by a cast that stands.
+    const castTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const castTileById = new Map(castTiles.map((t) => [t.id, t]));
+    const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { down_until: number | null } | undefined;
+    if (progressRow?.down_until != null && Number(progressRow.down_until) > Date.now()) {
+      badRequest("Your Tender has fallen — no casting until he wakes at the bastion.");
+    }
+    const stand = await this.tenderStand(ownerKey, castTiles as any[]);
+    const standTile = stand ? castTileById.get(stand.tileId) : null;
+    const assertCastReach = (tile: any) => {
+      if (!standTile || !tile) badRequest("You have no stand on this land to cast from.");
+      if (hexDistTiles(standTile as any, tile as any) > HOMELAND_CAST_RING) {
+        badRequest(`“${spell.name}” lies beyond your casting reach — ring ${HOMELAND_CAST_RING} of where you stand.`);
+      }
+    };
+
     // HEAL — the binding art, cast on one of your own standing.
-    if (spell.engine === "heal" || spell.kind === "binding") {
+    if (spell.engine === "heal") {
       if (!awakenedId) badRequest("Heal reaches one of your own standing Awokin — name it.");
       const placements = await db.select().from(schema.fieldPlacements)
         .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.awakenedId, awakenedId)));
@@ -6853,10 +7303,81 @@ export const handlers = {
       const curHp = placement.hp ?? maxHp;
       if (curHp >= maxHp) badRequest(`${payload?.name ?? "That Awokin"} stands whole already.`);
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      // The roll (Homeland Casting): the purse is already
+      // charged — a fizzle spends it and mends nothing.
+      const cast = homelandCastRoll(progress, spell);
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
       const healed = Math.min(progress.healAmount, maxHp - curHp);
       await db.update(schema.fieldPlacements).set({ hp: curHp + healed })
         .where(eq(schema.fieldPlacements.id, placement.id));
-      return { ok: true as const, healed, hp: curHp + healed, maxHp, cost: spell.cost };
+      return { ok: true as const, healed, hp: curHp + healed, maxHp, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+    }
+
+    // The classless silence (Homeland Casting): no choosing,
+    // no school — the land's workings are refused whole. Heal
+    // alone stands outside this refusal (it branches above).
+    if (!progress.classKey) {
+      badRequest("No class, no school — the wards, runes and groves wake only once you have chosen your way. Heal alone predates the choosing.");
+    }
+
+    // SPRINGLEAF — the grove, planted on the land (Homeland
+    // Casting, Nigel 2026-10-20). On the homeland she grows in
+    // the Table's ruled shape: a burst of healing over the
+    // company standing in her glow at the raising, 1d4 saplings
+    // rooting in her shade at the ruled tempo, the mother
+    // lingering 34 s and each sapling 20 s, and a mending
+    // breath over her ground for as long as any of her stands
+    // (settleHomelandGroves tends her). Her SIZE is the
+    // book's tender-cast measure read back into the land's own
+    // tongue: the Table's grove spans (66 + 12 × Tender level)
+    // px at 2.75× an Awokin's casting; a homeland hex is 80 px
+    // of that same measure — so her glow covers that many
+    // hexes of radius (Lv 1 → 2, Lv 10 → 6).
+    if (spell.engine === "springleaf") {
+      if (!progress.wardRuneUnlocked) {
+        badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
+      }
+      if ((parsed.data.pour ?? 0) > 0) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
+      if (tileId == null) badRequest("The Springleaf roots on a hex — name the ground.");
+      const tile = castTileById.get(tileId) as any;
+      if (!tile) badRequest("That hex is not yours to plant.");
+      assertCastReach(tile);
+      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      const cast = homelandCastRoll(progress, spell);
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+      const radiusHexes = Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80));
+      const now = Date.now();
+      // The raising burst: every one of his standing in the
+      // glow rolls its OWN element die, as at the Table.
+      let burst = 0;
+      const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+      for (const p of placements as any[]) {
+        const pt = castTileById.get(p.tileId);
+        if (pt && hexDistTiles(pt as any, tile) <= radiusHexes) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false);
+      }
+      // The saplings: 1d4, on distinct ground within 0.55 of
+      // her radius (the Table's spacing), her own hex filling
+      // the count when the land runs small.
+      const sapSpan = Math.max(1, Math.floor(radiusHexes * 0.55));
+      const near = castTiles.filter((t) => t.id !== tileId && hexDistTiles(t as any, tile) <= sapSpan);
+      for (let i = near.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [near[i], near[j]] = [near[j], near[i]]; }
+      const sapCount = homelandDN(4);
+      const sapTiles: any[] = near.slice(0, sapCount);
+      while (sapTiles.length < sapCount) sapTiles.push(tile);
+      const saplings = sapTiles.map((t, i) => ({ tileId: t.id, dueAt: now + 1600 * (i + 1), expiresAt: 0, rooted: false }));
+      const groveNums = {
+        ...(spell.numbers ?? {}),
+        radiusHexes,
+        healPerBreath: spell.numbers?.healPerBreath ?? 1,
+        motherExpiresAt: now + 34000,
+        lastMendAt: now,
+        saplings,
+      };
+      const info = sqlite.prepare(`INSERT INTO territory_workings
+        (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+        VALUES (?, ?, 'springleaf', 'binding', ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
+        .run(ownerKey, spell.key, hue, tileId, tile.q, tile.r, JSON.stringify(groveNums), now);
+      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, radiusHexes, burst, saplings: sapCount, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     // Wards and runes wake at Tender Lv 3 (the standing law).
@@ -6895,9 +7416,14 @@ export const handlers = {
         .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not yours to ward.");
+      assertCastReach(tile);
       const standing = await db.select().from(schema.fieldPlacements)
         .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, tileId)));
-      if (!standing.length) badRequest("A ward stands on the edge of a hex your own Awokin holds — none stands there.");
+      // The anchor (Homeland Casting): at the Table a ward
+      // may be raised on the hex the caster himself stands
+      // on; the homeland keeps that word — his own stand is
+      // an anchor beside his Awokin's.
+      if (!standing.length && tileId !== stand?.tileId) badRequest("A ward stands on the edge of a hex your own Awokin holds — or on the ground you stand on yourself. Neither holds there.");
       const [dq, dr] = WALL_DIRS[dir];
       const nq = tile.q + dq, nr = tile.r + dr;
       const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
@@ -6916,6 +7442,11 @@ export const handlers = {
       const ebbWard = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
       const wardCost = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
       if (!(await spendEnergy(ownerKey, wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
+      // The roll (Homeland Casting): the purse is charged and
+      // the pour still unspent — a fizzle spends the charge
+      // alone and raises nothing.
+      const cast = homelandCastRoll(progress, spell);
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, spellKey: spell.key };
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
       // The health rating (Nigel, 2026-10-17): holding wards are
       // raised with health grown from the book's base, the
@@ -6941,7 +7472,7 @@ export const handlers = {
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
         .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pour, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour, hp };
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -6950,12 +7481,17 @@ export const handlers = {
         .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not on your map to write upon.");
+      assertCastReach(tile);
       const existing = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell')").get(ownerKey, tileId) as any;
       if (existing) badRequest("That ground is already written — one writing per hex.");
       if (spell.engine === "blades") badRequest("The Three Blades are planted a hex at a time on the map — cast once per hex here.");
       const ebbRune = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
       const runeCost = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
       if (!(await spendEnergy(ownerKey, runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
+      // The roll (Homeland Casting): charged before it, the
+      // pour spent only by a cast that stands.
+      const cast = homelandCastRoll(progress, spell);
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, spellKey: spell.key };
       if (pour > 0) await spendAttunement(ownerKey, hue, pour);
       const effR = workingEffects(ownerKey);
       const charges = spell.engine === "blade" ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
@@ -6986,7 +7522,13 @@ export const handlers = {
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
         .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pour, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: runeCost, pour, hp };
+      const newId = Number(info.lastInsertRowid);
+      // The writing springs the moment it lands, if the dark
+      // already stands on its ground or the curse holds that
+      // ground (Homeland Casting — the Table's cast-time
+      // spring, honored on this ground too).
+      const sprungNow = await springHomelandWorking(ownerKey, newId, castTiles as any[]);
+      return { ok: true as const, id: newId, tileId, cost: runeCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
     }
 
     badRequest("That page of the book cannot be cast on the land.");
@@ -7213,55 +7755,16 @@ export const handlers = {
         }
       }
     }
-    // THE SPRINGLEAF SPRINGS (its referee, woken with the
-    // columns, 2026-10-17): a Springleaf Ward standing on the
-    // land a marching column's traced line crosses stops the
-    // column and knocks it back three hexes in a random
-    // direction — its origin shifts, its arrival delays by
-    // three hexes of its own pace, and it reroutes to its goal.
-    // One ward springs per column per settle; the ward is spent.
-    {
-      const marching = sqlite.prepare("SELECT * FROM incursion_columns WHERE owner_key = ? AND state = 'marching'").all(ownerKey) as any[];
-      if (marching.length) {
-        const wards = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND spell_key = 'springleaf'").all(ownerKey) as any[];
-        if (wards.length) {
-          const tilesAll = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
-          const tileById = new Map(tilesAll.map(t => [t.id, t]));
-          const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-          for (const col of marching) {
-            const target = col.target_tile_id != null ? tileById.get(col.target_tile_id) : null;
-            if (!target) continue;
-            const oq = Math.round(Number(col.origin_q)), orr = Math.round(Number(col.origin_r));
-            const tq = target.q as number, tr = target.r as number;
-            const steps = Math.max(Math.abs(tq - oq), Math.abs(tr - orr), 1);
-            const line = new Set<string>();
-            for (let i = 0; i <= steps; i++) {
-              const f = i / steps;
-              // cube lerp + round, in axial dress
-              const x = oq + (tq - oq) * f, z = orr + (tr - orr) * f, y = -x - z;
-              let rx = Math.round(x), rz = Math.round(z); const ry = Math.round(y);
-              const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
-              if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) { /* y follows */ } else rz = -rx - ry;
-              line.add(`${rx},${rz}`);
-            }
-            const ward = wards.find(w => {
-              if (w.q == null || w.r == null) return false;
-              if (line.has(`${w.q},${w.r}`)) return true;
-              return DIRS.some(([dq, dr]) => line.has(`${Number(w.q) + dq},${Number(w.r) + dr}`));
-            });
-            if (ward) {
-              const perHexMs = (Number(col.arrives_at) - Number(col.spawned_at)) / steps;
-              const delay = Math.round(perHexMs * 3);
-              const [dq, dr] = DIRS[Math.floor(Math.random() * DIRS.length)];
-              sqlite.prepare("UPDATE incursion_columns SET arrives_at = ?, origin_q = ?, origin_r = ? WHERE id = ?")
-                .run(Number(col.arrives_at) + delay, Math.round((Number(col.origin_q) + dq * 3) * 10) / 10, Math.round((Number(col.origin_r) + dr * 3) * 10) / 10, col.id);
-              sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(ward.id);
-              wards.splice(wards.indexOf(ward), 1);
-            }
-          }
-        }
-      }
-    }
+    // THE SPRINGLEAF'S OLD READING, RETIRED (Homeland
+    // Casting, Nigel 2026-10-20): a referee from the columns'
+    // first season treated a stored Springleaf row as a
+    // column-stopper to be consumed on a marching line. The
+    // spell's own page in the Grimoire never held that law —
+    // the Springleaf is a GROVE, mother and saplings, that
+    // mends the company standing in it — and from this build
+    // the homeland keeps her true shape (settleHomelandGroves).
+    // The columns face the grove as they face any other
+    // homeland: by arriving.
     // The Eye: spawn when lit, unanswered, and the break has run.
     const att = sqlite.prepare("SELECT eye, updated_at, break_until FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
     const eye = decayedEye(att, now);
