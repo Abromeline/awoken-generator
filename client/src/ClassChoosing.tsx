@@ -44,7 +44,7 @@ const LAW: Record<TenderClassId, { school: string; lines: string[] }> = {
   witch: {
     school: "School: Spell",
     lines: [
-      "+2 on spell casts — and the Spell school stays OPEN to every tender; only the Witch holds its bonus.",
+      "+2 on spell casts.",
       "−3 on ward, rune and binding workings.",
       "Her pours lay twice what they cost: spells, runes and wards she powers deepen at twice the rate — the same points, twice the strength.",
       "The bog-light and the falling shard: raw spellcraft, feral and bright.",
