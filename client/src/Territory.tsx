@@ -12,7 +12,8 @@ import FieldAwoken from "./FieldAwoken";
 import { TENDER_CLASSES, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { WORKING_DEFS } from "./workingsData";
-import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey } from "./hotbar";
+import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
+import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, JPHYS, type JumpEngine } from "./jump";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
@@ -543,7 +544,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const touchForm = coarsePointer();
   const [tenderCtl, setTenderCtl] = useState(false);
   const [tenderRadial, setTenderRadial] = useState<{ x: number; y: number } | null>(null);
-  const [radialBranch, setRadialBranch] = useState<string | null>(null);
+  // THE WHEEL, RESTORED (Nigel, 2026-10-20): the branch
+  // standing open on the Ground's two-tier radial — the tab
+  // keeps its place between openings, as the Ground's does.
+  const [wheelTab, setWheelTab] = useState<WheelTabId>("spell");
   const TERRITORY_HOTBAR_KEY = "awokin-hotbar-territory";
   const [hotbarKeys, setHotbarKeys] = useState<string[]>(() => loadHotbar(TERRITORY_HOTBAR_KEY));
   const toggleHotbar = (key: string) => {
@@ -1473,7 +1477,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // Escape puts the wheel and the controller away.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setTenderRadial(null); setRadialBranch(null); setTenderCtl(false); }
+      if (e.key === "Escape") { setTenderRadial(null); setTenderCtl(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // The belt under the number keys (the Ground's casting by
+  // number): 1–6 run the locked slots' own acts, reached
+  // through this ref, refreshed every render.
+  const hotbarActRef = useRef<(i: number) => void>(() => {});
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const digit = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"].indexOf(e.code);
+      if (digit >= 0) hotbarActRef.current(digit);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1534,6 +1553,138 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice(err instanceof Error ? err.message : "The order was refused.");
     }
   };
+
+  // THE RESTORED WHEEL'S ENTRIES for the homeland: the
+  // Ground's six branches fed this ground's real doors — the
+  // book's pages readying into the hand's cast mode, the real
+  // wield, Find me, the Follow orders, the company read.
+  // Every act is the act its row on the old branch card
+  // already ran; only the FORM is the Ground's.
+  const buildWheelEntries = (): WheelEntry[] => {
+    if (wheelTab === "weapon") {
+      const wielded = (tenderStand?.weaponKey ?? null) as WeaponKey | null;
+      return WEAPON_ORDER.map(wk => ({
+        key: `wp-${wk}`, img: weaponImg(wk), label: WEAPONS[wk].name,
+        summoned: wielded === wk, pinKey: `wp-${wk}`,
+        act: () => { void wieldOnHomeland(wk); },
+      }));
+    }
+    if (wheelTab === "ability") {
+      const out: WheelEntry[] = [
+        { key: "nav-weapon", sigil: "weapon", label: "Weapon", nav: "weapon" as WheelTabId },
+        { key: "findme", emoji: "🧭", label: "Find me", pinKey: "findme", dragKey: "findme", act: () => findMyTender() },
+      ];
+      for (const p of placements.slice(0, 5)) {
+        const a = tenderItems.find(x => x.id === p.awakenedId);
+        out.push({
+          key: `follow-${p.id}`, emoji: "👣", label: a?.name ?? "An Awokin",
+          summoned: !!p.follow, pinKey: `follow-${p.id}`, dragKey: `follow-${p.id}`, stayOpen: true,
+          act: () => { void toggleFollow(p.id, !p.follow); },
+        });
+      }
+      return out;
+    }
+    if (wheelTab === "awoken") {
+      // The company read: this branch only reads, as it always
+      // has — their orders ride the Ability branch.
+      return placements.slice(0, 6).map(p => {
+        const a = tenderItems.find(x => x.id === p.awakenedId);
+        return {
+          key: `aw-${p.id}`, sigil: "awo", label: a?.name ?? "An Awokin",
+          summoned: !!p.follow,
+        } as WheelEntry;
+      });
+    }
+    // The spell branches: the book's own pages of the kind.
+    const kindSpells = (grim?.spells ?? []).filter(sp => sp.kind === wheelTab && sp.engine !== "none");
+    if (!kindSpells.length) {
+      return [{
+        key: `none-${wheelTab}`, sigil: wheelTab, label: "None yet", locked: true,
+        act: () => showHexNotice(wheelTab === "spell"
+          ? "No spell-school pages stand in the book yet — the Witch's school wakes with its first page."
+          : "The book holds no such pages yet."),
+      }];
+    }
+    return kindSpells.slice(0, 6).map(sp => {
+      const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
+      return {
+        key: `cast-${sp.key}`,
+        img: grimGlyphImg(sp.key),
+        emoji: "✦",
+        label: `${sp.forms[castHue] ?? sp.name} · ⚡${sp.cost}`,
+        locked,
+        lit: castSpellKey === sp.key && castMode,
+        pinKey: `cast-${sp.key}`,
+        dragKey: `cast-${sp.key}`,
+        act: () => {
+          setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
+          showHexNotice(locked
+            ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
+            : `${sp.name} readied — tap the land to cast it.`);
+        },
+      } as WheelEntry;
+    });
+  };
+  const wheelCaption = (): string => {
+    const drag = " · drag an entry onto the hotbar to key it";
+    switch (wheelTab) {
+      case "weapon": return "Ability — Weapon — wield the runic weapon";
+      case "ability": return placements.length
+        ? `Ability — the tender's own deeds, beyond spellcraft${drag}`
+        : "Ability — the tender's own deeds, beyond spellcraft · no Awokin stands on your land yet";
+      case "awoken": return placements.length
+        ? "Awoken — your company standing on this land — their orders ride the Ability branch"
+        : "Awoken — no Awokin stands on your land yet";
+      default: {
+        const label = wheelTab === "spell" ? "Spell" : wheelTab === "ward" ? "Ward" : wheelTab === "rune" ? "Rune" : "Binding";
+        const sub = wheelTab === "spell" ? "castings from the hand and the sky"
+          : wheelTab === "ward" ? "the Written Light, raised on your land's edges"
+          : wheelTab === "rune" ? "writings in the ground — they wait, and spring"
+          : "threads that mend and hold — the Springleaf's grove among them";
+        const has = (grim?.spells ?? []).some(sp => sp.kind === wheelTab && sp.engine !== "none");
+        if (!has) return wheelTab === "spell"
+          ? "Spell — no spell-school pages stand in the book yet · the Witch's school wakes with its first page"
+          : `${label} — the book holds no such pages yet`;
+        return `${label} — ${sub} · tap to ready, then tap the land — the roll is the Table's own${drag}`;
+      }
+    }
+  };
+  /** The wheel's bloom point in screen pixels: the radial
+   *  state keeps the map's own coordinates; the Ground's
+   *  wheel is a screen-fixed overlay, projected out here. */
+  const wheelClientPoint = (): { x: number; y: number } | null => {
+    if (!tenderRadial || !svgRef.current) return null;
+    const ctm = svgRef.current.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(tenderRadial.x, tenderRadial.y).matrixTransform(ctm);
+    return { x: p.x, y: p.y };
+  };
+  // A drag from the wheel keys its entry to the belt — the
+  // pin's own road, walked by hand.
+  const dropToHotbar = (key: string) => { if (!hotbarKeys.includes(key)) toggleHotbar(key); };
+
+  /** A belt slot's act, by its key — the one door the slot's
+   *  tap and its number key both walk through. */
+  const actTerritorySlot = (key: string) => {
+    if (key.startsWith("wp-") && WEAPONS[key.slice(3) as WeaponKey]) { void wieldOnHomeland(key.slice(3) as WeaponKey); return; }
+    if (key === "findme") { findMyTender(); return; }
+    if (key.startsWith("follow-")) {
+      const pid = Number(key.slice(7));
+      const p = placements.find(x => x.id === pid) ?? null;
+      if (p) void toggleFollow(p.id, !p.follow); else toggleHotbar(key);
+      return;
+    }
+    if (key.startsWith("cast-")) {
+      const sp = grim?.spells.find(x => x.key === key.slice(5)) ?? null;
+      if (!sp) { toggleHotbar(key); return; }
+      if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
+      setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
+      showHexNotice(`${sp.name} readied — tap the land to cast it.`);
+      return;
+    }
+    toggleHotbar(key);
+  };
+  hotbarActRef.current = (i: number) => { const k = hotbarKeys[i]; if (k) actTerritorySlot(k); };
 
   // The stride: a 50 ms clock while the body walks — keys held, or
   // a tapped hex still ahead of it — at the preview's pace,
@@ -4499,167 +4650,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
       );
     })();
-    // THE TENDER'S WHEEL ON THE HOMELAND (Nigel, 2026-10-19):
-    // the Table's radial in its own language — gold on dark,
-    // a ring of branches around a ✦ heart. Weapon and Ability
-    // are live law here (the real wield; Follow and the
-    // locator); the spell branches open the Grimoire's trees
-    // READ-ONLY, plainly marked — the homeland keeps no
-    // casting yet, and this face will not pretend otherwise.
-    const tenderRadialLayer = (() => {
-      if (!tenderRadial || !tenderStand || !tenderFig) return null;
-      const s = zoom;
-      const cx = tenderRadial.x, cy = tenderRadial.y;
-      const close = () => { setTenderRadial(null); setRadialBranch(null); };
-      const backdrop = (
-        <rect x={0} y={0} width={500} height={340} fill="transparent" pointerEvents="all"
-          onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
-      );
-      if (!radialBranch) {
-        const branches: { key: string; emoji: string; label: string }[] = [
-          { key: "weapon", emoji: "⚔", label: "WEAPON" },
-          { key: "ability", emoji: "✦", label: "ABILITY" },
-          { key: "spell", emoji: "✧", label: "SPELL" },
-          { key: "ward", emoji: "🛡", label: "WARD" },
-          { key: "rune", emoji: "✶", label: "RUNE" },
-          { key: "binding", emoji: "🌿", label: "BINDING" },
-          { key: "awoken", emoji: "👣", label: "AWOKEN" },
-        ];
-        const R = 47 * s;
-        return (
-          <g key="tender-wheel">
-            {backdrop}
-            {branches.map((b, i) => {
-              const a = -Math.PI / 2 + (i * 2 * Math.PI) / branches.length;
-              const gx = cx + R * Math.cos(a), gy = cy + R * Math.sin(a);
-              return (
-                <g key={b.key} style={{ cursor: "pointer" }} opacity={0.95}
-                  onClick={(e) => { e.stopPropagation(); setRadialBranch(b.key); }}>
-                  <circle cx={gx} cy={gy} r={12.5 * s} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={1} />
-                  <text x={gx} y={gy + 1 * s} textAnchor="middle" fontSize={11 * s} fill="#ffd977" pointerEvents="none">{b.emoji}</text>
-                  <text x={gx} y={gy + 9.5 * s} textAnchor="middle" fontSize={4.6 * s} fill="#ffd977" pointerEvents="none">{b.label}</text>
-                </g>
-              );
-            })}
-            <g style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); close(); }}>
-              <circle cx={cx} cy={cy} r={13 * s} fill="rgba(10,8,16,0.9)" stroke="#c9a227" strokeWidth={1} />
-              <text x={cx} y={cy + 4 * s} textAnchor="middle" fontSize={12 * s} fill="#ffd977" pointerEvents="none">✦</text>
-            </g>
-          </g>
-        );
-      }
-      // A branch opened: rows under a title, in a dark card.
-      const rows: { key: string; img?: string | null; emoji?: string; title: string; sub: string; lit?: boolean; act?: () => void; pin?: string }[] = [];
-      let heading = "";
-      let footLines: string[] = [];
-      if (radialBranch === "weapon") {
-        heading = "Weapon — tap to wield";
-        const wielded = (tenderStand.weaponKey ?? null) as WeaponKey | null;
-        for (const wk of WEAPON_ORDER) {
-          rows.push({
-            key: `wp-${wk}`, img: weaponImg(wk), title: WEAPONS[wk].name,
-            sub: wielded === wk ? "in hand" : "tap to wield", lit: wielded === wk,
-            act: () => { void wieldOnHomeland(wk); close(); },
-            pin: `wp-${wk}`,
-          });
-        }
-      } else if (radialBranch === "ability") {
-        heading = "Ability";
-        rows.push({ key: "findme", emoji: "🧭", title: "Find me", sub: "the camera swings to your Tender", act: () => { findMyTender(); close(); }, pin: "findme" });
-        for (const p of placements.slice(0, 5)) {
-          const a = tenderItems.find(x => x.id === p.awakenedId);
-          rows.push({
-            key: `follow-${p.id}`, emoji: "👣",
-            title: a?.name ?? "An Awokin",
-            sub: p.follow ? "following you — tap to loose" : "holding ground — tap to call to follow",
-            lit: !!p.follow,
-            act: () => { void toggleFollow(p.id, !p.follow); },
-            pin: `follow-${p.id}`,
-          });
-        }
-        if (placements.length === 0) footLines = ["No Awokin stands on your land yet."];
-      } else if (radialBranch === "awoken") {
-        heading = "Your company";
-        for (const p of placements.slice(0, 6)) {
-          const a = tenderItems.find(x => x.id === p.awakenedId);
-          rows.push({ key: `aw-${p.id}`, emoji: "✦", title: a?.name ?? "An Awokin", sub: p.follow ? "following you" : p.stance });
-        }
-        footLines = ["This tree only reads — their orders", "ride their cards, as ever."];
-      } else {
-        // HOMELAND CASTING (Nigel, 2026-10-20): the spell
-        // branches are LIVE — the homeland keeps the Table's
-        // casting law now, and the read-only footnote is
-        // retired. A row readies its working in the hand's
-        // own cast mode; the placing is then tapped out on
-        // the land, the same flow the Table uses.
-        heading = radialBranch === "spell" ? "Spells — tap to ready" : radialBranch === "ward" ? "Wards — tap to ready" : radialBranch === "rune" ? "Runes — tap to ready" : "Bindings — tap to ready";
-        const kindSpells = (grim?.spells ?? []).filter(sp => sp.kind === radialBranch && sp.engine !== "none");
-        for (const sp of kindSpells.slice(0, 6)) {
-          const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
-          rows.push({
-            key: `cast-${sp.key}`, emoji: "✦",
-            title: sp.forms[castHue] ?? sp.name,
-            sub: locked ? "wakes at Tender Lv 3" : `⚡${sp.cost} — tap to ready, then tap the land`,
-            lit: castSpellKey === sp.key,
-            act: () => {
-              setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
-              close();
-              showHexNotice(locked
-                ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
-                : `${sp.name} readied — tap the land to cast it.`);
-            },
-            pin: `cast-${sp.key}`,
-          });
-        }
-        footLines = kindSpells.length
-          ? ["The roll is the Table's own — a fizzle spends the charge.", "Reach: ring 6 of where you stand."]
-          : radialBranch === "spell"
-            ? ["No spell-school pages stand in the book yet.", "The Witch's school wakes with its first page."]
-            : ["The book holds no such pages yet."];
-      }
-      const rowH = 17 * s, headH = 15 * s;
-      const footH = footLines.length ? (footLines.length * 7.5 + 3) * s : 0;
-      const w = 172 * s, h = headH + rows.length * rowH + footH + 5 * s;
-      const x0 = Math.max(4, Math.min(500 - w - 4, cx - w / 2));
-      const y0 = Math.max(4, Math.min(340 - h - 4, cy - h / 2));
-      return (
-        <g key="tender-wheel-branch">
-          {backdrop}
-          <rect x={x0} y={y0} width={w} height={h} rx={7 * s} fill="rgba(10,8,16,0.94)" stroke="#c9a227" strokeWidth={1} />
-          <text x={x0 + w / 2} y={y0 + 10.5 * s} textAnchor="middle" fontSize={8 * s} fill="#ffd977">{heading}</text>
-          <g style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setRadialBranch(null); }}>
-            <circle cx={x0 + w - 9 * s} cy={y0 + 8 * s} r={6 * s} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
-            <text x={x0 + w - 9 * s} y={y0 + 10.4 * s} textAnchor="middle" fontSize={7 * s} fill="#ffd977" pointerEvents="none">‹</text>
-          </g>
-          {rows.map((r, i) => {
-            const ry = y0 + headH + i * rowH;
-            return (
-              <g key={r.key} style={r.act ? { cursor: "pointer" } : undefined}
-                onClick={r.act ? (e) => { e.stopPropagation(); r.act?.(); } : undefined}>
-                <rect x={x0 + 3 * s} y={ry + 1.5 * s} width={w - 6 * s} height={rowH - 3 * s} rx={4 * s}
-                  fill={r.lit ? "rgba(255,217,119,0.14)" : "rgba(255,255,255,0.04)"} />
-                {r.img
-                  ? <image href={r.img} x={x0 + 6 * s} y={ry + 2.5 * s} width={12 * s} height={12 * s} preserveAspectRatio="xMidYMid meet" pointerEvents="none" />
-                  : <text x={x0 + 12 * s} y={ry + 11.5 * s} textAnchor="middle" fontSize={9 * s} fill="#ffd977" pointerEvents="none">{r.emoji ?? "✦"}</text>}
-                <text x={x0 + 21 * s} y={ry + 8 * s} fontSize={7.4 * s} fill="#f3e5c0" pointerEvents="none">{r.title}</text>
-                <text x={x0 + 21 * s} y={ry + 14.5 * s} fontSize={5.6 * s} fill="#cbb26a" pointerEvents="none">{r.sub}</text>
-                {r.pin && (
-                  <g transform={`translate(${x0 + w - 11 * s} ${ry + rowH / 2})`} style={{ cursor: "pointer" }}
-                    onClick={(e) => { e.stopPropagation(); toggleHotbar(r.pin!); }}>
-                    <circle r={10 * s} fill="transparent" />
-                    <circle r={5.5 * s} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
-                    <text y={2.6 * s} textAnchor="middle" fontSize={7.5 * s} fill={hotbarKeys.includes(r.pin) ? "#ffd977" : "#cbb26a"} pointerEvents="none">{hotbarKeys.includes(r.pin) ? "✓" : "＋"}</text>
-                  </g>
-                )}
-              </g>
-            );
-          })}
-          {footLines.map((line, i) => (
-            <text key={i} x={x0 + w / 2} y={y0 + headH + rows.length * rowH + (8 + i * 7.5) * s} textAnchor="middle" fontSize={5.4 * s} fill="#9d8b5f">{line}</text>
-          ))}
-        </g>
-      );
-    })();
     // PHASE D — THE BLIND FRAY on the face: each wanderer wears
     // the Fray's own art (Nigel's drawn face, the workshop's live
     // choice respected), standing in its hex on the map's clock —
@@ -4714,7 +4704,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {targetMarker}
         {ghostLayer}
         {tenderLayer}
-        {tenderRadialLayer}
       </>
     );
   };
@@ -5826,7 +5815,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               rightPressRef.current = null;
               if (rp && !rp.moved && tenderStandRef.current && !tenderInputBlockedRef.current) {
                 const p = svgPoint(e.clientX, e.clientY);
-                if (p) { setTenderRadial(p); setRadialBranch(null); }
+                if (p) { setTenderRadial(p); }
               }
             }
           }}
@@ -5882,7 +5871,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </div>
             <div className="tender-ctl-side">
               <button type="button" className="tender-ctl-btn" aria-label="Open the Tender's wheel"
-                onClick={() => { if (tenderFig) { setTenderRadial({ x: tenderFig.x, y: tenderFig.y }); setRadialBranch(null); } }}>✦</button>
+                onClick={() => { if (tenderFig) { setTenderRadial({ x: tenderFig.x, y: tenderFig.y }); } }}>✦</button>
               <button type="button" className="tender-ctl-btn" aria-label="Leap — Space's own verb, under the thumb"
                 onClick={() => pressTenderJump()}>⤒</button>
               <button type="button" className="tender-ctl-btn small" aria-label="Put the controller away"
@@ -5890,11 +5879,32 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </div>
           </div>
         )}
+        {/* THE WHEEL, RESTORED (Nigel, 2026-10-20): the
+            Proving Ground's radial itself — six branches on
+            the outer ring, the open branch's entries fanned
+            on the inner, the Weapon a sub-ring under the
+            Ability — drawn as a screen overlay at the bloom
+            point, in the Ground's own geometry and dress.
+            Its entries run this ground's own acts; nothing
+            here casts, wields or orders of its own. */}
+        {tenderRadial && tenderStand && (() => {
+          const pt = wheelClientPoint();
+          if (!pt) return null;
+          return (
+            <GroundWheel cx={pt.x} cy={pt.y} tab={wheelTab} onTab={setWheelTab}
+              entries={buildWheelEntries()} caption={wheelCaption()}
+              pinnedKeys={hotbarKeys} onTogglePin={toggleHotbar} onDropKey={dropToHotbar}
+              onClose={() => setTenderRadial(null)} />
+          );
+        })()}
         {/* THE HOTBAR: the wheel's live entries, locked. A tap
             runs the entry's own act (the wield, the toggle,
-            the locator); a right-click looses the slot. */}
-        {tenderStand && hotbarKeys.length > 0 && (
-          <div className={`tender-hotbar${touchForm ? " touch" : ""}`} role="toolbar" aria-label="Your hotbar">
+            the locator); a right-click looses the slot. While
+            the wheel stands open the belt shows itself (with
+            a dashed landing slot) so an entry can be dragged
+            onto it, as the Ground teaches. */}
+        {tenderStand && (hotbarKeys.length > 0 || tenderRadial) && (
+          <div className={`tender-hotbar${touchForm ? " touch" : ""}`} role="toolbar" aria-label="Your hotbar" data-groundwheel-hotbar="territory">
             {hotbarKeys.map(key => {
               if (key.startsWith("wp-") && WEAPONS[key.slice(3) as WeaponKey]) {
                 const wk = key.slice(3) as WeaponKey;
@@ -5902,7 +5912,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 return (
                   <button type="button" key={key} className={`tender-slot${wielded ? " lit" : ""}`}
                     title={`${WEAPONS[wk].name} — tap to wield (right-click to loose the slot)`}
-                    onClick={() => { void wieldOnHomeland(wk); }}
+                    onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <img src={weaponImg(wk)} alt="" />
                     <span className="tender-slot-label">{WEAPONS[wk].name.split(" ")[0]}</span>
@@ -5913,7 +5923,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 return (
                   <button type="button" key={key} className="tender-slot"
                     title="Find me — the camera swings to your Tender (right-click to loose the slot)"
-                    onClick={findMyTender}
+                    onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">🧭</span>
                     <span className="tender-slot-label">Find me</span>
@@ -5927,7 +5937,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 return (
                   <button type="button" key={key} className={`tender-slot${!p ? " dim" : ""}${p?.follow ? " lit" : ""}`}
                     title={p ? `${a?.name ?? "Awokin"} — ${p.follow ? "following you; tap to loose them" : "tap to call them to follow"} (right-click to loose the slot)` : "That Awokin no longer stands — tap to loose the slot"}
-                    onClick={() => { if (p) void toggleFollow(p.id, !p.follow); else toggleHotbar(key); }}
+                    onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">👣</span>
                     <span className="tender-slot-label">{a?.name.split(" ")[0] ?? "gone"}</span>
@@ -5945,12 +5955,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 return (
                   <button type="button" key={key} className={`tender-slot${!sp ? " dim" : ""}${readied ? " lit" : ""}`}
                     title={sp ? `${sp.forms[castHue] ?? sp.name} — ⚡${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
-                    onClick={() => {
-                      if (!sp) { toggleHotbar(key); return; }
-                      if (readied) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
-                      setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
-                      showHexNotice(`${sp.name} readied — tap the land to cast it.`);
-                    }}
+                    onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">✦</span>
                     <span className="tender-slot-label">{sp ? (sp.forms[castHue] ?? sp.name).split(" ")[0] : "loose"}</span>
@@ -5959,12 +5964,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               }
               return (
                 <button type="button" key={key} className="tender-slot dim" title="A locked thing this land no longer knows — tap to loose the slot"
-                  onClick={() => toggleHotbar(key)}>
+                  onClick={() => actTerritorySlot(key)}>
                   <span className="tender-slot-emoji">✦</span>
                   <span className="tender-slot-label">loose</span>
                 </button>
               );
             })}
+            {tenderRadial && hotbarKeys.length < HOTBAR_MAX && <span className="gw-drop-slot" aria-hidden="true">＋</span>}
           </div>
         )}
       </div>

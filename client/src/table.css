@@ -769,3 +769,58 @@ button { font-family: inherit; }
   display: flex; align-items: center; justify-content: center;
 }
 .tcard-pin.on { color: #ffd977; border-color: var(--gold-bright); }
+
+/* THE GROUND'S WHEEL, RESTORED (Nigel, 2026-10-20): the
+   Proving Ground's radial dress, carried whole — gold discs
+   on dark, Georgia labels beneath, the lit branch glowing.
+   This block is twinned in theme.css; keep the two in step. */
+.gw-catch { position: fixed; inset: 0; z-index: 58; background: transparent; }
+.gw-wheel { position: fixed; z-index: 60; width: 0; height: 0; pointer-events: none; font-family: Georgia, serif; }
+.gw-rings { position: absolute; left: -132px; top: -132px; pointer-events: none; }
+.gw-disc {
+  position: absolute; border-radius: 50%; background: rgba(16, 12, 8, .9);
+  border: 2px solid rgba(216, 178, 92, .75); color: #ffd977; font-size: 21px;
+  display: flex; align-items: center; justify-content: center;
+  transform: translate(-50%, -50%); cursor: pointer; pointer-events: auto;
+  font-family: Georgia, serif; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.gw-disc small {
+  position: absolute; bottom: -13px; left: 50%; transform: translateX(-50%);
+  font-size: 8.5px; color: #e8dcc3; white-space: nowrap; letter-spacing: .04em; font-weight: normal;
+}
+.gw-disc.off { opacity: .38; cursor: default; }
+.gw-disc.summoned { border-color: #9fe8a8; color: #c9ffd2; }
+.gw-disc.cat { color: #c9b98f; }
+.gw-disc.cat.on { border-color: #ffd977; color: #ffd977; box-shadow: 0 0 14px rgba(255, 217, 119, .35); }
+.gw-disc.lit { border-color: #ffd977; box-shadow: 0 0 14px rgba(255, 217, 119, .35); }
+.gw-disc img { pointer-events: none; }
+.gw-hub {
+  position: absolute; left: 0; top: 0; width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(24, 19, 12, .92); border: 2px solid rgba(216, 178, 92, .5);
+  color: #ffd977; font-size: 17px; display: flex; align-items: center; justify-content: center;
+  transform: translate(-50%, -50%); cursor: pointer; pointer-events: auto; font-family: Georgia, serif;
+}
+.gw-caption {
+  position: absolute; top: 142px; left: 0; transform: translateX(-50%);
+  width: max-content; max-width: 92vw; text-align: center;
+  font-size: 11px; color: #e8dcc3; opacity: .75; pointer-events: none; font-family: Georgia, serif;
+}
+.gw-pin {
+  position: absolute; top: 0; right: 0; transform: translate(45%, -45%);
+  width: 15px; height: 15px; border-radius: 50%;
+  background: rgba(10, 8, 16, .92); border: 1px solid #c9a227; color: #cbb26a;
+  font-size: 9px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.gw-pin.on { color: #ffd977; border-color: #ffd977; }
+.gw-ghost {
+  position: fixed; width: 46px; height: 46px; border-radius: 50%;
+  transform: translate(-50%, -50%); pointer-events: none; z-index: 70;
+  background: rgba(16, 12, 8, .94); border: 2px solid #ffd977;
+  display: flex; align-items: center; justify-content: center; color: #ffd977; font-family: Georgia, serif;
+}
+.gw-drop-slot {
+  width: 46px; height: 46px; border-radius: 10px;
+  border: 1.5px dashed rgba(216, 178, 92, .55); color: rgba(216, 178, 92, .7);
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+  background: rgba(16, 12, 8, .35);
+}

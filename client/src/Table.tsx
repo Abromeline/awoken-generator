@@ -26,7 +26,8 @@ import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
 import battlegroundBg from "./assets/battleground-bg.jpg";
 import { WORKING_DEFS, HUE_ORDER } from "./workingsData";
-import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey } from "./hotbar";
+import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
+import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, type JumpEngine } from "./jump";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
@@ -532,16 +533,21 @@ export default function Table() {
   // You, selected: your own figure takes orders like an
   // Awokin — tap a tile and you glide there yourself.
   const [selTender, setSelTender] = useState(false);
-  // THE GLYPH WHEEL (Nigel, 2026-10-19): right-click (or a
-  // long press, for the iPad) opens a Zodiac-fashion radial of
-  // your castable workings — glyphs only, no lard text. Left
-  // click chooses the glyph; the next left clicks choose the
-  // target, by the placing laws that already govern casting.
+  // THE WHEEL (Nigel, 2026-10-19; RESTORED to the Proving
+  // Ground's design, 2026-10-20): right-click (or a long
+  // press, for the iPad) opens the radial where the hand
+  // rests — the Ground's two-tier zodiac wheel, drawn by
+  // GroundWheel.tsx. Choosing an entry readies its working;
+  // the next clicks choose the target, by the placing laws
+  // that already govern casting.
   const [radial, setRadial] = useState<{ x: number; y: number } | null>(null);
-  // The wheel's ABILITY sub-ring (Phase C): the four weapons to
-  // wield between, and Manifest — opened from the main ring's
-  // ABILITY entry, in the same geometry and language.
-  const [radialAbility, setRadialAbility] = useState(false);
+  // THE WHEEL, RESTORED (Nigel, 2026-10-20): the Proving
+  // Ground's radial is the design of record — six branches on
+  // the outer ring, the open branch's entries on the inner,
+  // the Ability's Weapon a sub-ring in the same fan. The tab
+  // is the branch standing open; it keeps its place between
+  // openings, as the Ground's wheel keeps its own.
+  const [wheelTab, setWheelTab] = useState<WheelTabId>("spell");
   // THE TENDER CONTROLLER + HOTBAR (Nigel, 2026-10-19): on a
   // touch hand, tapping your own figure pops a dedicated
   // controller — a hold-to-glide pad on the left and the
@@ -614,6 +620,10 @@ export default function Table() {
     radial: !!radial,
     fallen: !!(you && shared && shared.players.find(p => p.key === you.key)?.fallen),
   };
+  // The hotbar under the number keys (the Ground's casting by
+  // number): the key handler is mounted once, so it reaches
+  // the belt through this ref, refreshed every render.
+  const hotbarActRef = useRef<(i: number) => void>(() => {});
   const sendGlideRef = useRef<(() => void) | null>(null);
   sendGlideRef.current = () => {
     const pos = myPosRef.current;
@@ -642,9 +652,13 @@ export default function Table() {
       if (glideTimerRef.current) { clearInterval(glideTimerRef.current); glideTimerRef.current = null; }
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Escape") { setRadial(null); setRadialAbility(false); setControllerOpen(false); return; }
+      if (e.code === "Escape") { setRadial(null); setControllerOpen(false); return; }
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      // The belt under the number keys, as the Ground teaches:
+      // 1–6 run the locked slots' own acts.
+      const digit = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"].indexOf(e.code);
+      if (digit >= 0) { hotbarActRef.current(digit); return; }
       // SPACE LEAPS (Nigel, 2026-10-19) — at the Table the leap
       // is MOTION, honestly: the figure rises on the class's own
       // arc, but the referee's movement law is untouched — no
@@ -1235,7 +1249,7 @@ export default function Table() {
       if (pt && you && shared.players.some(p => p.key === you.key && p.hex)) {
         suppressTapRef.current = true;
         setTimeout(() => { suppressTapRef.current = false; }, 120);
-        setRadialAbility(false);
+        setWheelTab(t => (t === "weapon" ? "ability" : t));
         setRadial(pt);
       }
     }
@@ -1253,7 +1267,18 @@ export default function Table() {
     if (!you) return;
     if (!shared.players.some(p => p.key === you.key && p.hex)) return;
     const pt = stagePointOf(clientX, clientY);
-    if (pt) { setRadialAbility(false); setRadial(pt); }
+    if (pt) { setWheelTab(t => (t === "weapon" ? "ability" : t)); setRadial(pt); }
+  };
+
+  /** The wheel's bloom point in screen pixels — the Ground's
+   *  wheel is a screen-fixed overlay, so the stage point the
+   *  radial state keeps is projected back out for its DOM. */
+  const stageToClient = (pt: { x: number; y: number }): { x: number; y: number } | null => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    const vx = pt.x * view.zoom + view.pan.x;
+    const vy = pt.y * view.zoom + view.pan.y;
+    return { x: rect.left + (vx - stageBox.x) * (rect.width / stageBox.w), y: rect.top + (vy - stageBox.y) * (rect.height / stageBox.h) };
   };
 
   // The selected Awoken and its march price (the land's rate:
@@ -1563,7 +1588,7 @@ export default function Table() {
     }
     // ABILITY: the ring's last entry opens the weapon
     // sub-ring instead of casting.
-    offerings.push({ key: "ability", glyph: null, emoji: "⚔", cost: -1, locked: false, keepOpen: true, act: () => setRadialAbility(true) });
+    offerings.push({ key: "ability", glyph: null, emoji: "⚔", cost: -1, locked: false, keepOpen: true, act: () => openRadialAtMe(true) });
     return offerings;
   };
   const buildAbilityNodes = (): { key: string; img: string | null; emoji: string; label: string; lit: boolean; locked: boolean; act: () => void }[] => {
@@ -1578,6 +1603,97 @@ export default function Table() {
     return nodes;
   };
 
+  // THE RESTORED WHEEL'S ENTRIES: the Ground's six branches,
+  // fed the game's real offerings. Every entry's act is the
+  // very act the belt already runs — buildOfferings' placing
+  // acts, buildAbilityNodes' wield and manifest, the hand's
+  // own choosing — only the FORM is the Ground's. A branch
+  // the book cannot fill wears the Ground's own answer: one
+  // dimmed disc, "None yet".
+  const buildWheelEntries = (): WheelEntry[] => {
+    const offByKey = new Map(buildOfferings().map(o => [o.key, o]));
+    const defEntry = (d: TableDef, hotKey: string): WheelEntry => {
+      const off = offByKey.get(hotKey)!;
+      return {
+        key: hotKey,
+        img: off.glyph,
+        emoji: off.emoji,
+        label: `${d.root} · ⚡${d.cost}`,
+        locked: off.locked,
+        lit: placing?.root === d.key,
+        pinKey: hotKey,
+        dragKey: hotKey,
+        act: off.locked ? () => setNotice(`${d.root} — not yet unlocked; its school wakes at Tender Lv 3.`) : off.act,
+      };
+    };
+    const noneYet = (tab: WheelTabId, note: string): WheelEntry[] => [
+      { key: `none-${tab}`, sigil: tab, label: "None yet", locked: true, act: () => setNotice(note) },
+    ];
+    switch (wheelTab) {
+      case "spell": {
+        const ds = Object.values(defs).filter(d => d.kind === "spell");
+        return ds.length ? ds.map(d => defEntry(d, `r-${d.key}`))
+          : noneYet("spell", "No spell-school pages stand in the book yet — the Witch's school wakes with its first page.");
+      }
+      case "ward": {
+        const ds = Object.values(defs).filter(d => d.kind === "ward");
+        return ds.length ? ds.map(d => defEntry(d, `w-${d.key}`))
+          : noneYet("ward", "The book holds no ward pages yet.");
+      }
+      case "rune": {
+        const ds = Object.values(defs).filter(d => d.kind === "rune");
+        return ds.length ? ds.map(d => defEntry(d, `r-${d.key}`))
+          : noneYet("rune", "The book holds no rune pages yet.");
+      }
+      case "binding": {
+        const out: WheelEntry[] = [];
+        for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) out.push(defEntry(d, `b-${d.key}`));
+        if (healDef) out.push(defEntry(healDef, "heal"));
+        return out.length ? out : noneYet("binding", "The book holds no binding pages yet.");
+      }
+      case "awoken":
+        return (you?.hand ?? []).map(card => ({
+          key: `card-${card.id}`,
+          img: card.art ?? null,
+          emoji: "✦",
+          label: card.name,
+          lit: selectedCardId === card.id,
+          pinKey: `card-${card.id}`,
+          dragKey: `card-${card.id}`,
+          act: () => { setSelUnitId(null); setSelectedCardId(card.id); },
+        }));
+      case "ability":
+        return [{ key: "nav-weapon", sigil: "weapon", label: "Weapon", nav: "weapon" as WheelTabId }];
+      case "weapon":
+        return buildAbilityNodes().map(n => n.key === "manifest"
+          ? {
+              key: n.key, sigil: "manifest", label: "Manifest", locked: n.locked, pinKey: "manifest",
+              act: n.locked ? () => setNotice("Manifest wants ⚡4 in the purse — the copies answer only a full call.") : n.act,
+            }
+          : {
+              key: n.key, img: n.img, emoji: n.emoji,
+              label: WEAPONS[n.key.slice(3) as WeaponKey].name,
+              summoned: n.lit, pinKey: n.key, act: n.act,
+            });
+    }
+  };
+  const wheelCaption = (): string => {
+    const drag = " · drag an entry onto the hotbar to key it";
+    switch (wheelTab) {
+      case "weapon": return "Ability — Weapon — wield the runic weapon · Manifest (⚡4) calls its copies for 20s";
+      case "spell": return Object.values(defs).some(d => d.kind === "spell")
+        ? `Spell — castings from the hand and the sky${drag}`
+        : "Spell — no spell-school pages stand in the book yet · the Witch's school wakes with its first page";
+      case "ward": return `Ward — the Written Light, raised on edges you hold${drag}`;
+      case "rune": return `Rune — writings in the ground — they wait, and spring${drag}`;
+      case "binding": return `Binding — threads that mend and hold — the Springleaf's grove among them${drag}`;
+      case "awoken": return (you?.hand.length ?? 0)
+        ? `Awoken — your hand — tap one to ready its summoning${drag}`
+        : "Awoken — your hand stands empty; your company is on the field";
+      case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
+    }
+  };
+
   // The wheel, opened over your own figure (the controller's
   // button, the hotbar's Ability slot).
   const openRadialAtMe = (ability: boolean) => {
@@ -1586,7 +1702,7 @@ export default function Table() {
     if (!me) return;
     const pt = me.pos ? { x: me.pos.x, y: me.pos.y - 10 }
       : me.hex ? (() => { const c = centerOf(me.hex); return c ? { x: c.cx, y: c.cy - 10 } : null; })() : null;
-    if (pt) { setRadial(pt); setRadialAbility(ability); }
+    if (pt) { setRadial(pt); setWheelTab(t => (ability ? "weapon" : t === "weapon" ? "ability" : t)); }
   };
 
   // THE CONTROLLER'S PAD: hold a direction and the Tender
@@ -1638,6 +1754,11 @@ export default function Table() {
     const node = buildAbilityNodes().find(n => n.key === key);
     if (node && !node.locked) node.act();
   };
+  hotbarActRef.current = (i: number) => { const k = hotbarKeys[i]; if (k) actHotbar(k); };
+  // A drag from the wheel keys its entry to the belt — the
+  // pin's own road, walked by hand: present already, or the
+  // belt full, and the drop simply lands as nothing.
+  const dropToHotbar = (key: string) => { if (!hotbarKeys.includes(key)) toggleHotbar(key); };
   const hotbarMeta = (key: string): { img: string | null; emoji: string; label: string; dim: boolean; lit: boolean; title: string } => {
     if (key === "ability") return { img: null, emoji: "⚔", label: "ABILITY", dim: false, lit: false, title: "Ability — the wheel's weapon ring, opened over your Tender" };
     if (key.startsWith("card-")) {
@@ -1897,86 +2018,6 @@ export default function Table() {
               ))}
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
-              {/* THE GLYPH WHEEL: your castable workings in a
-                  ring, Zodiac fashion — glyphs only, the cost a
-                  whisper of a numeral beneath each. A left click
-                  chooses; the placing laws choose the target
-                  after. Locked workings hang dimmed. */}
-              {radial && you && (() => {
-                const offerings = buildOfferings();
-                const R = 58;
-                if (radialAbility) {
-                  // THE ABILITY SUB-RING: the four weapons (the
-                  // wielded one lit) and MANIFEST at its ⚡4 —
-                  // greyed, and silent, when the purse is short.
-                  const nodes = buildAbilityNodes();
-                  return (
-                    <g key="ability-wheel">
-                      <rect x={radial.x - 900} y={radial.y - 900} width={1800} height={1800} fill="transparent" pointerEvents="all"
-                        onClick={() => { setRadial(null); setRadialAbility(false); }}
-                        onContextMenu={(e) => { e.preventDefault(); setRadial(null); setRadialAbility(false); }} />
-                      <circle cx={radial.x} cy={radial.y} r={20} fill="rgba(10,8,16,0.88)" stroke="#c9a227" strokeWidth={1} pointerEvents="all"
-                        style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setRadialAbility(false); }} />
-                      <text x={radial.x} y={radial.y + 5} textAnchor="middle" fontSize={13} fill="#ffd977" pointerEvents="none">⚔</text>
-                      {nodes.map((o, i) => {
-                        const a = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(1, nodes.length);
-                        const gx = radial.x + R * Math.cos(a), gy = radial.y + R * Math.sin(a);
-                        return (
-                          <g key={o.key} opacity={o.locked ? 0.32 : o.lit ? 1 : 0.85}
-                            style={o.locked ? undefined : { cursor: "pointer" }}
-                            onClick={o.locked ? undefined : (e) => { e.stopPropagation(); o.act(); setRadial(null); setRadialAbility(false); }}>
-                            <circle cx={gx} cy={gy} r={19} fill="rgba(10,8,16,0.92)" stroke={o.lit ? "#ffd977" : "#c9a227"} strokeWidth={o.lit ? 2 : 1} />
-                            {o.img
-                              ? <image href={o.img} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: o.lit ? "drop-shadow(0 0 6px #ffd977)" : undefined, pointerEvents: "none" }} />
-                              : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
-                            <text x={gx} y={gy + 15} textAnchor="middle" fontSize={7.5} fill="#ffd977" pointerEvents="none">{o.label}</text>
-                            {/* The hotbar pin: lock this to the belt without wielding it. */}
-                            <g transform={`translate(${gx + 13} ${gy - 13})`} style={{ cursor: "pointer" }}
-                              onClick={(e) => { e.stopPropagation(); toggleHotbar(o.key); }}>
-                              <circle r={11} fill="transparent" />
-                              <circle r={6.5} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
-                              <text y={2.8} textAnchor="middle" fontSize={8} fill={hotbarKeys.includes(o.key) ? "#ffd977" : "#cbb26a"} pointerEvents="none">{hotbarKeys.includes(o.key) ? "✓" : "＋"}</text>
-                            </g>
-                          </g>
-                        );
-                      })}
-                    </g>
-                  );
-                }
-                return (
-                  <g key="glyph-wheel">
-                    <rect x={radial.x - 900} y={radial.y - 900} width={1800} height={1800} fill="transparent" pointerEvents="all"
-                      onClick={() => setRadial(null)}
-                      onContextMenu={(e) => { e.preventDefault(); setRadial(null); }} />
-                    <circle cx={radial.x} cy={radial.y} r={20} fill="rgba(10,8,16,0.88)" stroke="#c9a227" strokeWidth={1} pointerEvents="none" />
-                    <text x={radial.x} y={radial.y + 5} textAnchor="middle" fontSize={13} fill="#ffd977" pointerEvents="none">✦</text>
-                    {offerings.map((o, i) => {
-                      const a = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(1, offerings.length);
-                      const gx = radial.x + R * Math.cos(a), gy = radial.y + R * Math.sin(a);
-                      return (
-                        <g key={o.key} opacity={o.locked ? 0.32 : 1}
-                          style={o.locked ? undefined : { cursor: "pointer" }}
-                          onClick={o.locked ? undefined : (e) => { e.stopPropagation(); o.act(); if (!o.keepOpen) setRadial(null); }}>
-                          <circle cx={gx} cy={gy} r={19} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={1} />
-                          {o.glyph
-                            ? <image href={o.glyph} x={gx - 13} y={gy - 15} width={26} height={26} style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 5px ${HUE_GLOWS[pourHue]})`, pointerEvents: "none" }} />
-                            : <text x={gx} y={gy + 2} textAnchor="middle" fontSize={15} fill="#ffd977" pointerEvents="none">{o.emoji}</text>}
-                          <text x={gx} y={gy + 15} textAnchor="middle" fontSize={o.key === "ability" ? 6 : 7.5} fill="#ffd977" pointerEvents="none">{o.key === "ability" ? "ABILITY" : `⚡${o.cost}`}</text>
-                          {/* The hotbar pin: lock this working to the belt without casting it. */}
-                          {!o.locked && (
-                            <g transform={`translate(${gx + 13} ${gy - 13})`} style={{ cursor: "pointer" }}
-                              onClick={(e) => { e.stopPropagation(); toggleHotbar(o.key); }}>
-                              <circle r={11} fill="transparent" />
-                              <circle r={6.5} fill="rgba(10,8,16,0.92)" stroke="#c9a227" strokeWidth={0.8} />
-                              <text y={2.8} textAnchor="middle" fontSize={8} fill={hotbarKeys.includes(o.key) ? "#ffd977" : "#cbb26a"} pointerEvents="none">{hotbarKeys.includes(o.key) ? "✓" : "＋"}</text>
-                            </g>
-                          )}
-                        </g>
-                      );
-                    })}
-                  </g>
-                );
-              })()}
               {/* The round's strikes, flown on gravity's arc from
                   tile to tile. A shot lives exactly as long as
                   the strikes state keeps it — when the timeout
@@ -2029,11 +2070,32 @@ export default function Table() {
                 </div>
               </div>
             )}
+            {/* THE WHEEL, RESTORED (Nigel, 2026-10-20): the
+                Proving Ground's radial itself — six branches on
+                the outer ring, the open branch's entries fanned
+                on the inner, the Weapon a sub-ring under the
+                Ability — drawn as a screen overlay at the bloom
+                point, in the Ground's own geometry and dress.
+                Its entries run the belt's own acts; nothing here
+                casts, wields or summons of its own. */}
+            {radial && you && (() => {
+              const pt = stageToClient(radial);
+              if (!pt) return null;
+              return (
+                <GroundWheel cx={pt.x} cy={pt.y} tab={wheelTab} onTab={setWheelTab}
+                  entries={buildWheelEntries()} caption={wheelCaption()}
+                  pinnedKeys={hotbarKeys} onTogglePin={toggleHotbar} onDropKey={dropToHotbar}
+                  onClose={() => setRadial(null)} />
+              );
+            })()}
             {/* THE HOTBAR: what the wheel and the hand locked
                 onto the belt. A tap runs the locked thing's own
-                act; a right-click looses the slot. */}
-            {you && hotbarKeys.length > 0 && (
-              <div className={`table-hotbar${coarsePointer() ? " touch" : ""}`} role="toolbar" aria-label="Your hotbar">
+                act; a right-click looses the slot. While the
+                wheel stands open the belt shows itself (with a
+                dashed landing slot) so an entry can be dragged
+                onto it, as the Ground teaches. */}
+            {you && (hotbarKeys.length > 0 || radial) && (
+              <div className={`table-hotbar${coarsePointer() ? " touch" : ""}`} role="toolbar" aria-label="Your hotbar" data-groundwheel-hotbar="table">
                 {hotbarKeys.map(key => {
                   const m = hotbarMeta(key);
                   return (
@@ -2045,6 +2107,7 @@ export default function Table() {
                     </button>
                   );
                 })}
+                {radial && hotbarKeys.length < HOTBAR_MAX && <span className="gw-drop-slot" aria-hidden="true">＋</span>}
               </div>
             )}
             {shared.campaign?.stage && !shared.battle.active && !stageHidden && (
