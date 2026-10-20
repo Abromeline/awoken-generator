@@ -495,8 +495,13 @@ function ClassChoosingHost({ door, setDoor, onOpenTree }: { door: null | "ceremo
   const queryClient = useQueryClient();
   const { data } = useQuery({ queryKey: ["tenderExp"], queryFn: () => api.getTenderExp(), refetchInterval: 60000 });
   useEffect(() => {
-    if (data && data.level >= 3 && !data.classKey && !sessionStorage.getItem("awoken-class-ceremony-seen")) {
-      sessionStorage.setItem("awoken-class-ceremony-seen", "1");
+    // sessionStorage can throw in locked-down embedded browsers;
+    // a thrown read here must never take the app down with it —
+    // the ceremony simply offers itself again next visit.
+    let seen = false;
+    try { seen = !!sessionStorage.getItem("awoken-class-ceremony-seen"); } catch { /* storage denied — proceed unremembered */ }
+    if (data && data.level >= 3 && !data.classKey && !seen) {
+      try { sessionStorage.setItem("awoken-class-ceremony-seen", "1"); } catch { /* storage denied */ }
       setDoor("ceremony");
     }
   }, [data, setDoor]);

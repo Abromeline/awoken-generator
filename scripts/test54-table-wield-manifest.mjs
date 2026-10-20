@@ -401,7 +401,19 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
     await sleep(400);
   }
   if (copyStrikes.length < 2) {
-    c.send({ type: "manifest" });
+    // The referee lawfully refuses a cast from a fallen Tender
+    // or a purse under ⚡4 — mid-battle either can hold when the
+    // gather ends, so work the cast the way the top-up loop
+    // below does: only offer it standing and funded, and keep
+    // offering until it files (the top-up remains the backstop).
+    {
+      const castStart = Date.now();
+      while (myManifests(c).length === 0 && Date.now() - castStart < 60000) {
+        const me = meIn(c);
+        if (me && !me.fallen && me.energy >= 4) c.send({ type: "manifest" });
+        await sleep(600);
+      }
+    }
     await c.waitFor(cc => myManifests(cc).length === 1, "the second manifest files", 8000);
     await sleep(7000);
     copyStrikes = c.allStrikes.filter(s => s.copy === true && s.weapon === "sword");

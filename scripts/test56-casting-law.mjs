@@ -207,7 +207,7 @@ console.log("\n(a) rollCast — binder vs warden vs sage on the binding school (
 {
   const room = "table-56-a";
   const mk = async (name, pw, tag, classKey) => {
-    const s = await seedBoundTender({ tenderName: name, password: pw, tag, classKey, filler: 60 });
+    const s = await seedBoundTender({ tenderName: name, password: pw, tag, classKey, filler: 200 });
     return joinBound(s.tt, room, tag);
   };
   const binder = await mk("Cast Binder", "cast-binder-56", "56A-B", "binder");
@@ -216,7 +216,15 @@ console.log("\n(a) rollCast — binder vs warden vs sage on the binding school (
   check("seats carry their classes", binder.you.classKey === "binder" && warden.you.classKey === "warden" && sage.you.classKey === "sage",
     `${binder.you.classKey}/${warden.you.classKey}/${sage.you.classKey}`);
 
-  const N = 40;
+  // N=120 a side, and the bands below are set at ~2.5σ of the
+  // binomial at the law's own odds (binder p≈.75, cross/sage
+  // p≈.35): at the old N=40 the "gap ≥ 10" band sat on the
+  // expected gap itself and the section failed on dice weather
+  // alone roughly one run in five (seen 2026-10-19: sage=21,
+  // warden=8, binder=26 — no law broken). The purse must hold
+  // N×⚡3 = 360: max energy is 10 + 2 per power-2 filler, so
+  // the (a) seeds carry 200 fillers (410⚡).
+  const N = 120;
   async function castN(c) {
     const landing = c.you.landing;
     const hexB = neighbours(landing).find(id => id !== "0,0");
@@ -236,14 +244,14 @@ console.log("\n(a) rollCast — binder vs warden vs sage on the binding school (
   const rw2 = await castN(warden);
   const rs = await castN(sage);
   console.log(`  binder ${rb.ok}/${N} stood (spent ⚡${rb.spent}); warden ${rw2.ok}/${N} (⚡${rw2.spent}); sage ${rs.ok}/${N} (⚡${rs.spent})`);
-  check("every cast spent exactly ⚡3, fizzle or stand (40 × 3 = 120 each)",
-    rb.spent === 120 && rw2.spent === 120 && rs.spent === 120, `spent=${rb.spent}/${rw2.spent}/${rs.spent}`);
+  check("every cast spent exactly ⚡3, fizzle or stand (120 × 3 = 360 each)",
+    rb.spent === 360 && rw2.spent === 360 && rs.spent === 360, `spent=${rb.spent}/${rw2.spent}/${rs.spent}`);
   check("the fizzles were told as unravels", binder.state.tale.some(t => t.text.includes("unravels — the roll falls short")),
     `tale tail=${binder.state.tale.slice(-3).map(t => t.text).join(" | ")}`);
-  check("BINDER (in-school +5) stands far oftener than WARDEN (cross −3): gap ≥ 10 of 40",
-    rb.ok >= rw2.ok + 10, `binder=${rb.ok} warden=${rw2.ok}`);
-  check("SAGE casts worst of all (tied-worst with the cross-class warden, never above him by >6, and below the binder by ≥10)",
-    rs.ok <= rw2.ok + 6 && rb.ok >= rs.ok + 10, `sage=${rs.ok} warden=${rw2.ok} binder=${rb.ok}`);
+  check("BINDER (in-school +5) stands far oftener than WARDEN (cross −3): gap ≥ 30 of 120 (≈2.5σ inside the expected ~48)",
+    rb.ok >= rw2.ok + 30, `binder=${rb.ok} warden=${rw2.ok}`);
+  check("SAGE casts worst of all (tied-worst with the cross-class warden, never above him by >19 ≈ 2.5σ, and below the binder by ≥30)",
+    rs.ok <= rw2.ok + 19 && rb.ok >= rs.ok + 30, `sage=${rs.ok} warden=${rw2.ok} binder=${rb.ok}`);
   binder.ws.close(); warden.ws.close(); sage.ws.close();
 }
 
@@ -469,8 +477,9 @@ console.log("\n(d) passive walls — stone hands raise, break, re-raise, and fal
   const breakStart = Date.now();
   // STALL-BREAKER: a lone dark can hang outside the edge
   // geometry indefinitely (seen: dark=1, sentinel untouched
-  // for 180s). Every 40s without a break, the sentinel
-  // marches one tile over — new hex, new edges, new geometry
+  // for 180s). Every 25s without a break, the sentinel
+  // re-posts beside the nearest living dark — or one tile
+  // over when none lives — new hex, new edges, new geometry
   // for the dark to cross. Walls that vanish because their
   // sustainer MOVED are not breaks: detection is grace-guarded
   // for 3s after any arrival, and the seen-map resets.
@@ -481,8 +490,20 @@ console.log("\n(d) passive walls — stone hands raise, break, re-raise, and fal
       const back = c.you.hand.find(x => x.name === "Stone Sentinel");
       if (back) { c.send({ type: "summon", cardId: back.id, hex: landing }); await sleep(800); }
     }
-    if (sentinel() && !sentinel().moving && Date.now() - stallMark > 40000) {
-      const dest = neighbours(sentinel().hex)[stallStep++ % 6];
+    if (sentinel() && !sentinel().moving && Date.now() - stallMark > 25000) {
+      // Post the sentinel beside the nearest living dark: its
+      // blows at her must cross her own walled edges. (Blind
+      // neighbour-cycling let a lone dark park at the seed for
+      // a full 240s with the sentinel untouched — seen
+      // 2026-10-19, passives=6 dark=1 sentinelHp=8.)
+      let dest = null;
+      if (c.state.dark.length) {
+        const sPos = sentinel().pos ?? centerOf(sentinel().hex);
+        const near = [...c.state.dark].sort((a, b) => pxDist(sPos, a.pos) - pxDist(sPos, b.pos))[0];
+        const mapIds = new Set(c.state.map.map(t => t.id));
+        dest = neighbours(near.hex).find(id => id !== "0,0" && id !== near.hex && id !== sentinel().hex && mapIds.has(id)) ?? null;
+      }
+      if (!dest) dest = neighbours(sentinel().hex)[stallStep++ % 6];
       if (dest && dest !== "0,0") {
         c.send({ type: "march", cardId: card.id, from: sentinel().hex, to: dest });
         await c.waitFor(cc => { const u = cc.state.field.find(x => x.name === "Stone Sentinel"); return !!u && !u.moving; },

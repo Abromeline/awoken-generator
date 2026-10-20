@@ -243,7 +243,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
         {!exp ? <p className="zodiac-note">Your record is gathering…</p> : (
           <>
             <div className="character-head">
-              {classArt ? <img className="character-avatar" src={classArt.idle} alt="" /> : <div className="character-avatar character-avatar-none" aria-hidden="true">?</div>}
+              {classArt ? <img className="character-avatar" src={classArt.idle} alt="" /> : <div className="character-avatar character-avatar-none" role="img" aria-label="No class chosen yet" title="No class chosen yet — the choosing waits at Lv 3, through the ✦ door on your sheet">✦</div>}
               <div className="character-id">
                 <h3>{tenderName}</h3>
                 <p className="zodiac-kind">{classArt ? `${classArt.icon} The ${classArt.label}` : "No class chosen"} · Tender Lv {exp.level}</p>
