@@ -794,7 +794,10 @@ renderHotbar(); // the bar stands from birth — slots exist to be dragged onto
 // Yet the Spell school stays OPEN: every other class still
 // rolls its spells at ±0, for only ward, rune and binding are
 // closed to outsiders. And the SAGE, who owns no school at
-// all: -3 on EVERY cast, spells included. Her gift is not
+// all: -2 on EVERY cast, spells included (softened from -3
+// by Nigel's ruling, 2026-10-20 — and her own weapon hand
+// strikes at +2 on the Table's dice; the Ground's weapons
+// land on contact and carry no die for it). Her gift is not
 // casting but ATTUNEMENT — her Attune lays attuneLevel + 2
 // points on the ground while her pool pays only attuneLevel,
 // and the hex's thirty-point cap stands over even her.
@@ -804,7 +807,8 @@ const CLASS_BONUS = 2; // at tender Lv 1
 let lastCastMod = null; // the last cast's modifier — the readout's (and the smoke's) honest window onto the die
 function castModFor(school) {
   if (school !== null && school === CLASS_SCHOOL[CLSKEY]) return CLASS_BONUS;
-  if (school === "ward" || school === "rune" || school === "binding" || CLSKEY === "sage") return -3;
+  if (CLSKEY === "sage") return -2;
+  if (school === "ward" || school === "rune" || school === "binding") return -3;
   return 0;
 }
 function rollCast(key) {

@@ -196,8 +196,9 @@ export function defaultGrimoire(): GrimoireState {
   // workings. The Spell school stays OPEN even so: a non-witch,
   // non-sage caster still rolls its spells unmodified (±0), for
   // only the ward, rune and binding schools are closed to
-  // outsiders. And the SAGE, who owns no school at all: -3 on
-  // EVERY cast, spells included. Her gift is attunement
+  // outsiders. And the SAGE, who owns no school at all: -2 on
+  // EVERY cast, spells included (softened from -3 by Nigel's
+  // ruling, 2026-10-20 — she is not so weak a caster). Her gift is attunement
   // mastery — when she uses the Attune ability, the ground
   // gains attuneLevel + 2 points while her own attunement pool
   // pays only attuneLevel; the thirty-point cap a hex may hold
@@ -206,6 +207,10 @@ export function defaultGrimoire(): GrimoireState {
   // a Sage gain +2 AC and +2 attack — at the Table, Fate's
   // dice will weigh both exactly. (The Sage is a woman —
   // Nigel's correction, 2026-10-19.)
+  // And her own hand (Nigel, 2026-10-20): +2 to her BASE
+  // attack roll with the runic weapon — the buff that makes
+  // her a viable mid-range melee, hers alone, and separate
+  // from her company's blessing above.
   // WARD SIZE (Nigel, 2026-10-19): a ward cast by a TENDER
   // stands 2.75x the size of one cast by an Awokin; wards
   // from low-level Awoken keep the base size. The preview

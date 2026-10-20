@@ -81,6 +81,7 @@ function client(label) {
     const m = JSON.parse(String(raw));
     if (m.type === "state") {
       c.state = m.state; c.you = m.you;
+      c.stateAt = Date.now(); // the receipt stamp — server and harness share the host clock (the expiry proof reads it)
       for (const s of m.state.strikes ?? []) {
         if (!c.strikeIds.has(s.id)) { c.strikeIds.add(s.id); c.allStrikes.push({ ...s, seenAt: Date.now() }); }
       }
@@ -402,21 +403,42 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
   }
   if (copyStrikes.length < 2) {
     // The referee lawfully refuses a cast from a fallen Tender
-    // or a purse under ⚡4 — mid-battle either can hold when the
-    // gather ends, so work the cast the way the top-up loop
-    // below does: only offer it standing and funded, and keep
-    // offering until it files (the top-up remains the backstop).
+    // or a purse under ⚡4 — and mid-battle either can hold for
+    // the whole gather: he rises only between waves, and the
+    // purse refills only on a wave break's harvest. The first
+    // form of this branch merely OFFERED the cast while
+    // standing-and-funded for 60s and then threw on an 8s
+    // waitFor — if he lay fallen in an unbroken battle, no
+    // offer was ever made and the suite died here with no
+    // tally (reproduced solo, Station 2). Now the branch
+    // WORKS the conditions back, the way the top-up loop
+    // below does: deal a fresh wave when the field is quiet,
+    // walk him to the fight so the wave breaks (he rises,
+    // the harvest lands), offer the cast whenever he stands
+    // funded — and the filing is judged by a check carrying
+    // the last witnessed state, never by a thrown timeout.
+    let filed = false, lastState = "";
     {
       const castStart = Date.now();
-      while (myManifests(c).length === 0 && Date.now() - castStart < 60000) {
+      while (Date.now() - castStart < 120000) {
+        if (myManifests(c).length === 1) { filed = true; break; }
         const me = meIn(c);
-        if (me && !me.fallen && me.energy >= 4) c.send({ type: "manifest" });
+        lastState = `fallen=${!!me?.fallen} energy=${me?.energy} battle=${c.state.battle.active} dark=${c.state.dark.length} manifests=${myManifests(c).length} err=${c.errors.slice(-1).join(" ")}`;
+        if (!c.state.battle.active && c.state.dark.length === 0) { c.send({ type: "startWave" }); await sleep(800); continue; }
+        if (me && !me.fallen && c.state.dark.length > 0) {
+          const nearest = [...c.state.dark].sort((x, y) => pxDist(me.pos, x.pos) - pxDist(me.pos, y.pos))[0];
+          if (nearest && pxDist(me.pos, nearest.pos) > 55) c.send({ type: "glide", tx: nearest.pos.x, ty: nearest.pos.y });
+        }
+        if (me && !me.fallen && me.energy >= 4 && myManifests(c).length === 0) c.send({ type: "manifest" });
+        if ((Date.now() - castStart) % 12000 < 600) console.log(`  [recast] ${lastState}`);
         await sleep(600);
       }
     }
-    await c.waitFor(cc => myManifests(cc).length === 1, "the second manifest files", 8000);
-    await sleep(7000);
-    copyStrikes = c.allStrikes.filter(s => s.copy === true && s.weapon === "sword");
+    check("the second manifest files (the cast worked standing and funded)", filed, lastState);
+    if (filed) {
+      await sleep(7000);
+      copyStrikes = c.allStrikes.filter(s => s.copy === true && s.weapon === "sword");
+    }
   }
   // Top-up: a fast wave can die under three strike sources
   // before the copies have flown twice. Keep dealing waves,
@@ -453,14 +475,27 @@ console.log("\n(d) manifest — copies strike, fade, and die at a wield switch")
   const live = myManifests(c);
   const exp = live.length ? live[0].expiresAt : m0.expiresAt;
   {
+    // STAMPED-PUSH REPAIR (Station 2): the first form of
+    // this wait read the fade off whatever push the harness
+    // happened to hold when its budget ran out — under
+    // starved pushes that could be a push GENERATED before
+    // expiresAt, and the check judged the copy by a portrait
+    // painted before its death (Station 1's flake). Now the
+    // wait holds out for a push RECEIVED at/after
+    // expiresAt + 1.5s whose manifests read empty: server
+    // and harness share the host clock, and sendState
+    // sweeps expired copies at generation (it files only
+    // expiresAt > now), so an empty read on a late-received
+    // push is the fade itself, never a stale frame of it.
     const fadeStart = Date.now();
-    while (myManifests(c).length > 0 && Date.now() - fadeStart < Math.max(8000, exp - Date.now() + 15000)) {
+    while (Date.now() - fadeStart < Math.max(8000, exp - Date.now() + 45000)) {
+      if (myManifests(c).length === 0 && (c.stateAt ?? 0) >= exp + 1500) break;
       c.send({ type: "glideStop" });
       await sleep(1200);
     }
   }
-  check("the copies are gone after expiry", myManifests(c).length === 0,
-    `manifests=${JSON.stringify(c.state.manifests)} now=${Date.now()} exp=${exp}`);
+  check("the copies are gone after expiry (read on a push received after expiresAt)", myManifests(c).length === 0 && (c.stateAt ?? 0) >= exp + 1500,
+    `manifests=${JSON.stringify(c.state.manifests)} stateAt=${c.stateAt} exp=${exp}`);
   await sleep(1500);
   const lateCopies = c.allStrikes.filter(s => s.copy === true && (s.at ?? 0) > exp + 400);
   check("no copy strike lands after expiry", lateCopies.length === 0, `late=${JSON.stringify(lateCopies)}`);

@@ -1,20 +1,26 @@
 // test56 — THE CASTING LAW AT THE TABLE (Phase C, Table stream 2):
 // (a) rollCast control: a Binder, a Warden and a Sage each cast
 //     the SAME binding-school working (the Springleaf, routed
-//     through castWard) 40 times in one quiet room. Default book:
-//     DC 11 (level 1 + 10). At Tender Lv 10 the ladder lends +3,
-//     so Binder rolls +5 (75%), Warden and Sage roll −3 (35% —
-//     the Sage's −3-everywhere ties the cross-class −3 on a
-//     binding cast; her unique worst shows on spell casts, and
-//     here she must tie for worst, never beat the Warden).
-//     Energy is measured exactly: every cast, fizzle or stand,
-//     spends the def's ⚡3 — refilled by seeding each Tender a
-//     wide roster (the game's own max-energy law pays +2 per
-//     held Awokin, so 60 stand-ins bank ⚡130 at the seat).
+//     through castWard) in one quiet room. Default book: DC 11
+//     (level 1 + 10). At Tender Lv 10 the ladder lends +3, so
+//     the Binder rolls +5 (75%), the Warden (cross-class) −3
+//     (35%), and the Sage −2 (40%) — her line since Nigel's
+//     buff (2026-10-20) softened her from −3-everywhere. A
+//     one-pip truth cannot be sampled honestly at any sane N
+//     (separating p=.40 from p=.35 at 2.5σ takes ~2400 casts),
+//     so her exact −2 is proven DIRECTLY off the referee's own
+//     castModFor table (every class × school cell), and the
+//     dice are sampled for what they can carry: the
+//     Binder/Warden contrast at N=120 a side, and the Sage's
+//     rate over N=240 pooled casts inside her new law's own
+//     2.5σ band. Energy is measured exactly: every cast,
+//     fizzle or stand, spends the def's ⚡3 — refilled by
+//     seeding each Tender a wide roster (the game's own
+//     max-energy law pays +2 per held Awokin).
 //     (Binding defs were chosen over heal/runes because Heal
 //     needs a wounded unit per cast and runes occupy their hex
 //     on success; the Springleaf's groves stack freely, so one
-//     room can hold 40 casts a side.)
+//     room can hold hundreds of casts a side.)
 // (b) THE SAGE'S COMPANY: two campaign rooms in parallel — a
 //     Sage's five stone Awokin vs a Warden's identical five —
 //     against dealt tangles (armor 8). The strikes ledger is
@@ -36,6 +42,14 @@
 //     into the working (pour 0 → 4, hp +8 at hpPerPoint 2)
 //     while her pool pays only 2 (30 → 28); a Warden control
 //     lays exactly 2 and pays exactly 2.
+// (f) THE SAGE'S HAND (Nigel, 2026-10-20): +2 to her BASE
+//     attack roll with the runic weapon. Two campaign rooms —
+//     a Sage and a Warden, each Lv 10 with a bare sword,
+//     standing on their stone aegis's own ground while the
+//     Storytender deals only tangles (armor 8 by construction):
+//     the Warden's roll+3 needs 5+ (80%), the Sage's roll+3+2
+//     needs 3+ (90%). The witness ledger's true-sword strikes
+//     are tallied to 220 a side and the rates are judged.
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,7 +130,7 @@ async function call(action, args, token, expectFail = false) {
  *  fighter Awokin (single body layers of the given element /
  *  power / toughness) plus filler Awokin whose only job is the
  *  max-energy law's +2 a head — the harness's energy refill. */
-async function seedBoundTender({ tenderName, password, tag, classKey, fighters = [], filler = 0 }) {
+async function seedBoundTender({ tenderName, password, tag, classKey, fighters = [], filler = 0, weaponKey = null }) {
   const claim = await call("claimTender", { password, tenderName });
   const token = claim.data.token;
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.data.tender.code).id;
@@ -133,6 +147,7 @@ async function seedBoundTender({ tenderName, password, tag, classKey, fighters =
   for (const f of fighters) addAwokin(f.name, f.element, f.power, f.toughness);
   for (let i = 0; i < filler; i++) addAwokin(`Filler ${tag}-${i}`, "sky", 2, 2);
   await call("chooseClass", { classKey }, token);
+  if (weaponKey) await call("chooseWeapon", { weaponKey }, token);
   const { issueTableToken } = await import("../server/dist/table.js");
   const tt = issueTableToken({ id: `disc-${tag}`, name: tenderName });
   const code = (await call("getTableBindCode", {}, token)).data.code;
@@ -206,52 +221,111 @@ console.log("\n(e) sage attune mastery in pourWorking");
 console.log("\n(a) rollCast — binder vs warden vs sage on the binding school (the Springleaf)");
 {
   const room = "table-56-a";
-  const mk = async (name, pw, tag, classKey) => {
-    const s = await seedBoundTender({ tenderName: name, password: pw, tag, classKey, filler: 200 });
+  const mk = async (name, pw, tag, classKey, filler = 200) => {
+    const s = await seedBoundTender({ tenderName: name, password: pw, tag, classKey, filler });
     return joinBound(s.tt, room, tag);
   };
   const binder = await mk("Cast Binder", "cast-binder-56", "56A-B", "binder");
   const warden = await mk("Cast Warden", "cast-warden-56", "56A-W", "warden");
-  const sage = await mk("Cast Sage", "cast-sage-56", "56A-S", "sage");
+  const sage = await mk("Cast Sage", "cast-sage-56", "56A-S", "sage", 360);
   check("seats carry their classes", binder.you.classKey === "binder" && warden.you.classKey === "warden" && sage.you.classKey === "sage",
     `${binder.you.classKey}/${warden.you.classKey}/${sage.you.classKey}`);
 
-  // N=120 a side, and the bands below are set at ~2.5σ of the
-  // binomial at the law's own odds (binder p≈.75, cross/sage
-  // p≈.35): at the old N=40 the "gap ≥ 10" band sat on the
-  // expected gap itself and the section failed on dice weather
-  // alone roughly one run in five (seen 2026-10-19: sage=21,
-  // warden=8, binder=26 — no law broken). The purse must hold
-  // N×⚡3 = 360: max energy is 10 + 2 per power-2 filler, so
-  // the (a) seeds carry 200 fillers (410⚡).
-  const N = 120;
-  async function castN(c) {
+  // THE DIRECT TABLE: the Sage's −2 is a one-pip truth, and
+  // dice cannot testify to one pip at any sane N — separating
+  // p=.40 (her new line) from p=.35 (the old −3) at 2.5σ
+  // takes ~2400 casts. So the exact table is read off the
+  // referee's own castModFor, every class × school cell at
+  // Lv 10 (ladder +3), deterministically, no dice involved.
+  const { castModFor } = await import("../server/dist/table.js");
+  const MOD_TABLE = {
+    binder:     { ward: -3, rune: -3, binding: 5, spell: 0 },
+    warden:     { ward: 5, rune: -3, binding: -3, spell: 0 },
+    runewright: { ward: -3, rune: 5, binding: -3, spell: 0 },
+    witch:      { ward: -3, rune: -3, binding: -3, spell: 5 },
+    sage:       { ward: -2, rune: -2, binding: -2, spell: -2 },
+  };
+  let tableOk = true;
+  for (const [cls, schools] of Object.entries(MOD_TABLE))
+    for (const [school, want] of Object.entries(schools))
+      if (castModFor(cls, 10, school) !== want) tableOk = false;
+  check("castModFor reads the whole law at Lv 10 — in-school +5, spell open ±0, cross −3, the Sage −2 on EVERY school (Nigel, 2026-10-20)",
+    tableOk && castModFor(null, 10, "spell") === 0 && castModFor(null, 10, "ward") === -3 && castModFor("sage", 1, "binding") === -2,
+    `sage row=${JSON.stringify(Object.fromEntries(["ward", "rune", "binding", "spell"].map(s => [s, castModFor("sage", 10, s)])))}`);
+
+  // THE SAMPLED DICE, for what they can honestly carry: the
+  // Binder/Warden contrast at N=120 (p .75 vs .35; the gap
+  // band sits ~2.5σ inside the expected ~48 — at the old
+  // N=40 the band sat ON the expected gap and the section
+  // failed on weather alone one run in five, 2026-10-19).
+  // The Sage casts N=240: her count is judged inside HER
+  // law's band — expected 96 at p=.40, σ = √(240·.4·.6) ≈
+  // 7.6, so [77, 115] ≈ ±2.5σ — and against the Binder's
+  // RATE (she must trail it by ≥0.20: expected gap .35,
+  // σ of the rate difference ≈ .051, the floor ~3σ inside
+  // the truth). The band deliberately does NOT claim to
+  // separate −2 from −3 — the direct table above carries
+  // that pip; the dice prove the referee's rolls truly run
+  // at her softened rate, not at the open school's ±0
+  // (240 × .50 = 120, above the band) nor near the Binder's
+  // line. Purses: N×⚡3 — 360 for the 120s, 720 for the
+  // Sage's 240; max energy is 10 + 2 per power-2 filler, so
+  // her seed carries 360 fillers (730⚡).
+  const N = 120, NS = 240;
+  async function castN(c, n) {
+    // A stand is counted by the mother's own id, never by
+    // a grove-count delta: at hundreds of casts the room
+    // churns mothers (34s) and saplings (20s) expiring
+    // inside single cast windows, and a delta read calls a
+    // stood grove a fizzle whenever an old sapling fades
+    // in the same push (seen: a Sage arm read 73/240, −3σ
+    // under her own law, on churn alone). Ids are exact —
+    // an expiry cannot un-see one, and saplings (mother:
+    // false) never enter the count.
     const landing = c.you.landing;
     const hexB = neighbours(landing).find(id => id !== "0,0");
     const e0 = meIn(c).energy;
-    let ok = 0, fizz = 0;
-    for (let i = 0; i < N; i++) {
-      const grovesBefore = c.state.workings.filter(w => w.kind === "grove" && w.ownerKey === c.you.key).length;
+    const seenMothers = new Set(c.state.workings.filter(w => w.kind === "grove" && w.mother && w.ownerKey === c.you.key).map(w => w.id));
+    // DIAGNOSTIC (Station 2): the tale tells every true
+    // fizzle by name ("…'s Springleaf unravels — the roll
+    // falls short"), so tale-fizzles + id-stands must sum
+    // to n; the segment lines show whether a cold arm runs
+    // cold throughout or decays as the room fills.
+    const myName = c.you.name;
+    let ok = 0, fizz = 0, taleFizz = 0, lastTaleAt = 0;
+    const harvestTale = () => {
+      for (const t of c.state.tale ?? []) {
+        if (t.at > lastTaleAt && t.text.includes(myName) && t.text.includes("unravels — the roll falls short")) taleFizz++;
+        if (t.at > lastTaleAt) lastTaleAt = t.at;
+      }
+    };
+    harvestTale();
+    for (let i = 0; i < n; i++) {
       const eBefore = meIn(c).energy;
       c.send({ type: "castWard", root: "springleaf", hue: "root", hexA: landing, hexB, pour: 0 });
       await c.waitFor(cc => meIn(cc).energy <= eBefore - 3, "the cast resolves (energy spent)", 8000);
-      const grovesAfter = c.state.workings.filter(w => w.kind === "grove" && w.ownerKey === c.you.key).length;
-      if (grovesAfter > grovesBefore) ok++; else fizz++;
+      harvestTale();
+      const fresh = c.state.workings.filter(w => w.kind === "grove" && w.mother && w.ownerKey === c.you.key && !seenMothers.has(w.id));
+      for (const w of fresh) seenMothers.add(w.id);
+      if (fresh.length > 0) ok++; else fizz++;
+      if ((i + 1) % 40 === 0) console.log(`    [castN ${myName}] ${i + 1}/${n}: stands(id)=${ok} fizzles(tale)=${taleFizz} liveWorkings=${c.state.workings.length}`);
     }
     return { ok, fizz, spent: e0 - meIn(c).energy };
   }
-  const rb = await castN(binder);
-  const rw2 = await castN(warden);
-  const rs = await castN(sage);
-  console.log(`  binder ${rb.ok}/${N} stood (spent ⚡${rb.spent}); warden ${rw2.ok}/${N} (⚡${rw2.spent}); sage ${rs.ok}/${N} (⚡${rs.spent})`);
-  check("every cast spent exactly ⚡3, fizzle or stand (120 × 3 = 360 each)",
-    rb.spent === 360 && rw2.spent === 360 && rs.spent === 360, `spent=${rb.spent}/${rw2.spent}/${rs.spent}`);
+  const rb = await castN(binder, N);
+  const rw2 = await castN(warden, N);
+  const rs = await castN(sage, NS);
+  console.log(`  binder ${rb.ok}/${N} stood (spent ⚡${rb.spent}); warden ${rw2.ok}/${N} (⚡${rw2.spent}); sage ${rs.ok}/${NS} (⚡${rs.spent})`);
+  check("every cast spent exactly ⚡3, fizzle or stand (120×3 and 240×3)",
+    rb.spent === 360 && rw2.spent === 360 && rs.spent === 720, `spent=${rb.spent}/${rw2.spent}/${rs.spent}`);
   check("the fizzles were told as unravels", binder.state.tale.some(t => t.text.includes("unravels — the roll falls short")),
     `tale tail=${binder.state.tale.slice(-3).map(t => t.text).join(" | ")}`);
   check("BINDER (in-school +5) stands far oftener than WARDEN (cross −3): gap ≥ 30 of 120 (≈2.5σ inside the expected ~48)",
     rb.ok >= rw2.ok + 30, `binder=${rb.ok} warden=${rw2.ok}`);
-  check("SAGE casts worst of all (tied-worst with the cross-class warden, never above him by >19 ≈ 2.5σ, and below the binder by ≥30)",
-    rs.ok <= rw2.ok + 19 && rb.ok >= rs.ok + 30, `sage=${rs.ok} warden=${rw2.ok} binder=${rb.ok}`);
+  check("SAGE (buffed −2, p≈.40) stands inside her own law's 2.5σ band over 240 casts [77, 115]",
+    rs.ok >= 77 && rs.ok <= 115, `sage=${rs.ok}/${NS}`);
+  check("SAGE trails the BINDER's rate by ≥0.20 (expected .35; the floor stands ~3σ inside the truth)",
+    rb.ok / N - rs.ok / NS >= 0.20, `binderRate=${(rb.ok / N).toFixed(2)} sageRate=${(rs.ok / NS).toFixed(2)}`);
   binder.ws.close(); warden.ws.close(); sage.ws.close();
 }
 
@@ -418,10 +492,40 @@ console.log("\n(c) springleaf — burst, saplings, expiry");
     check("BURST: the wounded ally inside the radius was mended (flesh +≥1)", gainB >= 1, `gainB=${gainB.toFixed(2)}`);
     check("BURST: the wounded ally outside the radius was NOT mended (flesh gain <1)", gainA < 1, `gainA=${gainA.toFixed(2)}`);
 
+    // HOLD THE BATTLE OPEN (Station 2 repair): the written
+    // light is for THIS battle — when the last dark falls,
+    // settleShardsAndFade clears every working on the field,
+    // the mother included, whatever her 34s say. A standing
+    // guard kills a fray a cadence, and Station 1's mother
+    // was sampled after her battle had already been won out
+    // from under her (battleActive=false at the +12s read).
+    // So through the sampling window the guards MARCH: a
+    // moving unit strikes nothing, and the dark claw only
+    // standing light — they chase the guards across the map,
+    // the battle never ends, and the mother lives out her
+    // window with the fight still on. (The burst was already
+    // measured above; the march changes no reading taken.)
+    const farthestFromDark = () => {
+      const dark = bc.state.dark;
+      if (!dark.length) return null;
+      return bc.state.map.map(t => t.id).filter(id => id !== "0,0")
+        .sort((x, y) => Math.min(...dark.map(d => pxDist(centerOf(y), d.pos))) - Math.min(...dark.map(d => pxDist(centerOf(x), d.pos))))[0];
+    };
+    const keepMarching = () => {
+      for (const [cc, getU, card] of [[bc, guardB, bCard], [ac, guardA, aCard]]) {
+        const u = getU();
+        if (!u || u.moving || !bc.state.dark.length) continue;
+        const near = Math.min(...bc.state.dark.map(d => pxDist(u.pos, d.pos)));
+        if (near < 340) { const to = farthestFromDark(); if (to && to !== u.hex) cc.send({ type: "march", cardId: card.id, from: u.hex, to }); }
+      }
+    };
+    keepMarching();
+
     // Saplings root over the following seconds.
     let maxGroves = 1, sapling = null, presentAt12 = false;
     const sapStart = Date.now();
     while (Date.now() - sapStart < 13000) {
+      keepMarching();
       const groves = bc.state.workings.filter(w => w.kind === "grove");
       maxGroves = Math.max(maxGroves, groves.length);
       sapling = groves.find(w => !w.mother) ?? sapling;
@@ -596,7 +700,7 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
     await c.waitFor(cc => gateTiles.every(t => cc.state.field.some(x => x.ownerKey === cc.you.key && x.hex === t && !x.moving)),
       "the ring guard stands around the seed", 60000)
       .catch(() => console.log(`  (ring guard march incomplete: field=${JSON.stringify(c.state.field.filter(u => u.ownerKey === c.you.key).map(u => [u.hex, !!u.moving]))} errors=${c.errors.slice(-1).join(" ")})`));
-    return { st, c, landing };
+    return { st, c, landing, gateTiles };
   }
   const sageR = await companyRoom({ room: "campaign-test56-sage", tenderName: "Company Sage", password: "company-sage-56", tag: "56B-S", classKey: "sage" });
   const ctrlR = await companyRoom({ room: "campaign-test56-ctrl", tenderName: "Company Warden", password: "company-warden-56", tag: "56B-C", classKey: "warden" });
@@ -611,7 +715,7 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
   };
   const driveStart = Date.now();
   let driveTick = 0;
-  while (Date.now() - driveStart < 240000) {
+  while (Date.now() - driveStart < 480000) {
     const ts = tally(sageR), tc = tally(ctrlR);
     if (ts.lightN >= 70 && ts.darkN >= 60 && tc.lightN >= 70 && tc.darkN >= 60) break;
     if (++driveTick % 30 === 0) {
@@ -625,6 +729,43 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
       if (standing < 4) {
         const back = ctx.c.you.hand.find(x => x.name.startsWith("Stone "));
         if (back && (ctx.c.you.energy ?? 0) >= 3) ctx.c.send({ type: "summon", cardId: back.id, hex: ctx.landing });
+      }
+      // STALL-BREAKER (the diagonal gap, run 3's wound):
+      // the ring covers the four ring-1 tiles under 69.2px
+      // out, but the 69.24px diagonal pair stands empty —
+      // a tangle that halts on that axis can sit outside
+      // every guard's reach, covered by none and striking
+      // none, draining the bank to FALLEN while its whole
+      // company stands idle (seen: control bank 102 → 0 at
+      // dark=3, field=4, campaign over). When the bank
+      // bleeds ≥12⚡ off its high-water mark while dark
+      // stand, the nearest standing guard marches to the
+      // bleeder's side — inside its reach the drain stops
+      // and the fight the tally exists to witness happens.
+      // When the field clears, strays march back to the
+      // ring's free tiles.
+      ctx.bankHigh = Math.max(ctx.bankHigh ?? 0, ctx.c.state.campaign.bank ?? 0);
+      if (ctx.c.state.dark.length > 0 && ctx.c.state.battle.active
+        && (ctx.c.state.campaign.bank ?? 0) < ctx.bankHigh - 12
+        && Date.now() - (ctx.lastStallBreak ?? 0) > 15000) {
+        const dark0 = [...ctx.c.state.dark].sort((a, b) => pxDist(a.pos, centerOf("0,0")) - pxDist(b.pos, centerOf("0,0")))[0];
+        const guard = ctx.c.state.field.filter(u => u.ownerKey === ctx.c.you.key && !u.moving)
+          .sort((a, b) => pxDist(a.pos, dark0.pos) - pxDist(b.pos, dark0.pos))[0];
+        const mapIds = new Set(ctx.c.state.map.map(t => t.id));
+        const dest = neighbours(dark0.hex).find(id => id !== "0,0" && id !== dark0.hex && mapIds.has(id)
+          && !ctx.c.state.field.some(u => u.ownerKey === ctx.c.you.key && u.hex === id));
+        if (guard && dest) {
+          ctx.c.send({ type: "march", cardId: guard.cardId, from: guard.hex, to: dest });
+          ctx.lastStallBreak = Date.now();
+          console.log(`  [stall-break ${ctx === sageR ? "sage" : "ctrl"}] bank=${Math.floor(ctx.c.state.campaign.bank ?? -1)} high=${Math.floor(ctx.bankHigh)} — ${guard.name} marches to ${dest}, beside the bleeder at ${dark0.hex}`);
+        }
+      }
+      if (ctx.c.state.dark.length === 0) {
+        ctx.bankHigh = ctx.c.state.campaign.bank ?? 0;
+        for (const u of ctx.c.state.field.filter(x => x.ownerKey === ctx.c.you.key && !x.moving && !ctx.gateTiles.includes(x.hex))) {
+          const free = ctx.gateTiles.find(t => !ctx.c.state.field.some(x => x.ownerKey === ctx.c.you.key && x.hex === t));
+          if (free) ctx.c.send({ type: "march", cardId: u.cardId, from: u.hex, to: free });
+        }
       }
       // BATCH-AND-RESOLVE dealing: a new batch is dealt
       // only once the field is clear, so gate drain can
@@ -644,8 +785,23 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
   const ts = tally(sageR), tc = tally(ctrlR);
   console.log(`  sage company:    light ${ts.lightN} strikes, hit rate ${ts.lightRate.toFixed(2)}; dark blows ${ts.darkN}, landed ${ts.darkRate.toFixed(2)}`);
   console.log(`  warden company:  light ${tc.lightN} strikes, hit rate ${tc.lightRate.toFixed(2)}; dark blows ${tc.darkN}, landed ${tc.darkRate.toFixed(2)}`);
-  check("both companies saw enough witnessed strikes (light ≥50, dark ≥40 each)",
-    ts.lightN >= 50 && ts.darkN >= 40 && tc.lightN >= 50 && tc.darkN >= 40,
+  // THE FLOORS, DERIVED (Station 2 repair): a floor's only
+  // job is sample adequacy for the rate checks below — and
+  // Station 1 measured the Sage room accruing witnessed
+  // light strikes SLOWER than the control's under
+  // batch-and-resolve: her company kills on fewer strikes
+  // (her +2 attack lands the same kills in fewer blows) and
+  // both rooms deal on the same field-clear gate, so the
+  // flat ≥50 judged her PACE, not her law (seen: sage
+  // lightN=42 at the old 240s timeout while both rate
+  // margins passed). The drive now runs 480s toward the
+  // same 70/60 targets, and the floors sit where the
+  // statistics put them: at N=45 a light rate's standard
+  // error is √(.75·.25/45) ≈ .065, at N=40 a dark rate's is
+  // √(.5·.5/40) ≈ .079 — small against the .10-per-side
+  // margins the law predicts and the checks require.
+  check("both companies saw enough witnessed strikes (light ≥45, dark ≥40 each — the derived floors)",
+    ts.lightN >= 45 && ts.darkN >= 40 && tc.lightN >= 45 && tc.darkN >= 40,
     JSON.stringify({ ts, tc }));
   check("+2 ATTACK: the sage company's hit rate runs hotter than the control's (combined margin)",
     (ts.lightRate - tc.lightRate) >= -0.02 && (ts.lightRate - tc.lightRate) + (tc.darkRate - ts.darkRate) >= 0.07,
@@ -654,6 +810,171 @@ console.log("\n(b) the sage's company — +2 attack, +2 AC");
     (tc.darkRate - ts.darkRate) >= -0.02 && (ts.lightRate - tc.lightRate) + (tc.darkRate - ts.darkRate) >= 0.07,
     `darkDiff=${(tc.darkRate - ts.darkRate).toFixed(2)}`);
   sageR.st.ws.close(); sageR.c.ws.close(); ctrlR.st.ws.close(); ctrlR.c.ws.close();
+}
+
+// ── (f) THE SAGE'S HAND ────────────────────────────────
+console.log("\n(f) the sage's hand — +2 base attack with the runic weapon");
+{
+  // Two campaign rooms, driven interleaved: a Sage and a
+  // Warden, each Lv 10 with a BARE sword (reach 1 hex, die
+  // d10), while the Storytender deals ONLY tangles — every
+  // dark on either field is armor 8 by construction, so
+  // every witnessed true-sword strike is an armor-8 strike
+  // and no foe-filtering is needed. The scenario's shape
+  // was earned by its first failure (8 strikes in 480s):
+  // the Tender strikes only what halts within 69px of him,
+  // so the posts are planted to draw the batch and he
+  // rides between the fights (see tendPosts, v3). Three laws shape the
+  // posts: (1) the aegis is STONE at power 0 — its blows
+  // (~6.4) never one-shot a tangle out from under the
+  // sword the way power 3's ~9.5 did; (2) a gate sitter
+  // DRAINS the bank while exposed, and exposure is read
+  // against a standing unit's ELEMENT REACH — so a SKY
+  // watcher (reach 4, 276px) posts on the far side, close
+  // enough to cover every ring-1 sitter, far enough
+  // (≥300px from the aegis's gate) that its d4 plinks
+  // never touch the supply side's approaches; (3) the
+  // dark claw the standing posts, never the Tender
+  // gliding beside his aegis, and the field never stands
+  // empty — so no campaign can end mid-proof.
+  // The arithmetic of the proof: the Warden rolls
+  // d20 + 3 (the Lv 10 ladder) and needs 5+ against
+  // armor 8 — p = .80. The Sage rolls d20 + 3 + 2
+  // (Nigel's buff, 2026-10-20) and needs 3+ — p = .90.
+  // At 200 strikes a side SE(rate) ≈ .028 (Warden) and
+  // .021 (Sage), so the rate checks stand ~2σ inside
+  // their truths: the Sage ≥ .86 (under the un-buffed
+  // law, centred at .80, the chance of reaching .86 is
+  // ~2%), the Warden ≤ .86 (a buff leaked to him would
+  // centre him at .90), and the gap ≥ .04 (expected
+  // .10, SE of the difference ≈ .035).
+  async function handRoom({ room, tenderName, password, tag, classKey }) {
+    const st = client(`ST-${tag}`);
+    await st.join({ devName: `Story ${tag}`, room, storytender: true });
+    const seed = await seedBoundTender({
+      tenderName, password, tag, classKey, weaponKey: "sword", filler: 25,
+      fighters: [
+        { name: `Aegis ${tag}`, element: "stone", power: 0, toughness: 11 },
+        { name: `Watcher ${tag}`, element: "sky", power: 0, toughness: 11 },
+      ],
+    });
+    const c = await joinBound(seed.tt, room, tag);
+    const landing = c.you.landing;
+    const axial = (id) => { const [q, r] = parseId(id); return (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2; };
+    const distC = (id) => pxDist(centerOf(id), centerOf("0,0"));
+    const gateTiles = c.state.map.map(t => t.id)
+      .filter(id => axial(id) === 1 && distC(id) < 69.2).sort();
+    const aegisGate = gateTiles[0];
+    // The watcher's post: within cover of the whole ring
+    // (≤240px of the centre) and as far from the aegis's
+    // gate as the map allows.
+    const watchPost = c.state.map.map(t => t.id)
+      .filter(id => id !== "0,0" && id !== aegisGate && distC(id) <= 240)
+      .sort((x, y) => pxDist(centerOf(y), centerOf(aegisGate)) - pxDist(centerOf(x), centerOf(aegisGate)))[0];
+    const posts = [
+      { name: `Aegis ${tag}`, post: aegisGate },
+      { name: `Watcher ${tag}`, post: watchPost },
+    ];
+    const unitByName = (nm) => c.state.field.find(u => u.ownerKey === c.you.key && u.name === nm);
+    for (const p of posts) {
+      const card = c.you.hand.find(x => x.name === p.name);
+      c.send({ type: "summon", cardId: card.id, hex: landing });
+      await c.waitFor(cc => cc.state.field.some(u => u.ownerKey === cc.you.key && u.name === p.name), `${p.name} stands`, 15000);
+    }
+    for (const p of posts) {
+      const u = unitByName(p.name);
+      c.send({ type: "march", cardId: u.cardId, from: u.hex, to: p.post });
+      await c.waitFor(cc => { const x = cc.state.field.find(w => w.ownerKey === cc.you.key && w.name === p.name); return !!x && !x.moving && x.hex === p.post; },
+        `${p.name} takes its post`, 60000);
+    }
+    const aegis = unitByName(`Aegis ${tag}`);
+    if (aegis) c.send({ type: "glide", tx: aegis.pos.x, ty: aegis.pos.y });
+    await sleep(1500);
+    return { st, c, landing, posts, unitByName, tag };
+  }
+  const sageH = await handRoom({ room: "campaign-test56-hand-sage", tenderName: "Hand Sage", password: "hand-sage-56", tag: "56F-S", classKey: "sage" });
+  const wardH = await handRoom({ room: "campaign-test56-hand-ctrl", tenderName: "Hand Warden", password: "hand-warden-56", tag: "56F-W", classKey: "warden" });
+  check("both tenders hold the sword", sageH.c.you.weaponKey === "sword" && wardH.c.you.weaponKey === "sword",
+    `sage=${sageH.c.you.weaponKey} warden=${wardH.c.you.weaponKey}`);
+  const tallyH = (ctx) => {
+    const s = ctx.c.allStrikes.filter(x => x.side === "light" && x.weapon === "sword" && !x.copy);
+    const hits = s.filter(x => x.hit).length;
+    return { n: s.length, hits, rate: s.length ? hits / s.length : 0 };
+  };
+  const tendPosts = (ctx) => {
+    for (const p of ctx.posts) {
+      const u = ctx.unitByName(p.name);
+      if (!u) {
+        const back = ctx.c.you.hand.find(x => x.name === p.name);
+        if (back) ctx.c.send({ type: "summon", cardId: back.id, hex: ctx.landing });
+        continue;
+      }
+      if (!u.moving && u.hex !== p.post) ctx.c.send({ type: "march", cardId: u.cardId, from: u.hex, to: p.post });
+    }
+    // The tender rides the fight (v3, from v2's drive
+    // logs): a batch splits between the posts — each dark
+    // steers to its nearest standing light — and a sitter
+    // may sulk halted at the gate where neither post
+    // stands. Anchored to the aegis alone, he idled
+    // through whole fights elsewhere (sword totals frozen
+    // for minutes while dark stood across the map, 112/86
+    // strikes in 480s). Priority: the aegis's fight, then
+    // the watcher's, then he hunts the nearest live dark
+    // himself — a halted dark stands inside his sword's
+    // reach once he is on it, and his blows end the sulk.
+    const me = meIn(ctx.c);
+    if (!me?.pos || me.fallen) return;
+    const dark = ctx.c.state.dark.filter(d => d.pos);
+    if (!dark.length) return;
+    const aegis = ctx.unitByName(ctx.posts[0].name);
+    const watcher = ctx.unitByName(ctx.posts[1].name);
+    const near = (u) => !!u && dark.some(d => pxDist(d.pos, u.pos) <= 100);
+    let dest = null;
+    if (near(aegis)) dest = aegis.pos;
+    else if (near(watcher)) dest = watcher.pos;
+    else dest = [...dark].sort((x, y) => pxDist(x.pos, me.pos) - pxDist(y.pos, me.pos))[0].pos;
+    if (pxDist(me.pos, dest) > 55) ctx.c.send({ type: "glide", tx: dest.x, ty: dest.y });
+  };
+  // The drive window is 720s: the exit target (200
+  // strikes a side) and the floor (170) are the proof's,
+  // but the accrual PACE is the box's weather — runs 3–4
+  // measured 0.53 and 0.33 witnessed strikes a second in
+  // identical geometry (dark always standing, banks
+  // always healthy), so the slow pace needs ~600s to
+  // reach the target the arithmetic was derived at.
+  const driveStart = Date.now();
+  let driveTick = 0;
+  while (Date.now() - driveStart < 720000) {
+    const a = tallyH(sageH), b = tallyH(wardH);
+    if (a.n >= 200 && b.n >= 200) break;
+    if (++driveTick % 30 === 0) {
+      for (const [nm, ctx] of [["sage", sageH], ["ctrl", wardH]]) {
+        const t = tallyH(ctx);
+        console.log(`  [drive ${nm}] dark=${ctx.c.state.dark.length} battle=${ctx.c.state.battle.active} over=${ctx.c.state.campaign.over} bank=${Math.floor(ctx.c.state.campaign.bank ?? -1)} field=${ctx.c.state.field.length} swordN=${t.n} err=${ctx.c.errors.slice(-1).join(" ")}`);
+      }
+    }
+    for (const ctx of [sageH, wardH]) {
+      tendPosts(ctx);
+      if (!ctx.c.state.campaign.over && ctx.c.state.dark.length === 0 && !ctx.c.state.battle.active) {
+        const reserve = ctx.st.you?.storytender?.reserve.length ?? 0;
+        if (reserve < 12) { for (let i = 0; i < 12 - reserve; i++) ctx.st.send({ type: "stAdd", kind: "tangle" }); }
+        else ctx.st.send({ type: "stDeal" });
+      }
+    }
+    await sleep(600);
+  }
+  const hs = tallyH(sageH), hw = tallyH(wardH);
+  console.log(`  sage's sword:   ${hs.n} strikes, hit rate ${hs.rate.toFixed(2)}`);
+  console.log(`  warden's sword: ${hw.n} strikes, hit rate ${hw.rate.toFixed(2)}`);
+  check("both swords saw enough witnessed strikes (≥170 true-sword strikes each)",
+    hs.n >= 170 && hw.n >= 170, JSON.stringify({ hs, hw }));
+  check("+2 BASE ATTACK: the Sage's sword lands at her buffed rate (≥.86 against armor 8; un-buffed she would centre on .80)",
+    hs.rate >= 0.86, `sageRate=${hs.rate.toFixed(3)} n=${hs.n}`);
+  check("CONTROL: the Warden's sword stays at the un-buffed rate (≤.86 against armor 8)",
+    hw.rate <= 0.86, `wardenRate=${hw.rate.toFixed(3)} n=${hw.n}`);
+  check("the Sage's rate runs hotter than the Warden's by ≥.04 (expected .10)",
+    hs.rate - hw.rate >= 0.04, `diff=${(hs.rate - hw.rate).toFixed(3)}`);
+  sageH.st.ws.close(); sageH.c.ws.close(); wardH.st.ws.close(); wardH.c.ws.close();
 }
 
 console.log(`\ntest56: ${pass} passed, ${fail} failed`);

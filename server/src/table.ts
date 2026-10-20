@@ -811,8 +811,8 @@ function acBonusOf(_unit: FieldUnit): number { return 0; }
 // the level ladder (fateLevelBonus: +1 at Lv 3, 6, 9…). The
 // Spell school stands OPEN: any other tender casts it at ±0.
 // Cross-class on the closed schools (ward / rune / binding)
-// takes −3. The SAGE owns no school: −3 on EVERY cast, spells
-// included. Classless and unknown classes stand as no school
+// takes −3. The SAGE owns no school: −2 on EVERY cast, spells
+// included (softened from −3 by Nigel's ruling, 2026-10-20). Classless and unknown classes stand as no school
 // (spell ±0, closed schools −3). Every cast ROLLS: d20 + mod
 // against DC = the spell's level (numbers.level, default 1)
 // + 10. A natural 20 always stands; a natural 1 always
@@ -820,13 +820,21 @@ function acBonusOf(_unit: FieldUnit): number { return 0; }
 const CLASS_SCHOOL: Record<string, string | null> = {
   warden: "ward", runewright: "rune", binder: "binding", witch: "spell", sage: null,
 };
+/** The casting modifier, by class and school — the whole
+ *  of the Casting Law's arithmetic in one pure place, so a
+ *  proof can read the table directly (test56) instead of
+ *  sampling dice for a one-pip truth. The Sage's line is
+ *  Nigel's buff (2026-10-20): −2 on EVERY cast, where −3
+ *  stood before — she is not so weak a caster. */
+export function castModFor(classKey: string | null | undefined, tenderLevel: number, school: string): number {
+  if (classKey === "sage") return -2;
+  if (classKey && CLASS_SCHOOL[classKey] === school) return 2 + fateLevelBonus(tenderLevel);
+  if (school === "spell") return 0;
+  return -3;
+}
 function rollCast(player: Player, def: { kind: string; name: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number } {
   const school = def.kind;
-  let mod: number;
-  if (player.classKey === "sage") mod = -3;
-  else if (player.classKey && CLASS_SCHOOL[player.classKey] === school) mod = 2 + fateLevelBonus(player.tenderLevel);
-  else if (school === "spell") mod = 0;
-  else mod = -3;
+  const mod = castModFor(player.classKey, player.tenderLevel, school);
   const dc = (def.numbers?.level ?? 1) + 10;
   const roll = dN(20);
   const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
@@ -2227,7 +2235,17 @@ async function runRound(room: Room): Promise<void> {
       if (!inRange.length) return false;
       const strikeFoe = (foe: EnemyUnit, pierce: boolean): void => {
         const roll = dN(20);
-        const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(p.tenderLevel) >= foe.armor);
+        // THE SAGE'S HAND (Nigel, 2026-10-20): +2 to her BASE
+        // attack roll — her own blows with the runic weapon
+        // aim truer, the buff that makes her a viable
+        // mid-range melee. Her COMPANY's +2 attack is a
+        // separate law, weighed on her Awokin's strikes in
+        // strikeOnce; it is never added here, and this +2 is
+        // never added there. One roll site serves the true
+        // weapon and its Manifest copies alike, so copies of
+        // her weapon carry her aim as they carry her die.
+        const atkBonus = fateLevelBonus(p.tenderLevel) + (p.classKey === "sage" ? 2 : 0);
+        const hit = roll === 20 || (roll !== 1 && roll + atkBonus >= foe.armor);
         if (!hit) {
           witness(p.pos!, foe.pos, null, "light", false, false, wk, { copy, pierce });
           return;
