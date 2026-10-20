@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
@@ -493,6 +493,14 @@ interface BastionState {
   poolMax: number;
   begun: boolean;
   resolved: boolean;
+  /** THE PREPARED BASTION (Station 4, Nigel 2026-10-20): a
+   *  bastion standing on the column's target seed when the
+   *  column ARRIVED lends the host and his Awokin +3 AC
+   *  against this enemy. Settled at claim from the land's
+   *  own ledger: arrival corrupts an unheld seed on the
+   *  spot, so a seed still held when the call is claimed
+   *  was held — bastion and all — before the enemy landed. */
+  prepared: boolean;
 }
 
 /** One visible strike of the round just resolved (2026-10-17):
@@ -854,7 +862,7 @@ function ownerIsSage(room: Room, ownerKey: string): boolean {
   return seatByKey(room, ownerKey)?.classKey === "sage";
 }
 
-export async function deckForTender(tenderId: number): Promise<TableCard[]> {
+export async function deckForTender(tenderId: number, opts?: { stagedOnly?: boolean }): Promise<TableCard[]> {
   const ownerKey = tenderOwnerKey(tenderId);
   // The Table deals the UN-FIELDED roster only (Nigel, 2026-10-18):
   // an Awokin standing on the Territory field cannot also stand
@@ -863,9 +871,18 @@ export async function deckForTender(tenderId: number): Promise<TableCard[]> {
   const placedRows = await db.select().from(schema.fieldPlacements)
     .where(eq(schema.fieldPlacements.ownerKey, ownerKey)).catch(() => [] as { awakenedId: number }[]);
   const placedIds = new Set(placedRows.map(r => r.awakenedId));
+  // THE HAND OF TWENTY (Station 4, Nigel 2026-10-20): the Table
+  // deals the play hand — the twenty the Tender keeps ready —
+  // never the reserve waiting in the deck. And an instance
+  // claimed from the bastion deals narrower still: the staged
+  // company alone is the company that travels.
+  const handIds = new Set(handIdsFor(ownerKey));
+  const stagedAll = new Set(stagedIdsFor(ownerKey));
+  const stagedIds = opts?.stagedOnly ? stagedAll : null;
   const rows = (await db.select().from(schema.awakened)
     .where(eq(schema.awakened.ownerKey, ownerKey)))
-    .filter(row => !placedIds.has(row.id));
+    .filter(row => !placedIds.has(row.id))
+    .filter(row => stagedIds ? stagedIds.has(row.id) : handIds.has(row.id) && !stagedAll.has(row.id));
   const cards: TableCard[] = [];
   for (const row of rows.slice(0, 120)) {
     const payload = await awakenedPayloadById(row.id).catch(() => null);
@@ -988,6 +1005,7 @@ function sharedState(room: Room) {
       callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
       ambush: room.bastion.ambush, pool: Math.floor(room.bastion.pool), poolMax: room.bastion.poolMax,
       begun: room.bastion.begun, resolved: room.bastion.resolved, size: room.bastion.size,
+      prepared: room.bastion.prepared,
     } : null,
   };
 }
@@ -2338,7 +2356,8 @@ async function runRound(room: Room): Promise<void> {
           const roll = dN(20);
           const bonus = fateLevelBonus(enemy.lvl);
           const ac = victim.card.toughness + acBonusOf(victim)
-            + (ownerIsSage(room, victim.ownerKey) ? 2 : 0); // THE SAGE'S COMPANY (Phase C): her Awokin stand at +2 AC
+            + (ownerIsSage(room, victim.ownerKey) ? 2 : 0) // THE SAGE'S COMPANY (Phase C): her Awokin stand at +2 AC
+            + (room.bastion?.prepared && seatByKey(room, victim.ownerKey)?.expKey === room.bastion.hostKey ? 3 : 0); // THE PREPARED BASTION (Station 4): the host's Awokin behind walls raised in time
           const hit = roll === 20 || (roll !== 1 && roll + bonus >= ac);
           if (!hit) {
             witness(enemy.pos, victim.pos, "dark", "dark", false, false);
@@ -2480,7 +2499,9 @@ async function runRound(room: Room): Promise<void> {
         const wac = (WEAPON_AC[tender.weaponKey ?? ""] ?? 0)
           + (tender.weaponKey === "swordshield" && tender.weaponSignature ? 1 : 0);
         const roll = dN(20);
-        const ac = 10 + wac;
+        // THE PREPARED BASTION (Station 4): the host himself
+        // stands behind the same walls as his Awokin.
+        const ac = 10 + wac + (room.bastion?.prepared && tender.expKey === room.bastion.hostKey ? 3 : 0);
         const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(enemy.lvl) >= ac);
         if (tender.pos) witness(enemy.pos, tender.pos, "dark", "dark", hit, false);
         if (hit) {
@@ -2679,10 +2700,12 @@ function handleConnection(ws: WebSocket): void {
       // own room — whoever enters it sits at that call's table,
       // wherever the Table was opened from.
       let roomId = String(msg.room || "the-table").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "the-table";
+      let joinCall: any = null;
       if (typeof msg.callKey === "string" && msg.callKey.trim()) {
         const k = msg.callKey.toUpperCase().replace(/[^A-Z0-9]/g, "");
-        const call = sqlite.prepare("SELECT id FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
+        const call = sqlite.prepare("SELECT id, kind, owner_key FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
         if (!call) { fail("No open call answers to that key — it may have ended, or the key is mistyped."); return; }
+        joinCall = call;
         roomId = `call-${k.toLowerCase()}`;
       }
       let key = "";
@@ -2770,7 +2793,12 @@ function handleConnection(ws: WebSocket): void {
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
-          const cards = await deckForTender(tenderId).catch(() => [] as TableCard[]);
+          // An INSTANCE's host (Station 4) is dealt the staged
+          // company alone — the bastion's cargo, from the first
+          // push; any other seat, and any guest of the instance,
+          // is dealt the common hand of twenty.
+          const instanceHost = joinCall?.kind === "instance" && joinCall.owner_key === tenderOwnerKey(tenderId);
+          const cards = await deckForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]);
           if (cards.length) {
             hand = cards;
             bound = await tenderDisplayName(tenderId);
@@ -3618,6 +3646,22 @@ function handleConnection(ws: WebSocket): void {
       const call = sqlite.prepare("SELECT * FROM bastion_calls WHERE id = ? AND state = 'open'").get(callId) as any;
       if (!call) { ws.send(JSON.stringify({ type: "error", message: "No open call by that name stands." })); return; }
       if (call.owner_key !== player.expKey) { ws.send(JSON.stringify({ type: "error", message: "That call is another Tender's to claim." })); return; }
+      // AN INSTANCE CLAIMED (Station 4, Nigel 2026-10-20): the
+      // call is a doorway, not a battle — claiming it seats the
+      // host with the bastion's STAGED company in hand, and the
+      // room stays the room's own (its Unraveling is begun the
+      // common way). No column is dealt by an instance; the
+      // staged company is the cargo, and the band law still
+      // caps what of it may stand at once.
+      if (call.kind === "instance") {
+        const tenderId = Number(String(player.expKey).replace("tender:", "")) || 0;
+        const staged = tenderId ? await deckForTender(tenderId, { stagedOnly: true }).catch(() => [] as TableCard[]) : [];
+        if (!staged.length) { ws.send(JSON.stringify({ type: "error", message: "No company stands staged at your bastion — the instance has no one to carry." })); return; }
+        player.hand = staged;
+        tell(room, `${player.name} claims the instance — the bastion's staged company, ${staged.length} strong, travels in their hand.`);
+        sendState(room);
+        return;
+      }
       let roster: { kind: string; count: number; power: number; hp: number }[] = [];
       let size = 0;
       if (call.column_id) {
@@ -3635,13 +3679,27 @@ function handleConnection(ws: WebSocket): void {
         if (p.watcher) continue;
         pool += p.maxEnergy + 2 * Math.max(0, p.tenderLevel - 1);
       }
+      // THE PREPARED BASTION (Station 4, Nigel 2026-10-20):
+      // the seed the column came for, still held with its
+      // bastion standing, was fortified BEFORE the enemy
+      // arrived — arrival corrupts an unheld seed on the spot,
+      // so held-at-claim is proof of before-arrival.
+      let prepared = false;
+      if (call.column_id) {
+        const colRow = sqlite.prepare("SELECT target_tile_id FROM incursion_columns WHERE id = ?").get(call.column_id) as any;
+        if (colRow?.target_tile_id != null) {
+          const held = sqlite.prepare("SELECT id FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'held' AND bastion_building_id IS NOT NULL").get(call.owner_key, colRow.target_tile_id) as any;
+          prepared = !!held;
+        }
+      }
       room.bastion = {
         callId: call.id, tier: call.column_id ? Number((sqlite.prepare("SELECT power FROM incursion_columns WHERE id = ?").get(call.column_id) as any)?.power ?? 1) : 2, kind: call.kind, hostKey: call.owner_key, hostTenderId: call.host_tender_id,
         hostName: player.name, columnId: call.column_id, seedId: call.seed_id,
         roster, size, ambush: call.kind === "ambush",
         pool, poolMax: pool, begun: false, resolved: false,
+        prepared,
       };
-      tell(room, `${player.name} claims the call: a ${call.kind.toUpperCase()} — ${size} of the dark. Friends, take your seats; the host begins it when the muster is ready. The pool stands at ⚡${pool}.`);
+      tell(room, `${player.name} claims the call: a ${call.kind.toUpperCase()} — ${size} of the dark. Friends, take your seats; the host begins it when the muster is ready. The pool stands at ⚡${pool}.${prepared ? " The bastion stood ready before they came — its walls lend the host and his Awokin +3 AC against this enemy." : ""}`);
       sendState(room);
       return;
     }

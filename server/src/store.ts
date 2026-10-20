@@ -711,6 +711,24 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
 try { sqlite.exec(`ALTER TABLE tender_weapons ADD COLUMN manifest_node INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_weapons ADD COLUMN signature_node INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN follow INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN march_goal TEXT`); } catch {}
+// THE BASTION'S LEDGERS (Station 4, Nigel 2026-10-20): who is
+// staged at the bastion as a reinforcement (and by which road
+// they came), and the Tender's chosen play hand of twenty —
+// presence in tender_hand IS the choosing; an empty ledger
+// reads as the default hand (the first twenty of the roster).
+sqlite.exec(`CREATE TABLE IF NOT EXISTS bastion_staged (
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  staged_at INTEGER NOT NULL,
+  via TEXT NOT NULL DEFAULT 'hand',
+  PRIMARY KEY (owner_key, awakened_id)
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_hand (
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  PRIMARY KEY (owner_key, awakened_id)
+);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_password_resets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tender_id INTEGER NOT NULL,

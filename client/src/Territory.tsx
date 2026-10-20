@@ -746,6 +746,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // an eye glyph in the battle row opens it to show how
   // in danger of attack the land stands.
   const [eyeOpen, setEyeOpen] = useState(false);
+  // THE BASTION (Station 4, Nigel 2026-10-20): the staging
+  // hall's panel opens at a tap, like the Eye's.
+  const [bastionOpen, setBastionOpen] = useState(false);
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
   // Wave simulation (preview only, no DB changes)
   const [simActive, setSimActive] = useState(false);
@@ -986,6 +989,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     lastFirstSeedSig.current = firstSeedSig;
   }, [firstSeedSig]);
   const callsQ = useQuery({ queryKey: ["calls"], queryFn: () => api.getCalls(), refetchInterval: 30000 });
+  const bastionQ = useQuery({ queryKey: ["bastion"], queryFn: () => api.getBastion(), refetchInterval: 30000 });
+  const bastionAct = async (act: () => Promise<unknown>, done: string) => {
+    try {
+      await act();
+      showHexNotice(done);
+      void bastionQ.refetch();
+      void refreshTerritory();
+    } catch (e) { showHexNotice(refusalText(e, "The bastion could not answer.")); }
+  };
   const handleCallToArms = async (args: { columnId?: number; seedId?: number }) => {
     try {
       await api.callToArms(args);
@@ -1038,7 +1050,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   // Hand = Awoken not on field
   const placedIds = useMemo(() => new Set(placements.map(p => p.awakenedId)), [placements]);
-  const hand = useMemo(() => tenderItems.filter(a => !placedIds.has(a.id)), [tenderItems, placedIds]);
+  // THE HAND OF TWENTY (Station 4, Nigel 2026-10-20): the dock
+  // holds the play hand — the twenty the Tender keeps ready —
+  // once the bastion's ledger has been read. The reserve waits
+  // in the deck (the collection hosts them all); the staged
+  // wait at the bastion. Neither stands in the dock.
+  const hand = useMemo(() => {
+    const bv = bastionQ.data;
+    if (!bv) return tenderItems.filter(a => !placedIds.has(a.id));
+    const inHand = new Set(bv.hand.ids);
+    const staged = new Set(bv.staged.map(s => s.awakenedId));
+    return tenderItems.filter(a => !placedIds.has(a.id) && inHand.has(a.id) && !staged.has(a.id));
+  }, [tenderItems, placedIds, bastionQ.data]);
 
   // Energy cap: 10 base + power-based bonus per Awoken (hand AND field).
   // TRIPLED 2026-10-13 (Nigel): 1-3 power: +3, 4-6: +6, 7-9: +9, 10+: +12.
@@ -5139,6 +5162,72 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         );
       })()}
+      {bastionOpen && bastionQ.data && (() => {
+        const bv = bastionQ.data;
+        const itemOf = (id: number) => tenderItems.find(a => a.id === id);
+        const faceLine = (f: { name: string; power: number; toughness: number; level: number | null }) =>
+          `${f.name} · Lv ${f.level ?? "?"} · ⚔ ${f.power} · 🛡 ${f.toughness}`;
+        return (
+          <div className="curse-eye-panel">
+            <div className="curse-eye-head">
+              <span className="curse-eye-glyph">🏯</span>
+              <span className="curse-eye-name">The Bastion — the staging hall</span>
+            </div>
+            {!bv.bastion && (
+              <div className="curse-eye-line">No bastion stands yet. Hold a fallen seed — raise its bastion from the seed's hex in the War-Grounds — and this hall opens: Awokin stage here, the field is sent home here, and instances depart from here.</div>
+            )}
+            {bv.bastion && (<>
+              <div className="curse-eye-line">🏯 A held seed of level {bv.bastion.level} stands at ({bv.bastion.q}, {bv.bastion.r}) — a bastion raised before the enemy arrives lends you and your Awokin <strong>+3 AC</strong> against them.</div>
+              <div className="curse-eye-line"><strong>Staged — reinforcements waiting</strong> ({bv.staged.length})</div>
+              {bv.staged.map(s => (
+                <div key={s.awakenedId} className="curse-eye-line">
+                  {faceLine(s)} <span className="quiet">— came by {s.via === "hand" ? "the hand" : s.via === "field" ? "your side" : "the lone road"}</span>
+                  <button className="abtn small" style={{ marginLeft: 8 }} onClick={() => void bastionAct(() => api.unstageAwokin({ awakenedId: s.awakenedId, toField: true }), `${s.name} musters onto the bastion's hex.`)}>⚔ Muster to the field</button>
+                  <button className="abtn small" style={{ marginLeft: 4 }} onClick={() => void bastionAct(() => api.unstageAwokin({ awakenedId: s.awakenedId }), `${s.name} steps back into your hand's play.`)}>Unstage</button>
+                </div>
+              ))}
+              {bv.staged.length === 0 && <div className="curse-eye-line quiet">None staged. Stage from the hand below — the staged company is who an instance carries.</div>}
+              <div className="curse-eye-line">
+                {bv.instanceCall
+                  ? <>🚪 The instance stands open — carry its key to the Table: <strong>{bv.instanceCall.joinKey}</strong> <span className="quiet">Open the Table, enter the key, and claim the call — you will be seated with the staged company in hand.</span></>
+                  : <button className="abtn small" disabled={bv.staged.length === 0} onClick={() => void bastionAct(() => api.createBastionInstance(), "The instance is made — carry its key to the Table.")}>🚪 Create an instance from the staged company</button>}
+              </div>
+              <div className="curse-eye-line"><strong>The hand of twenty</strong> ({bv.hand.ids.length}/{bv.hand.cap}) — only the hand takes the field and the Table</div>
+              {bv.hand.ids.map(id => {
+                const it = itemOf(id);
+                const placed = placedIds.has(id);
+                const staged = bv.staged.some(s => s.awakenedId === id);
+                return (
+                  <div key={id} className="curse-eye-line">
+                    {it ? `${it.name} · ⚔ ${it.power} · 🛡 ${it.toughness}` : `Awokin #${id}`}
+                    {placed && <span className="quiet"> — on the field</span>}
+                    {staged && <span className="quiet"> — staged above</span>}
+                    {!staged && !placed && <button className="abtn small" style={{ marginLeft: 8 }} onClick={() => void bastionAct(() => api.stageAwokin({ awakenedId: id }), `${it?.name ?? "The Awokin"} stages at the bastion.`)}>🏯 Stage</button>}
+                    <button className="abtn small" style={{ marginLeft: 4 }} onClick={() => void bastionAct(() => api.setHandMember({ awakenedId: id, inHand: false }), `${it?.name ?? "The Awokin"} waits in reserve now.`)}>To reserve</button>
+                  </div>
+                );
+              })}
+              {bv.field.length > 0 && <div className="curse-eye-line"><strong>On the field</strong> — send them home to the bastion</div>}
+              {bv.field.map(f => (
+                <div key={f.awakenedId} className="curse-eye-line">
+                  {faceLine(f)} <span className="quiet">— {f.follow ? "follows you: rides home in your company, by clean roads" : "not following: the lone road, slow through the curse"}</span>
+                  <button className="abtn small" style={{ marginLeft: 8 }} disabled={f.marching} onClick={() => void bastionAct(() => api.sendToBastion({ awakenedId: f.awakenedId }), `${f.name} is sent to the bastion.`)}>{f.marching ? "On the march…" : "🏯 Send to the bastion"}</button>
+                </div>
+              ))}
+              {bv.reserveIds.length > 0 && <div className="curse-eye-line"><strong>In reserve</strong> — the deck keeps them all</div>}
+              {bv.reserveIds.map(id => {
+                const it = itemOf(id);
+                return (
+                  <div key={id} className="curse-eye-line">
+                    {it ? `${it.name} · ⚔ ${it.power} · 🛡 ${it.toughness}` : `Awokin #${id}`}
+                    <button className="abtn small" style={{ marginLeft: 8 }} disabled={bv.hand.ids.length >= bv.hand.cap} onClick={() => void bastionAct(() => api.setHandMember({ awakenedId: id, inHand: true }), `${it?.name ?? "The Awokin"} rises into your hand.`)}>Bring into hand</button>
+                  </div>
+                );
+              })}
+            </>)}
+          </div>
+        );
+      })()}
       <div className="territory-battle-trigger">
         {wavesCleared >= 3 && (
           <button className="abtn battle-cta" onClick={() => {
@@ -5181,6 +5270,9 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </button>
           );
         })()}
+        <button className={`abtn eye-toggle${bastionQ.data?.bastion ? "" : " warn"}`} onClick={() => setBastionOpen(v => !v)} style={{ marginLeft: 8 }} title="The Bastion — stage your Awokin, send the field home to it, and create an instance to travel to">
+          🏯 The Bastion{bastionQ.data?.staged.length ? ` — ${bastionQ.data.staged.length} staged` : ""}
+        </button>
         {wavesCleared >= 3 && wave && (
           <span style={{ marginLeft: 12, color: "#ffd700", fontWeight: "bold" }}>
             All Unravelings broken — Boss awaits!

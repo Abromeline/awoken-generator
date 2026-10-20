@@ -501,8 +501,22 @@ export interface SkillTreeState {
 export interface BastionCall {
   id: number; owner_key: string; host_tender_id: number;
   column_id: number | null; seed_id: number | null;
-  kind: "bastion" | "ambush" | "siege"; state: string; created_at: number;
+  kind: "bastion" | "ambush" | "siege" | "instance"; state: string; created_at: number;
   join_key: string | null;
+}
+/** THE BASTION'S FACE (Station 4, Nigel 2026-10-20): the
+ *  staging hall, the hand of twenty and its reserve. */
+export interface BastionFace {
+  awakenedId: number; name: string; power: number; toughness: number;
+  element: string | null; level: number | null;
+}
+export interface BastionView {
+  bastion: { seedId: number; tileId: number; level: number; q: number | null; r: number | null } | null;
+  staged: (BastionFace & { via: string; stagedAt: number })[];
+  hand: { cap: number; ids: number[] };
+  reserveIds: number[];
+  field: (BastionFace & { tileId: number; follow: boolean; marching: boolean; marchGoal: string | null })[];
+  instanceCall: { id: number; joinKey: string | null; createdAt: number } | null;
 }
 export interface StarSeed {
   id: number; tileId: number; q: number | null; r: number | null;
@@ -756,6 +770,12 @@ export const api = {
   getSeeds: () => post<SeedsView>("getSeeds", {}),
   callToArms: (args: { columnId?: number; seedId?: number }) => post<{ ok: boolean; call: BastionCall; already?: boolean }>("callToArms", args),
   getCalls: () => post<{ calls: BastionCall[] }>("getCalls", {}),
+  getBastion: () => post<BastionView>("getBastion", {}),
+  stageAwokin: (args: { awakenedId: number }) => post<{ ok: boolean }>("stageAwokin", args),
+  unstageAwokin: (args: { awakenedId: number; toField?: boolean }) => post<{ ok: boolean; mustered?: boolean }>("unstageAwokin", args),
+  sendToBastion: (args: { awakenedId: number }) => post<{ ok: boolean; arrived?: boolean; road?: number; arrivesAt?: number; following?: boolean }>("sendToBastion", args),
+  setHandMember: (args: { awakenedId: number; inHand: boolean }) => post<{ ok: boolean; already?: boolean; hand?: number[] }>("setHandMember", args),
+  createBastionInstance: () => post<{ ok: boolean; call: BastionCall; already?: boolean }>("createBastionInstance", {}),
   fetchSeed: (args: { seedId: number; awakenedIds: number[] }) => post<{ ok: boolean; missionId: number; arriveAt: number; travelMs: number }>("fetchSeed", args),
   holdSeed: (args: { seedId: number }) => post<{ ok: boolean; building: any }>("holdSeed", args),
   failIncursion: (args: { columnId: number }) => post<{ ok: boolean; broken: boolean }>("failIncursion", args),

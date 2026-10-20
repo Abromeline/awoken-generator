@@ -421,6 +421,11 @@ export const fieldPlacements = sqliteTable("field_placements", {
   marchPath: text("march_path"),
   marchSince: integer("march_since"),
   marchEnds: integer("march_ends"),
+  // The march's errand (Station 4, Nigel 2026-10-20): a march
+  // ordered "bastion" does not land as a placement — on arrival
+  // the walker leaves the field and joins the bastion's staged
+  // reinforcements. Null for every ordinary march.
+  marchGoal: text("march_goal"),
   // Curse attrition (Nigel, 2026-10-19): the watermark from
   // which this placement's withering on cursed ground is
   // reckoned at settle time. Null while it stands on pure

@@ -1471,6 +1471,18 @@ function noteEnergySpent(ownerKey: string, amount: number) {
     arrives, unfetched, its hold broken — the seed becomes a
     CURSED BASTION: the seed corrupts, and its hex is cursed
     ground again, the dark's fortress where the light failed. */
+/** A call's join key (the Columns, 2026-10-17): six letters
+    of an unambiguous alphabet, unique among open calls. */
+const CALL_KEY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+function mintCallKey(): string {
+  for (;;) {
+    let k = "";
+    for (let i = 0; i < 6; i++) k += CALL_KEY_ALPHABET[Math.floor(Math.random() * CALL_KEY_ALPHABET.length)];
+    const clash = sqlite.prepare("SELECT id FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
+    if (!clash) return k;
+  }
+}
+
 function corruptSeed(ownerKey: string, seed: { id: number; tile_id: number }) {
   sqlite.prepare("UPDATE star_seeds SET state = 'corrupted' WHERE id = ?").run(seed.id);
   sqlite.prepare("UPDATE territory_tiles SET cursed = 1 WHERE id = ? AND owner_key = ?").run(seed.tile_id, ownerKey);
@@ -1495,6 +1507,41 @@ export function incursionRoster(size: number, powerTier: number) {
     left -= Math.max(0, n);
   });
   return out.filter(r => r.count > 0);
+}
+
+/** THE HAND OF TWENTY (Station 4, Nigel 2026-10-20): a Tender
+ *  keeps a play hand of twenty Awokin; the rest wait in reserve
+ *  in the deck, which alone hosts the whole roster. Presence
+ *  in tender_hand IS the choosing — and an untouched ledger
+ *  reads as the default hand: the first twenty of the roster,
+ *  by waking order, so no Tender wakes to an empty hand. */
+export const HAND_CAP = 20;
+export function rosterIdsFor(ownerKey: string): number[] {
+  return (sqlite.prepare("SELECT id FROM awakened WHERE owner_key = ? ORDER BY id ASC").all(ownerKey) as { id: number }[]).map(r => r.id);
+}
+export function handIdsFor(ownerKey: string): number[] {
+  const roster = rosterIdsFor(ownerKey);
+  const chosen = (sqlite.prepare("SELECT awakened_id FROM tender_hand WHERE owner_key = ?").all(ownerKey) as { awakened_id: number }[])
+    .map(r => r.awakened_id);
+  if (!chosen.length) return roster.slice(0, HAND_CAP);
+  const mine = new Set(roster);
+  return chosen.filter(id => mine.has(id)).slice(0, HAND_CAP);
+}
+/** Awokin staged at the bastion, waiting as reinforcements. */
+export function stagedIdsFor(ownerKey: string): number[] {
+  return (sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? ORDER BY staged_at ASC").all(ownerKey) as { awakened_id: number }[])
+    .map(r => r.awakened_id);
+}
+/** THE BASTION (Station 4): the held seed whose bastion
+ *  building stands — the staging hall's own row. Mirrors the
+ *  anchor chain's first choice in bastionAnchorTileId. */
+export function bastionRowFor(ownerKey: string): { seedId: number; tileId: number; level: number } | null {
+  try {
+    const b = sqlite.prepare(`SELECT s.id AS seedId, s.level AS level, b.tile_id AS tileId
+      FROM star_seeds s JOIN territory_buildings b ON b.id = s.bastion_building_id
+      WHERE s.owner_key = ? AND s.state = 'held' AND s.bastion_building_id IS NOT NULL LIMIT 1`).get(ownerKey) as any;
+    return b ? { seedId: Number(b.seedId), tileId: Number(b.tileId), level: Number(b.level ?? 1) } : null;
+  } catch { return null; }
 }
 
 // Record a deed for the Hall of Legends
@@ -4852,7 +4899,7 @@ export const handlers = {
         try { layers = JSON.parse(aw?.compositionJson ?? "[]"); } catch { layers = []; }
         const secPerHex = marchSecondsPerHexFor(layers, aw?.experience ?? 0);
         await db.update(schema.fieldPlacements)
-          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round((road.length - 1) * secPerHex * 1000) })
+          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round((road.length - 1) * secPerHex * 1000), marchGoal: null })
           .where(eq(schema.fieldPlacements.id, p.id));
         p.marchPath = JSON.stringify(road);
         break;
@@ -5721,6 +5768,16 @@ export const handlers = {
       .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
     const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
     if (courtIds.has(parsed.data.awakenedId)) badRequest("The court stays in hand — housed Awokin and the champion cannot be stationed on the field.");
+    // STAGED AT THE BASTION (Station 4, Nigel 2026-10-20): a
+    // waiting reinforcement is at the bastion, not in the
+    // hand's play — it takes the field by mustering from the
+    // bastion's own hex, or not at all.
+    const stagedRow = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, parsed.data.awakenedId) as any;
+    if (stagedRow) badRequest("That Awokin waits at the bastion — muster it from the bastion's hex, or unstage it first.");
+    // THE HAND OF TWENTY (Station 4): only the play hand takes
+    // the field. The reserve waits in the deck — a free swap
+    // away, never stranded, but not fielded from reserve.
+    if (!handIdsFor(ownerKey).includes(parsed.data.awakenedId)) badRequest("That Awokin waits in your reserve — bring it into your hand of twenty before it takes the field.");
     // Verify the tile belongs to the Tender and is not cursed.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
@@ -5785,6 +5842,11 @@ export const handlers = {
         .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
       const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
       if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awokin and the champion stay in hand for battles.`);
+      // STAGED AT THE BASTION (Station 4, Nigel 2026-10-20):
+      // a waiting reinforcement fights from the bastion's hex
+      // by mustering — it is not in the battle pool while staged.
+      const stagedF = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, f.id) as any;
+      if (stagedF) badRequest(`${f.name} waits at the bastion — muster it onto the bastion's hex before it fights on the field.`);
     }
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
@@ -6554,19 +6616,34 @@ export const handlers = {
   async settleMarches(ownerKey: string) {
     const now = Date.now();
     const rows = sqlite.prepare(
-      "SELECT id, march_path, march_ends FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
-    ).all(ownerKey, now) as { id: number; march_path: string; march_ends: number }[];
+      "SELECT id, awakened_id, follow, march_path, march_ends, march_goal FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
+    ).all(ownerKey, now) as { id: number; awakened_id: number; follow: number; march_path: string; march_ends: number; march_goal: string | null }[];
     for (const row of rows) {
       let dest: number | null = null;
       try {
         const road = JSON.parse(row.march_path);
         if (Array.isArray(road) && road.length) dest = road[road.length - 1];
       } catch { /* a broken road settles nowhere — the order still clears */ }
+      // SENT HOME (Station 4, Nigel 2026-10-20): a march whose
+      // errand was the bastion does not land as a placement —
+      // if the bastion still stands where the road ended, the
+      // walker steps off the field into its staged ranks. If
+      // the bastion fell while it walked, the road's end is
+      // simply ground, and it lands as any marcher lands.
+      if (dest !== null && row.march_goal === "bastion") {
+        const bastion = bastionRowFor(ownerKey);
+        if (bastion && bastion.tileId === dest) {
+          sqlite.prepare("DELETE FROM field_placements WHERE id = ?").run(row.id);
+          sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, ?)")
+            .run(ownerKey, row.awakened_id, row.march_ends, row.follow === 1 ? "field" : "march");
+          continue;
+        }
+      }
       if (dest !== null) {
-        sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, march_path = NULL, march_since = NULL, march_ends = NULL WHERE id = ?")
+        sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
           .run(dest, row.march_ends, row.id);
       } else {
-        sqlite.prepare("UPDATE field_placements SET march_path = NULL, march_since = NULL, march_ends = NULL WHERE id = ?")
+        sqlite.prepare("UPDATE field_placements SET march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
           .run(row.id);
       }
     }
@@ -6889,7 +6966,7 @@ export const handlers = {
           const roadHome = findAnyRoad(tilesAll as any, seed.tile_id, home.id);
           if (roadHome && roadHome.length > 1) {
             for (const awId of party) {
-              sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ? WHERE owner_key = ? AND awakened_id = ?")
+              sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = NULL WHERE owner_key = ? AND awakened_id = ?")
                 .run(JSON.stringify(roadHome), now, returnAt, ownerKey, awId);
             }
           }
@@ -7150,7 +7227,7 @@ export const handlers = {
     const ins = sqlite.prepare(`INSERT INTO seed_missions (owner_key, seed_id, kind, party, phase, depart_at, arrive_at)
       VALUES (?, ?, 'fetch', ?, 'out', ?, ?)`).run(ownerKey, seedId, JSON.stringify(awakenedIds), now, arriveAt) as any;
     for (const p of partyRows) {
-      sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ? WHERE id = ?")
+      sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = NULL WHERE id = ?")
         .run(JSON.stringify(road), now, arriveAt, p.id);
     }
     return { ok: true, missionId: Number(ins.lastInsertRowid), arriveAt, travelMs };
@@ -7207,15 +7284,7 @@ export const handlers = {
     // into Discord; a friend opens the Table anywhere, enters
     // the key, and is seated in the call's own room with their
     // Awoken in hand, to help in the defence.
-    const KEY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-    const mintKey = (): string => {
-      for (;;) {
-        let k = "";
-        for (let i = 0; i < 6; i++) k += KEY_ALPHABET[Math.floor(Math.random() * KEY_ALPHABET.length)];
-        const clash = sqlite.prepare("SELECT id FROM bastion_calls WHERE join_key = ? AND state = 'open'").get(k) as any;
-        if (!clash) return k;
-      }
-    };
+    const mintKey = mintCallKey;
     const existing = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' AND IFNULL(column_id, 0) = IFNULL(?, 0) AND IFNULL(seed_id, 0) = IFNULL(?, 0)")
       .get(ownerKey, columnId, seedId) as any;
     if (existing) {
@@ -7237,6 +7306,207 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const calls = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' ORDER BY created_at ASC").all(ownerKey) as any[];
     return { calls };
+  },
+
+  /** THE BASTION'S FACE (Station 4, Nigel 2026-10-20): the
+      staging hall's one read — the bastion itself, the company
+      staged there as reinforcements, the hand of twenty and
+      the reserve it overflows into, and the field company that
+      may be sent home to it. Settles the marches first, like
+      every honest read in this house, so an arrived sender
+      already stands in the staged ranks. */
+  async getBastion(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tileById = new Map((tiles as any[]).map(t => [t.id, t]));
+    const bastion = bastionRowFor(ownerKey);
+    const bastionTile = bastion ? tileById.get(bastion.tileId) : null;
+    const face = async (awakenedId: number) => {
+      const p = await awakenedPayloadById(awakenedId).catch(() => null);
+      if (!p) return { awakenedId, name: "An Awokin", power: 0, toughness: 0, element: null as string | null, level: null as number | null };
+      const layers = (p.layers ?? []) as { element?: string | null; power?: number | null }[];
+      const weights = new Map<string, number>();
+      for (const l of layers) if (l.element) weights.set(l.element, (weights.get(l.element) ?? 0) + (l.power ?? 0));
+      const element = [...weights.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      return { awakenedId, name: p.name, power: p.power, toughness: p.toughness, element, level: p.level ?? null };
+    };
+    const stagedRows = sqlite.prepare("SELECT awakened_id, via, staged_at FROM bastion_staged WHERE owner_key = ? ORDER BY staged_at ASC").all(ownerKey) as any[];
+    const staged = [];
+    for (const r of stagedRows) staged.push({ ...(await face(Number(r.awakened_id))), via: r.via, stagedAt: Number(r.staged_at) });
+    const handIds = handIdsFor(ownerKey);
+    const stagedSet = new Set(stagedRows.map(r => Number(r.awakened_id)));
+    const handSet = new Set(handIds);
+    const reserveIds = rosterIdsFor(ownerKey).filter(id => !handSet.has(id) && !stagedSet.has(id));
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const field = [];
+    for (const p of placements as any[]) {
+      field.push({ ...(await face(p.awakenedId)), tileId: p.tileId, follow: p.follow === 1, marching: !!p.marchPath, marchGoal: p.marchGoal ?? null });
+    }
+    const call = sqlite.prepare("SELECT id, join_key, created_at FROM bastion_calls WHERE owner_key = ? AND state = 'open' AND kind = 'instance' ORDER BY created_at ASC LIMIT 1").get(ownerKey) as any;
+    return {
+      bastion: bastion ? { seedId: bastion.seedId, tileId: bastion.tileId, level: bastion.level, q: bastionTile ? bastionTile.q : null, r: bastionTile ? bastionTile.r : null } : null,
+      staged,
+      hand: { cap: HAND_CAP, ids: handIds },
+      reserveIds,
+      field,
+      instanceCall: call ? { id: Number(call.id), joinKey: call.join_key ?? null, createdAt: Number(call.created_at) } : null,
+    };
+  },
+
+  /** STAGE AN AWOKIN (Station 4): from the hand, into the
+      bastion's waiting ranks. A staged Awokin leaves the hand's
+      play — it is not fielded, not dealt — it WAITS at the
+      bastion as a reinforcement. */
+  async stageAwokin(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
+    if (!awakenedId) badRequest("Which Awokin stages at the bastion?");
+    const mine = sqlite.prepare("SELECT id FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as any;
+    if (!mine) badRequest("That Awokin is not yours.");
+    if (!bastionRowFor(ownerKey)) badRequest("No bastion stands — hold a seed and raise its bastion first, and the staging hall opens.");
+    const placed = sqlite.prepare("SELECT id FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    if (placed) badRequest("That Awokin stands on the field — send it to the bastion, and it will stage on arrival.");
+    const already = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    if (already) badRequest("That Awokin already waits at the bastion.");
+    if (!handIdsFor(ownerKey).includes(awakenedId)) badRequest("Only the hand stages — that Awokin waits in your reserve. Bring it into your hand of twenty first.");
+    sqlite.prepare("INSERT INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'hand')").run(ownerKey, awakenedId, Date.now());
+    return { ok: true };
+  },
+
+  /** UNSTAGE (Station 4): a waiting reinforcement steps back
+      into the hand's play — or, with toField, MUSTERS onto the
+      bastion's own hex under the field's standing law (room
+      for four, the bastion's ground is purified by its hold). */
+  async unstageAwokin(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
+    const toField = (args as any)?.toField === true;
+    if (!awakenedId) badRequest("Which Awokin leaves the bastion's ranks?");
+    const row = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    if (!row) badRequest("That Awokin does not wait at the bastion.");
+    if (toField) {
+      const bastion = bastionRowFor(ownerKey);
+      if (!bastion) badRequest("No bastion stands to muster from.");
+      const placed = sqlite.prepare("SELECT id FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+      if (placed) badRequest("That Awokin already stands on the field.");
+      const occupied = sqlite.prepare("SELECT COUNT(*) AS n FROM field_placements WHERE tile_id = ?").get(bastion.tileId) as any;
+      if (Number(occupied?.n ?? 0) >= 4) badRequest("The bastion's hex stands full — four is the field's law, even at home.");
+      sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
+      await db.insert(schema.fieldPlacements).values({ ownerKey, awakenedId, tileId: bastion.tileId, hp: await placementMaxHp(awakenedId) });
+      return { ok: true, mustered: true };
+    }
+    sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
+    return { ok: true };
+  },
+
+  /** SEND TO THE BASTION (Station 4): a field Awokin is ordered
+      home to the staging hall. The two roads are the land's own:
+      a FOLLOWER rides in the Tender's company — the clean road,
+      home ground only; one NOT following walks alone, by any
+      road that runs — through the curse if the curse is what's
+      there — at a slower pace, and the curse's standing law
+      answers it where it stands until it lands, as it answers
+      every marcher. On arrival it does not take a hex: it joins
+      the staged reinforcements (the settle in settleMarches
+      keeps that promise). No energy is charged — coming home
+      is a standing order, not a maneuver, as the muster and
+      the fetch have always held. */
+  async sendToBastion(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    await this.settleMarches(ownerKey);
+    const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
+    if (!awakenedId) badRequest("Which Awokin is sent to the bastion?");
+    const bastion = bastionRowFor(ownerKey);
+    if (!bastion) badRequest("No bastion stands — hold a seed and raise its bastion first.");
+    const placement = sqlite.prepare("SELECT * FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    if (!placement) badRequest("That Awokin does not stand on the field.");
+    if (placement.march_path) badRequest("That Awokin is already on the march — recall it, or let it arrive, before sending it home.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    if (placement.tile_id === bastion.tileId) {
+      // Already home: it simply steps into the ranks.
+      sqlite.prepare("DELETE FROM field_placements WHERE id = ?").run(placement.id);
+      sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'field')").run(ownerKey, awakenedId, Date.now());
+      return { ok: true, arrived: true };
+    }
+    const following = placement.follow === 1;
+    const road = following
+      ? findRoad(tiles as any, placement.tile_id, bastion.tileId)
+      : findAnyRoad(tiles as any, placement.tile_id, bastion.tileId);
+    if (!road || road.length < 2) {
+      badRequest(following
+        ? "No road of home ground runs to the bastion — your follower cannot reach it in your company until clean ground joins them."
+        : "No road runs to the bastion, even through the curse.");
+    }
+    const aw = sqlite.prepare("SELECT composition_json, experience FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as any;
+    let layers: any[] = [];
+    try { layers = JSON.parse(aw?.composition_json || "[]"); } catch { layers = []; }
+    const pace = marchSecondsPerHexFor(layers, Number(aw?.experience ?? 0));
+    // The lone road is the slow road (the spec's own words):
+    // half again the company's pace.
+    const seconds = (road!.length - 1) * pace * (following ? 1 : 1.5);
+    const now = Date.now();
+    sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = 'bastion', patrol_path = NULL, patrol_since = NULL WHERE id = ?")
+      .run(JSON.stringify(road), now, now + Math.round(seconds * 1000), placement.id);
+    return { ok: true, road: road!.length - 1, arrivesAt: now + Math.round(seconds * 1000), following };
+  },
+
+  /** THE HAND'S CHOOSING (Station 4): bring an Awokin into the
+      play hand of twenty, or let one back to the reserve. A
+      free act, always — the deck hosts them all either way,
+      and no Awokin is ever stranded by the choosing: reserve
+      is a waiting room, not a exile. The first choosing writes
+      the default hand down, then applies itself. */
+  async setHandMember(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
+    const inHand = (args as any)?.inHand === true;
+    if (!awakenedId) badRequest("Which Awokin changes hands?");
+    const mine = sqlite.prepare("SELECT id FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as any;
+    if (!mine) badRequest("That Awokin is not yours.");
+    const rows = sqlite.prepare("SELECT awakened_id FROM tender_hand WHERE owner_key = ?").all(ownerKey) as any[];
+    if (!rows.length) {
+      // Materialize the default hand so the choosing is exact.
+      for (const id of handIdsFor(ownerKey)) {
+        sqlite.prepare("INSERT OR IGNORE INTO tender_hand (owner_key, awakened_id) VALUES (?, ?)").run(ownerKey, id);
+      }
+    }
+    const present = sqlite.prepare("SELECT awakened_id FROM tender_hand WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    if (inHand) {
+      if (present) return { ok: true, already: true };
+      const count = sqlite.prepare("SELECT COUNT(*) AS n FROM tender_hand WHERE owner_key = ?").get(ownerKey) as any;
+      if (Number(count?.n ?? 0) >= HAND_CAP) badRequest("Your hand stands full — twenty is the law of the hand. Let one back to the reserve before another rises.");
+      sqlite.prepare("INSERT INTO tender_hand (owner_key, awakened_id) VALUES (?, ?)").run(ownerKey, awakenedId);
+    } else {
+      sqlite.prepare("DELETE FROM tender_hand WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
+    }
+    return { ok: true, hand: handIdsFor(ownerKey) };
+  },
+
+  /** CREATE AN INSTANCE (Station 4): the bastion as departure
+      hall — an open call of its own kind, keyed like every
+      call, whose room seats the host with the STAGED company
+      in hand (the Table's claim keeps that promise). Whatever
+      is staged is the company that travels; if nothing is
+      staged, there is no company to carry, and no instance. */
+  async createBastionInstance(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const bastion = bastionRowFor(ownerKey);
+    if (!bastion) badRequest("No bastion stands — hold a seed and raise its bastion first, and the hall opens.");
+    if (!stagedIdsFor(ownerKey).length) badRequest("No company is staged at the bastion — stage your Awokin first, and the instance has someone to carry.");
+    const existing = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' AND kind = 'instance'").get(ownerKey) as any;
+    if (existing) {
+      if (!existing.join_key) {
+        existing.join_key = mintCallKey();
+        sqlite.prepare("UPDATE bastion_calls SET join_key = ? WHERE id = ?").run(existing.join_key, existing.id);
+      }
+      return { ok: true, call: existing, already: true };
+    }
+    const tenderId = Number(ownerKey.replace("tender:", "")) || 0;
+    const ins = sqlite.prepare("INSERT INTO bastion_calls (owner_key, host_tender_id, column_id, seed_id, kind, state, created_at, join_key) VALUES (?, ?, NULL, ?, 'instance', 'open', ?, ?)")
+      .run(ownerKey, tenderId, bastion.seedId, Date.now(), mintCallKey()) as any;
+    const call = sqlite.prepare("SELECT * FROM bastion_calls WHERE id = ?").get(Number(ins.lastInsertRowid)) as any;
+    return { ok: true, call };
   },
 
   /** The Eye and its columns, for the map's face. */
@@ -7423,7 +7693,7 @@ export const handlers = {
     if (!(await spendEnergy(ownerKey, energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
     const now = Date.now();
     await db.update(schema.fieldPlacements).set({
-      marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000),
+      marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000), marchGoal: null,
       patrolPath: null, patrolSince: null,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
     return { ok: true as const, awakenedId, tileId, steps, seconds: Math.round(seconds * 10) / 10, energy };
@@ -7447,7 +7717,7 @@ export const handlers = {
     let road: number[] = [];
     try { const r = JSON.parse(placement.marchPath); if (Array.isArray(r)) road = r.filter((x: any) => typeof x === "number"); } catch { /* broken below */ }
     if (road.length < 2) {
-      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null } as any)
+      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null, marchGoal: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
       return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
     }
@@ -7455,7 +7725,7 @@ export const handlers = {
     const frac = Math.min(1, Math.max(0, (Date.now() - placement.marchSince) / Math.max(1, placement.marchEnds - placement.marchSince)));
     const reached = Math.floor(frac * steps); // whole hexes gained
     if (reached <= 0) {
-      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null } as any)
+      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null, marchGoal: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
       return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
     }
@@ -7472,7 +7742,7 @@ export const handlers = {
     const homeRoad = road.slice(0, reached + 1).reverse();
     const now = Date.now();
     await db.update(schema.fieldPlacements).set({
-      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(reached * pace * 1000),
+      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(reached * pace * 1000), marchGoal: null,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
     return { ok: true as const, awakenedId, recalled: true, stepsHome: reached };
   },
