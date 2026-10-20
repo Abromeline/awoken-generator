@@ -1,13 +1,17 @@
 // PHASE D — THE LIVING HOMELAND (Nigel, 2026-10-19): the cursed
-// frontier deepens to three rings around the whole purified rim;
-// the Blind Fray spawns on cursed ground in the Tender's view at
-// 35% a beat, wanders blind on its dark, and turns hostile only
-// at the purified border — his Awokin are chewed before he is,
-// and no one is bitten away from the border; the Tender's own
-// body answers the curse at the Awokin rate, mends on clean
-// ground, falls exactly once, and wakes at the bastion
-// half-healed. (test57)
-import { mkdtempSync } from "node:fs";
+// frontier stands deep around the whole purified rim; the Blind
+// Fray spawns on cursed ground in the OUTER view of the Tender's
+// stand — rings 3–6, never beside him — at 20% a beat, at most
+// 8 alive (THE TUNING, Nigel 2026-10-20: the frontier from three
+// rings to five, births pushed out of his shadow, their press
+// thinned — at the first numbers he was set upon from all sides
+// the moment he looked at his own map). It wanders blind on its
+// dark, and turns hostile only at the purified border — his
+// Awokin are chewed before he is, and no one is bitten away from
+// the border; the Tender's own body answers the curse at the
+// Awokin rate, mends on clean ground, falls exactly once, and
+// wakes at the bastion half-healed. (test57)
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -55,62 +59,88 @@ const seedPlacement = (me, awakenedId, tileId, hp) => Number(db.prepare("INSERT 
 const seedWanderer = (me, tileId) => Number(db.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at) VALUES (?, ?, 'fray', ?)").run(me, tileId, Date.now()).lastInsertRowid);
 const terr = async (token) => (await call("getTerritory", {}, token)).data;
 
-/* ── §1 THE CURSED FRONTIER: a radius-2 world grows its third
-      ring around the purified rim, then stops. */
+/* ── §0 THE TUNING TABLE, read directly from the server's own
+      source: a spawn difference cannot be separated from dice
+      weather by sampling alone at sane counts, so the constants
+      themselves are read here; §2a then samples the wide band
+      around them and proves the birth band by position. */
+{
+  const src = readFileSync(new URL("../server/src/actions.ts", import.meta.url), "utf8");
+  const depth = Number(/const FRONTIER_DEPTH = (\d+);/.exec(src)?.[1]);
+  const line = /const SPAWN_BEAT_MS = (\d+), SPAWN_CHANCE = ([\d.]+), VIEW_RING = (\d+), BIRTH_RING = (\d+), CAP = (\d+),/.exec(src);
+  ok("the tuning table: frontier 5 · births at rings 3–6 · 20% a beat · cap 8",
+    depth === 5 && !!line && Number(line[2]) === 0.20 && Number(line[3]) === 6 && Number(line[4]) === 3 && Number(line[5]) === 8,
+    `depth=${depth} line=${line?.[0] ?? "not found"}`);
+}
+
+/* ── §1 THE CURSED FRONTIER (the Tuning): a lone pure heart's
+      buffer mints cursed hexes out to the FIFTH ring around it,
+      then stops — the debt is the whole rim's, and satisfied. */
 {
   const { token, me } = await claimTender("Frontier Tender");
   const tile = seedTile(me);
   for (const { q, r } of flower(2)) tile(q, r, q === 0 && r === 0 ? 0 : 1);
   let t = await terr(token);
   const at = (q, r) => t.tiles.find(x => x.q === q && x.r === r);
-  ok("frontier: the third ring is minted (37 tiles stand)", t.tiles.length === 37, `tiles=${t.tiles.length}`);
-  ok("frontier: the new ring is cursed dark", !!at(3, 0) && at(3, 0).cursed === 1 && !!at(-3, 3) && at(-3, 3).cursed === 1);
+  ok("frontier: the fifth ring is minted (91 tiles stand)", t.tiles.length === 91, `tiles=${t.tiles.length}`);
+  ok("frontier: the outer rings are cursed dark", !!at(4, 0) && at(4, 0).cursed === 1 && !!at(5, 0) && at(5, 0).cursed === 1 && !!at(-5, 5) && at(-5, 5).cursed === 1);
   t = await terr(token);
-  ok("frontier: satisfied, it does not grow again", t.tiles.length === 37, `tiles=${t.tiles.length}`);
+  ok("frontier: satisfied, it does not grow again", t.tiles.length === 91, `tiles=${t.tiles.length}`);
 }
 
-/* ── §2a THE BLIND FRAY — spawn rate against the 35% law.
-      A rate is only measurable where the cap cannot bind, so
-      the counting field is a remote cursed cluster: nine dark
-      hexes around (10,0), nothing else in ring 6 of it — the
-      pure heart and its frontier-minted rim stand seven hexes
-      west, outside the view. 150 beats, the field cleared
-      between beats so each beat is a fresh draw of nine. */
+/* ── §2a THE BLIND FRAY — births in the OUTER view only, at the
+      tuned 20%. The counting stand is a cursed hex at (14,0),
+      far from the pure heart, whose own minted frontier cannot
+      reach the birth view. Around the stand: nine cursed hexes
+      at rings 0–2 (his shadow — nothing may be born there) and
+      nine at rings 3–6 (the counting field). 150 beats, the
+      field cleared between beats so each beat is a fresh draw;
+      the walk is held frozen, so a birth is counted on the very
+      hex it was born on. */
 {
   const { token, me } = await claimTender("Counting Tender", 200);
   const tile = seedTile(me);
   tile(0, 0, 0); // the pure heart — the bastion-rule anchor
-  const field = [{ q: 10, r: 0 }, { q: 11, r: 0 }, { q: 11, r: -1 }, { q: 10, r: -1 }, { q: 9, r: 0 }, { q: 9, r: 1 }, { q: 10, r: 1 }, { q: 12, r: 0 }, { q: 8, r: 0 }];
-  const fieldIds = {};
-  for (const { q, r } of field) fieldIds[`${q},${r}`] = tile(q, r, 1);
+  const standCoord = { q: 14, r: 0 };
+  const inner = [{ q: 14, r: 0 }, { q: 15, r: 0 }, { q: 15, r: -1 }, { q: 14, r: -1 }, { q: 13, r: 0 }, { q: 13, r: 1 }, { q: 14, r: 1 }, { q: 16, r: 0 }, { q: 12, r: 0 }];
+  const outer = [{ q: 17, r: 0 }, { q: 18, r: 0 }, { q: 19, r: 0 }, { q: 19, r: -1 }, { q: 18, r: -1 }, { q: 17, r: 1 }, { q: 18, r: 1 }, { q: 20, r: 0 }, { q: 18, r: 2 }];
+  const innerIds = new Set(), outerIds = new Set();
+  let standId = null;
+  for (const c of inner) { const id = tile(c.q, c.r, 1); innerIds.add(id); if (c.q === standCoord.q && c.r === standCoord.r) standId = id; }
+  for (const c of outer) outerIds.add(tile(c.q, c.r, 1));
+  ok("spawn: the fields stand as drawn (inner at rings 0–2, outer at rings 3–6)",
+    inner.every(c => hexDist(c, standCoord) <= 2) && outer.every(c => { const d = hexDist(c, standCoord); return d >= 3 && d <= 6; }),
+    `inner=${inner.map(c => hexDist(c, standCoord))} outer=${outer.map(c => hexDist(c, standCoord))}`);
   await call("chooseClass", { classKey: "sage" }, token);
   let t = await terr(token);
   ok("spawn: no wanderers before the first beat", (t.wanderers ?? []).length === 0);
-  await call("setTenderTile", { tileId: fieldIds["10,0"] }, token); // he stands in the dark field
+  await call("setTenderTile", { tileId: standId }, token); // he stands in the dark field
   t = await terr(token);
-  ok("spawn: the counting Tender stands on cursed ground in the field", !!t.tender && t.tender.tileId === fieldIds["10,0"]);
-  let spawns = 0, capHeld = true;
+  ok("spawn: the counting Tender stands on cursed ground in the field", !!t.tender && t.tender.tileId === standId);
+  let outerBirths = 0, innerBirths = 0, capHeld = true;
   for (let beat = 0; beat < 150; beat++) {
-    db.prepare("UPDATE tender_progress SET wanderer_anchor_at = wanderer_anchor_at - 45000, hp = 35, down_until = NULL WHERE owner_key = ?").run(me);
+    db.prepare("UPDATE tender_progress SET wanderer_anchor_at = wanderer_anchor_at - 45000, wanderer_watermark = ?, hp = 35, down_until = NULL WHERE owner_key = ?").run(Date.now(), me);
     t = await terr(token);
-    const n = (t.wanderers ?? []).length;
-    if (n > 12) capHeld = false;
-    spawns += n;
+    const ws = t.wanderers ?? [];
+    if (ws.length > 8) capHeld = false;
+    for (const w of ws) { if (innerIds.has(w.tileId)) innerBirths++; else if (outerIds.has(w.tileId)) outerBirths++; }
     db.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(me);
   }
-  const expected = 150 * 9 * 0.35; // 472.5
-  const sigma = Math.sqrt(150 * 9 * 0.35 * 0.65); // ≈17.5
-  ok(`spawn: the rate is the law's 35% (${spawns} births over 150 beats × 9 hexes, expected ${expected} ±3σ=${(3 * sigma).toFixed(0)})`,
-    Math.abs(spawns - expected) <= 3 * sigma, `spawns=${spawns}`);
-  ok("spawn: the live cap (12) was never the binding constraint, and never broke", capHeld);
+  ok("spawn: nothing is born in his shadow (rings 0–2), across 150 beats", innerBirths === 0, `inner=${innerBirths}`);
+  const expected = 150 * 9 * 0.20; // 270
+  const sigma = Math.sqrt(150 * 9 * 0.20 * 0.80); // ≈14.7
+  ok(`spawn: the outer rate is the law's 20% (${outerBirths} births over 150 beats × 9 hexes, expected ${expected} ±3σ=${(3 * sigma).toFixed(0)})`,
+    Math.abs(outerBirths - expected) <= 3 * sigma, `births=${outerBirths}`);
+  ok("spawn: the live cap (8) was never broken", capHeld);
   // The storm: forty beats fall due at once over the heart's own
-  // wide dark (the frontier rim stands minted by now) — the
-  // catch-up is capped, the cap holds, the map fills exactly to it.
+  // wide dark (its minted frontier stands at rings 3–5 of it,
+  // inside the birth band) — the catch-up is capped, the cap
+  // holds, the map fills exactly to it.
   await call("setTenderTile", { tileId: t.tiles.find(x => x.q === 0 && x.r === 0).id }, token);
   db.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(me);
   db.prepare("UPDATE tender_progress SET wanderer_anchor_at = wanderer_anchor_at - 45000 * 40 WHERE owner_key = ?").run(me);
   t = await terr(token);
-  ok("spawn: a 40-beat storm settles capped — exactly 12 walk", (t.wanderers ?? []).length === 12, `n=${(t.wanderers ?? []).length}`);
+  ok("spawn: a 40-beat storm settles capped — exactly 8 walk", (t.wanderers ?? []).length === 8, `n=${(t.wanderers ?? []).length}`);
 }
 
 /* ── §2b THE BORDER LAW: a wanderer beside pure ground chews

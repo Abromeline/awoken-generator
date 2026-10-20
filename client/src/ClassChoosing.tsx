@@ -52,7 +52,8 @@ const LAW: Record<TenderClassId, { school: string; lines: string[] }> = {
   sage: {
     school: "No school — the Sage's road is attunement",
     lines: [
-      "−3 on EVERY cast, spells included. The Sage owns no school.",
+      "−2 on EVERY cast, spells included. The Sage owns no school.",
+      "Her own weapon blows roll +2 to hit.",
       "Her Attune lays 2 points deeper than her own pool pays for.",
       "Her company stands taller: her Awoken gain +2 AC and +2 attack.",
     ],

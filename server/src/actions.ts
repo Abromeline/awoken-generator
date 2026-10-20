@@ -1154,10 +1154,12 @@ async function expandFrontier(ownerKey: string, q: number, r: number, depth: num
 // Self-healing: ensure a living buffer of cursed tiles beyond the
 // purified frontier. Called on getTerritory so a stuck map fixes
 // itself on next load. PHASE D — THE CURSED FRONTIER (Nigel,
-// 2026-10-19): the buffer deepens to THREE rings, and the debt is
-// reckoned around the WHOLE purified rim, not at one edge tile —
-// more dark beyond the homeland's edge, to explore and push back.
-const FRONTIER_DEPTH = 3;
+// 2026-10-19): the buffer deepens around the WHOLE purified rim,
+// not at one edge tile — more dark beyond the homeland's edge, to
+// explore and push back. THE TUNING (Nigel, 2026-10-20): the depth
+// stands at FIVE rings — at three, the curse stood on his very
+// doorstep and the Fray closed on him from every side at once.
+const FRONTIER_DEPTH = 5;
 async function ensureFrontierBuffer(ownerKey: string) {
   const tiles = await db.select().from(schema.territoryTiles)
     .where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -5557,9 +5559,13 @@ export const handlers = {
   },
 
   /** PHASE D — THE BLIND FRAY LAW (Nigel, 2026-10-19): while the
-   *  Tender is online (his map read is the world's pulse), every
-   *  cursed hex in his view — ring 6 of his stand — rolls 35% on
-   *  each spawn beat (~45s) to birth a Fray. The Fray has no eyes:
+   *  Tender is online (his map read is the world's pulse), cursed
+   *  hexes in the OUTER view of his stand — rings 3–6 — roll on
+   *  each spawn beat (~45s) to birth a Fray (THE TUNING, Nigel,
+   *  2026-10-20: 20% a beat, at most 8 alive, and nothing is born
+   *  at rings 0–2 beside him — at 35% with the curse three tiles
+   *  out he was set upon from all sides the moment he looked).
+   *  The Fray has no eyes:
    *  on cursed ground it only wanders, blind; it turns hostile
    *  ONLY at the purified border, chewing what stands on the
    *  clean hexes beside it — his fielded Awokin first (the
@@ -5571,7 +5577,7 @@ export const handlers = {
     // response's own placement read happens AFTER this pass, so
     // what the map serves is the walking's true aftermath.
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
-    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.35, VIEW_RING = 6, CAP = 12, CATCHUP_BEATS = 4, CHEW = 0.05;
+    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.20, VIEW_RING = 6, BIRTH_RING = 3, CAP = 8, CATCHUP_BEATS = 4, CHEW = 0.05;
     const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
     const now = Date.now();
     const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
@@ -5600,7 +5606,11 @@ export const handlers = {
           const fresh = due - Number(prow.settled ?? 0);
           if (fresh > 0) {
             const beats = Math.min(fresh, CATCHUP_BEATS);
-            const view = tiles.filter((t: any) => t.cursed && hexDist(t, stand) <= VIEW_RING);
+            // THE OUTER VIEW ONLY (the Tuning, Nigel 2026-10-20):
+            // a cursed hex rolls for a birth only at rings
+            // BIRTH_RING..VIEW_RING of his stand — nothing is
+            // born on the dark beside him, at rings 0–2.
+            const view = tiles.filter((t: any) => { if (!t.cursed) return false; const d = hexDist(t, stand); return d >= BIRTH_RING && d <= VIEW_RING; });
             for (let b = 0; b < beats && rows.length < CAP; b++) {
               const occupied = new Set(rows.map(w => w.tileId));
               for (const t of view) {
