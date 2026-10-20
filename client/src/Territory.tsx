@@ -493,8 +493,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // clocks and mirrors live below, beside refreshTerritory.
   const [tenderStand, setTenderStand] = useState<{ tileId: number; classKey: string; weaponKey?: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null>(null);
   // PHASE D — THE BLIND FRAY on the face: the homeland's dark,
-  // served by getTerritory beside the Tender's own body.
-  const [wanderers, setWanderers] = useState<{ id: number; tileId: number }[]>([]);
+  // served by getTerritory beside the Tender's own body — and,
+  // since the homeland weapon referee (Nigel, 2026-10-20), with
+  // the wound track his weapon writes on them.
+  const [wanderers, setWanderers] = useState<{ id: number; tileId: number; hp?: number; maxHp?: number }[]>([]);
+  // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
+  // the last strike its homeland referee struck; when a NEWER
+  // strike arrives, the weapon lunges at that foe's hex on the
+  // map's own clock. The client animates only what the server
+  // struck — no blow is ever invented on this side of the glass.
+  const [weaponStrikeAnim, setWeaponStrikeAnim] = useState<{ tileId: number; felled: boolean; localAt: number } | null>(null);
+  const strikeSeenRef = useRef(0);
+  const noteWeaponStrike = (s: { tileId: number; at: number; felled: boolean } | null | undefined) => {
+    if (!s || s.at <= strikeSeenRef.current) return;
+    strikeSeenRef.current = s.at;
+    setWeaponStrikeAnim({ tileId: s.tileId, felled: s.felled, localAt: Date.now() });
+  };
   const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number; jh?: number; flipU?: number | null } | null>(null);
   // THE JUMP (Nigel, 2026-10-19) come home to the real map: the
   // Proving Ground's engine (client/src/jump.ts) rides the stride
@@ -1169,6 +1183,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
         setWanderers(t.wanderers ?? []);
+        noteWeaponStrike(t.weaponStrike);
       } catch (e) {
         console.error("[Territory] getTerritory failed:", e);
       } finally {
@@ -1209,6 +1224,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
     setWanderers(refreshed.wanderers ?? []);
+    noteWeaponStrike(refreshed.weaponStrike);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
   };
 
@@ -4359,15 +4375,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         );
       })() : null;
       // THE RUNIC WEAPON rides with him (Nigel, 2026-10-19):
-      // presence only on the homeland — it floats at his
-      // shoulder on the map's own clock, gold-lit; the Sword &
-      // Shield's shield keeps the opposite side. Its lunges are
-      // the Table's business, a later phase.
+      // it floats at his shoulder on the map's own clock,
+      // gold-lit; the Sword & Shield's shield keeps the
+      // opposite side. Since the homeland weapon referee
+      // (Nigel, 2026-10-20) it HUNTS here too: when the server
+      // serves a strike newer than the last one witnessed, the
+      // weapon lunges at that foe's hex and comes back — the
+      // arc below only ever plays a blow the server struck.
       const weaponKey = (tenderStand.weaponKey ?? null) as WeaponKey | null;
       const bob = Math.sin(marchNow / 480) * 2.5;
       const wh = 30 * zoom;
       const wcx = tenderFig.x + 26 * zoom;
       const wcy = tenderFig.y - 34 * zoom + bob - jh;
+      const strikeP = weaponStrikeAnim ? (marchNow - weaponStrikeAnim.localAt) / 620 : 1;
+      const strikeLive = !!weaponStrikeAnim && strikeP >= 0 && strikeP < 1;
+      const strikeTile = strikeLive ? tiles.find(t => t.id === weaponStrikeAnim!.tileId) : undefined;
+      const strikePos = strikeTile ? tilePos(strikeTile) : null;
+      const lungeK = strikePos ? Math.sin(Math.min(1, strikeP) * Math.PI) * 0.62 : 0;
+      const lx = strikePos ? (strikePos.cx - wcx) * lungeK : 0;
+      const ly = strikePos ? (strikePos.cy - wcy) * lungeK : 0;
       const sh = 26 * zoom;
       const scx = tenderFig.x - 26 * zoom;
       const scy = tenderFig.y - 32 * zoom + Math.sin(marchNow / 480 + 1.2) * 2.5 - jh;
@@ -4392,11 +4418,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               onClick={(e) => { e.stopPropagation(); setTenderCtl(true); }} />
           )}
           {weaponKey && WEAPONS[weaponKey] && (
-            <>
+            <g transform={lx || ly ? `translate(${lx} ${ly})` : undefined}>
               <ellipse cx={wcx} cy={wcy} rx={wh * 0.66} ry={wh * 0.66} fill="rgba(255,215,100,0.13)" />
               <image href={weaponImg(weaponKey)} x={wcx - wh / 2} y={wcy - wh / 2} width={wh} height={wh}
                 preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,215,100,0.55))" }} />
-            </>
+            </g>
+          )}
+          {strikeLive && strikePos && strikeP > 0.3 && (
+            <g pointerEvents="none" opacity={Math.max(0, 1 - (strikeP - 0.3) / 0.7)}>
+              <path d={`M ${strikePos.cx - 9 * zoom} ${strikePos.cy - 7 * zoom} L ${strikePos.cx + 9 * zoom} ${strikePos.cy + 7 * zoom}`}
+                stroke="#ffd977" strokeWidth={1.8 * zoom} strokeLinecap="round" />
+              <path d={`M ${strikePos.cx - 6 * zoom} ${strikePos.cy + 8 * zoom} L ${strikePos.cx + 8 * zoom} ${strikePos.cy - 6 * zoom}`}
+                stroke="rgba(255,240,200,0.75)" strokeWidth={1.1 * zoom} strokeLinecap="round" />
+              {weaponStrikeAnim!.felled && (
+                <text x={strikePos.cx} y={strikePos.cy - 14 * zoom} textAnchor="middle" fontSize={9 * zoom} fill="#ffd977"
+                  style={{ paintOrder: "stroke", stroke: "rgba(8,2,4,0.9)", strokeWidth: 3 }}>✦</text>
+              )}
+            </g>
           )}
           {weaponKey === "swordshield" && (
             <image href={shieldImg()} x={scx - sh / 2} y={scy - sh / 2} width={sh} height={sh}
@@ -4558,11 +4596,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const { cx, cy } = tilePos(t);
           const wh = size * 0.95;
           const sway = Math.sin(marchNow / 620 + w.id * 1.7) * 1.6;
+          // THE WOUND TRACK (Nigel, 2026-10-20): a Fray his
+          // weapon has bitten wears its wounds — a thin dark
+          // bar above it, emptying as the blows deepen.
+          const wounded = w.hp != null && w.maxHp != null && w.hp < w.maxHp;
           return (
             <g key={w.id}>
               <ellipse cx={cx} cy={cy + size * 0.17} rx={size * 0.3} ry={size * 0.11} fill="rgba(0,0,0,0.42)" />
               <image href={enemyImgFor("fray", enemyArtData?.art)} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
                 preserveAspectRatio="xMidYMax meet" opacity={0.95} />
+              {wounded && (
+                <g>
+                  <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52} height={2.6} fill="rgba(6,4,10,0.82)" stroke="rgba(160,60,50,0.6)" strokeWidth={0.4} />
+                  <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52 * Math.max(0, (w.hp ?? 0) / (w.maxHp ?? 1))} height={2.6} fill="#b0402f" />
+                </g>
+              )}
             </g>
           );
         })}

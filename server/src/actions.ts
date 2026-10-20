@@ -2717,6 +2717,65 @@ async function skillTreeState(ownerKey: string) {
   };
 }
 
+/* ── THE HOMELAND WEAPON REFEREE (Nigel, 2026-10-20) ─────────
+ * At the Table his runic weapon hunts on its own (fireWeapon in
+ * table.ts); on the homeland it floated at his shoulder and
+ * never struck — presence without law, a one-field shortfall
+ * against the standing law that both grounds carry the same
+ * functionality. These numbers are the Table's own, mirrored
+ * (table.ts imports this module, so the law cannot ride the
+ * other way) — test60 holds the two copies to the same reading,
+ * cell for cell, so the mirror can never quietly drift. */
+export const HOMELAND_WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6, arrow: 4 };
+export const HOMELAND_WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
+export const HOMELAND_WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
+export const HOMELAND_ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+/** The Blind Fray's wound track: the Table's Fray stands at
+ *  hp 3 behind armor 4 (ENEMY_STATS / DARK_ARMOR there); the
+ *  homeland's wanderers carry the same body now, so blows
+ *  land, deepen, and fell — purification is no longer the
+ *  only way a wanderer's walking ends. */
+export const HOMELAND_FRAY_HP = 3;
+export const HOMELAND_FRAY_ARMOR = 4;
+function homelandDN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
+/** The wielded weapon's homeland reach in hexes — the Table's
+ *  weaponRangeHexOf, read from the homeland contract: its base
+ *  reach, or — once attuned (depth ≥ 1, an element set) — its
+ *  ELEMENT's reach instead; the spear's Signature (LONGSHAFT)
+ *  adds one hex on top of whichever applies. */
+export function homelandWeaponRangeFor(weaponKey: string, element: string | null, depth: number, signature: boolean): number {
+  let range = HOMELAND_WEAPON_RANGE_HEX[weaponKey] ?? 0;
+  if ((depth ?? 0) >= 1 && element && HOMELAND_ELEMENT_REACH[element] != null) {
+    range = HOMELAND_ELEMENT_REACH[element];
+  }
+  if (weaponKey === "spear" && signature) range += 1;
+  return range;
+}
+/** The homeland strike's attack bonus — the Table's roll site
+ *  read whole (fireWeapon): Fate's level step (a point at Lv 3,
+ *  6, 9…) plus THE SAGE'S HAND (Nigel, 2026-10-20): +2 to HER
+ *  base attack roll, her own blows only — the same law at this
+ *  ground's roll site, never her company's blessing. */
+export function homelandWeaponBonusFor(classKey: string | null, tenderLevel: number): number {
+  return Math.floor(Math.max(1, tenderLevel) / 3) + (classKey === "sage" ? 2 : 0);
+}
+/** The wielded weapon's harm roll — the Table's weaponDamageOf:
+ *  its die, plus a point per level past the first, plus the
+ *  sword Signature's KEEN edge (+2), all before mitigation. */
+export function homelandWeaponDamageFor(weaponKey: string, weaponLevel: number, signature: boolean): number {
+  return homelandDN(HOMELAND_WEAPON_DIE[weaponKey])
+    + Math.max(0, (weaponLevel ?? 1) - 1)
+    + (weaponKey === "sword" && signature ? 2 : 0);
+}
+/** Fate's mitigation, the Table's own formula: armor shaves a
+ *  share that shrinks as the attacker's level grows; a landed
+ *  blow always draws at least a point of blood. */
+export function homelandFateMitigate(raw: number, armor: number, attackerLevel: number): number {
+  if (raw <= 0) return 0;
+  const cut = armor / (armor + 50 * Math.max(1, attackerLevel));
+  return Math.max(1, Math.round(raw * (1 - cut)));
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -5186,7 +5245,7 @@ export const handlers = {
    *  shield law), the Tender himself only when nothing stands.
    *  Purified ground is death to it: the light takes its own.
    *  Settles lazily on read, like the marches and the columns. */
-  async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number }[] }> {
+  async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number; hp: number; maxHp: number }[] }> {
     // The chew's targets, read fresh inside the settle — the
     // response's own placement read happens AFTER this pass, so
     // what the map serves is the walking's true aftermath.
@@ -5199,7 +5258,7 @@ export const handlers = {
     const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
     // The light takes its own: a wanderer standing on ground that
     // has been purified is unmade with the curse that bore it.
-    let rows = sqlite.prepare("SELECT id, tile_id AS tileId FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number }[];
+    let rows = sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[];
     rows = rows.filter(w => {
       const t = byId.get(w.tileId);
       if (t && t.cursed) return true;
@@ -5227,8 +5286,8 @@ export const handlers = {
                 if (rows.length >= CAP) break;
                 if (occupied.has(t.id)) continue;
                 if (Math.random() < SPAWN_CHANCE) {
-                  const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at) VALUES (?, ?, 'fray', ?)").run(ownerKey, t.id, now);
-                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id });
+                  const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp) VALUES (?, ?, 'fray', ?, ?)").run(ownerKey, t.id, now, HOMELAND_FRAY_HP);
+                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, hp: HOMELAND_FRAY_HP });
                   occupied.add(t.id);
                 }
               }
@@ -5296,7 +5355,87 @@ export const handlers = {
         }
       }
     }
-    return { views: rows.map(w => ({ id: w.id, tileId: w.tileId })) };
+    return { views: rows.map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP })) };
+  },
+
+  /** THE HOMELAND WEAPON REFEREE (Nigel, 2026-10-20): while
+   *  the Tender stands on his homeland — classed, armed, and
+   *  not fallen — his runic weapon hunts on the homeland's own
+   *  rhythm (this lazy settle, like the marches, the columns
+   *  and the wanderers before it): on the Table's own cadence
+   *  it strikes the nearest Blind Fray within its reach of his
+   *  stand, with the Table's own roll — Fate's level step, and
+   *  the Sage's +2 on her own blows — against the Fray's armor,
+   *  its harm the weapon's die as the Table reckons it, shaped
+   *  by the weapon's level and Signature and shaved by Fate's
+   *  mitigation. A felled wanderer is removed. The settle never
+   *  reckons more than a minute of absence (the homeland's
+   *  standing cap), and a cadence with no foe in reach is not
+   *  banked — as at the Table, the weapon fires when there is
+   *  something to strike, and not before. Returns the last
+   *  strike's record (this settle's, or an earlier one's) so
+   *  the map can serve the witness: the client lunges only
+   *  where this referee struck. */
+  async settleHomelandWeapon(ownerKey: string, tiles: any[], standTileId: number): Promise<{ tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null> {
+    const readRecord = (): { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null => {
+      const r = sqlite.prepare("SELECT weapon_strike AS s FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+      if (!r?.s) return null;
+      try { return JSON.parse(r.s); } catch { return null; }
+    };
+    const progress = await getTenderProgress(ownerKey);
+    const wk = progress.weaponKey;
+    // Classless (no stand at all reaches here), weaponless, or
+    // a key the roster doesn't know: the map stays silent.
+    if (!progress.classKey || !wk || !(wk in HOMELAND_WEAPON_DIE)) return readRecord();
+    const row = sqlite.prepare("SELECT weapon_next_at AS nextAt, down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (!row) return readRecord();
+    const now = Date.now();
+    if (row.downUntil != null && Number(row.downUntil) > now) return readRecord(); // the fallen hold no weapon
+    const stand = tiles.find((t: any) => t.id === standTileId);
+    if (!stand) return readRecord();
+    const contract = (progress.arsenal ?? []).find(w => w.key === wk) ?? { level: 1, element: null as string | null, depth: 0, signature: false };
+    const range = homelandWeaponRangeFor(wk, contract.element ?? null, contract.depth ?? 0, !!contract.signature);
+    const cooldown = HOMELAND_WEAPON_COOLDOWN_MS[wk];
+    const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+    let nextAt = row.nextAt == null ? now : Number(row.nextAt);
+    if (nextAt < now - 60000) nextAt = now - 60000; // a settle never reckons more than a minute
+    let record = readRecord();
+    let dirty = row.nextAt == null || nextAt !== Number(row.nextAt);
+    let strikes = 0;
+    while (nextAt <= now && strikes < 40) {
+      const foes = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
+        .map(w => ({ ...w, tile: tiles.find((t: any) => t.id === w.tileId), hpNow: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp) }))
+        .filter(w => w.tile && hexDist(stand, w.tile) <= range)
+        .sort((a, b) => hexDist(stand, a.tile) - hexDist(stand, b.tile) || a.id - b.id);
+      if (!foes.length) { nextAt = now; dirty = true; break; } // no prey: the cadence is spent, never banked
+      const strikeAt = nextAt;
+      const blow = (foe: typeof foes[number]) => {
+        const roll = homelandDN(20);
+        const bonus = homelandWeaponBonusFor(progress.classKey, progress.level);
+        const hit = roll === 20 || (roll !== 1 && roll + bonus >= HOMELAND_FRAY_ARMOR);
+        let dmg = 0;
+        if (hit) {
+          dmg = homelandFateMitigate(homelandWeaponDamageFor(wk, contract.level, !!contract.signature), HOMELAND_FRAY_ARMOR, progress.level);
+          foe.hpNow -= dmg;
+        }
+        const felled = hit && foe.hpNow <= 0;
+        if (felled) sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(foe.id);
+        else if (hit) sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(foe.hpNow, foe.id);
+        return { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled };
+      };
+      record = blow(foes[0]);
+      // PIERCE (the arrow's Signature): the same beat carries
+      // through to the next-nearest distinct dark in range.
+      if (wk === "arrow" && contract.signature && foes[1]) record = blow(foes[1]);
+      nextAt += cooldown;
+      strikes++;
+      dirty = true;
+    }
+    if (dirty) {
+      sqlite.prepare("UPDATE tender_progress SET weapon_next_at = ?, weapon_strike = ? WHERE owner_key = ?")
+        .run(nextAt, record ? JSON.stringify(record) : null, ownerKey);
+    }
+    return record;
   },
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
@@ -5355,13 +5494,22 @@ export const handlers = {
     // Both passes run BEFORE the field is read for the response,
     // so a wake's new stand and a chew's wounds are what the map
     // serves — never their ghosts.
-    let wandererViews: { id: number; tileId: number }[] = [];
+    let wandererViews: { id: number; tileId: number; hp: number; maxHp: number }[] = [];
+    let weaponStrikeView: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null = null;
     let tenderView: any = tenderStand;
     if (tenderStand) {
       const stoodTileId = await this.settleTenderBody(ownerKey, tiles as any[], tenderStand.tileId);
       tenderStand.tileId = stoodTileId;
       const wres = await this.settleWanderers(ownerKey, tiles as any[], tenderStand.tileId);
       wandererViews = wres.views;
+      // THE HOMELAND WEAPON REFEREE settles after the walk
+      // (Nigel, 2026-10-20): his weapon answers the dark that
+      // stands within its reach of him. The wanderer views are
+      // then read FRESH, so what the map serves is the strike's
+      // true aftermath — wounds carried, the felled gone.
+      weaponStrikeView = await this.settleHomelandWeapon(ownerKey, tiles as any[], tenderStand.tileId);
+      wandererViews = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
+        .map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP }));
       const body = await this.tenderBodyView(ownerKey);
       if (body) tenderView = { ...tenderStand, ...body };
     }
@@ -5919,7 +6067,7 @@ export const handlers = {
       .all(ownerKey);
     const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges, pour, max_hp AS maxHp FROM territory_workings WHERE owner_key = ? ORDER BY id")
       .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, terrainBank: await terrainBankFor(ownerKey) };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey) };
   },
 
   /** The Tender walks his own land: the client reports the hex

@@ -720,6 +720,13 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS homeland_wanderers (
   spawned_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_homeland_wanderers_owner ON homeland_wanderers (owner_key);`);
+// THE HOMELAND WEAPON REFEREE (Nigel, 2026-10-20): his runic
+// weapon's cadence clock and its last strike's record ride the
+// progress row, and the Blind Fray gains a wound track of its
+// own (null until first reckoned: an unwounded Fray, whole at 3).
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN weapon_next_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN weapon_strike TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN hp REAL`); } catch {}
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   owner_key TEXT NOT NULL,
   weapon_key TEXT NOT NULL,

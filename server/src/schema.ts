@@ -522,6 +522,12 @@ export const tenderProgress = sqliteTable("tender_progress", {
   wandererAnchorAt: integer("wanderer_anchor_at"),
   wandererSettledBeats: integer("wanderer_settled_beats").notNull().default(0),
   wandererWatermark: integer("wanderer_watermark"),
+  /** THE HOMELAND WEAPON REFEREE (Nigel, 2026-10-20): the
+   *  cadence clock of his runic weapon's homeland hunt, and the
+   *  last strike it struck there — served with the map so the
+   *  client lunges only where the server struck. */
+  weaponNextAt: integer("weapon_next_at"),
+  weaponStrike: text("weapon_strike"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

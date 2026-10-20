@@ -310,7 +310,7 @@ interface Working {
   sustainer?: string;
 }
 
-const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
+export const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
   fray: { power: 1, hp: 3, armor: 4 },
   unraveler: { power: 4, hp: 6, armor: 6 },
   hollow: { power: 0, hp: 5, armor: 5 },
@@ -692,13 +692,13 @@ const FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, 
 const ELEMENT_HIT_BONUS: Record<string, number> = { stone: 1, root: 2, tide: 3, sky: 4, fire: 5 };
 /** ELEMENT REACH (Phase B): how many hexes (×69px) an element's
  *  light strikes across the continuous field. */
-const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+export const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
 /** THE RUNIC WEAPON (Phase A2, striking from Phase B): its die,
  *  its reach in hexes, its cadence, and the AC it lends a bare
  *  Tender, by wielded key. The key is read LIVE at strike time. */
-const WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6, arrow: 4 };
-const WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
-const WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
+export const WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6, arrow: 4 };
+export const WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
+export const WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
 const WEAPON_AC: Record<string, number> = { swordshield: 3, sword: 1, spear: 0, arrow: 0 };
 const WEAPON_KEYS = ["swordshield", "sword", "spear", "arrow"];
 /** One weapon's contract standing (Phase C), as the menu
@@ -775,7 +775,7 @@ function weaponDamageOf(p: Player, wk: string): number {
 function dismissManifests(room: Room, ownerKey: string): void {
   if (room.manifests) room.manifests = room.manifests.filter(m => m.ownerKey !== ownerKey);
 }
-const DARK_ARMOR: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
+export const DARK_ARMOR: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
 const DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
 function dN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
 function fateLevelBonus(level: number): number { return Math.floor(Math.max(1, level) / 3); }
