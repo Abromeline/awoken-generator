@@ -25,6 +25,7 @@ import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
+import { partyIdsFor, partyCapFor, tryAddPartyMember, removePartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
 // imported, never copied, so the two grounds can never drift
@@ -3263,6 +3264,37 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
       sqlite.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), w.id);
     }
   }
+}
+
+/** THE PARTY, as the Zodiac reads it (Nigel, 2026-10-20;
+ *  built 2026-10-21): the members standing in the party —
+ *  each with the face its card carries — the width the band
+ *  law allows, and the rest of the roster standing in the
+ *  deck, from which an open spot is filled. Membership lives
+ *  in server/src/party.ts; this is only its serving face. */
+async function partyViewFor(ownerKey: string) {
+  const progress = await getTenderProgress(ownerKey);
+  const cap = partyCapFor(ownerKey, progress.level);
+  const ids = partyIdsFor(ownerKey);
+  const face = async (id: number) => {
+    const p = await awakenedPayloadById(id).catch(() => null);
+    if (!p) return null;
+    return {
+      awakenedId: p.id, name: p.name, imageUrl: p.image_url,
+      power: p.power, toughness: p.toughness, level: p.level ?? null,
+    };
+  };
+  const members: NonNullable<Awaited<ReturnType<typeof face>>>[] = [];
+  for (const id of ids) { const f = await face(id); if (f) members.push(f); }
+  const memberSet = new Set(ids);
+  const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.ownerKey, ownerKey));
+  const deck: typeof members = [];
+  for (const row of rows) {
+    if (memberSet.has(row.id)) continue;
+    const f = await face(row.id);
+    if (f) deck.push(f);
+  }
+  return { members, deck, cap, size: members.length, level: progress.level };
 }
 
 export const handlers = {
@@ -8913,6 +8945,11 @@ export const handlers = {
     if (tileIds.some(id => !mine.has(id))) badRequest("A patrol road runs over your own ground only.");
     await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now() } as any)
       .where(eq(schema.fieldPlacements.id, placement.id));
+    // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20): a
+    // patrol road is an order like a march — the Awokin
+    // given it leaves the party. (Clearing a patrol above
+    // gives no order, and ends nothing.)
+    removePartyMember(ownerKey, awakenedId);
     return { ok: true as const, awakenedId, patrolling: true, waypoints: tileIds.length };
   },
 
@@ -8977,6 +9014,10 @@ export const handlers = {
       marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000), marchGoal: null,
       patrolPath: null, patrolSince: null,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
+    // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20): a
+    // marched Awokin leaves the party — it stands under
+    // orders now, not at the Tender's side.
+    removePartyMember(ownerKey, awakenedId);
     return { ok: true as const, awakenedId, tileId, steps, seconds: Math.round(seconds * 10) / 10, energy };
   },
 
@@ -9720,6 +9761,75 @@ export const handlers = {
     const { inElement, total } = await fillPageSlot(ownerKey, spellKey, element);
     const slots = await pageAttunementsFor(ownerKey);
     return { ok: true as const, spellKey, element, spent: SLOT_COST, inElement, filled: total, slots: slots[spellKey] ?? {} };
+  },
+
+  /** THE PARTY, READ (Nigel, 2026-10-20; built 2026-10-21):
+   *  who stands in the Tender's party, how wide it may stand,
+   *  and the deck the open spots are filled from. */
+  async getParty(_args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    return partyViewFor(ownerKeyFor(ctx));
+  },
+
+  /** FILL AN OPEN SPOT FROM THE DECK (the same ruling):
+   *  clicking an open party spot on the Zodiac adds an Awokin
+   *  from the full deck list. MEMBERSHIP ONLY — the creature
+   *  joins the party and so follows its Tender when it
+   *  stands on a ground; fielding it still happens through
+   *  the summon and deploy roads, as it always has. On the
+   *  homeland the fill is immediate (no timer was ever named
+   *  at home); the Table's mid-battle road — the deck-fill at
+   *  a running battle, with its four-minute reinforcements
+   *  timer — is build 2's, and this door is not it. */
+  async addToParty(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the Awokin to add to your party.");
+    const ownerKey = ownerKeyFor(ctx);
+    const progress = await getTenderProgress(ownerKey);
+    const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
+    if (!r.ok) badRequest(r.reason);
+    return partyViewFor(ownerKey);
+  },
+
+  /** RETURN A MEMBER TO THE DECK (the Keeper's pencil,
+   *  standing until Nigel rules otherwise): benching is free
+   *  whenever the Tender is not mid-battle. This door is the
+   *  Zodiac's own — it changes membership only; it does not
+   *  reach into a running Table battle (whose dealt hand is
+   *  build 2's seam) and it does not lift a follow order the
+   *  creature stands under on a field — follow is each
+   *  ground's own switch, as it was before the party. */
+  async removeFromParty(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the Awokin to return to the deck.");
+    const ownerKey = ownerKeyFor(ctx);
+    removePartyMember(ownerKey, parsed.data.awakenedId);
+    return partyViewFor(ownerKey);
+  },
+
+  /** ADD FROM THE FIELD — THE HOMELAND ROAD (the ruling:
+   *  "In Tender mode, selecting a fielded Awokin may ADD IT
+   *  TO THE PARTY — it then follows the Tender"): the Awokin
+   *  must stand on the Tender's own field; adding writes the
+   *  membership and sets its follow on this ground through
+   *  the placement's own follow flag — the muster then keeps
+   *  it at the Tender's ring, as following Awokin do. */
+  async addFieldToParty(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the Awokin to add to your party.");
+    const ownerKey = ownerKeyFor(ctx);
+    const rows = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    const placement = rows[0] as any;
+    if (!placement) badRequest("That Awokin does not stand on your field.");
+    const progress = await getTenderProgress(ownerKey);
+    const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
+    if (!r.ok) badRequest(r.reason);
+    await db.update(schema.fieldPlacements).set({ follow: 1 }).where(eq(schema.fieldPlacements.id, placement.id));
+    return { ...(await partyViewFor(ownerKey)), follow: true as const };
   },
 
   async uploadGrimoireGlyph(args: unknown) {

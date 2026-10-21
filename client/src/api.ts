@@ -256,6 +256,28 @@ export interface CardBorderState {
 }
 
 export type GrimoireGlyphSort = "ward" | "rune" | "binding" | "spell" | "unsorted";
+/** THE PARTY (Nigel, 2026-10-20; built 2026-10-21): one
+ *  face of the party read — a creature as its card carries
+ *  it (art, given name, strength), standing either in the
+ *  party (members) or in the deck it is drawn from. */
+export interface PartyFace {
+  awakenedId: number;
+  name: string;
+  imageUrl: string;
+  power: number;
+  toughness: number;
+  level: number | null;
+}
+
+export interface PartyView {
+  members: PartyFace[];
+  deck: PartyFace[];
+  /** How wide the party may stand — the band law's number. */
+  cap: number;
+  size: number;
+  level: number;
+}
+
 export type GrimoireSpellKind = "ward" | "rune" | "binding" | "spell";
 export interface GrimoireGlyph {
   id: string;
@@ -649,6 +671,15 @@ export const api = {
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>
     post<{ ok: true; spellKey: string; element: string; spent: number; inElement: number; filled: number; slots: Record<string, number> }>("attuneGrimoirePage", args),
+  // THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
+  // membership read the Zodiac's party tab stands on, the
+  // deck-fill for an open spot, the benching back to the
+  // deck, and the homeland's add-from-the-field (which also
+  // sets the creature's follow on that ground).
+  getParty: () => post<PartyView>("getParty", {}),
+  addToParty: (args: { awakenedId: number }) => post<PartyView>("addToParty", args),
+  removeFromParty: (args: { awakenedId: number }) => post<PartyView>("removeFromParty", args),
+  addFieldToParty: (args: { awakenedId: number }) => post<PartyView & { follow: true }>("addFieldToParty", args),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),

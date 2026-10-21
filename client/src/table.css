@@ -77,6 +77,9 @@ button { font-family: inherit; }
 }
 .table-btn.primary { background: var(--gold); color: #191104; font-weight: bold; }
 .table-btn:disabled { opacity: 0.45; cursor: default; }
+/* THE PARTY (2026-10-21): the standing marker in the unit
+   bar — a member's badge, not a button. */
+.party-mark { align-self: center; padding: 4px 8px; border: 1px solid rgba(240,214,140,0.4); border-radius: 999px; color: var(--gold); font-size: 12px; white-space: nowrap; }
 
 /* ————— The room ————— */
 .table-room {

@@ -2799,6 +2799,18 @@ body.defeat-flash {
 .character-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13px;line-height:1.45}
 .character-list li.in-hand{color:#f0d68c}
 .character-list.spells li{border-bottom:1px solid rgba(240,214,140,0.12);padding-bottom:6px}
+/* THE PARTY TAB (2026-10-21): the plain working arrangement —
+   spots in a wrapping row, the deck list beneath — standing
+   until Nigel's own frame replaces it. */
+.party-spots{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.party-spot{display:flex;flex-direction:column;align-items:center;gap:4px;width:118px;padding:8px 6px;border:1px solid rgba(240,214,140,0.25);border-radius:8px;background:rgba(20,22,31,0.6);color:#e8e4d8;font-size:12px;text-align:center}
+.party-spot img{width:64px;height:64px;object-fit:contain}
+.party-spot.open{justify-content:center;min-height:120px;border-style:dashed;background:transparent;color:#9aa3b8;cursor:pointer;font:inherit}
+.party-spot.open:hover{color:#f0d68c;border-color:rgba(240,214,140,0.6)}
+.party-deck{margin-top:10px}
+.party-deck-row{display:flex;align-items:center;gap:8px}
+.party-deck-row .zodiac-btn{margin-left:auto}
+.party-thumb{width:36px;height:36px;object-fit:contain;flex:none}
 .casting-law{font-size:12.5px;line-height:1.5;color:#cfd3e2}
 .weapon-branch{border:1px solid rgba(240,214,140,0.22);border-radius:11px;padding:11px 12px;margin-bottom:11px}
 .weapon-branch.in-hand{border-color:#f0d68c}

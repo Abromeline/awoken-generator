@@ -1091,6 +1091,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // THE COLUMNS (2026-10-17): the Curse's Eye and its traced
   // lines — read from the server, refreshed as the land is.
   const incursionsQ = useQuery({ queryKey: ["incursions"], queryFn: () => api.getIncursions(), refetchInterval: 30000 });
+  // THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
+  // membership read — the War-Grounds orders bar below offers
+  // adding the chosen Awokin to the party, and says so when
+  // it already stands there.
+  const partyQ = useQuery({ queryKey: ["party"], queryFn: () => api.getParty() });
   const seedsQ = useQuery({ queryKey: ["seeds"], queryFn: () => api.getSeeds(), refetchInterval: 30000 });
   // The First Seed's hold, polled gently — faster while waves fall.
   const firstSeedQ = useQuery({
@@ -7084,6 +7089,32 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               title="A following Awokin musters to the Tender's ring whenever the field is read — it keeps to him as he walks his land.">
               {placement.follow ? "🧭 Following you ✓" : "🧭 Follow me"}
             </button>
+            {/* THE PARTY (Nigel, 2026-10-20; built 2026-10-21):
+                adding from the field, on the same orders bar —
+                the chosen Awokin joins the party, and the
+                server sets its follow on this ground as it
+                writes the membership, so it follows from the
+                moment it joins. A member shows its standing
+                instead of the offer. */}
+            {partyQ.data && (partyQ.data.members.some(m => m.awakenedId === selectedAwoken) ? (
+              <span className="patrol-bar-label">👣 In your party</span>
+            ) : (
+              <button
+                className="stance-btn"
+                onClick={async () => {
+                  try {
+                    await api.addFieldToParty({ awakenedId: selectedAwoken });
+                    await queryClient.invalidateQueries({ queryKey: ["party"] });
+                    await refreshTerritory();
+                    showHexNotice(`${awoken.name} joins your party — and follows you.`);
+                  } catch (e) {
+                    showHexNotice(e instanceof Error ? e.message : "The party refused.");
+                  }
+                }}
+                title="Add this Awokin to your party: it stands in the party on your Zodiac tab, and follows you on this ground. An Awokin given orders — a march, a patrol — leaves the party.">
+                👣 Add to party
+              </button>
+            ))}
           </div>
         );
       })()}

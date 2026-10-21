@@ -100,7 +100,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   // character hub — profile card on the right with Profile |
   // Inventory | Grimoire tabs. Every pour/buy/wield refreshes
   // the tender record so the card never lies.
-  const [tab, setTab] = useState<"profile" | "inventory" | "grimoire">("profile");
+  const [tab, setTab] = useState<"profile" | "inventory" | "grimoire" | "party">("profile");
   const [grimTab, setGrimTab] = useState<"weapons" | "spells" | "runes">("weapons");
   const [charMsg, setCharMsg] = useState("");
   const [charErr, setCharErr] = useState("");
@@ -139,6 +139,32 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     },
     onError: charFail,
   });
+  // ── THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
+  // party stands in this tab. The arrangement here is the
+  // plain working draft — spots in a row, the deck beneath —
+  // standing until Nigel's own frame replaces it. Filling an
+  // open spot draws from the full deck list the server
+  // serves; returning a member benches it back to the deck.
+  const partyQ = useQuery({ queryKey: ["party"], queryFn: () => api.getParty(), enabled: tab === "party" });
+  const [filling, setFilling] = useState(false);
+  const addPartyM = useMutation({
+    mutationFn: (id: number) => api.addToParty({ awakenedId: id }),
+    onSuccess: (v, id) => {
+      qc.setQueryData(["party"], v);
+      setFilling(false);
+      charOk(`${v.members.find(m => m.awakenedId === id)?.name ?? "The Awokin"} joins your party — it follows you now.`);
+    },
+    onError: charFail,
+  });
+  const removePartyM = useMutation({
+    mutationFn: (id: number) => api.removeFromParty({ awakenedId: id }),
+    onSuccess: (v, id) => {
+      qc.setQueryData(["party"], v);
+      charOk(`${v.deck.find(d => d.awakenedId === id)?.name ?? "The Awokin"} returns to the deck.`);
+    },
+    onError: charFail,
+  });
+  const partyBusy = addPartyM.isPending || removePartyM.isPending;
   const charBusy = wieldM.isPending || attuneM.isPending || buyNodeM.isPending || attunePageM.isPending;
   const exp = expQ.data;
   /** Which pool a node buy would draw on — the client mirror of
@@ -313,8 +339,8 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
               </div>
             </div>
             <div className="character-tabs" role="tablist" aria-label="Character menu tabs">
-              {(["profile", "inventory", "grimoire"] as const).map(t => (
-                <button key={t} type="button" role="tab" aria-selected={tab === t} className={`character-tab${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>{t === "profile" ? "Profile" : t === "inventory" ? "Inventory" : "Grimoire"}</button>
+              {(["profile", "inventory", "grimoire", "party"] as const).map(t => (
+                <button key={t} type="button" role="tab" aria-selected={tab === t} className={`character-tab${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>{t === "profile" ? "Profile" : t === "inventory" ? "Inventory" : t === "grimoire" ? "Grimoire" : "Party"}</button>
               ))}
             </div>
             {charMsg && <p className="character-msg" role="status">{charMsg}</p>}
@@ -357,6 +383,56 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                   {WEAPON_ORDER.map(key => { const w = arsenalOf(key); if (!w) return null; return (
                     <li key={key}>{WEAPONS[key].name}: Lv {w.level} · {w.element ? `${w.element} ${ROMAN[w.depth] ?? w.depth}` : "unattuned"} · M{w.manifest ? "✓" : "—"} S{w.signature ? "✓" : "—"}{exp.weaponKey === key ? " · in hand" : ""}</li>); })}
                 </ul>
+              </div>
+            )}
+
+            {tab === "party" && (
+              <div className="character-pane">
+                <h4>Your party</h4>
+                <p className="zodiac-note small">The party stands here, in your Zodiac. Its members follow you — at the Table and on your land. An Awokin you give orders to, a march or a patrol, leaves the party; one standing on a field can be added back from that field. Fielding a member still happens where it always has: summoned at the Table, deployed on your land.</p>
+                {partyQ.isLoading && <p className="zodiac-note">Your party is gathering…</p>}
+                {partyQ.isError && <p className="zodiac-lock">The party would not gather — try again in a moment.</p>}
+                {partyQ.data && (
+                  <>
+                    <p>{partyQ.data.size} of {partyQ.data.cap} spots filled.</p>
+                    <div className="party-spots">
+                      {Array.from({ length: partyQ.data.cap }, (_, i) => {
+                        const m = partyQ.data!.members[i];
+                        return m ? (
+                          <div key={m.awakenedId} className="party-spot filled">
+                            <img src={m.imageUrl} alt="" />
+                            <strong>{m.name}</strong>
+                            <span>Lv {m.level ?? "?"} · ⚔ {m.power} · 🛡 {m.toughness}</span>
+                            <button type="button" className="zodiac-btn" disabled={partyBusy} onClick={() => removePartyM.mutate(m.awakenedId)}>Return to the deck</button>
+                          </div>
+                        ) : (
+                          <button key={`open-${i}`} type="button" className="party-spot open" disabled={partyBusy} onClick={() => setFilling(true)}>
+                            Open spot — tap to fill it from your deck
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {filling && (
+                      <div className="party-deck">
+                        <h4>Your deck — the whole roster</h4>
+                        {partyQ.data.deck.length === 0 ? (
+                          <p className="zodiac-note small">Every Awokin you hold already stands in the party.</p>
+                        ) : (
+                          <ul className="character-list">
+                            {partyQ.data.deck.map(d => (
+                              <li key={d.awakenedId} className="party-deck-row">
+                                <img className="party-thumb" src={d.imageUrl} alt="" />
+                                <span><strong>{d.name}</strong> — Lv {d.level ?? "?"} · ⚔ {d.power} · 🛡 {d.toughness}</span>
+                                <button type="button" className="zodiac-btn" disabled={partyBusy || partyQ.data!.size >= partyQ.data!.cap} onClick={() => addPartyM.mutate(d.awakenedId)}>Add to the party</button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <button type="button" className="quiet-link" onClick={() => setFilling(false)}>Not now</button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 

@@ -112,6 +112,9 @@ interface MapTileView {
 interface FieldUnitView {
   hex: string;
   cardId: string;
+  /** The roster creature this unit is (THE PARTY, 2026-10-21):
+   *  membership is reckoned by it; null for stand-in cards. */
+  awokenId?: number | null;
   name: string;
   art: string | null;
   layers?: { source_id: string; category: string; imageUrl: string | null }[];
@@ -200,6 +203,11 @@ interface YouState {
   tenderHp?: number;
   maxTenderHp?: number;
   pools?: Record<string, number> | null;
+  /** THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
+   *  creature ids standing in your party, served with your
+   *  own payload only — the unit bar offers the add where a
+   *  fielded Awokin of yours is not yet a member. */
+  party?: number[];
   /** The colour each cast will wear, derived by the server
    *  from the page's standing in the Grimoire — served with
    *  the seat's own state (Nigel, 2026-10-20: the cast's hue
@@ -2318,6 +2326,18 @@ export default function Table() {
                       <button className="table-btn" onClick={() => setStrikeArm(true)}>Strike the curse · <span className="spark-glow">✦</span>1</button>
                     ) : null}
                     <button className="table-btn" onClick={() => send({ type: "setFollow", cardId: selUnit.cardId, follow: !selUnit.follow })}>{selUnit.follow ? "👣 Following you — hold ground" : "👣 Follow me"}</button>
+                    {/* THE PARTY (Nigel, 2026-10-20; built
+                        2026-10-21): adding from the field, on
+                        the unit's own orders bar — the server
+                        writes the membership and sets its
+                        follow here; a member shows its standing
+                        instead. Orders (the march above) end
+                        the membership again, by the same law. */}
+                    {you?.bound && selUnit.awokenId != null && (
+                      (you.party ?? []).includes(selUnit.awokenId)
+                        ? <span className="party-mark" title="This Awokin stands in your party — it is listed on the Party tab of your Zodiac.">👣 In your party</span>
+                        : <button className="table-btn" onClick={() => send({ type: "addToParty", cardId: selUnit.cardId })}>👣 Add to party</button>
+                    )}
                     <button className="table-btn" onClick={() => { send({ type: "recall", hex: selUnit.hex, cardId: selUnit.cardId }); setSelUnitId(null); }}>Recall</button>
                   </>
                 )}

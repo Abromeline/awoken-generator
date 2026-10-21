@@ -328,6 +328,19 @@ export const grimoireAttunements = sqliteTable("grimoire_attunements", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.spellKey, t.element] })]);
 
+// THE PARTY (Nigel, 2026-10-20; built 2026-10-21): one row
+// per Awokin standing in a Tender's party. Membership is a
+// fact about the Tender and the creature — it stands in the
+// party on the Zodiac tab, follows the Tender on either
+// ground, and leaves the party when it is given orders. The
+// deck hosts the whole roster; the party is drawn from it,
+// and its width is the band law (companyCapFor).
+export const tenderParty = sqliteTable("tender_party", {
+  ownerKey: text("owner_key").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  addedAt: integer("added_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.awakenedId] })]);
+
 // Glyph library: SVG symbols for elements, magic, hexes, buffs. Used throughout the game.
 export const glyphs = sqliteTable("glyphs", {
   id: integer("id").primaryKey({ autoIncrement: true }),

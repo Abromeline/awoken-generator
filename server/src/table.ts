@@ -33,6 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
+import { partyIdsFor, tryAddPartyMember, removePartyMember } from "./party.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 by Nigel 2026-10-18, the night the map grew to 127 tiles
@@ -1079,7 +1080,7 @@ function sharedState(room: Room) {
     workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
     field: [...room.field.values()].map(u => ({
-      hex: u.hex, cardId: u.card.id, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
+      hex: u.hex, cardId: u.card.id, awokenId: u.card.awokenId ?? null, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
       shield: u.shield, maxShield: u.maxShield,
       pos: roundPos(u.pos), tgt: u.target ? roundPos(u.target) : null, moving: isMoving(u),
@@ -1140,6 +1141,13 @@ function sendState(room: Room): void {
         band: [...room.field.values()].filter(u => u.ownerKey === player.key).length,
         landing: [...room.map.values()].find(t => t.landingFor === player.key)?.id ?? null,
         bandCap: companyCapFor(player.expKey, player.tenderLevel),
+        // THE PARTY (Nigel, 2026-10-20; built 2026-10-21):
+        // the creature ids standing in this seat's Tender's
+        // party — read fresh from the membership ledger at
+        // every send, so an order given here (or a fill made
+        // in the Zodiac) shows at once. Unbound seats hold
+        // no party.
+        party: player.expKey ? partyIdsFor(player.expKey) : [],
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
         healAmount: player.healAmount,
@@ -3495,9 +3503,17 @@ function handleConnection(ws: WebSocket): void {
       // hex is NOT set — the integrator derives it from the
       // gliding position; its pace rides from its gait.
       unit.follow = false;
+      // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20): the
+      // marched Awokin leaves the party as it leaves the
+      // follow — it stands under orders now. The tale says
+      // so when a membership actually stood to end.
+      const leftParty = player.expKey && unit.card.awokenId
+        ? removePartyMember(player.expKey, unit.card.awokenId)
+        : false;
       unit.target = { ...TILE_CENTERS.get(to)! };
       unit.speedPx = Math.max(34, 69 / marchSecondsPerHexFor(unit.card));
       tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (✦${cost}).`);
+      if (leftParty) tell(room, `${unit.card.name} leaves ${player.name}'s party — an Awokin under orders stands outside it.`);
       sendState(room);
       return;
     }
@@ -3549,6 +3565,32 @@ function handleConnection(ws: WebSocket): void {
       tell(room, follow
         ? `👣 ${unit.card.name} will follow ${player.name} — where they stand, it musters.`
         : `✋ ${unit.card.name} holds its ground.`);
+      sendState(room);
+      return;
+    }
+
+    // ADD TO THE PARTY FROM THE FIELD (Nigel, 2026-10-20;
+    // built 2026-10-21): in Tender mode, selecting a fielded
+    // Awokin of yours may add it to the party — it then
+    // follows you (this ground's standing order, set here)
+    // and stands in the party on the Zodiac tab. Membership
+    // is the tender_party ledger, judged by the party module
+    // — the band law's width, this seat's own level. An
+    // unbound seat keeps no party and is told so plainly.
+    if (msg.type === "addToParty") {
+      if (!player) return;
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender keeps a party." })); return; }
+      if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "This seat is not bound to a Tender — there is no party to add to." })); return; }
+      const cardId = String(msg.cardId ?? "");
+      const myKey = player.key;
+      const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
+      if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
+      if (!unit.card.awokenId) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands outside the roster — it cannot join a party.` })); return; }
+      const r = tryAddPartyMember(player.expKey, unit.card.awokenId, player.tenderLevel);
+      if (!r.ok) { ws.send(JSON.stringify({ type: "error", message: r.reason })); return; }
+      unit.follow = true;
+      tell(room, `👣 ${unit.card.name} joins ${player.name}'s party — where they stand, it musters.`);
       sendState(room);
       return;
     }

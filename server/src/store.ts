@@ -770,6 +770,16 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS grimoire_attunements (
   updated_at INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner_key, spell_key, element)
 )`);
+// THE PARTY (Nigel, 2026-10-20; built 2026-10-21): one row
+// per Awokin standing in a Tender's party — the membership
+// ledger both grounds read. Presence in the party IS the
+// membership; the party's width is the band law.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_party (
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  added_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (owner_key, awakened_id)
+)`);
 try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN follow INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN march_goal TEXT`); } catch {}
 // THE BASTION'S LEDGERS (Station 4, Nigel 2026-10-20): who is
