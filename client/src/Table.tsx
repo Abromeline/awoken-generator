@@ -200,6 +200,11 @@ interface YouState {
   tenderHp?: number;
   maxTenderHp?: number;
   pools?: Record<string, number> | null;
+  /** The colour each cast will wear, derived by the server
+   *  from the page's standing in the Grimoire — served with
+   *  the seat's own state (Nigel, 2026-10-20: the cast's hue
+   *  is judged from the book, never picked in the field). */
+  castHues?: Record<string, string>;
   inventory: string[];
   bound?: string | null;
   yourCall?: { id: number; kind: string; columnId: number | null; seedId: number | null; joinKey?: string | null } | null;
@@ -435,11 +440,15 @@ export default function Table() {
   // steps (a ward wants an anchor hex, then a neighbour; the
   // Three Blades gather up to three hexes). THE POUR MENU IS
   // GONE (Nigel, 2026-10-20): no hue/points choice stands
-  // between readying and casting — casts go unaligned, and
-  // powering lives in the Grimoire now (the server's cast
-  // doors take no pour at all; a cast carries what its page
-  // holds, judged by the book's levels when a hue is named).
-  const pourHue = "unaligned";
+  // between readying and casting, and powering lives in the
+  // Grimoire now. THE CAST'S COLOUR IS DERIVED (Nigel,
+  // 2026-10-20 19:35): the server judges each cast's hue
+  // from its page's standing in the book — the element the
+  // page is most attuned to — and serves the seat those
+  // colours (you.castHues) so the form a cast will wear is
+  // the form shown here, before the tap. No hue is sent
+  // with a cast; a sent one would be inert.
+  const castHueFor = (key: string): string => you?.castHues?.[key] ?? "unaligned";
   const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
@@ -1418,7 +1427,7 @@ export default function Table() {
           return;
         }
         if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
-          send({ type: "castRune", root: placing.root, hue: pourHue, hexes: [t.id] });
+          send({ type: "castRune", root: placing.root, hexes: [t.id] });
           beginCast(t.id);
         }
         return;
@@ -1430,7 +1439,7 @@ export default function Table() {
       if (!wardAnchor) { setWardAnchor(t.id); return; }
       const anchor = tileById.get(wardAnchor);
       if (anchor && axialDist(anchor, t) === 1) {
-        send({ type: "castWard", root: placing.root, hue: pourHue, hexA: wardAnchor, hexB: t.id });
+        send({ type: "castWard", root: placing.root, hexA: wardAnchor, hexB: t.id });
         beginCast(t.id);
         setWardAnchor(null);
       } else if (t.id === wardAnchor) setWardAnchor(null);
@@ -2270,18 +2279,18 @@ export default function Table() {
               <div className="placing-bar">
                 <span className="placing-text">
                   {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[pourHue] ?? defs[placing.root]?.root}</strong> — tap any hex: the ward will stand on one of its edges. Wards stand anywhere now — but cursed ground eats what stands on it.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex: the ward will stand on one of its edges. Wards stand anywhere now — but cursed ground eats what stands on it.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two. It stays in your hand — raise another edge when this one lands.</>}
                 </span>
                 {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
                   <button className="table-btn primary" onClick={() => {
                     const picks = [...bladePicks];
-                    send({ type: "castRune", root: placing.root, hue: pourHue, hexes: picks });
+                    send({ type: "castRune", root: placing.root, hexes: picks });
                     beginCast(picks[0] ?? null);
                     setBladePicks([]);
                   }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · <span className="spark-glow">✦</span>{defs[placing.root]?.cost ?? 4}</button>
@@ -2637,13 +2646,13 @@ export default function Table() {
             {tab === "II" && (
               <div className="arts-list">
                 {Object.values(defs).filter(d => d.kind === "ward").map(d => {
-                  const formName = d.forms[pourHue] ?? d.root;
+                  const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
                       title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, choose the hex your Awokin holds, then its neighbour.`}>
-                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✦</span>}
+                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[hue]} drop-shadow(0 0 6px ${HUE_GLOWS[hue]})` }} /> : <span className="heal-medal">✦</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
                         <em>{d.root} · Ward · <span className="spark-glow">✦</span>{d.cost}</em>
@@ -2652,7 +2661,7 @@ export default function Table() {
                     </button>
                   );
                 })}
-                <p className="quiet small">Wards are walls: they stand on a hex's edge and answer what crosses it. A ward is written for one battle — when the wave breaks, the light fades. Workings are written plain in this seating; the pouring of hues into them is the Grimoire's craft, not the field's.</p>
+                <p className="quiet small">Wards are walls: they stand on a hex's edge and answer what crosses it. A ward is written for one battle — when the wave breaks, the light fades. A working wears the colour its page is attuned to in the Grimoire — the form named on each card is the form its cast will take; a page with no attunement casts plain.</p>
               </div>
             )}
             {tab === "III" && (
@@ -2660,7 +2669,7 @@ export default function Table() {
                 <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
                   onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
                   title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ✦${healDef?.cost ?? 2}`}>
-                  {healDef?.glyph ? <img src={healDef.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✚</span>}
+                  {healDef?.glyph ? <img src={healDef.glyph} alt="" style={{ filter: `${HUE_FILTERS["unaligned"]} drop-shadow(0 0 6px ${HUE_GLOWS["unaligned"]})` }} /> : <span className="heal-medal">✚</span>}
                   <span className="working-text">
                     <strong>Heal · Tier {you.healTier ?? 1}</strong>
                     <em>The mending art · <span className="spark-glow">✦</span>{healDef?.cost ?? 2} · yours from Tender Lv 1</em>
@@ -2668,13 +2677,13 @@ export default function Table() {
                   </span>
                 </button>
                 {Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf").map(d => {
-                  const formName = d.forms[pourHue] ?? d.root;
+                  const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
                       title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, choose the hex your Awokin holds, then the hex the grove roots on.`}>
-                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">🌿</span>}
+                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[hue]} drop-shadow(0 0 6px ${HUE_GLOWS[hue]})` }} /> : <span className="heal-medal">🌿</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
                         <em>{d.root} · Binding · <span className="spark-glow">✦</span>{d.cost}</em>
@@ -2684,13 +2693,13 @@ export default function Table() {
                   );
                 })}
                 {Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell").map(d => {
-                  const formName = d.forms[pourHue] ?? d.root;
+                  const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;
                   return (
                     <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
                       onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
                       title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, then write it on a hex's ground.`}>
-                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[pourHue]} drop-shadow(0 0 6px ${HUE_GLOWS[pourHue]})` }} /> : <span className="heal-medal">✦</span>}
+                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[hue]} drop-shadow(0 0 6px ${HUE_GLOWS[hue]})` }} /> : <span className="heal-medal">✦</span>}
                       <span className="working-text">
                         <strong>{locked ? "🔒 " : ""}{formName}</strong>
                         <em>{d.root} · {d.kind === "spell" ? "Spell" : "Rune"} · <span className="spark-glow">✦</span>{d.cost}</em>

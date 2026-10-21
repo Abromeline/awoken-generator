@@ -760,11 +760,39 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [handTab, setHandTab] = useState<"awoken" | "spells">("awoken");
   const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
   // THE POUR MENU IS GONE (Nigel, 2026-10-20): no hue/points
-  // choice stands between readying and casting — casts go
-  // unaligned, and powering lives in the Grimoire now: the
-  // server takes no pour at a cast; a cast carries what its
-  // page holds in the book.
-  const castHue = "unaligned";
+  // choice stands between readying and casting, and powering
+  // lives in the Grimoire now: the server takes no pour at a
+  // cast; a cast carries what its page holds in the book.
+  // THE CAST'S COLOUR IS DERIVED (Nigel, 2026-10-20 19:35):
+  // the server judges each cast's hue from its page's
+  // standing — this mirror of the book's judging (pageHueFor)
+  // names the form a cast will wear, here in the cast
+  // controls, BEFORE the tap. No hue is sent with a cast;
+  // the server derives its own, and this reading only ever
+  // labels. Shard Rain is judged by the pools' bands, as the
+  // book judges it (the Zodiac's grants ride the server's
+  // reading only, so a granted band can outrun this label —
+  // the cast itself is always the server's).
+  const castHueFor = (sp: { key: string; engine: string } | null | undefined): string => {
+    if (!sp) return "unaligned";
+    const judge = (standing: Record<string, number>): string => {
+      let best = 0;
+      let winners: string[] = [];
+      for (const el of ["tide", "sky", "stone", "root", "fire"]) {
+        const n = standing[el] ?? 0;
+        if (n > best) { best = n; winners = [el]; }
+        else if (n === best && n > 0) winners.push(el);
+      }
+      return winners.length === 1 ? winners[0] : "unaligned";
+    };
+    if (["seal", "trees", "lattice", "shard"].includes(sp.engine)) return judge(grim?.pageAttunements?.[sp.key] ?? {});
+    if (sp.engine === "shardrain") {
+      const bands: Record<string, number> = {};
+      for (const el of ["tide", "sky", "stone", "root", "fire"]) bands[el] = Math.min(3, Math.floor(Math.max(0, buildPools?.[el] ?? 0) / 10));
+      return judge(bands);
+    }
+    return "unaligned";
+  };
   // The chosen card border (Nigel, 2026-10-17): the hand in the dock
   // wears the same frame as the arena and the Table.
   const cardBorder = useCardBorder();
@@ -1690,7 +1718,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         key: `cast-${sp.key}`,
         img: grimGlyphImg(sp.key),
         emoji: "✦",
-        label: `${sp.forms[castHue] ?? sp.name} · ✦${sp.cost}`,
+        label: `${sp.forms[castHueFor(sp)] ?? sp.name} · ✦${sp.cost}`,
         locked,
         lit: castSpellKey === sp.key && castMode,
         pinKey: `cast-${sp.key}`,
@@ -2170,8 +2198,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number }) => {
     if (!castSpell) return;
     try {
-      const res = await api.castMapWorking({ spellKey: castSpell.key, hue: castHue, ...args });
-      const formName = castSpell.forms[castHue] ?? castSpell.name;
+      const res = await api.castMapWorking({ spellKey: castSpell.key, ...args });
+      const formName = castSpell.forms[castHueFor(castSpell)] ?? castSpell.name;
       // The fizzle (Homeland Casting): the purse was charged
       // and the roll fell short — the client only speaks what
       // the server's roll said, never invents the outcome.
@@ -6263,11 +6291,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 const readied = !!sp && castSpellKey === sp.key && castMode;
                 return (
                   <button type="button" key={key} className={`tender-slot${!sp ? " dim" : ""}${readied ? " lit" : ""}`}
-                    title={sp ? `${sp.forms[castHue] ?? sp.name} — ✦${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
+                    title={sp ? `${sp.forms[castHueFor(sp)] ?? sp.name} — ✦${sp.cost}; ${readied ? "readied; tap the land to cast, or tap here to unready" : "tap to ready, then tap the land to cast"} (right-click to loose the slot)` : "That page is no longer in the book — tap to loose the slot"}
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">✦</span>
-                    <span className="tender-slot-label">{sp ? (sp.forms[castHue] ?? sp.name).split(" ")[0] : "loose"}</span>
+                    <span className="tender-slot-label">{sp ? (sp.forms[castHueFor(sp)] ?? sp.name).split(" ")[0] : "loose"}</span>
                   </button>
                 );
               }
@@ -6353,8 +6381,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); }}
                     className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
                     title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ✦${sp.cost}. ${sp.blurb}`}>
-                    {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHue]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHue]})` }} /> : <span>✦</span>}
-                    {locked ? "🔒 " : ""}{(sp.forms[castHue] ?? sp.name)} · <span className="spark-glow">✦</span>{sp.cost}
+                    {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHueFor(sp)]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHueFor(sp)]})` }} /> : <span>✦</span>}
+                    {locked ? "🔒 " : ""}{(sp.forms[castHueFor(sp)] ?? sp.name)} · <span className="spark-glow">✦</span>{sp.cost}
                   </button>
                 );
               })}

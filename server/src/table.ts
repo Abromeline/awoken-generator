@@ -31,8 +31,7 @@ import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor, payFellDrip } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
-import { HUE_ORDER } from "./workings.js";
-import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor } from "./grimoire.js";
+import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -146,6 +145,15 @@ interface Player {
    *  re-reads the pool itself before any point is spent.
    *  Null unbound. */
   pools: Record<string, number> | null;
+  /** The colour each of this seat's casts will wear, derived
+   *  from their pages' standing in the book (castHuesFor) —
+   *  served with the seat's own state so the player sees the
+   *  element before the tap. Read at the seat, refreshed on
+   *  the room's pulse; the cast doors themselves always
+   *  derive fresh (pageHueFor), so a stale serving can only
+   *  mislabel, never miscast. Null/empty unbound. */
+  castHues?: Record<string, string>;
+  castHuesAt?: number;
   /** The company this seat was NOT dealt, and where each
    *  stands instead (the Table Fix Pass, 2026-10-20):
    *  Awokin on the Tender's homeland field, or staged at
@@ -1146,6 +1154,7 @@ function sendState(room: Room): void {
         tenderHp: player.tenderHp,
         maxTenderHp: player.maxTenderHp,
         pools: player.pools ?? null,
+        castHues: player.castHues ?? {},
       },
     }));
   }
@@ -1742,6 +1751,22 @@ function roomPulse(room: Room): void {
   if (!rooms.get(room.id)) {
     if (room.pulseTimer) { clearInterval(room.pulseTimer); room.pulseTimer = null; }
     return;
+  }
+  // The cast colours a seat is SERVED (player.castHues) are
+  // refreshed off the book at a slow cadence — a Tender who
+  // fills a slot in the Grimoire between battles sees the
+  // new colour here within seconds. The cast doors derive
+  // fresh regardless; this only keeps the label true.
+  {
+    const nowH = Date.now();
+    for (const p of room.players.values()) {
+      if (!p.expKey || nowH - (p.castHuesAt ?? 0) < 5000) continue;
+      p.castHuesAt = nowH;
+      const expKey = p.expKey;
+      void castHuesFor(expKey).then((hues) => {
+        if (JSON.stringify(hues) !== JSON.stringify(p.castHues ?? {})) { p.castHues = hues; sendState(room); }
+      }).catch(() => {});
+    }
   }
   if (room.battle.active) { room.witherAt = undefined; return; }
   if (![...room.players.values()].some(p => !p.watcher)) { room.witherAt = undefined; return; }
@@ -3195,7 +3220,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -3702,7 +3727,13 @@ function handleConnection(ws: WebSocket): void {
       const isSpringleaf = def?.engine === "springleaf";
       if (!def || (def.kind !== "ward" && !isSpringleaf)) { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
-      const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
+      // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
+      // 2026-10-20 19:35): a hue riding in on this message
+      // is inert — the colour is judged from the page's own
+      // standing in the book (pageHueFor), and a smuggled
+      // hue changes nothing. An unbound seat holds no book
+      // and casts unaligned.
+      const hue = caster.expKey ? await pageHueFor(caster.expKey, def) : "unaligned";
       const hexA = String(msg.hexA || "");
       const hexB = String(msg.hexB || "");
       // WARDS STAND ANYWHERE (Nigel, 2026-10-20): "wards and
@@ -3834,7 +3865,10 @@ function handleConnection(ws: WebSocket): void {
       const def = spellByKey(String(msg.root || ""));
       if (!def || (def.kind !== "rune" && def.kind !== "spell")) { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
-      const hue = (HUE_ORDER as readonly string[]).includes(String(msg.hue)) ? String(msg.hue) : "unaligned";
+      // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
+      // 2026-10-20 19:35), as at the ward's raising above:
+      // the message's hue is inert; the book judges.
+      const hue = caster.expKey ? await pageHueFor(caster.expKey, def) : "unaligned";
       const eff = workingEffects(caster.expKey);
       const hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 12) : [];
       if (def.engine === "blades") {
@@ -3876,8 +3910,11 @@ function handleConnection(ws: WebSocket): void {
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // LEVEL in the spell's element is snapshotted at the cast,
       // as HP is — the rain that falls later rolls by the sky
-      // the caster stood under when they wrote it. An unaligned
-      // cast rolls the base dice alone.
+      // the caster stood under when they wrote it. The element
+      // is the DERIVED one (pageHueFor judged the Rain by these
+      // same pool bands), and the band is the dice's ONE feed —
+      // the page's slots never feed the Rain (it holds none).
+      // An unaligned cast rolls the base dice alone.
       let rainNums: Record<string, number> = { ...def.numbers };
       // The Zodiac rides the rune's snapshot (tranche one):
       // Deep Ink and the Everlasting Inscription deepen its

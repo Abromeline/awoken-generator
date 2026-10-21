@@ -22,7 +22,7 @@ import {
   type TenderRow,
   requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
@@ -7523,10 +7523,16 @@ export const handlers = {
     }).safeParse(args);
     if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awokin to receive it.");
     const { spellKey, tileId, dir, awakenedId } = parsed.data;
-    const hue = ["unaligned", "tide", "sky", "stone", "root", "fire"].includes(parsed.data.hue ?? "") ? parsed.data.hue! : "unaligned";
     await refreshGrimoire();
     const spell = spellByKey(spellKey);
     if (!spell) badRequest("That spell is not in the book.");
+    // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
+    // 2026-10-20 19:35): the hue the action may still carry
+    // is inert — the colour is judged from the page's own
+    // standing in the book (pageHueFor: the filled slots of
+    // the attunable pages; Shard Rain judged by the pools'
+    // bands), and a smuggled hue changes nothing.
+    const hue = await pageHueFor(ownerKey, spell);
     if (spell.engine === "none") badRequest(`“${spell.name}” is written in the book but not yet seated — give it an engine in the workshop before it can be cast.`);
     const progress = await getTenderProgress(ownerKey);
 
@@ -7669,8 +7675,11 @@ export const handlers = {
     // moment the working is raised) — each slot +1 power
     // and +1 health to the working — and the page's spell
     // level rides the cast's roll above (DC = level + 10),
-    // counted once, there. Heal never reaches here:
-    // binding healing requires energy only.
+    // counted once, there. The cast's ELEMENT is the one
+    // derived at the door above (pageHueFor), so the slots
+    // drawn are the slots of the page's own greatest
+    // attunement. Heal never reaches here: binding healing
+    // requires energy only.
 
     if (spell.kind === "ward") {
       if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
@@ -7785,7 +7794,10 @@ export const handlers = {
       // numbers, snapshotted at the cast as HP is — on the map
       // the rain covers the one hex the rune is written on, and
       // the Battleground splits its pool over the dark standing
-      // there when it springs.
+      // there when it springs. The element is the DERIVED one
+      // (pageHueFor judged the Rain by these same pool bands),
+      // and the band is the dice's ONE feed — the page's slots
+      // never feed the Rain (it holds none).
       let numsToStore: Record<string, number> = { ...(spell.numbers ?? {}) };
       // The Zodiac rides the rune's stored numbers (tranche one).
       if (typeof numsToStore.power === "number") numsToStore.power += effR.runePower;

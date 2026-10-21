@@ -322,8 +322,13 @@ console.log("\n§1 the grimoire door — slots filled at 4 the slot, the eight, 
       (+1 health each in hpForCast; the Seal's riposte, its
       power, +1 each in the snapshot), the pools unmoved —
       and the two dead roads (a pour field in the cast, the
-      pourWorking push) move nothing. A cast in an element
-      the page holds no slots of goes bare. */
+      pourWorking push) move nothing. THE COLOUR IS DERIVED
+      (2026-10-21, the 19:35 ruling of 2026-10-20): the
+      cast's element is judged from the page itself, so a
+      hue NAMED in the cast message is inert — the "other
+      element" cast of the slots build is now the smuggled-
+      hue proof, and a bare PAGE (the Warden) is what casts
+      bare. */
 console.log("\n§2 the table carries the page — casts draw on the book, the old roads are dead");
 {
   const wi = await seedBoundTender({ tenderName: "Table Witch", password: "table-wi-62", tag: "62W", classKey: "witch", filler: 120 });
@@ -363,9 +368,9 @@ console.log("\n§2 the table carries the page — casts draw on the book, the ol
     `pour=${witchSeal2.pour} hp=${witchSeal2.hp} riposte=${witchSeal2.nums?.riposte}`);
   check("THE DEAD FIELD: the smuggled pour spent nothing either (stone still 25)", poolOf(wi.ownerKey, "stone") === 25, `pool=${poolOf(wi.ownerKey, "stone")}`);
   const witchSealRoot = await castSeal(cWI, 3, "root");
-  check("OTHER ELEMENT (Table cast, ward): cast in root, the page holding no root slots — the Seal goes bare (0 carried, bare health, bare riposte)",
-    witchSealRoot.pour === 0 && witchSealRoot.hp === expHp(SEAL, 10, 0) && witchSealRoot.nums?.riposte === (SEAL.numbers?.riposte ?? 3),
-    `pour=${witchSealRoot.pour} hp=${witchSealRoot.hp} riposte=${witchSealRoot.nums?.riposte}`);
+  check("THE SENT HUE IS INERT (Table cast, ward): a cast NAMING root still wears the page's derived colour — stone — and carries its 2 slots whole",
+    witchSealRoot.hue === "stone" && witchSealRoot.pour === 2 && witchSealRoot.hp === expHp(SEAL, 10, 2) && witchSealRoot.nums?.riposte === (SEAL.numbers?.riposte ?? 3) + 2,
+    `hue=${witchSealRoot.hue} pour=${witchSealRoot.pour} hp=${witchSealRoot.hp} riposte=${witchSealRoot.nums?.riposte}`);
   const wardenSeal = await castSeal(cWD, 1, "stone");
   check("CONTROL (Table cast, ward): the Warden's bare page casts bare — 0 carried at the bare health and riposte",
     wardenSeal.pour === 0 && wardenSeal.hp === expHp(SEAL, 10, 0) && wardenSeal.nums?.riposte === (SEAL.numbers?.riposte ?? 3),

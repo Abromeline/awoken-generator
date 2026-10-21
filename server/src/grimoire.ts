@@ -13,6 +13,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "./store.js";
 import { WORKING_DEFS } from "./workings.js";
+import { skillAttunementGrants } from "./skills.js";
 
 export type GlyphSort = "ward" | "rune" | "binding" | "spell" | "unsorted";
 export type SpellKind = "ward" | "rune" | "binding" | "spell";
@@ -429,6 +430,99 @@ export async function pageSlotsCastFor(ownerKey: string, spell: GrimoireSpell, h
   if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) return 0;
   if (!hue || hue === "unaligned") return 0;
   return pageElementSlots(ownerKey, spell.key, hue);
+}
+
+/** The five elements a cast can wear, in the book's order. */
+const HUE_ELEMENTS = ["tide", "sky", "stone", "root", "fire"] as const;
+
+/** Judge a hue from a per-element standing (counts of any
+ *  measure — slots, or attunement bands): the element
+ *  standing GREATEST judges; nothing standing judges
+ *  nothing — the cast goes unaligned, lawfully plain. */
+function greatestAttunedHue(standing: Record<string, number>): string {
+  let best = 0;
+  let winners: string[] = [];
+  for (const el of HUE_ELEMENTS) {
+    const n = standing[el] ?? 0;
+    if (n > best) { best = n; winners = [el]; }
+    else if (n === best && n > 0) winners.push(el);
+  }
+  return winners.length === 1 ? winners[0] : "unaligned";
+}
+
+/** Shard Rain's standing in each element: its attunement
+ *  BANDS — the pools' points (with the Zodiac's grants laid
+ *  in, as its snapshot has always read them) banded by
+ *  attunementLevel. The Rain's own ruled measure (2026-10-17):
+ *  its dice answer the caster's attunement LEVEL in the
+ *  cast's element, never the pages' slots. */
+function shardrainBands(pools: Record<string, number>, grants: Record<string, number>): Record<string, number> {
+  const bands: Record<string, number> = {};
+  for (const el of HUE_ELEMENTS) bands[el] = attunementLevel((pools[el] ?? 0) + (grants[el] ?? 0));
+  return bands;
+}
+
+/** THE COLOUR A CAST WEARS (Nigel, 2026-10-20 19:35: "a
+ *  cast's hue is judged from elemental power, calculated
+ *  per spell from the GRIMOIRE'S LEVELS for that page — no
+ *  field hue-picker returns"; the slots, 2026-10-21, are
+ *  the standing those levels became). The colour is DERIVED
+ *  at the cast doors, on both grounds, from the page's own
+ *  standing — never sent by a client, never chosen in the
+ *  field: a hue riding in on a cast message or action is
+ *  inert, and a smuggled one changes nothing. For the pages
+ *  that take attunement (POUR_ENGINES), the standing is the
+ *  page's filled SLOTS: the element holding the most slots
+ *  judges the colour, and the cast then carries those slots
+ *  (pageSlotsCastFor). No slots filled — the cast goes
+ *  UNALIGNED, a bare page casting plain, which is lawful.
+ *  SHARD RAIN holds no slots: its page promises dice per
+ *  attunement LEVEL in the cast's element, and its level is
+ *  read from the pools' bands (shardrainBands) — so the Rain
+ *  is judged by the greatest BAND, and its snapshot at the
+ *  doors reads that same band in the derived element: ONE
+ *  feed for its dice, the pool band alone; the slots never
+ *  feed the Rain. Every other page holds no attunement of
+ *  any measure and casts unaligned.
+ *  TIES: the ruling keeps the page's STANDING FORM — but
+ *  the book keeps no record of a standing form (forms is a
+ *  hue→name table and nothing more; the stopped hue build
+ *  of 2026-10-20 grounded the same absence), so under a
+ *  tie there is no standing form to keep and the cast goes
+ *  unaligned until a standing-form record is ruled. This is
+ *  the build's flagged fallback, not a silent choice. */
+export async function pageHueFor(ownerKey: string, spell: GrimoireSpell): Promise<string> {
+  if ((POUR_ENGINES as readonly string[]).includes(spell.engine)) {
+    const standing = (await pageAttunementsFor(ownerKey))[spell.key] ?? {};
+    return greatestAttunedHue(standing);
+  }
+  if (spell.engine === "shardrain") {
+    const pools = await attunementPools(ownerKey);
+    return greatestAttunedHue(shardrainBands(pools, skillAttunementGrants(ownerKey)));
+  }
+  return "unaligned";
+}
+
+/** Every page's cast colour for one Tender at once — the
+ *  reading the Table serves a bound seat with its state, so
+ *  the player sees the colour each cast will wear before
+ *  the tap. The same judging as pageHueFor, over one bulk
+ *  reading of the ledger and the pools. */
+export async function castHuesFor(ownerKey: string): Promise<Record<string, string>> {
+  const atts = await pageAttunementsFor(ownerKey);
+  const pools = await attunementPools(ownerKey);
+  const grants = skillAttunementGrants(ownerKey);
+  const out: Record<string, string> = {};
+  for (const spell of grimoireNow().spells) {
+    if ((POUR_ENGINES as readonly string[]).includes(spell.engine)) {
+      out[spell.key] = greatestAttunedHue(atts[spell.key] ?? {});
+    } else if (spell.engine === "shardrain") {
+      out[spell.key] = greatestAttunedHue(shardrainBands(pools, grants));
+    } else {
+      out[spell.key] = "unaligned";
+    }
+  }
+  return out;
 }
 
 /** The health a holding working is raised with, snapshotted at
