@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor, payFellDrip } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pagePourFor } from "./grimoire.js";
@@ -1710,11 +1710,19 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
   // not an attunement, so freed ground takes no element
   // until a Tender spends one onto it — the attuneTile act).
   const tile = room.map.get(enemy.hex);
+  // The element the ground held as the dark fell on it,
+  // read before the freeing overwrites it — the fell drip's
+  // element follows the ground (payFellDrip, actions.ts).
+  const groundElement = tile?.element ?? null;
   if (tile) purifyTile(room, tile, "neutral");
-  if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer); return; }
+  if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer, groundElement); return; }
   if (killer && !killer.fallen) {
     killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
     void payBattleExp(room, killer, 2, "The dark pays for its felling.");
+    // THE FELL DRIP (Nigel, 2026-10-20: creatures beaten at
+    // the Table drop attunement points): the killer's pools
+    // may catch the drip, beside the energy and EXP he takes.
+    if (killer.expKey) void payFellDrip(killer.expKey, groundElement);
   }
 }
 
@@ -1945,7 +1953,7 @@ function noteDissipation(room: Room, unit: FieldUnit): void {
  *  with it — split among the seats whose Awoken stand in
  *  this Unraveling: the bench does not level on the line's
  *  work (§4.3). */
-function campaignFell(room: Room, enemy: EnemyUnit, _killer: Player | null): void {
+function campaignFell(room: Room, enemy: EnemyUnit, _killer: Player | null, groundElement: string | null = null): void {
   const c = room.campaign;
   if (!c || c.over) return;
   const harvest = Math.max(1, enemy.power * 2 + Math.floor(enemy.maxHp / 5));
@@ -1957,6 +1965,11 @@ function campaignFell(room: Room, enemy: EnemyUnit, _killer: Player | null): voi
   if (seats.length) {
     const share = Math.max(1, Math.floor(harvest / seats.length));
     for (const s of seats) void payBattleExp(room, s, share, "The Harvest divides among the standing.");
+    // THE FELL DRIP (Nigel, 2026-10-20): as the Harvest's
+    // EXP divides among the standing, so the fell's drip is
+    // rolled for each standing Tender's pools — the bench
+    // catches nothing, as it levels on nothing.
+    for (const s of seats) if (s.expKey) void payFellDrip(s.expKey, groundElement);
   }
   tell(room, `The ${enemy.label}'s light is harvested — ✦${harvest} joins the bank (✦${c.bank}).`);
 }
@@ -2483,12 +2496,15 @@ async function runRound(room: Room): Promise<void> {
         room.dark.delete(target.id);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
         const freedTile = room.map.get(target.hex);
+        // The element the ground held as the dark fell on
+        // it, read before the freeing — the drip's element.
+        const groundElement = freedTile?.element ?? null;
         // Freed ground is NEUTRAL ground (Nigel, 2026-10-20):
         // the felling frees it, it does not attune it.
         if (freedTile) purifyTile(room, freedTile, "neutral");
         const owner = seatByKey(room, unit.ownerKey);
         if (room.campaign && !room.campaign.over) {
-          campaignFell(room, target, owner ?? null);
+          campaignFell(room, target, owner ?? null, groundElement);
         } else if (owner && !owner.fallen) {
           owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
           // The Harvest (the Heart, 2026-10-18): when YOUR
@@ -2499,6 +2515,9 @@ async function runRound(room: Room): Promise<void> {
             owner.energy = Math.max(0, Math.min(owner.maxEnergy + 10, owner.energy + hv));
           }
           await payBattleExp(room, owner, 2, "The dark pays for its felling.");
+          // THE FELL DRIP (Nigel, 2026-10-20): the owner's
+          // pools may catch the drip, beside the harvest.
+          if (owner.expKey) void payFellDrip(owner.expKey, groundElement);
         }
       }
     };
@@ -2690,16 +2709,22 @@ async function runRound(room: Room): Promise<void> {
               room.dark.delete(enemy.id);
               tell(room, `The ${enemy.label} unravels on the Seal's light!`);
               const freedTile = room.map.get(enemy.hex);
+              // The element the ground held as the dark fell
+              // on it, read before the freeing — the drip's.
+              const groundElement = freedTile?.element ?? null;
               // Freed ground is NEUTRAL ground (Nigel,
               // 2026-10-20): the Seal's answer frees it, it
               // does not attune it — only the Tender attunes.
               if (freedTile) purifyTile(room, freedTile, "neutral");
               const owner = seatByKey(room, seal.ownerKey);
               if (room.campaign && !room.campaign.over) {
-                campaignFell(room, enemy, owner ?? null);
+                campaignFell(room, enemy, owner ?? null, groundElement);
               } else if (owner && !owner.fallen) {
                 owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3);
                 await payBattleExp(room, owner, 2, "The dark pays for its felling.");
+                // THE FELL DRIP (Nigel, 2026-10-20): the
+                // Seal's Tender may catch the drip too.
+                if (owner.expKey) void payFellDrip(owner.expKey, groundElement);
               }
             }
             if (seal.stops >= (seal.nums.stops ?? 3)) {

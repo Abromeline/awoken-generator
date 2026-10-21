@@ -441,6 +441,37 @@ async function addAspectPoint(ownerKey: string, element: AspectElement): Promise
   return addAspectPoints(ownerKey, element, 1);
 }
 
+/** THE FELL DRIP — the one shape a beaten creature's attunement
+ *  drop takes, on BOTH grounds. The measure is the drizzle
+ *  Nigel ruled for the First Seed hold (2026-10-19): each fell
+ *  has a 20% chance to drip +0.1 of a point — "enough to
+ *  barely move the attunement bar: 50 Fray = 1 point, that
+ *  kind of math, but at least it's raising." His kept ruling
+ *  that things beaten on both maps drop, and that creatures
+ *  beaten at the Table drop attunement points (2026-10-20
+ *  17:33, kept 23:03), extends that same drip to every beaten
+ *  creature: the Table's dark, the homeland's wanderers, by
+ *  whatever hand of the Tender's side felled them — his
+ *  weapon, his written light, his Awoken, his wards' answers.
+ *  THE ELEMENT follows the ground the creature fell on when
+ *  that ground holds one of the five (homeland tiles are born
+ *  filed with an element under their curse; a Table tile
+ *  holds an element only where the light already holds it);
+ *  where the ground names none, the drip lights on a random
+ *  element, as the drizzle always rolled. Paid through
+ *  addAspectPoints — the pools' one writer — so a drip can
+ *  birth an aspect at the threshold like any other gain.
+ *  Silent bookkeeping, as the drizzle was: settles are lazy
+ *  and no live enemy stands by to pop from. */
+export async function payFellDrip(ownerKey: string, groundElement?: string | null): Promise<void> {
+  if (!ownerKey) return;
+  if (Math.random() >= 0.2) return;
+  const element = groundElement && (ATTUNEMENT_ELEMENTS as string[]).includes(groundElement)
+    ? (groundElement as AttunementElement)
+    : ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
+  await addAspectPoints(ownerKey, element, 0.1);
+}
+
 /* ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ────────────────────
  * Land is CREATED, not found: the Tender founds a hex on empty
  * ground at his land's edge, and four elemental stages make it —
@@ -1417,11 +1448,11 @@ async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Pr
     // element's pool — an expectation of exactly that: 0.02 per
     // fell, one point per fifty. Silent bookkeeping: the waves
     // settle lazily on read, so no live enemy stands here to
-    // pop from.
+    // pop from. The drip itself now lives in one place
+    // (payFellDrip, above) — the hold's Fray name no ground
+    // element of their own, so theirs still lights at random.
     for (let fell = 0; fell < totalFells; fell++) {
-      if (Math.random() < 0.2) {
-        await addAspectPoints(ownerKey, ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)], 0.1);
-      }
+      await payFellDrip(ownerKey);
     }
     // Every Awoken who stood in the wave stood in its defense.
     for (const id of stoodIds) {
@@ -3031,8 +3062,16 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
  *  Runs on the territory read, after the wanderers walk and
  *  before the weapon answers. */
 async function settleHomelandWorkings(ownerKey: string, tiles: any[]): Promise<void> {
-  const rows = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND kind IN ('rune', 'spell') ORDER BY id").all(ownerKey) as { id: number }[];
-  for (const r of rows) await springHomelandWorking(ownerKey, r.id, tiles);
+  const rows = sqlite.prepare("SELECT id, tile_id AS tileId FROM territory_workings WHERE owner_key = ? AND kind IN ('rune', 'spell') ORDER BY id").all(ownerKey) as { id: number; tileId: number }[];
+  for (const r of rows) {
+    const res = await springHomelandWorking(ownerKey, r.id, tiles);
+    // THE FELL DRIP: a wanderer the written light beat pays
+    // as any beaten creature pays (Nigel, 2026-10-20).
+    if (res.felled) {
+      const t = tiles.find((x: any) => x.id === r.tileId);
+      await payFellDrip(ownerKey, t?.element ?? null);
+    }
+  }
 }
 
 /** THE WRITTEN LIGHT WITHERS AT HOME (Nigel, 2026-10-20):
@@ -5867,6 +5906,17 @@ export const handlers = {
         }
       }
     }
+    // THE FELL DRIP: a wanderer the border Seal's answer
+    // felled in the walk pays as any beaten creature pays
+    // (Nigel, 2026-10-20) — the element of the ground it fell
+    // on, or chance's choice. (The wanderers the turned ground
+    // unmade above pay nothing: no blow beat them; the curse
+    // simply lost its hold on the land beneath them.)
+    for (const id of deadWanderers) {
+      const w = rows.find(r => r.id === id);
+      const t = w ? byId.get(w.tileId) : null;
+      await payFellDrip(ownerKey, t?.element ?? null);
+    }
     return { views: rows.filter(w => !deadWanderers.has(w.id)).map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP })) };
   },
 
@@ -5914,6 +5964,10 @@ export const handlers = {
     let record = readRecord();
     let dirty = row.nextAt == null || nextAt !== Number(row.nextAt);
     let strikes = 0;
+    // The tiles this settle's blows felled a wanderer on —
+    // each fell pays the drip (payFellDrip) once the striking
+    // is done, in the ground's own element where it holds one.
+    const fellTiles: number[] = [];
     while (nextAt <= now && strikes < 40) {
       const foes = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
         .map(w => ({ ...w, tile: tiles.find((t: any) => t.id === w.tileId), hpNow: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp) }))
@@ -5936,12 +5990,23 @@ export const handlers = {
         return { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled };
       };
       record = blow(foes[0]);
+      if (record.felled) fellTiles.push(record.tileId);
       // PIERCE (the arrow's Signature): the same beat carries
       // through to the next-nearest distinct dark in range.
-      if (wk === "arrow" && contract.signature && foes[1]) record = blow(foes[1]);
+      if (wk === "arrow" && contract.signature && foes[1]) {
+        record = blow(foes[1]);
+        if (record.felled) fellTiles.push(record.tileId);
+      }
       nextAt += cooldown;
       strikes++;
       dirty = true;
+    }
+    // THE FELL DRIP: a wanderer the weapon beat pays as any
+    // beaten creature pays (Nigel, 2026-10-20) — the element
+    // of the ground it fell on, or chance's choice.
+    for (const tileId of fellTiles) {
+      const t = tiles.find((x: any) => x.id === tileId);
+      await payFellDrip(ownerKey, t?.element ?? null);
     }
     if (dirty) {
       sqlite.prepare("UPDATE tender_progress SET weapon_next_at = ?, weapon_strike = ? WHERE owner_key = ?")
@@ -7633,6 +7698,10 @@ export const handlers = {
       // ground (Homeland Casting — the Table's cast-time
       // spring, honored on this ground too).
       const sprungNow = await springHomelandWorking(ownerKey, newId, castTiles as any[]);
+      // THE FELL DRIP: if the writing's spring beat the dark
+      // standing on it, the fell pays as any beaten creature
+      // pays (Nigel, 2026-10-20).
+      if (sprungNow.felled) await payFellDrip(ownerKey, tile.element ?? null);
       return { ok: true as const, id: newId, tileId, cost: runeCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
     }
 
