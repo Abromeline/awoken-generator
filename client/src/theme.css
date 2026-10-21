@@ -1893,7 +1893,7 @@ body.defeat-flash {
 .tender-face main>.front-title{margin:40px auto 6px}
 .canvas-frame .front-title{position:absolute;left:50%;top:2px;transform:translateX(-50%);z-index:6;margin:0;pointer-events:none}
 .front-title-a{position:relative;display:inline-block}
-.front-title-meteor{position:absolute;left:50%;top:calc(66% + .15em);height:.95em;width:auto;mix-blend-mode:screen;pointer-events:none;transform:translate(-50%,-50%) rotate(-66deg)}
+.front-title-meteor{position:absolute;left:50%;top:46%;height:1.4em;width:auto;mix-blend-mode:screen;pointer-events:none;transform:translate(-50%,-50%) rotate(-66deg)}
 .wake-ready-overlay{position:absolute;inset:0;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
 .wake-ready-overlay img{width:70%;height:auto;filter:drop-shadow(0 0 20px rgba(120,255,120,0.4));animation:gentle-pulse 3s ease-in-out infinite}
 .wake-ready-overlay span{font-family:var(--display);font-size:18px;color:var(--text);background:rgba(0,0,0,0.6);padding:8px 20px;border-radius:20px;color:#e8f5e8}
