@@ -6667,7 +6667,48 @@ export const handlers = {
       .all(ownerKey);
     const workings = (sqlite.prepare("SELECT id, spell_key AS spellKey, engine, kind, hue, tile_id AS tileId, edge_key AS edgeKey, q, r, dir, nums, hp, stops, charges, pour, max_hp AS maxHp FROM territory_workings WHERE owner_key = ? ORDER BY id")
       .all(ownerKey) as any[]).map((w) => { try { w.nums = JSON.parse(w.nums); } catch { w.nums = {}; } return w; });
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey) };
+    // THE NAME AT THE SOURCE (Nigel, 2026-10-21 — he prefers
+    // the Table's summoning, whose cards carry each creature's
+    // name baked in by the server): every placement is joined
+    // ONCE, here, to its creature, and the given name rides the
+    // placement itself. The homeland's screens read the name
+    // from the placement and never re-derive it by joining two
+    // lists in the browser — that join's miss was what stamped
+    // every fielded creature's tab "An Awokin" at once. A
+    // placement whose creature row is gone receives no name:
+    // a defect to see, never a label to paper over.
+    // The same single read names the company the hand does NOT
+    // hold — fielded on this ground, or staged at the bastion —
+    // for the hand's elsewhere row, the Table's honest margin
+    // (elsewhereForTender on the Table's side): the absence is
+    // NAMED, with where each one stands.
+    const rosterRows = await db.select().from(schema.awakened).where(eq(schema.awakened.ownerKey, ownerKey));
+    const nameById = new Map(rosterRows.map(r => [r.id, r.name]));
+    for (const p of placements) {
+      const nm = nameById.get(p.awakenedId);
+      if (nm != null) (p as any).name = nm;
+    }
+    const placedIdSet = new Set(placements.map(p => p.awakenedId));
+    const stagedIdSet = new Set(stagedIdsFor(ownerKey));
+    const elsewhere: { name: string; element: string; where: "fielded" | "staged" }[] = [];
+    const ELEMENT_ORDER = ["tide", "sky", "stone", "root", "fire"];
+    for (const row of rosterRows) {
+      const fielded = placedIdSet.has(row.id);
+      const staged = stagedIdSet.has(row.id);
+      if (!fielded && !staged) continue;
+      // The dominant filed element across its parts — the same
+      // sum-of-the-parts law the Table's elsewhere chips wear.
+      let element = "neutral";
+      try {
+        const els = await compositionElements(JSON.parse(row.compositionJson || "[]"));
+        const tally = new Map<string, number>();
+        for (const el of els) if (el && el !== "neutral") tally.set(el, (tally.get(el) ?? 0) + 1);
+        let bestCount = 0;
+        for (const el of ELEMENT_ORDER) { const c = tally.get(el) ?? 0; if (c > bestCount) { element = el; bestCount = c; } }
+      } catch { /* a malformed composition wears neutral */ }
+      elsewhere.push({ name: row.name, element, where: fielded ? "fielded" : "staged" });
+    }
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey), elsewhere };
   },
 
   /** The Tender walks his own land: the client reports the hex

@@ -409,6 +409,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   }, [tiles, buildings, tutorialDone, objectivesMet]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
+  // The company the hand does NOT hold — fielded on this
+  // ground, or staged at the bastion — named with where each
+  // stands, served by getTerritory beside the placements (the
+  // Table's honest margin, brought to the homeland hand).
+  const [elsewhere, setElsewhere] = useState<{ name: string; element: string; where: "fielded" | "staged" }[]>([]);
   const [battlePool, setBattlePool] = useState<number[]>([]); // AWAKENED IDs staged for battle, max 4 — IDs, never hand indices: an index rots the moment the hand re-derives
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [musicOn, setMusicOn] = useState(false);
@@ -1262,7 +1267,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           await api.ensureFirstSeed().catch(() => {});
           t = await api.getTerritory();
         }
-        setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []);
+        setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []); setElsewhere(t.elsewhere ?? []);
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
         setWanderers(t.wanderers ?? []);
@@ -1302,7 +1307,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   const refreshTerritory = async () => {
     const refreshed = await api.getTerritory();
-    setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+    setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
@@ -1682,9 +1687,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         { key: "findme", emoji: "🧭", label: "Find me", pinKey: "findme", dragKey: "findme", act: () => findMyTender() },
       ];
       for (const p of placements.slice(0, 5)) {
-        const a = tenderItems.find(x => x.id === p.awakenedId);
         out.push({
-          key: `follow-${p.id}`, emoji: "👣", label: a?.name ?? "An Awokin",
+          key: `follow-${p.id}`, emoji: "👣", label: p.name,
           summoned: !!p.follow, pinKey: `follow-${p.id}`, dragKey: `follow-${p.id}`, stayOpen: true,
           act: () => { void toggleFollow(p.id, !p.follow); },
         });
@@ -1695,9 +1699,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // The company read: this branch only reads, as it always
       // has — their orders ride the Ability branch.
       return placements.slice(0, 6).map(p => {
-        const a = tenderItems.find(x => x.id === p.awakenedId);
         return {
-          key: `aw-${p.id}`, sigil: "awo", label: a?.name ?? "An Awokin",
+          key: `aw-${p.id}`, sigil: "awo", label: p.name,
           summoned: !!p.follow,
         } as WheelEntry;
       });
@@ -1903,7 +1906,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // happened — the refresh was the missing half of the loop).
   const refreshMarching = async () => {
     const refreshed = await api.getTerritory();
-    setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+    setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     onUpdate();
   };
@@ -1919,7 +1922,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       await api.placeWall({ tileId, dir });
       const refreshed = await api.getTerritory();
-      setTiles(refreshed.tiles); setPlacements(refreshed.placements); setWalls(refreshed.walls ?? []);
+      setTiles(refreshed.tiles); setPlacements(refreshed.placements); setWalls(refreshed.walls ?? []); setElsewhere(refreshed.elsewhere ?? []);
       onUpdate();
       showHexNotice("A wall rises on the hex edge — it will take the enemy's blows first.");
     } catch (e) {
@@ -1935,7 +1938,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // taught through teachSkill. Every refusal speaks.
   const refreshWorks = async () => {
     const refreshed = await api.getTerritory();
-    setTiles(refreshed.tiles); setPlacements(refreshed.placements);
+    setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     onUpdate();
   };
@@ -2005,7 +2008,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await refreshEnergy();
       const after = await api.getTerritory();
       setTiles(after.tiles);
-      setPlacements(after.placements);
+      setPlacements(after.placements); setElsewhere(after.elsewhere ?? []);
       setBattlePool([]);
       setTargetHexId(null);
       // If the dark broke, a newborn joins the hand. Server-side, fire-and-forget —
@@ -2089,7 +2092,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await api.setStance({ awakenedId, stance, maxEnergy });
       await refreshEnergy();
       const refreshed = await api.getTerritory();
-      setPlacements(refreshed.placements);
+      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
       if (stance === "attack") {
         setAttackTargeting(true);
       } else {
@@ -2115,7 +2118,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
-      setPlacements(refreshed.placements);
+      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
       // The blow speaks (Nigel, 2026-10-18: "a blow per order" —
       // the Attack seal is posture AND key: with targeting armed, a
       // tap on a cursed square is one strike of the warden's power
@@ -2160,7 +2163,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
       await refreshEnergy();
       const refreshed = await api.getTerritory();
-      setPlacements(refreshed.placements);
+      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
       setSelectedAwoken(null);
       setMoveTargeting(false);
       setTargetHexId(null);
@@ -2248,7 +2251,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (castSpell.engine === "heal" || castSpell.kind === "binding") {
       const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
         const a = tenderItems.find((x) => x.id === p.awakenedId);
-        return { id: p.awakenedId, name: a?.name ?? "your Awokin", hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
+        return { id: p.awakenedId, name: p.name, hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
       }).filter((x) => x.max > 0 && x.hp < x.max).sort((x, y) => (x.hp / x.max) - (y.hp / y.max));
       if (!wounded.length) { showHexNotice("No wounded Awokin stands on that hex."); return; }
       void doCastMap({ awakenedId: wounded[0].id });
@@ -3033,7 +3036,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
-      setPlacements(refreshed.placements);
+      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
       setWalls(refreshed.walls ?? []);
       setSkills(refreshed.skills ?? []);
       setWorkings(refreshed.workings ?? []);
@@ -3230,7 +3233,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         }
         const refreshed = await api.getTerritory();
         setTiles(refreshed.tiles);
-        setPlacements(refreshed.placements);
+        setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
         await refreshEnergy();
         onUpdate();
       } catch (e) { console.error("Wave-pull resolve failed", e); }
@@ -3282,7 +3285,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
-      setPlacements(refreshed.placements);
+      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
       setWalls(refreshed.walls ?? []);
       setWorkings(refreshed.workings ?? []);
       const w = await api.getWave();
@@ -6270,14 +6273,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               if (key.startsWith("follow-")) {
                 const pid = Number(key.slice(7));
                 const p = placements.find(x => x.id === pid) ?? null;
-                const a = p ? tenderItems.find(x => x.id === p.awakenedId) : null;
                 return (
                   <button type="button" key={key} className={`tender-slot${!p ? " dim" : ""}${p?.follow ? " lit" : ""}`}
-                    title={p ? `${a?.name ?? "Awokin"} — ${p.follow ? "following you; tap to loose them" : "tap to call them to follow"} (right-click to loose the slot)` : "That Awokin no longer stands — tap to loose the slot"}
+                    title={p ? `${p.name} — ${p.follow ? "following you; tap to loose them" : "tap to call them to follow"} (right-click to loose the slot)` : "That Awokin no longer stands — tap to loose the slot"}
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">👣</span>
-                    <span className="tender-slot-label">{a?.name.split(" ")[0] ?? "gone"}</span>
+                    <span className="tender-slot-label">{p ? p.name.split(" ")[0] : "gone"}</span>
                   </button>
                 );
               }
@@ -6321,13 +6323,17 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         // only a promise until the Tender speaks here.
         const tile = tiles.find(t => t.id === hexConfirm.tileId);
         const actor = selectedAwoken !== null ? tenderItems.find(a => a.id === selectedAwoken) : undefined;
+        // Strike and move are a STANDING Awokin's acts: its name
+        // rides its placement (served at the source); the studio
+        // card is only the fallback read, for its power.
+        const actorName = (selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken)?.name : undefined) ?? actor?.name;
         let text = "";
         let confirmLabel = "Confirm";
         if (hexConfirm.kind === "attack") {
-          text = `${actor?.name ?? "Your Awokin"} will strike this cursed hex — its thorns answer back.`;
+          text = `${actorName} will strike this cursed hex — its thorns answer back.`;
           confirmLabel = "Strike";
         } else if (hexConfirm.kind === "move") {
-          text = `${actor?.name ?? "Your Awokin"} will move to this hex — ${actor ? moveCost(actor.power) : 1}✦.`;
+          text = `${actorName} will move to this hex — ${actor ? moveCost(actor.power) : 1}✦.`;
           confirmLabel = "Move";
         } else {
           const pooled = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
@@ -6490,6 +6496,21 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           {hand.length === 0 && <div className="dock-empty">All Awokin stand on the field.</div>}
         </div>
         </div>
+        {handTab === "awoken" && elsewhere.length > 0 && (
+          <div className="hand-elsewhere">
+            <p className="quiet small">Not in hand — one body stands in one place, so these keep their posts:</p>
+            <div className="elsewhere-row">
+              {elsewhere.map((e, i) => (
+                <span key={`${e.name}-${i}`} className="elsewhere-chip" data-element={e.element}
+                  title={e.where === "staged"
+                    ? `${e.name} waits staged at your bastion — it stands ready there. Muster it from the bastion's hex, or unstage it, before it can deploy from hand.`
+                    : `${e.name} stands on your homeland field — it is deployed already. Recall it there to bring it back to hand.`}>
+                  {e.name} · {e.where === "staged" ? "🏯 staged at your bastion" : "🏠 on your homeland field"}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <div className="nav-compass">
         <button className="compass-btn north" onClick={() => setPan(p => ({ ...p, y: p.y + 40 }))} aria-label="Pan up">▲</button>

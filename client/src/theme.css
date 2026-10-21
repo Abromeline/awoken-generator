@@ -1421,6 +1421,16 @@ body.defeat-flash {
      and book-base overhang each dock card by ~30px). */
   padding-top:30px;padding-bottom:34px;min-height:80px;
 }
+/* ── The hand's honest margin, come to the homeland (Nigel,
+   2026-10-21): company kept back for place — standing on the
+   homeland field, or staged at the bastion — named with its
+   whereabouts under the hand instead of silently missing from
+   it. The Table's row, in the Table's own dress. */
+.hand-elsewhere { margin: 2px 0 0; }
+.hand-elsewhere .quiet { color: #b8ab90; }
+.hand-elsewhere .quiet.small { font-size: 12px; }
+.elsewhere-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.elsewhere-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px dashed rgba(201,162,39,.45); border-radius: 20px; background: rgba(23,18,8,.6); color: #b8ab90; font-size: 12.5px; }
 .dock-card{
   width:64px;flex-shrink:0;background:#161616;border:2px solid #444;border-radius:6px;
   padding:4px;cursor:pointer;text-align:center;position:relative;
