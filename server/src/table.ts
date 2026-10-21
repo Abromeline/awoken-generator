@@ -3035,6 +3035,14 @@ function handleConnection(ws: WebSocket): void {
             // and not in the map's energy law.
             const breathBonus = heartEffects(tenderOwnerKey(tenderId)).tableEnergy;
             if (breathBonus) { maxEnergy += breathBonus; energy += breathBonus; }
+          } else {
+            // An empty deck deals no hand, but the seat is
+            // still its Tender's (found 2026-10-20): the class
+            // is read here too, so the figure standing at the
+            // Table is the Tender's true class and not the
+            // client's fallback art.
+            const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
+            boundClassKey = progress?.classKey ?? null;
           }
         }
       }
