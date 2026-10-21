@@ -4919,12 +4919,16 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 
   return (
     <div className="territory-view">
-      {territoryLoaded && firstSeedEv && (() => {
+      {territoryLoaded && firstSeedEv && firstSeedEv.state !== "done" && (() => {
         // The First Seed's hold (Nigel via Wake, 2026-10-17): the
         // event surface that replaced the old "Face the Unraveler"
         // first claim. The court stays in hand, as everywhere —
         // housed Awoken and the champion are never offered. Every
-        // number here is the server's own ledger, read fresh.
+        // number here is the server's own ledger, read fresh. When
+        // the hold is DONE the panel leaves entirely (Nigel,
+        // 2026-10-20: "it never disappeared afterwords") — the
+        // server keeps the record readable; the face stops
+        // mounting it.
         const ev = firstSeedEv;
         const placedIds = new Set(placements.map(p => p.awakenedId));
         const standing = ev.defenders
@@ -4940,9 +4944,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           <section className="first-claim first-seed" aria-live="polite">
             <p className="eyebrow">The Last Bastion · The First Seed</p>
             <h2>A starseed lies in the cursed heart of your land.</h2>
-            {ev.state === "done" ? (
-              <p>The seed's rising is complete — it rests at <strong>level {ev.seedLevel}</strong>, banked on your first ground, and it will not be tested again.</p>
-            ) : ev.state === "holding" ? (
+            {ev.state === "holding" ? (
               <>
                 <p>The hold is underway. <strong>{ev.wavesCleared} wave{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · seed level <strong>{ev.seedLevel}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Wave {ev.nextWave} comes in <strong>{waveInSec}s</strong> — {ev.nextWave} Fray ride with it.</> : ""}</p>
                 <p>Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
