@@ -22,7 +22,7 @@ import {
   type TenderRow,
   requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, pourLaidFor, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageDepthFor, pagePourFor, layPageDepth, PAGE_DEPTH_CAP, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
@@ -7551,14 +7551,17 @@ export const handlers = {
       badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
     }
 
-    // THE PAGE CARRIES IT (Nigel, 2026-10-20): no pour is
-    // named or taken at a cast on this ground any more —
-    // powering lives in the Grimoire. A cast that stands
-    // draws the page's standing attunement LEVEL in the
-    // cast's element off the book's ledger (pagePourFor,
-    // read in each branch below at the moment the working
-    // is raised). Heal never reaches here: binding healing
-    // requires energy only.
+    // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
+    // 2026-10-21): no pour is named or taken at a cast on
+    // this ground any more — powering lives in the
+    // Grimoire. A cast that stands draws the page's filled
+    // SLOTS in the cast's element off the book's ledger
+    // (pageSlotsCastFor, read in each branch below at the
+    // moment the working is raised) — each slot +1 power
+    // and +1 health to the working — and the page's spell
+    // level rides the cast's roll above (DC = level + 10),
+    // counted once, there. Heal never reaches here:
+    // binding healing requires energy only.
 
     if (spell.kind === "ward") {
       if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
@@ -7602,13 +7605,16 @@ export const handlers = {
       // raises nothing.
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, spellKey: spell.key };
-      // The cast carries the page's standing attunement in
-      // its element — nothing is spent here; the power was
-      // poured into the book, in the Grimoire, beforehand.
-      const pour = await pagePourFor(ownerKey, spell, hue);
+      // The cast carries the page's filled slots in its
+      // element — nothing is spent here; the power was laid
+      // into the book, in the Grimoire, beforehand.
+      const slots = await pageSlotsCastFor(ownerKey, spell, hue);
       // The health rating (Nigel, 2026-10-17): holding wards are
       // raised with health grown from the book's base, the
-      // caster's Tender level, and the pour the cast carries.
+      // caster's Tender level, and one per slot the cast
+      // carries (hpForCast). The slots' POWER lands in the
+      // Seal's riposte below — the answer it gives a striker
+      // is the ward's power, as at the Table.
       // Bright: an Engine of yours standing anywhere on the map
       // lifts a new Trees at its raising, as at the Table.
       let hp = 0;
@@ -7618,19 +7624,19 @@ export const handlers = {
       const mapNums: Record<string, number> = { ...(spell.numbers ?? {}) };
       if (spell.engine === "seal") {
         mapNums.stops = (mapNums.stops ?? 3) + eff.sealStops + (hue === "stone" ? eff.deepSetSealStops : 0);
-        mapNums.riposte = (mapNums.riposte ?? 3) + eff.riposte;
+        mapNums.riposte = (mapNums.riposte ?? 3) + eff.riposte + slots;
       }
       if (spell.engine === "engine") mapNums.energyPerRound = (mapNums.energyPerRound ?? 1) + eff.engineEnergy;
       if (spell.engine === "trees" || spell.engine === "seal") {
         const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
-        hp = hpForCast(spell, progress.level, pour, !!bright);
+        hp = hpForCast(spell, progress.level, slots, !!bright);
         hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0);
       }
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pour, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, slots, hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour: slots, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -7658,11 +7664,11 @@ export const handlers = {
       // fizzle spends the charge alone and writes nothing.
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, spellKey: spell.key };
-      // The cast carries the page's standing attunement in
-      // its element, as at the ward's raising on this ground
+      // The cast carries the page's filled slots in its
+      // element, as at the ward's raising on this ground
       // — nothing is spent at the cast; the power stands in
-      // the book (pagePourFor).
-      const pour = await pagePourFor(ownerKey, spell, hue);
+      // the book (pageSlotsCastFor).
+      const slots = await pageSlotsCastFor(ownerKey, spell, hue);
       const effR = workingEffects(ownerKey);
       const charges = (spell.engine === "blade" || spell.engine === "blades") ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
@@ -7687,11 +7693,15 @@ export const handlers = {
       }
       // The Lattice holds its ground with a health rating, like
       // the holding wards; harm and snare runes carry none.
-      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pour, false) : 0;
+      // (A Crown Shard written on this ground stands holding
+      // its slots in the row below, but no spring on this
+      // ground reads them — the homeland has no Shard spring;
+      // standing flag, see the build report of 2026-10-21.)
+      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, slots, false) : 0;
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pour, hp, Date.now());
+        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, slots, hp, Date.now());
       const newId = Number(info.lastInsertRowid);
       // The writing springs the moment it lands, if the dark
       // already stands on its ground or the curse holds that
@@ -7702,7 +7712,7 @@ export const handlers = {
       // standing on it, the fell pays as any beaten creature
       // pays (Nigel, 2026-10-20).
       if (sprungNow.felled) await payFellDrip(ownerKey, tile.element ?? null);
-      return { ok: true as const, id: newId, tileId, cost: runeCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
+      return { ok: true as const, id: newId, tileId, cost: runeCost, pour: slots, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
     }
 
     badRequest("That page of the book cannot be cast on the land.");
@@ -9490,9 +9500,10 @@ export const handlers = {
   async getGrimoire(_args: unknown, ctx?: ActionContext) {
     const state = await refreshGrimoire();
     // A bound Tender also reads their own attunement ledger:
-    // the depth standing in each of their pages, by element.
-    // The book itself stays the public read it always was —
-    // the ledger rides only for the Tender it belongs to.
+    // the filled slots standing in each of their pages, by
+    // element. The book itself stays the public read it
+    // always was — the ledger rides only for the Tender it
+    // belongs to.
     if (ctx?.tender) {
       const ownerKey = ownerKeyFor(ctx);
       return { ...state, pageAttunements: await pageAttunementsFor(ownerKey) };
@@ -9500,33 +9511,37 @@ export const handlers = {
     return state;
   },
 
-  /** ATTUNE A PAGE OF THE GRIMOIRE (Nigel, 2026-10-20):
+  /** ATTUNE A PAGE OF THE GRIMOIRE (Nigel, 2026-10-20:
    *  "remove pour functionality and make the grimoire the
-   *  only way to ATTUNE spells and runes wards." Powering
-   *  lives in the book now: pour whole points of one element
-   *  from your own pool into one page, where the depth
-   *  STANDS — every cast of that page, on either ground,
-   *  draws on the page's standing attunement level in the
-   *  cast's element (pagePourFor). The spend is refused
-   *  whole when the pool cannot pay — nothing is half-spent.
-   *  What the pour LAYS is reckoned once, in the book
-   *  (pourLaidFor): a Witch's pour lays twice what it costs
-   *  into a spell, rune or ward page; a Sage's lays +2
-   *  beyond what she pays; bindings stand outside the pour,
-   *  as they always have. A page stands no deeper than
-   *  thirty points in one element — the top of the level
-   *  band — and a page already there refuses more. Only
-   *  pages whose strength is bought with attunement take a
-   *  pour at all (the book's POUR_ENGINES). */
+   *  only way to ATTUNE spells and runes wards" — and the
+   *  slots, 2026-10-21: "each spell had 8 elemental slots
+   *  that can be filled"; "attuneing spells costs 4 point
+   *  per lvl"). Powering lives in the book: each call fills
+   *  ONE of the page's eight slots with ONE element, paid
+   *  from that element's pool at 4 points the slot, and the
+   *  slot STANDS — every cast of that page, on either
+   *  ground, carries the filled slots of the cast's element
+   *  (pageSlotsCastFor), each +1 power and +1 health to the
+   *  working laid. A page may hold a mix of elements across
+   *  its eight. The spend is refused whole when the pool
+   *  cannot pay the 4 — nothing is half-spent — and a page
+   *  whose eight slots all stand filled refuses more.
+   *  Filling is one-way today: emptying or re-attuning a
+   *  filled slot is not ruled and is not offered. The
+   *  Witch's doubling and the Sage's +2 (pourLaidFor) priced
+   *  the retired point pour; how they bend slots is not
+   *  ruled, so every hand fills at the same flat 4 until it
+   *  is — the reckoning stands preserved in the book. Only
+   *  pages whose strength is bought with attunement take
+   *  slots at all (the book's POUR_ENGINES). */
   async attuneGrimoirePage(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({
       spellKey: z.string().min(1).max(80),
       element: z.enum(["root", "tide", "sky", "stone", "fire"]),
-      points: z.number().int().min(1).max(999),
     }).safeParse(args);
-    if (!parsed.success) badRequest("Name a page of the book, one of the five elements, and the points to pour into it.");
-    const { spellKey, element, points } = parsed.data;
+    if (!parsed.success) badRequest("Name a page of the book and one of the five elements to fill a slot with.");
+    const { spellKey, element } = parsed.data;
     const ownerKey = ownerKeyFor(ctx);
     await refreshGrimoire();
     const spell = spellByKey(spellKey);
@@ -9534,16 +9549,15 @@ export const handlers = {
     if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) {
       badRequest(`“${spell.name}” takes no attunement — its strength is not bought with points. Power the pages whose strength is: the holding wards and the Crown Shard.`);
     }
-    const depthNow = await pageDepthFor(ownerKey, spellKey, element);
-    if (depthNow >= PAGE_DEPTH_CAP) {
-      badRequest(`That page already stands at its deepest in ${element} — Lv ${attunementLevel(PAGE_DEPTH_CAP)}, the full thirty points.`);
+    const totalNow = await pageTotalSlots(ownerKey, spellKey);
+    if (totalNow >= PAGE_SLOTS) {
+      badRequest(`That page's eight slots all stand filled — there is no room for another.`);
     }
-    const progress = await getTenderProgress(ownerKey);
-    const laid = pourLaidFor(progress.classKey, spell.kind, points);
-    const spent = await spendAttunement(ownerKey, element, points);
-    if (!spent.ok) badRequest(`Pouring ${points} ${element} points — your ${element} pool holds ${Math.floor(spent.held)}. Nothing was spent.`);
-    const depth = await layPageDepth(ownerKey, spellKey, element, laid);
-    return { ok: true as const, spellKey, element, spent: points, laid, depth, level: attunementLevel(depth) };
+    const spent = await spendAttunement(ownerKey, element, SLOT_COST);
+    if (!spent.ok) badRequest(`Filling a ${element} slot costs ${SLOT_COST} ${element} points — your ${element} pool holds ${Math.floor(spent.held)}. Nothing was spent.`);
+    const { inElement, total } = await fillPageSlot(ownerKey, spellKey, element);
+    const slots = await pageAttunementsFor(ownerKey);
+    return { ok: true as const, spellKey, element, spent: SLOT_COST, inElement, filled: total, slots: slots[spellKey] ?? {} };
   },
 
   async uploadGrimoireGlyph(args: unknown) {

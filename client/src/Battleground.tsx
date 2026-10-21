@@ -755,7 +755,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const here = enemiesRef.current.filter(e => e.tileId === target.tileId || e.id === attacker.id);
           const greatest = here.length ? Math.max(...here.map(e => e.power)) : 0;
           if (greatest >= (grune.nums.minPower ?? 5)) {
-            const dmg = greatest * (grune.nums.multiplier ?? 2) + (grune.pour ?? 0) * (grune.nums.harmPerPoint ?? 1);
+            const dmg = greatest * (grune.nums.multiplier ?? 2) + (grune.pour ?? 0);
             setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
             gst.spent = true;
             addLog(`${grimName(grune)} FALLS on the whole hex — ${dmg} harm, measured by the greatest dark standing there!`);

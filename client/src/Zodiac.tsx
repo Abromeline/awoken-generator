@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, GRIMOIRE_POUR_ENGINES, grimoirePageLevel, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
+import { api, GRIMOIRE_POUR_ENGINES, GRIMOIRE_PAGE_SLOTS, GRIMOIRE_SLOT_COST, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
 import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, type WeaponKey } from "./weaponArt";
 
@@ -124,16 +124,18 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     onSuccess: (r) => charOk(`${r.node === "manifest" ? "Manifest" : "Signature"} node taken for ${WEAPONS[r.weaponKey as WeaponKey]?.name ?? r.weaponKey} — ${r.cost} ${r.element} pts spent.`),
     onError: charFail,
   });
-  // ATTUNE A PAGE (Nigel, 2026-10-20): powering lives in the
-  // Grimoire — pours go into pages here, and casts on both
-  // grounds draw on what the page holds. The book refreshes
-  // after every pour so the standing never lies.
-  const [pageAmt, setPageAmt] = useState<Record<string, number>>({});
+  // ATTUNE A PAGE (Nigel, 2026-10-20; the slots, 2026-10-21):
+  // powering lives in the Grimoire — a page's eight slots are
+  // filled here, one element at a time at 4 points the slot,
+  // and casts on both grounds carry the filled slots of the
+  // cast's element. The book refreshes after every fill so
+  // the standing never lies.
   const attunePageM = useMutation({
-    mutationFn: (a: { spellKey: string; element: ElementKey; points: number }) => api.attuneGrimoirePage(a),
+    mutationFn: (a: { spellKey: string; element: ElementKey }) => api.attuneGrimoirePage(a),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["grimoire"] });
-      charOk(`${grimoireQ.data?.spells.find(s => s.key === r.spellKey)?.name ?? r.spellKey} deepens in ${r.element} — ${r.spent} pt${r.spent === 1 ? "" : "s"} poured, ${r.laid} laid; the page now stands ${r.depth} deep (Lv ${ROMAN[r.level] ?? r.level}).`);
+      void qc.invalidateQueries({ queryKey: ["tenderExp"] });
+      charOk(`${grimoireQ.data?.spells.find(s => s.key === r.spellKey)?.name ?? r.spellKey} — a ${r.element} slot stands filled (${r.spent} pts paid); the page now holds ${r.filled} of ${GRIMOIRE_PAGE_SLOTS} slots.`);
     },
     onError: charFail,
   });
@@ -166,48 +168,44 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   const wieldedKey = (exp?.weaponKey as WeaponKey | null) ?? null;
   const tenderName = studioQ.data?.tender?.tenderName ?? "Nameless Tender";
   const arsenalOf = (key: string) => exp?.arsenal.find(w => w.key === key);
-  /** The attunement standing of one page, with its pour
-   *  controls — rendered wherever the page is listed (the
-   *  Spells tab and the Runes/Wards tab alike). Pages whose
-   *  strength is not bought with attunement render nothing;
-   *  the tabs say so in words instead. A pour spends the
-   *  chosen amount from that element's pool; what it LAYS is
-   *  the server's reckoning (a Witch's pour lays twice, a
-   *  Sage's lays +2 — the button spends, the book deepens). */
+  /** The filled slots of one page, with its fill controls —
+   *  rendered wherever the page is listed (the Spells tab
+   *  and the Runes/Wards tab alike). Pages whose strength is
+   *  not bought with attunement render nothing; the tabs say
+   *  so in words instead. A fill spends 4 points of that
+   *  element's pool and stands one slot of it in the page;
+   *  a page holds eight slots in all, of whatever mix. */
   const pageAttunementBlock = (s: GrimoireSpell) => {
     if (!(GRIMOIRE_POUR_ENGINES as readonly string[]).includes(s.engine) || !exp) return null;
     const standing = grimoireQ.data?.pageAttunements?.[s.key] ?? {};
-    const amt = pageAmt[s.key] ?? 1;
     const held = ELEMENTS.filter(el => (standing[el] ?? 0) > 0);
+    const total = held.reduce((n, el) => n + (standing[el] ?? 0), 0);
+    const pips = held.flatMap(el => Array.from({ length: standing[el] ?? 0 }, () => el));
     return (
       <div className="page-attune">
-        <div className="attune-row" aria-label={`${s.name} attunement standing`}>
-          <span>Attunement:</span>
-          {held.length ? held.map(el => (
-            <span key={el} className="attune-node lit" title={`${el}: ${standing[el]} points standing in this page`}>
-              {EL_EMOJI[el] ?? ""} {el} Lv {ROMAN[grimoirePageLevel(standing[el] ?? 0)] ?? grimoirePageLevel(standing[el] ?? 0)} · {standing[el]} deep
-            </span>
-          )) : <span>— none standing; every cast of this page goes bare</span>}
+        <div className="attune-row" aria-label={`${s.name} attunement slots`}>
+          <span>Slots {total} of {GRIMOIRE_PAGE_SLOTS}:</span>
+          {total ? pips.map((el, i) => (
+            <span key={i} className="attune-node lit" title={`a filled ${el} slot — casts of this page in ${el} carry it`}>{EL_EMOJI[el] ?? ""}</span>
+          )) : <span>— all eight empty; every cast of this page goes bare</span>}
         </div>
-        <div className="weapon-actions" role="group" aria-label={`Pour into ${s.name}`}>
-          <span className="zodiac-note small">Pour:</span>
-          {[1, 5, 10].map(n => (
-            <button key={n} type="button" className={`zodiac-btn${amt === n ? " take" : ""}`} aria-pressed={amt === n} onClick={() => setPageAmt(m => ({ ...m, [s.key]: n }))}>{n} pt{n === 1 ? "" : "s"}</button>
-          ))}
-        </div>
-        <div className="weapon-actions">
+        {held.map(el => (
+          <div key={el} className="attune-row">
+            <span>{EL_EMOJI[el] ?? ""} {el} ×{standing[el]} — a cast of this page in {el} gains +{standing[el]} power and +{standing[el]} health</span>
+          </div>
+        ))}
+        <div className="weapon-actions" role="group" aria-label={`Fill a slot of ${s.name}`}>
           {ELEMENTS.map(el => {
-            const depth = standing[el] ?? 0;
             const pool = exp.pools[el] ?? 0;
             return (
-              <button key={el} type="button" className="zodiac-btn" disabled={charBusy || depth >= 30 || pool < amt}
-                onClick={() => attunePageM.mutate({ spellKey: s.key, element: el, points: amt })}>
-                {EL_EMOJI[el] ?? ""} {el} — pour {amt} (pool {fmtPts(pool)}){depth >= 30 ? " · deepest" : ""}
+              <button key={el} type="button" className="zodiac-btn" disabled={charBusy || total >= GRIMOIRE_PAGE_SLOTS || pool < GRIMOIRE_SLOT_COST}
+                onClick={() => attunePageM.mutate({ spellKey: s.key, element: el })}>
+                {EL_EMOJI[el] ?? ""} {el} — fill a slot for {GRIMOIRE_SLOT_COST} pts (pool {fmtPts(pool)}){total >= GRIMOIRE_PAGE_SLOTS ? " · page full" : ""}
               </button>
             );
           })}
         </div>
-        <p className="zodiac-note small">Depth stands in bands of ten: 10 deep is Lv I, 20 is Lv II, 30 is Lv III — and a cast of this page carries its level in the cast's element. A Witch's pour lays twice what it costs here; a Sage's lays +2.</p>
+        <p className="zodiac-note small">Eight slots stand in each page. Filling one costs {GRIMOIRE_SLOT_COST} points of that element's pool, and the slot stands: every cast of this page in that slot's element carries +1 power and +1 health per filled slot, and the spell's own level rides every cast's roll. A filled slot cannot be emptied or changed yet. The Witch's doubled attunement and the Sage's +2 priced the old way of powering a page; how they bend slots is not ruled yet, so today every hand fills at the same {GRIMOIRE_SLOT_COST} points.</p>
       </div>
     );
   };
@@ -412,7 +410,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
 
                 {grimTab === "spells" && (
                   <div>
-                    <p className="zodiac-note small">Powering lives in this book (Nigel, 2026-10-20): attunement is poured into a page here, and every cast of that page — at the Table and on your land — draws on what the page holds. Nothing is poured at the moment of casting any more.</p>
+                    <p className="zodiac-note small">Powering lives in this book (Nigel, 2026-10-20; the slots, 2026-10-21): a page's eight attunement slots are filled here, and every cast of that page — at the Table and on your land — carries the page's filled slots of the cast's element, each +1 power and +1 health. Nothing is poured at the moment of casting any more.</p>
                     <p className="casting-law">Casting law: <strong>+2</strong> within your school, <strong>−3</strong> across the closed schools (the Sage pays −3 on every cast; the Spell school stays open to all). Every cast rolls d20 + gift against the working's level + 10, and a failed cast still spends its energy.</p>
                     {grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
                     {grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
@@ -428,7 +426,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
 
                 {grimTab === "runes" && (
                   <div>
-                    <p className="zodiac-note small">These pages are cast on the land and at the Table — and powered HERE, in the book: pour attunement into a page and every cast of it carries the page's standing level in the cast's element. There is no pouring at the cast, and standing workings can no longer be pushed.</p>
+                    <p className="zodiac-note small">These pages are cast on the land and at the Table — and powered HERE, in the book: fill a page's slots with an element and every cast of it in that element carries those slots, +1 power and +1 health apiece, with the spell's own level riding the cast's roll. There is no pouring at the cast, and standing workings can no longer be pushed.</p>
                     <ul className="character-list">
                       <li>Ward &amp; Rune arts: <strong>{exp.wardRuneUnlocked ? "unlocked" : "locked"}</strong> — {exp.wardRuneUnlocked ? "opened at Tender Lv 3." : `opens at Tender Lv 3 (you are Lv ${exp.level}).`}</li>
                     </ul>

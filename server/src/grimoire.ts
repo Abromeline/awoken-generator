@@ -61,7 +61,6 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "stops", label: "Strikes stopped before the Seal goes out", def: 3 },
     { key: "hp", label: "Health rating (base) — each stopped blow costs the blow's power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   engine: [
     { key: "energyPerRound", label: "Energy to its tender each round", def: 1 },
@@ -74,7 +73,6 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "brightHpBonus", label: "Extra health while an Engine burns", def: 2 },
     { key: "regrow", label: "Health regrown each round", def: 2 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   beacon: [
     { key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 },
@@ -83,7 +81,6 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 },
     { key: "hp", label: "Health rating (base) — pinning a dark costs its power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   blade: [
     { key: "power", label: "Harm to everything on its ground", def: 6 },
@@ -98,7 +95,6 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
   shard: [
     { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
     { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
-    { key: "harmPerPoint", label: "Extra harm per attunement level standing in the page, in the cast's element", def: 1 },
   ],
   coil: [
     { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
@@ -237,6 +233,12 @@ export function defaultGrimoire(): GrimoireState {
   // attunements); casts on both grounds carry the page's
   // standing level in the cast's element, and no pour is
   // offered or taken at the moment of casting anywhere.
+  // THE SLOTS (Nigel, 2026-10-21): the standing depth stood
+  // one night, unshipped, and the slots replaced it before
+  // any player state existed — each page now holds EIGHT
+  // slots, each filled with one element at 4 points of that
+  // element's pool. The attunement section below carries
+  // the law's current text.
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
@@ -309,102 +311,139 @@ export function healSpell(): GrimoireSpell | null {
 
 // ── Attunement Lives in the Book (Nigel, 2026-10-20) ─────────
 // Powering a spell, rune or ward happens HERE, in the
-// Grimoire, and nowhere else: the Tender pours elemental
-// points from their pools into a page, where the depth STANDS
-// (grimoire_attunements), and every cast of that page — at
-// the Table, on the land — draws on the page's standing
-// attunement in the cast's element. There is no pouring at
-// the moment of casting, on either ground: a cast is a cast.
-// (The pour at the cast, and the pushing of standing runes,
-// stood from 2026-10-17 until this ruling retired them; the
-// Attune act on a tile is a different act and stands apart.)
+// Grimoire, and nowhere else — and it happens in SLOTS
+// (Nigel, 2026-10-21): "cast should carry a grimoires spell
+// lvl and attunement"; "elemental energy is what the
+// grimoire charges to attune spells to the matching elemen
+// and each spell had 8 elemental slots that can be filled
+// each grnting +1+1 ememental bonous"; "attuneing spells
+// costs 4 point per lvl". Each page holds EIGHT slots in
+// all; a slot is filled with ONE element, paid from that
+// element's pool at 4 points the slot; a page may hold a
+// mix of elements across its eight. Every cast of the page
+// — at the Table, on the land — carries the page's own
+// spell LEVEL (in the cast's roll, as it always stood) and
+// the filled slots of the CAST'S ELEMENT: each such slot
+// grants +1 power and +1 health to the working the cast
+// lays. There is no pouring at the moment of casting, on
+// either ground: a cast is a cast. (The pour at the cast,
+// and the pushing of standing runes, stood from 2026-10-17
+// until the 2026-10-20 ruling retired them; the standing
+// DEPTH the book kept for one unshipped night is retired
+// in turn — no player state ever stood in it. The Attune
+// act on a tile is a different act and stands apart.)
 // Only workings whose strength is bought with attunement
-// take a pour at all — the holding wards and the gated
+// take slots at all — the holding wards and the gated
 // Shard. Binding healing is exempt — it requires energy only.
 // Wards and runes that HOLD BACK enemies carry a health
 // rating grown from the book's base, the caster's Tender
-// level, and the page's standing level in the cast's element;
-// the gated Shard's standing level feeds its harm instead.
+// level, and the slots the cast carries; the gated Shard's
+// slots feed its harm instead, for it holds no health.
 export const POUR_ENGINES = ["seal", "trees", "lattice", "shard"] as const;
 
 /** A Tender's attunement LEVEL in an element (Nigel, 2026-10-17):
  *  the depth band — ten attunement points per level, L3 at 30+.
- *  0–9 → Lv 0, 10–19 → Lv 1, 20–29 → Lv 2, 30+ → Lv 3. */
+ *  0–9 → Lv 0, 10–19 → Lv 1, 20–29 → Lv 2, 30+ → Lv 3. (The
+ *  pools' own band — it gates the wheel and feeds Shard
+ *  Rain's snapshot; the pages' slots below are a separate,
+ *  smaller measure and do not read it.) */
 export function attunementLevel(points: number): number {
   return Math.min(3, Math.floor(Math.max(0, points) / 10));
 }
 
-/** The deepest a page may stand in one element: the top of
- *  the level band — thirty points, Lv 3. A pour that would
- *  carry a page past it lays only to the cap; a page already
- *  there refuses more. */
-export const PAGE_DEPTH_CAP = 30;
+/** The slots a page holds in all (Nigel, 2026-10-21):
+ *  eight, of whatever elements its Tender has filled. */
+export const PAGE_SLOTS = 8;
 
-/** One Tender's whole attunement ledger: the depth standing
- *  in each page, by element — { spellKey: { element: depth } }. */
+/** What filling one slot costs (Nigel, 2026-10-21):
+ *  4 points of the slot's element, paid from its pool. */
+export const SLOT_COST = 4;
+
+/** One Tender's whole attunement ledger: the filled slots
+ *  standing in each page, by element — a COUNT of slots per
+ *  element, the counts across a page summing to at most
+ *  PAGE_SLOTS. { spellKey: { element: slots } }. */
 export async function pageAttunementsFor(ownerKey: string): Promise<Record<string, Record<string, number>>> {
   const rows = await db.select().from(schema.grimoireAttunements)
     .where(eq(schema.grimoireAttunements.ownerKey, ownerKey));
   const out: Record<string, Record<string, number>> = {};
   for (const r of rows as any[]) {
-    if (!((r.depth ?? 0) > 0)) continue;
-    (out[r.spellKey] ??= {})[r.element] = r.depth;
+    if (!((r.slots ?? 0) > 0)) continue;
+    (out[r.spellKey] ??= {})[r.element] = r.slots;
   }
   return out;
 }
 
-/** The depth standing in one page in one element (0 when the
- *  page stands unattuned there). */
-export async function pageDepthFor(ownerKey: string, spellKey: string, element: string): Promise<number> {
+/** The filled slots standing in one page in one element
+ *  (0 when no slot of that element stands there). */
+export async function pageElementSlots(ownerKey: string, spellKey: string, element: string): Promise<number> {
   const rows = await db.select().from(schema.grimoireAttunements)
     .where(and(
       eq(schema.grimoireAttunements.ownerKey, ownerKey),
       eq(schema.grimoireAttunements.spellKey, spellKey),
       eq(schema.grimoireAttunements.element, element as any)
     )).limit(1);
-  return rows.length ? (rows[0].depth ?? 0) : 0;
+  return rows.length ? (rows[0].slots ?? 0) : 0;
 }
 
-/** Lay depth into a page, clamped at the cap. Returns the
- *  depth the page stands at afterwards. */
-export async function layPageDepth(ownerKey: string, spellKey: string, element: string, laid: number): Promise<number> {
+/** Every slot standing in one page, across all elements —
+ *  the count the eight-slot cap is judged against. */
+export async function pageTotalSlots(ownerKey: string, spellKey: string): Promise<number> {
+  const rows = await db.select().from(schema.grimoireAttunements)
+    .where(and(
+      eq(schema.grimoireAttunements.ownerKey, ownerKey),
+      eq(schema.grimoireAttunements.spellKey, spellKey)
+    ));
+  return rows.reduce((sum, r) => sum + ((r as any).slots ?? 0), 0);
+}
+
+/** Fill ONE slot of a page with one element. The caller —
+ *  the book's door — has already judged the page's room
+ *  (its eight) and taken the price (SLOT_COST of the
+ *  element); this only lays the slot. Returns the page's
+ *  standing afterwards: the count in this element and the
+ *  count in all. */
+export async function fillPageSlot(ownerKey: string, spellKey: string, element: string): Promise<{ inElement: number; total: number }> {
   const now = new Date();
-  const next = Math.min(PAGE_DEPTH_CAP, (await pageDepthFor(ownerKey, spellKey, element)) + Math.max(0, laid));
+  const next = (await pageElementSlots(ownerKey, spellKey, element)) + 1;
   await db.insert(schema.grimoireAttunements)
-    .values({ ownerKey, spellKey, element: element as any, depth: next, updatedAt: now })
+    .values({ ownerKey, spellKey, element: element as any, slots: next, updatedAt: now })
     .onConflictDoUpdate({
       target: [schema.grimoireAttunements.ownerKey, schema.grimoireAttunements.spellKey, schema.grimoireAttunements.element],
-      set: { depth: next, updatedAt: now },
+      set: { slots: next, updatedAt: now },
     });
-  return next;
+  return { inElement: next, total: await pageTotalSlots(ownerKey, spellKey) };
 }
 
-/** The measure a cast of this page carries (Nigel, 2026-10-20):
- *  the page's attunement LEVEL in the cast's element — the
- *  standing depth read through the book's band, the same 0–3
- *  measure the cast-time pour was capped at, now read off the
- *  page instead of paid at the cast. 0 for unaligned casts
+/** The attunement a cast of this page carries (Nigel,
+ *  2026-10-21): the count of the page's filled slots in the
+ *  CAST'S ELEMENT — each granting +1 power and +1 health to
+ *  the working laid. Slots of other elements stand in the
+ *  page but do not ride this cast. 0 for unaligned casts
  *  (no element to draw on) and for workings that take no
  *  attunement. Both grounds call this, so the reading
- *  cannot drift. */
-export async function pagePourFor(ownerKey: string, spell: GrimoireSpell, hue: string): Promise<number> {
+ *  cannot drift. (The cast's other burden, the page's spell
+ *  level, rides the cast's roll as it always has — DC =
+ *  level + 10 at every door — and is counted there, once.) */
+export async function pageSlotsCastFor(ownerKey: string, spell: GrimoireSpell, hue: string): Promise<number> {
   if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) return 0;
   if (!hue || hue === "unaligned") return 0;
-  return attunementLevel(await pageDepthFor(ownerKey, spell.key, hue));
+  return pageElementSlots(ownerKey, spell.key, hue);
 }
 
 /** The health a holding working is raised with, snapshotted at
- *  the cast: the book's base + a measure per Tender level + a
- *  measure per level of the page's standing attunement in the
- *  cast's element (the `pour` a cast carries now). 0 for
- *  workings that do not hold. */
-export function hpForCast(spell: GrimoireSpell, tenderLevel: number, pour: number, bright: boolean): number {
+ *  the cast: the book's base + a measure per Tender level +
+ *  ONE per filled slot the cast carries (Nigel, 2026-10-21:
+ *  each slot grants +1 health to the working, flat — the
+ *  slots replaced the depth band and its per-point rate
+ *  whole). 0 for workings that do not hold. */
+export function hpForCast(spell: GrimoireSpell, tenderLevel: number, slots: number, bright: boolean): number {
   const n = spell.numbers ?? {};
   if (spell.engine === "seal" || spell.engine === "lattice") {
-    return Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * tenderLevel + (n.hpPerPoint ?? 2) * pour));
+    return Math.max(1, Math.floor((n.hp ?? 6) + (n.hpPerLevel ?? 1) * tenderLevel + slots));
   }
   if (spell.engine === "trees") {
-    return Math.max(1, Math.floor((n.hp ?? 8) + (bright ? (n.brightHpBonus ?? 2) : 0) + (n.hpPerLevel ?? 1) * tenderLevel + (n.hpPerPoint ?? 2) * pour));
+    return Math.max(1, Math.floor((n.hp ?? 8) + (bright ? (n.brightHpBonus ?? 2) : 0) + (n.hpPerLevel ?? 1) * tenderLevel + slots));
   }
   return 0;
 }
@@ -422,9 +461,16 @@ export function hpForCast(spell: GrimoireSpell, tenderLevel: number, pour: numbe
  *  them; BINDINGS stand outside both, as they stand outside
  *  the pour itself (binding healing is energy only). Every
  *  other class lays what it spends. The two gifts never meet
- *  on one caster, and this door — the Grimoire's — is the
- *  reckoning's only caller now: there is no pouring at a
- *  cast or at a standing working any more, on either ground. */
+ *  on one caster. THE SLOTS (Nigel, 2026-10-21) retired the
+ *  point pour this reckoning priced: a page is now powered
+ *  slot by slot at a flat 4 points the slot, and NO door
+ *  calls this reckoning today — it stands preserved in the
+ *  book, untranslated, because how the gifts bend SLOTS is
+ *  not yet ruled. The candidate readings stand named in
+ *  the build report of 2026-10-21 (the gifts bend the price
+ *  of a slot, or the gifts bend what a filled slot grants);
+ *  until the ruling lands, every hand fills slots at the
+ *  same flat price and the gifts sleep here, whole. */
 export function pourLaidFor(classKey: string | null | undefined, kind: string | null | undefined, wanted: number): number {
   if (wanted <= 0) return wanted;
   if (kind !== "spell" && kind !== "rune" && kind !== "ward") return wanted;
@@ -489,6 +535,12 @@ export async function refreshGrimoire(): Promise<GrimoireState> {
           // alone now (Nigel, 2026-10-17) — a stored book pourCap
           // is retired wherever it lingers.
           delete spell.numbers.pourCap;
+          // THE SLOTS (Nigel, 2026-10-21) retired the depth
+          // band's per-point rates whole — a filled slot now
+          // grants a flat +1, priced into no field. Stored
+          // books shed the dead traits wherever they linger.
+          delete spell.numbers.hpPerPoint;
+          delete spell.numbers.harmPerPoint;
           // The Springleaf woke with the columns (2026-10-17): a
           // stored book still calling it unwritten (engine
           // "none") is woken to its true engine at refresh.

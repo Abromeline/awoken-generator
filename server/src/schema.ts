@@ -311,15 +311,20 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
   displayRate: real("display_rate").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
-// The Grimoire's attunement ledger (Nigel, 2026-10-20): the
-// depth of one element standing in one page of the book for
-// one Tender — powering lives in the book now, and every cast
-// of that page draws on this standing depth (its level band).
+// The Grimoire's attunement ledger (Nigel, 2026-10-20;
+// the slots, 2026-10-21): the filled slots of one element
+// standing in one page of the book for one Tender — a page
+// holds eight slots in all, each filled at 4 points of its
+// element, and every cast of that page carries the filled
+// slots of the cast's element. (The standing depth this
+// table kept for one unshipped night is gone; no player
+// state ever stood in it, so the column is renamed, not
+// converted.)
 export const grimoireAttunements = sqliteTable("grimoire_attunements", {
   ownerKey: text("owner_key").notNull(),
   spellKey: text("spell_key").notNull(),
   element: text("element", { enum: ["tide", "sky", "stone", "root", "fire"] }).notNull(),
-  depth: integer("depth").notNull().default(0),
+  slots: integer("slots").notNull().default(0),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.spellKey, t.element] })]);
 

@@ -32,7 +32,7 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor, payFellDrip } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
-import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pagePourFor } from "./grimoire.js";
+import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -302,9 +302,11 @@ interface Working {
   hexB: string | null;
   hp: number;
   /** The health the working was raised with (its rating's full
-   *  measure); its `pour` below is the attunement LEVEL of its
-   *  page in its element, read off the Grimoire at the cast
-   *  (Nigel, 2026-10-20) — both snapshotted at the cast. */
+   *  measure); its `pour` below is the count of its page's
+   *  filled SLOTS in the cast's element, read off the
+   *  Grimoire at the cast (Nigel, 2026-10-21 — the field
+   *  keeps the name it was born with; the slots are what it
+   *  counts now) — both snapshotted at the cast. */
   maxHp: number;
   /** The curse's accrued wither (2026-10-20): fractional
    *  attrition against the working's body — its health, or
@@ -2133,7 +2135,11 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       : darkHere;
     const greatest = Math.max(...foes.map(e => e.power));
     if (greatest >= (rune.nums.minPower ?? 5)) {
-      const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour * (rune.nums.harmPerPoint ?? 1);
+      // The slots ride the fall at face value (Nigel,
+      // 2026-10-21): the measure the cast carried IS the
+      // bonus — +1 harm per filled slot of the cast's
+      // element, no rate applied on top.
+      const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour;
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
       let felledByShard = 0;
       for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
@@ -2170,7 +2176,7 @@ function settleShardsAndFade(room: Room): void {
     const mine = [...room.field.values()].filter(u => u.ownerKey === w.ownerKey);
     if (mine.length) {
       const strongest = mine.reduce((a, b) => (b.card.power > a.card.power ? b : a));
-      const dmg = strongest.card.power * (w.nums.multiplier ?? 2) + w.pour * (w.nums.harmPerPoint ?? 1);
+      const dmg = strongest.card.power * (w.nums.multiplier ?? 2) + w.pour;
       strongest.hp -= dmg;
       tell(room, `${w.name} went unfed — a doom owed is a doom paid: it falls on ${strongest.card.name}, ${dmg} harm.`);
       if (strongest.hp <= 0) {
@@ -3709,21 +3715,26 @@ function handleConnection(ws: WebSocket): void {
       }
       if (secondWallSpent) { caster.secondWallUsed = true; tell(room, `${caster.name}'s Second Wall rises at half its price — the Warden's economy.`); }
       if (steadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
-      // THE PAGE CARRIES IT (Nigel, 2026-10-20): no pour is
-      // named or taken at this cast — powering lives in the
-      // Grimoire. The working stands with the page's
-      // attunement LEVEL in the cast's element, poured into
-      // the book beforehand (pagePourFor, the book's one
-      // reading). An unbound seat carries nothing.
-      const pour = caster.expKey ? await pagePourFor(caster.expKey, def, hue) : 0;
+      // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
+      // 2026-10-21): no pour is named or taken at this cast —
+      // powering lives in the Grimoire. The working stands
+      // with the page's filled SLOTS in the cast's element,
+      // laid into the book beforehand (pageSlotsCastFor, the
+      // book's one reading) — each slot +1 power and +1
+      // health — and the page's spell level already rode the
+      // cast's roll (rollCast: DC = level + 10), counted
+      // once, there. An unbound seat carries nothing.
+      const slots = caster.expKey ? await pageSlotsCastFor(caster.expKey, def, hue) : 0;
       // The health rating: holding wards are raised with health
-      // grown from the book's base, the caster's level, the pour
-      // the cast carries.
+      // grown from the book's base, the caster's level, and one
+      // per slot the cast carries (hpForCast). The slots'
+      // POWER lands in the Seal's riposte below — the answer
+      // it gives a striker is the ward's power.
       // The Zodiac rides the snapshot (tranche one): Thick
       // Light's +2 on every ward, the Living Wall's +4 more on
       // the Trees, the Seal's deeper stops and answered
       // riposte, the Engine's deeper song.
-      let hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
+      let hp = hpForCast(def, caster.tenderLevel, slots, engineBright(room, caster.key));
       hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0);
       // Lore Warden (tranche one): a ward raised on an edge
       // where one of yours fell stands at +2 HP — the edge
@@ -3732,13 +3743,13 @@ function handleConnection(ws: WebSocket): void {
       const wardNums: Record<string, number> = { ...def.numbers };
       if (def.engine === "seal") {
         wardNums.stops = (wardNums.stops ?? 3) + eff.sealStops + (hue === "stone" ? eff.deepSetSealStops : 0);
-        wardNums.riposte = (wardNums.riposte ?? 3) + eff.riposte;
+        wardNums.riposte = (wardNums.riposte ?? 3) + eff.riposte + slots;
       }
       if (def.engine === "engine") wardNums.energyPerRound = (wardNums.energyPerRound ?? 1) + eff.engineEnergy;
       room.workings.push({
         id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: wardNums, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
-        hp, maxHp: hp, pour, stops: 0, charges: 0,
+        hp, maxHp: hp, pour: slots, stops: 0, charges: 0,
       });
       tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge between ${hexA} and ${hexB}.`);
       caster.castAt = Date.now();
@@ -3781,14 +3792,17 @@ function handleConnection(ws: WebSocket): void {
       // and no writing stands.
       if (!rollCast(caster, def).ok) { castUnravels(room, caster, def.name); sendState(room); return; }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
-      // THE PAGE CARRIES IT (Nigel, 2026-10-20), as at the
-      // ward's raising: the cast takes no pour — the writing
-      // holds the page's attunement LEVEL in the cast's
-      // element, poured into the book beforehand
-      // (pagePourFor). One standing measure feeds the whole
-      // cast, however many hexes it writes.
-      const pour = caster.expKey ? await pagePourFor(caster.expKey, def, hue) : 0;
-      const hp = hpForCast(def, caster.tenderLevel, pour, false);
+      // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
+      // 2026-10-21), as at the ward's raising: the cast takes
+      // no pour — the writing holds the page's filled SLOTS
+      // in the cast's element, laid into the book beforehand
+      // (pageSlotsCastFor) — for the Lattice, health by
+      // hpForCast; for the Crown Shard, the slots stand in
+      // the working's measure, which is what its spring
+      // reads. One standing measure feeds the whole cast,
+      // however many hexes it writes.
+      const slots = caster.expKey ? await pageSlotsCastFor(caster.expKey, def, hue) : 0;
+      const hp = hpForCast(def, caster.tenderLevel, slots, false);
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // LEVEL in the spell's element is snapshotted at the cast,
       // as HP is — the rain that falls later rolls by the sky
@@ -3827,7 +3841,7 @@ function handleConnection(ws: WebSocket): void {
         const wNew: Working = {
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp, maxHp: hp, pour, stops: 0, charges: chargesNow, maxCharges: chargesNow,
+          hp, maxHp: hp, pour: slots, stops: 0, charges: chargesNow, maxCharges: chargesNow,
           group,
         };
         // The Ground Remembers (tranche one): the FIRST rune

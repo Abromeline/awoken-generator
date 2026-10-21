@@ -178,8 +178,18 @@ async function joinBound(tt, room, label) {
   return c;
 }
 
-// ── (e) SAGE ATTUNEMENT AT THE GRIMOIRE ──────────────────
-console.log("\n(e) sage attune mastery at the Grimoire's door");
+// ── (e) THE GRIMOIRE'S DOOR UNDER THE SLOTS ───────────────
+// This section once proved the Sage's +2 mastery at the
+// book's door, when the door took point pours. The slots
+// (Nigel, 2026-10-21) retired the point pour: the door now
+// fills one slot at a flat 4 points, and how the Witch's
+// doubling and the Sage's +2 bend SLOTS is not ruled — the
+// reckoning (pourLaidFor) stands preserved in the book,
+// proven in test62 §0, called by no door. So the door today
+// charges every hand alike, and this section proves exactly
+// that, no more: the Sage and the Warden each fill one root
+// slot in the Lattice's page at the same 4.
+console.log("\n(e) the Grimoire's door under the slots — every hand fills at the flat 4");
 {
   const sg = await seedBoundTender({ tenderName: "Pour Sage", password: "pour-sg-56", tag: "56E2", classKey: "sage", filler: 5 });
   const wd = await seedBoundTender({ tenderName: "Pour Warden", password: "pour-wd-56", tag: "56E3", classKey: "warden", filler: 5 });
@@ -187,19 +197,19 @@ console.log("\n(e) sage attune mastery at the Grimoire's door");
     db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, 'root', 30, ?) ON CONFLICT(owner_key, element) DO UPDATE SET points = 30").run(k, Date.now());
   }
   const poolOf = (k) => db.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = 'root'").get(k)?.points;
-  const depthOf = (k) => db.prepare("SELECT depth FROM grimoire_attunements WHERE owner_key = ? AND spell_key = 'lattice' AND element = 'root'").get(k)?.depth ?? 0;
+  const slotsOf = (k) => db.prepare("SELECT slots FROM grimoire_attunements WHERE owner_key = ? AND spell_key = 'lattice' AND element = 'root'").get(k)?.slots ?? 0;
 
-  const sgPour = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 2 }, sg.token);
-  check("SAGE: pouring 2 root into the Lattice page lays 4 deep (her mastery, at the book)",
-    sgPour.data?.laid === 4 && sgPour.data?.depth === 4 && depthOf(sg.ownerKey) === 4,
-    JSON.stringify(sgPour.data));
-  check("SAGE: her pool pays only the 2 she named (30 → 28)", poolOf(sg.ownerKey) === 28, `pool=${poolOf(sg.ownerKey)}`);
+  const sgFill = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root" }, sg.token);
+  check("SAGE: filling one root slot in the Lattice page lays exactly 1 slot (her +2 stands untranslated onto slots)",
+    sgFill.data?.spent === 4 && sgFill.data?.inElement === 1 && slotsOf(sg.ownerKey) === 1,
+    JSON.stringify(sgFill.data));
+  check("SAGE: her pool pays the flat 4 (30 → 26)", poolOf(sg.ownerKey) === 26, `pool=${poolOf(sg.ownerKey)}`);
 
-  const wdPour = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 2 }, wd.token);
-  check("CONTROL: the Warden pouring 2 lays exactly 2 deep",
-    wdPour.data?.laid === 2 && wdPour.data?.depth === 2 && depthOf(wd.ownerKey) === 2,
-    JSON.stringify(wdPour.data));
-  check("CONTROL: the warden's pool pays exactly 2 (30 → 28)", poolOf(wd.ownerKey) === 28, `pool=${poolOf(wd.ownerKey)}`);
+  const wdFill = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root" }, wd.token);
+  check("CONTROL: the Warden filling one root slot lays exactly 1 slot, at the same price",
+    wdFill.data?.spent === 4 && wdFill.data?.inElement === 1 && slotsOf(wd.ownerKey) === 1,
+    JSON.stringify(wdFill.data));
+  check("CONTROL: the warden's pool pays the flat 4 (30 → 26)", poolOf(wd.ownerKey) === 26, `pool=${poolOf(wd.ownerKey)}`);
 }
 
 // ── (a) rollCast CONTROL ──────────────────────────────────

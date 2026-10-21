@@ -1018,7 +1018,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const here = updated.filter((u) => u.tileId === tile.id);
       const greatest = here.length ? Math.max(...here.map((u) => u.power || 2)) : 0;
       if (greatest >= (rune.nums.minPower ?? 5)) {
-        const dmg = greatest * (rune.nums.multiplier ?? 2) + (rune.pour ?? 0) * (rune.nums.harmPerPoint ?? 1);
+        const dmg = greatest * (rune.nums.multiplier ?? 2) + (rune.pour ?? 0);
         updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - dmg } : u).filter((u) => u.hp > 0);
         st.spent = true;
         showHexNotice(`${grimFormName(rune)} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
@@ -4219,7 +4219,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const img = grimGlyphImg(w.spellKey);
           const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 5px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
           const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
-          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · poured ${w.pour}` : ""}`;
+          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · ${w.pour} attunement slot${w.pour === 1 ? "" : "s"} carried` : ""}`;
           if (w.kind === "ward" && w.q != null && w.r != null && w.dir != null) {
             const wt = tiles.find((tt) => tt.q === w.q && tt.r === w.r);
             const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px + pan.x, cy: originY + py + pan.y }; })();

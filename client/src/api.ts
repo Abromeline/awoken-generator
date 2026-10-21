@@ -286,20 +286,22 @@ export interface GrimoireSpellInput {
 export interface GrimoireState {
   glyphs: GrimoireGlyph[];
   spells: GrimoireSpell[];
-  /** The reading Tender's own attunement ledger — the depth
-   *  standing in each of their pages, by element (Nigel,
-   *  2026-10-20). Served only to a bound Tender; absent for
-   *  the workshop's public read of the book. */
+  /** The reading Tender's own attunement ledger — the filled
+   *  slots standing in each of their pages, by element: a
+   *  COUNT of slots per element, eight in all per page
+   *  (Nigel, 2026-10-21). Served only to a bound Tender;
+   *  absent for the workshop's public read of the book. */
   pageAttunements?: Record<string, Record<string, number>>;
 }
 /** The engines whose strength is bought with attunement —
  *  the pages that can be powered in the Grimoire (the client
  *  mirror of the server's POUR_ENGINES in grimoire.ts). */
 export const GRIMOIRE_POUR_ENGINES = ["seal", "trees", "lattice", "shard"] as const;
-/** A page's attunement LEVEL from its standing depth — the
- *  book's band (ten points per level, Lv 3 at 30+), mirrored
- *  from the server's attunementLevel for display. */
-export const grimoirePageLevel = (depth: number) => Math.min(3, Math.floor(Math.max(0, depth) / 10));
+/** The slots a page holds in all, and what filling one
+ *  costs — the client mirror of the server's PAGE_SLOTS and
+ *  SLOT_COST in grimoire.ts (Nigel, 2026-10-21). */
+export const GRIMOIRE_PAGE_SLOTS = 8;
+export const GRIMOIRE_SLOT_COST = 4;
 /** The Living Wheel (the Starwright, 2026-10-18): the zodiac
  *  graph as the workshop edits it — nodes with their effect
  *  clauses, roads between them, and the clause palette. */
@@ -327,7 +329,6 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "stops", label: "Strikes stopped before the Seal goes out", def: 3 },
     { key: "hp", label: "Health rating (base) — each stopped blow costs the blow's power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   engine: [{ key: "energyPerRound", label: "Energy to its tender each round", def: 1 }],
   standard: [{ key: "strikeBonus", label: "Strike bonus on either hex it divides", def: 1 }],
@@ -336,14 +337,12 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "brightHpBonus", label: "Extra health while an Engine burns", def: 2 },
     { key: "regrow", label: "Health regrown each round", def: 2 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   beacon: [{ key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 }],
   lattice: [
     { key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 },
     { key: "hp", label: "Health rating (base) — pinning a dark costs its power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   blade: [
     { key: "power", label: "Harm to everything on its ground", def: 6 },
@@ -358,7 +357,6 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
   shard: [
     { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
     { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
-    { key: "harmPerPoint", label: "Extra harm per attunement level standing in the page, in the cast's element", def: 1 },
   ],
   coil: [
     { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
@@ -643,8 +641,8 @@ export const api = {
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number }>("castMapWorking", args),
   fadeMapWorking: (args: { id: number }) => post<{ ok: true }>("fadeMapWorking", args),
-  attuneGrimoirePage: (args: { spellKey: string; element: string; points: number }) =>
-    post<{ ok: true; spellKey: string; element: string; spent: number; laid: number; depth: number; level: number }>("attuneGrimoirePage", args),
+  attuneGrimoirePage: (args: { spellKey: string; element: string }) =>
+    post<{ ok: true; spellKey: string; element: string; spent: number; inElement: number; filled: number; slots: Record<string, number> }>("attuneGrimoirePage", args),
   deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
   directAttack: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("directAttack", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
