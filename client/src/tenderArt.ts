@@ -8,6 +8,19 @@
  * the masters' sprite sheets and downscaled to the Table's stage.
  * Directions borrow where a sheet ran thin: the Binder's west is
  * his east mirrored (flip), as the dark's art is mirrored.
+ *
+ * THE RUN-RIGHT REPAIR (Nigel's report, 2026-10-20 — "characters
+ * on table are also missing their animation to run right"): on
+ * the Table's isometric lattice, rightward travel rides the NE
+ * road, and NE was a single frame for the Runewright and the
+ * Binder — a statue gliding. The Runewright's own sheet held the
+ * cure all along: frames 49–52 are his back-stride up-right row,
+ * imported but never wired; they are his NE now. His NW and the
+ * Binder's NE/NW borrow the east cycle (NW mirrored), the same
+ * bargain the cast table makes — his sheet keeps only one true
+ * cell for each of those roads (Runewright 64, Binder 43/44),
+ * and a borrowed cycle beats a statue. The Warden's NE/NW are
+ * true pairs and stand as they were.
  */
 import warden01 from "./assets/tenders/warden-01.png";
 import warden02 from "./assets/tenders/warden-02.png";
@@ -207,19 +220,19 @@ export const TENDER_CLASSES: Record<TenderClassId, TenderClassArt> = {
     },
   },
   runewright: {
-    id: "runewright", label: "Runewright", icon: "🪶", idle: runewright41, flip: {},
+    id: "runewright", label: "Runewright", icon: "🪶", idle: runewright41, flip: { NW: true },
     dirs: {
       E: [runewright42, runewright43, runewright44], SE: [runewright57, runewright58, runewright59, runewright60], S: [runewright53, runewright54, runewright55, runewright56],
-      SW: [runewright61, runewright62], W: [runewright45, runewright46], NW: [runewright64],
-      N: [runewright47, runewright48], NE: [runewright63],
+      SW: [runewright61, runewright62], W: [runewright45, runewright46], NW: [runewright42, runewright43, runewright44],
+      N: [runewright47, runewright48], NE: [runewright49, runewright50, runewright51, runewright52],
     },
   },
   binder: {
-    id: "binder", label: "Binder", icon: "🦌", idle: binder21, flip: { W: true },
+    id: "binder", label: "Binder", icon: "🦌", idle: binder21, flip: { W: true, NW: true },
     dirs: {
       E: [binder22, binder23, binder24], SE: [binder37, binder38, binder39, binder40], S: [binder33, binder34, binder35, binder36],
-      SW: [binder41, binder42], W: [binder22, binder23], NW: [binder44],
-      N: [binder31, binder32], NE: [binder43],
+      SW: [binder41, binder42], W: [binder22, binder23], NW: [binder22, binder23, binder24],
+      N: [binder31, binder32], NE: [binder22, binder23, binder24],
     },
   },
   witch: {
