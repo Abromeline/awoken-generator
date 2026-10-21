@@ -145,6 +145,13 @@ interface Player {
    *  stepper — refreshed at the cast; the referee re-reads the
    *  pool itself before any point is spent. Null unbound. */
   pools: Record<string, number> | null;
+  /** The company this seat was NOT dealt, and where each
+   *  stands instead (the Table Fix Pass, 2026-10-20):
+   *  Awokin on the Tender's homeland field, or staged at
+   *  their bastion — one body, one place (Station 4), but
+   *  NAMED on the client's hand instead of silently missing.
+   *  A seat-time reckoning, as the hand itself is. */
+  elsewhere?: { name: string; element: string; where: "fielded" | "staged" }[];
   /** This sitting's energy: for a bound seat, the game's own max
    *  energy for that Tender, calculated from their whole roster by
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
@@ -920,6 +927,43 @@ export async function deckForTender(tenderId: number, opts?: { stagedOnly?: bool
   return cards;
 }
 
+/** The company the Table did NOT deal this Tender, with
+ *  where each one stands instead — the hand's honest margin
+ *  (the Table Fix Pass, 2026-10-20). The dealing law stands
+ *  untouched (deckForTender above): a body standing on the
+ *  homeland field, or staged at the bastion, cannot also be
+ *  dealt here. What changes is only that the absence is
+ *  NAMED — every roster member kept back for place comes
+ *  back with its whereabouts, for the client's hand to show
+ *  beside the dealt cards. (The Keeper's reading: the
+ *  silence was the defect, not the law.) An instance host is
+ *  dealt the staged company itself, so for his deal the
+ *  staged are in hand, not elsewhere; the fielded are out
+ *  of every deal. */
+export async function elsewhereForTender(tenderId: number, opts?: { stagedOnly?: boolean }): Promise<{ name: string; element: string; where: "fielded" | "staged" }[]> {
+  const ownerKey = tenderOwnerKey(tenderId);
+  const placedRows = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey)).catch(() => [] as { awakenedId: number }[]);
+  const placedIds = new Set(placedRows.map(r => r.awakenedId));
+  const stagedIds = new Set(stagedIdsFor(ownerKey));
+  const rows = await db.select().from(schema.awakened)
+    .where(eq(schema.awakened.ownerKey, ownerKey));
+  const out: { name: string; element: string; where: "fielded" | "staged" }[] = [];
+  for (const row of rows) {
+    const fielded = placedIds.has(row.id);
+    const staged = stagedIds.has(row.id);
+    if (!fielded && !staged) continue;
+    if (!fielded && opts?.stagedOnly) continue;
+    const payload = await awakenedPayloadById(row.id).catch(() => null);
+    out.push({
+      name: payload?.name ?? "An Awokin",
+      element: payload ? dominantElement(payload.layers as { element?: string | null }[]) : "neutral",
+      where: fielded ? "fielded" : "staged",
+    });
+  }
+  return out;
+}
+
 async function currentSky(): Promise<Room["sky"]> {
   try {
     const rows = await db.select().from(schema.settings)
@@ -1035,6 +1079,7 @@ function sendState(room: Room): void {
         key: player.key,
         name: player.name,
         hand: player.hand,
+        elsewhere: player.elsewhere ?? [],
         notes: player.notes,
         inventory: player.inventory,
         bound: player.bound ?? null,
@@ -1445,7 +1490,10 @@ function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
  *  its greatest health per beat — and its presence wears
  *  the tile's corruption down by its power, unless the
  *  dark itself holds that tile. A tile ground to nothing
- *  turns, in the element of the strongest light upon it.
+ *  turns NEUTRAL (Nigel, 2026-10-20: at the Table ONLY THE
+ *  TENDER ATTUNES TILES — standing presence is not
+ *  attunement, and ground the light frees by standing on it
+ *  takes no element until a Tender spends one onto it).
  *  THE TENDER WITHERS TOO: he may walk the cursed land —
  *  it is his road as much as theirs — and it takes the
  *  same share of him, standing or gliding, until he
@@ -1494,7 +1542,7 @@ function settleCurseWithering(room: Room, dtSec: number): boolean {
     tile.curseHp -= g.dmg;
     changed = true;
     if (tile.curseHp <= 0) {
-      purifyTile(room, tile, dominantElement(partsOf(g.best.card) as { element?: string | null }[]));
+      purifyTile(room, tile, "neutral");
     }
   }
   return changed;
@@ -1613,13 +1661,17 @@ function beaconReach(w: Working, extraRings = 0): Set<string> {
   return out;
 }
 
-function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, fellElement?: string): void {
+function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
   room.dark.delete(enemy.id);
   tell(room, `The ${enemy.label} unravels!`);
   // The ground it held is freed by the felling (the Instance
-  // Map): a cursed tile whose dark falls turns to the light.
+  // Map): a cursed tile whose dark falls turns to the light —
+  // as NEUTRAL ground, whatever struck the blow (Nigel,
+  // 2026-10-20: only the Tender attunes tiles; a felling is
+  // not an attunement, so freed ground takes no element
+  // until a Tender spends one onto it — the attuneTile act).
   const tile = room.map.get(enemy.hex);
-  if (tile) purifyTile(room, tile, fellElement ?? "neutral");
+  if (tile) purifyTile(room, tile, "neutral");
   if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer); return; }
   if (killer && !killer.fallen) {
     killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
@@ -1968,7 +2020,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       + (eff.warRunewright && darkHere.some(e => !e.struck) ? 2 : 0);
     tell(room, `${rune.name} springs — ${power} harm to everything standing on its ground.`);
     let felledByRune = 0;
-    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) { felledByRune++; fellDark(room, e, caster, rune.hue && rune.hue !== "unaligned" ? rune.hue : "neutral"); } }
+    for (const e of darkHere) { e.hp -= power; if (e.hp <= 0) { felledByRune++; fellDark(room, e, caster); } }
     // Hungry Ink (tranche one): the writing drinks the fell.
     if (caster && eff.hungryInk && felledByRune > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByRune);
     rune.charges--;
@@ -2015,7 +2067,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       for (const e of foes) {
         const d = share + (rem > 0 ? (rem--, 1) : 0);
         e.hp -= d;
-        if (e.hp <= 0) fellDark(room, e, caster, rune.hue && rune.hue !== "unaligned" ? rune.hue : "neutral");
+        if (e.hp <= 0) fellDark(room, e, caster);
       }
       room.workings = room.workings.filter(w => !covered.includes(w));
       if (covered[0]) maybeRewriteRune(room, covered[0]);
@@ -2032,7 +2084,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
       const dmg = greatest * (rune.nums.multiplier ?? 2) + rune.pour * (rune.nums.harmPerPoint ?? 1);
       tell(room, `${rune.name} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
       let felledByShard = 0;
-      for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster, rune.hue && rune.hue !== "unaligned" ? rune.hue : "neutral"); } }
+      for (const e of foes) { e.hp -= dmg; if (e.hp <= 0) { felledByShard++; fellDark(room, e, caster); } }
       if (caster && workingEffects(caster.expKey).hungryInk && felledByShard > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByShard);
       retireSprungRune(room, rune);
     }
@@ -2392,7 +2444,9 @@ async function runRound(room: Room): Promise<void> {
         room.dark.delete(target.id);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
         const freedTile = room.map.get(target.hex);
-        if (freedTile) purifyTile(room, freedTile, dominantElement(partsOf(unit.card) as { element?: string | null }[]));
+        // Freed ground is NEUTRAL ground (Nigel, 2026-10-20):
+        // the felling frees it, it does not attune it.
+        if (freedTile) purifyTile(room, freedTile, "neutral");
         const owner = seatByKey(room, unit.ownerKey);
         if (room.campaign && !room.campaign.over) {
           campaignFell(room, target, owner ?? null);
@@ -2461,7 +2515,7 @@ async function runRound(room: Room): Promise<void> {
         if (foe.hp <= 0) {
           p.weaponKills = (p.weaponKills ?? 0) + 1;
           witness(p.pos!, foe.pos, null, "light", true, true, wk, { copy, pierce });
-          fellDark(room, foe, p, "neutral");
+          fellDark(room, foe, p);
           tell(room, `${p.name}'s ${wk} unravels the ${foe.label}!`);
         } else {
           witness(p.pos!, foe.pos, null, "light", true, false, wk, { copy, pierce });
@@ -2584,7 +2638,7 @@ async function runRound(room: Room): Promise<void> {
                 const nDark = darkAt(room, nHex);
                 if (nDark && nDark !== enemy) {
                   nDark.hp -= 1;
-                  if (nDark.hp <= 0) fellDark(room, nDark, sealSeat ?? null, seal.hue && seal.hue !== "unaligned" ? seal.hue : "neutral");
+                  if (nDark.hp <= 0) fellDark(room, nDark, sealSeat ?? null);
                 }
               }
             }
@@ -2597,7 +2651,10 @@ async function runRound(room: Room): Promise<void> {
               room.dark.delete(enemy.id);
               tell(room, `The ${enemy.label} unravels on the Seal's light!`);
               const freedTile = room.map.get(enemy.hex);
-              if (freedTile) purifyTile(room, freedTile, seal.hue && seal.hue !== "unaligned" ? seal.hue : "neutral");
+              // Freed ground is NEUTRAL ground (Nigel,
+              // 2026-10-20): the Seal's answer frees it, it
+              // does not attune it — only the Tender attunes.
+              if (freedTile) purifyTile(room, freedTile, "neutral");
               const owner = seatByKey(room, seal.ownerKey);
               if (room.campaign && !room.campaign.over) {
                 campaignFell(room, enemy, owner ?? null);
@@ -2928,6 +2985,7 @@ function handleConnection(ws: WebSocket): void {
       // one law — all of it. An unbound seat brings the whole
       // stand-in pool and a stand-in's portion of energy.
       let hand: TableCard[] = [];
+      let elsewhereCards: { name: string; element: string; where: "fielded" | "staged" }[] = [];
       let bound: string | null = null;
       let energy = 12;
       let maxEnergy = 12;
@@ -2951,6 +3009,9 @@ function handleConnection(ws: WebSocket): void {
           const cards = await deckForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]);
           if (cards.length) {
             hand = cards;
+            // The hand's honest margin (the Fix Pass): who
+            // was kept back for place, and where they stand.
+            elsewhereCards = await elsewhereForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as { name: string; element: string; where: "fielded" | "staged" }[]);
             bound = await tenderDisplayName(tenderId);
             maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
             energy = maxEnergy;
@@ -2986,7 +3047,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, elsewhere: elsewhereCards };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -3382,6 +3443,46 @@ function handleConnection(ws: WebSocket): void {
       // The curse does not answer (attrition law, 2026-10-19):
       // no thorns fly back at the striker. Its teeth are only
       // for those who stand in it.
+      sendState(room);
+      return;
+    }
+
+    // ATTUNE THE GROUND (the Table Fix Pass, 2026-10-20 —
+    // Nigel's play report: "the Attune skill isn't working."
+    // In truth the act did not exist at the Table at all: no
+    // client surface, no act on the wire. This is its minimal
+    // true form.) The Tender adds his own attunement to a
+    // tile: one point of an element leaves his aspect pool
+    // through the pools' own door (spendAttunement), and the
+    // tile takes that element. HIS OWN ground only — the tile
+    // he stands on, or his landing — and it must stand
+    // purified: cursed ground is refused plainly, for
+    // purifying is the light's other work, and the terrain
+    // system that will one day let points rest ON a tile
+    // (Part B of the attunement & float law) is not built
+    // here — today the spent point buys the turn, whole.
+    // THE PRICE IS A PENCIL (the Keeper, 2026-10-20): the
+    // homeland has no per-tile attune spend to mirror — its
+    // land drinks by presence and by building pours of ten —
+    // so the Table's price stands at 1 point per tile until
+    // Nigel rules a measure of his own.
+    if (msg.type === "attuneTile") {
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender attunes the ground." })); return; }
+      if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "Attuning draws on your aspect pools — bind your Tender at the Table to attune." })); return; }
+      const hex = String(msg.hex ?? "");
+      const element = String(msg.element ?? "");
+      if (!(element in ELEMENT_REACH)) { ws.send(JSON.stringify({ type: "error", message: "That is no element of the five." })); return; }
+      const tile = room.map.get(hex);
+      if (!tile || hex === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to attune." })); return; }
+      if (tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — attunement rests only on purified land. Fell what holds it, or grind it down, and it will turn." })); return; }
+      if (hex !== player.hex && tile.landingFor !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Attune your own ground — the tile you stand on, or your landing." })); return; }
+      if (tile.element === element) { ws.send(JSON.stringify({ type: "error", message: `This ground already holds ${element}.` })); return; }
+      const spent = await spendAttunement(player.expKey, element, 1);
+      if (!spent.ok) { ws.send(JSON.stringify({ type: "error", message: `Attuning a tile costs 1 ${element} point — your ${element} pool holds ${spent.held}.` })); return; }
+      if (player.pools) player.pools[element] = Math.max(0, (player.pools[element] ?? 0) - 1);
+      tile.element = element;
+      tell(room, `✦ ${player.name} attunes the ground beneath them — it holds ${element} now.`);
       sendState(room);
       return;
     }

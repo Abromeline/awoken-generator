@@ -468,6 +468,28 @@ button { font-family: inherit; }
 .cost-chip { color: var(--gold-bright); font-weight: 600; }
 .cast-hint { color: var(--gold-bright); font-size: 13.5px; margin: 8px 0 0; }
 
+/* ── The hand's honest margin (the Fix Pass, 2026-10-20):
+   company kept back for place — on the homeland field, or
+   staged at the bastion — named with its whereabouts in the
+   hand instead of silently missing from the deal. */
+.hand-elsewhere { margin: 2px 0 0; }
+.elsewhere-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.elsewhere-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px dashed rgba(201,162,39,.45); border-radius: 20px; background: rgba(23,18,8,.6); color: var(--bone-dim); font-size: 12.5px; }
+
+/* ── The Attune act, in the Tender's own bar (the Fix Pass,
+   2026-10-20): one point of an element, spent onto the
+   ground he stands on; the buttons wear their element's rim. */
+.attune-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.attune-label { font-size: 12.5px; color: var(--bone-dim); letter-spacing: .03em; }
+.attune-note { font-size: 12.5px; color: #e88a7a; }
+.attune-btn { text-transform: capitalize; }
+.attune-btn:disabled { opacity: .45; cursor: default; }
+.attune-btn[data-element="root"] { border-color: rgba(82,160,82,.7); }
+.attune-btn[data-element="tide"] { border-color: rgba(56,130,160,.7); }
+.attune-btn[data-element="sky"] { border-color: rgba(140,128,200,.7); }
+.attune-btn[data-element="stone"] { border-color: rgba(160,140,100,.7); }
+.attune-btn[data-element="fire"] { border-color: rgba(200,90,50,.7); }
+
 /* ── The fanned hand (Nigel, 2026-10-16 — Magic Arena's way):
    the roster overlaps like a held hand of cards, no scroll
    box; a card you touch rises out of the fan and stands

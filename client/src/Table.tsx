@@ -173,6 +173,11 @@ interface YouState {
   key: string;
   name: string;
   hand: TableCard[];
+  /** The company kept back for place (the Fix Pass,
+   *  2026-10-20): on the homeland field, or staged at the
+   *  bastion — shown in the hand, unavailable, with its
+   *  whereabouts, instead of silently missing. */
+  elsewhere?: { name: string; element: string; where: "fielded" | "staged" }[];
   notes: string;
   energy?: number;
   maxEnergy?: number;
@@ -215,6 +220,10 @@ interface YouState {
 type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
+
+/** The five elements of the pools — the Attune act's
+ *  offerings (the Fix Pass, 2026-10-20). */
+const ATTUNE_ELEMENTS = ["root", "tide", "sky", "stone", "fire"] as const;
 
 /** The dice wear their shapes again (Nigel, 2026-10-18): every
  *  die in the pop-up is drawn as its own stone — the triangle,
@@ -437,6 +446,17 @@ export default function Table() {
   // mark's, the dark answering in a darkened bolt.
   const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; img: string; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean }[]>([]);
   const shotIdRef = useRef(0);
+  // Each shot's removal timer, kept by the shot's own id
+  // (the Fix Pass, 2026-10-20): a shot's 1500 ms of life is
+  // ITS OWN, held in this ref — never again in an effect
+  // whose cleanup the next state push (~250 ms) cancels,
+  // which is why shots once piled to the cap and froze at
+  // their endpoints mid-battle (Nigel's photo).
+  const shotTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  useEffect(() => () => {
+    for (const t of shotTimersRef.current.values()) clearTimeout(t);
+    shotTimersRef.current.clear();
+  }, []);
   // SMOOTHING (Phase B): drawn positions, lerped across ticks
   // toward the server's continuous positions.
   const smoothedPosRef = useRef(new Map<string, { x: number; y: number }>());
@@ -465,9 +485,19 @@ export default function Table() {
     }));
     if (!fresh.length) return;
     setShots(prev => [...prev.slice(-30), ...fresh]);
-    const ids = new Set(fresh.map(f => f.id));
-    const t = setTimeout(() => setShots(prev => prev.filter(x => !ids.has(x.id))), 1500);
-    return () => clearTimeout(t);
+    // Removal is keyed per shot and lives outside this
+    // effect's cleanup, so a state push can no longer cancel
+    // a flying shot's end: each falls exactly 1500 ms after
+    // it was loosed, whatever the room sends meanwhile.
+    for (const f of fresh) {
+      const prior = shotTimersRef.current.get(f.id);
+      if (prior) clearTimeout(prior);
+      const t = setTimeout(() => {
+        shotTimersRef.current.delete(f.id);
+        setShots(prev => prev.filter(x => x.id !== f.id));
+      }, 1500);
+      shotTimersRef.current.set(f.id, t);
+    }
   }, [shared]);
   // THE MARCH (2026-10-18): a standing Awoken of mine, chosen
   // to receive orders — march, heal, recall (see the unit bar).
@@ -1343,6 +1373,11 @@ export default function Table() {
   // unit bar offers the curse-strike only when such ground
   // stands in reach; armed, its taps are blows, not marches.
   const selTile = selUnit ? tileById.get(selUnit.hex) ?? null : null;
+  // MY OWN GROUND (the Fix Pass, 2026-10-20): the tile I stand
+  // on — the Attune act's mark, offered in my bar when the
+  // light holds it purified.
+  const meStanding = you ? shared.players.find(p => p.key === you.key) ?? null : null;
+  const myStandingTile = meStanding?.hex ? tileById.get(meStanding.hex) ?? null : null;
   const strikeReachOf = (u: FieldUnitView): number => STRIKE_REACH[u.element ?? ""] ?? 2;
   const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) : [];
   const strikeArmed = strikeArm && !!selUnit && !selUnitMoving;
@@ -1462,6 +1497,32 @@ export default function Table() {
     setSelUnitId(u.cardId);
     setSelectedCardId(null);
     setSelTender(false);
+  };
+
+  // A tap on MY OWN figure (the Fix Pass, 2026-10-20). With
+  // a card readied — or the Written Light being placed — the
+  // tap belongs to the ground I stand on, exactly as a tap
+  // on one of my Awokin's figures does: the summon (or the
+  // placing) is attempted on my tile, and the referee
+  // answers plainly. The old hit circle swallowed the tap
+  // and silently CLEARED the readied card — and at a fresh
+  // seat my own hex is the only lawful summon ground (every
+  // ring-1 neighbour of a ring-2 landing is cursed), so the
+  // one natural gesture un-readied the summon instead of
+  // casting it: "Awokin are still unsummonable" (Nigel,
+  // live). Without a card readied, the tap still chooses me
+  // (and opens the pad on a touch hand) as it always did —
+  // but it never clears a readied card again.
+  const onTenderTap = () => {
+    if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
+    if (selectedCard || placing) {
+      const me = shared?.players.find(p => you && p.key === you.key);
+      const t = me?.hex ? tileById.get(me.hex) : undefined;
+      if (t) { onTileTap(t); return; }
+    }
+    setSelTender(true);
+    setSelUnitId(null);
+    if (coarsePointer()) setControllerOpen(true);
   };
 
   // One figure of the light at its ground point (ax, ay): the
@@ -1634,7 +1695,7 @@ export default function Table() {
           {p.hex && tileById.get(p.hex)?.cursed && <circle className="wither-mote" cx={gx} cy={gy + 27} r={2.4} fill="#c22333" />}
           {mine && (
             <circle cx={gx} cy={gy - 26} r={24} fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
-              onClick={(e) => { e.stopPropagation(); if (suppressTapRef.current) return; setSelTender(true); setSelUnitId(null); setSelectedCardId(null); if (coarsePointer()) setControllerOpen(true); }} />
+              onClick={(e) => { e.stopPropagation(); onTenderTap(); }} />
           )}
         </g>
       ),
@@ -2095,10 +2156,10 @@ export default function Table() {
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
               {/* The round's strikes, flown on gravity's arc from
-                  tile to tile. A shot lives exactly as long as
-                  the strikes state keeps it — when the timeout
-                  clears it, it unmounts; nothing is left stuck
-                  on the field. */}
+                  tile to tile. Each shot lives its own 1500 ms
+                  on a timer keyed to its id, then unmounts —
+                  state pushes can no longer strand one at its
+                  endpoint (the Fix Pass, 2026-10-20). */}
               <g className="shots-layer">
                 {shots.map((shot) => {
                   const a = shot.from;
@@ -2255,6 +2316,33 @@ export default function Table() {
                 <span className="placing-text">
                   🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel — it opens mid-glide and the glide rides on; tap a tile and you glide there. Where you arrive, your followers muster to you; the rest hold their ground. On a touch hand, tap your own figure for the controller pad; the wheel's ＋ pins lock workings, weapons and Awokin onto your hotbar.
                 </span>
+                {/* ATTUNE THE GROUND (the Fix Pass, 2026-10-20):
+                    the Tender spends one point of an element
+                    from his own pools onto the ground he stands
+                    on, and it takes that element — the act the
+                    report found missing, in its minimal form.
+                    Cursed ground is not offered: the referee
+                    refuses it plainly (purify first). */}
+                {you.pools && myStandingTile && myStandingTile.id !== "0,0" && !myStandingTile.cursed && (
+                  <span className="attune-row" role="group" aria-label="Attune the ground beneath you">
+                    <span className="attune-label">Attune this ground{myStandingTile.element && myStandingTile.element !== "neutral" ? <> — it holds {myStandingTile.element} —</> : null} · 1 point of:</span>
+                    {ATTUNE_ELEMENTS.map((el) => {
+                      const held = you.pools?.[el] ?? 0;
+                      const here = myStandingTile.element === el;
+                      return (
+                        <button key={el} type="button" className="table-btn attune-btn" data-element={el}
+                          disabled={held < 1 || here}
+                          title={here ? `This ground already holds ${el}.` : held < 1 ? `Your ${el} pool is empty — attuning costs 1 point.` : `Spend 1 ${el} point onto this ground (your pool holds ${held}).`}
+                          onClick={() => send({ type: "attuneTile", hex: myStandingTile.id, element: el })}>
+                          {el}{held >= 1 ? ` · ${held}` : " · 0"}
+                        </button>
+                      );
+                    })}
+                  </span>
+                )}
+                {you.pools && myStandingTile && myStandingTile.cursed && (
+                  <span className="attune-row"><span className="attune-note">Attunement rests only on purified ground — the ground beneath you is still cursed.</span></span>
+                )}
                 <button className="table-btn" onClick={() => setSelTender(false)}>Done</button>
               </div>
             )}
@@ -2495,10 +2583,25 @@ export default function Table() {
                     );
                   })}
                 </div>
+                {(you.elsewhere ?? []).length > 0 && (
+                  <div className="hand-elsewhere">
+                    <p className="quiet small">Not dealt to this Table — one body stands in one place, so these keep their posts:</p>
+                    <div className="elsewhere-row">
+                      {(you.elsewhere ?? []).map((e, i) => (
+                        <span key={`${e.name}-${i}`} className="elsewhere-chip" data-element={e.element}
+                          title={e.where === "staged"
+                            ? `${e.name} waits staged at your bastion — it stands ready there, and an instance claimed from the bastion deals it.`
+                            : `${e.name} stands on your homeland field — it cannot also stand here. Set it home there, and your next seat at the Table is dealt it.`}>
+                          {e.name} · {e.where === "staged" ? "🏯 staged at your bastion" : "🏠 on your homeland field"}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {selectedCard ? (
                   <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — it answers at your side: tap purified ground on your own hex or one beside it to set it standing (✦{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
                 ) : you.bound ? (
-                  <p className="quiet small">Your roster — every Awokin of <strong>{you.bound}</strong> stands ready, sent to you alone. Tap one to cast it onto the field.</p>
+                  <p className="quiet small">Your roster — the Awokin of <strong>{you.bound}</strong> who can take this field, sent to you alone. Tap one to cast it onto the field.</p>
                 ) : (
                   <div className="bind-strip">
                     <p className="quiet small">Your roster — sent to you alone. These are stand-in cards: bind your Tender and your own Awokin take their places, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
