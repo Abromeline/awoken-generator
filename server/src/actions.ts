@@ -24,7 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
-import { workingEffects, skillAttunementGrants } from "./skills.js";
+import { workingEffects, skillAttunementGrants, attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
@@ -7009,61 +7009,110 @@ export const handlers = {
     };
   },
 
-  /* ── ATTUNE THE GROUND BENEATH YOU (Nigel, 2026-10-21:
-   *  "awoken still attune tiles by standing on the[m]...
-   *  and the tender can use the attune ability to make
-   *  attunement faster or instant if they have enough
-   *  elemental energysaved") — the homeland twin of the
-   *  Table's attuneTile act. One point of an element leaves
-   *  the Tender's pool through the pools' own door
-   *  (spendAttunement) and pours into the bank of the tile
-   *  he stands on — through pourAttunementBank, the very
-   *  reckoning the standing press pours by, witness rule
-   *  and all — so a spent point counts exactly as a
-   *  standing-laid point does, only now, and repeated
-   *  spends are the "faster or instant" road, as at the
-   *  Table. If the pour turns the tile, its tray stack
-   *  resets as any turning resets it in the settle; if the
-   *  ground already holds the spent element, the point
-   *  also feeds the growing tray, as a matching press
-   *  point does on the same beat (the tray's own seal and
-   *  cap: 30 points seal a tray, six trays stand at most).
+  /* ── ATTUNE (Nigel, 2026-10-21: "awoken still attune
+   *  tiles by standing on the[m]... and the tender can use
+   *  the attune ability to make attunement faster or
+   *  instant if they have enough elemental energysaved") —
+   *  the homeland twin of the Table's attuneTile act. One
+   *  point of an element leaves the Tender's pool through
+   *  the pools' own door (spendAttunement) and pours into
+   *  the bank of the target tile — through
+   *  pourAttunementBank, the very reckoning the standing
+   *  press pours by, witness rule and all — so a spent
+   *  point counts exactly as a standing-laid point does,
+   *  only now, and repeated spends are the "faster or
+   *  instant" road, as at the Table. If the pour turns the
+   *  tile, its tray stack resets as any turning resets it
+   *  in the settle; if the ground already holds the spent
+   *  element, the point also feeds the growing tray, as a
+   *  matching press point does on the same beat (the tray's
+   *  own seal and cap: 30 points seal a tray, six trays
+   *  stand at most).
+   *  ATTUNE IS AN ABILITY NOW (Nigel, 2026-10-21 16:37):
+   *  the door is the action wheel — Ability → Attune →
+   *  element → tap a tile — on every ground; the homeland's
+   *  centre-screen attune card is retired. The tap names
+   *  its tile (tileId); unnamed, the act keeps its first
+   *  shape and attunes the ground he stands on. THE RANGE
+   *  (Nigel, 2026-10-21 16:40): the target must lie within
+   *  his reach — the tile he stands on and its ring, one
+   *  tile away, PLUS the zodiac's attunement-reach bonus
+   *  (attuneReachFor; no stars carry it yet) — enforced
+   *  here, server-side, and refused in plain words beyond
+   *  it. The tap may also name ground a placed RUNE or
+   *  WARD of his stands on: the point pours into that
+   *  tile's bank all the same (the working's ground is the
+   *  tile's ground), and the answer names the working.
    *  The refusals mirror the Table act where the homeland's
-   *  law has equivalents: his own ground only — the tile
-   *  he stands on, read from tender_progress, and another
-   *  Tender's ground is not even in his territory rows;
-   *  cursed ground refused (attunement rests only on
-   *  purified land — the homeland press itself never pours
-   *  into cursed ground, and a tile's fall back to curse
-   *  zeroes its bank); a work underway refused (its pours
-   *  are the builder's, ten at a time through pourBuild —
-   *  a bank point there would vanish into the build);
-   *  baked ground refused (the kiln sealed its bank — the
-   *  settle pours nothing into baked ground either); and
-   *  the pool enforced whole — nothing is half-spent. The
-   *  bastion hex itself is NOT refused: no homeland law
-   *  seals it, and a company standing there presses it like
-   *  any ground — the Table's seed refusal is the Table's
-   *  own law, not the land's. Fire may be spent, as the
-   *  Table act takes all five, though no standing press
-   *  ever speaks fire and fire grows no trays. */
+   *  law has equivalents: his own ground only — his
+   *  territory rows are his alone, so another Tender's
+   *  ground is not even in them; cursed ground refused
+   *  (attunement rests only on purified land — the
+   *  homeland press itself never pours into cursed ground,
+   *  and a tile's fall back to curse zeroes its bank); a
+   *  work underway refused (its pours are the builder's,
+   *  ten at a time through pourBuild — a bank point there
+   *  would vanish into the build); baked ground refused
+   *  (the kiln sealed its bank — the settle pours nothing
+   *  into baked ground either); and the pool enforced
+   *  whole — nothing is half-spent. The bastion hex itself
+   *  is NOT refused: no homeland law seals it, and a
+   *  company standing there presses it like any ground —
+   *  the Table's seed refusal is the Table's own law, not
+   *  the land's. Fire may be spent, as the Table act takes
+   *  all five, though no standing press ever speaks fire
+   *  and fire grows no trays. */
   async attuneTile(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
     const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ element: z.enum(["root", "tide", "sky", "stone", "fire"]) }).safeParse(args);
+    const parsed = z.object({
+      element: z.enum(["root", "tide", "sky", "stone", "fire"]),
+      tileId: z.number().int().positive().optional(),
+    }).safeParse(args);
     if (!parsed.success) badRequest("Name one of the five elements to attune the ground with.");
     const element = parsed.data.element;
     const stand = sqlite.prepare("SELECT tender_tile_id AS tileId FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
     if (!stand?.tileId) badRequest("You stand nowhere on your land — step onto the ground you would attune.");
-    const rows = await db.select().from(schema.territoryTiles)
+    const standRows = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, Number(stand.tileId)), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
-    const tile = rows[0] as any;
-    if (!tile) badRequest("The ground beneath you is not yours to attune.");
+    const standTile = standRows[0] as any;
+    if (!standTile) badRequest("The ground beneath you is not yours to attune.");
+    let tile = standTile;
+    if (parsed.data.tileId != null && parsed.data.tileId !== standTile.id) {
+      const rows = await db.select().from(schema.territoryTiles)
+        .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+      tile = rows[0] as any;
+      if (!tile) badRequest("That hex is not yours to attune.");
+      const reach = 1 + attuneReachFor(ownerKey);
+      if (hexDistTiles(standTile, tile) > reach) {
+        badRequest(`That ground lies beyond your attuning reach — Attune touches your own hex and its ring${reach > 1 ? `, and ${reach - 1} ring${reach > 2 ? "s" : ""} more by your skill` : ""}. Step closer, and attune again.`);
+      }
+    }
     if (tile.cursed) badRequest("That ground is still cursed — attunement rests only on purified land. Win it first, and the ground will turn.");
     if (buildUnderway(tile)) badRequest("A work is rising on that ground — its pours are the builder's, ten at a time. Attune it when it stands finished, or stand elsewhere.");
     if ((tile as any).baked) badRequest("That ground is baked sealed — the kiln shut its bank, and no attunement pours into it.");
     const spent = await spendAttunement(ownerKey, element, 1);
     if (!spent.ok) badRequest(`Attuning the ground costs 1 ${element} point — your ${element} pool holds ${Math.floor(spent.held)}.`);
+    // A working of his standing on the target ground lends
+    // the answer its name — the point pours into the tile's
+    // bank either way, as the tile law holds. A rune (or a
+    // written spell) stands ON its tile; a ward stands on an
+    // edge — its anchor tile, or the hex across the edge.
+    let workingName: string | null = null;
+    {
+      const runeRow = sqlite.prepare("SELECT spell_key FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell') LIMIT 1").get(ownerKey, tile.id) as any;
+      if (runeRow) workingName = spellByKey(runeRow.spell_key)?.name ?? runeRow.spell_key;
+      else {
+        const wardRows = sqlite.prepare("SELECT spell_key, tile_id, q, r, dir FROM territory_workings WHERE owner_key = ? AND kind = 'ward'").all(ownerKey) as any[];
+        const ward = wardRows.find((w) => {
+          if (w.tile_id === tile.id) return true;
+          if (w.dir == null) return false;
+          const [dq, dr] = WALL_DIRS[w.dir] ?? [0, 0];
+          return w.q + dq === tile.q && w.r + dr === tile.r;
+        });
+        if (ward) workingName = spellByKey(ward.spell_key)?.name ?? ward.spell_key;
+      }
+    }
     const elementBefore = tile.element as string;
     const upd = pourAttunementBank(tile, element, 1);
     if (upd) Object.assign(tile, upd);
@@ -7104,6 +7153,7 @@ export const handlers = {
       ok: true as const, tileId: tile.id, element: tile.element as string,
       attuneElement: (tile.attuneElement ?? null) as string | null, attunePoints: tile.attunePoints ?? 0,
       growPoints: tile.growPoints ?? 0, sealedTrays: tile.sealedTrays ?? 0, turned,
+      working: workingName,
       pool: await aspectPoolFor(ownerKey, element),
     };
   },

@@ -5,7 +5,9 @@
 // the outer ring of the zodiac wheel; the chosen branch's
 // entries fan across the inner ring; the Ability's Weapon
 // opens as a sub-ring in the same fan while the Ability disc
-// stays lit; a ✦ hub closes; a caption line speaks beneath.
+// stays lit — and the Ability's Attune (2026-10-21) opens
+// the same way, its five elements on the inner ring; a ✦
+// hub closes; a caption line speaks beneath.
 // This component draws the FORM only — geometry, glyphs,
 // dress and gesture are the Ground's own, in screen pixels
 // (branches r100 at 48px, entries r58 at 42px, hub 44px,
@@ -17,7 +19,7 @@
 
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
-export type WheelTabId = "spell" | "ward" | "rune" | "binding" | "awoken" | "ability" | "weapon";
+export type WheelTabId = "spell" | "ward" | "rune" | "binding" | "awoken" | "ability" | "weapon" | "attune";
 
 /** The Ground's line glyphs, path for path (its GLYPHS table):
  *  simple strokes in currentColor on a 24-box. */
@@ -204,7 +206,7 @@ export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinn
           ))}
         </svg>
         {WHEEL_CATS.map((c, i) => {
-          const on = tab === c.id || (tab === "weapon" && c.id === "ability");
+          const on = tab === c.id || ((tab === "weapon" || tab === "attune") && c.id === "ability");
           const a = ((-90 + i * 60) * Math.PI) / 180;
           return (
             <div key={c.id} className={"gw-disc cat" + (on ? " on" : "")} role="button" aria-label={c.label}

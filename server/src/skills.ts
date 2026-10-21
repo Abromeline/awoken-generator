@@ -117,6 +117,23 @@ export function summonersPowerFor(ownerKey: string | null | undefined, tenderLev
   return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0);
 }
 
+/** ATTUNEMENT REACH (Nigel, 2026-10-21 16:40 — struck the
+ *  Keeper's first no-limit pencil): the Attune ability's
+ *  reach is ONE TILE away from where the Tender stands —
+ *  his hex and its ring — PLUS a skill bonus, and the
+ *  bonus is a zodiac skill effect like any other: stars
+ *  carrying an "attuneReach" clause widen the reach by
+ *  their amounts, read through fxSum like every other
+ *  clause sum ("company", "party", "summoner"). NO stars
+ *  carry it yet — the stars arrive with the effects build;
+ *  the reader stands now and returns 0 cleanly until they
+ *  do. One helper, so every attune door's reckoning is the
+ *  only reckoning there is: the doors add their ring (1) to
+ *  this sum. */
+export function attuneReachFor(ownerKey: string | null | undefined): number {
+  return fxSum(ownerKey, "attuneReach");
+}
+
 /** THE PARTY LEVEL (Nigel, 2026-10-21 — the fold-in: "party
  *  size comes from a party level, and the party level is a
  *  skill"): the Party skill's stars each carry one party

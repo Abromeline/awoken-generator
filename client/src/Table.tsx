@@ -197,6 +197,13 @@ interface YouState {
    *  Sage — computed by the server's one helper, so the
    *  wheel's preview shows the cast's true shape. */
   summonersPower?: number;
+  /** ATTUNEMENT REACH (Nigel, 2026-10-21): the skill bonus
+   *  beyond the Attune ability's ring — the zodiac's
+   *  "attuneReach" clauses summed by the server's one
+   *  helper; 0 until the effects build sets its stars. The
+   *  wheel's Attune branch reads it to show the reach the
+   *  referee will enforce. */
+  attuneReach?: number;
   /** The company kept back for place (the Fix Pass,
    *  2026-10-20): on the homeland field, or staged at the
    *  bastion — named beside the company, unavailable, with
@@ -268,9 +275,13 @@ type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 
-/** The five elements of the pools — the Attune act's
- *  offerings (the Fix Pass, 2026-10-20). */
+/** The five elements of the pools — the Attune ability's
+ *  offerings (the Fix Pass, 2026-10-20; the wheel's Attune
+ *  branch since 2026-10-21). */
 const ATTUNE_ELEMENTS = ["root", "tide", "sky", "stone", "fire"] as const;
+
+/** Each element's mark, as the Zodiac writes it. */
+const ATTUNE_EMOJI: Record<string, string> = { tide: "🌊", sky: "🌬️", stone: "🪨", root: "🌿", fire: "🔥" };
 
 /** The dice wear their shapes again (Nigel, 2026-10-18): every
  *  die in the pop-up is drawn as its own stone — the triangle,
@@ -483,7 +494,13 @@ export default function Table() {
   // the form shown here, before the tap. No hue is sent
   // with a cast; a sent one would be inert.
   const castHueFor = (key: string): string => you?.castHues?.[key] ?? "unaligned";
-  const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
+  // The readied placing: a working of the Written Light
+  // (ward / rune / heal, root = the Grimoire page's key) —
+  // or, since the Attune Ability build (Nigel, 2026-10-21),
+  // the ATTUNE ability readied (kind "attune", root = the
+  // element being laid). One flow, one unloading law: the
+  // run stays armed across taps until it is set down.
+  const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal" | "attune"; root: string } | null>(null);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [callKeyInput, setCallKeyInput] = useState("");
@@ -1431,6 +1448,16 @@ export default function Table() {
   // the same law the old hex field enforced, in axial terms.
   const tilePickable = (t: MapTileView): boolean => {
     if (!placing || !you) return false;
+    if (placing.kind === "attune") {
+      // The attune reach, drawn where the referee measures
+      // it: the standing hex and its ring, plus the skill's
+      // bonus — the storyteller's reach is the whole field.
+      if (you.storytender) return true;
+      const meHex = shared.players.find(p => p.key === you.key)?.hex;
+      const meTile = meHex ? tileById.get(meHex) : null;
+      if (!meTile) return false;
+      return axialDist(meTile, t) <= 1 + (you.attuneReach ?? 0);
+    }
     if (placing.kind === "heal") return myUnitOn(t.id);
     if (placing.kind === "rune") return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
     if (!wardAnchor) return true; // WARDS STAND ANYWHERE (2026-10-20): any hex may anchor a ward.
@@ -1445,6 +1472,15 @@ export default function Table() {
     if (!you) return;
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
     if (placing) {
+      if (placing.kind === "attune") {
+        // The tap lays one point of the readied element on
+        // the tapped ground — and the attuning stays in the
+        // hand: tap on until it is set down, the pool runs
+        // dry, or the ground refuses (the referee answers in
+        // plain words, in the room's notices).
+        send({ type: "attuneTile", hex: t.id, element: placing.root });
+        return;
+      }
       if (placing.kind === "heal") {
         // The tap casts — and the placing stays armed: mend
         // another standing, or set the light down to stop.
@@ -1863,7 +1899,34 @@ export default function Table() {
           act: () => { setSelUnitId(null); setSelectedCardId(card.id); },
         }));
       case "ability":
-        return [{ key: "nav-weapon", sigil: "weapon", label: "Weapon", nav: "weapon" as WheelTabId }];
+        return [
+          { key: "nav-weapon", sigil: "weapon", label: "Weapon", nav: "weapon" as WheelTabId },
+          { key: "nav-attune", sigil: "ability", label: "Attune", nav: "attune" as WheelTabId },
+        ];
+      case "attune": {
+        // ATTUNE IS AN ABILITY (Nigel, 2026-10-21): the five
+        // elements stand on the branch, each showing what
+        // the seat's pool holds of it. Choosing one readies
+        // the attuning — taps on the land then lay points,
+        // one tap, one point, until it is set down. The
+        // storyteller's reach is the whole field; a Tender's
+        // is his hex, its ring, and his skill's bonus.
+        return ATTUNE_ELEMENTS.map(el => {
+          const held = Math.floor(you?.pools?.[el] ?? 0);
+          return {
+            key: `attune-${el}`,
+            emoji: ATTUNE_EMOJI[el],
+            label: `${el} · ${held}`,
+            lit: placing?.kind === "attune" && placing.root === el,
+            act: () => {
+              if (!you?.pools) { setNotice("Attuning draws on your aspect pools — bind your Tender at the Table to attune."); return; }
+              if (held < 1) { setNotice(`Your ${el} pool is empty — attuning costs 1 point of the element, laid from the pool.`); return; }
+              setPlacing({ kind: "attune", root: el });
+              setWardAnchor(null); setBladePicks([]);
+            },
+          };
+        });
+      }
       case "weapon":
         return buildAbilityNodes().map(n => n.key === "manifest"
           ? {
@@ -1891,6 +1954,9 @@ export default function Table() {
         ? `Awoken — your company — tap one to ready its summon cast, then tap the ground at your side${drag}`
         : "Awoken — your company stands empty; your party is on the field, or no party is composed";
       case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
+      case "attune": return you?.storytender
+        ? "Ability — Attune — your reach is the whole field: tap an element, then tap any ground to lay a point on it, one point of that element from your pools per tap"
+        : `Ability — Attune — tap an element, then tap ground within your reach (your hex and its ring${(you?.attuneReach ?? 0) > 0 ? `, and ${you?.attuneReach} ring${(you?.attuneReach ?? 0) > 1 ? "s" : ""} more by your skill` : ""}) to lay a point on it — one tap, one point of that element from your pools`;
     }
   };
 
@@ -2332,6 +2398,7 @@ export default function Table() {
             {placing && (
               <div className="placing-bar">
                 <span className="placing-text">
+                  {placing.kind === "attune" && <>Attuning with <strong>{placing.root}</strong> — tap ground {you?.storytender ? <>anywhere on the field</> : <>within your reach — your hex and its ring{(you?.attuneReach ?? 0) > 0 ? <> and {you?.attuneReach} ring{(you?.attuneReach ?? 0) > 1 ? "s" : ""} more by your skill</> : null}</>} to lay a {placing.root} point on it — 1 point of {placing.root} from your pool ({Math.floor(you?.pools?.[placing.root] ?? 0)} held). The point rests in the ground's own ledger; ground a rune or ward stands on takes the point the same way. Attune on until you set it down or the pool runs dry.</>}
                   {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
@@ -2349,8 +2416,8 @@ export default function Table() {
                     setBladePicks([]);
                   }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · <span className="spark-glow">✦</span>{defs[placing.root]?.cost ?? 4}</button>
                 )}
-                {myCursed && <span className="curse-note">{curseNote} on this cast — you stand on cursed ground.</span>}
-                <button className="table-btn" onClick={unloadCast}>Set the light down</button>
+                {myCursed && placing.kind !== "attune" && <span className="curse-note">{curseNote} on this cast — you stand on cursed ground.</span>}
+                <button className="table-btn" onClick={unloadCast}>{placing.kind === "attune" ? "Set the attuning down" : "Set the light down"}</button>
               </div>
             )}
             {selectedCard && !placing && (
@@ -2404,39 +2471,13 @@ export default function Table() {
                 <span className="placing-text">
                   🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel — it opens mid-glide and the glide rides on; tap a tile and you glide there. Where you arrive, your followers muster to you; the rest hold their ground. On a touch hand, tap your own figure for the controller pad; the wheel's ＋ pins lock workings, weapons and Awokin onto your hotbar.
                 </span>
-                {/* ATTUNE THE GROUND (the Fix Pass, 2026-10-20;
-                    points rest on the tile since later that
-                    night — Nigel: "make the attune ability add
-                    element points to a hex tile"): the Tender
-                    spends one point of an element from his own
-                    pools onto the ground he stands on, and the
-                    point RESTS there — the ground holds whichever
-                    element has the most points resting on it, so
-                    deepening the held element and out-laying a
-                    rival both go through this same row. Cursed
-                    ground is not offered: the referee refuses it
-                    plainly (purify first). */}
-                {you.pools && myStandingTile && myStandingTile.id !== "0,0" && !myStandingTile.cursed && (
-                  <span className="attune-row" role="group" aria-label="Attune the ground beneath you">
-                    <span className="attune-label">Attune this ground{myStandingTile.element && myStandingTile.element !== "neutral" ? <> — it holds {myStandingTile.element} —</> : null}{(() => { const rest = ATTUNE_ELEMENTS.filter((e) => (myStandingTile.points?.[e] ?? 0) > 0); return rest.length ? <> · resting: {rest.map((e) => `${e} ${myStandingTile.points?.[e]}`).join(", ")}</> : null; })()} · 1 point of:</span>
-                    {ATTUNE_ELEMENTS.map((el) => {
-                      const held = you.pools?.[el] ?? 0;
-                      const here = myStandingTile.element === el;
-                      const resting = myStandingTile.points?.[el] ?? 0;
-                      return (
-                        <button key={el} type="button" className="table-btn attune-btn" data-element={el}
-                          disabled={held < 1}
-                          title={held < 1 ? `Your ${el} pool is empty — attuning costs 1 point.` : here ? `This ground holds ${el} — spend another point to deepen it (${resting} resting; your pool holds ${held}).` : resting > 0 ? `Lay another ${el} point on this ground (${resting} resting; the ground holds ${myStandingTile.element} — most points win).` : `Spend 1 ${el} point onto this ground (your pool holds ${held}).`}
-                          onClick={() => send({ type: "attuneTile", hex: myStandingTile.id, element: el })}>
-                          {el}{held >= 1 ? ` · ${held}` : " · 0"}
-                        </button>
-                      );
-                    })}
-                  </span>
-                )}
-                {you.pools && myStandingTile && myStandingTile.cursed && (
-                  <span className="attune-row"><span className="attune-note">Attunement rests only on purified ground — the ground beneath you is still cursed.</span></span>
-                )}
+                {/* Attune stood in this bar as a row of
+                    element buttons until 2026-10-21 — retired
+                    by the Attune Ability law (Nigel: Attune is
+                    an ABILITY on the wheel): the wheel's
+                    Ability → Attune branch is the only door
+                    now, and its reach is the hex and its ring,
+                    not only the ground beneath him. */}
                 <button className="table-btn" onClick={() => setSelTender(false)}>Done</button>
               </div>
             )}

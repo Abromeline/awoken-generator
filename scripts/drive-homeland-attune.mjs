@@ -19,6 +19,16 @@
 //      the ground, baked ground — and no login at all.
 //   D. The reckoning the act writes is the reckoning the
 //      land itself serves back on getTerritory.
+//   E. THE WHEEL DOOR'S SHAPE (the Attune Ability build,
+//      2026-10-21): the act names its tile — a ring-1 tile
+//      takes the point from his stand; a ring-2 tile is
+//      refused by the RANGE (his hex and its ring, plus
+//      the zodiac's attunement-reach bonus — the reader
+//      stands now, no stars carry it yet) and spends
+//      nothing; ground his own RUNE stands on takes the
+//      point into the same bank and the answer names the
+//      rune; a tile that is not his is refused at the
+//      door.
 // Run: node scripts/drive-homeland-attune.mjs
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -88,7 +98,8 @@ const neutralId = seedTile(1, 0, "neutral", 0);
 const cursedId = seedTile(1, -1, "fire", 1);
 const buildId = seedTile(2, -1, "stone", 0, { build_stage: 2, build_points: 40 });
 const bakedId = seedTile(0, 1, "root", 0, { build_stage: 5, build_finish: "bake", baked: 1 });
-void heartId; void cursedId; void buildId; void bakedId;
+const farId = seedTile(2, 0, "stone", 0);
+void cursedId; void buildId; void bakedId;
 
 db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, 'root', 25, ?), (?, 'sky', 3, ?)").run(me, now, me, now);
 
@@ -159,6 +170,48 @@ ok("an unclaimed hand is refused at the door", e5.status === 403, `${e5.status}`
 
 ok("every refusal spent NOTHING (pools read as before)", poolOf("root") === poolsBefore.root && poolOf("sky") === poolsBefore.sky, `root ${poolsBefore.root}->${poolOf("root")}, sky ${poolsBefore.sky}->${poolOf("sky")}`);
 ok("every refusal laid NOTHING (the turned tile's reckoning is untouched)", JSON.stringify(tileRow(neutralId)) === bankBefore, `${bankBefore} -> ${JSON.stringify(tileRow(neutralId))}`);
+
+// ═══ E. The wheel door's shape: named tiles, the range,
+// a rune's ground ═══
+await standOn(heartId);
+const eRoot0 = poolOf("root");
+const bankN0 = tileRow(neutralId);
+
+// E1: a named ring-1 tile takes the point from his stand.
+const g1 = await call("attuneTile", { element: "root", tileId: neutralId }, token);
+ok("a named ring-1 tile: the act answers for THAT tile", g1.ok === true && g1.tileId === neutralId, JSON.stringify(g1));
+ok("a named ring-1 tile: its bank took exactly 1 more root point", tileRow(neutralId).attuneElement === "root" && tileRow(neutralId).attunePoints === bankN0.attunePoints + 1, `${JSON.stringify(bankN0)} -> ${JSON.stringify(tileRow(neutralId))}`);
+ok("a named ring-1 tile: the pool paid exactly 1", poolOf("root") === eRoot0 - 1, `root ${eRoot0} -> ${poolOf("root")}`);
+ok("a named ring-1 tile with no working on it names none", g1.working === null, JSON.stringify(g1.working));
+
+// E2: a named ring-2 tile is refused by the range alone
+// (plain stone, unbuilt, unbaked — only distance speaks).
+const g2 = await callRaw("attuneTile", { element: "root", tileId: farId }, token);
+ok("a named ring-2 tile is refused by the range, in plain words", g2.status === 400 && String(g2.data.error ?? "").includes("beyond your attuning reach"), `${g2.status} ${JSON.stringify(g2.data)}`);
+ok("the range refusal spent nothing and laid nothing", poolOf("root") === eRoot0 - 1 && (tileRow(farId).attunePoints ?? 0) === 0 && tileRow(farId).attuneElement === null, `pool=${poolOf("root")} far=${JSON.stringify(tileRow(farId))}`);
+
+// E3: a tile that is not his at all is refused at the door.
+const g3 = await callRaw("attuneTile", { element: "root", tileId: 999999 }, token);
+ok("a tile that is not his is refused", g3.status === 400 && String(g3.data.error ?? "").includes("not yours to attune"), `${g3.status} ${JSON.stringify(g3.data)}`);
+ok("the not-his refusal spent nothing", poolOf("root") === eRoot0 - 1, `root=${poolOf("root")}`);
+
+// E4: his own RUNE stands on the neutral tile (written the
+// way castMapWorking writes it) — a spend naming that
+// ground pours into the same bank, and the answer names
+// the rune.
+db.prepare(`INSERT INTO territory_workings
+  (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+  VALUES (?, 'blade', 'blade', 'rune', 'root', ?, NULL, 1, 0, NULL, '{}', 0, 0, 2, 0, 0, ?)`).run(me, neutralId, now);
+const bankN1 = tileRow(neutralId);
+const g4 = await call("attuneTile", { element: "root", tileId: neutralId }, token);
+ok("a rune's ground: the answer NAMES the working attuned", g4.working === "The Single Blade", JSON.stringify(g4.working));
+ok("a rune's ground: the point poured into the tile's bank all the same", tileRow(neutralId).attuneElement === "root" && tileRow(neutralId).attunePoints === bankN1.attunePoints + 1, `${JSON.stringify(bankN1)} -> ${JSON.stringify(tileRow(neutralId))}`);
+ok("a rune's ground: the pool paid exactly 1", poolOf("root") === eRoot0 - 2, `root ${eRoot0} -> ${poolOf("root")}`);
+
+// The reach reader on this ground too: no stars carry the
+// clause yet, so the homeland's reach stands at its ring.
+const { attuneReachFor } = await import("../server/dist/skills.js");
+ok("the reach reader returns 0 (no stars carry attuneReach yet)", attuneReachFor(me) === 0 && attuneReachFor(null) === 0, String(attuneReachFor(me)));
 
 console.log(`\nDRIVE (the Attune ability on the homeland): ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

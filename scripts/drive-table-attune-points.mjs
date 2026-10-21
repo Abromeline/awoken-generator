@@ -15,8 +15,21 @@
 //   C. Bare neutral ground (a Tender whose Awokin's pieces
 //      are filed neutral, so his landing is born neutral) is
 //      claimed by the first point spent on it.
-//   D. Refusals unchanged, each spending nothing: cursed
-//      ground, another Tender's ground, an empty pool.
+//   D. Refusals, each spending nothing: cursed ground
+//      within reach, ground beyond the reach (the Attune
+//      Ability build, 2026-10-21: the tender's hex and its
+//      ring, plus the zodiac's attunement-reach bonus —
+//      the reader stands now, no stars carry it yet, and
+//      the old "his own ground only" law is superseded),
+//      an empty pool.
+//   E. The reach is measured from where he STANDS: glide
+//      one tile into the curse, and his own landing — now
+//      one tile away — takes a point; his ring moved with
+//      him.
+//   F. The storyteller's join: the same far tile refused
+//      to a Tender lands for the seated Storyteller
+//      (unbounded reach, their existing purse), and the
+//      reach reader reads 0 until the stars arrive.
 // Run: node scripts/drive-table-attune-points.mjs
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -81,8 +94,14 @@ async function makeBoundTender({ name, discordId, withAwokin, pools }) {
       { id: piece("tide", "head"), name: `${name} Head`, category: "head", element: "tide" },
     ];
     const compJson = JSON.stringify(layers.map((l) => ({ source_id: `db:${l.id}`, name: l.name, category: l.category, rarity: "common", power: 2, toughness: 2, element: l.element })));
-    db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
-      .run(`${name} Kin`, `${name} Kin`, "att/awokin.png", compJson, name, ownerKey, now);
+    const awokenId = Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
+      .run(`${name} Kin`, `${name} Kin`, "att/awokin.png", compJson, name, ownerKey, now).lastInsertRowid);
+    // The wheel law (264c1ef): the landing's light is the
+    // COMPANY's first member, and the company is the party
+    // — so the Kin stands in the party, or the landing is
+    // born neutral (the drive's D section proves that road
+    // with a party-less neutral company of its own).
+    db.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)").run(ownerKey, awokenId, now);
   }
   for (const [el, pts] of Object.entries(pools)) {
     db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, ?, ?, ?)").run(ownerKey, el, pts, now);
@@ -125,6 +144,26 @@ function client(label) {
 
 const tileOf = (c, id) => c.state.map.find((t) => t.id === id);
 const pts = (t) => JSON.stringify(t?.points ?? null);
+const axDist = (a, b) => {
+  const [aq, ar] = a.split(",").map(Number);
+  const [bq, br] = b.split(",").map(Number);
+  return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs((aq + ar) - (bq + br))) / 2;
+};
+// A glide by socket (the helper drive-table-summon proved):
+// the Table's glide is a TARGET POINT in the server's own
+// iso pixels, and the referee walks the Tender there.
+async function glideTo(actor, targetHex, ms = 45000) {
+  const [tq, tr] = targetHex.split(",").map(Number);
+  const k = 40 / 796;
+  actor.send({ type: "glide", tx: tq * 1292 * k, ty: tq * 470 * k + tr * 948 * k });
+  const s = Date.now();
+  while (Date.now() - s < ms) {
+    const me = actor.state?.players.find((p) => p.key === actor.you.key);
+    if (me?.hex === targetHex) return true;
+    await sleep(200);
+  }
+  return false;
+}
 
 // ═══ Seat A (root landing, pools root 5 / tide 5) ═══
 const A = await makeBoundTender({ name: "Attune Ann", discordId: "disc-attune-a", withAwokin: true, pools: { root: 5, tide: 5 } });
@@ -172,12 +211,13 @@ await a.waitFor((c) => (tileOf(c, landingA).points?.root ?? 0) === 2, "root ties
 ok("tied at 2–2 from the other side, the ground STILL holds tide", tileOf(a, landingA).element === "tide" && pts(tileOf(a, landingA)) === JSON.stringify({ root: 2, tide: 2 }), `${tileOf(a, landingA).element} ${pts(tileOf(a, landingA))}`);
 ok("A's root pool paid exactly 2 in all (5 → 3)", a.you.pools?.root === 3, JSON.stringify(a.you.pools));
 
-// ═══ Seat C in the same room: his landing is the "another's
-// ground" the refusal below needs. (His own landing's element
-// is whatever his dealt hand's first card carries — a bound
-// Tender with no Awokin is still dealt the stand-in hand, so
-// the bare-ground claim is proven with D, below, whose pieces
-// are filed neutral.) ═══
+// ═══ Seat C in the same room: a second bound seat, whose
+// landing the refusal section's bookkeeping watches (it
+// must stay untouched by everything A sends). C holds no
+// Awokin and no party, so his company is empty and his
+// landing is born neutral; the bare-ground claim is proven
+// properly with D, below, whose Kin's pieces are all filed
+// neutral. ═══
 const C = await makeBoundTender({ name: "Attune Cato", discordId: "disc-attune-c", withAwokin: false, pools: { root: 3 } });
 const cSeat = client("C");
 await cSeat.join({ authToken: C.authToken, room: "attune-room" });
@@ -190,16 +230,27 @@ const poolRow = (ownerKey, el) => db.prepare("SELECT points FROM aspect_attuneme
 const beforeA = { root: poolRow(A.ownerKey, "root"), tide: poolRow(A.ownerKey, "tide") };
 const ptsABefore = pts(tileOf(a, landingA));
 
-// D1: cursed ground.
+// D1: cursed ground WITHIN the reach (a cursed neighbour
+// of A's hex — the reach lets the tap land, and the curse
+// itself refuses it).
+const cursedNear = a.state.map.find((t) => t.cursed && axDist(landingA, t.id) === 1);
+ok("a cursed tile stands within A's ring (the reach setup)", !!cursedNear, landingA);
 const errCount = a.errors.length;
-a.send({ type: "attuneTile", hex: cursedTile.id, element: "root" });
+a.send({ type: "attuneTile", hex: cursedNear.id, element: "root" });
 await a.waitFor((c) => c.errors.length > errCount, "the cursed refusal lands");
 ok("cursed ground is refused plainly", a.errors[a.errors.length - 1].includes("still cursed"), a.errors[a.errors.length - 1]);
 
-// D2: another Tender's ground.
-a.send({ type: "attuneTile", hex: landingC, element: "root" });
-await a.waitFor((c) => c.errors.length > errCount + 1, "the not-your-ground refusal lands");
-ok("another's ground is refused", a.errors[a.errors.length - 1].includes("Attune your own ground"), a.errors[a.errors.length - 1]);
+// D2: ground beyond the reach (the Attune Ability build's
+// range law: the tender's hex and its ring + skill bonus —
+// no stars carry the bonus yet, so ring 2 refuses). The
+// old "another's ground" refusal is superseded: the tile
+// named here is an ordinary ring-2 tile, and what refuses
+// it is distance, not ownership.
+const farTile = a.state.map.find((t) => t.id !== "0,0" && axDist(landingA, t.id) === 2);
+ok("a ring-2 tile stands beyond A's ring (the reach setup)", !!farTile, landingA);
+a.send({ type: "attuneTile", hex: farTile.id, element: "root" });
+await a.waitFor((c) => c.errors.length > errCount + 1, "the reach refusal lands");
+ok("ground beyond the reach is refused in plain words", a.errors[a.errors.length - 1].includes("beyond your attuning reach"), a.errors[a.errors.length - 1]);
 
 // D3: an empty pool (A holds no sky at all).
 a.send({ type: "attuneTile", hex: landingA, element: "sky" });
@@ -209,12 +260,26 @@ ok("an empty pool is refused, naming what the pool holds", a.errors[a.errors.len
 await sleep(400);
 ok("the three refusals spent NOTHING from A's pools (DB ledger)", poolRow(A.ownerKey, "root") === beforeA.root && poolRow(A.ownerKey, "tide") === beforeA.tide, `root ${beforeA.root}→${poolRow(A.ownerKey, "root")}, tide ${beforeA.tide}→${poolRow(A.ownerKey, "tide")}`);
 ok("the three refusals laid NOTHING on A's tile", pts(tileOf(a, landingA)) === ptsABefore, `${ptsABefore} → ${pts(tileOf(a, landingA))}`);
-ok("C's tile was untouched by A's refused spend on it", pts(tileOf(a, landingC)) === ptsCBefore, `${ptsCBefore} → ${pts(tileOf(a, landingC))}`);
+ok("C's tile was untouched by everything A sent (the far tile may BE his landing — a refused spend lays nothing)", pts(tileOf(a, landingC)) === ptsCBefore, `${ptsCBefore} → ${pts(tileOf(a, landingC))}`);
 ok("control at the end: the cursed tile still holds no points", pts(tileOf(a, cursedTile.id)) === "{}" && tileOf(a, cursedTile.id).element === null, pts(tileOf(a, cursedTile.id)));
 
 // DB ledger totals for room one.
 ok("DB ledger: A root 5→3, tide 5→3 across all spends", poolRow(A.ownerKey, "root") === 3 && poolRow(A.ownerKey, "tide") === 3, `root=${poolRow(A.ownerKey, "root")} tide=${poolRow(A.ownerKey, "tide")}`);
 ok("DB ledger: C never spent — his root pool stands at 3", poolRow(C.ownerKey, "root") === 3, `root=${poolRow(C.ownerKey, "root")}`);
+
+// ═══ E. The reach is measured from where he STANDS ═══
+// A glides one tile into the curse. His landing is now one
+// tile away from him — inside the ring the law gives him —
+// and the same spend that was distance 0 a moment ago now
+// lands at distance 1. The ring moved with him; the ring-2
+// refusal above is this law's other side.
+const errE = a.errors.length;
+ok("A glides one tile into the curse", await glideTo(a, cursedNear.id), a.state.players.find((p) => p.key === a.you.key)?.hex);
+a.send({ type: "attuneTile", hex: landingA, element: "root" });
+await a.waitFor((c) => (tileOf(c, landingA).points?.root ?? 0) === 3, "the landing takes a point at ring 1 from his new stand");
+ok("one tile away from his stand, his own landing takes the point (root 2 → 3 resting)", pts(tileOf(a, landingA)) === JSON.stringify({ root: 3, tide: 2 }), pts(tileOf(a, landingA)));
+ok("the in-ring spend spoke no error", a.errors.length === errE, a.errors.slice(errE).join(" | "));
+ok("DB ledger: the in-ring spend paid exactly 1 more root (3 → 2)", poolRow(A.ownerKey, "root") === 2, `root=${poolRow(A.ownerKey, "root")}`);
 
 a.ws.close(); cSeat.ws.close();
 
@@ -253,5 +318,51 @@ await d.waitFor((c) => (tileOf(c, landingD).points?.root ?? 0) === 2, "the secon
 ok("a second spend accumulates (root 2), pool 3 → 1", pts(tileOf(d, landingD)) === JSON.stringify({ root: 2 }) && d.you.pools?.root === 1, `${pts(tileOf(d, landingD))} pool=${d.you.pools?.root}`);
 ok("DB ledger: D root 3→1 across his two spends", poolRow(D.ownerKey, "root") === 1, `root=${poolRow(D.ownerKey, "root")}`);
 d.ws.close();
+
+// ═══ F. The reach reader, and the storyteller's join ═══
+// The reach bonus is a zodiac clause like any other —
+// fxSum over the stars' "attuneReach" clauses — and no
+// stars carry it yet: the reader stands and returns 0.
+const { attuneReachFor } = await import("../server/dist/skills.js");
+ok("the reach reader returns 0 for no owner at all", attuneReachFor(null) === 0 && attuneReachFor(undefined) === 0 && attuneReachFor("tender:99999") === 0);
+ok("the reach reader returns 0 for bound Tenders (no stars carry the clause yet)", attuneReachFor(A.ownerKey) === 0 && attuneReachFor(D.ownerKey) === 0);
+ok("the seats are SERVED the reach the referee will enforce (0 today)", a.you.attuneReach === 0 && d.you.attuneReach === 0, `A=${a.you.attuneReach} D=${d.you.attuneReach}`);
+
+// A campaign room: S and T land on a born-cursed map. The
+// far tile is T's landing; if S stands within a ring of
+// it, S first glides clear (≥3 rings off) — while still a
+// Tender — and is refused there in plain words. Then S
+// claims the Storyteller's seat, and the SAME send lands:
+// unbounded reach, S's own purse, the point resting on
+// T's landing.
+const S = await makeBoundTender({ name: "Attune Story", discordId: "disc-attune-s", withAwokin: true, pools: { root: 4 } });
+const T = await makeBoundTender({ name: "Attune Tess", discordId: "disc-attune-t", withAwokin: true, pools: { root: 2 } });
+const s = client("S");
+await s.join({ authToken: S.authToken, room: "campaign-attune-join" });
+const t2 = client("T");
+await t2.join({ authToken: T.authToken, room: "campaign-attune-join" });
+const landingS = s.you.landing;
+const landingT = t2.you.landing;
+ok("the campaign seats land on the born-cursed map (landings purified on arrival)", !!landingS && !!landingT && landingS !== landingT, `S=${landingS} T=${landingT}`);
+const sHex = () => s.state.players.find((p) => p.key === s.you.key)?.hex;
+if (axDist(sHex(), landingT) <= 1) {
+  const far = s.state.map.find((x) => x.cursed && axDist(x.id, landingT) >= 3);
+  ok("a far cursed tile exists for S to walk to", !!far, landingT);
+  ok("S glides clear of T's landing before claiming", await glideTo(s, far.id) && axDist(sHex(), landingT) >= 3, `hex=${sHex()}`);
+}
+const errS = s.errors.length;
+s.send({ type: "attuneTile", hex: landingT, element: "root" });
+await s.waitFor((c) => c.errors.length > errS, "the tender reach refusal for S");
+ok("as a Tender, S is refused on T's far landing — beyond the ring", s.errors[s.errors.length - 1].includes("beyond your attuning reach"), s.errors[s.errors.length - 1]);
+ok("the refusal spent nothing of S's purse (root still 4 in the DB)", poolRow(S.ownerKey, "root") === 4, `root=${poolRow(S.ownerKey, "root")}`);
+s.send({ type: "claimStoryteller" });
+await s.waitFor((c) => c.state.campaign?.storytellerKey === c.you.key, "S's claim to land");
+ok("S holds the Storyteller's seat", !!s.you.storytender && s.state.campaign.storytenderName === "Attune Story");
+s.send({ type: "attuneTile", hex: landingT, element: "root" });
+await s.waitFor((c) => (tileOf(c, landingT).points?.root ?? 0) === 1, "the storyteller's point rests on the far landing");
+ok("as Storyteller, the same far ground takes the point — unbounded reach", (tileOf(s, landingT).points?.root ?? 0) === 1, pts(tileOf(s, landingT)));
+ok("the storyteller's own purse paid exactly 1 (4 → 3 in the DB)", poolRow(S.ownerKey, "root") === 3, `root=${poolRow(S.ownerKey, "root")}`);
+ok("T's purse was never touched", poolRow(T.ownerKey, "root") === 2, `root=${poolRow(T.ownerKey, "root")}`);
+s.ws.close(); t2.ws.close();
 console.log(`\nDRIVE (attune points): ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

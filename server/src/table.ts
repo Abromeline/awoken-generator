@@ -32,8 +32,9 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
+export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -1454,6 +1455,14 @@ function sendState(room: Room): void {
         // here, by the one helper the cast itself rolls with,
         // so the preview can never promise a different number.
         summonersPower: summonersPowerFor(player.expKey, player.tenderLevel, player.classKey),
+        // ATTUNEMENT REACH, served with the seat (Nigel,
+        // 2026-10-21): the wheel's Attune branch shows the
+        // reach it will enforce — the Tender's hex, its
+        // ring, and this skill bonus beyond it (the zodiac's
+        // "attuneReach" clauses; no stars carry it yet, so
+        // the bonus reads 0 until the effects build). Read
+        // by the one helper the door itself reckons with.
+        attuneReach: attuneReachFor(player.expKey),
         elsewhere: player.elsewhere ?? [],
         notes: player.notes,
         inventory: player.inventory,
@@ -4285,51 +4294,94 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
-    // ATTUNE THE GROUND (the Table Fix Pass, 2026-10-20 —
-    // Nigel's play report: "the Attune skill isn't working."
-    // In truth the act did not exist at the Table at all: no
-    // client surface, no act on the wire. Built then in its
-    // minimal true form: one pool point turned the tile,
-    // whole.) POINTS REST ON THE TILE NOW (Nigel, 2026-10-20,
-    // later the same night: "make the attune ability add
-    // element points to a hex tile" — Part B §6 of the tile
-    // attunement law: tiles hold element points, and attuning
-    // adds them). One point of an element leaves his aspect
-    // pool through the pools' own door (spendAttunement) and
-    // RESTS ON THE TILE (tile.points); the tile holds the
-    // element with the most points resting on it, ties
-    // holding the standing element (elementFromPoints). So a
-    // single spend claims any ground no points rest on yet —
-    // its born element is birthright, not points — while
-    // ground a Tender has laid points on takes out-laying,
-    // point for point. Spending MORE of the
-    // element the ground already holds deepens it: there is
-    // no "already holds" refusal any more. HIS OWN ground
-    // only — the tile he stands on, or his landing — and it
-    // must stand purified: cursed ground is refused plainly,
-    // for purifying is the light's other work.
+    // ATTUNE (the Table Fix Pass, 2026-10-20 — Nigel's play
+    // report: "the Attune skill isn't working." In truth the
+    // act did not exist at the Table at all: no client
+    // surface, no act on the wire. Built then in its minimal
+    // true form: one pool point turned the tile, whole.)
+    // POINTS REST ON THE TILE (Nigel, 2026-10-20, later the
+    // same night: "make the attune ability add element
+    // points to a hex tile" — Part B §6 of the tile
+    // attunement law: tiles hold element points, and
+    // attuning adds them). One point of an element leaves
+    // his aspect pool through the pools' own door
+    // (spendAttunement) and RESTS ON THE TILE (tile.points);
+    // the tile holds the element with the most points
+    // resting on it, ties holding the standing element
+    // (elementFromPoints). So a single spend claims any
+    // ground no points rest on yet — its born element is
+    // birthright, not points — while ground a Tender has
+    // laid points on takes out-laying, point for point.
+    // Spending MORE of the element the ground already holds
+    // deepens it: there is no "already holds" refusal.
+    // ATTUNE IS AN ABILITY NOW (Nigel, 2026-10-21 16:37):
+    // the door is the action wheel — Ability → Attune →
+    // element → tap a tile — on every ground; the Table's
+    // attune row is retired. The tap may name a TILE, or
+    // ground a placed RUNE or WARD stands on: the point
+    // rests in the tile's ledger either way (the working's
+    // ground is the tile's ground), and the tale names the
+    // working when one stands there. THE RANGE (Nigel,
+    // 2026-10-21 16:40, striking the Keeper's no-limit
+    // pencil): a Tender's reach is the tile he stands on
+    // and its ring — one tile away — PLUS the zodiac's
+    // attunement-reach bonus (attuneReachFor; no stars
+    // carry it yet). The old "his own ground only" law (his
+    // standing tile, or his landing, from anywhere) is
+    // superseded by the reach: any purified ground within
+    // it may be attuned, whoever's landing it is, and his
+    // own landing is beyond him once he has walked away
+    // from it. The ground must stand purified: cursed
+    // ground is refused plainly, for purifying is the
+    // light's other work; the seed tile takes no points,
+    // as it never has.
+    // THE STORYTELLER'S JOIN (the Attune Ability build,
+    // 2026-10-21): the seated storyteller attunes through
+    // this same door with UNBOUNDED reach — the Keeper's
+    // standing pencil, standing in for Campaign Build 3's
+    // console attune — spending from their existing purse
+    // (their bound Tender's pools), so removing the row
+    // strands no one mid-campaign. The storyteller does not
+    // stand on the board, so no ring is measured for them.
     // THE PRICE IS A PENCIL (the Keeper, 2026-10-20): the
     // homeland has no per-tile attune spend to mirror — its
     // land drinks by presence and by building pours of ten —
     // so the Table's price stands at 1 point per spend until
     // Nigel rules a measure of his own.
     if (msg.type === "attuneTile") {
-      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
-      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender attunes the ground." })); return; }
+      if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no attunement — bind in the game to attune." })); return; }
+      if (!player.storytender && player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
       if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "Attuning draws on your aspect pools — bind your Tender at the Table to attune." })); return; }
       const hex = String(msg.hex ?? "");
       const element = String(msg.element ?? "");
       if (!(element in ELEMENT_REACH)) { ws.send(JSON.stringify({ type: "error", message: "That is no element of the five." })); return; }
       const tile = room.map.get(hex);
       if (!tile || hex === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to attune." })); return; }
+      if (!player.storytender) {
+        if (!player.hex) { ws.send(JSON.stringify({ type: "error", message: "You stand nowhere on this field — no ground lies within your attuning reach." })); return; }
+        const reach = 1 + attuneReachFor(player.expKey);
+        if (axialDist(player.hex, hex) > reach) { ws.send(JSON.stringify({ type: "error", message: `That ground lies beyond your attuning reach — Attune touches your own hex and its ring${reach > 1 ? `, and ${reach - 1} ring${reach > 2 ? "s" : ""} more by your skill` : ""}. Step closer, and attune again.` })); return; }
+      }
       if (tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — attunement rests only on purified land. Fell what holds it, or grind it down, and it will turn." })); return; }
-      if (hex !== player.hex && tile.landingFor !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Attune your own ground — the tile you stand on, or your landing." })); return; }
       const spent = await spendAttunement(player.expKey, element, 1);
       if (!spent.ok) { ws.send(JSON.stringify({ type: "error", message: `Attuning a tile costs 1 ${element} point — your ${element} pool holds ${spent.held}.` })); return; }
       if (player.pools) player.pools[element] = Math.max(0, (player.pools[element] ?? 0) - 1);
       tile.points[element] = (tile.points[element] ?? 0) + 1;
       tile.element = elementFromPoints(tile);
-      tell(room, `✦ ${player.name} attunes the ground beneath them — a ${element} point rests on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+      // A working standing on the tapped ground lends the
+      // tale its name — the point still rests in the tile's
+      // ledger, as the tile law holds.
+      const mySeatKey = player.key;
+      const runeHere = room.workings.filter(w => w.kind === "rune" && w.hex === hex)
+        .sort((a, b) => Number(b.ownerKey === mySeatKey) - Number(a.ownerKey === mySeatKey))[0];
+      const wardHere = !runeHere ? room.workings.filter(w => w.kind === "ward" && (w.hexA === hex || w.hexB === hex))
+        .sort((a, b) => Number(b.ownerKey === mySeatKey) - Number(a.ownerKey === mySeatKey))[0] : undefined;
+      const workingHere = runeHere ?? wardHere;
+      if (workingHere) {
+        tell(room, `✦ ${player.name} attunes the ${workingHere.name} — a ${element} point rests on its ground now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+      } else {
+        tell(room, `✦ ${player.name} attunes the ground — a ${element} point rests on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+      }
       sendState(room);
       return;
     }

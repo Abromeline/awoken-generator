@@ -757,6 +757,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [grim, setGrim] = useState<GrimoireState | null>(null);
   const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
   const [castMode, setCastMode] = useState(false);
+  // THE ATTUNE ABILITY (Nigel, 2026-10-21): Attune is an
+  // ability on the wheel — Ability → Attune → element —
+  // and the readied element stands here: while it stands,
+  // taps on the land lay its points (one tap, one point of
+  // that element from the pools) instead of casting or
+  // marching. Sticky like casting: it ends when it is set
+  // down (Esc, or readying a working), or when the pool's
+  // refusal speaks. The reach — his hex and its ring, plus
+  // the zodiac's attunement-reach bonus — is the server's
+  // reckoning, refused in its own plain words.
+  const [attuneElement, setAttuneElement] = useState<string | null>(null);
   // The hand's two faces (Nigel, 2026-10-18): a tab above
   // the hand switches it between the Awoken cards and
   // Spells & Glyphs, as the Table's satchel does. The
@@ -1350,22 +1361,34 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice(err instanceof Error ? err.message : "The work would not begin.");
     }
   };
-  // ── ATTUNE THE GROUND BENEATH YOU (Nigel, 2026-10-21):
-  // the Attune ability on the land map, the Table act's
-  // twin — one point of an element leaves the pool and
-  // rests in the bank of the tile the Tender stands on,
-  // instantly; repeated taps are the fast road. The server
-  // reads the stand itself, so the card names no tile.
-  const handleAttuneTile = async (element: string) => {
+  // ── THE ATTUNE ABILITY'S TAP (Nigel, 2026-10-21):
+  // Attune rides the wheel now — the readied element
+  // (attuneElement) takes the tap: one point of it leaves
+  // the pool and pours into the tapped tile's bank, the
+  // very bank the standing press pours into. The tap names
+  // its tile; the server measures the reach from where the
+  // Tender stands (his hex, its ring, and his skill's
+  // bonus) and answers in its own plain words. Ground a
+  // rune or ward of his stands on takes the point the same
+  // way, and the answer names the working. The mode is
+  // sticky — tap on to lay on — and only the pool's dry
+  // refusal sets it down unasked, as a cast run ends on
+  // the purse's refusal.
+  const handleAttuneTap = async (tile: { id: number }) => {
+    if (!attuneElement) return;
+    const element = attuneElement;
     try {
-      const res = await api.attuneTile({ element });
+      const res = await api.attuneTile({ element, tileId: tile.id });
       await refreshTerritory();
       await fetchBuildPools();
-      if (res.turned) showHexNotice(`The ground turns beneath you — it holds ${res.element} now.`);
-      else if (res.attuneElement) showHexNotice(`A ${element} point rests in the ground beneath you — its bank holds ${res.attuneElement} ${Math.floor(res.attunePoints)}/10 toward turning.`);
-      else showHexNotice(`A ${element} point rests in the ground beneath you.`);
+      if (res.turned) showHexNotice(`The ground turns — it holds ${res.element} now.`);
+      else if (res.working) showHexNotice(`A ${element} point rests on your ${res.working} — its ground's bank holds ${res.attuneElement} ${Math.floor(res.attunePoints)}/10 toward turning.`);
+      else if (res.attuneElement) showHexNotice(`A ${element} point rests in that ground — its bank holds ${res.attuneElement} ${Math.floor(res.attunePoints)}/10 toward turning.`);
+      else showHexNotice(`A ${element} point rests in that ground.`);
     } catch (err) {
-      showHexNotice(err instanceof Error ? err.message : "The attuning was refused.");
+      const msg = err instanceof Error ? err.message : "The attuning was refused.";
+      showHexNotice(msg);
+      if (/pool holds 0/.test(msg)) setAttuneElement(null);
     }
   };
   const handlePourBuild = async (tileId: number, opts?: { branch?: "tide" | "sky"; finish?: "bake" | "lower" }) => {
@@ -1528,9 +1551,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenderStand]);
 
-  // The attune card under the map spends from the pools:
-  // keep their counts fresh whenever the Tender's stand
-  // changes (and after every spend, in handleAttuneTile).
+  // The wheel's Attune branch spends from the pools (and
+  // the building faces read them): keep their counts fresh
+  // whenever the Tender's stand changes (and after every
+  // spend, in handleAttuneTap).
   useEffect(() => {
     if (tenderStand) void fetchBuildPools();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1689,6 +1713,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (wheelTab === "ability") {
       const out: WheelEntry[] = [
         { key: "nav-weapon", sigil: "weapon", label: "Weapon", nav: "weapon" as WheelTabId },
+        { key: "nav-attune", sigil: "ability", label: "Attune", nav: "attune" as WheelTabId },
         { key: "findme", emoji: "🧭", label: "Find me", pinKey: "findme", dragKey: "findme", act: () => findMyTender() },
       ];
       for (const p of placements.slice(0, 5)) {
@@ -1707,6 +1732,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         return {
           key: `aw-${p.id}`, sigil: "awo", label: p.name,
           summoned: !!p.follow,
+        } as WheelEntry;
+      });
+    }
+    if (wheelTab === "attune") {
+      // ATTUNE IS AN ABILITY (Nigel, 2026-10-21): the five
+      // elements stand on the branch, each showing what the
+      // pools hold of it (the same reckoning the retired
+      // centre card showed). Choosing one readies the
+      // attuning and sets any readied working down — taps
+      // on the land then lay points, one tap, one point,
+      // within his reach (his hex and its ring, plus his
+      // skill's bonus — the server measures it).
+      const EL_MARK: Record<string, string> = { tide: "🌊", sky: "🌬️", stone: "🪨", root: "🌿", fire: "🔥" };
+      return (["root", "tide", "sky", "stone", "fire"] as const).map(el => {
+        const held = Math.floor(buildPools?.[el] ?? 0);
+        return {
+          key: `attune-${el}`, emoji: EL_MARK[el], label: `${el} · ${held}`,
+          lit: attuneElement === el,
+          act: () => {
+            if (held < 1) { showHexNotice(`Your ${el} pool is empty — attuning costs 1 point of the element, laid from the pool.`); return; }
+            endMapCastRun();
+            setAttuneElement(el);
+            showHexNotice(`Attuning with ${el} — tap the ground beside you (your hex and its ring) to lay a point; each tap spends 1 ${el} point. Esc, or readying a working, sets it down.`);
+          },
         } as WheelEntry;
       });
     }
@@ -1732,7 +1781,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         pinKey: `cast-${sp.key}`,
         dragKey: `cast-${sp.key}`,
         act: () => {
-          setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
+          setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
           showHexNotice(locked
             ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
             : `${sp.name} readied — tap the land to cast it.`);
@@ -1744,6 +1793,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const drag = " · drag an entry onto the hotbar to key it";
     switch (wheelTab) {
       case "weapon": return "Ability — Weapon — wield the runic weapon";
+      case "attune": return "Ability — Attune — tap an element, then tap the ground beside you to lay a point on it — one tap, one point of that element from your pools";
       case "ability": return placements.length
         ? `Ability — the tender's own deeds, beyond spellcraft${drag}`
         : "Ability — the tender's own deeds, beyond spellcraft · no Awokin stands on your land yet";
@@ -1764,6 +1814,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
     }
   };
+  // The Attune branch reads the pools' standing — refresh
+  // the reckoning whenever the branch is opened, so the
+  // counts on the element discs are the pools' own.
+  useEffect(() => {
+    if (wheelTab === "attune") void fetchBuildPools();
+  }, [wheelTab]);
+
   /** The wheel's bloom point in screen pixels: the radial
    *  state keeps the map's own coordinates; the Ground's
    *  wheel is a screen-fixed overlay, projected out here. */
@@ -1793,7 +1850,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const sp = grim?.spells.find(x => x.key === key.slice(5)) ?? null;
       if (!sp) { toggleHotbar(key); return; }
       if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
-      setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null);
+      setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
       showHexNotice(`${sp.name} readied — tap the land to cast it.`);
       return;
     }
@@ -2198,7 +2255,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // themselves never end it (the mode is sticky); only the
   // player's own unload, the purse's refusal, or a fizzle's
   // slip does.
-  const endMapCastRun = () => { setCastMode(false); setCastSpellKey(null); setCastAnchor(null); };
+  const endMapCastRun = () => { setCastMode(false); setCastSpellKey(null); setCastAnchor(null); setAttuneElement(null); };
   // The mount-once Escape handler reaches the run's end
   // through this ref, kept current every render.
   const endMapCastRunRef = useRef<() => void>(() => {});
@@ -2281,6 +2338,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
+    if (attuneElement) { void handleAttuneTap(tile); return; }
     if (castMode && castSpellKey) { handleCastTap(tile); return; }
     if (groupMarchUi) {
       // Company march quoting: the tapped hex is the muster point;
@@ -5990,50 +6048,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         )}
       </div>
 
-      {/* ATTUNE THE GROUND BENEATH YOU (Nigel, 2026-10-21):
-          the Attune ability's face on the land map, mirroring
-          the Table's attune row — one tap spends one point of
-          that element from the pool into the bank of the tile
-          the Tender stands on; repeated taps make the turning
-          faster, or instant for a purse deep enough. Cursed
-          ground, a work rising, and baked ground name their
-          refusal in the row's place, as the Table names
-          cursed ground. What the card shows is the ground's
-          own reckoning: the element it holds, its bank toward
-          turning (the tile's attuneElement/attunePoints), and
-          its growing tray — the same numbers the map serves. */}
-      {territoryLoaded && tenderStand && !buildSel && (() => {
-        const standTile = tiles.find(t => t.id === tenderStand.tileId);
-        if (!standTile) return null;
-        const st = standTile as any;
-        const stage = st.buildStage ?? 0;
-        const underway = stage >= 1 && stage <= 4;
-        return (
-          <section className="homeland-attune" aria-label="Attune the ground beneath you">
-            {standTile.cursed ? (
-              <span className="attune-label">🌑 This ground is still cursed — attunement rests only on purified land.</span>
-            ) : underway ? (
-              <span className="attune-label">🏗 A work is rising on this ground — its pours are the builder's. Attune it when it stands finished, or stand elsewhere.</span>
-            ) : st.baked ? (
-              <span className="attune-label">🔥 This ground is baked sealed — its bank is shut, and no attunement pours into it.</span>
-            ) : (
-              <div className="attune-row">
-                <span className="attune-label">Attune this ground — it holds {standTile.element}{st.attuneElement && (st.attunePoints ?? 0) > 0 ? <> · bank: {st.attuneElement} {Math.floor(st.attunePoints)}/10 toward turning</> : null}{(st.growPoints ?? 0) > 0 ? <> · tray growing: {Math.floor(st.growPoints)}/30</> : null}:</span>
-                {(["root", "tide", "sky", "stone", "fire"] as const).map(el => {
-                  const held = Math.floor(buildPools?.[el] ?? 0);
-                  return (
-                    <button key={el} type="button" className="abtn small attune-btn" data-element={el} disabled={held < 1}
-                      title={held >= 1 ? `Spend 1 ${el} point — it rests in this ground's bank now` : `Your ${el} pool is empty`}
-                      onClick={() => void handleAttuneTile(el)}>
-                      {el} · {held}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        );
-      })()}
+      {/* The centre-screen attune card stood here until
+          2026-10-21 — retired by the Attune Ability law
+          (Nigel: Attune is an ABILITY on the wheel, and the
+          card rode centre-board under the movement
+          tutorial): the wheel's Ability → Attune branch is
+          the only door now, its taps naming their tile, its
+          reach the hex and its ring. The ground's own
+          reckoning — its element, its bank, its tray — is
+          still drawn on the map itself, where it always was. */}
 
       <div className="territory-map"
         onPointerDown={(e) => {
