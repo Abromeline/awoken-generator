@@ -40,6 +40,11 @@ export const awakened = sqliteTable("awakened", {
   storyCount: integer("story_count").notNull().default(0),
   // Born on the field (purified land), not through Wake One. Marked with gold tree.
   fieldBorn: integer("field_born").notNull().default(0),
+  // The greeting Awoken (Nigel, 2026-10-20): the first one, who met
+  // this Tender at the door and joined the collection unasked. It is
+  // the Tender's personal guide for the whole road — the margin
+  // teacher is THIS individual, pinned by this mark.
+  greeter: integer("greeter").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

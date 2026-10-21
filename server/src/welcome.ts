@@ -1,8 +1,9 @@
 // The welcome ritual: free wakes for Tenders.
 //
 // First visit (with a Tender account): 20 welcome wakes are granted (a bonus
-// "first deck") and one Awoken is held apart, already waiting, with a single
-// free re-weaving ("Reconstitute matter"). Every 4 hours a free wake gathers
+// "first deck") and one Awoken — the greeting — joins the collection directly
+// as the Tender's personal guide (Nigel, 2026-10-20: the first one does not
+// wait as a claimable card; it simply IS theirs, and appears in the deck). Every 4 hours a free wake gathers
 // — one at a time, never stacked, never announced. Pull only: the
 // Anti-Duolingo law holds even here.
 //
@@ -13,7 +14,7 @@
 // fresh wakes.
 
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, blobs, schema } from "./store.js";
 import { awakenedPayloadById, describeValidationIssues, layerRefShape, planAwakening } from "./actions.js";
@@ -96,6 +97,33 @@ async function pendingFor(visitorId: string, slot: Slot): Promise<Pending | unde
   return rows[0];
 }
 
+/** The greeting joins the collection (Nigel, 2026-10-20): the first
+ *  Awoken does not wait as a claimable card — it simply IS the
+ *  Tender's, and appears in the deck. Releasing the held-apart row is
+ *  all "joining" ever was; this also marks the welcome received.
+ *  Idempotent, and it heals greetings seeded before this law: any
+ *  welcome still waiting is joined on the spot. Returns its id. */
+async function joinGreeting(ownerKey: string): Promise<number | null> {
+  const pending = await pendingFor(ownerKey, "welcome");
+  if (!pending) return null;
+  await db.delete(schema.pendingWelcomes).where(eq(schema.pendingWelcomes.id, pending.id));
+  await db.update(schema.visitors).set({ welcomeClaimed: 1 }).where(eq(schema.visitors.visitorId, ownerKey));
+  return pending.awakenedId;
+}
+
+/** The greeted one's id — the Tender's personal guide, pinned by the
+ *  mark on its own row so it rides every migration (claim, adoption)
+ *  untouched. Null when no greeting was ever marked for this Tender. */
+async function greeterIdFor(ownerKey: string): Promise<number | null> {
+  const rows = await db
+    .select({ id: schema.awakened.id })
+    .from(schema.awakened)
+    .where(and(eq(schema.awakened.ownerKey, ownerKey), eq(schema.awakened.greeter, 1)))
+    .orderBy(asc(schema.awakened.id))
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
 /** Remove a held-apart Awoken entirely: its deck record and its image. */
 async function removePending(pending: Pending): Promise<void> {
   const rows = await db
@@ -131,6 +159,7 @@ async function holdAwakening(ownerKey: string, ownerName: string, slot: Slot, la
       collection: "tender",
       ownerName,
       ownerKey,
+      greeter: slot === "welcome" ? 1 : 0,
       identityKey: plan.identityKey,
       iteration: plan.previousCount,
       flavorText: plan.flavorText,
@@ -165,34 +194,47 @@ function freeWakeState(lastFreeWakeAt: Date | null, nowMs: number) {
 }
 
 export async function getWelcomeStatus(ownerKey: string) {
+  // The greeting is never left waiting (Nigel, 2026-10-20): a welcome
+  // still held apart joins the collection the moment it is seen.
+  await joinGreeting(ownerKey);
   const { visitor } = await ensureVisitor(ownerKey);
-  const welcomeRow = await pendingFor(ownerKey, "welcome");
   const freeRow = await pendingFor(ownerKey, "free");
   const free = freeWakeState(visitor.lastFreeWakeAt, Date.now());
+  const greeterId = await greeterIdFor(ownerKey);
   return {
     welcomeGranted: visitor.welcomeWakesGranted === 1,
-    needsSeed: visitor.welcomeWakesGranted === 1 && !welcomeRow && visitor.welcomeClaimed !== 1,
-    welcome: welcomeRow ? await waitingPayload(welcomeRow) : null,
+    // A Tender who already has their greeted one never seeds another.
+    needsSeed: visitor.welcomeWakesGranted === 1 && visitor.welcomeClaimed !== 1 && greeterId === null,
+    // The greeting no longer waits as a card — it joins (see joinGreeting).
+    welcome: null,
+    greeterId,
     freeWake: freeRow ? await waitingPayload(freeRow) : null,
     freeWakeAvailable: free.available,
     nextFreeWakeAt: free.nextFreeWakeAt,
   };
 }
 
-/** First visit: hold the greeting Awoken apart. Idempotent — a second call
- *  returns the already-waiting one instead of making another. */
+/** First visit: gather the greeting Awoken — and it joins the
+ *  collection in the same breath (Nigel, 2026-10-20). There is no
+ *  card and no claim step for the first one. Idempotent — a second
+ *  call returns the already-joined one instead of making another. */
 export async function seedWelcome(ownerKey: string, ownerName: string, body: unknown) {
   const { visitor } = await ensureVisitor(ownerKey);
   if (visitor.welcomeClaimed === 1) badRequest("Your welcome has already been received.");
   const existing = await pendingFor(ownerKey, "welcome");
-  if (existing) return waitingPayload(existing);
+  if (existing) {
+    const payload = await waitingPayload(existing);
+    await joinGreeting(ownerKey);
+    return payload;
+  }
   if (visitor.welcomeWakesGranted !== 1) badRequest("No welcome is waiting for this visitor.");
   const parsed = generationInput.safeParse(body);
   if (!parsed.success) {
     badRequest(`That awakening could not be gathered — ${describeValidationIssues(parsed.error)}.`);
   }
   const awakened = await holdAwakening(ownerKey, ownerName, "welcome", parsed.data.layers, parsed.data.imageBase64, 0);
-  return { awakened, respinsUsed: 0, respinsRemaining: 1 };
+  await joinGreeting(ownerKey);
+  return { awakened, respinsUsed: 0, respinsRemaining: 0 };
 }
 
 /** Accept the waiting Awoken into the Tender deck. */

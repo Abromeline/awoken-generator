@@ -878,17 +878,22 @@ body.defeat-flash {
   position: fixed; z-index: 40;
   width: 120px;
   pointer-events: all;
-  animation: guide-rise 1s ease-out;
+  /* The arrival (Nigel, 2026-10-20): the crystal greets first; the
+     guides fade in after their pause — a slow, deliberate fade. */
+  animation: guide-rise 1.6s ease-out both;
   filter: drop-shadow(0 8px 24px rgba(0,0,0,0.6));
 }
-.margin-guide.left { left: 12px; bottom: 120px; }
-.margin-guide.right { right: 12px; bottom: 120px; transform: scaleX(-1); }
+.margin-guide.left { left: 12px; top: 96px; }
+.margin-guide.right { right: 12px; top: 96px; }
+/* The right-hand bearer faces inward: the flip lives on the sprite
+   itself now, so the shop sign it holds reads true. */
+.margin-guide.right .margin-guide-sprite svg { transform: scaleX(-1); }
 .margin-guide-sprite {
   width: 120px;
   animation: awoken-bob 4s ease-in-out infinite;
 }
 .margin-guide-bubble {
-  position: absolute; left: 110px; bottom: 40px;
+  position: absolute; left: 110px; top: 24px;
   width: 220px; padding: 12px 14px;
   background: rgba(10,10,20,0.92);
   border: 1px solid #b89b5e; border-radius: 12px;
@@ -897,7 +902,7 @@ body.defeat-flash {
   animation: bubble-pop 0.5s ease-out;
 }
 .margin-guide-bubble::before {
-  content: ""; position: absolute; left: -8px; bottom: 20px;
+  content: ""; position: absolute; left: -8px; top: 28px;
   width: 0; height: 0;
   border-top: 8px solid transparent;
   border-bottom: 8px solid transparent;
@@ -910,6 +915,30 @@ body.defeat-flash {
 }
 .margin-guide-next:hover, .margin-guide-dismiss:hover { color: #fff; }
 .margin-guide-dismiss { position: absolute; top: 4px; right: 4px; font-size: 12px; }
+/* The art-shop sign, held on the right in the bubble's dress */
+.margin-guide-ad {
+  position: absolute; right: 110px; top: 24px;
+  width: 220px; padding: 12px 14px;
+  background: rgba(10,10,20,0.92);
+  border: 1px solid #b89b5e; border-radius: 12px;
+  font-size: 13px; line-height: 1.5; color: #e8e0d0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  animation: bubble-pop 0.5s ease-out;
+}
+.margin-guide-ad::before {
+  content: ""; position: absolute; right: -8px; top: 28px;
+  width: 0; height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 8px solid #b89b5e;
+}
+.margin-guide-ad p { margin: 0 0 8px 0; }
+.margin-guide-ad-head {
+  font-family: var(--display); font-size: 15px; line-height: 1.35;
+  color: #e8cf9a;
+}
+.margin-guide-ad a { color: #b89b5e; font-weight: 600; text-decoration: none; }
+.margin-guide-ad a:hover { color: #fff; text-decoration: underline; }
 @keyframes guide-rise {
   0% { opacity: 0; transform: translateY(40px); }
   100% { opacity: 1; transform: translateY(0); }
@@ -919,11 +948,18 @@ body.defeat-flash {
   100% { opacity: 1; transform: scale(1); }
 }
 @media (max-width: 768px) {
-  .margin-guide { width: 80px; }
-  .margin-guide.left { left: 8px; bottom: 100px; }
-  .margin-guide.right { display: none; }
-  .margin-guide-sprite { width: 80px; }
-  .margin-guide-bubble { width: 180px; left: 70px; font-size: 12px; }
+  .margin-guide { width: 72px; }
+  .margin-guide.left { left: 8px; top: 84px; }
+  .margin-guide.right { right: 8px; top: 84px; }
+  .margin-guide-sprite { width: 72px; }
+  .margin-guide-bubble { width: 170px; left: 64px; top: 16px; font-size: 12px; }
+  .margin-guide-ad { width: 160px; right: 64px; top: 16px; font-size: 12px; }
+}
+@media (max-width: 520px) {
+  /* A phone cannot seat two cards at one height: the sign hangs
+     below its bearer instead, clear of the teacher's bubble. */
+  .margin-guide-bubble { width: 150px; }
+  .margin-guide-ad { width: 140px; right: 0; top: 102px; }
 }
 /* Floating damage numbers */
 .dmg-number {

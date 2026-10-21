@@ -374,6 +374,8 @@ export interface WelcomeStatus {
   welcomeGranted: boolean;
   needsSeed: boolean;
   welcome: WaitingAwoken | null;
+  /** The greeted one's id — this Tender's personal guide (Nigel, 2026-10-20). */
+  greeterId: number | null;
   freeWake: WaitingAwoken | null;
   freeWakeAvailable: boolean;
   nextFreeWakeAt: string | null;
