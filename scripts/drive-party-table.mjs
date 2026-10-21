@@ -399,7 +399,11 @@ async function summonOnto(c, cardId, nearId) {
   await call("addToParty", { awakenedId: CS }, G2.token);
   const roomC = "campaign-party-table-bonus";
   const stc = client("ST-B");
-  await stc.join({ devName: "Bonus Storytender", room: roomC, storytender: true });
+  await stc.join({ devName: "Bonus Storytender", room: roomC });
+  // The seat is claimed in the room now (Campaign Build 1) —
+  // the door no longer confers it.
+  stc.send({ type: "claimStoryteller" });
+  await stc.waitFor((c2) => !!c2.you?.storytender, "the bonus storytender's claim", 15000);
   const b2 = client("G2");
   await b2.join({ authToken: G2.tt, room: roomC });
   ok("the campaign seat opens at the standing reckoning too",
@@ -466,7 +470,9 @@ async function summonOnto(c, cardId, nearId) {
 
   const room = "campaign-party-table-end";
   const st = client("ST-E");
-  await st.join({ devName: "End Storytender", room, storytender: true });
+  await st.join({ devName: "End Storytender", room });
+  st.send({ type: "claimStoryteller" });
+  await st.waitFor((c2) => !!c2.you?.storytender, "the end storytender's claim", 15000);
   const b = client("V");
   await b.join({ authToken: V.tt, room });
   const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;

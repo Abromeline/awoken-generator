@@ -156,7 +156,12 @@ check("the fighting freed ground (a felling frees the tile the dark died on)", a
 
 // ── The campaign instance: burn + grind, isolated ─────────
 const st = client("ST");
-await st.join({ devName: "Map Storytender", room: "campaign-map-room", storytender: true });
+await st.join({ devName: "Map Storytender", room: "campaign-map-room" });
+// The seat is claimed in the room now (Campaign Build 1) —
+// and she must hold it before the deal, so her own stake
+// stays out of the bank the deal seeds, as it always has.
+st.send({ type: "claimStoryteller" });
+await st.waitFor(c => !!c.you?.storytender, "the map storytender's claim");
 const cb = client("CB");
 await cb.join({ devName: "Camp Sue", room: "campaign-map-room" });
 const cLanding = cb.you.landing;

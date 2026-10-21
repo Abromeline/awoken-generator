@@ -147,6 +147,12 @@ interface SharedState {
     seeded: boolean;
     over: string | null;
     storytenderName: string | null;
+    /** THE STORYTELLER'S SEAT (Campaign Build 1): the seat
+     *  key of its holder — null stands unclaimed until a
+     *  seated participant claims it in the room — and the
+     *  seat keys granted the storyteller's panel. */
+    storytellerKey?: string | null;
+    panelAccess?: string[];
     stage: { title: string; text: string; imageUrl: string | null; at: number } | null;
     deals: number;
   } | null;
@@ -1184,13 +1190,6 @@ export default function Table() {
                 >
                   📖 Campaign — take a seat
                 </button>
-                <button
-                  className="table-btn"
-                  disabled={!devName.trim()}
-                  onClick={() => connect({ devName: devName.trim(), room: `campaign-${campKey.trim() || "main"}`, storytender: true })}
-                >
-                  📖 Campaign — be the Storytender
-                </button>
               </div>
             </>
           ) : authJoin ? (
@@ -1210,9 +1209,6 @@ export default function Table() {
               <div className="door-actions">
                 <button className="table-btn" onClick={() => connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}` })}>
                   📖 Campaign — take a seat
-                </button>
-                <button className="table-btn" onClick={() => connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}`, storytender: true })}>
-                  📖 Campaign — be the Storytender
                 </button>
               </div>
             </>
@@ -2412,6 +2408,32 @@ export default function Table() {
                 {!shared.campaign.over && !shared.campaign.storytenderName && you && (
                   <button className="table-btn battle-btn" onClick={() => send({ type: "stEnd" })}>🏠 Turn the campaign home</button>
                 )}
+                {/* THE STORYTELLER'S SEAT (Campaign Build 1): the
+                    strip names the seat's holder — or that it
+                    stands unclaimed — and who has been granted
+                    the panel. The claim button shows only to a
+                    seated participant while the seat is
+                    unclaimed; the grant buttons only to the
+                    holder. The console itself is Build 2. */}
+                {!shared.campaign.over && (
+                  <span className="battle-status">
+                    📖 Storyteller: {shared.campaign.storytellerKey ? (shared.campaign.storytenderName ?? "claimed") : "unclaimed"}
+                    {(shared.campaign.panelAccess ?? []).length > 0 && (
+                      <> · panel open to {(shared.campaign.panelAccess ?? []).map(k => shared.players.find(p => p.key === k)?.name ?? k).join(", ")}</>
+                    )}
+                  </span>
+                )}
+                {!shared.campaign.over && !shared.campaign.storytellerKey && you && (
+                  <button className="table-btn battle-btn" onClick={() => send({ type: "claimStoryteller" })}>📖 Claim the Storyteller's seat</button>
+                )}
+                {!shared.campaign.over && you && shared.campaign.storytellerKey === you.key && shared.players.filter(p => p.key !== you.key).map(p => {
+                  const granted = (shared.campaign?.panelAccess ?? []).includes(p.key);
+                  return (
+                    <button key={p.key} className="table-btn battle-btn" onClick={() => send({ type: granted ? "revokePanel" : "grantPanel", targetKey: p.key })}>
+                      {granted ? `📖 Close the panel to ${p.name}` : `📖 Open the panel to ${p.name}`}
+                    </button>
+                  );
+                })}
                 </>
               ) : you ? (
                 <>

@@ -54,9 +54,14 @@ function client(label) {
 
 const ROOM = "campaign-test39";
 const st = client("ST");
-await st.join({ devName: "Storyteller Sue", room: ROOM, storytender: true });
-check("storytender seated with her instruments", !!st.you?.storytender);
-check("storytender holds no hand", (st.you?.hand ?? [1]).length === 0);
+await st.join({ devName: "Storyteller Sue", room: ROOM });
+check("no one arrives as the storyteller — she sat as a participant, dealt a roster", (st.you?.hand ?? []).length === 10 && st.you?.storytender === null);
+// THE SEAT IS CLAIMED IN THE ROOM (Campaign Build 1, Nigel,
+// 2026-10-21): the door no longer confers the storytender's
+// seat — a seated participant claims it while it is unclaimed.
+st.send({ type: "claimStoryteller" });
+await st.waitFor(c => !!c.you?.storytender, "Sue's claim on the seat");
+check("storytender seated with her instruments — by her claim, in the room", !!st.you?.storytender);
 check("room reports campaign mode", st.state.mode === "campaign");
 
 const a = client("A");
@@ -66,11 +71,13 @@ await b.join({ devName: "Tender B", room: ROOM });
 check("tenders dealt stand-in rosters", (a.you?.hand ?? []).length === 10 && (b.you?.hand ?? []).length === 10);
 check("tender has no storytender instruments", a.you?.storytender === null);
 check("party rail marks the storytender", st.state.players.some(p => p.storytender && p.name === "Storyteller Sue"));
-check("storytender not counted as a tender seat in players energy view", a.state.players.length === 3);
+check("all three seats stand in the players view — the storyteller among them", a.state.players.length === 3);
 
 const st2 = client("ST2");
-await st2.join({ devName: "Second Sue", room: ROOM, storytender: true });
-check("second storytender refused the seat (sits as tender)", st2.you?.storytender === null && (st2.you?.hand ?? []).length === 10);
+await st2.join({ devName: "Second Sue", room: ROOM });
+st2.send({ type: "claimStoryteller" });
+await sleep(700);
+check("a second claim is refused while the seat is held (she sits as a tender)", st2.you?.storytender === null && (st2.you?.hand ?? []).length === 10 && st2.errors.some(e => /seat is held by Storyteller Sue/.test(e)), JSON.stringify(st2.errors));
 st2.ws.close();
 await sleep(300);
 
@@ -194,7 +201,7 @@ const bankAtAdjourn = a.state.campaign.bank;
 for (const c of [st, a, b]) c.ws.close();
 await sleep(600);
 const stR = client("ST-R");
-await stR.join({ devName: "Storyteller Sue", room: ROOM, storytender: true });
+await stR.join({ devName: "Storyteller Sue", room: ROOM });
 check("adjourned campaign restored its bank", stR.state.campaign.bank === bankAtAdjourn, `bank=${stR.state.campaign.bank} was ${bankAtAdjourn}`);
 check("adjourned campaign restored its tale", stR.state.tale.some(t => t.text.includes("poured into one bank")));
 const aR = client("A-R");

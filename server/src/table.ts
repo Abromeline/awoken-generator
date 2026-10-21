@@ -629,6 +629,17 @@ interface CampaignState {
   /** Dissipations per seat per card — the recast multiplier. */
   recasts: Record<string, Record<string, number>>;
   storytenderName: string | null;
+  /** THE STORYTELLER'S SEAT (Campaign Build 1, Nigel,
+   *  2026-10-21): the seat stands UNCLAIMED until a seated
+   *  participant claims it in the room — never at the door.
+   *  The holder's seat key; null is unclaimed. When the
+   *  holder's held seat lapses past the away grace, the
+   *  seat returns to unclaimed here. */
+  storytellerKey: string | null;
+  /** Seat keys the storyteller has granted the panel to —
+   *  the holder's to give and to take back. The grants fall
+   *  when the seat itself falls vacant. */
+  panelAccess: string[];
 }
 
 /** MANIFEST (Phase C): copies of a Tender's wielded weapon,
@@ -1316,6 +1327,8 @@ function sharedState(room: Room) {
       seeded: room.campaign.seeded,
       over: room.campaign.over,
       storytenderName: room.campaign.storytenderName,
+      storytellerKey: room.campaign.storytellerKey,
+      panelAccess: [...room.campaign.panelAccess],
       stage: room.campaign.stage,
       deals: room.campaign.deals,
     } : null,
@@ -1441,7 +1454,7 @@ async function getRoom(id: string): Promise<Room> {
       mode: campaignMode ? "campaign" : "casual",
       campaign: campaignMode ? loadCampaign(id) : null,
       field: new Map(),
-      map: freshInstanceMap(),
+      map: freshInstanceMap(campaignMode),
       workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
@@ -1518,14 +1531,22 @@ function neighborsOf(hex: string): string[] {
 }
 
 // ── The instance map's keepers ─────────────────────────────
-/** A fresh instance: every tile cursed at its ring's full
- *  corruption but the seed's own ground, which is the party's
- *  first purified earth. */
-function freshInstanceMap(): Map<string, MapTile> {
+/** A fresh instance map. The casual Table keeps its old
+ *  law — every tile cursed at its ring's full corruption but
+ *  the seed's own ground, the party's first purified earth.
+ *  A CAMPAIGN map is born under the default-curse law (Nigel,
+ *  2026-10-21 15:45: the default tile of every map is the
+ *  curse, prevailing unless held back by some means) — all
+ *  127 hexes cursed, the seed's included, corruption by
+ *  ring, held-back ground arriving only through play (a
+ *  tender's arrival purifies their landing; storyteller
+ *  placement in later builds). Existing rooms are made, not
+ *  remade: this applies to maps created from this build on. */
+function freshInstanceMap(allCursed = false): Map<string, MapTile> {
   const map = new Map<string, MapTile>();
   for (const t of TILE_DEFS) {
     const ring = ringOf(t.id);
-    const seed = t.id === SEED_TILE;
+    const seed = t.id === SEED_TILE && !allCursed;
     map.set(t.id, {
       id: t.id, q: t.q, r: t.r,
       cursed: !seed, element: seed ? "sky" : null, points: {}, attuneAcc: {},
@@ -2262,6 +2283,7 @@ function freshCampaign(): CampaignState {
   return {
     bank: 0, bankStart: 0, seeded: false, reserve: [], deals: 0,
     stage: null, skyNote: null, over: null, recasts: {}, storytenderName: null,
+    storytellerKey: null, panelAccess: [],
   };
 }
 
@@ -2292,6 +2314,13 @@ function loadCampaign(id: string): CampaignState {
       delete (c as any).wave;
       c.reserve = Array.isArray(c.reserve) ? c.reserve.filter(k => k in ENEMY_STATS) : [];
     }
+    // THE SEAT UNDER THE NEW LAW (Build 1): rests written
+    // before the claim-by-button law carry a name but no
+    // holder's key. The seat stands unclaimed until it is
+    // claimed in the room — a stale name never holds it.
+    c.storytellerKey = typeof c.storytellerKey === "string" ? c.storytellerKey : null;
+    c.panelAccess = Array.isArray(c.panelAccess) ? c.panelAccess.filter(k => typeof k === "string") : [];
+    if (!c.storytellerKey) c.storytenderName = null;
   } catch { /* a corrupt rest is a fresh campaign */ }
   return c;
 }
@@ -3496,17 +3525,18 @@ function handleConnection(ws: WebSocket): void {
           return;
         }
       }
-      // THE STORYTENDER'S SEAT (campaign rooms only): one seat,
-      // no hand, never counted among the Tenders. A held seat
-      // counts: the Storytender who stepped away still holds it,
-      // and a full table stays full while its seats are held.
-      const wantsStorytender = msg.storytender === true && room.mode === "campaign" && !watcher;
-      const storytenderTaken = [...room.players.values()].some(p => p.storytender)
-        || [...room.away.values()].some(h => !!h.player.storytender);
-      const isStorytender = wantsStorytender && !storytenderTaken;
-      const seatedCount = [...room.players.values()].filter(p => !p.watcher && !p.storytender).length
-        + [...room.away.values()].filter(h => !h.player.watcher && !h.player.storytender).length;
-      if (!watcher && !isStorytender && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no ninth hand; watchers are welcome
+      // THE STORYTELLER'S SEAT (Campaign Build 1, Nigel,
+      // 2026-10-21): no one arrives AS the storyteller. Every
+      // participant takes an ordinary seat at the door; the
+      // campaign's storyteller seat stands unclaimed until a
+      // seated participant claims it in the room (the
+      // claimStoryteller road below), and the campaign record
+      // — never the door — says who holds it. A returning
+      // holder's seat comes back whole through the reclaim
+      // roads above, flag and all.
+      const seatedCount = [...room.players.values()].filter(p => !p.watcher).length
+        + [...room.away.values()].filter(h => !h.player.watcher).length;
+      if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no ninth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
       // A bound seat is dealt its Tender's party (the strict
       // party deal), and its energy is that roster's own
@@ -3581,7 +3611,7 @@ function handleConnection(ws: WebSocket): void {
           if (breathBonus) { maxEnergy += breathBonus; energy += breathBonus; }
         }
       }
-      if (!watcher && !bound && !isStorytender) {
+      if (!watcher && !bound) {
         hand = TEST_POOL.map(c => ({ ...c, id: randomUUID(), parts: [
           { element: c.element, power: Math.ceil(c.power / 2) },
           { element: c.element, power: Math.floor(c.power / 2) },
@@ -3590,25 +3620,18 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: false, hand, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
-      if (isStorytender && room.campaign) {
-        room.campaign.storytenderName = name;
-        tell(room, `${name} takes the Storytender's seat — the dealing, the scene, and the sky are hers to hold.`);
-        if (wantsStorytender && storytenderTaken) { /* unreachable: isStorytender covers it */ }
-      } else if (wantsStorytender && storytenderTaken) {
-        ws.send(JSON.stringify({ type: "error", message: "The Storytender's seat is already held — you sit as a Tender." }));
-      }
-      if (!watcher && !isStorytender && room.campaign?.seeded && !room.campaign.over && player.energy > 0) {
+      if (!watcher && room.campaign?.seeded && !room.campaign.over && player.energy > 0) {
         // A late stake joins the pot entire (the Risk of
         // Confluence runs both ways: arrive invested).
         room.campaign.bank += player.energy;
         tell(room, `${name}'s stake of ✦${player.energy} joins the bank (✦${room.campaign.bank}).`);
         player.energy = 0;
       }
-      if (!watcher && !isStorytender) {
+      if (!watcher) {
         tell(room, `${name} takes a seat at the Table.`);
       }
       sendState(room);
@@ -3713,6 +3736,72 @@ function handleConnection(ws: WebSocket): void {
       const sides = [4, 6, 8, 10, 12, 20, 100].includes(msg.sides) ? msg.sides : 20;
       const result = 1 + Math.floor(Math.random() * sides);
       tell(room, `${player.name} rolled d${sides} → ${result}.`);
+      sendState(room);
+      return;
+    }
+
+    // THE STORYTELLER'S SEAT — CLAIMED IN THE ROOM (Campaign
+    // Build 1, Nigel, 2026-10-21: "only the storyteller UI
+    // belongs to the storyteller who claims the seat with a
+    // button if it is unclaimed"). The campaign record holds
+    // the seat: while a holder's key stands on it — seated,
+    // or stepped away within the grace — no second claim
+    // lands. The holder's seat lapsing past the grace (the
+    // reaper's work) is what frees it.
+    if (msg.type === "claimStoryteller") {
+      if (!room.campaign) {
+        ws.send(JSON.stringify({ type: "error", message: "There is no Storyteller's seat at a casual table — it belongs to a campaign." }));
+        return;
+      }
+      if (player.watcher) {
+        ws.send(JSON.stringify({ type: "error", message: "Watchers hold no seat to claim from — take a seat at the table first." }));
+        return;
+      }
+      const c = room.campaign;
+      if (c.storytellerKey === player.key) { sendState(room); return; }
+      if (c.storytellerKey) {
+        ws.send(JSON.stringify({ type: "error", message: `The Storyteller's seat is held by ${c.storytenderName ?? "another"} — it stands claimed until its holder's seat lapses.` }));
+        return;
+      }
+      c.storytellerKey = player.key;
+      c.storytenderName = player.name;
+      player.storytender = true;
+      tell(room, `📖 ${player.name} claims the Storyteller's seat — the dealing, the scene, and the sky are theirs to hold.`);
+      saveCampaign(room);
+      sendState(room);
+      return;
+    }
+
+    // GRANTING THE PANEL (Build 1): the seated storyteller
+    // opens the storyteller's panel to another participant —
+    // "to help build an encounter together" — or closes it
+    // again. Build 1 records the permission and shows it;
+    // the console itself arrives in Build 2.
+    if (msg.type === "grantPanel" || msg.type === "revokePanel") {
+      if (!room.campaign || !player.storytender || room.campaign.storytellerKey !== player.key) {
+        ws.send(JSON.stringify({ type: "error", message: "Only the seated Storyteller grants the panel." }));
+        return;
+      }
+      const target = seatByKey(room, String(msg.targetKey ?? ""));
+      if (!target || target.watcher) {
+        ws.send(JSON.stringify({ type: "error", message: "That is no seated participant of this table." }));
+        return;
+      }
+      if (target.key === player.key) {
+        ws.send(JSON.stringify({ type: "error", message: "The seat itself holds the panel — there is nothing to grant yourself." }));
+        return;
+      }
+      const c = room.campaign;
+      if (msg.type === "grantPanel") {
+        if (!c.panelAccess.includes(target.key)) {
+          c.panelAccess.push(target.key);
+          tell(room, `📖 ${player.name} opens the Storyteller's panel to ${target.name} — they build this encounter together.`);
+        }
+      } else if (c.panelAccess.includes(target.key)) {
+        c.panelAccess = c.panelAccess.filter(k => k !== target.key);
+        tell(room, `📖 The Storyteller's panel closes to ${target.name}.`);
+      }
+      saveCampaign(room);
       sendState(room);
       return;
     }
@@ -4840,6 +4929,22 @@ export function registerTableSocket(server: Server): void {
         lapsed = true;
         const p = held.player;
         if (room.players.size > 0) tell(room, `${p.name}'s held seat lapses — they have left the Table.`);
+        // THE STORYTELLER'S SEAT (Campaign Build 1): a seat
+        // held only stands while its holder's own seat
+        // stands. When the holder's held seat lapses, the
+        // storyteller's seat returns to unclaimed — and the
+        // grants that holder gave fall with it, as does a
+        // lapsed participant's own grant.
+        if (room.campaign && room.campaign.storytellerKey === key) {
+          room.campaign.storytellerKey = null;
+          room.campaign.storytenderName = null;
+          room.campaign.panelAccess = [];
+          if (room.players.size > 0) tell(room, "📖 The Storyteller's seat stands unclaimed — its holder has left the Table.");
+          saveCampaign(room);
+        } else if (room.campaign && room.campaign.panelAccess.includes(key)) {
+          room.campaign.panelAccess = room.campaign.panelAccess.filter(k => k !== key);
+          saveCampaign(room);
+        }
         // THE RISK OF CONFLUENCE (§4.3): a stake poured into a
         // living campaign stays in the pot when its Tender goes.
         if (room.campaign?.seeded && !room.campaign.over && !p.watcher && !p.storytender) {
