@@ -514,11 +514,11 @@ button { font-family: inherit; }
 .battle-status { color: var(--gold-bright); font-size: 14px; }
 
 /* ── The Written Light at the Table (2026-10-17) ─────────── */
-.pour-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 12px; }
-.pour-label { font-size: 12.5px; color: var(--bone-dim); letter-spacing: .04em; margin-right: 2px; }
-.hue-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid #4a3a1e; border-radius: 20px; background: #171208; color: #e8dfc8; font-size: 12.5px; cursor: pointer; }
-.hue-chip.active { border-color: var(--gold-bright); color: #ffd98a; box-shadow: 0 0 8px rgba(255, 210, 110, .25); }
-.hue-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+/* The pour popup's styles stood here until 2026-10-20: the
+   menu itself was struck from the cast flow (ccc18f8), and its
+   dress — .pour-row, .pour-label, .hue-chip, .hue-dot — is
+   removed with it, so nothing of the window remains in the
+   shipped CSS for any screen to resurrect. */
 .working-card { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 10px; background: #14100a; border: 1px solid #4a3a1e; border-radius: 10px; cursor: pointer; color: #e8dfc8; }
 .working-card:hover { border-color: #8a6f3a; }
 .working-card.selected { border-color: var(--gold-bright); box-shadow: 0 0 12px rgba(255, 210, 110, .30); }
@@ -539,9 +539,9 @@ button { font-family: inherit; }
 .tcard .card-border-frame { position: absolute; pointer-events: none; z-index: 6; }
 .tcard .card-border-frame.fit-hug { inset: 0; width: 100%; height: 100%; }
 .tcard .card-border-frame.fit-morning { width: 283.3%; height: 156.6%; left: -91.6%; top: -26.8%; max-width: none; }
-.placing-pour { display: inline-flex; align-items: center; gap: 8px; color: #cfc4f5; }
-.placing-pour .table-btn { padding: 2px 10px; }
-.placing-pour-effect { color: #ffd98a; }
+/* .placing-pour and .placing-pour-effect — the cast-time pour
+   strip that once rode inside the placing bar — were removed
+   2026-10-20 with the rest of the pour popup's remains. */
 
 /* The bastion call banner (the Columns, 2026-10-17) */
 .bastion-banner{margin:8px 0;padding:10px 12px;border:1px solid #6e3fa3;border-radius:6px;background:rgba(24,12,40,.9);color:#e9ddf5;font-size:13px;line-height:1.5}
