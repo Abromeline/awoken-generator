@@ -136,6 +136,13 @@ export const HEX_BASE_SIZE = 54;
  *  base was 36. The hexes grew for room; the buildings did not grow
  *  with them (Nigel, 2026-10-15). */
 export const BUILDING_BASE_SIZE = 36;
+/** The eight facings as unit vectors — the weapon's hunting
+ *  tips aim along the Tender's facing when no dark stands on
+ *  the field (the Proving Ground's fallback, ported 2026-10-20). */
+const DIR_VEC: Record<string, [number, number]> = {
+  E: [1, 0], SE: [Math.SQRT1_2, Math.SQRT1_2], S: [0, 1], SW: [-Math.SQRT1_2, Math.SQRT1_2],
+  W: [-1, 0], NW: [-Math.SQRT1_2, -Math.SQRT1_2], N: [0, -1], NE: [Math.SQRT1_2, -Math.SQRT1_2],
+};
 function isoOffset(q: number, r: number, size: number): { px: number; py: number } {
   const { u, v } = isoBasis(size);
   return { px: q * u[0] + r * v[0], py: q * u[1] + r * v[1] };
@@ -509,6 +516,46 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     strikeSeenRef.current = s.at;
     setWeaponStrikeAnim({ tileId: s.tileId, felled: s.felled, localAt: Date.now() });
   };
+  // THE WEAPON'S FLIGHT (the Proving Ground's motion, ported
+  // 2026-10-20): a witnessed strike becomes a flight of the
+  // weapon itself — the bladed forms jab and return on the
+  // Ground's own timing, the arrow steers its homing circuit
+  // out and loops home with its fading tracer. The flight is
+  // integrated on the map's renders; while one is live, the
+  // weapon keeps its own 50 ms clock — the stride clock's
+  // cadence — so the flight is drawn at the body's own rate.
+  // The referee still strikes every blow: a flight begins
+  // only where noteWeaponStrike witnessed one, and it flies
+  // only to that foe's hex.
+  const weaponFlightRef = useRef<null | {
+    strikeLocalAt: number; key: WeaponKey; tileId: number;
+    fx: number; fy: number; tx: number; ty: number;
+    x: number; y: number; heading: number; phase: "out" | "loop";
+    lastT: number; shx: number; shy: number;
+  }>(null);
+  const weaponTrailRef = useRef<{ x: number; y: number; t: number }[]>([]);
+  const weaponLandedRef = useRef<{ x: number; y: number; at: number; felled: boolean } | null>(null);
+  // The map's own clock (marchNow) only runs while a patrol
+  // or a march is on the road — at rest the map is a still
+  // painting, which is why the weapon hung frozen with it.
+  // The weapon keeps a clock of its own while one is wielded:
+  // the map's 125 ms cadence at rest (the orbit's period is
+  // eight seconds; the map's motion has always lived at this
+  // grain), and the stride's 50 ms while a flight is live, so
+  // the arrow's steering is drawn at the body's own rate.
+  const weaponTickRef = useRef(0);
+  const [, setWeaponTick] = useState(0);
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      if (!tenderStandRef.current?.weaponKey) return;
+      const now = Date.now();
+      if (weaponFlightRef.current || now - weaponTickRef.current >= 120) {
+        weaponTickRef.current = now;
+        setWeaponTick(t => t + 1);
+      }
+    }, 50);
+    return () => window.clearInterval(iv);
+  }, []);
   const [tenderFig, setTenderFig] = useState<{ x: number; y: number; dir: TenderDir; walking: boolean; step: number; jh?: number; flipU?: number | null } | null>(null);
   // THE JUMP (Nigel, 2026-10-19) come home to the real map: the
   // Proving Ground's engine (client/src/jump.ts) rides the stride
@@ -4624,20 +4671,152 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // weapon lunges at that foe's hex and comes back — the
       // arc below only ever plays a blow the server struck.
       const weaponKey = (tenderStand.weaponKey ?? null) as WeaponKey | null;
-      const bob = Math.sin(marchNow / 480) * 2.5;
       const wh = 30 * zoom;
-      const wcx = tenderFig.x + 26 * zoom;
-      const wcy = tenderFig.y - 34 * zoom + bob - jh;
-      const strikeP = weaponStrikeAnim ? (marchNow - weaponStrikeAnim.localAt) / 620 : 1;
-      const strikeLive = !!weaponStrikeAnim && strikeP >= 0 && strikeP < 1;
-      const strikeTile = strikeLive ? tiles.find(t => t.id === weaponStrikeAnim!.tileId) : undefined;
-      const strikePos = strikeTile ? tilePos(strikeTile) : null;
-      const lungeK = strikePos ? Math.sin(Math.min(1, strikeP) * Math.PI) * 0.62 : 0;
-      const lx = strikePos ? (strikePos.cx - wcx) * lungeK : 0;
-      const ly = strikePos ? (strikePos.cy - wcy) * lungeK : 0;
+      // THE GROUND'S MEASURE, PORTED (Nigel, 2026-10-20 — the
+      // weapon-motion build): the Proving Ground's weapon rides
+      // an elliptical orbit with a sin bob, its shield counter-
+      // orbits, its tips track the foe, and its arrow flies a
+      // homing circuit home under a fading tracer. The Ground's
+      // constants are demo px; the map's body stands 62 where
+      // the Ground's stands 117 — the jump arc's own ratio
+      // (JUMP_SCALE above) carries them across, times the zoom.
+      const WS = (62 / 117) * zoom;
+      const wnow = Date.now();
+      // The orbit's heart: the shoulder point the weapon
+      // already haunts, riding the jump as it always has.
+      const ocx = tenderFig.x;
+      const ocy = tenderFig.y - 34 * zoom - jh;
+      const orbitA = 0.6 + wnow * 0.00075;
+      const orbitX = ocx + Math.cos(orbitA) * 56 * WS;
+      const orbitY = ocy + Math.sin(orbitA) * 13 * WS + Math.sin(wnow / 480) * 3 * WS;
+      const shieldOrbitX = ocx + Math.cos(orbitA + Math.PI) * 40 * WS;
+      const shieldOrbitY = ocy + Math.sin(orbitA + Math.PI) * 11 * WS + Math.sin(wnow / 520 + 2) * 3 * WS;
+      // THE FLIGHT: a newly witnessed strike launches the
+      // weapon from its orbit point at that foe's hex. A
+      // changed hand ends any flight — the striker is gone.
+      let flight = weaponFlightRef.current;
+      if (weaponStrikeAnim && weaponKey && (!flight || flight.strikeLocalAt !== weaponStrikeAnim.localAt)) {
+        const tt = tiles.find(t => t.id === weaponStrikeAnim.tileId);
+        const tp = tt ? tilePos(tt) : null;
+        if (tp) {
+          flight = weaponFlightRef.current = {
+            strikeLocalAt: weaponStrikeAnim.localAt, key: weaponKey, tileId: weaponStrikeAnim.tileId,
+            fx: orbitX, fy: orbitY, tx: tp.cx, ty: tp.cy,
+            x: orbitX, y: orbitY, heading: Math.atan2(tp.cy - orbitY, tp.cx - orbitX),
+            phase: "out", lastT: wnow, shx: shieldOrbitX, shy: shieldOrbitY,
+          };
+          weaponTrailRef.current = [];
+        }
+      }
+      if (flight && flight.key !== weaponKey) { weaponFlightRef.current = null; flight = null; }
+      if (flight && wnow - flight.strikeLocalAt > 4000) { weaponFlightRef.current = null; flight = null; }
+      // Where the weapon stands this frame, and where its tip
+      // points. Idle: the orbit, with the Ground's sway; the
+      // arrow and the spear hunt with their tips even at rest.
+      let wx = orbitX, wy = orbitY;
+      let wrot = Math.sin(wnow / 620) * 7;
+      // The hunting tips' quarry: the strike's foe in flight;
+      // at rest, the nearest dark on the field; with no dark,
+      // the Tender's own facing, a reach ahead of him.
+      const aimPoint = (): { x: number; y: number } => {
+        if (flight) return { x: flight.tx, y: flight.ty };
+        let best: { x: number; y: number } | null = null; let bestD = Infinity;
+        for (const w of wanderers) {
+          const t = tiles.find(t => t.id === w.tileId);
+          if (!t) continue;
+          const p = tilePos(t);
+          const d = (p.cx - wx) * (p.cx - wx) + (p.cy - wy) * (p.cy - wy);
+          if (d < bestD) { bestD = d; best = { x: p.cx, y: p.cy }; }
+        }
+        if (best) return best;
+        const v = DIR_VEC[tenderFig.dir] ?? [0, 1];
+        return { x: tenderFig.x + v[0] * 120 * WS, y: tenderFig.y + v[1] * 120 * WS };
+      };
+      if (flight && flight.key !== "arrow") {
+        // THE BLADED JAB (the Ground's lunge, verbatim
+        // timing): 105 ms out on an ease-out cubic, the blow
+        // lands, 250 ms home on a smoothstep to the moving
+        // orbit point. The blade turns tip-to-target for the
+        // whole flight — the Ground's tipDown measure: its
+        // drawn tip rides down, so a−90 puts it on the line.
+        const OUT_MS = 105, BACK_MS = 250;
+        const el = wnow - flight.strikeLocalAt;
+        const aimA = Math.atan2(flight.ty - flight.fy, flight.tx - flight.fx) * 180 / Math.PI;
+        wrot = flight.key === "spear" ? aimA + 90 : aimA - 90;
+        if (el < OUT_MS) {
+          const t = el / OUT_MS, e = 1 - Math.pow(1 - t, 3);
+          wx = flight.fx + (flight.tx - flight.fx) * e;
+          wy = flight.fy + (flight.ty - flight.fy) * e;
+        } else {
+          if (!weaponLandedRef.current || weaponLandedRef.current.at !== flight.strikeLocalAt + OUT_MS) {
+            weaponLandedRef.current = { x: flight.tx, y: flight.ty, at: flight.strikeLocalAt + OUT_MS, felled: !!weaponStrikeAnim?.felled };
+          }
+          if (el < OUT_MS + BACK_MS) {
+            const t = (el - OUT_MS) / BACK_MS, e = t * t * (3 - 2 * t);
+            wx = flight.tx + (orbitX - flight.tx) * e;
+            wy = flight.ty + (orbitY - flight.ty) * e;
+          } else { weaponFlightRef.current = null; flight = null; }
+        }
+      } else if (flight && flight.key === "arrow") {
+        // THE HOMING ARROW (the Ground's circuit, steered on
+        // the map's renders): out at 580, looping home at 500,
+        // turning 3.6 out and 2.5 on the loop — the Ground's
+        // rates, its speeds carried by the body's scale. The
+        // catch is read off the swept segment, so a coarse
+        // render step can never tunnel past its mark. One
+        // circuit per witnessed strike: the referee's record
+        // is the only launch there is.
+        const dt = Math.min(0.06, Math.max(0, (wnow - flight.lastT) / 1000));
+        flight.lastT = wnow;
+        const tgt = flight.phase === "out" ? { x: flight.tx, y: flight.ty } : { x: orbitX, y: orbitY };
+        const speed = (flight.phase === "out" ? 580 : 500) * WS;
+        const turn = (flight.phase === "out" ? 3.6 : 2.5) * dt;
+        const want = Math.atan2(tgt.y - flight.y, tgt.x - flight.x);
+        let diff = want - flight.heading;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        flight.heading += Math.max(-turn, Math.min(turn, diff));
+        const nx = flight.x + Math.cos(flight.heading) * speed * dt;
+        const ny = flight.y + Math.sin(flight.heading) * speed * dt;
+        const segD = (() => {
+          const dx = nx - flight!.x, dy = ny - flight!.y;
+          const len2 = dx * dx + dy * dy;
+          const u = len2 > 0 ? Math.max(0, Math.min(1, ((tgt.x - flight!.x) * dx + (tgt.y - flight!.y) * dy) / len2)) : 0;
+          const px = flight!.x + u * dx, py = flight!.y + u * dy;
+          return Math.hypot(tgt.x - px, tgt.y - py);
+        })();
+        flight.x = nx; flight.y = ny;
+        const catchR = (flight.phase === "out" ? 20 : 18) * WS;
+        if (segD < catchR || Math.hypot(tgt.x - nx, tgt.y - ny) < catchR) {
+          if (flight.phase === "out") {
+            flight.phase = "loop";
+            weaponLandedRef.current = { x: flight.tx, y: flight.ty, at: wnow, felled: !!weaponStrikeAnim?.felled };
+          } else { weaponFlightRef.current = null; flight = null; }
+        }
+        if (flight) {
+          weaponTrailRef.current.push({ x: flight.x, y: flight.y, t: wnow });
+          wx = flight.x; wy = flight.y;
+          // On the loop home the tip follows the arc; flying
+          // out, it rides the heading onto the foe. The drawn
+          // arrow's nose sits ~28° above its image axis (the
+          // Ground's own measure for this art).
+          wrot = flight.heading * 180 / Math.PI + 28;
+        }
+      }
+      if (!flight && (weaponKey === "arrow" || weaponKey === "spear")) {
+        const g = aimPoint();
+        wrot = Math.atan2(g.y - wy, g.x - wx) * 180 / Math.PI + (weaponKey === "arrow" ? 28 : 90);
+      }
+      // The tracer: the arrow's flown path, pruned and faded
+      // on the Ground's 420 ms measure.
+      weaponTrailRef.current = weaponTrailRef.current.filter(p => wnow - p.t <= 420);
+      const trail = weaponKey === "arrow" ? weaponTrailRef.current : [];
       const sh = 26 * zoom;
-      const scx = tenderFig.x - 26 * zoom;
-      const scy = tenderFig.y - 32 * zoom + Math.sin(marchNow / 480 + 1.2) * 2.5 - jh;
+      const scx = flight && weaponKey === "swordshield" ? flight.shx : shieldOrbitX;
+      const scy = flight && weaponKey === "swordshield" ? flight.shy : shieldOrbitY;
+      const shrot = Math.sin(wnow / 700 + 1) * 5;
+      const landed = weaponLandedRef.current;
+      const landedLive = !!landed && wnow - landed.at >= 0 && wnow - landed.at < 320;
       // The ground shadow stays home and shrinks with height —
       // the Ground's own telling of how high he is.
       const hRatio = Math.min(1, jh / (46 * (62 / 117) * zoom));
@@ -4658,28 +4837,42 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               style={{ cursor: "pointer" }}
               onClick={(e) => { e.stopPropagation(); setTenderCtl(true); }} />
           )}
-          {weaponKey && WEAPONS[weaponKey] && (
-            <g transform={lx || ly ? `translate(${lx} ${ly})` : undefined}>
-              <ellipse cx={wcx} cy={wcy} rx={wh * 0.66} ry={wh * 0.66} fill="rgba(255,215,100,0.13)" />
-              <image href={weaponImg(weaponKey)} x={wcx - wh / 2} y={wcy - wh / 2} width={wh} height={wh}
-                preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,215,100,0.55))" }} />
+          {trail.length > 1 && (
+            <g pointerEvents="none" strokeLinecap="round">
+              {trail.slice(1).map((p, i) => {
+                const q = trail[i];
+                const age = (wnow - p.t) / 420;
+                return <line key={i} x1={q.x} y1={q.y} x2={p.x} y2={p.y}
+                  stroke={`rgba(255,236,180,${(0.55 * (1 - age)).toFixed(3)})`} strokeWidth={1.6 * WS} />;
+              })}
             </g>
           )}
-          {strikeLive && strikePos && strikeP > 0.3 && (
-            <g pointerEvents="none" opacity={Math.max(0, 1 - (strikeP - 0.3) / 0.7)}>
-              <path d={`M ${strikePos.cx - 9 * zoom} ${strikePos.cy - 7 * zoom} L ${strikePos.cx + 9 * zoom} ${strikePos.cy + 7 * zoom}`}
+          {weaponKey && WEAPONS[weaponKey] && (
+            <g>
+              <ellipse cx={wx} cy={wy} rx={wh * 0.66} ry={wh * 0.66} fill="rgba(255,215,100,0.13)" />
+              <g transform={`translate(${wx} ${wy}) rotate(${wrot})`}>
+                <image href={weaponImg(weaponKey)} x={-wh / 2} y={-wh / 2} width={wh} height={wh}
+                  preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,215,100,0.55))" }} />
+              </g>
+            </g>
+          )}
+          {landedLive && landed && (
+            <g pointerEvents="none" opacity={Math.max(0, 1 - (wnow - landed.at) / 320)}>
+              <path d={`M ${landed.x - 9 * zoom} ${landed.y - 7 * zoom} L ${landed.x + 9 * zoom} ${landed.y + 7 * zoom}`}
                 stroke="#ffd977" strokeWidth={1.8 * zoom} strokeLinecap="round" />
-              <path d={`M ${strikePos.cx - 6 * zoom} ${strikePos.cy + 8 * zoom} L ${strikePos.cx + 8 * zoom} ${strikePos.cy - 6 * zoom}`}
+              <path d={`M ${landed.x - 6 * zoom} ${landed.y + 8 * zoom} L ${landed.x + 8 * zoom} ${landed.y - 6 * zoom}`}
                 stroke="rgba(255,240,200,0.75)" strokeWidth={1.1 * zoom} strokeLinecap="round" />
-              {weaponStrikeAnim!.felled && (
-                <text x={strikePos.cx} y={strikePos.cy - 14 * zoom} textAnchor="middle" fontSize={9 * zoom} fill="#ffd977"
+              {landed.felled && (
+                <text x={landed.x} y={landed.y - 14 * zoom} textAnchor="middle" fontSize={9 * zoom} fill="#ffd977"
                   style={{ paintOrder: "stroke", stroke: "rgba(8,2,4,0.9)", strokeWidth: 3 }}>✦</text>
               )}
             </g>
           )}
           {weaponKey === "swordshield" && (
-            <image href={shieldImg()} x={scx - sh / 2} y={scy - sh / 2} width={sh} height={sh}
-              preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 4px rgba(255,215,100,0.4))" }} />
+            <g transform={`translate(${scx} ${scy}) rotate(${shrot})`}>
+              <image href={shieldImg()} x={-sh / 2} y={-sh / 2} width={sh} height={sh}
+                preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 4px rgba(255,215,100,0.4))" }} />
+            </g>
           )}
           {findPulseAt > 0 && marchNow - findPulseAt < 2400 && (
             <circle cx={tenderFig.x} cy={tenderFig.y - 18 * zoom} r={(10 + ((marchNow - findPulseAt) % 800) / 800 * 30) * zoom}
