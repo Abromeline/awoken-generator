@@ -95,6 +95,28 @@ export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?:
   return base + fxSum(ownerKey, "company");
 }
 
+/** SUMMONER'S POWER (Nigel, 2026-10-21 17:13 — ruled while
+ *  the wheel summoning build stood in progress): the term a
+ *  Tender's summon cast rolls with, beside the gift and the
+ *  curse's −3. Three grants summed:
+ *    1. THE ZODIAC CLAUSE — stars carrying a "summoner"
+ *       clause add their amounts, read through fxSum like
+ *       every other clause sum ("company", "party"). NO
+ *       stars carry it yet — the stars arrive with the
+ *       effects build; the reader stands now and returns 0
+ *       cleanly until they do.
+ *    2. LEVELS — +2 for every 3 tender levels, automatic:
+ *       2 × ⌊tenderLevel / 3⌋, from the same level the band
+ *       caps read.
+ *    3. THE SAGE — +3 flat when the caster's class is Sage,
+ *       read off the seat's bound class.
+ *  One helper, so the summon cast's reckoning is the only
+ *  reckoning there is. */
+export function summonersPowerFor(ownerKey: string | null | undefined, tenderLevel?: number | null, classKey?: string | null): number {
+  const fromLevels = 2 * Math.floor(Math.max(0, tenderLevel ?? 0) / 3);
+  return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0);
+}
+
 /** THE PARTY LEVEL (Nigel, 2026-10-21 — the fold-in: "party
  *  size comes from a party level, and the party level is a
  *  skill"): the Party skill's stars each carry one party

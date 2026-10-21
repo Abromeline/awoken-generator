@@ -55,7 +55,7 @@ function client(label) {
 const ROOM = "campaign-test39";
 const st = client("ST");
 await st.join({ devName: "Storyteller Sue", room: ROOM });
-check("no one arrives as the storyteller — she sat as a participant, dealt a roster", (st.you?.hand ?? []).length === 10 && st.you?.storytender === null);
+check("no one arrives as the storyteller — she sat as a participant, with a stand-in company", (st.you?.company ?? []).length === 10 && st.you?.storytender === null);
 // THE SEAT IS CLAIMED IN THE ROOM (Campaign Build 1, Nigel,
 // 2026-10-21): the door no longer confers the storytender's
 // seat — a seated participant claims it while it is unclaimed.
@@ -68,7 +68,7 @@ const a = client("A");
 await a.join({ devName: "Tender A", room: ROOM });
 const b = client("B");
 await b.join({ devName: "Tender B", room: ROOM });
-check("tenders dealt stand-in rosters", (a.you?.hand ?? []).length === 10 && (b.you?.hand ?? []).length === 10);
+check("tenders hold stand-in companies", (a.you?.company ?? []).length === 10 && (b.you?.company ?? []).length === 10);
 check("tender has no storytender instruments", a.you?.storytender === null);
 check("party rail marks the storytender", st.state.players.some(p => p.storytender && p.name === "Storyteller Sue"));
 check("all three seats stand in the players view — the storyteller among them", a.state.players.length === 3);
@@ -77,7 +77,7 @@ const st2 = client("ST2");
 await st2.join({ devName: "Second Sue", room: ROOM });
 st2.send({ type: "claimStoryteller" });
 await sleep(700);
-check("a second claim is refused while the seat is held (she sits as a tender)", st2.you?.storytender === null && (st2.you?.hand ?? []).length === 10 && st2.errors.some(e => /seat is held by Storyteller Sue/.test(e)), JSON.stringify(st2.errors));
+check("a second claim is refused while the seat is held (she sits as a tender)", st2.you?.storytender === null && (st2.you?.company ?? []).length === 10 && st2.errors.some(e => /seat is held by Storyteller Sue/.test(e)), JSON.stringify(st2.errors));
 st2.ws.close();
 await sleep(300);
 
@@ -111,15 +111,44 @@ const harvestedSoFar = (c) => (c.state.tale ?? []).reduce((sum, t) => {
   const m = t.text.match(/✦(\d+) joins the bank/);
   return sum + (m ? Number(m[1]) : 0);
 }, 0);
-const hush = a.you.hand.find(c => c.name === "Hushkeeper");
+const hush = a.you.company.find(c => c.name === "Hushkeeper");
 // The Instance Map: summons land on the seat's own purified
 // landing tile (stacking lets the band share it).
 const freeHex = a.you.landing;
-a.send({ type: "summon", cardId: hush.id, hex: freeHex });
-await a.waitFor(c => c.state.field.some(u => u.name === "Hushkeeper"), "hushkeeper stands");
-check("cast charged the bank (24 → 23, plus the light's own harvest)",
-  a.state.campaign.bank === 23 + harvestedSoFar(a),
-  `bank=${a.state.campaign.bank} harvested=${harvestedSoFar(a)}`);
+// THE WHEEL CAST (2026-10-21): the summon is a cast — it
+// can falter, and every attempt charges the bank its price
+// (the spell doors' purse law). The helper casts until the
+// call lands and counts the attempts from the tale, so the
+// bank checks below net the attempts as they already net
+// the harvest.
+// Attempts are counted per send, by the response tale's
+// signature — the room's tale is a window (100 entries) and
+// the swarm fight below slides it, so snapshot differences
+// would undercount; a per-send signature cannot.
+async function castUntilStands(c, card, hex, name) {
+  const lastCallSig = () => {
+    const hits = (c.state.tale ?? []).filter(t => t.text.includes(`calls ${name}`) && /the call (lands|falters)/.test(t.text));
+    const last = hits[hits.length - 1];
+    return last ? `${last.at}|${last.text}` : "";
+  };
+  let attempts = 0;
+  for (let i = 0; i < 12; i++) {
+    const sigBefore = lastCallSig();
+    c.send({ type: "summonCast", cardId: card.id, hex });
+    const start = Date.now();
+    while (Date.now() - start < 3000) {
+      if (c.state.field.some(u => u.name === name)) return attempts + 1;
+      if (lastCallSig() !== sigBefore) { attempts++; break; }
+      await sleep(150);
+    }
+    if (c.state.field.some(u => u.name === name)) return attempts + 1;
+  }
+  throw new Error(name + " never stood in 12 casts");
+}
+const attempts1 = await castUntilStands(a, hush, freeHex, "Hushkeeper");
+check("cast charged the bank (24 → 24 − attempts, plus the light's own harvest)",
+  a.state.campaign.bank === 24 - attempts1 + harvestedSoFar(a),
+  `bank=${a.state.campaign.bank} attempts=${attempts1} harvested=${harvestedSoFar(a)}`);
 
 // The kill: under the old referee the first dealing's dark
 // struck from anywhere and the lone Hushkeeper fell to it.
@@ -153,25 +182,29 @@ await a.waitFor(c => c.state.dark.length > aliveBeforeSwarm + 5, "the swarm is d
 // recast must cost double.
 await a.waitFor(c => c.you?.recasts?.[hush.id] === 1, "dissipation counted", 90000);
 check("dissipation counted for the recast law", a.you.recasts[hush.id] === 1);
-check("the card returned to the roster", a.you.hand.some(c => c.id === hush.id));
-const bankBefore = a.state.campaign.bank;
-const harvestBefore = harvestedSoFar(a);
-const freeHex2 = a.you.landing;
-a.send({ type: "summon", cardId: hush.id, hex: freeHex2 });
-await a.waitFor(c => c.state.field.some(u => u.name === "Hushkeeper"), "recast stands");
-// Netted against the interval's harvest, as the cast check
-// above: the recast Hushkeeper strikes at tide's reach the
-// moment she stands, and a felling in the same breath must
-// not be allowed to mask the double charge.
-check("recast charged double (bank fell by 2, net of harvest)",
-  (bankBefore - a.state.campaign.bank) + (harvestedSoFar(a) - harvestBefore) === 2,
-  `bankDelta=${bankBefore - a.state.campaign.bank} harvestDelta=${harvestedSoFar(a) - harvestBefore}`);
+check("the member returned to the company", a.you.company.some(c => c.id === hush.id));
 
 // The swarm is still on the field, clawing at the gate —
 // the Storytender calls it off entirely (mercy, unharvested),
-// so the room is calm for what follows.
+// so the room is calm for what follows. The recast proof
+// stands in the calm (moved after the call-off with the
+// wheel law, 2026-10-21): while the swarm stood, the
+// recast Hushkeeper's own first strikes could credit the
+// bank inside the measuring interval and mask the charge;
+// in the calm, the bank moves only by the casts.
 for (const d of [...a.state.dark]) st.send({ type: "stDissipate", hex: d.hex, id: d.id });
 await a.waitFor(c => c.state.dark.length === 0 && !c.state.battle.active, "the field is called off", 30000);
+
+const bankBefore = a.state.campaign.bank;
+const harvestBefore = harvestedSoFar(a);
+const freeHex2 = a.you.landing;
+const attempts2 = await castUntilStands(a, hush, freeHex2, "Hushkeeper");
+// Netted against the interval's harvest, as the cast check
+// above. Every attempt charges the doubled price (2),
+// falters included.
+check("recast charged double per attempt (bank fell by 2 × attempts, net of harvest)",
+  (bankBefore - a.state.campaign.bank) + (harvestedSoFar(a) - harvestBefore) === 2 * attempts2,
+  `bankDelta=${bankBefore - a.state.campaign.bank} harvestDelta=${harvestedSoFar(a) - harvestBefore} attempts=${attempts2}`);
 
 // Mercy is unharvested: one fresh Fray, dealt and dismissed.
 st.send({ type: "stAdd", kind: "fray" });

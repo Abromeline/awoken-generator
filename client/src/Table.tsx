@@ -4,9 +4,9 @@
  *
  * P0 — THE EMPTY TABLE: the room itself, whole — Sky Bar, Party,
  * Battleground with the star-seed at its heart, the Dark, the private
- * hand with its tabbed satchel, the dice pop-up, the Tale, personal
+ * tabbed satchel, the dice pop-up, the Tale, personal
  * notes and the typed inventory — with named players and private test
- * hands proving the plumbing. Dealing, summoning and referee combat
+ * companies proving the plumbing. Dealing, summoning and referee combat
  * are P1; the Storytender's Stage and Panel are P2. Nothing here
  * pretends otherwise: what cannot be done yet says so on its face.
  *
@@ -159,7 +159,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; handCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null; weaponLevel?: number; weaponElement?: string | null; weaponDepth?: number; weaponManifest?: boolean; weaponSignature?: boolean }[];
+  players: { key: string; name: string; companyCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null; weaponLevel?: number; weaponElement?: string | null; weaponDepth?: number; weaponManifest?: boolean; weaponSignature?: boolean }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -184,11 +184,23 @@ interface SharedState {
 interface YouState {
   key: string;
   name: string;
-  hand: TableCard[];
+  /** THE WHEEL'S COMPANY (Nigel, 2026-10-21 — the wheel
+   *  summoning law): the members this seat can call by the
+   *  action wheel's summon cast — a bound seat's party,
+   *  members not currently fielded; an unbound seat's
+   *  stand-in pool likewise. The deck hand is retired; this
+   *  list is what the wheel's Awoken branch reads. */
+  company: TableCard[];
+  /** SUMMONER'S POWER (Nigel, 2026-10-21): the term the
+   *  summon cast rolls with beside the gift — the zodiac
+   *  "summoner" clauses, +2 per 3 tender levels, +3 for the
+   *  Sage — computed by the server's one helper, so the
+   *  wheel's preview shows the cast's true shape. */
+  summonersPower?: number;
   /** The company kept back for place (the Fix Pass,
    *  2026-10-20): on the homeland field, or staged at the
-   *  bastion — shown in the hand, unavailable, with its
-   *  whereabouts, instead of silently missing. */
+   *  bastion — named beside the company, unavailable, with
+   *  its whereabouts, instead of silently missing. */
   elsewhere?: { name: string; element: string; where: "fielded" | "staged" }[];
   notes: string;
   energy?: number;
@@ -215,14 +227,15 @@ interface YouState {
    *  fielded Awokin of yours is not yet a member. */
   party?: number[];
   /** THE PARTY'S SEAT DISPLAY (build 2): the members with
-   *  their standings for this Table, the open spots, and
-   *  the reinforcements already on the road with their time
-   *  left — served with your own payload. The display only
-   *  shows the party and its roads; a reinforcement is
+   *  their standings for this Table ("field", "ready" at the
+   *  wheel, or keeping a "post"), the open spots, and any
+   *  reinforcements still in flight from before the wheel
+   *  law with their time left — served with your own
+   *  payload. The display only shows the party; a member is
    *  CHOSEN on the Zodiac's deck screen, never here. */
   partyView?: {
     cap: number;
-    members: { awakenedId: number; name: string; standing: "field" | "hand" | "post" }[];
+    members: { awakenedId: number; name: string; standing: "field" | "ready" | "post" }[];
     openSpots: number;
     incoming: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
   } | null;
@@ -407,8 +420,10 @@ export default function Table() {
   const [shared, setShared] = useState<SharedState | null>(null);
   const [you, setYou] = useState<YouState | null>(null);
   const [tab, setTab] = useState<"I" | "II" | "III" | "IV">("I");
-  // The hand drawer (Phase A room, Nigel 2026-10-18): the hand
-  // rests half off-screen and rises when reached for.
+  // The satchel drawer (Phase A room, Nigel 2026-10-18; the
+  // hand it once held was retired by the wheel law,
+  // 2026-10-21): the satchel rests half off-screen and rises
+  // when reached for.
   const [handUp, setHandUp] = useState(false);
   // CAMPAIGN doors (Phase B): the Discord door's proven name,
   // held while the opener chooses the room's nature; and the
@@ -424,17 +439,10 @@ export default function Table() {
   const [stSceneText, setStSceneText] = useState("");
   const [stSceneImg, setStSceneImg] = useState("");
   const [stSkyText, setStSkyText] = useState("");
-  // The workshop-chosen card border (Nigel, 2026-10-17) wraps the
-  // hand cards here too — the same public read the game consumes.
-  const [cardBorder, setCardBorder] = useState<{ imageUrl: string | null; fit: string | null }>({ imageUrl: null, fit: null });
-  useEffect(() => {
-    let live = true;
-    fetch("/api/getCardBorder", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
-      .then((r) => r.json())
-      .then((d) => { if (live && d && typeof d === "object") setCardBorder({ imageUrl: d.imageUrl ?? null, fit: d.fit ?? null }); })
-      .catch(() => {});
-    return () => { live = false; };
-  }, []);
+  // (The workshop-chosen card border dressed the hand cards
+  // here until the wheel law retired the hand, 2026-10-21 —
+  // the border's read and its state went with the cards it
+  // wrapped. The game pages consume it as they always have.)
   // The Grimoire, read at mount (the same public read the game
   // uses): names, costs, blurbs, and glyph assignments all come
   // from the workshop's book. The referee refreshes its own
@@ -552,7 +560,7 @@ export default function Table() {
   // flow, and the readied placing STAYS armed across taps
   // until the run ends: the player unloads or readies
   // another working, the purse refuses, or a roll fizzles
-  // and the working slips from the hand. placingRef mirrors
+  // and the working slips from the readying. placingRef mirrors
   // the placing for the socket's own handlers and watchers,
   // which were bound once and cannot see fresh state.
   const placingRef = useRef<typeof placing>(null);
@@ -653,7 +661,7 @@ export default function Table() {
   };
 
   // THE RUN'S END (Nigel, 2026-10-20): unloading drops the
-  // placing flow whole — the working leaves the hand, the
+  // placing flow whole — the working leaves the readying, the
   // half-chosen ground (anchor, blade picks) goes with it —
   // and nothing is charged for the setting down. A fired
   // cast does NOT come through here: firing keeps the
@@ -681,7 +689,7 @@ export default function Table() {
     }
   }, [shared]);
   // THE SLIP (Nigel, 2026-10-20): a fizzled roll ends the
-  // run — the working leaves the hand and must be readied
+  // run — the working leaves the readying and must be readied
   // again. The fizzle is read from the room's own tale,
   // where the referee writes every unravelling by name
   // ("<name>'s <working> unravels — the roll falls short.");
@@ -1215,7 +1223,7 @@ export default function Table() {
           ) : (
             <>
               <p className="quiet">
-                Open the Table from the voice channel in Discord to be named and dealt a hand.
+                Open the Table from the voice channel in Discord to be named and take a seat.
                 From a plain browser you may still watch the room.
               </p>
               <button className="table-btn" onClick={() => connect({ watch: true, name: "A Watcher", room: "the-table" })}>
@@ -1227,8 +1235,8 @@ export default function Table() {
             <h4>🎲 Your Table binding code</h4>
             <p className="quiet">
               Signed in here as your Tender? Take a one-time code, then spend it at the
-              Table in Discord (the bind strip above your hand) — your Discord name is
-              tied to this Tender, and the Table deals your real deck from then on.
+              Table in Discord (the bind strip in your satchel, under Awokin) — your Discord name is
+              tied to this Tender, and the Table seats your real Tender from then on.
             </p>
             {bindCode ? (
               <p className="bind-code-shown">Your code: <strong>{bindCode}</strong> — it fades in fifteen minutes and works once.</p>
@@ -1243,8 +1251,7 @@ export default function Table() {
   }
 
   const sky = shared.sky;
-  const selectedCard = you && selectedCardId ? you.hand.find(c => c.id === selectedCardId) ?? null : null;
-  const bandFull = !!you && (you.band ?? 0) >= (you.bandCap ?? 5);
+  const selectedCard = you && selectedCardId ? (you.company ?? []).find(c => c.id === selectedCardId) ?? null : null;
   // CAMPAIGN: the star-seed swells with the bank — the bulb is
   // the pool's body, read at a glance (TABLE-DESIGN §4.5).
   const bankFrac = shared.campaign?.seeded && shared.campaign.bankStart > 0
@@ -1269,6 +1276,15 @@ export default function Table() {
     return t ? tileCenter(t) : null;
   };
   const sortedTiles = [...tiles].sort((a, b) => tileCenter(a).cy - tileCenter(b).cy);
+  // THE CURSE PRESSES (Nigel, 2026-10-21): while MY figure
+  // stands on cursed ground, every cast I make at this Table
+  // takes −3 — the summon cast and the Grimoire workings
+  // alike. The previews say so before the tap, in plain
+  // words, wherever a cast's shape is shown (the wheel's
+  // entries, the placing bar, the readied-summon bar).
+  const mySharedPlayer = you ? shared.players.find(p => p.key === you.key) ?? null : null;
+  const myCursed = !!(mySharedPlayer?.hex && tileById.get(mySharedPlayer.hex)?.cursed);
+  const curseNote = "−3 — the curse presses";
   const myUnitOn = (tileId: string): boolean => !!you && shared.field.some(u => u.hex === tileId && u.ownerKey === you.key);
   const isMovingNow = (u: FieldUnitView): boolean => u.moving;
   // SMOOTHING: lerp a drawn position toward the server's
@@ -1461,7 +1477,15 @@ export default function Table() {
       } else if (t.id === wardAnchor) setWardAnchor(null);
       return;
     }
-    if (selectedCard) { send({ type: "summon", cardId: selectedCard.id, hex: t.id }); return; }
+    if (selectedCard) {
+      // THE SUMMON CAST (the wheel law): a roster member is
+      // called by its ledger id; a stand-in by its card id.
+      // The cast rolls server-side — a falter spends the
+      // price and the member stays readied for another tap.
+      if (typeof selectedCard.awokenId === "number") send({ type: "summonCast", awakenedId: selectedCard.awokenId, hex: t.id });
+      else send({ type: "summonCast", cardId: selectedCard.id, hex: t.id });
+      return;
+    }
     // THE MARKED CURSE (Nigel, 2026-10-20): with one of my
     // Awokin chosen, the cursed ground inside its strike
     // reach stands MARKED — its corruption numbered on the
@@ -1771,10 +1795,14 @@ export default function Table() {
   // THE RESTORED WHEEL'S ENTRIES: the Ground's six branches,
   // fed the game's real offerings. Every entry's act is the
   // very act the belt already runs — buildOfferings' placing
-  // acts, buildAbilityNodes' wield and manifest, the hand's
-  // own choosing — only the FORM is the Ground's. A branch
-  // the book cannot fill wears the Ground's own answer: one
-  // dimmed disc, "None yet".
+  // acts, buildAbilityNodes' wield and manifest, the wheel
+  // company's own choosing — only the FORM is the Ground's.
+  // A branch the book cannot fill wears the Ground's own
+  // answer: one dimmed disc, "None yet". Every cast's entry
+  // shows its shape before the tap (Nigel, 2026-10-21): a
+  // working's price, a summon's price and its summoner's
+  // power, and — while the caster stands in the curse — the
+  // −3 the curse presses on the cast.
   const buildWheelEntries = (): WheelEntry[] => {
     const offByKey = new Map(buildOfferings().map(o => [o.key, o]));
     const defEntry = (d: TableDef, hotKey: string): WheelEntry => {
@@ -1783,7 +1811,7 @@ export default function Table() {
         key: hotKey,
         img: off.glyph,
         emoji: off.emoji,
-        label: `${d.root} · ✦${d.cost}`,
+        label: `${d.root} · ✦${d.cost}${myCursed ? ` · ${curseNote}` : ""}`,
         locked: off.locked,
         lit: placing?.root === d.key,
         pinKey: hotKey,
@@ -1817,11 +1845,18 @@ export default function Table() {
         return out.length ? out : noneYet("binding", "The book holds no binding pages yet.");
       }
       case "awoken":
-        return (you?.hand ?? []).map(card => ({
+        // THE SUMMON FLOW (Nigel, 2026-10-21 — the wheel law):
+        // the branch lists the wheel's company — name, figure,
+        // and the summon price in ✦, in plain words, with the
+        // cast's shape beside it (the summoner's power when
+        // it stands above nothing; the curse's −3 while the
+        // caster stands in it). Choosing one readies the
+        // summon; the landing tile's tap casts it.
+        return (you?.company ?? []).map(card => ({
           key: `card-${card.id}`,
           img: card.art ?? null,
           emoji: "✦",
-          label: card.name,
+          label: `${card.name} · ✦${castCostOf(card)}${(you?.summonersPower ?? 0) > 0 ? ` · +${you?.summonersPower} summoner's power` : ""}${myCursed ? ` · ${curseNote}` : ""}`,
           lit: selectedCardId === card.id,
           pinKey: `card-${card.id}`,
           dragKey: `card-${card.id}`,
@@ -1847,14 +1882,14 @@ export default function Table() {
     switch (wheelTab) {
       case "weapon": return "Ability — Weapon — wield the runic weapon · Manifest (✦4) calls its copies for 20s";
       case "spell": return Object.values(defs).some(d => d.kind === "spell")
-        ? `Spell — castings from the hand and the sky${drag}`
+        ? `Spell — castings from the book and the sky${drag}`
         : "Spell — no spell-school pages stand in the book yet · the Witch's school wakes with its first page";
       case "ward": return `Ward — the Written Light, raised on edges you hold${drag}`;
       case "rune": return `Rune — writings in the ground — they wait, and spring${drag}`;
       case "binding": return `Binding — threads that mend and hold — the Springleaf's grove among them${drag}`;
-      case "awoken": return (you?.hand.length ?? 0)
-        ? `Awoken — your hand — tap one to ready its summoning${drag}`
-        : "Awoken — your hand stands empty; your company is on the field";
+      case "awoken": return (you?.company.length ?? 0)
+        ? `Awoken — your company — tap one to ready its summon cast, then tap the ground at your side${drag}`
+        : "Awoken — your company stands empty; your party is on the field, or no party is composed";
       case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
     }
   };
@@ -1905,13 +1940,13 @@ export default function Table() {
   };
 
   // A hotbar slot pressed: the locked thing does what it does
-  // from the wheel (or the hand) — no second language.
+  // from the wheel (or the company) — no second language.
   const actHotbar = (key: string) => {
     if (key === "ability") { openRadialAtMe(true); return; }
     if (key.startsWith("card-")) {
       const id = key.slice(5);
-      if (you?.hand.some(c => c.id === id)) { setSelUnitId(null); setSelectedCardId(id); }
-      else toggleHotbar(key); // the card has left the hand — the slot looses itself
+      if (you?.company.some(c => c.id === id)) { setSelUnitId(null); setSelectedCardId(id); }
+      else toggleHotbar(key); // the member has left the company — the slot looses itself
       return;
     }
     const off = buildOfferings().find(o => o.key === key);
@@ -1927,8 +1962,8 @@ export default function Table() {
   const hotbarMeta = (key: string): { img: string | null; emoji: string; label: string; dim: boolean; lit: boolean; title: string } => {
     if (key === "ability") return { img: null, emoji: "⚔", label: "ABILITY", dim: false, lit: false, title: "Ability — the wheel's weapon ring, opened over your Tender" };
     if (key.startsWith("card-")) {
-      const card = you?.hand.find(c => c.id === key.slice(5)) ?? null;
-      return { img: card?.art ?? null, emoji: "✦", label: card ? card.name.split(" ")[0] : "gone", dim: !card, lit: !!card && selectedCardId === card.id, title: card ? `${card.name} — tap to ready the summoning, then tap the ground at your side` : "This Awokin has left your hand — tap to loose the slot" };
+      const card = you?.company.find(c => c.id === key.slice(5)) ?? null;
+      return { img: card?.art ?? null, emoji: "✦", label: card ? card.name.split(" ")[0] : "gone", dim: !card, lit: !!card && selectedCardId === card.id, title: card ? `${card.name} — tap to ready the summon cast, then tap the ground at your side` : "This Awokin is not in your company now — tap to loose the slot" };
     }
     const off = buildOfferings().find(o => o.key === key);
     if (off) {
@@ -1964,7 +1999,7 @@ export default function Table() {
           {shared.players.map((p) => (
             <div key={p.key} className={`party-row${you && p.key === you.key ? " self" : ""}`}>
               <span className="party-name">{p.name}{you && p.key === you.key ? " (you)" : ""}{p.away ? " · away" : ""}</span>
-              {p.storytender ? <span className="party-meta">📖 Storytender — she deals</span> : p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · <span className="spark-glow">✦</span> {p.energy} · 🂠 {p.handCount} in roster</span>}
+              {p.storytender ? <span className="party-meta">📖 Storytender — she deals</span> : p.fallen ? <span className="party-meta fallen">💀 fallen — rises between waves</span> : <span className="party-meta">❤ {p.tenderHp}/{p.maxTenderHp} · <span className="spark-glow">✦</span> {p.energy} · 🎡 {p.companyCount} at the wheel</span>}
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
@@ -2059,11 +2094,14 @@ export default function Table() {
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
                 } else if (selectedCard) {
                   // Summoning answers at the Tender's side:
-                  // only ground within a hex of their figure
-                  // lights up as lawful.
+                  // ground within a hex of their figure lights
+                  // up as lawful — CURSED GROUND INCLUDED
+                  // (Nigel, 2026-10-21: tenders can summon in
+                  // the cursed lands; the curse's price is the
+                  // −3 on the cast, not a barred door).
                   const meP = you ? shared.players.find(p => p.key === you.key) : null;
                   const meT = meP?.hex ? tileById.get(meP.hex) : null;
-                  if (!t.cursed && meT && axialDist(meT, t) <= 1) overlay = { fill: "#ffd977", opacity: 0.14 };
+                  if (meT && axialDist(meT, t) <= 1) overlay = { fill: "#ffd977", opacity: 0.14 };
                 } else if (selUnit && selTile) {
                   // The marked curse: cursed ground inside the
                   // chosen one's reach burns dark red, armed
@@ -2311,7 +2349,16 @@ export default function Table() {
                     setBladePicks([]);
                   }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · <span className="spark-glow">✦</span>{defs[placing.root]?.cost ?? 4}</button>
                 )}
+                {myCursed && <span className="curse-note">{curseNote} on this cast — you stand on cursed ground.</span>}
                 <button className="table-btn" onClick={unloadCast}>Set the light down</button>
+              </div>
+            )}
+            {selectedCard && !placing && (
+              <div className="placing-bar">
+                <span className="placing-text">
+                  Calling <strong>{selectedCard.name}</strong> — tap ground on your own hex or one beside it, cursed or held, to cast the summon (✦{castCostOf(selectedCard)}){(you?.summonersPower ?? 0) > 0 ? <> · <strong>+{you?.summonersPower} summoner's power</strong> rides the cast</> : null}{myCursed ? <> · <strong>{curseNote}</strong> on this cast — you stand on cursed ground</> : null}. A faltering call spends its price and stands nothing — tap again to call once more.
+                </span>
+                <button className="table-btn" onClick={() => setSelectedCardId(null)}>Set the call down</button>
               </div>
             )}
             {selUnit && !placing && (
@@ -2515,7 +2562,7 @@ export default function Table() {
               >
                 Keep these notes
               </button>
-              <p className="quiet small">Yours alone, like your hand.</p>
+              <p className="quiet small">Yours alone.</p>
             </details>
           )}
         </aside>
@@ -2602,9 +2649,9 @@ export default function Table() {
           </div>
         ) : you ? (
           <>
-            <button type="button" className="hand-grab" onClick={() => setHandUp(v => !v)} aria-expanded={handUp} aria-label={handUp ? "Lower your hand" : "Raise your hand"}>
+            <button type="button" className="hand-grab" onClick={() => setHandUp(v => !v)} aria-expanded={handUp} aria-label={handUp ? "Lower your satchel" : "Raise your satchel"}>
               <span className="grab-line" aria-hidden="true" />
-              {handUp ? "▾ your hand" : "▴ your hand"}
+              {handUp ? "▾ your satchel" : "▴ your satchel"}
             </button>
             <div className="satchel-head">
               <div className="satchel-tabs" role="tablist" aria-label="Your satchel">
@@ -2621,50 +2668,21 @@ export default function Table() {
             {notice && <p className="notice-line">{notice}</p>}
             {tab === "I" && (
               <>
-                <div className="hand-cards">
-                  {you.hand.map((card) => {
-                    const cost = castCostOf(card);
-                    const afford = (you.energy ?? 0) >= cost;
-                    const selected = selectedCardId === card.id;
-                    return (
-                      <div
-                        key={card.id}
-                        className={`tcard castable${selected ? " selected" : ""}${afford ? "" : " dim"}${bandFull && !selected ? " locked" : ""}`}
-                        data-element={card.element}
-                        role="button"
-                        aria-pressed={selected}
-                        title={bandFull && !selected ? `Your band stands full — ${you.bandCap ?? 5} strong.` : afford ? `Cast ${card.name} — ✦${cost}. Tap, then tap purified ground at your side.` : `${card.name} costs ✦${cost} — you hold ✦${you.energy ?? 0}.`}
-                        onClick={() => { if (!handUp) { setHandUp(true); return; } if (!selected && bandFull) { setNotice(`Your band stands full — ${you.bandCap ?? 5} strong. Recall a standing Awokin first, or widen the band: levels (Lv 3, Lv 6) and the Muster roads.`); return; } if (!selected) setSelUnitId(null); setSelectedCardId(selected ? null : card.id); }}
-                      >
-                        <button type="button" className={`tcard-pin${hotbarKeys.includes(`card-${card.id}`) ? " on" : ""}`}
-                          title={hotbarKeys.includes(`card-${card.id}`) ? "Locked to your hotbar — tap to loose it" : "Lock this Awokin to your hotbar"}
-                          onClick={(e) => { e.stopPropagation(); toggleHotbar(`card-${card.id}`); }}>
-                          {hotbarKeys.includes(`card-${card.id}`) ? "✓" : "＋"}
-                        </button>
-                        <div className="tcard-banner">
-                          <span className="tcard-name">{card.name}</span>
-                          <span className="tcard-mark">{card.level ? `Lv ${card.level}` : ""}</span>
-                        </div>
-                        {card.art ? (
-                          <div className="tcard-art real"><img src={card.art} alt={`${card.name}, your Awokin`} /></div>
-                        ) : (
-                          <div className="tcard-art"><ElementGlyph element={card.element as GlyphElement} width={54} height={54} /></div>
-                        )}
-                        <div className="tcard-stats"><span>⚔ {card.power}</span><span>❤ {card.toughness}</span><span className="cost-chip"><span className="spark-glow">✦</span>{cost}</span></div>
-                        {selected && cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
-                      </div>
-                    );
-                  })}
-                </div>
+                {/* THE HAND IS RETIRED (Nigel, 2026-10-21 — the
+                    wheel law): no card row stands here any more.
+                    Summoning rides the action wheel's Awoken
+                    branch; this tab keeps the party's standing
+                    and the kept-back company's names. */}
+                <p className="quiet small">Summoning rides the <strong>action wheel</strong> now: open its Awoken branch, choose a member of your company, then tap ground at your side — cursed ground answers too, but while <em>you</em> stand in the curse, every cast you make takes −3.</p>
                 {(you.elsewhere ?? []).length > 0 && (
                   <div className="hand-elsewhere">
-                    <p className="quiet small">Not dealt to this Table — one body stands in one place, so these keep their posts:</p>
+                    <p className="quiet small">Keeping other posts — one body stands in one place, so these are not at this Table:</p>
                     <div className="elsewhere-row">
                       {(you.elsewhere ?? []).map((e, i) => (
                         <span key={`${e.name}-${i}`} className="elsewhere-chip" data-element={e.element}
                           title={e.where === "staged"
-                            ? `${e.name} waits staged at your bastion — it stands ready there, and an instance claimed from the bastion deals it.`
-                            : `${e.name} stands on your homeland field — it cannot also stand here. Set it home there, and your next seat at the Table is dealt it.`}>
+                            ? `${e.name} waits staged at your bastion — it stands ready there, and an instance claimed from the bastion brings it to your wheel.`
+                            : `${e.name} stands on your homeland field — it cannot also stand here. Set it home there, and it answers your wheel at your next seat.`}>
                           {e.name} · {e.where === "staged" ? "🏯 staged at your bastion" : "🏠 on your homeland field"}
                         </span>
                       ))}
@@ -2673,12 +2691,12 @@ export default function Table() {
                 )}
                 {you.partyView && (
                   <div className="hand-party">
-                    <p className="quiet small">Your party at this Table — {you.partyView.members.length} of {you.partyView.cap} spots filled. The hand above is dealt from this party.</p>
+                    <p className="quiet small">Your party at this Table — {you.partyView.members.length} of {you.partyView.cap} spots filled. The wheel's Awoken branch calls from this party.</p>
                     <div className="elsewhere-row">
                       {you.partyView.members.map((m) => (
                         <span key={m.awakenedId} className="elsewhere-chip party-chip"
-                          title={m.standing === "field" ? `${m.name} stands on the field — a member standing when the battle ends stays standing.` : m.standing === "hand" ? `${m.name} stands in your party and in your hand.` : `${m.name} stands in your party but keeps another post — it was not dealt to this Table.`}>
-                          👣 {m.name} · {m.standing === "field" ? "⚔ on the field" : m.standing === "hand" ? "🂠 in your hand" : "keeps its post"}
+                          title={m.standing === "field" ? `${m.name} stands on the field — a member standing when the battle ends stays standing.` : m.standing === "ready" ? `${m.name} stands in your party, ready at the wheel — call it by the summon cast.` : `${m.name} stands in your party but keeps another post — it cannot be called to this Table.`}>
+                          👣 {m.name} · {m.standing === "field" ? "⚔ on the field" : m.standing === "ready" ? "🎡 ready at the wheel" : "keeps its post"}
                         </span>
                       ))}
                       {you.partyView.incoming.map((i) => {
@@ -2687,17 +2705,17 @@ export default function Table() {
                         const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
                         return (
                           <span key={i.awakenedId} className="elsewhere-chip party-chip incoming"
-                            title={`${i.name} is on the road to your party — it joins, membership and card together, when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole. Calling it cost its summon price, and summoning it when it arrives costs its summon price again.`}>
+                            title={`${i.name} is on its way to your party — a road begun before the wheel law; it joins when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
                             🚶 {i.name} · on its way — {mm}:{ss} left
                           </span>
                         );
                       })}
                     </div>
                     {shared.battle.active && you.partyView.openSpots > 0 && (
-                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. To call a reinforcement, open the Party tab of your Zodiac and tap an open spot there — the deck screen is where a reinforcement is chosen. The road costs the Awokin's summon price in ✦ and takes four minutes — and summoning the Awokin when it arrives costs its summon price again: the price is paid twice over, and that is the road's balance. It lands only while the battle stands, and if the battle ends first the ✦ comes back whole.</p>
+                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. Fill one from the Party tab of your Zodiac — the fill lands at once now, even mid-battle, and costs nothing; the wheel's summon cast is the only gate between the party and the field.</p>
                     )}
                     {shared.battle.active && you.partyView.openSpots === 0 && (
-                      <p className="quiet small">Your party stands full — no spot stands open for a reinforcement.</p>
+                      <p className="quiet small">Your party stands full — no spot stands open for a fill.</p>
                     )}
                     {!shared.battle.active && (
                       <p className="quiet small">Between battles, fill an open spot from the Party tab of your Zodiac — there the fill lands at once, and costs nothing.</p>
@@ -2705,12 +2723,12 @@ export default function Table() {
                   </div>
                 )}
                 {selectedCard ? (
-                  <p className="cast-hint">Casting <strong>{selectedCard.name}</strong> — it answers at your side: tap purified ground on your own hex or one beside it to set it standing (✦{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
+                  <p className="cast-hint">Calling <strong>{selectedCard.name}</strong> — it answers at your side: tap ground on your own hex or one beside it, cursed or held, to cast the summon (✦{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
                 ) : you.bound ? (
-                  <p className="quiet small">Your roster — the Awokin of <strong>{you.bound}</strong> who can take this field, sent to you alone. Tap one to cast it onto the field.</p>
+                  <p className="quiet small">The company of <strong>{you.bound}</strong> — your party, callable from the action wheel's Awoken branch, sent to you alone.</p>
                 ) : (
                   <div className="bind-strip">
-                    <p className="quiet small">Your roster — sent to you alone. These are stand-in cards: bind your Tender and your own Awokin take their places, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
+                    <p className="quiet small">Your company — sent to you alone. These are stand-ins: bind your Tender and your own Awokin take their places at your wheel, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
                     <div className="bind-row">
                       <input
                         className="door-input"
@@ -2732,6 +2750,7 @@ export default function Table() {
             )}
             {tab === "II" && (
               <div className="arts-list">
+                {myCursed && <p className="curse-note">{curseNote} on every cast while you stand on cursed ground.</p>}
                 {Object.values(defs).filter(d => d.kind === "ward").map(d => {
                   const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
                   const locked = !you.wardRuneUnlocked;
@@ -2753,6 +2772,7 @@ export default function Table() {
             )}
             {tab === "III" && (
               <div className="arts-list">
+                {myCursed && <p className="curse-note">{curseNote} on every cast while you stand on cursed ground.</p>}
                 <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
                   onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
                   title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ✦${healDef?.cost ?? 2}`}>
@@ -2805,7 +2825,7 @@ export default function Table() {
             )}
           </>
         ) : (
-          <p className="watcher-line">You are watching the Table. Bind in the game to be dealt a hand — the shared zones are yours to see; the hands are not.</p>
+          <p className="watcher-line">You are watching the Table. Bind in the game to take a seat — the shared zones are yours to see; the companies are not.</p>
         )}
       </footer>
 

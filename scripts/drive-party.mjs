@@ -218,6 +218,10 @@ function client(label) {
   const one = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin One", 3);
   const two = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin Two", 3);
   const three = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin Three", 3);
+  // A bench of owned non-members deepens the seat's purse
+  // (the standing reckoning counts the whole roster) — the
+  // summon CAST below can falter, and its retries spend.
+  for (let i = 0; i < 6; i++) seedAwokin(T2.ownerKey, "Table Tender", `Benchkin ${i + 1}`, 3);
 
   const { issueTableToken } = await import("../server/dist/table.js");
   const tt = issueTableToken({ id: "disc-party", name: "Table Tender" });
@@ -226,24 +230,31 @@ function client(label) {
   if (!bindRes.ok) throw new Error("table/bind failed: " + bindRes.status);
 
   // The party is composed BEFORE the sitting (the strict
-  // deal, 2026-10-21): the hand is the party, so the summon
-  // below runs from it. A third creature joins over HTTP
-  // mid-sitting, to prove the ledger reads across grounds.
+  // company, 2026-10-21): the company at the wheel is the
+  // party, so the summon cast below runs from it. A third
+  // creature joins over HTTP mid-sitting, to prove the
+  // ledger reads across grounds.
   await call("addToParty", { awakenedId: one }, T2.token);
   await call("addToParty", { awakenedId: two }, T2.token);
   const b = client("B");
   await b.join({ authToken: tt, room: "party-drive-casual" });
 
-  const card = (b.you.hand ?? []).find((cd) => cd.name === "Tablekin One");
-  ok("the composed party is the hand — the field candidate stands in it, the non-member nowhere",
-    !!card && !(b.you.hand ?? []).some((cd) => cd.name === "Tablekin Three"),
-    JSON.stringify((b.you.hand ?? []).map((cd) => cd.name)));
+  const card = (b.you.company ?? []).find((cd) => cd.name === "Tablekin One");
+  ok("the composed party is the company — the field candidate stands in it, the non-member nowhere",
+    !!card && !(b.you.company ?? []).some((cd) => cd.name === "Tablekin Three"),
+    JSON.stringify((b.you.company ?? []).map((cd) => cd.name)));
   const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;
   let summonedHex = null;
   const spots = b.state.map.filter((t) => !t.cursed && t.id !== "0,0" && axialDist(t.id, anchor) <= 1);
   for (const s of spots) {
-    b.send({ type: "summon", cardId: card.id, hex: s.id });
-    try { await b.waitFor((cc) => cc.state.field.some((u) => u.cardId === card.id), `summon onto ${s.id}`, 5000); summonedHex = s.id; break; } catch { /* next spot */ }
+    // The summon is a cast (the wheel law): a falter spends
+    // the price and stands nothing — cast again at the same
+    // ground before walking the ring.
+    for (let i = 0; i < 7 && !summonedHex; i++) {
+      b.send({ type: "summonCast", cardId: card.id, hex: s.id });
+      try { await b.waitFor((cc) => cc.state.field.some((u) => u.cardId === card.id), `summon onto ${s.id}`, 2500); summonedHex = s.id; } catch { /* a falter — cast again */ }
+    }
+    if (summonedHex) break;
   }
   ok("the Awokin is summoned onto the field", !!summonedHex);
   const unit0 = b.state.field.find((u) => u.cardId === card.id);

@@ -4,7 +4,9 @@
 // clock: distance traveled over time, no rounds. Proven here:
 // 127 axial tiles, only the seed's ground pure at the dealing;
 // one purified landing per seated player, spread apart;
-// summons refused on cursed ground and on the seed's tile;
+// a summon cast answers on cursed ground now (Nigel's
+// wheel law, 2026-10-21 — the cleansed-only refusal is
+// superseded) and is still refused on the seed's tile;
 // stacking (the March law's four-to-a-tile, band permitting);
 // THE MARCH — any-road, priced hexes × (1 + ⌊(power−1)/3⌋),
 // paced by the element's gait, arrival proven by the march
@@ -66,6 +68,11 @@ const ringOf = (id) => {
   const [q, r] = id.split(",").map(Number);
   return (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
 };
+const axialDist = (a, b) => {
+  const [aq, ar] = a.split(",").map(Number);
+  const [bq, br] = b.split(",").map(Number);
+  return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs((aq + ar) - (bq + br))) / 2;
+};
 const tileOf = (c, id) => c.state.map.find(t => t.id === id);
 const neighborsOf = (id) => {
   const [q, r] = id.split(",").map(Number);
@@ -102,25 +109,52 @@ const landingB = b.you.landing;
 check("B lands too — a different tile", !!landingB && landingB !== landingA, `landingB=${landingB}`);
 check("the pure grow by one per player", b.state.map.filter(t => !t.cursed).length === 3);
 
-// Summons: refused on cursed ground, refused on the seed.
-const cursedTile = a.state.map.find(t => t.cursed && ringOf(t.id) === 1).id;
-const hush = a.you.hand.find(c => c.name === "Hushkeeper");
-a.send({ type: "summon", cardId: hush.id, hex: cursedTile });
-await sleep(400);
-check("no summon onto cursed ground", !a.state.field.some(u => u.name === "Hushkeeper")
-  && a.errors.some(e => e.includes("cursed")), `errors=${a.errors.join(" | ")}`);
-a.send({ type: "summon", cardId: hush.id, hex: "0,0" });
+// Summons: the seed's tile still refuses; cursed ground
+// ANSWERS now (the wheel law, 2026-10-21 — tenders can
+// summon in the cursed lands; the −3 on the cast, when the
+// caster stands in the curse, is proven in
+// drive-table-summon §D). The summon is a CAST: it can
+// falter, and every attempt spends — so the helper casts
+// until the call lands, and the energy checks below reckon
+// the counted spend from the tales' named prices.
+async function castUntil(c, card, hex, name) {
+  for (let i = 0; i < 14; i++) {
+    const errMark = c.errors.length;
+    c.send({ type: "summonCast", cardId: card.id, hex });
+    try { await c.waitFor((cc) => cc.state.field.some(u => u.name === name), `${name} stands`, 2500); return; } catch { /* a falter — cast again */ }
+    if (c.errors.slice(errMark).some(e => /costs ✦\d+ — you hold/.test(e))) throw new Error(`${name}: the seat's purse starved mid-proof (energy ${c.you.energy})`);
+  }
+  throw new Error(name + " never stood in 14 casts");
+}
+// The tale is the room's — a spend is counted only for the
+// seat whose name the tale speaks (both seats here hold the
+// same stand-in names, so the caster's name is the filter).
+const summonSpend = (c) => (c.state.tale ?? []).reduce((sum, t) => {
+  if (!t.text.startsWith(`${c.you.name} calls `) || !/the call (lands|falters)/.test(t.text)) return sum;
+  const m = t.text.match(/\(✦(\d+)/);
+  return sum + (m ? Number(m[1]) : 0);
+}, 0);
+const hush = a.you.company.find(c => c.name === "Hushkeeper");
+a.send({ type: "summonCast", cardId: hush.id, hex: "0,0" });
 await sleep(400);
 check("no summon onto the star-seed's tile", !a.state.field.some(u => u.name === "Hushkeeper")
-  && a.errors.some(e => e.includes("star-seed")));
+  && a.errors.some(e => e.includes("star-seed")), `errors=${a.errors.join(" | ")}`);
+// The cursed-ground proof rides B's purse: A's ✦12 must
+// also fund the stacking, the march and the wave below,
+// and cast retries spend honestly — one seat's purse
+// cannot carry every proof in an unlucky run.
+const cursedTileB = b.state.map.find(t => t.cursed && axialDist(t.id, landingB) <= 1).id;
+const hushB = b.you.company.find(c => c.name === "Hushkeeper");
+await castUntil(b, hushB, cursedTileB, "Hushkeeper");
+check("a summon cast answers on cursed ground — the call lands there", b.state.field.some(u => u.name === "Hushkeeper" && u.hex === cursedTileB));
 
 // Stacking: three of A's band share the landing (band cap 3).
-const keeper = a.you.hand.find(c => c.name === "Keeper of the Low Bell");
-const rootb = a.you.hand.find(c => c.name === "Rootbound Confessor");
-for (const card of [hush, keeper, rootb]) a.send({ type: "summon", cardId: card.id, hex: landingA });
-await a.waitFor(c => c.state.field.filter(u => u.hex === landingA).length === 3, "three stand on one tile");
+const keeper = a.you.company.find(c => c.name === "Keeper of the Low Bell");
+const rootb = a.you.company.find(c => c.name === "Rootbound Confessor");
+for (const card of [hush, keeper, rootb]) await castUntil(a, card, landingA, card.name);
 check("stacking: three of the light share one tile", a.state.field.filter(u => u.hex === landingA).length === 3);
-check("the muster was charged (12 − 1 − 2 − 1)", a.you.energy === 8, `energy=${a.you.energy}`);
+check("the muster was charged — every cast attempt at its named price", a.you.energy === 12 - summonSpend(a), `energy=${a.you.energy} spend=${summonSpend(a)}`);
+const energyAfterStack = a.you.energy;
 
 // THE MARCH: Rootbound steps one hex into the curse.
 const rootUnit = () => a.state.field.find(u => u.name === "Rootbound Confessor");
@@ -129,7 +163,7 @@ a.send({ type: "march", cardId: rootb.id, from: landingA, to: stepTile });
 await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), stepTile), "the march begins");
 check("the march is bound for the cursed tile's center", rootUnit().moving === true && tgtNear(rootUnit(), stepTile),
   `tgt=${JSON.stringify(rootUnit().tgt)} center=${JSON.stringify(centerOf(stepTile))}`);
-check("the march was priced by the land's law (1 hex × ✦1 for power 1)", a.you.energy === 7, `energy=${a.you.energy}`);
+check("the march was priced by the land's law (1 hex × ✦1 for power 1)", a.you.energy === energyAfterStack - 1, `energy=${a.you.energy} afterStack=${energyAfterStack}`);
 await a.waitFor(c => !rootUnit()?.moving && rootUnit()?.hex === stepTile, "the march arrives", 20000);
 a.send({ type: "march", cardId: rootb.id, from: stepTile, to: landingA });
 await a.waitFor(c => rootUnit()?.moving === true && tgtNear(rootUnit(), landingA), "the march back is accepted — arrival proven");
@@ -167,24 +201,33 @@ await cb.join({ devName: "Camp Sue", room: "campaign-map-room" });
 const cLanding = cb.you.landing;
 check("the campaign room deals the same instance", cb.state.map.length === 127 && !!cLanding);
 
-// Spark musters BEFORE the deal (the purse is personal until
-// the bank seeds) and takes her patrol post on a ring-1 tile.
-const spark = cb.you.hand.find(c => c.name.startsWith("Spark"));
-cb.send({ type: "summon", cardId: spark.id, hex: cLanding });
-await cb.waitFor(c => c.state.field.some(u => u.name.startsWith("Spark")), "Spark stands on the landing");
+// The grinder musters BEFORE the deal (the purse is
+// personal until the bank seeds) and takes her patrol post
+// on a ring-1 tile. Under the wheel law the muster is a
+// CAST that can falter — the section rides the Rootbound
+// Confessor (power 1: the ✦12 purse funds her retries
+// outright, where the power-7 Spark's single ✦7 cast could
+// starve on one falter); the grind is a rate and her
+// toughness (6) outlasts Spark's — what is proven is
+// unchanged: the rate, the turning, the grinder's element,
+// and the burn's isolation. Her element is root, so the
+// tile turns root below.
+const spark = cb.you.company.find(c => c.name === "Rootbound Confessor");
+await castUntil(cb, spark, cLanding, "Rootbound Confessor");
 const grindTile = neighborsOf(cLanding).map(id => tileOf(cb, id)).find(t => t && t.cursed && ringOf(t.id) === 1).id;
 check("the grind tile starts at the ring law's corruption (10)", tileOf(cb, grindTile).curseHp === 10, `curseHp=${tileOf(cb, grindTile).curseHp}`);
 cb.send({ type: "march", cardId: spark.id, from: cLanding, to: grindTile });
-await cb.waitFor(c => c.state.field.find(u => u.name.startsWith("Spark"))?.hex === grindTile, "Spark marches to the cursed tile");
-const sparkUnit = () => cb.state.field.find(u => u.name.startsWith("Spark"));
-await cb.waitFor(c => !sparkUnit()?.moving, "Spark arrives on patrol", 20000);
+await cb.waitFor(c => c.state.field.find(u => u.name === "Rootbound Confessor")?.hex === grindTile, "the grinder marches to the cursed tile");
+const sparkUnit = () => cb.state.field.find(u => u.name === "Rootbound Confessor");
+await cb.waitFor(c => !sparkUnit()?.moving, "the grinder arrives on patrol", 20000);
 const maxShield = sparkUnit().maxShield;
 
 // ONE HOLLOW, dealt alone: it never strikes — it only drifts
 // and drains purses that are already poured empty. So every
-// point Spark's shield loses on the cursed tile is the BURN's
-// alone, and her body must stay whole. On the clock, the
-// grind is a rate: Spark's power 7 against corruption 10.
+// point the grinder's shield loses on the cursed tile is
+// the BURN's alone, and her body must stay whole. On the
+// clock, the grind is a rate: her power 1 against
+// corruption 10 — slow, and the window below allows it.
 //
 // CONTINUOUS-FIELD NOTE (Phase B): the grind is the referee's
 // work and the referee ticks only while a battle runs — and
@@ -196,18 +239,18 @@ const maxShield = sparkUnit().maxShield;
 // while the grind is measured, so a battle — and so the
 // referee — stays alive until the tile turns. What is
 // proven is unchanged: the grind's rate, the turning, the
-// element, and that the burn alone cost Spark her shield.
+// element, and that the burn alone cost the grinder her shield.
 st.send({ type: "stAdd", kind: "hollow" });
 await st.waitFor(c => c.you?.storytender?.reserve.length === 1, "one hollow held");
 st.send({ type: "stDeal" });
 await cb.waitFor(c => c.state.campaign?.seeded && c.state.dark.length === 1, "the hollow is dealt");
-check("the bank seeded from what the muster left (2)", cb.state.campaign.bank === 2, `bank=${cb.state.campaign.bank}`);
+check("the bank seeded from what the muster left (12 − the counted cast spend − the ✦1 march)", cb.state.campaign.bank === 12 - summonSpend(cb) - 1, `bank=${cb.state.campaign.bank} spend=${summonSpend(cb)}`);
 {
   // The grind is observed across the kept-alive skirmish:
   // the lowest corruption seen while the tile still holds,
   // and the turning itself. (A single skirmish may end
   // before two points are ground — the hollow can spawn
-  // inside Spark's reach and die at her first strike — so
+  // inside the grinder's reach and die at her first strike — so
   // the rate is read over the whole feeding, not one deal.)
   let minCurse = tileOf(cb, grindTile).curseHp;
   const turnStart = Date.now();
@@ -228,7 +271,15 @@ check("the bank seeded from what the muster left (2)", cb.state.campaign.bank ==
     `cursed=${tileOf(cb, grindTile).cursed} curseHp=${tileOf(cb, grindTile).curseHp}`);
 }
 check("ground to nothing, the tile purifies", tileOf(cb, grindTile).cursed === false);
-check("it turns in the grinder's element (sky)", tileOf(cb, grindTile).element === "sky", `element=${tileOf(cb, grindTile).element}`);
+// The freeing itself turns the tile NEUTRAL (the grind is
+// a freeing, not an attunement); the grinder's element
+// comes after, slowly, from her standing on the purified
+// ground (the standing attunement, 2026-10-21 — a first
+// point at ~20 beats). The old check read the element
+// whenever the skirmish happened to end and caught the
+// attunement by luck; this one waits for it by name.
+await cb.waitFor(c => tileOf(c, grindTile).element === "root", "the standing grinder attunes the freed tile to root", 120000).catch(() => {});
+check("the freed tile is attuned in the grinder's element (root), by her standing on it", tileOf(cb, grindTile).element === "root", `element=${tileOf(cb, grindTile).element}`);
 check("the curse burned back — the shield alone paid (no blow ever landed)", sparkUnit().shield < maxShield && sparkUnit().hp === sparkUnit().maxHp,
   `shield=${sparkUnit().shield}/${maxShield} hp=${sparkUnit().hp}/${sparkUnit().maxHp}`);
 await cb.waitFor(c => !c.state.battle.active, "the first skirmish ends", 60000);

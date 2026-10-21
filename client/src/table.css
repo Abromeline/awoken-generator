@@ -541,6 +541,9 @@ button { font-family: inherit; }
 .working-text em { color: var(--bone-dim); font-style: normal; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
 .working-text span { font-size: 13px; line-height: 1.45; color: #d9cfb2; }
 .placing-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--gold); border-radius: 10px; background: rgba(23, 18, 8, .92); }
+/* The curse's warning, in the curse's own red (Nigel, 2026-10-21):
+   shown beside a cast's preview while the caster stands in it. */
+.curse-note { color: #ff8d9d; font-weight: 600; }
 .placing-text { flex: 1 1 260px; font-size: 13.5px; line-height: 1.5; }
 .placing-text strong { color: #ffd98a; }
 

@@ -32,7 +32,8 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor } from "./skills.js";
+export { summonersPowerFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -42,12 +43,6 @@ const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 b
  *  long before it lapses into a true leaving. Env-tunable for
  *  the test harness. */
 const AWAY_GRACE_MS = Number(process.env.TABLE_AWAY_GRACE_MS || 600_000);
-/** THE REINFORCEMENTS TIMER (Nigel, 2026-10-20): filling an
- *  open party spot from the deck while a battle stands at
- *  the Table lands the membership and the card only when
- *  this road completes — four minutes, his number. Env-
- *  tunable for the test harness, as the away grace is. */
-const REINFORCEMENT_MS = Number(process.env.TABLE_REINFORCEMENT_MS || 240_000);
 /** The fall measure: a truly dissipated Awoken re-coalesces
  *  in four hours — the homeland's dispersal writes the same
  *  span on awakened.dispersed_until (actions.ts). */
@@ -76,9 +71,9 @@ interface TableCard {
   layers?: { source_id: string; category: string; imageUrl: string | null }[];
 }
 
-/** The stand-in pool: the roster an UNBOUND seat brings. Bound
- *  seats are dealt their Tender's party instead (the strict
- *  party deal) — never this pool. */
+/** The stand-in pool: the company an UNBOUND seat brings.
+ *  Bound seats bring their Tender's party instead (the
+ *  strict party law) — never this pool. */
 const TEST_POOL: Omit<TableCard, "id">[] = [
   { name: "Warden of Small Rains", power: 3, toughness: 4, element: "tide" },
   { name: "Keeper of the Low Bell", power: 2, toughness: 5, element: "stone" },
@@ -100,10 +95,27 @@ interface Player {
    *  she holds no hand, is no combatant, and is never counted
    *  among the seated Tenders. Only in campaign rooms. */
   storytender?: boolean;
-  /** The seat's cards — every card available to cast. For a bound
-   *  seat that is the deal: the Tender's party alone, under the
-   *  strict party law (Nigel, 2026-10-21). */
-  hand: TableCard[];
+  /** THE WHEEL'S COMPANY (Nigel, 2026-10-21 16:26 — the wheel
+   *  summoning law): the cards this seat can call by the action
+   *  wheel's summon cast. For a bound seat that is the Tender's
+   *  PARTY alone (the strict party law), members not currently
+   *  fielded at this Table; for an unbound seat, the stand-in
+   *  pool it brought. The deck hand this field replaces is
+   *  RETIRED — nothing is dealt any more. The full source set
+   *  (before the fielded are set aside) rides in companySource
+   *  for unbound seats; bound seats rebuild from the ledger. */
+  company: TableCard[];
+  /** The unbound seat's stand-in pool, minted at the join —
+   *  its company's source, from which the fielded are set
+   *  aside at every refresh. Bound seats carry none. */
+  companySource?: TableCard[];
+  /** The company's freshness mark: a signature of what it was
+   *  built from (party ids + this seat's fielded), and when.
+   *  sendState refreshes the company when the signature turns
+   *  or a few seconds pass (a member's re-coalescence ending
+   *  writes no signature change, so time covers it). */
+  companySig?: string;
+  companyAt?: number;
   notes: string;
   inventory: string[];
   /** The Tender this seat is bound to (display name), or null when
@@ -166,12 +178,12 @@ interface Player {
    *  mislabel, never miscast. Null/empty unbound. */
   castHues?: Record<string, string>;
   castHuesAt?: number;
-  /** The company this seat was NOT dealt, and where each
+  /** The company this seat can NOT call, and where each
    *  stands instead (the Table Fix Pass, 2026-10-20):
    *  Awokin on the Tender's homeland field, or staged at
    *  their bastion — one body, one place (Station 4), but
-   *  NAMED on the client's hand instead of silently missing.
-   *  A seat-time reckoning, as the hand itself is. */
+   *  NAMED beside the seat's company instead of silently
+   *  missing. A seat-time reckoning, as the company is. */
   elsewhere?: { name: string; element: string; where: "fielded" | "staged" }[];
   /** This sitting's energy: for a bound seat, the game's own max
    *  energy for that Tender, calculated from their whole roster by
@@ -179,7 +191,7 @@ interface Player {
   energy: number;
   maxEnergy: number;
   /** THE STANDING RECKONING behind the living maximum (the
-   *  in-hand bonus, Nigel 2026-10-21): the seat's maximum as it
+   *  bonus for the unfielded, Nigel 2026-10-21): the seat's maximum as it
    *  stands with NOTHING of this seat's fielded — calculateMax
    *  Energy plus the Heart's Deep Breath where it stands. The
    *  living `maxEnergy` is this reckoning minus the shares of
@@ -202,14 +214,16 @@ interface Player {
   /** When this Tender last cast a working — the room's screens
    *  play their casting gesture from it. */
   castAt?: number;
-  /** REINFORCEMENTS ON THE ROAD (the Party, build 2): deck
-   *  fills chosen at this seat's Zodiac while a battle stands
-   *  — each reserves an open party spot until it lands
-   *  (membership and card together) or the battle ends first
-   *  (the road closes; nothing is written, and the ✦ paid for
-   *  the road is returned whole). `cost` is what the road
-   *  charged and `fromBank` which purse it was charged from,
-   *  so a refund returns to the same purse. */
+  /** REINFORCEMENTS STILL IN FLIGHT (the Party, build 2;
+   *  the road itself RETIRED by the wheel law, 2026-10-21):
+   *  no new road can start — a deck fill lands its membership
+   *  at once now, and the wheel's cast is the only gate — but
+   *  a road started under the old law in a room still standing
+   *  settles honestly: membership lands when its timer
+   *  completes if the battle still stands, and a battle's end
+   *  closes it with its price returned whole. `cost` is what
+   *  the road charged and `fromBank` which purse it was
+   *  charged from, so a refund returns to the same purse. */
   incoming?: { awakenedId: number; name: string; arrivesAt: number; cost: number; fromBank: boolean }[];
   /** This seat was dealt the instance host's staged company
    *  alone (Station 4) — the one standing exception to the
@@ -670,7 +684,7 @@ interface Room {
   players: Map<WebSocket, Player>;
   /** Seats held for Tenders who stepped away (connection
    *  dropped): keyed by the seat's own key, with the moment
-   *  they stepped away. A held seat keeps its hand, energy,
+   *  they stepped away. A held seat keeps its company, energy,
    *  standing and landing whole until it is reclaimed or the
    *  grace lapses. */
   away: Map<string, { player: Player; leftAt: number }>;
@@ -937,20 +951,52 @@ export function castModFor(classKey: string | null | undefined, tenderLevel: num
   if (school === "spell") return 0;
   return -3;
 }
-function rollCast(player: Player, def: { kind: string; name: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number } {
+/** THE CURSE TERM (Nigel, 2026-10-21 16:26): "tenders can
+ *  summon in the cursed lands but they suffer a −3 to cast
+ *  from the attrition. that applies to all casts." EVERY cast
+ *  a tender makes at the Table while STANDING ON A CURSED
+ *  TILE takes −3 — the summon cast and every Grimoire
+ *  working alike. One shared term, sourced from the caster's
+ *  standing tile at the moment of the cast, folded into the
+ *  Table's cast reckonings ONLY — it lives here, never in
+ *  castModFor, so it cannot leak into the homeland's rolls. */
+function curseCastTerm(room: Room, player: Player): number {
+  if (!player.hex) return 0;
+  return room.map.get(player.hex)?.cursed ? -3 : 0;
+}
+/** A signed term in plain words, for the tale: +3, −2, +0. */
+function signedTerm(n: number): string {
+  return n < 0 ? `−${Math.abs(n)}` : `+${n}`;
+}
+function rollCast(room: Room, player: Player, def: { kind: string; name: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number; curse: number } {
   const school = def.kind;
-  const mod = castModFor(player.classKey, player.tenderLevel, school);
+  const curse = curseCastTerm(room, player);
+  const mod = castModFor(player.classKey, player.tenderLevel, school) + curse;
   const dc = (def.numbers?.level ?? 1) + 10;
   const roll = dN(20);
   const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
-  return { ok, roll, mod, dc };
+  return { ok, roll, mod, dc, curse };
 }
 /** A fizzled cast (the Casting Law): the energy is already
  *  spent — the working simply does not happen. The tale names
- *  the unravel, and the caster's gesture still plays. */
-function castUnravels(room: Room, player: Player, spellName: string): void {
+ *  the unravel AND its reckoning, and the caster's gesture
+ *  still plays. */
+function castUnravels(room: Room, player: Player, spellName: string, reck?: { roll: number; mod: number; dc: number; curse: number }): void {
   player.castAt = Date.now();
-  tell(room, `${player.name}'s ${spellName} unravels — the roll falls short.`);
+  tell(room, reck
+    ? `${player.name}'s ${spellName} unravels — rolled ${reck.roll} ${signedTerm(reck.mod)} against DC ${reck.dc}${reck.curse ? " (the curse presses −3)" : ""}: the roll falls short.`
+    : `${player.name}'s ${spellName} unravels — the roll falls short.`);
+}
+/** THE SUMMON CAST'S GIFT (Nigel, 2026-10-21 16:26; the
+ *  Keeper's pencil, proceeding unstruck): summoning is not
+ *  a Grimoire page, so the casting law's SCHOOL terms do not
+ *  ride it — no in-school +2, no cross-school −3, no level
+ *  ladder. What remains of the gift is the class truth that
+ *  was never a school term: the Sage's −2 on EVERY cast. The
+ *  rest of the summon reckoning — the summoner's power and
+ *  the curse's −3 — is named at the cast road itself. */
+function summonGiftFor(player: Player): number {
+  return player.classKey === "sage" ? -2 : 0;
 }
 /** Is this seat a seated Sage? (Her company stands taller —
  *  keyed per-owner, so two sages in a room bless only their
@@ -960,11 +1006,15 @@ function ownerIsSage(room: Room, ownerKey: string): boolean {
 }
 
 /** One roster creature's Table card, built from its payload
- *  — the single shaping the deal and the reinforcements'
- *  landing share, so an arrived card is a dealt card. */
+ *  — the single shaping of a roster creature's card, wherever
+ *  the Table needs it. Its id is STABLE — "roster-" + the
+ *  creature's ledger id — because the campaign recast ledger
+ *  (recastCount / noteDissipation) keys a creature's returns
+ *  by card id: a fresh random id per build would mint a new
+ *  face each time and the recast price could never gather. */
 function cardFromPayload(payload: NonNullable<Awaited<ReturnType<typeof awakenedPayloadById>>>): TableCard {
   return {
-    id: randomUUID(),
+    id: `roster-${payload.id}`,
     name: payload.name,
     power: payload.power,
     toughness: payload.toughness,
@@ -980,73 +1030,118 @@ function cardFromPayload(payload: NonNullable<Awaited<ReturnType<typeof awakened
   };
 }
 
-export async function deckForTender(tenderId: number, opts?: { stagedOnly?: boolean }): Promise<TableCard[]> {
+/** THE WHEEL'S COMPANY FOR A BOUND SEAT (Nigel, 2026-10-21
+ *  16:26 — the wheel summoning law, replacing the deal this
+ *  function used to be): the summonable set, in the party's
+ *  own order — the wheel LISTS it, so nothing is shuffled.
+ *  The exclusions are the deal's old honesty, kept whole:
+ *  a member standing on the homeland field cannot also stand
+ *  here (Nigel, 2026-10-18; champions and the housed court
+ *  are NOT field placements and stay callable, as the
+ *  Territory dock promises); a member staged at the bastion
+ *  is kept back for the instance that carries it; a creature
+ *  still re-coalescing from a fall is callable nowhere. The
+ *  strict party law stands (Nigel, 2026-10-20; the strict
+ *  reading 2026-10-21 12:11): the company is the party and
+ *  ONLY the party — a Tender who keeps no party has an EMPTY
+ *  company, nothing summonable, and fills a spot from the
+ *  Zodiac's deck screen (the fill lands at once now; the
+ *  wheel's cast is the only gate). An instance's staged
+ *  company (stagedOnly) stands apart, as its own exception.
+ *  Members currently FIELDED at this Table are set aside by
+ *  the caller — the company is who can still be called. */
+export async function companyForTender(tenderId: number, opts?: { stagedOnly?: boolean }): Promise<TableCard[]> {
   const ownerKey = tenderOwnerKey(tenderId);
-  // The Table deals the UN-FIELDED roster only (Nigel, 2026-10-18):
-  // an Awokin standing on the Territory field cannot also stand
-  // here. Champions and the housed court are NOT field placements —
-  // they stay in hand for battles, as the Territory dock promises.
   const placedRows = await db.select().from(schema.fieldPlacements)
     .where(eq(schema.fieldPlacements.ownerKey, ownerKey)).catch(() => [] as { awakenedId: number }[]);
   const placedIds = new Set(placedRows.map(r => r.awakenedId));
-  // An instance claimed from the bastion deals narrower
-  // still (Station 4, Nigel 2026-10-20): the staged company
-  // alone is the company that travels.
-  const stagedAll = new Set(stagedIdsFor(ownerKey));
-  const stagedIds = opts?.stagedOnly ? stagedAll : null;
-  // THE PARTY DEAL — STRICT (Nigel, 2026-10-20; build 2,
-  // 2026-10-21; the strict reading ruled 2026-10-21 12:11:
-  // "if a tender arrives with no party the law is strict,
-  // they will have to call reinforcements because they did
-  // not come prepared"). The Table deals the party and ONLY
-  // the party: the hand is the party, drawn from the deck
-  // the party was drawn from. A Tender who keeps NO party is
-  // dealt an EMPTY hand — nothing summonable — and fills a
-  // spot from the Zodiac's deck screen (between battles the
-  // fill lands at once; mid-battle it travels the
-  // reinforcements road). Build 2's gentler pencil — an
-  // uncomposed roster dealt whole — is REMOVED by this
-  // ruling, and no memberships are auto-seeded either. The
-  // elsewhere law stands unchanged: a member standing on
-  // the homeland field or staged at the bastion is not dealt
-  // (and is named in the elsewhere row), and a creature
-  // still re-coalescing from a fall is dealt nowhere — the
-  // same reading the studio's own hand keeps (actions.ts).
-  // An instance's staged-company deal (stagedOnly) stands
-  // apart, untouched.
-  const partyIds = new Set(partyIdsFor(ownerKey));
+  const stagedAll = stagedIdsFor(ownerKey);
+  const stagedSet = new Set(stagedAll);
   const nowMs = Date.now();
-  const rows = (await db.select().from(schema.awakened)
-    .where(eq(schema.awakened.ownerKey, ownerKey)))
-    .filter(row => !placedIds.has(row.id))
-    .filter(row => !row.dispersedUntil || new Date(row.dispersedUntil).getTime() <= nowMs)
-    .filter(row => stagedIds ? stagedIds.has(row.id) : partyIds.has(row.id) && !stagedAll.has(row.id));
+  const ids: number[] = opts?.stagedOnly ? stagedAll : partyIdsFor(ownerKey);
   const cards: TableCard[] = [];
-  for (const row of rows.slice(0, 120)) {
-    const payload = await awakenedPayloadById(row.id).catch(() => null);
+  for (const id of ids.slice(0, 120)) {
+    if (placedIds.has(id)) continue;
+    if (!opts?.stagedOnly && stagedSet.has(id)) continue;
+    const row = sqlite.prepare("SELECT dispersed_until FROM awakened WHERE id = ?").get(id) as { dispersed_until: number | null } | undefined;
+    if (row?.dispersed_until && row.dispersed_until > nowMs) continue;
+    const payload = await awakenedPayloadById(id).catch(() => null);
     if (!payload) continue;
     cards.push(cardFromPayload(payload));
-  }
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
   }
   return cards;
 }
 
-/** The company the Table did NOT deal this Tender, with
- *  where each one stands instead — the hand's honest margin
- *  (the Table Fix Pass, 2026-10-20). The dealing law stands
- *  untouched (deckForTender above): a body standing on the
- *  homeland field, or staged at the bastion, cannot also be
- *  dealt here. What changes is only that the absence is
- *  NAMED — every roster member kept back for place comes
- *  back with its whereabouts, for the client's hand to show
- *  beside the dealt cards. (The Keeper's reading: the
- *  silence was the defect, not the law.) An instance host is
- *  dealt the staged company itself, so for his deal the
- *  staged are in hand, not elsewhere; the fielded are out
- *  of every deal. */
+/** What a seat's company was built from, in one string: the
+ *  summonable set's source (the party's ids, the staged set,
+ *  or the stand-in pool) and which of it this seat currently
+ *  has fielded. When the string turns, the company is stale. */
+function companySignature(room: Room, player: Player): string {
+  const fielded = [...room.field.values()]
+    .filter(u => u.ownerKey === player.key)
+    .map(u => u.card.awokenId ?? u.card.id)
+    .sort()
+    .join(",");
+  const source = player.expKey
+    ? player.stagedDeal
+      ? `staged:${stagedIdsFor(player.expKey).join(",")}`
+      : `party:${partyIdsFor(player.expKey).join(",")}`
+    : "pool";
+  return `${source}|fielded:${fielded}`;
+}
+
+/** Rebuild a seat's company from its source, the fielded set
+ *  aside. Bound seats read the ledger (companyForTender);
+ *  unbound seats set the fielded aside from the pool they
+ *  brought. The signature is stamped at the end, so a send
+ *  racing the build keeps the old company for one push and
+ *  the next push carries the new. */
+async function refreshCompany(room: Room, player: Player): Promise<void> {
+  const sig = companySignature(room, player);
+  const fieldedIds = new Set([...room.field.values()].filter(u => u.ownerKey === player.key).map(u => u.card.awokenId).filter((x): x is number => typeof x === "number"));
+  const fieldedCardIds = new Set([...room.field.values()].filter(u => u.ownerKey === player.key).map(u => u.card.id));
+  if (player.expKey) {
+    const tenderId = Number(player.expKey.replace("tender:", "")) || 0;
+    const full = tenderId ? await companyForTender(tenderId, player.stagedDeal ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]) : [];
+    player.company = full.filter(cd => !(typeof cd.awokenId === "number" && fieldedIds.has(cd.awokenId)));
+  } else if (player.companySource) {
+    player.company = player.companySource.filter(cd => !fieldedCardIds.has(cd.id));
+  }
+  player.companySig = sig;
+  player.companyAt = Date.now();
+}
+
+/** sendState's freshness watch: a company whose signature
+ *  turned, or whose build is a few seconds old (a member's
+ *  re-coalescence can end without any signature moving), is
+ *  rebuilt in the background; the completed build pushes a
+ *  fresh state of its own, so no caller waits on the ledger. */
+function maybeRefreshCompany(room: Room, player: Player): void {
+  if (player.watcher) return;
+  const stale = player.companySig !== companySignature(room, player)
+    || (player.companyAt ?? 0) < Date.now() - 10_000;
+  if (!stale) return;
+  // Stamp the attempt now so a slow build is not started
+  // again by the very next push; refreshCompany re-stamps
+  // both marks when it lands.
+  player.companySig = companySignature(room, player);
+  player.companyAt = Date.now();
+  void refreshCompany(room, player).then(() => sendState(room)).catch(() => {});
+}
+
+/** The company this Tender can NOT call, with where each
+ *  one stands instead — the honest margin (the Table Fix
+ *  Pass, 2026-10-20). The summoning law stands untouched
+ *  (companyForTender above): a body standing on the homeland
+ *  field, or staged at the bastion, cannot also be called
+ *  here. What changes is only that the absence is NAMED —
+ *  every roster member kept back for place comes back with
+ *  its whereabouts, for the client's satchel to show beside
+ *  the wheel's company. (The Keeper's reading: the silence
+ *  was the defect, not the law.) An instance host is dealt
+ *  the staged company itself, so for his company the staged
+ *  are callable, not elsewhere; the fielded are out of every
+ *  company. */
 export async function elsewhereForTender(tenderId: number, opts?: { stagedOnly?: boolean }): Promise<{ name: string; element: string; where: "fielded" | "staged" }[]> {
   const ownerKey = tenderOwnerKey(tenderId);
   const placedRows = await db.select().from(schema.fieldPlacements)
@@ -1071,13 +1166,15 @@ export async function elsewhereForTender(tenderId: number, opts?: { stagedOnly?:
   return out;
 }
 
-/** ── THE PARTY AT THE TABLE (build 2, 2026-10-21) ────────
- *  The deal above reads the membership ledger; what follows
- *  is the rest of the party's meeting with the Table: the
- *  seat's own party display, the reinforcements timer for a
- *  mid-battle deck fill, and the battle-end law. Membership
- *  itself lives in server/src/party.ts; these are its Table
- *  roads only. */
+/** ── THE PARTY AT THE TABLE (build 2, 2026-10-21; the
+ *  wheel build, 2026-10-21) ───────────────────────────────
+ *  The company above reads the membership ledger; what
+ *  follows is the rest of the party's meeting with the
+ *  Table: the seat's own party display, the settling of
+ *  reinforcements still in flight from before the wheel law
+ *  (no new road can start — the starter roads are retired
+ *  below), and the battle-end law. Membership itself lives
+ *  in server/src/party.ts; these are its Table roads only. */
 
 /** Every seat a room holds, live and held (away) alike. */
 function allSeats(room: Room): Player[] {
@@ -1086,24 +1183,32 @@ function allSeats(room: Room): Player[] {
 
 export interface PartySeatView {
   cap: number;
-  members: { awakenedId: number; name: string; standing: "field" | "hand" | "post" }[];
-  /** Open spots after the members and the roads on their way. */
+  /** A member's standing for this Table: "field" — standing
+   *  on it; "ready" — in the wheel's company, callable by
+   *  the summon cast (the state the retired hand's name used
+   *  to carry, translated by the wheel law: party members
+   *  not currently fielded); "post" — keeping a post the
+   *  company could not bring. */
+  members: { awakenedId: number; name: string; standing: "field" | "ready" | "post" }[];
+  /** Open spots after the members and any roads still in
+   *  flight from before the wheel law. */
   openSpots: number;
-  /** Who is on the road, and when each arrives. The Table
-   *  only SHOWS the road (Nigel, 2026-10-21): a reinforcement
-   *  is CHOSEN on the deck screen — an empty Awokin spot on
-   *  the Zodiac, filled from the deck list there — never from
-   *  a deck list inside this seat's display. */
+  /** Who is still on a road started before the wheel law,
+   *  and when each arrives. No new road can start: a fill is
+   *  CHOSEN on the deck screen — an empty Awokin spot on the
+   *  Zodiac, filled from the deck list there — and lands at
+   *  once; this display only shows what is still in flight. */
   incoming: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
 }
 
 /** The seat's party as its own display reads it: who stands
  *  in the party and where each member stands for this Table
- *  (on the field, in the hand, or keeping a post the deal
- *  could not bring — the homeland field, the bastion, a
- *  re-coalescence), what spots stand open, and who is
- *  already on the road. Choosing a reinforcement is the
- *  Zodiac deck screen's work, not this display's. */
+ *  (on the field, ready at the wheel, or keeping a post the
+ *  company could not bring — the homeland field, the
+ *  bastion, a re-coalescence), what spots stand open, and
+ *  who is still in flight from before the wheel law.
+ *  Choosing a member is the Zodiac deck screen's work, not
+ *  this display's. */
 function partySeatView(room: Room, player: Player): PartySeatView | null {
   const expKey = player.expKey;
   if (!expKey) return null;
@@ -1112,19 +1217,17 @@ function partySeatView(room: Room, player: Player): PartySeatView | null {
     return row?.name ?? "An Awokin";
   };
   const ids = partyIdsFor(expKey);
-  const inHand = new Set(player.hand.map(c => c.awokenId).filter((x): x is number => typeof x === "number"));
+  const inCompany = new Set((player.company ?? []).map(c => c.awokenId).filter((x): x is number => typeof x === "number"));
   const onField = new Set([...room.field.values()].filter(u => u.ownerKey === player.key).map(u => u.card.awokenId).filter((x): x is number => typeof x === "number"));
   const members = ids.map(id => ({
     awakenedId: id,
     name: nameOf(id),
-    standing: (onField.has(id) ? "field" : inHand.has(id) ? "hand" : "post") as "field" | "hand" | "post",
+    standing: (onField.has(id) ? "field" : inCompany.has(id) ? "ready" : "post") as "field" | "ready" | "post",
   }));
   const incoming = (player.incoming ?? []).map(i => ({ awakenedId: i.awakenedId, name: i.name, arrivesAt: i.arrivesAt, cost: i.cost }));
   const cap = partyCapFor(expKey, player.tenderLevel);
   return { cap, members, openSpots: Math.max(0, cap - ids.length - incoming.length), incoming };
 }
-
-export type ReinforcementStart = { ok: true; name: string; arrivesAt: number; cost: number } | { ok: false; reason: string };
 
 /** Return a closed road's price to the purse it was charged
  *  from — the seat's own energy, or the campaign bank in a
@@ -1136,58 +1239,30 @@ function refundReinforcement(room: Room, player: Player, inc: { cost: number; fr
   else player.energy += inc.cost;
 }
 
-/** Start a reinforcements road for one of this seat's open
- *  spots: the spot is RESERVED at once (the membership count
- *  and the roads on their way together may not pass the band
- *  law's width), and membership and card land together when
- *  the timer completes — if the battle still stands. The road
- *  is CHOSEN on the deck screen (an empty Awokin spot on the
- *  Zodiac, filled from the deck list there — Nigel,
- *  2026-10-21); this function is only its judging, and the
- *  Table's own display only shows the road. The road costs
- *  ENERGY as well as its four minutes (Nigel, 2026-10-21):
- *  the price is the Awokin's normal Table summon cost,
- *  max(1, power) ✦ (the Keeper's pencil for the unruled
- *  amount), charged from the seat's purse at the moment of
- *  choosing; if the purse cannot pay, the fill is refused
- *  plainly and no timer starts. Every other refusal is
- *  whole and plain too, and writes nothing and charges
- *  nothing. */
-async function startReinforcement(room: Room, player: Player, awakenedId: number): Promise<ReinforcementStart> {
-  if (!player.expKey) return { ok: false, reason: "This seat is not bound to a Tender — there is no party to reinforce." };
-  if (!room.battle.active) return { ok: false, reason: "Reinforcements are called while a battle stands — between battles, fill your party from the Party tab of your Zodiac, and it lands at once." };
-  const row = sqlite.prepare("SELECT name, owner_key, dispersed_until FROM awakened WHERE id = ?").get(awakenedId) as { name: string; owner_key: string | null; dispersed_until: number | null } | undefined;
-  if (!row || row.owner_key !== player.expKey) return { ok: false, reason: "That Awokin is not yours to call." };
-  if (row.dispersed_until && row.dispersed_until > Date.now()) return { ok: false, reason: `${row.name} is still re-coalescing — it cannot answer a call yet.` };
-  if (isPartyMember(player.expKey, awakenedId)) return { ok: false, reason: `${row.name} already stands in your party.` };
-  player.incoming ??= [];
-  if (player.incoming.some(i => i.awakenedId === awakenedId)) return { ok: false, reason: `${row.name} is already on the road to your party.` };
-  if ([...room.field.values()].some(u => u.ownerKey === player.key && u.card.awokenId === awakenedId)) {
-    return { ok: false, reason: `${row.name} already stands on this field — add it to your party from its own bar, and no road is needed.` };
-  }
-  const cap = partyCapFor(player.expKey, player.tenderLevel);
-  if (partyIdsFor(player.expKey).length + player.incoming.length >= cap) {
-    return { ok: false, reason: `Your party stands full — ${cap} strong, counting the roads already on their way. Return a member to the deck to make room.` };
-  }
-  const payload = await awakenedPayloadById(awakenedId).catch(() => null);
-  if (!payload) return { ok: false, reason: `${row.name} could not be read for the road — no call is made.` };
-  const cost = Math.max(1, payload.power);
-  const fromBank = !!(room.campaign && !room.campaign.over && room.campaign.seeded);
-  if (!chargePurse(room, player, cost)) {
-    return { ok: false, reason: `${row.name}'s road costs ✦${cost} — ${fromBank ? `the bank holds ✦${Math.floor(room.campaign!.bank)}` : `you hold ✦${player.energy}`}. The fill is refused, and no road is started.` };
-  }
-  const arrivesAt = Date.now() + REINFORCEMENT_MS;
-  player.incoming.push({ awakenedId, name: row.name, arrivesAt, cost, fromBank });
-  tell(room, `🚶 ${row.name} is called to ${player.name}'s party — ✦${cost} paid for the road. The road takes ${Math.round(REINFORCEMENT_MS / 60000) || 1} minutes, and it lands only while the battle stands. The price is paid twice over, and that is the road's balance: ✦${cost} to call it, and its summon price again to summon it when it arrives.`);
-
-  return { ok: true, name: row.name, arrivesAt, cost };
-}
+/** THE REINFORCEMENTS ROAD IS RETIRED (Nigel, 2026-10-21
+ *  16:26 — the wheel law; the Keeper's reading, flagged at
+ *  the build's release): the four-minute road and its price
+ *  were the deck hand's choosing machinery — a fill travelled
+ *  because the hand had to be dealt. Under wheel law there is
+ *  no hand to deal and no road to travel: a deck fill lands
+ *  its membership AT ONCE (actions.ts addToParty), and the
+ *  wheel's summon cast is the only gate between the party
+ *  and the field. The starter roads (startReinforcement /
+ *  startPartyReinforcement) are therefore DELETED — no new
+ *  road can start. What survives, because a live room may
+ *  still hold one: settleReinforcements lands a road already
+ *  in flight, refundReinforcement returns a closed road's
+ *  price whole, and endBattle still closes in-flight roads
+ *  at a battle's end. */
 
 /** The seat of a Tender standing in a RUNNING battle at any
- *  Table, live or held — the Zodiac's doors ask this before
- *  they write a membership, because mid-battle the timer is
- *  the only road in (the Keeper's pencil from the hash-out,
- *  standing until Nigel rules otherwise). */
+ *  Table, live or held — the Zodiac's bench door asks this
+ *  before it returns a member to the deck, because a party
+ *  standing in a running battle is not benched out from
+ *  under it (build 2's pencil, untouched by the wheel law:
+ *  its rationale was never the road — the party stands in
+ *  the battle, and only an order to the creature itself ends
+ *  its standing there). */
 export function partyBattleSeatFor(ownerKey: string): { room: Room; player: Player } | null {
   for (const room of rooms.values()) {
     if (!room.battle.active) continue;
@@ -1198,24 +1273,20 @@ export function partyBattleSeatFor(ownerKey: string): { room: Room; player: Play
   return null;
 }
 
-/** The Zodiac's mid-battle road in — the ONE road a
- *  reinforcement is chosen by (Nigel, 2026-10-21): reserve
- *  the spot and start the timer, at the road's price. */
-export async function startPartyReinforcement(ownerKey: string, awakenedId: number): Promise<ReinforcementStart> {
-  const seat = partyBattleSeatFor(ownerKey);
-  if (!seat) return { ok: false, reason: "No battle stands at your Table seat — the fill lands at once, by the common road." };
-  return startReinforcement(seat.room, seat.player, awakenedId);
-}
-
 /** Land the roads whose time has come — called on the room's
- *  standing pulse. A road lands only while its battle still
- *  stands (endBattle closes the roads of a finished battle
- *  before this ever sees them). Membership and the hand
- *  card land together; a member kept back for place by the
- *  elsewhere law (the homeland field, the bastion's staging,
- *  a fall's re-coalescence fallen across the road) joins the
- *  party and keeps its post — no card is dealt for it here,
- *  exactly as the deal itself would not deal it. */
+ *  standing pulse. Only roads started BEFORE the wheel law
+ *  retired the starter can be in flight (a live room's saved
+ *  state is the only place one can still exist); they settle
+ *  honestly, exactly as they were promised. A road lands
+ *  only while its battle still stands (endBattle closes the
+ *  roads of a finished battle before this ever sees them).
+ *  Membership lands; NO card is dealt — under wheel law the
+ *  landed member simply stands in the party, and so in the
+ *  wheel's company, callable by the summon cast — unless the
+ *  elsewhere law keeps it at a post (the homeland field, the
+ *  bastion's staging, a fall's re-coalescence fallen across
+ *  the road, or a standing on this very field), where it
+ *  joins the party and keeps its post. */
 function settleReinforcements(room: Room): void {
   if (!room.battle.active) return;
   const now = Date.now();
@@ -1244,16 +1315,11 @@ function settleReinforcements(room: Room): void {
         const staged = stagedIdsFor(expKey).includes(inc.awakenedId);
         const row = sqlite.prepare("SELECT dispersed_until FROM awakened WHERE id = ?").get(inc.awakenedId) as { dispersed_until: number | null } | undefined;
         const dispersed = !!row?.dispersed_until && row.dispersed_until > Date.now();
-        const inHand = player.hand.some(c => c.awokenId === inc.awakenedId);
         const onField = [...room.field.values()].some(u => u.ownerKey === player.key && u.card.awokenId === inc.awakenedId);
-        let dealt = false;
-        if (!placed && !staged && !dispersed && !inHand && !onField) {
-          const payload = await awakenedPayloadById(inc.awakenedId).catch(() => null);
-          if (payload) { player.hand = [...player.hand, cardFromPayload(payload)]; dealt = true; }
-        }
-        tell(room, dealt
-          ? `👣 ${inc.name} arrives — it joins ${player.name}'s party, and its card stands in the hand.`
-          : `👣 ${inc.name} arrives — it joins ${player.name}'s party, and keeps the post it already stands at.`);
+        const keptAtPost = !!placed || staged || dispersed || onField;
+        tell(room, keptAtPost
+          ? `👣 ${inc.name} arrives — it joins ${player.name}'s party, and keeps the post it already stands at.`
+          : `👣 ${inc.name} arrives — it joins ${player.name}'s party, and answers the wheel's call from here.`);
         sendState(room);
       })();
     }
@@ -1319,7 +1385,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, handCount: p.hand.length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null, weaponLevel: p.weaponLevel ?? 1, weaponElement: p.weaponElement ?? null, weaponDepth: p.weaponDepth ?? 0, weaponManifest: !!p.weaponManifest, weaponSignature: !!p.weaponSignature })),
+    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, companyCount: (p.company ?? []).length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null, weaponLevel: p.weaponLevel ?? 1, weaponElement: p.weaponElement ?? null, weaponDepth: p.weaponDepth ?? 0, weaponManifest: !!p.weaponManifest, weaponSignature: !!p.weaponSignature })),
     watcherCount: [...room.players.values()].filter(p => p.watcher).length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -1365,19 +1431,29 @@ function sharedState(room: Room) {
 
 function sendState(room: Room): void {
   settleTenders(room);
+  // The wheel's companies keep themselves fresh: a membership
+  // written in the Zodiac, a summon, a recall — each turns a
+  // signature somewhere, and the rebuild rides the next push.
+  for (const p of room.players.values()) maybeRefreshCompany(room, p);
   const state = sharedState(room);
   for (const [ws, player] of room.players) {
     if (ws.readyState !== WebSocket.OPEN) continue;
     ws.send(JSON.stringify({
       type: "state",
       state,
-      // THE privacy law: a hand (and the notes and inventory) travel
-      // only inside their owner's own payload. Other sockets never
-      // receive them — not hidden, absent.
+      // THE privacy law: a company (and the notes and inventory)
+      // travels only inside its owner's own payload. Other
+      // sockets never receive it — not hidden, absent.
       you: player.watcher ? null : {
         key: player.key,
         name: player.name,
-        hand: player.hand,
+        company: player.company ?? [],
+        // SUMMONER'S POWER, served with the seat (Nigel,
+        // 2026-10-21): the wheel's summon preview shows the
+        // cast's shape before the tap — the term is computed
+        // here, by the one helper the cast itself rolls with,
+        // so the preview can never promise a different number.
+        summonersPower: summonersPowerFor(player.expKey, player.tenderLevel, player.classKey),
         elsewhere: player.elsewhere ?? [],
         notes: player.notes,
         inventory: player.inventory,
@@ -1413,9 +1489,9 @@ function sendState(room: Room): void {
         party: player.expKey ? partyIdsFor(player.expKey) : [],
         // THE PARTY'S SEAT DISPLAY (build 2): the members
         // with their standings for this Table, the open
-        // spots, the deck they are filled from, and the
-        // reinforcements already on the road — this seat's
-        // eyes only, as the hand itself is.
+        // spots, and any reinforcements still in flight from
+        // before the wheel law — this seat's eyes only, as
+        // the company itself is.
         partyView: player.expKey && !player.storytender ? partySeatView(room, player) : null,
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
@@ -1580,27 +1656,32 @@ function awokinEnergyShare(power: number): number {
   return 0;
 }
 
-/** THE IN-HAND BONUS (Nigel, 2026-10-21 12:11): "party size
- *  'in hand' on the zodiac wheel raises your total energy.
- *  when they are summoned, they no longer provide that
- *  bonus." A bound seat's maximum is a LIVING reckoning: the
- *  standing maximum (calculateMaxEnergy, which counts every
- *  owned Awokin's share, hand and deployed alike, plus the
- *  Heart's Deep Breath where it stands) MINUS the shares of
- *  the Awokin this seat currently has FIELDED at this Table.
- *  It is re-reckoned at the field's only two seams — a unit
- *  placed, a unit removed — so a summon lowers it, and every
- *  road off the field (a fall or a curse-unbinding back to
- *  the hand, a recall, a battle-end dissipation) raises it
- *  again; members still standing when a battle ends keep
- *  their shares held back, as they stand. The readings,
- *  stated plainly: when the maximum DROPS, the seat's current
- *  energy CLAMPS to it; when the maximum RISES, the current
- *  energy does NOT fill to meet it — what returns is room,
- *  not energy. Unbound seats carry no standing reckoning
- *  and keep their flat portion untouched. The campaign bank
- *  and the bastion pool keep their own reckonings — this law
- *  governs the seat's own purse only. */
+/** THE BONUS FOR THE UNFIELDED (Nigel, 2026-10-21 12:11 —
+ *  ruled as the in-hand bonus: "party size 'in hand' on the
+ *  zodiac wheel raises your total energy. when they are
+ *  summoned, they no longer provide that bonus" — and
+ *  TRANSLATED by the wheel law the same day, 16:26: the hand
+ *  is retired, so "in hand" now reads "party members NOT
+ *  currently fielded"; the numbers never moved, only the
+ *  state's name). A bound seat's maximum is a LIVING
+ *  reckoning: the standing maximum (calculateMaxEnergy,
+ *  which counts every owned Awokin's share, fielded and
+ *  unfielded alike, plus the Heart's Deep Breath where it
+ *  stands) MINUS the shares of the Awokin this seat currently
+ *  has FIELDED at this Table. It is re-reckoned at the
+ *  field's only two seams — a unit placed, a unit removed
+ *  (placeUnit / removeUnit, verified in this build) — so a
+ *  summon lowers it, and every road off the field (a fall, a
+ *  curse-unbinding, a recall, a battle-end dissipation)
+ *  raises it again; members still standing when a battle
+ *  ends keep their shares held back, as they stand. The
+ *  readings, stated plainly: when the maximum DROPS, the
+ *  seat's current energy CLAMPS to it; when the maximum
+ *  RISES, the current energy does NOT fill to meet it — what
+ *  returns is room, not energy. Unbound seats carry no
+ *  standing reckoning and keep their flat portion untouched.
+ *  The campaign bank and the bastion pool keep their own
+ *  reckonings — this law governs the seat's own purse only. */
 function reckonSeatEnergy(room: Room, ownerKey: string): void {
   const seat = seatByKey(room, ownerKey);
   if (!seat || seat.standingMaxEnergy == null) return;
@@ -1832,7 +1913,11 @@ function assignLanding(room: Room, player: Player): void {
       return spread(b) - spread(a);
     });
     const tile = candidates[0];
-    const first = player.hand[0];
+    // The landing wears the element of the company's first
+    // member (the hand's first card, before the wheel law) —
+    // the seat's company is built before its landing is
+    // assigned, at the join.
+    const first = (player.company ?? [])[0];
     const element = first ? dominantElement(partsOf(first) as { element?: string | null }[]) : "neutral";
     purifyTile(room, tile, element);
     tile.landingFor = player.key;
@@ -1864,8 +1949,9 @@ function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
   if (u.hp <= 0) {
     noteDissipation(room, u);
     removeUnit(room, u);
-    const owner = seatByKey(room, u.ownerKey);
-    if (owner) owner.hand = [...owner.hand, u.card];
+    // No card returns anywhere — the hand is retired. The
+    // member is simply un-fielded, and the wheel's company
+    // names it again at the next refresh.
     tell(room, `The curse unbinds ${u.card.name} where it stood — it dissipates to its Tender's roster.`);
   }
 }
@@ -2619,8 +2705,6 @@ function settleShardsAndFade(room: Room): void {
       if (strongest.hp <= 0) {
         noteDissipation(room, strongest);
         removeUnit(room, strongest);
-        const owner = seatByKey(room, strongest.ownerKey);
-        if (owner) owner.hand = [...owner.hand, strongest.card];
         tell(room, `${strongest.card.name} dissipates to its Tender's roster.`);
       }
     } else {
@@ -2796,8 +2880,8 @@ function endBattle(room: Room): void {
  *  field that is NOT in its Tender's party leaves the field
  *  and takes the fall measure's re-coalescence — the same
  *  dispersed_until the homeland's falls write, four hours —
- *  never a return to the hand, and no parallel timer is
- *  invented. Party members standing at the end do not
+ *  never a quiet return to the company, and no parallel
+ *  timer is invented. Party members standing at the end do not
  *  dissipate. Units of unbound seats carry no roster id and
  *  stand outside the ledger entirely; a unit whose seat is
  *  gone from the room cannot be judged and is left as the
@@ -3267,8 +3351,6 @@ async function runRound(room: Room): Promise<void> {
           if (felled) {
             noteDissipation(room, victim);
             removeUnit(room, victim);
-            const owner = seatByKey(room, victim.ownerKey);
-            if (owner) owner.hand = [...owner.hand, victim.card];
             tell(room, `The ${enemy.label} unravels ${victim.card.name} — it dissipates to its Tender's roster.`);
           }
         };
@@ -3428,9 +3510,9 @@ function handleConnection(ws: WebSocket): void {
 
     // ANSWER A CALL (Nigel, 2026-10-17): a seated player with
     // a key rises from this room and takes their seat in the
-    // call's own room — their hand, their standing, and their
-    // Awoken travel with them. The key is the invitation: any
-    // open call's key seats whoever carries it.
+    // call's own room — their company, their standing, and
+    // their Awoken travel with them. The key is the invitation:
+    // any open call's key seats whoever carries it.
     if (msg.type === "switchRoom") {
       if (!room || !player) return;
       const k = String(msg.callKey ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -3536,14 +3618,17 @@ function handleConnection(ws: WebSocket): void {
       // roads above, flag and all.
       const seatedCount = [...room.players.values()].filter(p => !p.watcher).length
         + [...room.away.values()].filter(h => !h.player.watcher).length;
-      if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no ninth hand; watchers are welcome
+      if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table seats no ninth tender; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
-      // A bound seat is dealt its Tender's party (the strict
-      // party deal), and its energy is that roster's own
-      // calculation by the game's one law — all of it. An
-      // unbound seat brings the whole stand-in pool and a
-      // stand-in's portion of energy.
-      let hand: TableCard[] = [];
+      // A bound seat's wheel company is its Tender's party
+      // (the strict party law), and its energy is that
+      // roster's own calculation by the game's one law — all
+      // of it. An unbound seat brings the whole stand-in pool
+      // as its company and a stand-in's portion of energy.
+      // Nothing is DEALT any more (the wheel law, 2026-10-21):
+      // the company is built, in the party's own order.
+      let company: TableCard[] = [];
+      let companySource: TableCard[] | undefined;
       let elsewhereCards: { name: string; element: string; where: "fielded" | "staged" }[] = [];
       let bound: string | null = null;
       let stagedDeal = false;
@@ -3561,29 +3646,29 @@ function handleConnection(ws: WebSocket): void {
       if (!watcher && key.startsWith("discord:")) {
         const tenderId = await bindingFor(key.slice("discord:".length));
         if (tenderId !== null) {
-          // An INSTANCE's host (Station 4) is dealt the staged
-          // company alone — the bastion's cargo, from the first
-          // push; any other seat, and any guest of the instance,
-          // is dealt the common hand of twenty.
+          // An INSTANCE's host (Station 4) brings the staged
+          // company alone as its wheel company — the bastion's
+          // cargo, from the first push; any other seat, and any
+          // guest of the instance, brings its party.
           const instanceHost = joinCall?.kind === "instance" && joinCall.owner_key === tenderOwnerKey(tenderId);
           stagedDeal = instanceHost;
-          const cards = await deckForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]);
-          // A BOUND SEAT IS ITS TENDER'S, EMPTY HAND OR NO
-          // (the strict party deal, 2026-10-21): the deal
-          // above now brings the party alone, so a Tender who
-          // keeps no party is dealt NO cards — and the seat
-          // must still stand bound (its energy, its class,
-          // its party display), or the Zodiac's reinforcement
-          // road could never find it and the strict law would
-          // strand the unprepared at a stand-in's table. The
-          // stand-in pool below is for seats with no Tender
-          // behind them at all — never for a bound Tender
-          // whose party is simply uncomposed. (The class was
-          // already read on the empty road before, found
-          // 2026-10-20, so the figure at the Table is the
-          // Tender's true class.)
-          hand = cards;
-          // The hand's honest margin (the Fix Pass): who
+          const cards = await companyForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]);
+          // A BOUND SEAT IS ITS TENDER'S, EMPTY COMPANY OR NO
+          // (the strict party law, 2026-10-21): the build
+          // above brings the party alone, so a Tender who
+          // keeps no party has NO company — nothing summonable
+          // — and the seat must still stand bound (its energy,
+          // its class, its party display), or the Zodiac's
+          // deck screen could never fill its party and the
+          // strict law would strand the unprepared at a
+          // stand-in's table. The stand-in pool below is for
+          // seats with no Tender behind them at all — never
+          // for a bound Tender whose party is simply
+          // uncomposed. (The class was already read on the
+          // empty road before, found 2026-10-20, so the figure
+          // at the Table is the Tender's true class.)
+          company = cards;
+          // The company's honest margin (the Fix Pass): who
           // was kept back for place, and where they stand.
           elsewhereCards = await elsewhereForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as { name: string; element: string; where: "fielded" | "staged" }[]);
           bound = await tenderDisplayName(tenderId);
@@ -3612,15 +3697,16 @@ function handleConnection(ws: WebSocket): void {
         }
       }
       if (!watcher && !bound) {
-        hand = TEST_POOL.map(c => ({ ...c, id: randomUUID(), parts: [
+        companySource = TEST_POOL.map(c => ({ ...c, id: randomUUID(), parts: [
           { element: c.element, power: Math.ceil(c.power / 2) },
           { element: c.element, power: Math.floor(c.power / 2) },
           { element: c.element, power: 0 },
         ] }));
+        company = companySource;
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: false, hand, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -3806,25 +3892,36 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
-    // CASTING (P1, 2026-10-16): a card leaves the roster and
-    // stands on a ring hex, at a cost of its power in energy.
-    // The center hex is the star-seed and is never stood upon.
     if (msg.type === "summon") {
+      // The hand-era summon message (Nigel, 2026-10-21): the
+      // road is retired — a stale client hears it plainly
+      // rather than silence.
+      ws.send(JSON.stringify({ type: "error", message: "The dealt hand no longer answers — summoning rides the action wheel now: open its Awoken branch, choose a member of your party, and tap the ground at your side to cast the call." }));
+      return;
+    }
+
+    // THE SUMMON CAST (Nigel, 2026-10-21 16:26 — the wheel
+    // law, replacing the hand's summon road whole): "tenders
+    // are now the only way to summon awoken in these modes.
+    // summoning awokin is done through the action wheel" —
+    // and it is a CAST: the wheel's Awoken branch names a
+    // member of the tender's company, a landing tile is
+    // tapped, and this road rolls for the call. The center
+    // hex is the star-seed and is never stood upon.
+    if (msg.type === "summonCast") {
       if (player.fallen) {
         ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." }));
         return;
       }
       if (player.watcher) {
-        ws.send(JSON.stringify({ type: "error", message: "Watchers hold no hand to cast from." }));
+        ws.send(JSON.stringify({ type: "error", message: "Watchers hold no company to call from." }));
         return;
       }
       if (player.storytender) {
-        ws.send(JSON.stringify({ type: "error", message: "The Storytender holds no hand — she deals the dark, not the light." }));
+        ws.send(JSON.stringify({ type: "error", message: "The Storytender holds no company — she deals the dark, not the light." }));
         return;
       }
       const hex = String(msg.hex ?? "");
-      const cardId = String(msg.cardId ?? "");
-      const card = player.hand.find(c => c.id === cardId);
       const tile = room.map.get(hex);
       if (!tile) {
         ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." }));
@@ -3834,11 +3931,46 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: "An Awokin stands on the land — the center tile is the star-seed's." }));
         return;
       }
-      // SUMMON ONTO PURIFIED GROUND ONLY (Nigel, 2026-10-18 —
-      // the land's own deploy law, carried to the Table): the
-      // light takes the field where the light already holds.
-      if (tile.cursed) {
-        ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — your light takes the field on purified land. Fell the dark that holds it, or grind it down by standing patrols, and it will turn." }));
+      // Resolve the called member from the wheel's company —
+      // a bound seat's party member by its ledger id, an
+      // unbound seat's stand-in by its card id. The company
+      // already holds only the callable (party members, or
+      // the staged company, or the pool — never the fielded),
+      // so a name outside it is refused here, at the cast
+      // itself: the wheel calls nothing the company does not.
+      const awakenedId = typeof msg.awakenedId === "number" ? msg.awakenedId : null;
+      const cardId = typeof msg.cardId === "string" ? msg.cardId : null;
+      const card = awakenedId !== null
+        ? (player.company ?? []).find(c => c.awokenId === awakenedId)
+        : cardId !== null
+          ? (player.company ?? []).find(c => c.id === cardId)
+          : undefined;
+      if (!card) {
+        ws.send(JSON.stringify({ type: "error", message: player.expKey && !player.stagedDeal
+          ? "That Awokin is not in your party — the party is who you can summon, and only members not already standing. Fill a spot from the Party tab of your Zodiac; the fill lands at once, and the wheel's cast is the only gate."
+          : "That Awokin is not in your company — the wheel calls only the company it lists, and only members not already standing." }));
+        return;
+      }
+      // THE PARTY IS WHO YOU CAN SUMMON (Nigel, 2026-10-21;
+      // the strict reading, ruled the same day): "the party
+      // is the ONLY Awoken a Tender can summon" — the cast
+      // road itself refuses a non-member, so no staleness (a
+      // member benched since the company was last built, say)
+      // can put one on the field. The instance host's staged
+      // company (Station 4) stands as its own exception — its
+      // seat is marked stagedDeal, at the join or the claim.
+      if (player.expKey && !player.stagedDeal && typeof card.awokenId === "number"
+        && !isPartyMember(player.expKey, card.awokenId)) {
+        ws.send(JSON.stringify({ type: "error", message: `${card.name} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; the fill lands at once, and the wheel's cast is the only gate.` }));
+        return;
+      }
+      // Already standing: the company sets the fielded aside,
+      // and the field itself has the last word (a cast racing
+      // a refresh is still refused plainly, never doubled).
+      const myKey0 = player.key;
+      if ([...room.field.values()].some(u => u.ownerKey === myKey0
+        && (typeof card.awokenId === "number" ? u.card.awokenId === card.awokenId : u.card.id === card.id))) {
+        ws.send(JSON.stringify({ type: "error", message: `${card.name} already stands on the field.` }));
         return;
       }
       // SUMMON AT YOUR SIDE (Nigel, 2026-10-19): the light
@@ -3848,29 +3980,14 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: "Your Awokin answers at your side — summon onto your own hex, or one beside it." }));
         return;
       }
+      // THE LANDING MAY BE CURSED OR HELD (Nigel, 2026-10-21
+      // 16:26): "tenders can summon in the cursed lands" —
+      // the cleansed-only restriction this road used to keep
+      // (2026-10-18) is SUPERSEDED. What the curse costs now
+      // is in the cast itself: the −3 below, when the CASTER
+      // stands in it.
       if (unitsAt(room, hex).length >= STACK_CAP) {
         ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile, by the March law.` }));
-        return;
-      }
-      if (!card) {
-        ws.send(JSON.stringify({ type: "error", message: "That Awokin is not in your roster." }));
-        return;
-      }
-      // THE PARTY IS WHO YOU CAN SUMMON (Nigel, 2026-10-21;
-      // the strict reading, ruled the same day): "the party
-      // is the ONLY Awoken a Tender can summon" — the hand
-      // is dealt from the party alone, and the summon road
-      // itself refuses a non-member, so no stale card (dealt
-      // while the creature stood in the party and benched
-      // since, say) can put one on the field. A Tender who
-      // keeps NO party is dealt an empty hand and summons
-      // nothing at all — they call reinforcements from the
-      // Zodiac's deck screen. The instance host's
-      // staged-company deal (Station 4) stands as its own
-      // exception — its seat is marked at the join.
-      if (player.expKey && !player.stagedDeal && typeof card.awokenId === "number"
-        && !isPartyMember(player.expKey, card.awokenId)) {
-        ws.send(JSON.stringify({ type: "error", message: `${card.name} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; mid-battle the called Awokin arrives by the reinforcements road.` }));
         return;
       }
       // The Travelling Company (ruled 2026-10-18): the band
@@ -3884,6 +4001,13 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: `Your band stands full — ${bandCap} strong. Levels widen it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
         return;
       }
+      // THE PURSE, MATCHED TO THE TABLE'S SPELL DOORS
+      // (castWard / castRune, and castMapWorking's law on both
+      // grounds): the price is charged BEFORE the roll — so a
+      // faltering call still spends it, exactly as a fizzled
+      // working spends its energy (castUnravels). A begun
+      // bastion charges its one pool instead, as the old
+      // summon road did.
       const cost = castCost(room, player, card);
       if (room.bastion?.begun && !room.bastion.resolved) {
         // One pool binds the muster (Nigel, 2026-10-17): joining
@@ -3900,21 +4024,44 @@ function handleConnection(ws: WebSocket): void {
           : `${card.name} costs ✦${cost} — you hold ✦${player.energy}.` }));
         return;
       }
-      player.hand = player.hand.filter(c => c.id !== cardId);
+      // THE CAST (the Keeper's pencil for the DC, proceeding
+      // unstruck, 2026-10-21): d20 + the tender's gift (the
+      // class truth alone — summoning is no Grimoire page, so
+      // no school terms ride it) + SUMMONER'S POWER (Nigel,
+      // 2026-10-21 17:13: the zodiac "summoner" clause sum +
+      // 2 per 3 tender levels + 3 for the Sage) − 3 if the
+      // caster stands in the curse, against DC 10 + the
+      // Awokin's power. A natural 20 always lands; a natural
+      // 1 always falters — Fate's manners, as at every cast.
+      // The tale names every term it rolled with, so the
+      // number is never a mystery.
+      const gift = summonGiftFor(player);
+      const sp = summonersPowerFor(player.expKey, player.tenderLevel, player.classKey);
+      const curse = curseCastTerm(room, player);
+      const roll = dN(20);
+      const dc = 10 + card.power;
+      const reckoning = `rolled ${roll}, gift ${signedTerm(gift)}, summoner's power ${signedTerm(sp)}${curse ? ", −3 the curse presses" : ""} — against DC ${dc}`;
+      player.castAt = Date.now();
+      if (!(roll === 20 || (roll !== 1 && roll + gift + sp + curse >= dc))) {
+        tell(room, `${player.name} calls ${card.name} — ${reckoning}: the call falters. The price (✦${cost}) is spent, and nothing stands.`);
+        sendState(room);
+        return;
+      }
       const shield = card.toughness * dN(FATE_DIE[card.element] ?? 6);
       placeUnit(room, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
         shield, maxShield: shield, speedGauge: 0,
         ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null,
       });
-      tell(room, `${player.name} casts ${card.name} onto the field (✦${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
+      tell(room, `${player.name} calls ${card.name} onto the field — ${reckoning}: the call lands (✦${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
       sendState(room);
       return;
     }
 
-    // RECALL: your own standing Awoken steps back into the
-    // roster. The energy spent casting is not returned — what
-    // was spent was spent.
+    // RECALL: your own standing Awoken steps back off the
+    // field — un-fielded, it stands in the wheel's company
+    // again and can be called anew. The energy spent casting
+    // is not returned — what was spent was spent.
     if (msg.type === "recall") {
       if (player.fallen) return;
       const myKey = player.key;
@@ -3931,7 +4078,6 @@ function handleConnection(ws: WebSocket): void {
         return;
       }
       removeUnit(room, unit);
-      player.hand = [...player.hand, unit.card];
       tell(room, `${player.name} recalls ${unit.card.name} from the field.`);
       sendState(room);
       return;
@@ -4063,13 +4209,14 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
-    // (No fillPartySpot door stands here: a reinforcement is
-    // CHOSEN on the deck screen — an empty Awokin spot on the
+    // (No fillPartySpot door stands here: a member is CHOSEN
+    // on the deck screen — an empty Awokin spot on the
     // Zodiac, filled from the deck list there (Nigel,
     // 2026-10-21). That door is build 1's addToParty, which
-    // mid-battle starts the same road startReinforcement
-    // judges; this seat's display only shows the road and
-    // its time left.)
+    // since the wheel law lands the membership AT ONCE, even
+    // mid-battle — the four-minute road it used to start is
+    // retired, and the wheel's summon cast is the only gate
+    // between the party and the field.)
 
     // STRIKE THE CURSE (Nigel, 2026-10-18 — the land's
     // blow-per-order, carried to the Table): the mechanic for
@@ -4209,7 +4356,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): Heal is a binding-school
       // cast and rolls for its standing, energy already spent.
       const healDef = healSpell();
-      if (healDef && !rollCast(player, healDef).ok) { castUnravels(room, player, healDef.name); sendState(room); return; }
+      if (healDef) { const reck = rollCast(room, player, healDef); if (!reck.ok) { castUnravels(room, player, healDef.name, reck); sendState(room); return; } }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -4291,7 +4438,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and the working simply does not happen.
-      if (!rollCast(caster, def).ok) { castUnravels(room, caster, def.name); sendState(room); return; }
+      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
       if (isSpringleaf) {
         // THE SPRINGLEAF AT THE TABLE (Phase C; shape ruled in
         // the book): a GROVE stands at the target hex — hexB,
@@ -4412,7 +4559,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
-      if (!rollCast(caster, def).ok) { castUnravels(room, caster, def.name); sendState(room); return; }
+      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
       // 2026-10-21), as at the ward's raising: the cast takes
@@ -4550,17 +4697,20 @@ function handleConnection(ws: WebSocket): void {
       if (call.owner_key !== player.expKey) { ws.send(JSON.stringify({ type: "error", message: "That call is another Tender's to claim." })); return; }
       // AN INSTANCE CLAIMED (Station 4, Nigel 2026-10-20): the
       // call is a doorway, not a battle — claiming it seats the
-      // host with the bastion's STAGED company in hand, and the
-      // room stays the room's own (its Unraveling is begun the
-      // common way). No column is dealt by an instance; the
-      // staged company is the cargo, and the band law still
-      // caps what of it may stand at once.
+      // host with the bastion's STAGED company as their wheel
+      // company, and the room stays the room's own (its
+      // Unraveling is begun the common way). No column is
+      // dealt by an instance; the staged company is the cargo,
+      // and the band law still caps what of it may stand at
+      // once.
       if (call.kind === "instance") {
         const tenderId = Number(String(player.expKey).replace("tender:", "")) || 0;
-        const staged = tenderId ? await deckForTender(tenderId, { stagedOnly: true }).catch(() => [] as TableCard[]) : [];
+        const staged = tenderId ? await companyForTender(tenderId, { stagedOnly: true }).catch(() => [] as TableCard[]) : [];
         if (!staged.length) { ws.send(JSON.stringify({ type: "error", message: "No company stands staged at your bastion — the instance has no one to carry." })); return; }
-        player.hand = staged;
-        tell(room, `${player.name} claims the instance — the bastion's staged company, ${staged.length} strong, travels in their hand.`);
+        player.stagedDeal = true;
+        player.company = staged;
+        player.companySig = undefined; // the refresh now reads the staged set
+        tell(room, `${player.name} claims the instance — the bastion's staged company, ${staged.length} strong, answers their wheel now.`);
         sendState(room);
         return;
       }
@@ -4580,11 +4730,11 @@ function handleConnection(ws: WebSocket): void {
       for (const p of room.players.values()) {
         if (p.watcher) continue;
         // The pool is seeded from the seat's STANDING
-        // reckoning, as it always was: the in-hand bonus
-        // (2026-10-21) governs the seat's own purse, not the
-        // pool's seeding — a seat whose members stand fielded
-        // at the claim seeds the pool whole, exactly as
-        // before the bonus was ruled.
+        // reckoning, as it always was: the bonus for the
+        // unfielded (2026-10-21) governs the seat's own purse,
+        // not the pool's seeding — a seat whose members stand
+        // fielded at the claim seeds the pool whole, exactly
+        // as before the bonus was ruled.
         pool += (p.standingMaxEnergy ?? p.maxEnergy) + 2 * Math.max(0, p.tenderLevel - 1);
       }
       // THE PREPARED BASTION (Station 4, Nigel 2026-10-20):

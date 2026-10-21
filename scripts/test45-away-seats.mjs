@@ -77,16 +77,22 @@ if (PHASE === "1") {
   await b.join({ devName: "Steady Sol", room: "away-room-1" });
 
   // Spend from the seat, so a re-deal would show: a fresh seat
-  // would return with a full purse and new card faces.
-  const card1 = a.you.hand[0];
-  a.send({ type: "summon", cardId: card1.id, hex: landingA });
-  await a.waitFor(c => c.state.field.some(u => u.cardId === card1.id && u.ownerKey === keyA), "the summon stands");
+  // would return with a full purse and new card faces. The
+  // summon is a CAST now (the wheel law, 2026-10-21) — it can
+  // falter, and each attempt spends; the helper casts the
+  // power-1 Hushkeeper until the call lands, so what the
+  // return must restore is the purse AFTER all its attempts.
+  const card1 = a.you.company.find(c => c.name === "Hushkeeper") ?? a.you.company[0];
+  for (let i = 0; i < 12; i++) {
+    a.send({ type: "summonCast", cardId: card1.id, hex: landingA });
+    try { await a.waitFor(c => c.state.field.some(u => u.cardId === card1.id && u.ownerKey === keyA), "the summon stands", 2500); break; } catch { /* a falter — cast again */ }
+  }
   const energySpent = a.you.energy;
   check("the summon spent from the purse", energySpent < energyFull, `energy ${energyFull} → ${energySpent}`);
-  // The seat's hand as it stands NOW (the cast card has left
-  // it for the field): this is what a return must hand back,
-  // card for card — a re-deal would mint fresh card faces.
-  const handIdsA = a.you.hand.map(c => c.id).join(",");
+  // The seat's company as it stands NOW (the cast member has
+  // left it for the field): this is what a return must hand
+  // back, card for card — a re-deal would mint fresh faces.
+  const handIdsA = a.you.company.map(c => c.id).join(",");
 
   // The drop: the connection dies, as a backgrounded iPad's does.
   a.ws.terminate();
@@ -106,7 +112,7 @@ if (PHASE === "1") {
   check("the returner is the same seat", a2.you.key === keyA, `key=${a2.you.key}`);
   check("the returner stands where they stood", meIn(a2).hex === landingA, `hex=${meIn(a2).hex} landing=${landingA}`);
   check("the purse was NOT refilled — no re-deal", a2.you.energy === energySpent, `energy=${a2.you.energy} spent=${energySpent}`);
-  check("the hand is the same hand, card for card", a2.you.hand.map(c => c.id).join(",") === handIdsA);
+  check("the company is the same company, card for card", a2.you.company.map(c => c.id).join(",") === handIdsA);
   check("the returned seat is no longer marked away", meIn(a2).away === false || meIn(a2).away === undefined, `away=${meIn(a2).away}`);
   check("the Awokin still stands after the return", a2.state.field.some(u => u.cardId === card1.id && u.ownerKey === keyA));
   check("the tale welcomes the seat back", taleHas(a2, "returns to the Table — their seat was held."));

@@ -32,7 +32,7 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // apart on what a class's cast is worth. (table.ts already
 // imports this module; the binding is only ever called at
 // request time, long after both modules stand.)
-import { castModFor, partyBattleSeatFor, startPartyReinforcement } from "./table.js";
+import { castModFor, partyBattleSeatFor } from "./table.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -9937,29 +9937,24 @@ export const handlers = {
    *  homeland the fill is immediate (no timer was ever named
    *  at home).
    *
-   *  MID-BATTLE (build 2, 2026-10-21 — the Keeper's pencil
-   *  from the hash-out, standing until Nigel rules
-   *  otherwise): if this Tender stands seated in a RUNNING
-   *  battle at the Table, this door does not land the
-   *  membership at once — mid-battle, the reinforcements
-   *  timer is the only road in. The fill reserves the spot
-   *  and starts the four-minute road, at the road's price
-   *  (the Awokin's summon cost in ✦, charged from the seat's
-   *  purse at the choosing); the answer carries the road, so
-   *  the tab can say the creature is on its way rather than
-   *  standing in the party. This door IS the reinforcement's
-   *  choosing place — the deck screen, reached by tapping an
-   *  empty Awokin spot on the Zodiac (Nigel, 2026-10-21). */
+   *  MID-BATTLE (the wheel law, Nigel 2026-10-21 16:26 —
+   *  superseding build 2's mid-battle pencil): the fill
+   *  lands the membership AT ONCE, even while a battle stands
+   *  at this Tender's Table seat. The four-minute
+   *  reinforcements road build 2 sent mid-battle fills down
+   *  was the deck hand's choosing machinery, and the hand is
+   *  retired: there is no road, no road price, and no
+   *  reservation — the member stands in the party from this
+   *  moment, and the wheel's summon cast at the Table is the
+   *  only gate between the party and the field. This door IS
+   *  the fill's choosing place — the deck screen, reached by
+   *  tapping an empty Awokin spot on the Zodiac (Nigel,
+   *  2026-10-21). */
   async addToParty(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("Name the Awokin to add to your party.");
     const ownerKey = ownerKeyFor(ctx);
-    if (partyBattleSeatFor(ownerKey)) {
-      const r = await startPartyReinforcement(ownerKey, parsed.data.awakenedId);
-      if (!r.ok) badRequest(r.reason);
-      return { ...(await partyViewFor(ownerKey)), reinforcement: { awakenedId: parsed.data.awakenedId, name: r.name, arrivesAt: r.arrivesAt, cost: r.cost } };
-    }
     const progress = await getTenderProgress(ownerKey);
     const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
@@ -9970,11 +9965,13 @@ export const handlers = {
    *  standing until Nigel rules otherwise): benching is free
    *  whenever the Tender is not mid-battle — and REFUSED,
    *  plainly, while one stands (build 2, 2026-10-21: the
-   *  pencil's other half — mid-battle the timer is the only
-   *  road IN, and benching is no road OUT; the order roads,
-   *  which end a membership by ordering the creature
-   *  itself, are untouched by this refusal, exactly as
-   *  build 1 left them). This door is the Zodiac's own —
+   *  pencil's other half — a party standing in a running
+   *  battle is not benched out from under it, and benching
+   *  is no road OUT; the order roads, which end a membership
+   *  by ordering the creature itself, are untouched by this
+   *  refusal, exactly as build 1 left them; the wheel law
+   *  retired the road IN, not this refusal — its rationale
+   *  was never the road). This door is the Zodiac's own —
    *  it changes membership only, and it does not lift a
    *  follow order the creature stands under on a field —
    *  follow is each ground's own switch, as it was before

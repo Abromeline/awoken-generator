@@ -192,12 +192,17 @@ async function bindTable({ token, discordId, discordName, weaponKey }) {
 }
 const unitByName = (c, frag) => c.state.field.find((u) => u.name.includes(frag));
 async function summonOnto(c, cardId, nearId) {
+  // THE WHEEL CAST (2026-10-21): the summon is a cast — it
+  // can falter (and the falter spends the price), so cast
+  // again at the same ground before walking the ring.
   const spots = c.state.map.filter((t) => !t.cursed && t.id !== "0,0" && axialDist(t.id, nearId) <= 1);
   for (const s of spots) {
-    c.send({ type: "summon", cardId, hex: s.id });
-    try { await c.waitFor((cc) => cc.state.field.some((u) => u.cardId === cardId), `summon onto ${s.id}`, 4000); return s.id; } catch { /* next spot */ }
+    for (let i = 0; i < 6; i++) {
+      c.send({ type: "summonCast", cardId, hex: s.id });
+      try { await c.waitFor((cc) => cc.state.field.some((u) => u.cardId === cardId), `summon onto ${s.id}`, 2500); return s.id; } catch { /* a falter — cast again */ }
+    }
   }
-  throw new Error("no summonable pure neighbour of " + nearId);
+  throw new Error("no summonable pure neighbour of " + nearId + " | errors: " + JSON.stringify(c.errors.slice(-4)) + " | energy: " + c.you?.energy + " | company: " + JSON.stringify((c.you?.company ?? []).map((x) => x.name)));
 }
 /** Write the Single Blade under a named dark until it stands
  *  or springs (the cast roll fizzles sometimes — retry, as
@@ -265,8 +270,16 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
 {
   console.log("§T1 table campaign — the standing fell, the bench does not");
   const B = await claimBound("Campaign Feller", "runewright");
-  seedAwokin(B.ownerKey, "Campaign Feller", "Campost One", "root");
-  seedAwokin(B.ownerKey, "Campaign Feller", "Campost Two", "root");
+  // The Camposts are filed at power 1 a part (power 3
+  // whole): the campaign bank (two stakes, ✦24) must fund
+  // their summon CASTS now — a cast can falter, and every
+  // attempt charges the bank (the wheel law, 2026-10-21).
+  const camp1 = seedAwokin(B.ownerKey, "Campaign Feller", "Campost One", "root", 1, 3);
+  const camp2 = seedAwokin(B.ownerKey, "Campaign Feller", "Campost Two", "root", 1, 3);
+  // The strict company (2026-10-21): only party members
+  // stand in the seat's company at the wheel — compose it.
+  await call("addToParty", { awakenedId: camp1 }, B.token);
+  await call("addToParty", { awakenedId: camp2 }, B.token);
   const ttB = await bindTable({ token: B.token, discordId: "fell-b", discordName: "Campaign Feller" });
   const C = await claimBound("Campaign Bench", "warden");
   seedAwokin(C.ownerKey, "Campaign Bench", "Benchwarmer", "stone");
@@ -274,15 +287,19 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
 
   const room = "campaign-fell-drops";
   const st = client("ST");
-  await st.join({ devName: "Drops Storytender", room, storytender: true });
+  await st.join({ devName: "Drops Storytender", room });
+  // The seat is claimed in the room (Campaign Build 1) —
+  // the join no longer confers it.
+  st.send({ type: "claimStoryteller" });
+  await st.waitFor((c2) => !!c2.you?.storytender, "the drops storytender's claim", 15000);
   const b = client("B");
   await b.join({ authToken: ttB, room });
   const cc = client("C");
   await cc.join({ authToken: ttC, room });
   const landingB = b.you.landing;
-  const handB = b.you.hand ?? [];
-  await summonOnto(b, handB.find((cd) => cd.name === "Campost One").id, landingB);
-  await summonOnto(b, handB.find((cd) => cd.name === "Campost Two").id, landingB);
+  const companyB = b.you.company ?? [];
+  await summonOnto(b, companyB.find((cd) => cd.name === "Campost One").id, landingB);
+  await summonOnto(b, companyB.find((cd) => cd.name === "Campost Two").id, landingB);
   ok("campaign: the feller stands two Awoken on the field", b.state.field.filter((u) => u.ownerKey === b.you.key).length === 2);
   ok("campaign: the bench seat fields nothing", cc.state.field.filter((u) => u.ownerKey === cc.you.key).length === 0);
 
@@ -317,7 +334,20 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
 {
   console.log("§T2 table casual — the killer's pools catch the drip");
   const B = await claimBound("Casual Feller", "runewright");
-  for (const n of ["One", "Two", "Three"]) seedAwokin(B.ownerKey, "Casual Feller", `Wavepost ${n}`, "root");
+  const waveIds = [];
+  // The posts are filed at power 2 a part (power 6 whole):
+  // their summon casts roll against DC 16, not 19 — the
+  // section needs THREE landings from one purse, and at
+  // the power-9 price (✦9, 40% a cast) an honest run of
+  // falters starved it twice in three runs. Power 6 still
+  // fells fray in good time inside the hunt's budgets.
+  for (const n of ["One", "Two", "Three"]) waveIds.push(seedAwokin(B.ownerKey, "Casual Feller", `Wavepost ${n}`, "root", 2, 3));
+  // The strict company: the three posts are the party.
+  for (const id of waveIds) await call("addToParty", { awakenedId: id }, B.token);
+  // A bench of owned non-members deepens the seat's purse
+  // (the standing reckoning counts the whole roster) — the
+  // summon casts below can falter, and their retries spend.
+  for (let i = 0; i < 24; i++) seedAwokin(B.ownerKey, "Casual Feller", `Fellbench ${i + 1}`, "root");
   const ttB = await bindTable({ token: B.token, discordId: "fell-b2", discordName: "Casual Feller", weaponKey: "sword" });
   const C = await claimBound("Casual Witness", "warden");
   seedAwokin(C.ownerKey, "Casual Witness", "Quietstander", "stone");
@@ -329,12 +359,13 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
   // geometry can strand a camper at the seed's doorstep out
   // of everyone's reach (probed, 2026-10-21). Two wave
   // ladders from the bottom average that weather out. The
-  // seat's purse is its own (28 at the sit, +3 a fell,
-  // blades at 2) — the hunt lives inside that economy:
-  // three summons, then blades and blows paid by the fells
-  // themselves. Marching is NOT used: a re-ordered unit
-  // glides and strikes nothing, and a march costs 3 a hex
-  // the blades need more.
+  // seat's purse is its own (166 at the sit with the bench
+  // above, +3 a fell, blades at 2) — the hunt lives inside
+  // that economy: three summon casts (falters included),
+  // then blades and blows paid by the fells themselves.
+  // Marching is NOT used: a re-ordered unit glides and
+  // strikes nothing, and a march costs 3 a hex the blades
+  // need more.
   let totalFells = 0;
   const huntRoom = async (room, target) => {
     const b = client(`B2-${room}`);
@@ -342,9 +373,9 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
     const cc = client(`C2-${room}`);
     await cc.join({ authToken: ttC, room });
     const landingB = b.you.landing;
-    const handB = b.you.hand ?? [];
+    const companyB = b.you.company ?? [];
     for (const n of ["One", "Two", "Three"]) {
-      await summonOnto(b, handB.find((cd) => cd.name === `Wavepost ${n}`).id, landingB);
+      await summonOnto(b, companyB.find((cd) => cd.name === `Wavepost ${n}`).id, landingB);
     }
     ok(`casual ${room}: the feller stands three Awoken`, b.state.field.filter((u) => u.ownerKey === b.you.key).length === 3,
       `fielded ${b.state.field.filter((u) => u.ownerKey === b.you.key).length}, energy ${b.you.energy}`);
@@ -352,7 +383,7 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
     // never stands empty while tough bodies grind on.
     const reinforce = async () => {
       const fielded = new Set(b.state.field.filter((u) => u.ownerKey === b.you.key).map((u) => u.cardId));
-      for (const cd of (b.you.hand ?? [])) {
+      for (const cd of (b.you.company ?? [])) {
         if (fielded.has(cd.id)) continue;
         try { await summonOnto(b, cd.id, landingB); } catch { /* no pure neighbour this cycle */ }
       }
