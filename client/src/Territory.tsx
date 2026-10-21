@@ -1312,6 +1312,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice(err instanceof Error ? err.message : "The work would not begin.");
     }
   };
+  // ── ATTUNE THE GROUND BENEATH YOU (Nigel, 2026-10-21):
+  // the Attune ability on the land map, the Table act's
+  // twin — one point of an element leaves the pool and
+  // rests in the bank of the tile the Tender stands on,
+  // instantly; repeated taps are the fast road. The server
+  // reads the stand itself, so the card names no tile.
+  const handleAttuneTile = async (element: string) => {
+    try {
+      const res = await api.attuneTile({ element });
+      await refreshTerritory();
+      await fetchBuildPools();
+      if (res.turned) showHexNotice(`The ground turns beneath you — it holds ${res.element} now.`);
+      else if (res.attuneElement) showHexNotice(`A ${element} point rests in the ground beneath you — its bank holds ${res.attuneElement} ${Math.floor(res.attunePoints)}/10 toward turning.`);
+      else showHexNotice(`A ${element} point rests in the ground beneath you.`);
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The attuning was refused.");
+    }
+  };
   const handlePourBuild = async (tileId: number, opts?: { branch?: "tide" | "sky"; finish?: "bake" | "lower" }) => {
     try {
       const res = await api.pourBuild({ tileId, ...opts });
@@ -1471,6 +1489,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenderStand]);
+
+  // The attune card under the map spends from the pools:
+  // keep their counts fresh whenever the Tender's stand
+  // changes (and after every spend, in handleAttuneTile).
+  useEffect(() => {
+    if (tenderStand) void fetchBuildPools();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenderStand?.tileId]);
 
   // Camera moves are deliberate: on pan or zoom the body re-anchors
   // to the hex the server holds, and any tap-road is forgotten.
@@ -5927,6 +5953,51 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </button>
         )}
       </div>
+
+      {/* ATTUNE THE GROUND BENEATH YOU (Nigel, 2026-10-21):
+          the Attune ability's face on the land map, mirroring
+          the Table's attune row — one tap spends one point of
+          that element from the pool into the bank of the tile
+          the Tender stands on; repeated taps make the turning
+          faster, or instant for a purse deep enough. Cursed
+          ground, a work rising, and baked ground name their
+          refusal in the row's place, as the Table names
+          cursed ground. What the card shows is the ground's
+          own reckoning: the element it holds, its bank toward
+          turning (the tile's attuneElement/attunePoints), and
+          its growing tray — the same numbers the map serves. */}
+      {territoryLoaded && tenderStand && !buildSel && (() => {
+        const standTile = tiles.find(t => t.id === tenderStand.tileId);
+        if (!standTile) return null;
+        const st = standTile as any;
+        const stage = st.buildStage ?? 0;
+        const underway = stage >= 1 && stage <= 4;
+        return (
+          <section className="homeland-attune" aria-label="Attune the ground beneath you">
+            {standTile.cursed ? (
+              <span className="attune-label">🌑 This ground is still cursed — attunement rests only on purified land.</span>
+            ) : underway ? (
+              <span className="attune-label">🏗 A work is rising on this ground — its pours are the builder's. Attune it when it stands finished, or stand elsewhere.</span>
+            ) : st.baked ? (
+              <span className="attune-label">🔥 This ground is baked sealed — its bank is shut, and no attunement pours into it.</span>
+            ) : (
+              <div className="attune-row">
+                <span className="attune-label">Attune this ground — it holds {standTile.element}{st.attuneElement && (st.attunePoints ?? 0) > 0 ? <> · bank: {st.attuneElement} {Math.floor(st.attunePoints)}/10 toward turning</> : null}{(st.growPoints ?? 0) > 0 ? <> · tray growing: {Math.floor(st.growPoints)}/30</> : null}:</span>
+                {(["root", "tide", "sky", "stone", "fire"] as const).map(el => {
+                  const held = Math.floor(buildPools?.[el] ?? 0);
+                  return (
+                    <button key={el} type="button" className="abtn small attune-btn" data-element={el} disabled={held < 1}
+                      title={held >= 1 ? `Spend 1 ${el} point — it rests in this ground's bank now` : `Your ${el} pool is empty`}
+                      onClick={() => void handleAttuneTile(el)}>
+                      {el} · {held}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       <div className="territory-map"
         onPointerDown={(e) => {

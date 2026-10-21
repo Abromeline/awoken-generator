@@ -536,6 +536,45 @@ async function aspectPoolFor(ownerKey: string, element: string): Promise<number>
     .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, element as any))).limit(1);
   return row[0]?.points ?? 0;
 }
+/** Pour pressure into a tile's bank and resolve its 10-point
+ *  steps. Returns the fields to persist, or null when unmoved.
+ *  WITNESS RULE (Nigel, 2026-10-15): a pour may not complete
+ *  a stage in the same beat its bank (re)starts — the fresh
+ *  bank caps at 9, so the seal and its countdown stand on
+ *  the tile for at least one full beat before the land turns.
+ *  (Before this, a heavy company flipped a hex between glances
+ *  and a turned hex fell back with no visible cause.) A
+ *  shrine's pour is exempt: its five-hour rhythm is its own
+ *  witness. THIS IS THE ONE BANK RECKONING: the territory
+ *  settle pours the standing press through it, the shrine
+ *  pours through it, and the Tender's Attune act (attuneTile)
+ *  pours its spent point through it — a point counts the
+ *  same whichever road laid it. */
+function pourAttunementBank(tile: any, el: string, pts: number, completeStage = false): { element: string; attuneElement: string | null; attunePoints: number } | null {
+  let bankEl = tile.attuneElement as string | null;
+  let bank = tile.attunePoints ?? 0;
+  const fresh = bankEl !== el || bank <= 0;
+  if (bankEl !== el) { bankEl = el; bank = 0; }
+  bank += pts;
+  if (fresh && !completeStage && bank > 9) bank = 9;
+  let element = tile.element as string;
+  let crossed = false;
+  while (bank >= 10) {
+    if (element === el) { bank = 10; break; }
+    element = element === "neutral" ? el : "neutral";
+    bank -= 10;
+    crossed = true;
+    // One stage per beat (Nigel, 2026-10-15): a carried bank
+    // may not sprint through the neutral shore in the same
+    // answer — the crossing must be witnessed too.
+    if (!completeStage) { if (bank > 9) bank = 9; break; }
+  }
+  if (element !== tile.element || bankEl !== (tile.attuneElement ?? null) || bank !== (tile.attunePoints ?? 0)) {
+    return { element, attuneElement: bankEl, attunePoints: bank };
+  }
+  return null;
+}
+
 /** A created stage seals: its gift lands in the terrain bank and
  *  the land itself changes. Mutates the tile row object and its
  *  stored fields; the caller keeps filling or finishes. */
@@ -6209,39 +6248,10 @@ export const handlers = {
         if (!leadEl || net <= 0) return { el: "", pts: 0 };
         return { el: leadEl, pts: net };
       };
-      // Pour pressure into a tile's bank and resolve its 10-point
-      // steps. Returns the fields to persist, or null when unmoved.
-      // WITNESS RULE (Nigel, 2026-10-15): a company's pour may not
-      // complete a stage in the same beat its bank (re)starts — the
-      // fresh bank caps at 9, so the seal and its countdown stand on
-      // the tile for at least one full beat before the land turns.
-      // (Before this, a heavy company flipped a hex between glances
-      // and a turned hex fell back with no visible cause.) A shrine's
-      // pour is exempt: its five-hour rhythm is its own witness.
-      const pour = (tile: any, el: string, pts: number, completeStage = false) => {
-        let bankEl = tile.attuneElement as string | null;
-        let bank = tile.attunePoints ?? 0;
-        const fresh = bankEl !== el || bank <= 0;
-        if (bankEl !== el) { bankEl = el; bank = 0; }
-        bank += pts;
-        if (fresh && !completeStage && bank > 9) bank = 9;
-        let element = tile.element as string;
-        let crossed = false;
-        while (bank >= 10) {
-          if (element === el) { bank = 10; break; }
-          element = element === "neutral" ? el : "neutral";
-          bank -= 10;
-          crossed = true;
-          // One stage per beat (Nigel, 2026-10-15): a carried bank
-          // may not sprint through the neutral shore in the same
-          // answer — the crossing must be witnessed too.
-          if (!completeStage) { if (bank > 9) bank = 9; break; }
-        }
-        if (element !== tile.element || bankEl !== (tile.attuneElement ?? null) || bank !== (tile.attunePoints ?? 0)) {
-          return { element, attuneElement: bankEl, attunePoints: bank };
-        }
-        return null;
-      };
+      // The bank reckoning is pourAttunementBank (module
+      // scope) — the one reckoning the standing press, the
+      // shrine, and the Tender's Attune act all pour through.
+      const pour = pourAttunementBank;
       // Terraforming trays (Nigel, 2026-10-15): a purified hex is a
       // STACK of trays — Z trays, cap 6. One growing tray, born at
       // the BOTTOM of the stack, accrues the matching company's
@@ -6785,6 +6795,105 @@ export const handlers = {
       baked: tile.baked ?? 0, lowered: tile.lowered ?? 0, z: tile.z ?? 0, element: tile.element,
       wanted: stageWantedElement(tile), pool: await aspectPoolFor(ownerKey, wanted),
       terrainBank: await terrainBankFor(ownerKey), maxEnergy: await calculateMaxEnergy(ownerKey),
+    };
+  },
+
+  /* ── ATTUNE THE GROUND BENEATH YOU (Nigel, 2026-10-21:
+   *  "awoken still attune tiles by standing on the[m]...
+   *  and the tender can use the attune ability to make
+   *  attunement faster or instant if they have enough
+   *  elemental energysaved") — the homeland twin of the
+   *  Table's attuneTile act. One point of an element leaves
+   *  the Tender's pool through the pools' own door
+   *  (spendAttunement) and pours into the bank of the tile
+   *  he stands on — through pourAttunementBank, the very
+   *  reckoning the standing press pours by, witness rule
+   *  and all — so a spent point counts exactly as a
+   *  standing-laid point does, only now, and repeated
+   *  spends are the "faster or instant" road, as at the
+   *  Table. If the pour turns the tile, its tray stack
+   *  resets as any turning resets it in the settle; if the
+   *  ground already holds the spent element, the point
+   *  also feeds the growing tray, as a matching press
+   *  point does on the same beat (the tray's own seal and
+   *  cap: 30 points seal a tray, six trays stand at most).
+   *  The refusals mirror the Table act where the homeland's
+   *  law has equivalents: his own ground only — the tile
+   *  he stands on, read from tender_progress, and another
+   *  Tender's ground is not even in his territory rows;
+   *  cursed ground refused (attunement rests only on
+   *  purified land — the homeland press itself never pours
+   *  into cursed ground, and a tile's fall back to curse
+   *  zeroes its bank); a work underway refused (its pours
+   *  are the builder's, ten at a time through pourBuild —
+   *  a bank point there would vanish into the build);
+   *  baked ground refused (the kiln sealed its bank — the
+   *  settle pours nothing into baked ground either); and
+   *  the pool enforced whole — nothing is half-spent. The
+   *  bastion hex itself is NOT refused: no homeland law
+   *  seals it, and a company standing there presses it like
+   *  any ground — the Table's seed refusal is the Table's
+   *  own law, not the land's. Fire may be spent, as the
+   *  Table act takes all five, though no standing press
+   *  ever speaks fire and fire grows no trays. */
+  async attuneTile(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ element: z.enum(["root", "tide", "sky", "stone", "fire"]) }).safeParse(args);
+    if (!parsed.success) badRequest("Name one of the five elements to attune the ground with.");
+    const element = parsed.data.element;
+    const stand = sqlite.prepare("SELECT tender_tile_id AS tileId FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (!stand?.tileId) badRequest("You stand nowhere on your land — step onto the ground you would attune.");
+    const rows = await db.select().from(schema.territoryTiles)
+      .where(and(eq(schema.territoryTiles.id, Number(stand.tileId)), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
+    const tile = rows[0] as any;
+    if (!tile) badRequest("The ground beneath you is not yours to attune.");
+    if (tile.cursed) badRequest("That ground is still cursed — attunement rests only on purified land. Win it first, and the ground will turn.");
+    if (buildUnderway(tile)) badRequest("A work is rising on that ground — its pours are the builder's, ten at a time. Attune it when it stands finished, or stand elsewhere.");
+    if ((tile as any).baked) badRequest("That ground is baked sealed — the kiln shut its bank, and no attunement pours into it.");
+    const spent = await spendAttunement(ownerKey, element, 1);
+    if (!spent.ok) badRequest(`Attuning the ground costs 1 ${element} point — your ${element} pool holds ${Math.floor(spent.held)}.`);
+    const elementBefore = tile.element as string;
+    const upd = pourAttunementBank(tile, element, 1);
+    if (upd) Object.assign(tile, upd);
+    const turned = (tile.element as string) !== elementBefore;
+    let traysMoved = false;
+    if (turned) {
+      // A turning resets the stack (the settle's own habit).
+      tile.sealedTrays = 0; tile.growPoints = 0; tile.topPoints = null;
+      traysMoved = true;
+    } else if (tile.element === element && element !== "fire") {
+      // The ground already holds the spent element: the
+      // point feeds the growing tray, as a matching press
+      // point does on the settle's beat (growStack's own
+      // arithmetic: 30 points seal a tray, six stand at
+      // most; fire and neutral grow no trays — neutral
+      // never reaches this branch, its element is its own).
+      const sealed = tile.sealedTrays ?? 0;
+      if (sealed < 6) {
+        let grow = (tile.growPoints ?? 0) + 1;
+        let sealedNow = sealed;
+        while (grow >= 30 && sealedNow < 6) { grow -= 30; sealedNow += 1; }
+        if (sealedNow >= 6) grow = 0;
+        tile.growPoints = grow; tile.sealedTrays = sealedNow;
+        traysMoved = true;
+      }
+    }
+    const setFields: Record<string, unknown> = {
+      element: tile.element, attuneElement: tile.attuneElement ?? null, attunePoints: tile.attunePoints ?? 0,
+    };
+    if (traysMoved) {
+      setFields.sealedTrays = tile.sealedTrays ?? 0;
+      setFields.growPoints = tile.growPoints ?? 0;
+      setFields.topPoints = tile.topPoints ?? null;
+      setFields.height = tile.cursed ? 0 : ((tile.sealedTrays ?? 0) >= 6 ? 6 : (tile.sealedTrays ?? 0) + 1);
+    }
+    await db.update(schema.territoryTiles).set(setFields as any).where(eq(schema.territoryTiles.id, tile.id));
+    return {
+      ok: true as const, tileId: tile.id, element: tile.element as string,
+      attuneElement: (tile.attuneElement ?? null) as string | null, attunePoints: tile.attunePoints ?? 0,
+      growPoints: tile.growPoints ?? 0, sealedTrays: tile.sealedTrays ?? 0, turned,
+      pool: await aspectPoolFor(ownerKey, element),
     };
   },
 

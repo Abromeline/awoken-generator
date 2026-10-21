@@ -745,6 +745,8 @@ export const api = {
     post<{ ok: true; tileId: number; buildStage: number; buildPoints: number; wanted: string; terrainBank: number }>("beginBuild", args),
   pourBuild: (args: { tileId: number; branch?: "tide" | "sky"; finish?: "bake" | "lower" }) =>
     post<{ ok: true; tileId: number; buildStage: number; buildPoints: number; buildBranch: string | null; buildFinish: string | null; baked: number; lowered: number; z: number; element: string; wanted: string | null; pool: number; terrainBank: number; maxEnergy: number }>("pourBuild", args),
+  attuneTile: (args: { element: string }) =>
+    post<{ ok: true; tileId: number; element: string; attuneElement: string | null; attunePoints: number; growPoints: number; sealedTrays: number; turned: boolean; pool: number }>("attuneTile", args),
   setPlacementFollow: (args: { placementId: number; follow: boolean }) =>
     post<{ ok: true; follow: boolean }>("setPlacementFollow", args),
   recallMarch: (args: { awakenedId: number }) =>

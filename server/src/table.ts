@@ -230,6 +230,14 @@ interface MapTile {
    *  out-laying, point for point. Only the five pool
    *  elements ever rest here. */
   points: Record<string, number>;
+  /** The fractional accrual beneath the resting points:
+   *  an Awokin STANDING on this tile lays its own element
+   *  onto it slowly (settleStandingAttunement), and the
+   *  fractions gather here until they whole into points.
+   *  Server-kept only — the room serves the whole points
+   *  (tile.points), never the gathering. Born bare with
+   *  the tile, and bared again when the tile turns. */
+  attuneAcc?: Record<string, number>;
   /** Corruption remaining (cursed tiles): ground down by the
    *  standing light's power each round; at zero the tile turns. */
   curseHp: number;
@@ -1247,7 +1255,7 @@ function freshInstanceMap(): Map<string, MapTile> {
     const seed = t.id === SEED_TILE;
     map.set(t.id, {
       id: t.id, q: t.q, r: t.r,
-      cursed: !seed, element: seed ? "sky" : null, points: {},
+      cursed: !seed, element: seed ? "sky" : null, points: {}, attuneAcc: {},
       curseHp: seed ? 0 : curseHpForRing(ring), curseMaxHp: seed ? 0 : curseHpForRing(ring),
       landingFor: null,
     });
@@ -1446,6 +1454,7 @@ function purifyTile(room: Room, tile: MapTile, element: string): void {
   tile.cursed = false;
   tile.element = element;
   tile.points = {};
+  tile.attuneAcc = {};
   tile.curseHp = 0;
   tell(room, `🌿 The land turns — ${element} ground joins the light.`);
 }
@@ -1531,10 +1540,15 @@ function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
  *  its greatest health per beat — and its presence wears
  *  the tile's corruption down by its power, unless the
  *  dark itself holds that tile. A tile ground to nothing
- *  turns NEUTRAL (Nigel, 2026-10-20: at the Table ONLY THE
- *  TENDER ATTUNES TILES — standing presence is not
- *  attunement, and ground the light frees by standing on it
- *  takes no element until a Tender spends one onto it).
+ *  turns NEUTRAL: the grind is a freeing, not an
+ *  attunement — ground the light frees by standing on it
+ *  takes no element from the freeing itself. (The
+ *  2026-10-20 reading that ONLY THE TENDER ATTUNES TILES
+ *  was superseded by Nigel, 2026-10-21: Awokin standing
+ *  on PURIFIED ground do attune it, slowly, in their own
+ *  element — settleStandingAttunement. On cursed ground
+ *  their presence is spent here, grinding and withering,
+ *  and lays no points.)
  *  THE TENDER WITHERS TOO: he may walk the cursed land —
  *  it is his road as much as theirs — and it takes the
  *  same share of him, standing or gliding, until he
@@ -1660,6 +1674,60 @@ function settleWorkingWithering(room: Room, dtSec: number): boolean {
   return changed;
 }
 
+/** STANDING ATTUNEMENT (Nigel, 2026-10-21: "awoken still
+ *  attune tiles by standing on the[m], creating elemental
+ *  attunement points and the tender can use the attune
+ *  ability to make attunement faster or instant"). An
+ *  Awokin standing on purified ground lays its OWN
+ *  element's points onto that tile — slowly, into the
+ *  same resting ledger the Attune act spends into
+ *  (tile.points), so the tile's held element turns by the
+ *  one plurality law (elementFromPoints) whichever road
+ *  laid the points. THE RATE IS A KEEPER'S CALL, unruled:
+ *  one point per Awokin per twenty beats — 56 seconds of
+ *  standing — in the homeland's spirit: its press accrues
+ *  slowly (net points divided by 16/3, per hour) and only
+ *  with presence; here, no presence, no accrual, and a
+ *  tile vacated keeps the fractions it had gathered (as a
+ *  homeland tray keeps its growth) but gathers no more.
+ *  Cursed ground takes none: there the standing light's
+ *  presence is already spent — grinding the curse down
+ *  and withering under it (settleCurseWithering) — and
+ *  attunement rests only on purified land, the act's own
+ *  law. The seed tile takes none either: the act refuses
+ *  it, and standing honors the same seal. Runs wherever
+ *  the withering runs — the room's standing pulse and the
+ *  battle clock alike. Returns true when a whole point
+ *  landed (the only change a watcher can see). */
+const STANDING_ATTUNE_BEATS_PER_POINT = 20;
+function settleStandingAttunement(room: Room, dtSec: number): boolean {
+  if (dtSec <= 0) return false;
+  let changed = false;
+  const touched = new Set<MapTile>();
+  for (const u of standingUnits(room)) {
+    const tile = room.map.get(u.hex);
+    if (!tile || tile.cursed || tile.id === SEED_TILE) continue;
+    const el = u.card.element;
+    if (!(el in ELEMENT_REACH)) continue;
+    const acc = tile.attuneAcc ?? (tile.attuneAcc = {});
+    acc[el] = (acc[el] ?? 0) + (dtSec / (BEAT_MS / 1000)) / STANDING_ATTUNE_BEATS_PER_POINT;
+    touched.add(tile);
+  }
+  for (const tile of touched) {
+    const acc = tile.attuneAcc;
+    if (!acc) continue;
+    for (const [el, frac] of Object.entries(acc)) {
+      const whole = Math.floor(frac);
+      if (whole <= 0) continue;
+      acc[el] = frac - whole;
+      tile.points[el] = (tile.points[el] ?? 0) + whole;
+      tile.element = elementFromPoints(tile);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /** THE ROOM'S STANDING PULSE (the fix of 2026-10-20): a
  *  light 250 ms heartbeat every room keeps from its
  *  making, so the curse's standing law — the withering
@@ -1683,7 +1751,8 @@ function roomPulse(room: Room): void {
   if (dtMs <= 0) return;
   integrate(room, now);
   const changed = settleCurseWithering(room, dtMs / 1000) || settleWorkingWithering(room, dtMs / 1000);
-  if (changed) sendState(room);
+  const attuned = settleStandingAttunement(room, dtMs / 1000);
+  if (changed || attuned) sendState(room);
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -2841,6 +2910,7 @@ async function runRound(room: Room): Promise<void> {
     // fix of 2026-10-20: the curse does not wait for a wave).
     settleCurseWithering(room, dtSec);
     settleWorkingWithering(room, dtSec);
+    settleStandingAttunement(room, dtSec);
     // THE SEED ASSAULTED (campaign, TABLE-DESIGN §4.4, made
     // physical by the Instance Map): dark standing AT THE
     // GATE — the seed's own ring — EXPOSED, with no standing

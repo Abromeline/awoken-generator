@@ -2800,6 +2800,16 @@ body.defeat-flash {
 .weapon-held{margin-left:auto;color:#9ed07e;font-size:12.5px;white-space:nowrap}
 .weapon-branch header .zodiac-btn{margin-left:auto;margin-top:0;white-space:nowrap}
 .attune-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin:6px 0}
+.homeland-attune{margin:8px 0 2px;padding:8px 12px;border:1px solid rgba(240,214,140,0.22);border-radius:10px;background:rgba(10,8,14,0.55)}
+.homeland-attune .attune-label{font-size:12.5px;color:#cbbf9f;letter-spacing:.02em}
+.homeland-attune .attune-row{margin:0}
+.homeland-attune .attune-btn{text-transform:capitalize}
+.homeland-attune .attune-btn:disabled{opacity:.45;cursor:default}
+.homeland-attune .attune-btn[data-element="root"]{border-color:rgba(82,160,82,.7)}
+.homeland-attune .attune-btn[data-element="tide"]{border-color:rgba(56,130,160,.7)}
+.homeland-attune .attune-btn[data-element="sky"]{border-color:rgba(140,128,200,.7)}
+.homeland-attune .attune-btn[data-element="stone"]{border-color:rgba(160,140,100,.7)}
+.homeland-attune .attune-btn[data-element="fire"]{border-color:rgba(200,90,50,.7)}
 .attune-node{border:1px solid rgba(240,214,140,0.4);border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;color:#9aa3b8}
 .attune-node.lit{background:rgba(240,214,140,0.85);color:#14161f;font-weight:700}
 .weapon-actions{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0}
