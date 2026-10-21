@@ -208,6 +208,18 @@ interface YouState {
    *  own payload only — the unit bar offers the add where a
    *  fielded Awokin of yours is not yet a member. */
   party?: number[];
+  /** THE PARTY'S SEAT DISPLAY (build 2): the members with
+   *  their standings for this Table, the open spots, and
+   *  the reinforcements already on the road with their time
+   *  left — served with your own payload. The display only
+   *  shows the party and its roads; a reinforcement is
+   *  CHOSEN on the Zodiac's deck screen, never here. */
+  partyView?: {
+    cap: number;
+    members: { awakenedId: number; name: string; standing: "field" | "hand" | "post" }[];
+    openSpots: number;
+    incoming: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
+  } | null;
   /** The colour each cast will wear, derived by the server
    *  from the page's standing in the Grimoire — served with
    *  the seat's own state (Nigel, 2026-10-20: the cast's hue
@@ -2635,6 +2647,39 @@ export default function Table() {
                         </span>
                       ))}
                     </div>
+                  </div>
+                )}
+                {you.partyView && (
+                  <div className="hand-party">
+                    <p className="quiet small">Your party at this Table — {you.partyView.members.length} of {you.partyView.cap} spots filled. The hand above is dealt from this party.</p>
+                    <div className="elsewhere-row">
+                      {you.partyView.members.map((m) => (
+                        <span key={m.awakenedId} className="elsewhere-chip party-chip"
+                          title={m.standing === "field" ? `${m.name} stands on the field — a member standing when the battle ends stays standing.` : m.standing === "hand" ? `${m.name} stands in your party and in your hand.` : `${m.name} stands in your party but keeps another post — it was not dealt to this Table.`}>
+                          👣 {m.name} · {m.standing === "field" ? "⚔ on the field" : m.standing === "hand" ? "🂠 in your hand" : "keeps its post"}
+                        </span>
+                      ))}
+                      {you.partyView.incoming.map((i) => {
+                        const left = Math.max(0, i.arrivesAt - Date.now());
+                        const mm = Math.floor(left / 60000);
+                        const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+                        return (
+                          <span key={i.awakenedId} className="elsewhere-chip party-chip incoming"
+                            title={`${i.name} is on the road to your party — it joins, membership and card together, when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
+                            🚶 {i.name} · on its way — {mm}:{ss} left
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {shared.battle.active && you.partyView.openSpots > 0 && (
+                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. To call a reinforcement, open the Party tab of your Zodiac and tap an open spot there — the deck screen is where a reinforcement is chosen. The road costs the Awokin's summon price in ✦ and takes four minutes; it lands only while the battle stands, and if the battle ends first the ✦ comes back whole.</p>
+                    )}
+                    {shared.battle.active && you.partyView.openSpots === 0 && (
+                      <p className="quiet small">Your party stands full — no spot stands open for a reinforcement.</p>
+                    )}
+                    {!shared.battle.active && (
+                      <p className="quiet small">Between battles, fill an open spot from the Party tab of your Zodiac — there the fill lands at once, and costs nothing.</p>
+                    )}
                   </div>
                 )}
                 {selectedCard ? (

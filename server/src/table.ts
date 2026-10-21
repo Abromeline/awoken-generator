@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
-import { partyIdsFor, tryAddPartyMember, removePartyMember } from "./party.js";
+import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 by Nigel 2026-10-18, the night the map grew to 127 tiles
@@ -42,6 +42,16 @@ const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 b
  *  long before it lapses into a true leaving. Env-tunable for
  *  the test harness. */
 const AWAY_GRACE_MS = Number(process.env.TABLE_AWAY_GRACE_MS || 600_000);
+/** THE REINFORCEMENTS TIMER (Nigel, 2026-10-20): filling an
+ *  open party spot from the deck while a battle stands at
+ *  the Table lands the membership and the card only when
+ *  this road completes — four minutes, his number. Env-
+ *  tunable for the test harness, as the away grace is. */
+const REINFORCEMENT_MS = Number(process.env.TABLE_REINFORCEMENT_MS || 240_000);
+/** The fall measure: a truly dissipated Awoken re-coalesces
+ *  in four hours — the homeland's dispersal writes the same
+ *  span on awakened.dispersed_until (actions.ts). */
+const RECOALESCE_MS = 4 * 60 * 60 * 1000;
 const TALE_CAP = 100;
 
 interface TableCard {
@@ -181,6 +191,19 @@ interface Player {
   /** When this Tender last cast a working — the room's screens
    *  play their casting gesture from it. */
   castAt?: number;
+  /** REINFORCEMENTS ON THE ROAD (the Party, build 2): deck
+   *  fills chosen at this seat's Zodiac while a battle stands
+   *  — each reserves an open party spot until it lands
+   *  (membership and card together) or the battle ends first
+   *  (the road closes; nothing is written, and the ✦ paid for
+   *  the road is returned whole). `cost` is what the road
+   *  charged and `fromBank` which purse it was charged from,
+   *  so a refund returns to the same purse. */
+  incoming?: { awakenedId: number; name: string; arrivesAt: number; cost: number; fromBank: boolean }[];
+  /** This seat was dealt the instance host's staged company
+   *  alone (Station 4) — the one standing exception to the
+   *  law that a bound seat summons only its party. */
+  stagedDeal?: boolean;
 }
 
 /** An Awoken standing on the field. The card rides inside it whole,
@@ -914,6 +937,27 @@ function ownerIsSage(room: Room, ownerKey: string): boolean {
   return seatByKey(room, ownerKey)?.classKey === "sage";
 }
 
+/** One roster creature's Table card, built from its payload
+ *  — the single shaping the deal and the reinforcements'
+ *  landing share, so an arrived card is a dealt card. */
+function cardFromPayload(payload: NonNullable<Awaited<ReturnType<typeof awakenedPayloadById>>>): TableCard {
+  return {
+    id: randomUUID(),
+    name: payload.name,
+    power: payload.power,
+    toughness: payload.toughness,
+    element: dominantElement(payload.layers as { element?: string | null }[]),
+    art: payload.image_url,
+    level: payload.level,
+    awokenId: payload.id,
+    parts: ((payload.layers ?? []) as { category?: string; element?: string | null; power?: number | null }[])
+      .filter(l => ["body", "arms", "head", "aura"].includes(l.category ?? ""))
+      .map(l => ({ element: l.element ?? "neutral", power: l.power ?? 0 })),
+    layers: ((payload.layers ?? []) as { source_id?: string; category?: string; imageUrl?: string | null }[])
+      .map(l => ({ source_id: l.source_id ?? "", category: l.category ?? "", imageUrl: l.imageUrl ?? null })),
+  };
+}
+
 export async function deckForTender(tenderId: number, opts?: { stagedOnly?: boolean }): Promise<TableCard[]> {
   const ownerKey = tenderOwnerKey(tenderId);
   // The Table deals the UN-FIELDED roster only (Nigel, 2026-10-18):
@@ -931,29 +975,33 @@ export async function deckForTender(tenderId: number, opts?: { stagedOnly?: bool
   const handIds = new Set(handIdsFor(ownerKey));
   const stagedAll = new Set(stagedIdsFor(ownerKey));
   const stagedIds = opts?.stagedOnly ? stagedAll : null;
+  // THE PARTY DEAL (Nigel, 2026-10-20; build 2, 2026-10-21):
+  // a Tender who KEEPS a party is dealt FROM THE PARTY — the
+  // hand is the party, drawn from the deck the party was
+  // drawn from. THE KEEPER'S PENCIL, standing until Nigel
+  // rules otherwise: a Tender who has composed NO party at
+  // all (the membership ledger stands empty because they
+  // never used it) is dealt from the whole roster exactly
+  // as before — the party law bites once a party is kept;
+  // no memberships are auto-seeded. The elsewhere law stands
+  // unchanged either way: a member standing on the homeland
+  // field or staged at the bastion is not dealt (and is
+  // named in the elsewhere row), and a creature still
+  // re-coalescing from a fall is dealt nowhere — the same
+  // reading the studio's own hand keeps (actions.ts).
+  const partyIds = new Set(partyIdsFor(ownerKey));
+  const keepsParty = partyIds.size > 0;
+  const nowMs = Date.now();
   const rows = (await db.select().from(schema.awakened)
     .where(eq(schema.awakened.ownerKey, ownerKey)))
     .filter(row => !placedIds.has(row.id))
-    .filter(row => stagedIds ? stagedIds.has(row.id) : handIds.has(row.id) && !stagedAll.has(row.id));
+    .filter(row => !row.dispersedUntil || new Date(row.dispersedUntil).getTime() <= nowMs)
+    .filter(row => stagedIds ? stagedIds.has(row.id) : (keepsParty ? partyIds.has(row.id) : handIds.has(row.id)) && !stagedAll.has(row.id));
   const cards: TableCard[] = [];
   for (const row of rows.slice(0, 120)) {
     const payload = await awakenedPayloadById(row.id).catch(() => null);
     if (!payload) continue;
-    cards.push({
-      id: randomUUID(),
-      name: payload.name,
-      power: payload.power,
-      toughness: payload.toughness,
-      element: dominantElement(payload.layers as { element?: string | null }[]),
-      art: payload.image_url,
-      level: payload.level,
-      awokenId: payload.id,
-      parts: ((payload.layers ?? []) as { category?: string; element?: string | null; power?: number | null }[])
-        .filter(l => ["body", "arms", "head", "aura"].includes(l.category ?? ""))
-        .map(l => ({ element: l.element ?? "neutral", power: l.power ?? 0 })),
-      layers: ((payload.layers ?? []) as { source_id?: string; category?: string; imageUrl?: string | null }[])
-        .map(l => ({ source_id: l.source_id ?? "", category: l.category ?? "", imageUrl: l.imageUrl ?? null })),
-    });
+    cards.push(cardFromPayload(payload));
   }
   for (let i = cards.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -997,6 +1045,195 @@ export async function elsewhereForTender(tenderId: number, opts?: { stagedOnly?:
     });
   }
   return out;
+}
+
+/** ── THE PARTY AT THE TABLE (build 2, 2026-10-21) ────────
+ *  The deal above reads the membership ledger; what follows
+ *  is the rest of the party's meeting with the Table: the
+ *  seat's own party display, the reinforcements timer for a
+ *  mid-battle deck fill, and the battle-end law. Membership
+ *  itself lives in server/src/party.ts; these are its Table
+ *  roads only. */
+
+/** Every seat a room holds, live and held (away) alike. */
+function allSeats(room: Room): Player[] {
+  return [...room.players.values(), ...[...room.away.values()].map(h => h.player)];
+}
+
+export interface PartySeatView {
+  cap: number;
+  members: { awakenedId: number; name: string; standing: "field" | "hand" | "post" }[];
+  /** Open spots after the members and the roads on their way. */
+  openSpots: number;
+  /** Who is on the road, and when each arrives. The Table
+   *  only SHOWS the road (Nigel, 2026-10-21): a reinforcement
+   *  is CHOSEN on the deck screen — an empty Awokin spot on
+   *  the Zodiac, filled from the deck list there — never from
+   *  a deck list inside this seat's display. */
+  incoming: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
+}
+
+/** The seat's party as its own display reads it: who stands
+ *  in the party and where each member stands for this Table
+ *  (on the field, in the hand, or keeping a post the deal
+ *  could not bring — the homeland field, the bastion, a
+ *  re-coalescence), what spots stand open, and who is
+ *  already on the road. Choosing a reinforcement is the
+ *  Zodiac deck screen's work, not this display's. */
+function partySeatView(room: Room, player: Player): PartySeatView | null {
+  const expKey = player.expKey;
+  if (!expKey) return null;
+  const nameOf = (id: number): string => {
+    const row = sqlite.prepare("SELECT name FROM awakened WHERE id = ?").get(id) as { name: string } | undefined;
+    return row?.name ?? "An Awokin";
+  };
+  const ids = partyIdsFor(expKey);
+  const inHand = new Set(player.hand.map(c => c.awokenId).filter((x): x is number => typeof x === "number"));
+  const onField = new Set([...room.field.values()].filter(u => u.ownerKey === player.key).map(u => u.card.awokenId).filter((x): x is number => typeof x === "number"));
+  const members = ids.map(id => ({
+    awakenedId: id,
+    name: nameOf(id),
+    standing: (onField.has(id) ? "field" : inHand.has(id) ? "hand" : "post") as "field" | "hand" | "post",
+  }));
+  const incoming = (player.incoming ?? []).map(i => ({ awakenedId: i.awakenedId, name: i.name, arrivesAt: i.arrivesAt, cost: i.cost }));
+  const cap = partyCapFor(expKey, player.tenderLevel);
+  return { cap, members, openSpots: Math.max(0, cap - ids.length - incoming.length), incoming };
+}
+
+export type ReinforcementStart = { ok: true; name: string; arrivesAt: number; cost: number } | { ok: false; reason: string };
+
+/** Return a closed road's price to the purse it was charged
+ *  from — the seat's own energy, or the campaign bank in a
+ *  seeded campaign. A road that LANDS keeps its price spent;
+ *  only a road that never lands is refunded, and refunded
+ *  whole (the Keeper's pencil, 2026-10-21). */
+function refundReinforcement(room: Room, player: Player, inc: { cost: number; fromBank: boolean }): void {
+  if (inc.fromBank && room.campaign) room.campaign.bank += inc.cost;
+  else player.energy += inc.cost;
+}
+
+/** Start a reinforcements road for one of this seat's open
+ *  spots: the spot is RESERVED at once (the membership count
+ *  and the roads on their way together may not pass the band
+ *  law's width), and membership and card land together when
+ *  the timer completes — if the battle still stands. The road
+ *  is CHOSEN on the deck screen (an empty Awokin spot on the
+ *  Zodiac, filled from the deck list there — Nigel,
+ *  2026-10-21); this function is only its judging, and the
+ *  Table's own display only shows the road. The road costs
+ *  ENERGY as well as its four minutes (Nigel, 2026-10-21):
+ *  the price is the Awokin's normal Table summon cost,
+ *  max(1, power) ✦ (the Keeper's pencil for the unruled
+ *  amount), charged from the seat's purse at the moment of
+ *  choosing; if the purse cannot pay, the fill is refused
+ *  plainly and no timer starts. Every other refusal is
+ *  whole and plain too, and writes nothing and charges
+ *  nothing. */
+async function startReinforcement(room: Room, player: Player, awakenedId: number): Promise<ReinforcementStart> {
+  if (!player.expKey) return { ok: false, reason: "This seat is not bound to a Tender — there is no party to reinforce." };
+  if (!room.battle.active) return { ok: false, reason: "Reinforcements are called while a battle stands — between battles, fill your party from the Party tab of your Zodiac, and it lands at once." };
+  const row = sqlite.prepare("SELECT name, owner_key, dispersed_until FROM awakened WHERE id = ?").get(awakenedId) as { name: string; owner_key: string | null; dispersed_until: number | null } | undefined;
+  if (!row || row.owner_key !== player.expKey) return { ok: false, reason: "That Awokin is not yours to call." };
+  if (row.dispersed_until && row.dispersed_until > Date.now()) return { ok: false, reason: `${row.name} is still re-coalescing — it cannot answer a call yet.` };
+  if (isPartyMember(player.expKey, awakenedId)) return { ok: false, reason: `${row.name} already stands in your party.` };
+  player.incoming ??= [];
+  if (player.incoming.some(i => i.awakenedId === awakenedId)) return { ok: false, reason: `${row.name} is already on the road to your party.` };
+  if ([...room.field.values()].some(u => u.ownerKey === player.key && u.card.awokenId === awakenedId)) {
+    return { ok: false, reason: `${row.name} already stands on this field — add it to your party from its own bar, and no road is needed.` };
+  }
+  const cap = partyCapFor(player.expKey, player.tenderLevel);
+  if (partyIdsFor(player.expKey).length + player.incoming.length >= cap) {
+    return { ok: false, reason: `Your party stands full — ${cap} strong, counting the roads already on their way. Return a member to the deck to make room.` };
+  }
+  const payload = await awakenedPayloadById(awakenedId).catch(() => null);
+  if (!payload) return { ok: false, reason: `${row.name} could not be read for the road — no call is made.` };
+  const cost = Math.max(1, payload.power);
+  const fromBank = !!(room.campaign && !room.campaign.over && room.campaign.seeded);
+  if (!chargePurse(room, player, cost)) {
+    return { ok: false, reason: `${row.name}'s road costs ✦${cost} — ${fromBank ? `the bank holds ✦${Math.floor(room.campaign!.bank)}` : `you hold ✦${player.energy}`}. The fill is refused, and no road is started.` };
+  }
+  const arrivesAt = Date.now() + REINFORCEMENT_MS;
+  player.incoming.push({ awakenedId, name: row.name, arrivesAt, cost, fromBank });
+  tell(room, `🚶 ${row.name} is called to ${player.name}'s party — ✦${cost} paid for the road. The road takes ${Math.round(REINFORCEMENT_MS / 60000) || 1} minutes, and it lands only while the battle stands.`);
+
+  return { ok: true, name: row.name, arrivesAt, cost };
+}
+
+/** The seat of a Tender standing in a RUNNING battle at any
+ *  Table, live or held — the Zodiac's doors ask this before
+ *  they write a membership, because mid-battle the timer is
+ *  the only road in (the Keeper's pencil from the hash-out,
+ *  standing until Nigel rules otherwise). */
+export function partyBattleSeatFor(ownerKey: string): { room: Room; player: Player } | null {
+  for (const room of rooms.values()) {
+    if (!room.battle.active) continue;
+    for (const p of allSeats(room)) {
+      if (p.expKey === ownerKey && !p.watcher && !p.storytender) return { room, player: p };
+    }
+  }
+  return null;
+}
+
+/** The Zodiac's mid-battle road in — the ONE road a
+ *  reinforcement is chosen by (Nigel, 2026-10-21): reserve
+ *  the spot and start the timer, at the road's price. */
+export async function startPartyReinforcement(ownerKey: string, awakenedId: number): Promise<ReinforcementStart> {
+  const seat = partyBattleSeatFor(ownerKey);
+  if (!seat) return { ok: false, reason: "No battle stands at your Table seat — the fill lands at once, by the common road." };
+  return startReinforcement(seat.room, seat.player, awakenedId);
+}
+
+/** Land the roads whose time has come — called on the room's
+ *  standing pulse. A road lands only while its battle still
+ *  stands (endBattle closes the roads of a finished battle
+ *  before this ever sees them). Membership and the hand
+ *  card land together; a member kept back for place by the
+ *  elsewhere law (the homeland field, the bastion's staging,
+ *  a fall's re-coalescence fallen across the road) joins the
+ *  party and keeps its post — no card is dealt for it here,
+ *  exactly as the deal itself would not deal it. */
+function settleReinforcements(room: Room): void {
+  if (!room.battle.active) return;
+  const now = Date.now();
+  for (const player of allSeats(room)) {
+    if (!player.incoming?.length || !player.expKey) continue;
+    const due = player.incoming.filter(i => i.arrivesAt <= now);
+    if (!due.length) continue;
+    player.incoming = player.incoming.filter(i => i.arrivesAt > now);
+    const expKey = player.expKey;
+    for (const inc of due) {
+      void (async () => {
+        const already = isPartyMember(expKey, inc.awakenedId);
+        if (!already) {
+          const r = tryAddPartyMember(expKey, inc.awakenedId, player.tenderLevel);
+          if (!r.ok) {
+            // The road completed but the joining was refused:
+            // the creature never lands, so its price returns
+            // whole, as for a road the battle closed.
+            refundReinforcement(room, player, inc);
+            tell(room, `${inc.name} reached ${player.name}'s party too late — ${r.reason} The ✦${inc.cost} paid for its road is returned whole.`);
+            sendState(room);
+            return;
+          }
+        }
+        const placed = sqlite.prepare("SELECT 1 AS one FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(expKey, inc.awakenedId) as { one: number } | undefined;
+        const staged = stagedIdsFor(expKey).includes(inc.awakenedId);
+        const row = sqlite.prepare("SELECT dispersed_until FROM awakened WHERE id = ?").get(inc.awakenedId) as { dispersed_until: number | null } | undefined;
+        const dispersed = !!row?.dispersed_until && row.dispersed_until > Date.now();
+        const inHand = player.hand.some(c => c.awokenId === inc.awakenedId);
+        const onField = [...room.field.values()].some(u => u.ownerKey === player.key && u.card.awokenId === inc.awakenedId);
+        let dealt = false;
+        if (!placed && !staged && !dispersed && !inHand && !onField) {
+          const payload = await awakenedPayloadById(inc.awakenedId).catch(() => null);
+          if (payload) { player.hand = [...player.hand, cardFromPayload(payload)]; dealt = true; }
+        }
+        tell(room, dealt
+          ? `👣 ${inc.name} arrives — it joins ${player.name}'s party, and its card stands in the hand.`
+          : `👣 ${inc.name} arrives — it joins ${player.name}'s party, and keeps the post it already stands at.`);
+        sendState(room);
+      })();
+    }
+  }
 }
 
 async function currentSky(): Promise<Room["sky"]> {
@@ -1148,6 +1385,12 @@ function sendState(room: Room): void {
         // in the Zodiac) shows at once. Unbound seats hold
         // no party.
         party: player.expKey ? partyIdsFor(player.expKey) : [],
+        // THE PARTY'S SEAT DISPLAY (build 2): the members
+        // with their standings for this Table, the open
+        // spots, the deck they are filled from, and the
+        // reinforcements already on the road — this seat's
+        // eyes only, as the hand itself is.
+        partyView: player.expKey && !player.storytender ? partySeatView(room, player) : null,
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
         healAmount: player.healAmount,
@@ -1776,6 +2019,11 @@ function roomPulse(room: Room): void {
       }).catch(() => {});
     }
   }
+  // Reinforcements land on this pulse while their battle
+  // still stands (build 2) — before the battle check below
+  // hands the settling to runRound's clock, whose rounds
+  // call sendState but never this pulse's landing.
+  settleReinforcements(room);
   if (room.battle.active) { room.witherAt = undefined; return; }
   if (![...room.players.values()].some(p => !p.watcher)) { room.witherAt = undefined; return; }
   const now = Date.now();
@@ -2107,6 +2355,9 @@ function endCampaign(room: Room, how: "ended" | "fallen"): void {
   c.over = how;
   endBattle(room);
   room.dark.clear();
+  // The campaign's end is a battle end (build 2): fielded
+  // Awokin outside their Tender's party truly dissipate.
+  dissipateFieldedNonParty(room);
   if (how === "ended") {
     const seats = [...room.players.values()].filter(p => !p.watcher && !p.storytender);
     const share = seats.length ? Math.floor(c.bank / seats.length) : 0;
@@ -2435,6 +2686,49 @@ function startBattleTimer(room: Room): void {
 function endBattle(room: Room): void {
   room.battle.active = false;
   if (room.battle.timer) { clearInterval(room.battle.timer); room.battle.timer = null; }
+  // THE ROADS CLOSE (the Party, build 2): a reinforcement
+  // whose battle ends before it arrives NEVER COMES — no
+  // membership is written and nothing is dissipated — and
+  // the ✦ paid for its road is returned whole to the purse
+  // it was charged from (Nigel, 2026-10-21; the refund is
+  // the Keeper's pencil). The tale names each closed road,
+  // so the silence is never a mystery.
+  for (const p of allSeats(room)) {
+    if (!p.incoming?.length) continue;
+    for (const inc of p.incoming) {
+      refundReinforcement(room, p, inc);
+      tell(room, `${inc.name} was on the road to ${p.name}'s party — the battle ended first, and the road is closed. It never came, and the ✦${inc.cost} paid for its road is returned whole. No one is lost.`);
+    }
+    p.incoming = [];
+  }
+}
+
+/** BATTLE-END DISSIPATION (Nigel, 2026-10-20: "fielding is
+ *  open; staying is party-only"; the destination ruled the
+ *  same day: "truly dissipate — re-coalescence timers, like
+ *  a fall"). Called at the Table's actual end states, AFTER
+ *  each mode's own reckoning (a bastion's victory pays its
+ *  standing survivors first): every Awokin standing on the
+ *  field that is NOT in its Tender's party leaves the field
+ *  and takes the fall measure's re-coalescence — the same
+ *  dispersed_until the homeland's falls write, four hours —
+ *  never a return to the hand, and no parallel timer is
+ *  invented. Party members standing at the end do not
+ *  dissipate. Units of unbound seats carry no roster id and
+ *  stand outside the ledger entirely; a unit whose seat is
+ *  gone from the room cannot be judged and is left as the
+ *  room's other state is left. The tale names what was lost,
+ *  by name. */
+function dissipateFieldedNonParty(room: Room): void {
+  for (const u of [...room.field.values()]) {
+    const seat = seatByKey(room, u.ownerKey);
+    if (!seat?.expKey || !u.card.awokenId) continue;
+    if (isPartyMember(seat.expKey, u.card.awokenId)) continue;
+    removeUnit(room, u);
+    sqlite.prepare("UPDATE awakened SET dispersed_until = ? WHERE id = ?")
+      .run(Date.now() + RECOALESCE_MS, u.card.awokenId);
+    tell(room, `${u.card.name} stood outside ${seat.name}'s party when the battle ended — it truly dissipates, and will re-coalesce in four hours, as a fall is measured.`);
+  }
 }
 
 /** THE REFEREE, ON THE CLOCK (Nigel, 2026-10-18: "instead of
@@ -3001,6 +3295,10 @@ async function runRound(room: Room): Promise<void> {
         }
         room.battle.wave++;
       }
+      // The battle has ended (build 2): after the mode's
+      // own reckoning above, fielded non-party Awokin
+      // truly dissipate.
+      dissipateFieldedNonParty(room);
     } else if (seatedAlive.length === 0 && room.battle.active) {
       settleShardsAndFade(room);
       if (room.campaign && !room.campaign.over && room.field.size === 0 && room.dark.size > 0) {
@@ -3017,6 +3315,9 @@ async function runRound(room: Room): Promise<void> {
           : `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
       }
       room.dark.clear();
+      // The battle has ended in the dark's keeping (build
+      // 2): fielded non-party Awokin truly dissipate.
+      dissipateFieldedNonParty(room);
     }
     sendState(room);
   } finally {
@@ -3160,6 +3461,7 @@ function handleConnection(ws: WebSocket): void {
       let hand: TableCard[] = [];
       let elsewhereCards: { name: string; element: string; where: "fielded" | "staged" }[] = [];
       let bound: string | null = null;
+      let stagedDeal = false;
       let energy = 12;
       let maxEnergy = 12;
       let tenderLevel = 1;
@@ -3179,6 +3481,7 @@ function handleConnection(ws: WebSocket): void {
           // push; any other seat, and any guest of the instance,
           // is dealt the common hand of twenty.
           const instanceHost = joinCall?.kind === "instance" && joinCall.owner_key === tenderOwnerKey(tenderId);
+          stagedDeal = instanceHost;
           const cards = await deckForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]);
           if (cards.length) {
             hand = cards;
@@ -3228,7 +3531,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -3403,6 +3706,22 @@ function handleConnection(ws: WebSocket): void {
       }
       if (!card) {
         ws.send(JSON.stringify({ type: "error", message: "That Awokin is not in your roster." }));
+        return;
+      }
+      // THE PARTY IS WHO YOU CAN SUMMON (Nigel, 2026-10-21):
+      // "the party is the ONLY Awoken a Tender can summon" —
+      // the hand is dealt from the party, and the summon road
+      // itself refuses a non-member, so no stale card (dealt
+      // before the party was composed, say) can put one on
+      // the field. A Tender who keeps NO party yet is dealt
+      // and summons from the whole roster, exactly as before
+      // (the Keeper's pencil: the law bites once a party is
+      // kept; nothing auto-seeds one). The instance host's
+      // staged-company deal (Station 4) stands as its own
+      // exception — its seat is marked at the join.
+      if (player.expKey && !player.stagedDeal && typeof card.awokenId === "number"
+        && partyIdsFor(player.expKey).length > 0 && !isPartyMember(player.expKey, card.awokenId)) {
+        ws.send(JSON.stringify({ type: "error", message: `${card.name} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; mid-battle the called Awokin arrives by the reinforcements road.` }));
         return;
       }
       // The Travelling Company (ruled 2026-10-18): the band
@@ -3594,6 +3913,14 @@ function handleConnection(ws: WebSocket): void {
       sendState(room);
       return;
     }
+
+    // (No fillPartySpot door stands here: a reinforcement is
+    // CHOSEN on the deck screen — an empty Awokin spot on the
+    // Zodiac, filled from the deck list there (Nigel,
+    // 2026-10-21). That door is build 1's addToParty, which
+    // mid-battle starts the same road startReinforcement
+    // judges; this seat's display only shows the road and
+    // its time left.)
 
     // STRIKE THE CURSE (Nigel, 2026-10-18 — the land's
     // blow-per-order, carried to the Table): the mechanic for

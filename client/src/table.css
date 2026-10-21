@@ -479,6 +479,14 @@ button { font-family: inherit; }
 .elsewhere-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
 .elsewhere-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px dashed rgba(201,162,39,.45); border-radius: 20px; background: rgba(23,18,8,.6); color: var(--bone-dim); font-size: 12.5px; }
 
+/* ── The party's seat display (build 2, 2026-10-21): the
+   members standing in the seat's party with their posts,
+   and the reinforcements on their roads with the time
+   left. Display only — a reinforcement is chosen on the
+   Zodiac's deck screen, never here. */
+.hand-party { margin: 6px 0 0; }
+.party-chip.incoming { border-style: dotted; color: var(--bone); }
+
 /* ── The Attune act, in the Tender's own bar (the Fix Pass,
    2026-10-20): one point of an element, spent onto the
    ground he stands on; the buttons wear their element's rim. */

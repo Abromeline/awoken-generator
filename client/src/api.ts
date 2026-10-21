@@ -272,10 +272,26 @@ export interface PartyFace {
 export interface PartyView {
   members: PartyFace[];
   deck: PartyFace[];
-  /** How wide the party may stand — the band law's number. */
+  /** How wide the party may stand — the party level's
+   *  reckoning: 3 to start, +1 for every 3 party levels,
+   *  plus the Muster stars' bonus (its parts ride below). */
   cap: number;
   size: number;
   level: number;
+  /** The Party skill's level (its stars held on the wheel). */
+  partyLevel?: number;
+  /** Spots the party levels themselves grant: ⌊level / 3⌋. */
+  levelBonus?: number;
+  /** Spots the Muster stars grant on top. */
+  musterBonus?: number;
+  /** Reinforcements on the road (build 2): mid-battle deck
+   *  fills whose timer has not landed — they hold a spot
+   *  but do not stand in the ledger yet. `cost` is the ✦ the
+   *  road charged, returned whole if the battle ends first. */
+  incoming?: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
+  /** Set on an addToParty answer that started a road
+   *  instead of landing a membership (mid-battle). */
+  reinforcement?: { awakenedId: number; name: string; arrivesAt: number; cost: number };
 }
 
 export type GrimoireSpellKind = "ward" | "rune" | "binding" | "spell";

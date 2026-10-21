@@ -174,23 +174,22 @@ function client(label) {
   const one = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin One", 3);
   const two = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin Two", 3);
 
-  // The membership written over HTTP (the Zodiac's road)
-  // must stand in the Table seat's own payload — one ledger.
-  await call("addToParty", { awakenedId: two }, T2.token);
-
   const { issueTableToken } = await import("../server/dist/table.js");
   const tt = issueTableToken({ id: "disc-party", name: "Table Tender" });
   const bindCode = (await call("getTableBindCode", {}, T2.token)).code;
   const bindRes = await fetch(`${BASE}/api/table/bind`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: tt, code: bindCode }) });
   if (!bindRes.ok) throw new Error("table/bind failed: " + bindRes.status);
 
+  // Join with NO party composed (build 2's standing pencil:
+  // the ledger is empty because it was never used, so the
+  // deal — and the summon below — run from the whole roster
+  // exactly as before the party law; nothing auto-seeds a
+  // party). The party is composed from the seat afterwards.
   const b = client("B");
   await b.join({ authToken: tt, room: "party-drive-casual" });
-  ok("the Table reads the party written in the Zodiac — one ledger across grounds",
-    Array.isArray(b.you.party) && b.you.party.includes(two), JSON.stringify(b.you.party));
 
   const card = (b.you.hand ?? []).find((cd) => cd.name === "Tablekin One");
-  ok("the dealt hand carries the field candidate", !!card, JSON.stringify((b.you.hand ?? []).map((cd) => cd.name)));
+  ok("an uncomposed Tender is dealt from the whole roster — the hand carries the field candidate", !!card, JSON.stringify((b.you.hand ?? []).map((cd) => cd.name)));
   const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;
   let summonedHex = null;
   const spots = b.state.map.filter((t) => !t.cursed && t.id !== "0,0" && axialDist(t.id, anchor) <= 1);
@@ -201,6 +200,16 @@ function client(label) {
   ok("the Awokin is summoned onto the field", !!summonedHex);
   const unit0 = b.state.field.find((u) => u.cardId === card.id);
   ok("the field unit carries its roster id", unit0 && unit0.awokenId === one, JSON.stringify(unit0 && { awokenId: unit0.awokenId }));
+
+  // The membership written over HTTP (the Zodiac's road)
+  // must stand in the Table seat's own payload — one ledger.
+  // No battle stands, so the fill lands at once; a notes
+  // poke makes the seat push its state again.
+  await call("addToParty", { awakenedId: two }, T2.token);
+  b.send({ type: "notes", text: "" });
+  await b.waitFor((cc) => (cc.you.party ?? []).includes(two), "the Zodiac's write standing in the seat's payload");
+  ok("the Table reads the party written in the Zodiac — one ledger across grounds",
+    Array.isArray(b.you.party) && b.you.party.includes(two), JSON.stringify(b.you.party));
 
   b.send({ type: "addToParty", cardId: card.id });
   await b.waitFor((cc) => (cc.you.party ?? []).includes(one), "the field add standing in you.party");

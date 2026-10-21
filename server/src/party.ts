@@ -1,5 +1,5 @@
 import { sqlite } from "./store.js";
-import { companyCapFor } from "./skills.js";
+import { fxSum, partyLevelFor } from "./skills.js";
 
 /**
  * THE PARTY (Nigel, 2026-10-20 13:35 — the March Orders +
@@ -12,13 +12,21 @@ import { companyCapFor } from "./skills.js";
  * on both grounds call removePartyMember). The deck hosts
  * the whole roster; the party is drawn from it.
  *
- * THE WIDTH IS THE BAND LAW (the Keeper's pencil, standing
- * until Nigel rules otherwise): party size = the Travelling
- * Company's numbers — companyCapFor: three at Lv 1–2, four
- * at Lv 3–5, the true five from Lv 6, and the Muster clauses
- * (the Escort, the Pennant, the Retinue, the Whole Muster)
- * raising it toward 15 where the tree grants them. No second
- * table of numbers lives here.
+ * THE WIDTH IS THE PARTY LEVEL'S RECKONING (Nigel,
+ * 2026-10-21 11:41, corrected 11:42 — "party starts at 3.
+ * + 1 every 3 levels plus skills bonus"; this replaced
+ * build 1's band-law pencil the same morning): the party
+ * level is a SKILL — the Party stars on the Zodiac, bought
+ * with ordinary skill points, each star one level — and the
+ * spots are reckoned exactly as: 3 to start, +1 for every
+ * 3 party levels, plus the skills bonus (the Muster
+ * clauses: the Escort, the Pennant, the Retinue, the Whole
+ * Muster, as they already stand summed in skills.ts). The
+ * Table's standing-band cap (companyCapFor) is a different
+ * count and keeps its own law; only the party's width
+ * changed its source. partyCapFor's shape did not change —
+ * every reader from build 1 and build 2 reads this same
+ * function.
  *
  * These primitives run on the raw handle, synchronously —
  * the Table's state builder reads membership inside its
@@ -42,9 +50,25 @@ export function isPartyMember(ownerKey: string | null | undefined, awakenedId: n
   return !!row;
 }
 
-/** How wide this Tender's party stands — the band law itself. */
-export function partyCapFor(ownerKey: string | null | undefined, tenderLevel?: number | null): number {
-  return companyCapFor(ownerKey, tenderLevel);
+/** The party's width, reckoned in its parts — the one
+ *  formula, named in plain words wherever a player sees it:
+ *  3 spots to start, +1 for every 3 party levels, plus the
+ *  Muster stars' bonus. */
+export interface PartyCount { base: number; partyLevel: number; levelBonus: number; musterBonus: number; cap: number }
+export function partyCountFor(ownerKey: string | null | undefined): PartyCount {
+  const partyLevel = partyLevelFor(ownerKey);
+  const levelBonus = Math.floor(partyLevel / 3);
+  const musterBonus = fxSum(ownerKey, "company");
+  return { base: 3, partyLevel, levelBonus, musterBonus, cap: 3 + levelBonus + musterBonus };
+}
+
+/** How wide this Tender's party stands. The tenderLevel
+ *  argument stands in the signature because every reader
+ *  was built passing it; the reckoning itself no longer
+ *  reads the Tender's level — the party level is its own
+ *  skill (Nigel, 2026-10-21). */
+export function partyCapFor(ownerKey: string | null | undefined, _tenderLevel?: number | null): number {
+  return partyCountFor(ownerKey).cap;
 }
 
 export type PartyAddResult = { ok: true } | { ok: false; reason: string };
@@ -53,7 +77,7 @@ export type PartyAddResult = { ok: true } | { ok: false; reason: string };
  * Add a creature of the Tender's own roster to the party.
  * The refusal is whole and spoken plainly: not theirs,
  * already standing in the party, or the party full at the
- * band law's width. Nothing is written on a refusal.
+ * reckoned width. Nothing is written on a refusal.
  */
 export function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLevel?: number | null): PartyAddResult {
   const aw = sqlite.prepare("SELECT name, owner_key FROM awakened WHERE id = ?")
@@ -64,11 +88,11 @@ export function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLe
   if (isPartyMember(ownerKey, awakenedId)) {
     return { ok: false, reason: `${aw.name} already stands in your party.` };
   }
-  const cap = partyCapFor(ownerKey, tenderLevel);
-  if (partyIdsFor(ownerKey).length >= cap) {
+  const count = partyCountFor(ownerKey);
+  if (partyIdsFor(ownerKey).length >= count.cap) {
     return {
       ok: false,
-      reason: `Your party stands full — ${cap} strong. Levels widen it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further. Return a member to the deck to make room.`,
+      reason: `Your party stands full — ${count.cap} strong. The spots are reckoned: 3 to start, +1 for every 3 party levels (your Party skill stands at level ${count.partyLevel}, +${count.levelBonus}), +${count.musterBonus} from your Muster stars. Raise the Party skill on the Zodiac, or return a member to the deck to make room.`,
     };
   }
   sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")

@@ -25,14 +25,14 @@ import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
-import { partyIdsFor, partyCapFor, tryAddPartyMember, removePartyMember } from "./party.js";
+import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
 // imported, never copied, so the two grounds can never drift
 // apart on what a class's cast is worth. (table.ts already
 // imports this module; the binding is only ever called at
 // request time, long after both modules stand.)
-import { castModFor } from "./table.js";
+import { castModFor, partyBattleSeatFor, startPartyReinforcement } from "./table.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -3294,7 +3294,17 @@ async function partyViewFor(ownerKey: string) {
     const f = await face(row.id);
     if (f) deck.push(f);
   }
-  return { members, deck, cap, size: members.length, level: progress.level };
+  // Reinforcements already on the road to this party (build
+  // 2): a mid-battle deck fill does not stand in the ledger
+  // until its timer lands, and the tab says so rather than
+  // letting the spot look merely unfilled.
+  const seat = partyBattleSeatFor(ownerKey);
+  const incoming = seat ? (seat.player.incoming ?? []).map(i => ({ awakenedId: i.awakenedId, name: i.name, arrivesAt: i.arrivesAt, cost: i.cost })) : [];
+  // The count's parts ride along (Nigel, 2026-10-21): the
+  // surfaces name the formula in plain words — 3 to start,
+  // +1 for every 3 party levels, plus the Muster stars.
+  const count = partyCountFor(ownerKey);
+  return { members, deck, cap, size: members.length, level: progress.level, incoming, partyLevel: count.partyLevel, levelBonus: count.levelBonus, musterBonus: count.musterBonus };
 }
 
 export const handlers = {
@@ -9778,14 +9788,31 @@ export const handlers = {
    *  stands on a ground; fielding it still happens through
    *  the summon and deploy roads, as it always has. On the
    *  homeland the fill is immediate (no timer was ever named
-   *  at home); the Table's mid-battle road — the deck-fill at
-   *  a running battle, with its four-minute reinforcements
-   *  timer — is build 2's, and this door is not it. */
+   *  at home).
+   *
+   *  MID-BATTLE (build 2, 2026-10-21 — the Keeper's pencil
+   *  from the hash-out, standing until Nigel rules
+   *  otherwise): if this Tender stands seated in a RUNNING
+   *  battle at the Table, this door does not land the
+   *  membership at once — mid-battle, the reinforcements
+   *  timer is the only road in. The fill reserves the spot
+   *  and starts the four-minute road, at the road's price
+   *  (the Awokin's summon cost in ✦, charged from the seat's
+   *  purse at the choosing); the answer carries the road, so
+   *  the tab can say the creature is on its way rather than
+   *  standing in the party. This door IS the reinforcement's
+   *  choosing place — the deck screen, reached by tapping an
+   *  empty Awokin spot on the Zodiac (Nigel, 2026-10-21). */
   async addToParty(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("Name the Awokin to add to your party.");
     const ownerKey = ownerKeyFor(ctx);
+    if (partyBattleSeatFor(ownerKey)) {
+      const r = await startPartyReinforcement(ownerKey, parsed.data.awakenedId);
+      if (!r.ok) badRequest(r.reason);
+      return { ...(await partyViewFor(ownerKey)), reinforcement: { awakenedId: parsed.data.awakenedId, name: r.name, arrivesAt: r.arrivesAt, cost: r.cost } };
+    }
     const progress = await getTenderProgress(ownerKey);
     const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
@@ -9794,17 +9821,25 @@ export const handlers = {
 
   /** RETURN A MEMBER TO THE DECK (the Keeper's pencil,
    *  standing until Nigel rules otherwise): benching is free
-   *  whenever the Tender is not mid-battle. This door is the
-   *  Zodiac's own — it changes membership only; it does not
-   *  reach into a running Table battle (whose dealt hand is
-   *  build 2's seam) and it does not lift a follow order the
-   *  creature stands under on a field — follow is each
-   *  ground's own switch, as it was before the party. */
+   *  whenever the Tender is not mid-battle — and REFUSED,
+   *  plainly, while one stands (build 2, 2026-10-21: the
+   *  pencil's other half — mid-battle the timer is the only
+   *  road IN, and benching is no road OUT; the order roads,
+   *  which end a membership by ordering the creature
+   *  itself, are untouched by this refusal, exactly as
+   *  build 1 left them). This door is the Zodiac's own —
+   *  it changes membership only, and it does not lift a
+   *  follow order the creature stands under on a field —
+   *  follow is each ground's own switch, as it was before
+   *  the party. */
   async removeFromParty(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("Name the Awokin to return to the deck.");
     const ownerKey = ownerKeyFor(ctx);
+    if (partyBattleSeatFor(ownerKey)) {
+      badRequest("Your party stands in a running battle at the Table — no member is returned to the deck until the battle ends. Benching is free between battles; mid-battle, only an order given to the creature itself ends its standing.");
+    }
     removePartyMember(ownerKey, parsed.data.awakenedId);
     return partyViewFor(ownerKey);
   },

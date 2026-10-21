@@ -30,6 +30,7 @@ export const FX_PALETTE: { verb: string; label: string; hint: string; hasElement
   { verb: "heal", label: "Healing done", hint: "added to every mending the Tender works" },
   { verb: "tableEnergy", label: "Max energy at the Table", hint: "the seat's purse, and the Bastion's pool share" },
   { verb: "company", label: "Travelling company", hint: "how many Awokin may stand at the Table at once" },
+  { verb: "party", label: "Party level", hint: "one level of the Party skill — party spots are 3, +1 for every 3 party levels, plus the Muster stars" },
   { verb: "attunement", label: "Attunement granted", hint: "standing points in a hue, raising levels, gates and pour caps", hasElement: true },
   { verb: "fellHarvest", label: "Harvest of the fell", hint: "energy when your Awokin fell the dark at the Table" },
   { verb: "roundEnergy", label: "Breath of rounds", hint: "energy returning at each battle round's start" },
@@ -70,6 +71,20 @@ const SEED_FX: Record<string, FxClause[]> = {
   b_pennant: [{ verb: "company", amount: 2 }],
   r_retinue: [{ verb: "company", amount: 2 }],
   b_muster: [{ verb: "company", amount: 4 }],
+  // THE PARTY SKILL (Nigel, 2026-10-21 — the fold-in): nine
+  // stars of a new type, each carrying one party level. The
+  // party's width is reckoned from the levels held: 3 spots
+  // to start, +1 for every 3 party levels, plus the Muster
+  // clauses above (party.ts holds the reckoning).
+  party_1: [{ verb: "party", amount: 1 }],
+  party_2: [{ verb: "party", amount: 1 }],
+  party_3: [{ verb: "party", amount: 1 }],
+  party_4: [{ verb: "party", amount: 1 }],
+  party_5: [{ verb: "party", amount: 1 }],
+  party_6: [{ verb: "party", amount: 1 }],
+  party_7: [{ verb: "party", amount: 1 }],
+  party_8: [{ verb: "party", amount: 1 }],
+  party_9: [{ verb: "party", amount: 1 }],
 };
 function seedGraph(): ZodiacGraph {
   const nodes: LiveNode[] = ZODIAC_NODES.map(n => {
@@ -90,6 +105,16 @@ function persist(g: ZodiacGraph): void {
   else sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?)").run(CONFIG_KEY, value, Date.now());
 }
 
+/** Stars a later writing added to the seed after the living
+ *  graph was first persisted (the Party skill, 2026-10-21).
+ *  A persisted wheel predates them, so the load below folds
+ *  in exactly these — additively: a missing star is appended
+ *  with its seed clauses, and a seed road touching it is
+ *  added when both its ends stand. Nothing already on the
+ *  wheel is rewritten or removed by the fold; the
+ *  Starwright's own edits stand untouched. */
+const SEED_ADDITION_IDS = ["party_1", "party_2", "party_3", "party_4", "party_5", "party_6", "party_7", "party_8", "party_9"];
+
 export function zodiacGraph(): ZodiacGraph {
   if (cache) return cache;
   try {
@@ -97,6 +122,25 @@ export function zodiacGraph(): ZodiacGraph {
     if (row?.value) {
       const parsed = JSON.parse(row.value) as ZodiacGraph;
       if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) && parsed.nodes.length > 0) {
+        const seed = seedGraph();
+        const have = new Set(parsed.nodes.map(n => n.id));
+        let changed = false;
+        for (const sn of seed.nodes) {
+          if (!SEED_ADDITION_IDS.includes(sn.id) || have.has(sn.id)) continue;
+          parsed.nodes.push(sn);
+          have.add(sn.id);
+          changed = true;
+        }
+        if (changed) {
+          const edgeKeys = new Set(parsed.edges.map(([a, b]) => `${a}|${b}`));
+          for (const [a, b] of seed.edges) {
+            if (!have.has(a) || !have.has(b)) continue;
+            if (!SEED_ADDITION_IDS.includes(a) && !SEED_ADDITION_IDS.includes(b)) continue;
+            if (edgeKeys.has(`${a}|${b}`) || edgeKeys.has(`${b}|${a}`)) continue;
+            parsed.edges.push([a, b]);
+          }
+          try { persist(parsed); } catch { /* the folded wheel still serves from memory */ }
+        }
         cache = parsed;
         return cache;
       }

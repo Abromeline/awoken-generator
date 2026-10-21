@@ -95,6 +95,20 @@ export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?:
   return base + fxSum(ownerKey, "company");
 }
 
+/** THE PARTY LEVEL (Nigel, 2026-10-21 — the fold-in: "party
+ *  size comes from a party level, and the party level is a
+ *  skill"): the Party skill's stars each carry one party
+ *  level as a clause, and the level a Tender stands at is
+ *  the sum of the levels their held stars carry. The
+ *  party's WIDTH is reckoned from it in party.ts: 3 spots
+ *  to start, +1 for every 3 party levels, plus the Muster
+ *  clauses summed above ("company"). companyCapFor itself
+ *  is untouched — it remains the Table's standing-band law,
+ *  a different count from the party's width. */
+export function partyLevelFor(ownerKey: string | null | undefined): number {
+  return fxSum(ownerKey, "party");
+}
+
 /**
  * The attunement GRANTS (tranche one): cluster steps grant
  * +3 attunement in their hue, notables +3 more, crowns +6

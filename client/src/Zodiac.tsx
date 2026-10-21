@@ -19,7 +19,7 @@ const SECTOR_COLOR: Record<string, string> = {
   heart: "#f0d68c", warden: "#e07856", binder: "#8fce7a", runewright: "#b48ce8",
   rim: "#cfd6dd", lore: "#f2e3ac", warground: "#e07856", weather: "#7ec8e3",
   music: "#e8a2c8", grove: "#9ed07e", land: "#c9a86a", wake: "#a8d8b9",
-  voice: "#f5f0dc", law: "#d8d8e8",
+  voice: "#f5f0dc", law: "#d8d8e8", party: "#8ce8d4",
 };
 const GOD_NAMES: Record<string, string> = {
   lore: "Lore", warground: "War-Ground", weather: "Weather", music: "Music",
@@ -145,14 +145,26 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   // standing until Nigel's own frame replaces it. Filling an
   // open spot draws from the full deck list the server
   // serves; returning a member benches it back to the deck.
-  const partyQ = useQuery({ queryKey: ["party"], queryFn: () => api.getParty(), enabled: tab === "party" });
+  // The party is set from TWO surfaces of this hub — its own
+  // tab and the Profile tab (Nigel, 2026-10-21) — over this
+  // one query and the same doors; no divergent state.
+  const partyQ = useQuery({ queryKey: ["party"], queryFn: () => api.getParty(), enabled: tab === "party" || tab === "profile" });
   const [filling, setFilling] = useState(false);
   const addPartyM = useMutation({
     mutationFn: (id: number) => api.addToParty({ awakenedId: id }),
     onSuccess: (v, id) => {
       qc.setQueryData(["party"], v);
       setFilling(false);
-      charOk(`${v.members.find(m => m.awakenedId === id)?.name ?? "The Awokin"} joins your party — it follows you now.`);
+      // Mid-battle (build 2): the fill started a
+      // reinforcements road instead of landing — say so,
+      // in the words the player will watch for, price and
+      // all: the road charged the Awokin's summon price,
+      // and it comes back whole if the battle ends first.
+      if (v.reinforcement) {
+        charOk(`${v.reinforcement.name} is on its way to your party — ✦${v.reinforcement.cost} paid for the road. The road takes four minutes, and it lands only while the battle at the Table still stands; if the battle ends first, the ✦ comes back whole.`);
+      } else {
+        charOk(`${v.members.find(m => m.awakenedId === id)?.name ?? "The Awokin"} joins your party — it follows you now.`);
+      }
     },
     onError: charFail,
   });
@@ -365,6 +377,63 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                       {" "}· Manifest {w.manifest ? "✓" : "·"} · Signature {w.signature ? "✓" : "·"}{exp.weaponKey === key ? " · ⚔ in hand" : ""}
                     </li>); })}
                 </ul>
+                {/* THE PARTY, SET FROM THE PROFILE TOO (Nigel,
+                    2026-10-21): a second surface over the same
+                    membership — the same query, the same doors
+                    (getParty / addToParty / removeFromParty),
+                    the same spots and deck as the Party tab.
+                    No new mechanics, no second state. */}
+                <h4>Your party</h4>
+                <p className="zodiac-note small">The same party the Party tab keeps — set it from either surface; the membership is one ledger. The spots are reckoned: 3 to start, +1 for every 3 party levels, plus your Muster stars.</p>
+                {partyQ.isLoading && <p className="zodiac-note small">Your party is gathering…</p>}
+                {partyQ.data && (
+                  <>
+                    <p>{partyQ.data.size} of {partyQ.data.cap} spots filled · Party Lv {partyQ.data.partyLevel ?? 0}</p>
+                    {(partyQ.data.incoming ?? []).length > 0 && (
+                      <p className="zodiac-note small">
+                        {(partyQ.data.incoming ?? []).map(i => (
+                          <span key={i.awakenedId}>🚶 {i.name} is on its way to your party — it joins when its road completes, while the battle at the Table still stands. The ✦{i.cost} paid for its road comes back whole if the battle ends first. </span>
+                        ))}
+                      </p>
+                    )}
+                    <div className="party-spots">
+                      {Array.from({ length: partyQ.data.cap }, (_, i) => {
+                        const m = partyQ.data!.members[i];
+                        return m ? (
+                          <div key={m.awakenedId} className="party-spot filled">
+                            <img src={m.imageUrl} alt="" />
+                            <strong>{m.name}</strong>
+                            <span>Lv {m.level ?? "?"} · ⚔ {m.power} · 🛡 {m.toughness}</span>
+                            <button type="button" className="zodiac-btn" disabled={partyBusy} onClick={() => removePartyM.mutate(m.awakenedId)}>Return to the deck</button>
+                          </div>
+                        ) : (
+                          <button key={`open-${i}`} type="button" className="party-spot open" disabled={partyBusy} onClick={() => setFilling(true)}>
+                            Open spot — tap to fill it from your deck
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {filling && (
+                      <div className="party-deck">
+                        <h4>Your deck — the whole roster</h4>
+                        {partyQ.data.deck.length === 0 ? (
+                          <p className="zodiac-note small">Every Awokin you hold already stands in the party.</p>
+                        ) : (
+                          <ul className="character-list">
+                            {partyQ.data.deck.map(d => (
+                              <li key={d.awakenedId} className="party-deck-row">
+                                <img className="party-thumb" src={d.imageUrl} alt="" />
+                                <span><strong>{d.name}</strong> — Lv {d.level ?? "?"} · ⚔ {d.power} · 🛡 {d.toughness}</span>
+                                <button type="button" className="zodiac-btn" disabled={partyBusy || partyQ.data!.size >= partyQ.data!.cap} onClick={() => addPartyM.mutate(d.awakenedId)}>Add to the party</button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <button type="button" className="quiet-link" onClick={() => setFilling(false)}>Not now</button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -389,12 +458,20 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
             {tab === "party" && (
               <div className="character-pane">
                 <h4>Your party</h4>
-                <p className="zodiac-note small">The party stands here, in your Zodiac. Its members follow you — at the Table and on your land. An Awokin you give orders to, a march or a patrol, leaves the party; one standing on a field can be added back from that field. Fielding a member still happens where it always has: summoned at the Table, deployed on your land.</p>
+                <p className="zodiac-note small">The party stands here, in your Zodiac. Its members follow you — at the Table and on your land. An Awokin you give orders to, a march or a patrol, leaves the party; one standing on a field can be added back from that field. Fielding a member still happens where it always has: summoned at the Table, deployed on your land. The party is who you can summon — no one outside it takes the field. And while a battle stands at the Table, filling an open spot here does not land at once: the Awokin travels the reinforcements road — four minutes, at its summon price in ✦ (its ⚔ power, at least 1) — and joins only if the battle still stands when it arrives; if the battle ends first, the ✦ comes back whole.</p>
                 {partyQ.isLoading && <p className="zodiac-note">Your party is gathering…</p>}
                 {partyQ.isError && <p className="zodiac-lock">The party would not gather — try again in a moment.</p>}
                 {partyQ.data && (
                   <>
                     <p>{partyQ.data.size} of {partyQ.data.cap} spots filled.</p>
+                    <p className="zodiac-note small">The spots are reckoned: 3 to start, +1 for every 3 party levels (your Party skill stands at level {partyQ.data.partyLevel ?? 0} → +{partyQ.data.levelBonus ?? 0}), +{partyQ.data.musterBonus ?? 0} from your Muster stars. Party levels are bought on the wheel — the Party stars, a type of their own, running south of the Heart, one skill point a level.</p>
+                    {(partyQ.data.incoming ?? []).length > 0 && (
+                      <p className="zodiac-note small">
+                        {(partyQ.data.incoming ?? []).map(i => (
+                          <span key={i.awakenedId}>🚶 {i.name} is on its way to your party — it joins when its road completes, while the battle at the Table still stands. The ✦{i.cost} paid for its road comes back whole if the battle ends first. </span>
+                        ))}
+                      </p>
+                    )}
                     <div className="party-spots">
                       {Array.from({ length: partyQ.data.cap }, (_, i) => {
                         const m = partyQ.data!.members[i];
