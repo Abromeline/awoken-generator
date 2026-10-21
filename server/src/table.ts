@@ -216,6 +216,20 @@ interface MapTile {
   cursed: boolean;
   /** The element of the light that holds it (purified tiles). */
   element: string | null;
+  /** ELEMENT POINTS RESTING ON THE TILE (Nigel, 2026-10-20:
+   *  "make the attune ability add element points to a hex
+   *  tile"). The tile's ledger of attunement: every Attune
+   *  spend lays one point of the spent element here, and the
+   *  tile HOLDS the element with the most points resting on
+   *  it; a tie leaves the standing element as it is — the
+   *  homeland's tie habit (its trays hold on a tie too).
+   *  Purification is born BARE of points: a turned tile's
+   *  element is the turning light's by birthright until
+   *  points are laid on it, so the first spend claims any
+   *  purified tile, and ground a Tender has deepened takes
+   *  out-laying, point for point. Only the five pool
+   *  elements ever rest here. */
+  points: Record<string, number>;
   /** Corruption remaining (cursed tiles): ground down by the
    *  standing light's power each round; at zero the tile turns. */
   curseHp: number;
@@ -1039,6 +1053,7 @@ function sharedState(room: Room) {
     tale: room.tale.slice(-TALE_CAP),
     map: [...room.map.values()].map(t => ({
       id: t.id, q: t.q, r: t.r, cursed: t.cursed, element: t.element,
+      points: { ...t.points },
       curseHp: Math.ceil(t.curseHp), curseMaxHp: t.curseMaxHp,
       landing: t.landingFor ? (seatByKey(room, t.landingFor)?.name ?? null) : null,
     })),
@@ -1230,7 +1245,7 @@ function freshInstanceMap(): Map<string, MapTile> {
     const seed = t.id === SEED_TILE;
     map.set(t.id, {
       id: t.id, q: t.q, r: t.r,
-      cursed: !seed, element: seed ? "sky" : null,
+      cursed: !seed, element: seed ? "sky" : null, points: {},
       curseHp: seed ? 0 : curseHpForRing(ring), curseMaxHp: seed ? 0 : curseHpForRing(ring),
       landingFor: null,
     });
@@ -1418,13 +1433,35 @@ function darkOn(room: Room, hex: string): boolean {
 }
 
 /** A tile turns to the light: felled dark frees it at once,
- *  or the standing light grinds its corruption to nothing. */
+ *  or the standing light grinds its corruption to nothing.
+ *  The turn is a rebirth for the tile's point ledger too:
+ *  whatever attunement rested on the cursed ground is gone
+ *  with the curse, and the tile is born BARE of points —
+ *  its element is the turning light's by birthright until
+ *  a Tender lays points on it. */
 function purifyTile(room: Room, tile: MapTile, element: string): void {
   if (!tile.cursed) return;
   tile.cursed = false;
   tile.element = element;
+  tile.points = {};
   tile.curseHp = 0;
   tell(room, `🌿 The land turns — ${element} ground joins the light.`);
+}
+
+/** The element a tile's resting points make it hold: the
+ *  element with the most points on the tile. A tie leaves the
+ *  standing element as it is (ties hold — the homeland's
+ *  habit with its trays and press alike), and bare ground
+ *  keeps whatever it already holds. */
+function elementFromPoints(tile: MapTile): string | null {
+  let best: string | null = null;
+  let bestPts = 0;
+  for (const [el, pts] of Object.entries(tile.points)) {
+    if (pts > bestPts) { best = el; bestPts = pts; }
+  }
+  if (!best) return tile.element;
+  const standing = tile.element ? (tile.points[tile.element] ?? 0) : 0;
+  return standing >= bestPts ? tile.element : best;
 }
 
 /** ONE PURIFIED TILE PER PLAYER (Nigel, 2026-10-18): when a
@@ -3460,21 +3497,30 @@ function handleConnection(ws: WebSocket): void {
     // ATTUNE THE GROUND (the Table Fix Pass, 2026-10-20 —
     // Nigel's play report: "the Attune skill isn't working."
     // In truth the act did not exist at the Table at all: no
-    // client surface, no act on the wire. This is its minimal
-    // true form.) The Tender adds his own attunement to a
-    // tile: one point of an element leaves his aspect pool
-    // through the pools' own door (spendAttunement), and the
-    // tile takes that element. HIS OWN ground only — the tile
-    // he stands on, or his landing — and it must stand
-    // purified: cursed ground is refused plainly, for
-    // purifying is the light's other work, and the terrain
-    // system that will one day let points rest ON a tile
-    // (Part B of the attunement & float law) is not built
-    // here — today the spent point buys the turn, whole.
+    // client surface, no act on the wire. Built then in its
+    // minimal true form: one pool point turned the tile,
+    // whole.) POINTS REST ON THE TILE NOW (Nigel, 2026-10-20,
+    // later the same night: "make the attune ability add
+    // element points to a hex tile" — Part B §6 of the tile
+    // attunement law: tiles hold element points, and attuning
+    // adds them). One point of an element leaves his aspect
+    // pool through the pools' own door (spendAttunement) and
+    // RESTS ON THE TILE (tile.points); the tile holds the
+    // element with the most points resting on it, ties
+    // holding the standing element (elementFromPoints). So a
+    // single spend claims any ground no points rest on yet —
+    // its born element is birthright, not points — while
+    // ground a Tender has laid points on takes out-laying,
+    // point for point. Spending MORE of the
+    // element the ground already holds deepens it: there is
+    // no "already holds" refusal any more. HIS OWN ground
+    // only — the tile he stands on, or his landing — and it
+    // must stand purified: cursed ground is refused plainly,
+    // for purifying is the light's other work.
     // THE PRICE IS A PENCIL (the Keeper, 2026-10-20): the
     // homeland has no per-tile attune spend to mirror — its
     // land drinks by presence and by building pours of ten —
-    // so the Table's price stands at 1 point per tile until
+    // so the Table's price stands at 1 point per spend until
     // Nigel rules a measure of his own.
     if (msg.type === "attuneTile") {
       if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
@@ -3487,12 +3533,12 @@ function handleConnection(ws: WebSocket): void {
       if (!tile || hex === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to attune." })); return; }
       if (tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — attunement rests only on purified land. Fell what holds it, or grind it down, and it will turn." })); return; }
       if (hex !== player.hex && tile.landingFor !== player.key) { ws.send(JSON.stringify({ type: "error", message: "Attune your own ground — the tile you stand on, or your landing." })); return; }
-      if (tile.element === element) { ws.send(JSON.stringify({ type: "error", message: `This ground already holds ${element}.` })); return; }
       const spent = await spendAttunement(player.expKey, element, 1);
       if (!spent.ok) { ws.send(JSON.stringify({ type: "error", message: `Attuning a tile costs 1 ${element} point — your ${element} pool holds ${spent.held}.` })); return; }
       if (player.pools) player.pools[element] = Math.max(0, (player.pools[element] ?? 0) - 1);
-      tile.element = element;
-      tell(room, `✦ ${player.name} attunes the ground beneath them — it holds ${element} now.`);
+      tile.points[element] = (tile.points[element] ?? 0) + 1;
+      tile.element = elementFromPoints(tile);
+      tell(room, `✦ ${player.name} attunes the ground beneath them — a ${element} point rests on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
       sendState(room);
       return;
     }

@@ -101,6 +101,9 @@ interface MapTileView {
   r: number;
   cursed: boolean;
   element: string | null;
+  /** Element points resting on the tile (the Attune ledger):
+   *  the tile holds the element with the most points here. */
+  points?: Record<string, number>;
   curseHp: number;
   curseMaxHp: number;
   landing: string | null;
@@ -2317,23 +2320,29 @@ export default function Table() {
                 <span className="placing-text">
                   🚶 <strong>You</strong> — WASD walks you, free as breathing. Right-click the land (or long-press) for your glyph wheel — it opens mid-glide and the glide rides on; tap a tile and you glide there. Where you arrive, your followers muster to you; the rest hold their ground. On a touch hand, tap your own figure for the controller pad; the wheel's ＋ pins lock workings, weapons and Awokin onto your hotbar.
                 </span>
-                {/* ATTUNE THE GROUND (the Fix Pass, 2026-10-20):
-                    the Tender spends one point of an element
-                    from his own pools onto the ground he stands
-                    on, and it takes that element — the act the
-                    report found missing, in its minimal form.
-                    Cursed ground is not offered: the referee
-                    refuses it plainly (purify first). */}
+                {/* ATTUNE THE GROUND (the Fix Pass, 2026-10-20;
+                    points rest on the tile since later that
+                    night — Nigel: "make the attune ability add
+                    element points to a hex tile"): the Tender
+                    spends one point of an element from his own
+                    pools onto the ground he stands on, and the
+                    point RESTS there — the ground holds whichever
+                    element has the most points resting on it, so
+                    deepening the held element and out-laying a
+                    rival both go through this same row. Cursed
+                    ground is not offered: the referee refuses it
+                    plainly (purify first). */}
                 {you.pools && myStandingTile && myStandingTile.id !== "0,0" && !myStandingTile.cursed && (
                   <span className="attune-row" role="group" aria-label="Attune the ground beneath you">
-                    <span className="attune-label">Attune this ground{myStandingTile.element && myStandingTile.element !== "neutral" ? <> — it holds {myStandingTile.element} —</> : null} · 1 point of:</span>
+                    <span className="attune-label">Attune this ground{myStandingTile.element && myStandingTile.element !== "neutral" ? <> — it holds {myStandingTile.element} —</> : null}{(() => { const rest = ATTUNE_ELEMENTS.filter((e) => (myStandingTile.points?.[e] ?? 0) > 0); return rest.length ? <> · resting: {rest.map((e) => `${e} ${myStandingTile.points?.[e]}`).join(", ")}</> : null; })()} · 1 point of:</span>
                     {ATTUNE_ELEMENTS.map((el) => {
                       const held = you.pools?.[el] ?? 0;
                       const here = myStandingTile.element === el;
+                      const resting = myStandingTile.points?.[el] ?? 0;
                       return (
                         <button key={el} type="button" className="table-btn attune-btn" data-element={el}
-                          disabled={held < 1 || here}
-                          title={here ? `This ground already holds ${el}.` : held < 1 ? `Your ${el} pool is empty — attuning costs 1 point.` : `Spend 1 ${el} point onto this ground (your pool holds ${held}).`}
+                          disabled={held < 1}
+                          title={held < 1 ? `Your ${el} pool is empty — attuning costs 1 point.` : here ? `This ground holds ${el} — spend another point to deepen it (${resting} resting; your pool holds ${held}).` : resting > 0 ? `Lay another ${el} point on this ground (${resting} resting; the ground holds ${myStandingTile.element} — most points win).` : `Spend 1 ${el} point onto this ground (your pool holds ${held}).`}
                           onClick={() => send({ type: "attuneTile", hex: myStandingTile.id, element: el })}>
                           {el}{held >= 1 ? ` · ${held}` : " · 0"}
                         </button>
