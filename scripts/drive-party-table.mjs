@@ -9,12 +9,25 @@
 //      dealt; a member on the homeland field and a member
 //      staged at the bastion are named in the elsewhere row
 //      and NOT dealt; a non-member is not dealt at all. The
-//      control: a Tender who never composed a party is
-//      dealt the whole roster, exactly as before.
+//      control (the strict law, Nigel 2026-10-21): a Tender
+//      who never composed a party is dealt an EMPTY hand —
+//      yet the seat stands bound, party display and all, so
+//      the reinforcements road can find the unprepared.
 //   §S THE SUMMON LAW (Nigel, 2026-10-21: "the party is the
-//      ONLY Awoken a Tender can summon") — a stale hand card
-//      for a non-member cannot be summoned once a party is
-//      kept; a member's card summons as always.
+//      ONLY Awoken a Tender can summon") — a card dealt
+//      while its creature stood in the party goes stale
+//      when the creature is benched, and the summon door
+//      itself refuses it; a member's card summons as always.
+//   §B THE IN-HAND BONUS (Nigel, 2026-10-21: "party size
+//      'in hand' on the zodiac wheel raises your total
+//      energy. when they are summoned, they no longer
+//      provide that bonus") — the seat's maximum drops by
+//      exactly a member's band share when it is summoned
+//      (clamping the current energy where the summon price
+//      was less than the share), and is restored when the
+//      member stands in hand again — without the energy
+//      filling to meet it. A campaign seat reckons the
+//      same way.
 //   §R THE REINFORCEMENTS ROAD — chosen on the deck screen
 //      (the Zodiac's addToParty door) while a battle stands:
 //      the spot is reserved and shown on the road at the
@@ -27,10 +40,10 @@
 //   §E THE END — a battle ending first closes the road: no
 //      membership, and the ✦ returns whole (through the
 //      campaign bank, the purse this battle drew on). At the
-//      campaign's end, a fielded NON-member truly dissipates
-//      with a fall's re-coalescence (dispersed_until ≈ +4 h)
-//      and the tale names it; a fielded member stands
-//      untouched.
+//      campaign's end, a fielded Awokin put outside the
+//      party by a march order truly dissipates with a fall's
+//      re-coalescence (dispersed_until ≈ +4 h) and the tale
+//      names it; a fielded member stands untouched.
 //   §L THE PARTY LEVEL (Nigel's fold-in, 2026-10-21 11:41,
 //      corrected 11:42) — the Party skill stands on the wheel
 //      as a type of its own; untrained the party starts at 3;
@@ -146,7 +159,7 @@ async function summonOnto(c, cardId, nearId) {
 
 /* ── §D THE DEAL ────────────────────────────────────────── */
 {
-  console.log("§D the deal — a composed party is the hand; the uncomposed control");
+  console.log("§D the deal — a composed party is the hand; the strict control");
   const P = await claimBound("Deal Tender", "pt-d");
   // The width now comes from the Party skill (the fold-in):
   // three Party levels bought on the wheel make the party
@@ -195,33 +208,43 @@ async function summonOnto(c, cardId, nearId) {
   b.ws.close();
 
   const Q = await claimBound("Roster Tender", "pt-q");
-  const Q1 = seedAwokin(Q.ownerKey, "Roster Tender", "Roster One");
-  const Q2 = seedAwokin(Q.ownerKey, "Roster Tender", "Roster Two");
+  seedAwokin(Q.ownerKey, "Roster Tender", "Roster One");
+  seedAwokin(Q.ownerKey, "Roster Tender", "Roster Two");
   const qc = client("Q");
   await qc.join({ authToken: Q.tt, room: "party-table-roster" });
-  const qHand = (qc.you.hand ?? []).map((cd) => cd.awokenId).sort((x, y) => x - y);
-  ok("the control: a Tender who never composed a party is dealt the whole roster, as before",
-    qHand.join(",") === [Q1, Q2].join(","), JSON.stringify((qc.you.hand ?? []).map((cd) => cd.name)));
-  ok("the control: no party display stands for an unbound ledger — the seat carries none",
-    !qc.you.partyView || (qc.you.partyView.members ?? []).length === 0, JSON.stringify(qc.you.partyView));
+  ok("the strict control: a Tender who never composed a party is dealt an EMPTY hand — nothing summonable",
+    Array.isArray(qc.you.hand) && qc.you.hand.length === 0,
+    JSON.stringify((qc.you.hand ?? []).map((cd) => cd.name)));
+  ok("the strict control: the empty-handed seat still stands bound to its Tender, with its energy",
+    !!qc.you.bound && qc.you.maxEnergy > 0, JSON.stringify({ bound: qc.you.bound, maxEnergy: qc.you.maxEnergy }));
+  ok("the strict control: the party display stands for the empty ledger — three open spots, the road's door",
+    !!qc.you.partyView && qc.you.partyView.members.length === 0 && qc.you.partyView.cap === 3 && qc.you.partyView.openSpots === 3,
+    JSON.stringify(qc.you.partyView));
   qc.ws.close();
 }
 
 /* ── §S THE SUMMON LAW ──────────────────────────────────── */
 {
-  console.log("§S the summon law — once a party is kept, only its members can be summoned");
+  console.log("§S the summon law — the party alone can be summoned, struck at the door itself");
   const W = await claimBound("Gate Tender", "pt-w");
   const W1 = seedAwokin(W.ownerKey, "Gate Tender", "Gate Member");
   const W2 = seedAwokin(W.ownerKey, "Gate Tender", "Gate Outsider");
+  // The party is composed BEFORE the sitting (the strict
+  // deal): both members are dealt; nothing else is.
+  await call("addToParty", { awakenedId: W1 }, W.token);
+  await call("addToParty", { awakenedId: W2 }, W.token);
   const b = client("W");
   await b.join({ authToken: W.tt, room: "party-table-gate" });
   const cardW1 = (b.you.hand ?? []).find((cd) => cd.awokenId === W1);
   const cardW2 = (b.you.hand ?? []).find((cd) => cd.awokenId === W2);
-  ok("both cards stand in the roster hand before any party is kept", !!cardW1 && !!cardW2);
-  // Compose the party around W1 while seated (no battle
-  // stands, so the Zodiac's fill lands at once) — W2's card
-  // is now a stale card in the hand.
-  await call("addToParty", { awakenedId: W1 }, W.token);
+  ok("the composed party is the hand — both members are dealt", !!cardW1 && !!cardW2,
+    JSON.stringify((b.you.hand ?? []).map((cd) => cd.name)));
+  // Bench Gate Outsider mid-sitting — no battle stands, so
+  // the bench is free. Its dealt card stays in the seat,
+  // stale — and the summon DOOR is what must refuse it.
+  await call("removeFromParty", { awakenedId: W2 }, W.token);
+  ok("the bench stands in the ledger", partyRows(W.ownerKey).join(",") === String(W1),
+    partyRows(W.ownerKey).join(","));
   const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;
   const spot = b.state.map.find((t) => !t.cursed && t.id !== "0,0" && axialDist(t.id, anchor) <= 1);
   const errBefore = b.errors.length;
@@ -318,6 +341,77 @@ async function summonOnto(c, cardId, nearId) {
   b.ws.close();
 }
 
+/* ── §B THE IN-HAND BONUS ───────────────────────────────── */
+{
+  console.log("§B the in-hand bonus — the seat's maximum is a living reckoning");
+  // A slim Awokin built by hand: one part of power 1, the
+  // rest 0 — filed power 1, so its band share is +2 (the
+  // 1–3 band) while its summon price is max(1, 1) = 1. The
+  // one creature whose price is LESS than its share — the
+  // case that makes the energy clamp visible.
+  const seedSlim = (ownerKey, tenderName, name) => {
+    const nowT = Date.now();
+    const parts = [];
+    ["body", "arms", "head"].forEach((cat, i) => {
+      const power = i === 0 ? 1 : 0;
+      const pid = Number(db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, 1, 'root', ?, 'image/png', ?)").run(`${name} ${cat}`, cat, power, `ptable/${name}-${cat}.png`, nowT).lastInsertRowid);
+      parts.push({ source_id: `db:${pid}`, name: `${name} ${cat}`, category: cat, rarity: "common", power, toughness: 1, element: "root" });
+    });
+    return Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)").run(name, name, `ptable/${name}.png`, JSON.stringify(parts), tenderName, ownerKey, nowT).lastInsertRowid);
+  };
+  const G = await claimBound("Bonus Tender", "pt-g");
+  const S1 = seedSlim(G.ownerKey, "Bonus Tender", "Slim One");              // power 1 — share +2, price 1
+  const H1 = seedAwokin(G.ownerKey, "Bonus Tender", "Heavy One", 2);       // power 6 — share +4, price 6
+  await call("addToParty", { awakenedId: S1 }, G.token);
+  await call("addToParty", { awakenedId: H1 }, G.token);
+  const b = client("G");
+  await b.join({ authToken: G.tt, room: "party-table-bonus" });
+  // The standing reckoning: 10 + 2 (Slim) + 4 (Heavy) = 16.
+  ok("with the whole party in hand, the seat's maximum is the standing reckoning",
+    b.you.maxEnergy === 16 && b.you.energy === 16, `max ${b.you.maxEnergy}, energy ${b.you.energy}`);
+  const cardS = (b.you.hand ?? []).find((cd) => cd.awokenId === S1);
+  const cardH = (b.you.hand ?? []).find((cd) => cd.awokenId === H1);
+  const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;
+  await summonOnto(b, cardS.id, anchor);
+  // Price 1 paid: energy 15 against a maximum of 16 — then
+  // the share leaves with the summon: maximum 14, and the
+  // energy CLAMPS to it.
+  ok("summoning the slim member drops the maximum by exactly its share — and the energy clamps to it",
+    b.you.maxEnergy === 14 && b.you.energy === 14, `max ${b.you.maxEnergy}, energy ${b.you.energy}`);
+  await summonOnto(b, cardH.id, anchor);
+  // Price 6 paid: energy 8; the +4 share leaves: maximum 10.
+  ok("summoning the heavy member drops the maximum by exactly its share",
+    b.you.maxEnergy === 10 && b.you.energy === 8, `max ${b.you.maxEnergy}, energy ${b.you.energy}`);
+  // Recall the heavy one: the maximum is restored; the
+  // energy does NOT fill to meet it.
+  const unitH = b.state.field.find((u) => u.awokenId === H1);
+  b.send({ type: "recall", hex: unitH.hex, cardId: cardH.id });
+  await b.waitFor((cc) => !cc.state.field.some((u) => u.awokenId === H1), "the heavy member recalled to hand");
+  await b.poke();
+  ok("a member back in hand restores the maximum — and the energy does not fill to meet it",
+    b.you.maxEnergy === 14 && b.you.energy === 8, `max ${b.you.maxEnergy}, energy ${b.you.energy}`);
+  b.ws.close();
+
+  // The campaign seat reckons the same way (the spot-check):
+  // one member, power 3 — share +2, price 3.
+  const G2 = await claimBound("Campaign Bonus Tender", "pt-g2");
+  const CS = seedAwokin(G2.ownerKey, "Campaign Bonus Tender", "Campaign Slim", 1);
+  await call("addToParty", { awakenedId: CS }, G2.token);
+  const roomC = "campaign-party-table-bonus";
+  const stc = client("ST-B");
+  await stc.join({ devName: "Bonus Storytender", room: roomC, storytender: true });
+  const b2 = client("G2");
+  await b2.join({ authToken: G2.tt, room: roomC });
+  ok("the campaign seat opens at the standing reckoning too",
+    b2.you.maxEnergy === 12 && b2.you.energy === 12, `max ${b2.you.maxEnergy}, energy ${b2.you.energy}`);
+  const cardCS = (b2.you.hand ?? []).find((cd) => cd.awokenId === CS);
+  const anchor2 = b2.you.landing ?? b2.state.players.find((p) => p.key === b2.you.key)?.hex;
+  await summonOnto(b2, cardCS.id, anchor2);
+  ok("a campaign seat reckons the same way — the maximum drops by the member's share on the summon",
+    b2.you.maxEnergy === 10 && b2.you.energy === 9, `max ${b2.you.maxEnergy}, energy ${b2.you.energy}`);
+  b2.ws.close(); stc.ws.close();
+}
+
 /* ── §L THE PARTY LEVEL ─────────────────────────────────── */
 {
   console.log("§L the party level — a skill of its own type; the Muster bonus on top");
@@ -363,6 +457,12 @@ async function summonOnto(c, cardId, nearId) {
   const A = seedAwokin(V.ownerKey, "Verdant Tender", "Verdant A", 1);
   const B = seedAwokin(V.ownerKey, "Verdant Tender", "Verdant B", 1);
   const C = seedAwokin(V.ownerKey, "Verdant Tender", "Verdant C", 1);
+  // The party is composed BEFORE the sitting (the strict
+  // deal): Verdant A and Verdant B are members — the only
+  // two who can be summoned at all. Verdant C never is; it
+  // is the reinforcement the road will carry.
+  await call("addToParty", { awakenedId: A }, V.token);
+  await call("addToParty", { awakenedId: B }, V.token);
 
   const room = "campaign-party-table-end";
   const st = client("ST-E");
@@ -371,11 +471,13 @@ async function summonOnto(c, cardId, nearId) {
   await b.join({ authToken: V.tt, room });
   const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;
   const handV = b.you.hand ?? [];
+  ok("the deal brought the party — both members in hand, the reinforcement nowhere",
+    !!handV.find((cd) => cd.awokenId === A) && !!handV.find((cd) => cd.awokenId === B) && !handV.find((cd) => cd.awokenId === C),
+    JSON.stringify(handV.map((cd) => cd.name)));
   await summonOnto(b, handV.find((cd) => cd.awokenId === A).id, anchor);
   await summonOnto(b, handV.find((cd) => cd.awokenId === B).id, anchor);
-  ok("two Awoken stand on the campaign field before the battle", b.state.field.filter((u) => u.ownerKey === b.you.key).length === 2);
-  await call("addToParty", { awakenedId: A }, V.token); // no battle yet — lands at once
-  ok("one of them is made a member before the battle", partyRows(V.ownerKey).join(",") === String(A));
+  ok("two members stand on the campaign field before the battle", b.state.field.filter((u) => u.ownerKey === b.you.key).length === 2);
+  ok("the party stands at two in the ledger", partyRows(V.ownerKey).join(",") === [A, B].join(","), partyRows(V.ownerKey).join(","));
   const ePre = b.you.energy;
 
   st.send({ type: "stAdd", kind: "fray" });
@@ -390,22 +492,41 @@ async function summonOnto(c, cardId, nearId) {
   await b.poke();
   ok("the road's price left the bank at the choosing", b.you.energy === ePre - rc.reinforcement.cost,
     `bank ${b.you.energy} vs ${ePre} - ${rc.reinforcement.cost}`);
-  ok("the ledger still holds only the member — the road has written nothing",
-    partyRows(V.ownerKey).join(",") === String(A));
-  // C's card lawfully sits in the hand already (this seat
-  // was dealt the roster before the party was composed), so
-  // the road's never landing is proven by the hand standing
-  // EXACTLY as it stood before the end — nothing arrived.
+  ok("the ledger still holds only the two members — the road has written nothing",
+    partyRows(V.ownerKey).join(",") === [A, B].join(","));
+  // C was never dealt (the strict deal), so the road's
+  // never landing is proven by the hand standing EXACTLY as
+  // it stood before the end — nothing arrived by it.
   const handBeforeEnd = (b.you.hand ?? []).map((cd) => cd.awokenId).sort((x, y) => x - y).join(",");
+
+  // Verdant B takes a march order while the battle stands:
+  // the order ends its membership (the standing law), so at
+  // the end B stands FIELDED AND OUTSIDE the party — the
+  // dissipation's true shape. The march's price leaves the
+  // bank like any order's; the bank is read again after it.
+  const unitB = b.state.field.find((u) => u.awokenId === B);
+  const fromB = unitB.hex;
+  const marchTargets = b.state.map.filter((t) => t.id !== "0,0" && axialDist(fromB, t.id) === 2
+    && b.state.field.filter((u) => u.hex === t.id).length < 4);
+  let marched = false;
+  for (const t of marchTargets) {
+    b.send({ type: "march", cardId: unitB.cardId, from: fromB, to: t.id });
+    try { await b.waitFor((cc) => !(cc.you.party ?? []).includes(B), `the march to ${t.id} ending B's membership`, 5000); marched = true; break; } catch { /* next road */ }
+  }
+  ok("a march order ends the fielded member's membership mid-battle", marched, `errors: ${b.errors.join(" | ")}`);
+  ok("the ledger agrees — B stands outside the party, still on the field",
+    partyRows(V.ownerKey).join(",") === String(A) && b.state.field.some((u) => u.awokenId === B));
+  const bankBeforeEnd = b.you.energy;
 
   st.send({ type: "stEnd" });
   await b.waitFor((cc) => !!cc.state.campaign?.over, "the campaign's end", 15000);
   ok("the campaign ended by the Storytender's word", true);
-  ok("the road never landed — no membership was written, and no card arrived by it",
+  ok("the road never landed — no membership was written by it, and no card arrived by it",
     partyRows(V.ownerKey).join(",") === String(A)
     && (b.you.hand ?? []).map((cd) => cd.awokenId).sort((x, y) => x - y).join(",") === handBeforeEnd);
-  ok("the road's price returned whole — the seat holds exactly what it held before the fill",
-    b.you.energy === ePre, `energy ${b.you.energy} vs ${ePre}`);
+  ok("the road's price returned whole — the bank grew by exactly the price across the end",
+    b.you.energy === bankBeforeEnd + rc.reinforcement.cost,
+    `energy ${b.you.energy} vs ${bankBeforeEnd} + ${rc.reinforcement.cost}`);
   ok("the tale names the closed road and the returned price",
     (b.state.tale ?? []).some((t) => /Verdant C was on the road/.test(t.text) && /returned whole/.test(t.text)),
     (b.state.tale ?? []).slice(-6).map((t) => t.text).join(" | "));

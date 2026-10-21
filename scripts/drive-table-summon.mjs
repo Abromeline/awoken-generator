@@ -93,7 +93,6 @@ const mkAwokin = (name) => Number(db.prepare("INSERT INTO awakened (name, minted
 const handId = mkAwokin("Handkin");
 const fieldId = mkAwokin("Fieldkin");
 const stageId = mkAwokin("Stagekin");
-void handId;
 // A settled homeland disc, so Fieldkin can stand on its field.
 const insTile = db.prepare("INSERT INTO territory_tiles (owner_key, q, r, cursed, created_at) VALUES (?, ?, ?, ?, ?)");
 const tileIds = {};
@@ -109,6 +108,14 @@ db.prepare("INSERT INTO bastion_staged (owner_key, awakened_id, staged_at, via) 
 // The attune pool: five root points.
 db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, 'root', 5, ?)").run(ownerKey, now);
 await call("chooseClass", { classKey: "warden" }, token);
+// THE STRICT DEAL (2026-10-21): the Table deals the party
+// alone, so the party is composed here — all three of them
+// (the untrained party stands three wide): Handkin to be
+// dealt, Fieldkin and Stagekin to be named in the elsewhere
+// row from their posts.
+await call("addToParty", { awakenedId: handId }, token);
+await call("addToParty", { awakenedId: fieldId }, token);
+await call("addToParty", { awakenedId: stageId }, token);
 const { issueTableToken } = await import("../server/dist/table.js");
 const tt = issueTableToken({ id: "disc-fix", name: "Fix Tender" });
 const bindCode = (await call("getTableBindCode", {}, token)).code;

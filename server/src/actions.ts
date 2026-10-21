@@ -25,7 +25,7 @@ import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
-import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember } from "./party.js";
+import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
 // imported, never copied, so the two grounds can never drift
@@ -7134,6 +7134,19 @@ export const handlers = {
     const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     if (already.length) badRequest("Already on the field.");
+    // THE PARTY IS WHO YOU CAN FIELD (Nigel, 2026-10-21 —
+    // the party law on both grounds, the homeland gate ruled
+    // the same day as the Table's strict reading): a creature
+    // outside the Tender's party does not take the homeland
+    // field, by either deploy door. The refusal is plain,
+    // spends nothing, and fields nothing. Filling the party
+    // at home stays INSTANT — the Party tab's fill lands at
+    // once, no road, no timer; the gate stands on the
+    // FIELDING, and the quick-select hand keeps its width.
+    if (!isPartyMember(ownerKey, parsed.data.awakenedId)) {
+      const named = await awakenedPayloadById(parsed.data.awakenedId).catch(() => null);
+      badRequest(`${named?.name ?? "That Awokin"} is not in your party — the party is who you can field. Add it from the Party tab of your Zodiac — at home the fill lands at once.`);
+    }
     // Court-bound (Nigel, 2026-10-12): housed Awoken and the marked champion
     // stay in hand for battles — they cannot be stationed on field tiles.
     const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
@@ -7226,6 +7239,12 @@ export const handlers = {
       // by mustering — it is not in the battle pool while staged.
       const stagedF = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, f.id) as any;
       if (stagedF) badRequest(`${f.name} waits at the bastion — muster it onto the bastion's hex before it fights on the field.`);
+      // THE PARTY IS WHO YOU CAN FIELD (Nigel, 2026-10-21):
+      // the party gate stands on this road too — a fighter
+      // outside the party is refused whole, in the deploy
+      // door's plain voice, before any price is reckoned or
+      // spent and before anything takes the field.
+      if (!isPartyMember(ownerKey, f.id)) badRequest(`${f.name} is not in your party — the party is who you can field. Add it from the Party tab of your Zodiac — at home the fill lands at once.`);
     }
     const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));

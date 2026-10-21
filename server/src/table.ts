@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor, payFellDrip } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
@@ -77,7 +77,8 @@ interface TableCard {
 }
 
 /** The stand-in pool: the roster an UNBOUND seat brings. Bound
- *  seats bring their Tender's whole collection instead. */
+ *  seats are dealt their Tender's party instead (the strict
+ *  party deal) — never this pool. */
 const TEST_POOL: Omit<TableCard, "id">[] = [
   { name: "Warden of Small Rains", power: 3, toughness: 4, element: "tide" },
   { name: "Keeper of the Low Bell", power: 2, toughness: 5, element: "stone" },
@@ -99,9 +100,9 @@ interface Player {
    *  she holds no hand, is no combatant, and is never counted
    *  among the seated Tenders. Only in campaign rooms. */
   storytender?: boolean;
-  /** The seat's roster — every card available to cast. For a bound
-   *  seat that is the Tender's whole collection (Nigel, 2026-10-16:
-   *  the full roster stands at the Table, not a dealt five). */
+  /** The seat's cards — every card available to cast. For a bound
+   *  seat that is the deal: the Tender's party alone, under the
+   *  strict party law (Nigel, 2026-10-21). */
   hand: TableCard[];
   notes: string;
   inventory: string[];
@@ -177,6 +178,16 @@ interface Player {
    *  the one law (calculateMaxEnergy) — all of it, as ruled. */
   energy: number;
   maxEnergy: number;
+  /** THE STANDING RECKONING behind the living maximum (the
+   *  in-hand bonus, Nigel 2026-10-21): the seat's maximum as it
+   *  stands with NOTHING of this seat's fielded — calculateMax
+   *  Energy plus the Heart's Deep Breath where it stands. The
+   *  living `maxEnergy` is this reckoning minus the shares of
+   *  the Awokin currently fielded at this Table, re-reckoned
+   *  at the field's seams (reckonSeatEnergy). Bound seats
+   *  only; unbound seats keep their flat portion and carry
+   *  none. */
+  standingMaxEnergy?: number;
   /** THE TENDER ON THE FIELD (Nigel, 2026-10-19): where this
    *  Tender stands on the instance — a tile id, derived from
    *  `pos` by the continuous referee. The Tender arrives at
@@ -967,36 +978,38 @@ export async function deckForTender(tenderId: number, opts?: { stagedOnly?: bool
   const placedRows = await db.select().from(schema.fieldPlacements)
     .where(eq(schema.fieldPlacements.ownerKey, ownerKey)).catch(() => [] as { awakenedId: number }[]);
   const placedIds = new Set(placedRows.map(r => r.awakenedId));
-  // THE HAND OF TWENTY (Station 4, Nigel 2026-10-20): the Table
-  // deals the play hand — the twenty the Tender keeps ready —
-  // never the reserve waiting in the deck. And an instance
-  // claimed from the bastion deals narrower still: the staged
-  // company alone is the company that travels.
-  const handIds = new Set(handIdsFor(ownerKey));
+  // An instance claimed from the bastion deals narrower
+  // still (Station 4, Nigel 2026-10-20): the staged company
+  // alone is the company that travels.
   const stagedAll = new Set(stagedIdsFor(ownerKey));
   const stagedIds = opts?.stagedOnly ? stagedAll : null;
-  // THE PARTY DEAL (Nigel, 2026-10-20; build 2, 2026-10-21):
-  // a Tender who KEEPS a party is dealt FROM THE PARTY — the
-  // hand is the party, drawn from the deck the party was
-  // drawn from. THE KEEPER'S PENCIL, standing until Nigel
-  // rules otherwise: a Tender who has composed NO party at
-  // all (the membership ledger stands empty because they
-  // never used it) is dealt from the whole roster exactly
-  // as before — the party law bites once a party is kept;
-  // no memberships are auto-seeded. The elsewhere law stands
-  // unchanged either way: a member standing on the homeland
-  // field or staged at the bastion is not dealt (and is
-  // named in the elsewhere row), and a creature still
-  // re-coalescing from a fall is dealt nowhere — the same
-  // reading the studio's own hand keeps (actions.ts).
+  // THE PARTY DEAL — STRICT (Nigel, 2026-10-20; build 2,
+  // 2026-10-21; the strict reading ruled 2026-10-21 12:11:
+  // "if a tender arrives with no party the law is strict,
+  // they will have to call reinforcements because they did
+  // not come prepared"). The Table deals the party and ONLY
+  // the party: the hand is the party, drawn from the deck
+  // the party was drawn from. A Tender who keeps NO party is
+  // dealt an EMPTY hand — nothing summonable — and fills a
+  // spot from the Zodiac's deck screen (between battles the
+  // fill lands at once; mid-battle it travels the
+  // reinforcements road). Build 2's gentler pencil — an
+  // uncomposed roster dealt whole — is REMOVED by this
+  // ruling, and no memberships are auto-seeded either. The
+  // elsewhere law stands unchanged: a member standing on
+  // the homeland field or staged at the bastion is not dealt
+  // (and is named in the elsewhere row), and a creature
+  // still re-coalescing from a fall is dealt nowhere — the
+  // same reading the studio's own hand keeps (actions.ts).
+  // An instance's staged-company deal (stagedOnly) stands
+  // apart, untouched.
   const partyIds = new Set(partyIdsFor(ownerKey));
-  const keepsParty = partyIds.size > 0;
   const nowMs = Date.now();
   const rows = (await db.select().from(schema.awakened)
     .where(eq(schema.awakened.ownerKey, ownerKey)))
     .filter(row => !placedIds.has(row.id))
     .filter(row => !row.dispersedUntil || new Date(row.dispersedUntil).getTime() <= nowMs)
-    .filter(row => stagedIds ? stagedIds.has(row.id) : (keepsParty ? partyIds.has(row.id) : handIds.has(row.id)) && !stagedAll.has(row.id));
+    .filter(row => stagedIds ? stagedIds.has(row.id) : partyIds.has(row.id) && !stagedAll.has(row.id));
   const cards: TableCard[] = [];
   for (const row of rows.slice(0, 120)) {
     const payload = await awakenedPayloadById(row.id).catch(() => null);
@@ -1154,7 +1167,7 @@ async function startReinforcement(room: Room, player: Player, awakenedId: number
   }
   const arrivesAt = Date.now() + REINFORCEMENT_MS;
   player.incoming.push({ awakenedId, name: row.name, arrivesAt, cost, fromBank });
-  tell(room, `🚶 ${row.name} is called to ${player.name}'s party — ✦${cost} paid for the road. The road takes ${Math.round(REINFORCEMENT_MS / 60000) || 1} minutes, and it lands only while the battle stands.`);
+  tell(room, `🚶 ${row.name} is called to ${player.name}'s party — ✦${cost} paid for the road. The road takes ${Math.round(REINFORCEMENT_MS / 60000) || 1} minutes, and it lands only while the battle stands. The price is paid twice over, and that is the road's balance: ✦${cost} to call it, and its summon price again to summon it when it arrives.`);
 
   return { ok: true, name: row.name, arrivesAt, cost };
 }
@@ -1531,8 +1544,50 @@ function unitsAt(room: Room, tileId: string): FieldUnit[] {
 function unitStanding(room: Room, u: FieldUnit): boolean {
   return room.field.get(unitKeyOf(u)) === u;
 }
-function placeUnit(room: Room, u: FieldUnit): void { room.field.set(unitKeyOf(u), u); }
-function removeUnit(room: Room, u: FieldUnit): void { room.field.delete(unitKeyOf(u)); }
+function placeUnit(room: Room, u: FieldUnit): void { room.field.set(unitKeyOf(u), u); reckonSeatEnergy(room, u.ownerKey); }
+function removeUnit(room: Room, u: FieldUnit): void { room.field.delete(unitKeyOf(u)); reckonSeatEnergy(room, u.ownerKey); }
+
+/** One Awokin's share of the one energy law, by the power
+ *  band calculateMaxEnergy counts it in: 1–3 → +2, 4–6 → +4,
+ *  7–9 → +6, 10+ → +8. The bands are the law's own; this is
+ *  only their reading for a single creature. */
+function awokinEnergyShare(power: number): number {
+  if (power >= 10) return 8;
+  if (power >= 7) return 6;
+  if (power >= 4) return 4;
+  if (power >= 1) return 2;
+  return 0;
+}
+
+/** THE IN-HAND BONUS (Nigel, 2026-10-21 12:11): "party size
+ *  'in hand' on the zodiac wheel raises your total energy.
+ *  when they are summoned, they no longer provide that
+ *  bonus." A bound seat's maximum is a LIVING reckoning: the
+ *  standing maximum (calculateMaxEnergy, which counts every
+ *  owned Awokin's share, hand and deployed alike, plus the
+ *  Heart's Deep Breath where it stands) MINUS the shares of
+ *  the Awokin this seat currently has FIELDED at this Table.
+ *  It is re-reckoned at the field's only two seams — a unit
+ *  placed, a unit removed — so a summon lowers it, and every
+ *  road off the field (a fall or a curse-unbinding back to
+ *  the hand, a recall, a battle-end dissipation) raises it
+ *  again; members still standing when a battle ends keep
+ *  their shares held back, as they stand. The readings,
+ *  stated plainly: when the maximum DROPS, the seat's current
+ *  energy CLAMPS to it; when the maximum RISES, the current
+ *  energy does NOT fill to meet it — what returns is room,
+ *  not energy. Unbound seats carry no standing reckoning
+ *  and keep their flat portion untouched. The campaign bank
+ *  and the bastion pool keep their own reckonings — this law
+ *  governs the seat's own purse only. */
+function reckonSeatEnergy(room: Room, ownerKey: string): void {
+  const seat = seatByKey(room, ownerKey);
+  if (!seat || seat.standingMaxEnergy == null) return;
+  let held = 0;
+  for (const u of room.field.values()) if (u.ownerKey === ownerKey) held += awokinEnergyShare(u.card.power);
+  seat.maxEnergy = Math.max(0, seat.standingMaxEnergy - held);
+  if (seat.energy > seat.maxEnergy) seat.energy = seat.maxEnergy;
+}
 /** CONTINUOUS MOVEMENT (Phase B): a thing moves while it has a
  *  target further than a step away. There are no roads on
  *  entities any more — only a position and a destination. */
@@ -3453,11 +3508,11 @@ function handleConnection(ws: WebSocket): void {
         + [...room.away.values()].filter(h => !h.player.watcher && !h.player.storytender).length;
       if (!watcher && !isStorytender && seatedCount >= MAX_SEATED) watcher = true; // a full table deals no ninth hand; watchers are welcome
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
-      // The full roster stands at the Table (Nigel, 2026-10-16):
-      // a bound seat brings its Tender's whole collection, and
-      // its energy is that roster's own calculation by the game's
-      // one law — all of it. An unbound seat brings the whole
-      // stand-in pool and a stand-in's portion of energy.
+      // A bound seat is dealt its Tender's party (the strict
+      // party deal), and its energy is that roster's own
+      // calculation by the game's one law — all of it. An
+      // unbound seat brings the whole stand-in pool and a
+      // stand-in's portion of energy.
       let hand: TableCard[] = [];
       let elsewhereCards: { name: string; element: string; where: "fielded" | "staged" }[] = [];
       let bound: string | null = null;
@@ -3483,43 +3538,47 @@ function handleConnection(ws: WebSocket): void {
           const instanceHost = joinCall?.kind === "instance" && joinCall.owner_key === tenderOwnerKey(tenderId);
           stagedDeal = instanceHost;
           const cards = await deckForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as TableCard[]);
-          if (cards.length) {
-            hand = cards;
-            // The hand's honest margin (the Fix Pass): who
-            // was kept back for place, and where they stand.
-            elsewhereCards = await elsewhereForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as { name: string; element: string; where: "fielded" | "staged" }[]);
-            bound = await tenderDisplayName(tenderId);
-            maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
-            energy = maxEnergy;
-            expKey = tenderOwnerKey(tenderId);
-            const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
-            boundClassKey = progress?.classKey ?? null;
-            boundWeaponKey = progress?.weaponKey ?? null;
-            // The initially wielded weapon's contract rides the
-            // seat from the first state push (Phase C).
-            if (boundWeaponKey) boundWeaponContract = await weaponContractFor(expKey, boundWeaponKey);
-            if (progress) {
-              tenderLevel = progress.level;
-              healTier = progress.healTier;
-              healAmount = progress.healAmount;
-              wardRuneUnlocked = progress.wardRuneUnlocked;
-              maxTenderHp = progress.maxTenderHp;
-            }
-            // Deep Breath (the Heart, 2026-10-18): maximum
-            // energy +3 at the Table and on the Bastion — its
-            // copy names those seats, so the bonus lands here
-            // and not in the map's energy law.
-            const breathBonus = heartEffects(tenderOwnerKey(tenderId)).tableEnergy;
-            if (breathBonus) { maxEnergy += breathBonus; energy += breathBonus; }
-          } else {
-            // An empty deck deals no hand, but the seat is
-            // still its Tender's (found 2026-10-20): the class
-            // is read here too, so the figure standing at the
-            // Table is the Tender's true class and not the
-            // client's fallback art.
-            const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
-            boundClassKey = progress?.classKey ?? null;
+          // A BOUND SEAT IS ITS TENDER'S, EMPTY HAND OR NO
+          // (the strict party deal, 2026-10-21): the deal
+          // above now brings the party alone, so a Tender who
+          // keeps no party is dealt NO cards — and the seat
+          // must still stand bound (its energy, its class,
+          // its party display), or the Zodiac's reinforcement
+          // road could never find it and the strict law would
+          // strand the unprepared at a stand-in's table. The
+          // stand-in pool below is for seats with no Tender
+          // behind them at all — never for a bound Tender
+          // whose party is simply uncomposed. (The class was
+          // already read on the empty road before, found
+          // 2026-10-20, so the figure at the Table is the
+          // Tender's true class.)
+          hand = cards;
+          // The hand's honest margin (the Fix Pass): who
+          // was kept back for place, and where they stand.
+          elsewhereCards = await elsewhereForTender(tenderId, instanceHost ? { stagedOnly: true } : undefined).catch(() => [] as { name: string; element: string; where: "fielded" | "staged" }[]);
+          bound = await tenderDisplayName(tenderId);
+          maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
+          energy = maxEnergy;
+          expKey = tenderOwnerKey(tenderId);
+          const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
+          boundClassKey = progress?.classKey ?? null;
+          boundWeaponKey = progress?.weaponKey ?? null;
+          // The initially wielded weapon's contract rides the
+          // seat from the first state push (Phase C).
+          if (boundWeaponKey) boundWeaponContract = await weaponContractFor(expKey, boundWeaponKey);
+          if (progress) {
+            tenderLevel = progress.level;
+            healTier = progress.healTier;
+            healAmount = progress.healAmount;
+            wardRuneUnlocked = progress.wardRuneUnlocked;
+            maxTenderHp = progress.maxTenderHp;
           }
+          // Deep Breath (the Heart, 2026-10-18): maximum
+          // energy +3 at the Table and on the Bastion — its
+          // copy names those seats, so the bonus lands here
+          // and not in the map's energy law.
+          const breathBonus = heartEffects(tenderOwnerKey(tenderId)).tableEnergy;
+          if (breathBonus) { maxEnergy += breathBonus; energy += breathBonus; }
         }
       }
       if (!watcher && !bound && !isStorytender) {
@@ -3531,7 +3590,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: isStorytender, hand: isStorytender ? [] : hand, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -3708,19 +3767,20 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: "That Awokin is not in your roster." }));
         return;
       }
-      // THE PARTY IS WHO YOU CAN SUMMON (Nigel, 2026-10-21):
-      // "the party is the ONLY Awoken a Tender can summon" —
-      // the hand is dealt from the party, and the summon road
+      // THE PARTY IS WHO YOU CAN SUMMON (Nigel, 2026-10-21;
+      // the strict reading, ruled the same day): "the party
+      // is the ONLY Awoken a Tender can summon" — the hand
+      // is dealt from the party alone, and the summon road
       // itself refuses a non-member, so no stale card (dealt
-      // before the party was composed, say) can put one on
-      // the field. A Tender who keeps NO party yet is dealt
-      // and summons from the whole roster, exactly as before
-      // (the Keeper's pencil: the law bites once a party is
-      // kept; nothing auto-seeds one). The instance host's
+      // while the creature stood in the party and benched
+      // since, say) can put one on the field. A Tender who
+      // keeps NO party is dealt an empty hand and summons
+      // nothing at all — they call reinforcements from the
+      // Zodiac's deck screen. The instance host's
       // staged-company deal (Station 4) stands as its own
       // exception — its seat is marked at the join.
       if (player.expKey && !player.stagedDeal && typeof card.awokenId === "number"
-        && partyIdsFor(player.expKey).length > 0 && !isPartyMember(player.expKey, card.awokenId)) {
+        && !isPartyMember(player.expKey, card.awokenId)) {
         ws.send(JSON.stringify({ type: "error", message: `${card.name} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; mid-battle the called Awokin arrives by the reinforcements road.` }));
         return;
       }
@@ -4430,7 +4490,13 @@ function handleConnection(ws: WebSocket): void {
       let pool = 0;
       for (const p of room.players.values()) {
         if (p.watcher) continue;
-        pool += p.maxEnergy + 2 * Math.max(0, p.tenderLevel - 1);
+        // The pool is seeded from the seat's STANDING
+        // reckoning, as it always was: the in-hand bonus
+        // (2026-10-21) governs the seat's own purse, not the
+        // pool's seeding — a seat whose members stand fielded
+        // at the claim seeds the pool whole, exactly as
+        // before the bonus was ruled.
+        pool += (p.standingMaxEnergy ?? p.maxEnergy) + 2 * Math.max(0, p.tenderLevel - 1);
       }
       // THE PREPARED BASTION (Station 4, Nigel 2026-10-20):
       // the seed the column came for, still held with its

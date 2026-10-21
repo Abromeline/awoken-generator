@@ -9,6 +9,11 @@
 //   §H the homeland: adding from the field sets the
 //      creature's follow on that ground; a march order and
 //      a laid patrol road each end the membership.
+//   §G the homeland gate (the fix, 2026-10-21): both
+//      deploy doors refuse a non-member in plain words,
+//      spending nothing and fielding nothing; a member
+//      deploys exactly as before; a party fill at home
+//      lands at once — no road, no timer.
 //   §T the Table: a membership written over HTTP stands in
 //      the seat's own payload (the same ledger, read across
 //      grounds); adding a fielded Awokin by the unit's bar
@@ -139,6 +144,45 @@ const partyRows = (ownerKey) => db.prepare("SELECT awakened_id FROM tender_party
   void t00;
 }
 
+/* ── §G THE HOMELAND GATE ───────────────────────────────── */
+{
+  console.log("§G the homeland gate — the party is who you can field, on both deploy doors");
+  const G = await claimWithExp("Gate Tender", 0);
+  const M = seedAwokin(G.ownerKey, "Gate Tender", "Gate Member", 2);    // power 6
+  const N = seedAwokin(G.ownerKey, "Gate Tender", "Gate Outsider", 2);  // power 6
+  await call("addToParty", { awakenedId: M }, G.token);
+  const now = Date.now();
+  const insTile = db.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, created_at) VALUES (?, ?, ?, 'root', 0, ?)");
+  const g00 = Number(insTile.run(G.ownerKey, 0, 0, now).lastInsertRowid);
+  const g10 = Number(insTile.run(G.ownerKey, 1, 0, now).lastInsertRowid);
+  db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 100, ?)").run(G.ownerKey, now);
+  const energyOf = () => db.prepare("SELECT energy FROM tender_resources WHERE owner_key = ?").get(G.ownerKey).energy;
+  const placedOf = (id) => db.prepare("SELECT COUNT(*) AS n FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(G.ownerKey, id).n;
+
+  let refused = null;
+  try { await call("deployAwoken", { awakenedId: N, tileId: g00 }, G.token); } catch (e) { refused = e; }
+  ok("deployAwoken refuses a non-member in the party's plain voice",
+    !!refused && /is not in your party/.test(refused.message), refused ? refused.message : "no refusal");
+  ok("the refusal spent nothing and fielded nothing",
+    energyOf() === 100 && placedOf(N) === 0, `energy ${energyOf()}, placed ${placedOf(N)}`);
+
+  refused = null;
+  try { await call("deployBattle", { awakenedIds: [M, N], tileId: g00 }, G.token); } catch (e) { refused = e; }
+  ok("deployBattle refuses a company carrying a non-member",
+    !!refused && /is not in your party/.test(refused.message), refused ? refused.message : "no refusal");
+  ok("the battle refusal spent nothing and fielded nothing — the member in the company stands undeployed too",
+    energyOf() === 100 && placedOf(M) === 0 && placedOf(N) === 0, `energy ${energyOf()}`);
+
+  await call("deployAwoken", { awakenedId: M, tileId: g10 }, G.token);
+  ok("the member deploys exactly as before — its price spent, its place taken",
+    placedOf(M) === 1 && energyOf() === 97, `energy ${energyOf()}, placed ${placedOf(M)}`);
+
+  const vFill = await call("addToParty", { awakenedId: N }, G.token);
+  ok("a party fill at home lands at once — the membership stands in the reply, and no road is started",
+    vFill.members.some((m) => m.awakenedId === N) && !vFill.reinforcement, JSON.stringify(vFill.reinforcement ?? null));
+  void g00;
+}
+
 /* ── §T THE TABLE ───────────────────────────────────────── */
 const parseId = (id) => id.split(",").map(Number);
 const axialDist = (a, b) => { const [aq, ar] = parseId(a), [bq, br] = parseId(b); return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs((aq + ar) - (bq + br))) / 2; };
@@ -168,11 +212,12 @@ function client(label) {
 
 {
   console.log("§T the Table — the same ledger across grounds; the field add; the march");
-  const T2 = await claimWithExp("Table Tender", 3800); // Lv 10 — classed, party five wide
+  const T2 = await claimWithExp("Table Tender", 3800); // Lv 10 — classed
   await call("chooseClass", { classKey: "warden" }, T2.token);
   await call("chooseWeapon", { weaponKey: "sword" }, T2.token);
   const one = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin One", 3);
   const two = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin Two", 3);
+  const three = seedAwokin(T2.ownerKey, "Table Tender", "Tablekin Three", 3);
 
   const { issueTableToken } = await import("../server/dist/table.js");
   const tt = issueTableToken({ id: "disc-party", name: "Table Tender" });
@@ -180,16 +225,19 @@ function client(label) {
   const bindRes = await fetch(`${BASE}/api/table/bind`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: tt, code: bindCode }) });
   if (!bindRes.ok) throw new Error("table/bind failed: " + bindRes.status);
 
-  // Join with NO party composed (build 2's standing pencil:
-  // the ledger is empty because it was never used, so the
-  // deal — and the summon below — run from the whole roster
-  // exactly as before the party law; nothing auto-seeds a
-  // party). The party is composed from the seat afterwards.
+  // The party is composed BEFORE the sitting (the strict
+  // deal, 2026-10-21): the hand is the party, so the summon
+  // below runs from it. A third creature joins over HTTP
+  // mid-sitting, to prove the ledger reads across grounds.
+  await call("addToParty", { awakenedId: one }, T2.token);
+  await call("addToParty", { awakenedId: two }, T2.token);
   const b = client("B");
   await b.join({ authToken: tt, room: "party-drive-casual" });
 
   const card = (b.you.hand ?? []).find((cd) => cd.name === "Tablekin One");
-  ok("an uncomposed Tender is dealt from the whole roster — the hand carries the field candidate", !!card, JSON.stringify((b.you.hand ?? []).map((cd) => cd.name)));
+  ok("the composed party is the hand — the field candidate stands in it, the non-member nowhere",
+    !!card && !(b.you.hand ?? []).some((cd) => cd.name === "Tablekin Three"),
+    JSON.stringify((b.you.hand ?? []).map((cd) => cd.name)));
   const anchor = b.you.landing ?? b.state.players.find((p) => p.key === b.you.key)?.hex;
   let summonedHex = null;
   const spots = b.state.map.filter((t) => !t.cursed && t.id !== "0,0" && axialDist(t.id, anchor) <= 1);
@@ -205,18 +253,35 @@ function client(label) {
   // must stand in the Table seat's own payload — one ledger.
   // No battle stands, so the fill lands at once; a notes
   // poke makes the seat push its state again.
-  await call("addToParty", { awakenedId: two }, T2.token);
+  await call("addToParty", { awakenedId: three }, T2.token);
   b.send({ type: "notes", text: "" });
-  await b.waitFor((cc) => (cc.you.party ?? []).includes(two), "the Zodiac's write standing in the seat's payload");
+  await b.waitFor((cc) => (cc.you.party ?? []).includes(three), "the Zodiac's write standing in the seat's payload");
   ok("the Table reads the party written in the Zodiac — one ledger across grounds",
-    Array.isArray(b.you.party) && b.you.party.includes(two), JSON.stringify(b.you.party));
+    Array.isArray(b.you.party) && b.you.party.includes(three), JSON.stringify(b.you.party));
+
+  // Bench the fielded member over HTTP (no battle stands —
+  // the bench is free), then add it back FROM THE FIELD:
+  // the Table's own road, which must write both the
+  // membership and the follow.
+  await call("removeFromParty", { awakenedId: one }, T2.token);
+  ok("the fielded member benches from the ledger while it stands on the field",
+    !partyRows(T2.ownerKey).includes(one) && b.state.field.some((u) => u.cardId === card.id));
 
   b.send({ type: "addToParty", cardId: card.id });
-  await b.waitFor((cc) => (cc.you.party ?? []).includes(one), "the field add standing in you.party");
+  // The wait must bite on the ADD's own state push: the
+  // payload already named `one` from before the bench (no
+  // push follows an HTTP bench), so party-membership alone
+  // would match the stale state — the unit's follow, false
+  // since its summon and set true only by this road, is
+  // the fresh mark.
+  await b.waitFor((cc) => (cc.you.party ?? []).includes(one)
+    && cc.state.field.find((u) => u.cardId === card.id)?.follow === true,
+    "the field add standing in you.party, with its follow set");
   ok("adding from the field stands the membership in the seat's payload", true);
   const unit1 = b.state.field.find((u) => u.cardId === card.id);
   ok("adding from the field sets its follow at the Table", !!unit1 && unit1.follow === true, JSON.stringify(unit1 && { follow: unit1.follow }));
-  ok("the ledger row stands for the Table add too", partyRows(T2.ownerKey).includes(one) && partyRows(T2.ownerKey).includes(two));
+  ok("the ledger row stands for the Table add too",
+    partyRows(T2.ownerKey).includes(one) && partyRows(T2.ownerKey).includes(two) && partyRows(T2.ownerKey).includes(three));
 
   // March it: the order ends the membership and the follow.
   const from = unit1.hex;
@@ -231,8 +296,9 @@ function client(label) {
   const unit2 = b.state.field.find((u) => u.cardId === card.id);
   ok("the march also ended its follow", !!unit2 && unit2.follow === false);
   ok("the tale names the leaving", (b.state.tale ?? []).some((t) => /leaves .* party/.test(t.text)), (b.state.tale ?? []).slice(-4).map((t) => t.text).join(" | "));
-  ok("the other member stands untouched; the ledger agrees",
-    (b.you.party ?? []).includes(two) && partyRows(T2.ownerKey).join(",") === String(two));
+  ok("the other members stand untouched; the ledger agrees",
+    (b.you.party ?? []).includes(two) && (b.you.party ?? []).includes(three)
+    && partyRows(T2.ownerKey).join(",") === [two, three].sort((x, y) => x - y).join(","));
   b.ws.close();
 }
 

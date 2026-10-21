@@ -161,7 +161,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
       // all: the road charged the Awokin's summon price,
       // and it comes back whole if the battle ends first.
       if (v.reinforcement) {
-        charOk(`${v.reinforcement.name} is on its way to your party — ✦${v.reinforcement.cost} paid for the road. The road takes four minutes, and it lands only while the battle at the Table still stands; if the battle ends first, the ✦ comes back whole.`);
+        charOk(`${v.reinforcement.name} is on its way to your party — ✦${v.reinforcement.cost} paid for the road. The road takes four minutes, and it lands only while the battle at the Table still stands; if the battle ends first, the ✦ comes back whole. And the price is paid twice over, by the road's balance: ✦${v.reinforcement.cost} to call it, and its summon price again to summon it when it arrives.`);
       } else {
         charOk(`${v.members.find(m => m.awakenedId === id)?.name ?? "The Awokin"} joins your party — it follows you now.`);
       }
@@ -392,7 +392,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                     {(partyQ.data.incoming ?? []).length > 0 && (
                       <p className="zodiac-note small">
                         {(partyQ.data.incoming ?? []).map(i => (
-                          <span key={i.awakenedId}>🚶 {i.name} is on its way to your party — it joins when its road completes, while the battle at the Table still stands. The ✦{i.cost} paid for its road comes back whole if the battle ends first. </span>
+                          <span key={i.awakenedId}>🚶 {i.name} is on its way to your party — it joins when its road completes, while the battle at the Table still stands. The ✦{i.cost} paid for its road comes back whole if the battle ends first. Calling it cost its summon price; summoning it when it arrives costs its summon price again. </span>
                         ))}
                       </p>
                     )}
@@ -458,7 +458,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
             {tab === "party" && (
               <div className="character-pane">
                 <h4>Your party</h4>
-                <p className="zodiac-note small">The party stands here, in your Zodiac. Its members follow you — at the Table and on your land. An Awokin you give orders to, a march or a patrol, leaves the party; one standing on a field can be added back from that field. Fielding a member still happens where it always has: summoned at the Table, deployed on your land. The party is who you can summon — no one outside it takes the field. And while a battle stands at the Table, filling an open spot here does not land at once: the Awokin travels the reinforcements road — four minutes, at its summon price in ✦ (its ⚔ power, at least 1) — and joins only if the battle still stands when it arrives; if the battle ends first, the ✦ comes back whole.</p>
+                <p className="zodiac-note small">The party stands here, in your Zodiac. Its members follow you — at the Table and on your land. An Awokin you give orders to, a march or a patrol, leaves the party; one standing on a field can be added back from that field. Fielding a member still happens where it always has: summoned at the Table, deployed on your land. The party is who you can summon — no one outside it takes the field. And while a battle stands at the Table, filling an open spot here does not land at once: the Awokin travels the reinforcements road — four minutes, at its summon price in ✦ (its ⚔ power, at least 1) — and joins only if the battle still stands when it arrives; if the battle ends first, the ✦ comes back whole. The price is paid twice over, and that is the road's balance, kept by ruling: the summon price to call the Awokin, and the summon price again to summon it onto the field when it arrives.</p>
                 {partyQ.isLoading && <p className="zodiac-note">Your party is gathering…</p>}
                 {partyQ.isError && <p className="zodiac-lock">The party would not gather — try again in a moment.</p>}
                 {partyQ.data && (
@@ -468,7 +468,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                     {(partyQ.data.incoming ?? []).length > 0 && (
                       <p className="zodiac-note small">
                         {(partyQ.data.incoming ?? []).map(i => (
-                          <span key={i.awakenedId}>🚶 {i.name} is on its way to your party — it joins when its road completes, while the battle at the Table still stands. The ✦{i.cost} paid for its road comes back whole if the battle ends first. </span>
+                          <span key={i.awakenedId}>🚶 {i.name} is on its way to your party — it joins when its road completes, while the battle at the Table still stands. The ✦{i.cost} paid for its road comes back whole if the battle ends first. Calling it cost its summon price; summoning it when it arrives costs its summon price again. </span>
                         ))}
                       </p>
                     )}

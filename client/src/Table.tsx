@@ -2665,14 +2665,14 @@ export default function Table() {
                         const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
                         return (
                           <span key={i.awakenedId} className="elsewhere-chip party-chip incoming"
-                            title={`${i.name} is on the road to your party — it joins, membership and card together, when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
+                            title={`${i.name} is on the road to your party — it joins, membership and card together, when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole. Calling it cost its summon price, and summoning it when it arrives costs its summon price again.`}>
                             🚶 {i.name} · on its way — {mm}:{ss} left
                           </span>
                         );
                       })}
                     </div>
                     {shared.battle.active && you.partyView.openSpots > 0 && (
-                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. To call a reinforcement, open the Party tab of your Zodiac and tap an open spot there — the deck screen is where a reinforcement is chosen. The road costs the Awokin's summon price in ✦ and takes four minutes; it lands only while the battle stands, and if the battle ends first the ✦ comes back whole.</p>
+                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. To call a reinforcement, open the Party tab of your Zodiac and tap an open spot there — the deck screen is where a reinforcement is chosen. The road costs the Awokin's summon price in ✦ and takes four minutes — and summoning the Awokin when it arrives costs its summon price again: the price is paid twice over, and that is the road's balance. It lands only while the battle stands, and if the battle ends first the ✦ comes back whole.</p>
                     )}
                     {shared.battle.active && you.partyView.openSpots === 0 && (
                       <p className="quiet small">Your party stands full — no spot stands open for a reinforcement.</p>
