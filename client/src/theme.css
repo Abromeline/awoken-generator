@@ -1881,6 +1881,19 @@ body.defeat-flash {
 .aspect-reward{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(212,175,106,0.1);border-radius:8px;border:1px solid rgba(212,175,106,0.2)}
 .aspect-reward span{color:#e8d5a0;font-size:13px;text-transform:capitalize}
 
+/* AWOKIN — the front-page title (Nigel, 2026-10-20): Cinzel 700,
+   self-hosted, pale star-green with the layered glow of the proof
+   plate, sized exactly 10px over the "scattered matter" h1 at every
+   width. It hangs low over the wake ceremony, its lower edge just
+   kissing the wake star's tip; the meteor crosses the A at its
+   crossbar on the golden-spiral tangent (FrontTitle.tsx). */
+@font-face{font-family:"Cinzel";src:url("./assets/fonts/cinzel-700-latin-ext.woff2") format("woff2");font-weight:700;font-style:normal;font-display:swap;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Cinzel";src:url("./assets/fonts/cinzel-700-latin.woff2") format("woff2");font-weight:700;font-style:normal;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+.front-title{font-family:"Cinzel",serif;font-weight:700;font-size:calc(clamp(35px,10vw,58px) + 10px);line-height:1;letter-spacing:.06em;color:#baffd2;text-shadow:0 0 4px #baffd2,0 0 12px rgba(89,255,160,.85),0 0 30px rgba(34,204,102,.65),0 0 64px rgba(15,153,85,.55);text-align:center;white-space:nowrap}
+.tender-face main>.front-title{margin:40px auto 6px}
+.canvas-frame .front-title{position:absolute;left:50%;top:2px;transform:translateX(-50%);z-index:6;margin:0;pointer-events:none}
+.front-title-a{position:relative;display:inline-block}
+.front-title-meteor{position:absolute;left:50%;top:calc(66% + .15em);height:.95em;width:auto;mix-blend-mode:screen;pointer-events:none;transform:translate(-50%,-50%) rotate(-66deg)}
 .wake-ready-overlay{position:absolute;inset:0;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
 .wake-ready-overlay img{width:70%;height:auto;filter:drop-shadow(0 0 20px rgba(120,255,120,0.4));animation:gentle-pulse 3s ease-in-out infinite}
 .wake-ready-overlay span{font-family:var(--display);font-size:18px;color:var(--text);background:rgba(0,0,0,0.6);padding:8px 20px;border-radius:20px;color:#e8f5e8}
