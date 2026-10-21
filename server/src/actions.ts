@@ -1398,6 +1398,60 @@ async function dominantClaimElement(standingRows: Array<{ compositionJson: strin
   return element;
 }
 
+/** THE STANDARD AND THE BEACON, READ AT HOME (2026-10-21):
+ *  the Twin Standard and the Beacon can be RAISED on the
+ *  homeland — castMapWorking writes their rows — but until now
+ *  nothing at home read them; their bonuses lived only in the
+ *  client's battle mirror. At the Table the server reads both
+ *  where strikes are reckoned (table.ts, strikeOnce), and this
+ *  is that reading in the homeland's tongue, its numbers the
+ *  Table's own:
+ *   · THE STANDARD lends its book's strikeBonus to a striker
+ *     standing on either hex it divides — the ward row's own
+ *     two hexes, read off its canonical edge — widened to the
+ *     hexes NEIGHBOURING its two when the Banner's Reach stands
+ *     among the Tender's gifts, exactly as at the Table.
+ *   · THE BEACON lends its book's darkBonus against dark
+ *     standing on or beside its two hexes — its own ring,
+ *     widened a ring apiece by the gifts the Table widens it
+ *     by (the Bright Pillar, Falling Light). The Pillar's other
+ *     clause — that its light serves the whole party — has no
+ *     second Tender to serve on this ground; every working
+ *     here is the one Tender's own.
+ *  One Standard and one Beacon lend at a time, as at the Table
+ *  (the first standing whose ground covers). Neither reading
+ *  knows a hue: both pages are colourless — they hold no slots
+ *  and cast unaligned — and the hue a raising was stored under
+ *  is never consulted. The reading is spent where the homeland
+ *  reckons its own company striking: the first-seed hold's
+ *  referee (resolveFirstSeedWave, below). It is deliberately
+ *  NOT spent at the weapon referee (the Table's weapon strikes
+ *  carry neither bonus — fireWeapon reads its die alone) nor
+ *  on deployBattle's assault (a combined-power threshold
+ *  against the ground's toughness: no per-strike reckoning,
+ *  no dark creature standing anywhere for a Beacon to light). */
+function homelandBannerBonus(ownerKey: string, striker: { q: number; r: number }, target: { q: number; r: number }): { std: number; bcn: number } {
+  const rows = sqlite.prepare("SELECT engine, q, r, dir, nums FROM territory_workings WHERE owner_key = ? AND kind = 'ward' AND engine IN ('standard', 'beacon') ORDER BY id").all(ownerKey) as any[];
+  if (!rows.length) return { std: 0, bcn: 0 };
+  const eff = workingEffects(ownerKey);
+  let std = 0, bcn = 0, stdFound = false, bcnFound = false;
+  for (const w of rows) {
+    if (stdFound && bcnFound) break;
+    let nums: Record<string, number> = {};
+    try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
+    const d = WALL_DIRS[Number(w.dir ?? 0)] ?? [0, 0];
+    const ends = [{ q: Number(w.q), r: Number(w.r) }, { q: Number(w.q) + d[0], r: Number(w.r) + d[1] }];
+    const near = (t: { q: number; r: number }) => Math.min(...ends.map(e => hexDistTiles(t, e)));
+    if (w.engine === "standard" && !stdFound) {
+      if (near(striker) <= (eff.bannerReach ? 1 : 0)) { std = nums.strikeBonus ?? 1; stdFound = true; }
+    } else if (w.engine === "beacon" && !bcnFound) {
+      const reach = 1 + (eff.brightPillar ? 1 : 0) + (eff.fallingLight ? 1 : 0);
+      if (near(target) <= reach) { bcn = nums.darkBonus ?? 1; bcnFound = true; }
+    }
+  }
+  return { std, bcn };
+}
+
 /** Referee one arrived wave of the first-seed hold. The defenders
  *  strike first, each blow its filed power against the Fray line
  *  (canon: power 1, curse HP 3, from the game's own enemy config);
@@ -1434,6 +1488,17 @@ async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Pr
   let waveCleared = false;
 
   if (defenders.length > 0) {
+    // THE STANDARD AND THE BEACON READ AT THE SEED (the
+    // homeland readers, 2026-10-21): the company strikes from
+    // the seed's hex and the wave stands on the seed's rise,
+    // so the one ground judges both halves of the reading —
+    // a Standard whose edge divides the hex lends its
+    // strikeBonus to every defender's blow, and a Beacon
+    // whose light covers the hex lends its darkBonus against
+    // the wave standing there (homelandBannerBonus — the
+    // Table's strikeOnce reading, this ground's tongue).
+    const seedTileRow = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seed.tile_id) as { q: number; r: number } | undefined;
+    const banner = seedTileRow ? homelandBannerBonus(ownerKey, seedTileRow, seedTileRow) : { std: 0, bcn: 0 };
     const fray = Array.from({ length: wave }, () => frayHpEach);
     const frayAlive = () => fray.some(h => h > 0);
     const fellBy = new Map<number, number>();
@@ -1443,7 +1508,7 @@ async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Pr
       rounds++;
       // The company strikes: filed power, blow by blow down the line.
       for (const d of standing) {
-        let blow = d.power;
+        let blow = d.power + banner.std + banner.bcn;
         while (blow > 0 && frayAlive()) {
           const i = fray.findIndex(h => h > 0);
           const dealt = Math.min(blow, fray[i]);
@@ -3262,6 +3327,65 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
     }
     if (dirty) {
       sqlite.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), w.id);
+    }
+  }
+}
+
+/** THE STAR ENGINE SINGS AT HOME (2026-10-21): an Engine
+ *  raised on the homeland paid nothing in plain map play —
+ *  its energyPerRound was read only inside the client's
+ *  battle tally (the yield a battle's resolution grants
+ *  through applyGrimoireState). Now a standing Engine sings
+ *  on the homeland's own settle, in the grove's shape: a
+ *  watermark kept in its stored numbers (sungAt), beats of
+ *  the curse's own clock — 2.8 s, the Table's BEAT_MS, the
+ *  round its page promises ("energy to its tender each
+ *  round") — one read never reckoning more than a minute of
+ *  song (the homeland's standing cap on a lazy settle: the
+ *  attrition's, the weapon referee's); and the first sight
+ *  of an Engine starts its song from that moment, paying
+ *  nothing for time before it stood. The pay lands in the
+ *  Tender's purse under the standing cap law
+ *  (calculateMaxEnergy), as the battle yield is granted in
+ *  applyGrimoireState: what a full purse cannot hold is
+ *  simply not granted — never banked, never owed — and the
+ *  settle never lowers a purse that already stands above
+ *  the cap. While the Tender lies fallen the Engines hold
+ *  their song, as at the Table, where a fallen owner's
+ *  Engine is skipped by the round's tending. Every standing
+ *  Engine sings its own song, as at the Table's tending,
+ *  which pays once per Engine standing. */
+async function settleHomelandEngines(ownerKey: string): Promise<void> {
+  const rows = sqlite.prepare("SELECT id, nums FROM territory_workings WHERE owner_key = ? AND kind = 'ward' AND engine = 'engine' ORDER BY id").all(ownerKey) as any[];
+  if (!rows.length) return;
+  const prog = sqlite.prepare("SELECT down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  const now = Date.now();
+  if (prog?.downUntil != null && Number(prog.downUntil) > now) return;
+  let gain = 0;
+  for (const w of rows) {
+    let nums: Record<string, any> = {};
+    try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
+    const per = typeof nums.energyPerRound === "number" ? nums.energyPerRound : 1;
+    if (typeof nums.sungAt !== "number") {
+      nums.sungAt = now;
+      sqlite.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), w.id);
+      continue;
+    }
+    const elapsed = Math.min(Math.max(0, now - Number(nums.sungAt)), 60000);
+    const beats = Math.floor(elapsed / 2800);
+    if (beats <= 0) continue;
+    gain += beats * per;
+    nums.sungAt = elapsed >= 60000 ? now : Number(nums.sungAt) + beats * 2800;
+    sqlite.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), w.id);
+  }
+  if (gain > 0) {
+    const current = await getEnergyFor(ownerKey);
+    const max = await calculateMaxEnergy(ownerKey);
+    const next = Math.min(max, current + gain);
+    if (next > current) {
+      await db.update(schema.tenderResources)
+        .set({ energy: next, updatedAt: new Date() })
+        .where(eq(schema.tenderResources.ownerKey, ownerKey));
     }
   }
 }
@@ -6170,6 +6294,10 @@ export const handlers = {
       // their guests, on this same read — wards and runes are
       // cast anywhere now, and the cursed ground is the price.
       await settleHomelandWorkingAttrition(ownerKey, tiles as any[]);
+      // THE STAR ENGINE SINGS AT HOME (2026-10-21): what
+      // still stands after the wither sings its rounds into
+      // the purse on this same read (settleHomelandEngines).
+      await settleHomelandEngines(ownerKey);
       // THE HOMELAND WEAPON REFEREE settles after the walk
       // (Nigel, 2026-10-20): his weapon answers the dark that
       // stands within its reach of him. The wanderer views are
