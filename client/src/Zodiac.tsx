@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type SkillTreeState, type ZodiacNodeView } from "./api";
+import { api, GRIMOIRE_POUR_ENGINES, grimoirePageLevel, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
 import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, type WeaponKey } from "./weaponArt";
 
@@ -39,6 +39,9 @@ const SIGNATURES: Record<string, { name: string; desc: string }> = {
   swordshield: { name: "Aegis", desc: "+1 AC" },
 };
 const ROMAN = ["0", "I", "II", "III", "IV"];
+/** Points as the Grimoire's pour system shows them: two
+ *  decimal places at most, no long tails (Nigel, 2026-10-20). */
+const fmtPts = (n: number) => String(Math.round((n ?? 0) * 100) / 100);
 
 function reachedSet(state: SkillTreeState): Set<string> {
   const owned = new Set(state.unlocked);
@@ -121,7 +124,20 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     onSuccess: (r) => charOk(`${r.node === "manifest" ? "Manifest" : "Signature"} node taken for ${WEAPONS[r.weaponKey as WeaponKey]?.name ?? r.weaponKey} — ${r.cost} ${r.element} pts spent.`),
     onError: charFail,
   });
-  const charBusy = wieldM.isPending || attuneM.isPending || buyNodeM.isPending;
+  // ATTUNE A PAGE (Nigel, 2026-10-20): powering lives in the
+  // Grimoire — pours go into pages here, and casts on both
+  // grounds draw on what the page holds. The book refreshes
+  // after every pour so the standing never lies.
+  const [pageAmt, setPageAmt] = useState<Record<string, number>>({});
+  const attunePageM = useMutation({
+    mutationFn: (a: { spellKey: string; element: ElementKey; points: number }) => api.attuneGrimoirePage(a),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["grimoire"] });
+      charOk(`${grimoireQ.data?.spells.find(s => s.key === r.spellKey)?.name ?? r.spellKey} deepens in ${r.element} — ${r.spent} pt${r.spent === 1 ? "" : "s"} poured, ${r.laid} laid; the page now stands ${r.depth} deep (Lv ${ROMAN[r.level] ?? r.level}).`);
+    },
+    onError: charFail,
+  });
+  const charBusy = wieldM.isPending || attuneM.isPending || buyNodeM.isPending || attunePageM.isPending;
   const exp = expQ.data;
   /** Which pool a node buy would draw on — the client mirror of
    *  the server's law (attuned element, else the richest pool);
@@ -150,6 +166,51 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   const wieldedKey = (exp?.weaponKey as WeaponKey | null) ?? null;
   const tenderName = studioQ.data?.tender?.tenderName ?? "Nameless Tender";
   const arsenalOf = (key: string) => exp?.arsenal.find(w => w.key === key);
+  /** The attunement standing of one page, with its pour
+   *  controls — rendered wherever the page is listed (the
+   *  Spells tab and the Runes/Wards tab alike). Pages whose
+   *  strength is not bought with attunement render nothing;
+   *  the tabs say so in words instead. A pour spends the
+   *  chosen amount from that element's pool; what it LAYS is
+   *  the server's reckoning (a Witch's pour lays twice, a
+   *  Sage's lays +2 — the button spends, the book deepens). */
+  const pageAttunementBlock = (s: GrimoireSpell) => {
+    if (!(GRIMOIRE_POUR_ENGINES as readonly string[]).includes(s.engine) || !exp) return null;
+    const standing = grimoireQ.data?.pageAttunements?.[s.key] ?? {};
+    const amt = pageAmt[s.key] ?? 1;
+    const held = ELEMENTS.filter(el => (standing[el] ?? 0) > 0);
+    return (
+      <div className="page-attune">
+        <div className="attune-row" aria-label={`${s.name} attunement standing`}>
+          <span>Attunement:</span>
+          {held.length ? held.map(el => (
+            <span key={el} className="attune-node lit" title={`${el}: ${standing[el]} points standing in this page`}>
+              {EL_EMOJI[el] ?? ""} {el} Lv {ROMAN[grimoirePageLevel(standing[el] ?? 0)] ?? grimoirePageLevel(standing[el] ?? 0)} · {standing[el]} deep
+            </span>
+          )) : <span>— none standing; every cast of this page goes bare</span>}
+        </div>
+        <div className="weapon-actions" role="group" aria-label={`Pour into ${s.name}`}>
+          <span className="zodiac-note small">Pour:</span>
+          {[1, 5, 10].map(n => (
+            <button key={n} type="button" className={`zodiac-btn${amt === n ? " take" : ""}`} aria-pressed={amt === n} onClick={() => setPageAmt(m => ({ ...m, [s.key]: n }))}>{n} pt{n === 1 ? "" : "s"}</button>
+          ))}
+        </div>
+        <div className="weapon-actions">
+          {ELEMENTS.map(el => {
+            const depth = standing[el] ?? 0;
+            const pool = exp.pools[el] ?? 0;
+            return (
+              <button key={el} type="button" className="zodiac-btn" disabled={charBusy || depth >= 30 || pool < amt}
+                onClick={() => attunePageM.mutate({ spellKey: s.key, element: el, points: amt })}>
+                {EL_EMOJI[el] ?? ""} {el} — pour {amt} (pool {fmtPts(pool)}){depth >= 30 ? " · deepest" : ""}
+              </button>
+            );
+          })}
+        </div>
+        <p className="zodiac-note small">Depth stands in bands of ten: 10 deep is Lv I, 20 is Lv II, 30 is Lv III — and a cast of this page carries its level in the cast's element. A Witch's pour lays twice what it costs here; a Sage's lays +2.</p>
+      </div>
+    );
+  };
 
   return (
     <div className="zodiac-overlay" role="dialog" aria-label="The Skill Zodiac">
@@ -351,29 +412,36 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
 
                 {grimTab === "spells" && (
                   <div>
-                    <p className="zodiac-note small">The book's record — read-only. Spell powering machinery does not exist yet, so nothing here pours or buys; this tab does not pretend otherwise.</p>
+                    <p className="zodiac-note small">Powering lives in this book (Nigel, 2026-10-20): attunement is poured into a page here, and every cast of that page — at the Table and on your land — draws on what the page holds. Nothing is poured at the moment of casting any more.</p>
                     <p className="casting-law">Casting law: <strong>+2</strong> within your school, <strong>−3</strong> across the closed schools (the Sage pays −3 on every cast; the Spell school stays open to all). Every cast rolls d20 + gift against the working's level + 10, and a failed cast still spends its energy.</p>
                     {grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
                     {grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
                     <ul className="character-list spells">
-                      {(grimoireQ.data?.spells ?? []).map(s => (
-                        <li key={s.key}><strong>{s.name}</strong> — school: {s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}{s.blurb ? <><br /><span>{s.blurb}</span></> : null}</li>
+                      {(grimoireQ.data?.spells ?? []).filter(s => s.kind === "spell" || s.kind === "binding").map(s => (
+                        <li key={s.key}><strong>{s.name}</strong> — school: {s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}{s.blurb ? <><br /><span>{s.blurb}</span></> : null}{pageAttunementBlock(s)}</li>
                       ))}
                     </ul>
+                    <p className="zodiac-note small">Binding pages take no attunement — their strength is not bought with points. The pages that drink are the holding wards and the Crown Shard, under Runes/Wards.</p>
                     {grimoireQ.data && grimoireQ.data.spells.length === 0 && <p className="zodiac-note">No spells are written in the book yet.</p>}
                   </div>
                 )}
 
                 {grimTab === "runes" && (
                   <div>
-                    <p className="zodiac-note small">Read-only standing — ward and rune workings are cast on the land and at the Table, not powered from this page.</p>
+                    <p className="zodiac-note small">These pages are cast on the land and at the Table — and powered HERE, in the book: pour attunement into a page and every cast of it carries the page's standing level in the cast's element. There is no pouring at the cast, and standing workings can no longer be pushed.</p>
                     <ul className="character-list">
                       <li>Ward &amp; Rune arts: <strong>{exp.wardRuneUnlocked ? "unlocked" : "locked"}</strong> — {exp.wardRuneUnlocked ? "opened at Tender Lv 3." : `opens at Tender Lv 3 (you are Lv ${exp.level}).`}</li>
-                      <li>Ward workings in the book: <strong>{(grimoireQ.data?.spells ?? []).filter(s => s.kind === "ward").length}</strong> · Rune workings: <strong>{(grimoireQ.data?.spells ?? []).filter(s => s.kind === "rune").length}</strong></li>
+                    </ul>
+                    {grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
+                    {grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
+                    <ul className="character-list spells">
+                      {(grimoireQ.data?.spells ?? []).filter(s => s.kind === "ward" || s.kind === "rune").map(s => (
+                        <li key={s.key}><strong>{s.name}</strong> — school: {s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}{s.blurb ? <><br /><span>{s.blurb}</span></> : null}{pageAttunementBlock(s)}</li>
+                      ))}
                     </ul>
                     <h4>The filling energy — attunement pools</h4>
                     <ul className="character-list">
-                      {ELEMENTS.map(el => <li key={el}>{EL_EMOJI[el]} {el}: <strong>{exp.pools[el] ?? 0}</strong> pts · attunement Lv {state?.attunementLevels[el] ?? 0}</li>)}
+                      {ELEMENTS.map(el => <li key={el}>{EL_EMOJI[el]} {el}: <strong>{fmtPts(exp.pools[el] ?? 0)}</strong> pts · attunement Lv {state?.attunementLevels[el] ?? 0}</li>)}
                     </ul>
                   </div>
                 )}

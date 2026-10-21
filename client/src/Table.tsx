@@ -432,9 +432,10 @@ export default function Table() {
   // steps (a ward wants an anchor hex, then a neighbour; the
   // Three Blades gather up to three hexes). THE POUR MENU IS
   // GONE (Nigel, 2026-10-20): no hue/points choice stands
-  // between readying and casting — casts go unaligned and
-  // unpoured until powering re-homes into the Grimoire; the
-  // server's pour doors stand dormant behind them.
+  // between readying and casting — casts go unaligned, and
+  // powering lives in the Grimoire now (the server's cast
+  // doors take no pour at all; a cast carries what its page
+  // holds, judged by the book's levels when a hue is named).
   const pourHue = "unaligned";
   const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal"; root: string } | null>(null);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);

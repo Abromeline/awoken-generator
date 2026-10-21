@@ -61,7 +61,7 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "stops", label: "Strikes stopped before the Seal goes out", def: 3 },
     { key: "hp", label: "Health rating (base) — each stopped blow costs the blow's power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   engine: [
     { key: "energyPerRound", label: "Energy to its tender each round", def: 1 },
@@ -74,7 +74,7 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "brightHpBonus", label: "Extra health while an Engine burns", def: 2 },
     { key: "regrow", label: "Health regrown each round", def: 2 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   beacon: [
     { key: "darkBonus", label: "Bonus striking the dark on or beside its hexes", def: 1 },
@@ -83,7 +83,7 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "pinRounds", label: "Rounds the dark stands pinned", def: 2 },
     { key: "hp", label: "Health rating (base) — pinning a dark costs its power", def: 6 },
     { key: "hpPerLevel", label: "Extra health per Tender level of the caster", def: 1 },
-    { key: "hpPerPoint", label: "Extra health per elemental point poured in at the cast", def: 2 },
+    { key: "hpPerPoint", label: "Extra health per attunement level standing in the page, in the cast's element", def: 2 },
   ],
   blade: [
     { key: "power", label: "Harm to everything on its ground", def: 6 },
@@ -98,7 +98,7 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
   shard: [
     { key: "minPower", label: "Least power that wakes the Shard", def: 5 },
     { key: "multiplier", label: "Harm = greatest power × this", def: 2 },
-    { key: "harmPerPoint", label: "Extra harm per elemental point poured in at the cast (the gated working's pour is capped)", def: 1 },
+    { key: "harmPerPoint", label: "Extra harm per attunement level standing in the page, in the cast's element", def: 1 },
   ],
   coil: [
     { key: "energyPerDark", label: "Energy per dark thrown back", def: 1 },
@@ -230,8 +230,13 @@ export function defaultGrimoire(): GrimoireState {
   // energy, and it is EXPENSIVE. That is how a tender
   // attunes their runes to be stronger: pour attunement of
   // the working's hue into it. The cast-time pour in
-  // castSpell is this law's first machinery; the spells
-  // build-out prices every deepening by it.
+  // castSpell was this law's first machinery. SEATED
+  // (Nigel, 2026-10-20): the machinery now lives where this
+  // paragraph always said it belonged — in the Grimoire.
+  // Pours go into pages and STAND there (grimoire_
+  // attunements); casts on both grounds carry the page's
+  // standing level in the cast's element, and no pour is
+  // offered or taken at the moment of casting anywhere.
   // The Springleaf (Nigel, reclassed 2026-10-19) — no longer a
   // ward, and no longer a column-breaker: THE BINDING WARD, a
   // heal in the Binding school. Cast it and a grove stands where
@@ -302,15 +307,24 @@ export function healSpell(): GrimoireSpell | null {
   return grimoireNow().spells.find(s => s.engine === "heal") ?? null;
 }
 
-// ── The Pour and the Health Rating (Nigel, 2026-10-17) ──────
-// At the cast of a ward or rune, the Tender may pour elemental
-// points of the poured hue into the working. The pour is the
-// limiting hand: points spent into workings are points not
-// spent birthing or deepening aspects. Binding healing is
-// exempt — it requires energy only. Wards and runes that HOLD
-// BACK enemies carry a health rating grown from the book's
-// base, the caster's Tender level, and the pour; the gated
-// Shard takes a capped pour that feeds its harm instead.
+// ── Attunement Lives in the Book (Nigel, 2026-10-20) ─────────
+// Powering a spell, rune or ward happens HERE, in the
+// Grimoire, and nowhere else: the Tender pours elemental
+// points from their pools into a page, where the depth STANDS
+// (grimoire_attunements), and every cast of that page — at
+// the Table, on the land — draws on the page's standing
+// attunement in the cast's element. There is no pouring at
+// the moment of casting, on either ground: a cast is a cast.
+// (The pour at the cast, and the pushing of standing runes,
+// stood from 2026-10-17 until this ruling retired them; the
+// Attune act on a tile is a different act and stands apart.)
+// Only workings whose strength is bought with attunement
+// take a pour at all — the holding wards and the gated
+// Shard. Binding healing is exempt — it requires energy only.
+// Wards and runes that HOLD BACK enemies carry a health
+// rating grown from the book's base, the caster's Tender
+// level, and the page's standing level in the cast's element;
+// the gated Shard's standing level feeds its harm instead.
 export const POUR_ENGINES = ["seal", "trees", "lattice", "shard"] as const;
 
 /** A Tender's attunement LEVEL in an element (Nigel, 2026-10-17):
@@ -320,20 +334,70 @@ export function attunementLevel(points: number): number {
   return Math.min(3, Math.floor(Math.max(0, points) / 10));
 }
 
-/** How deeply a Tender may pour into a working at its cast
- *  (Nigel, 2026-10-17): their attunement LEVEL in the POURED
- *  element — no deeper. The book's old pourCap no longer
- *  governs; the level alone is the cap. 0 for workings that
- *  take no pour and for unaligned casts (no element to pour). */
-export function pourCapFor(spell: GrimoireSpell, pools: Record<string, number>, hue: string): number {
+/** The deepest a page may stand in one element: the top of
+ *  the level band — thirty points, Lv 3. A pour that would
+ *  carry a page past it lays only to the cap; a page already
+ *  there refuses more. */
+export const PAGE_DEPTH_CAP = 30;
+
+/** One Tender's whole attunement ledger: the depth standing
+ *  in each page, by element — { spellKey: { element: depth } }. */
+export async function pageAttunementsFor(ownerKey: string): Promise<Record<string, Record<string, number>>> {
+  const rows = await db.select().from(schema.grimoireAttunements)
+    .where(eq(schema.grimoireAttunements.ownerKey, ownerKey));
+  const out: Record<string, Record<string, number>> = {};
+  for (const r of rows as any[]) {
+    if (!((r.depth ?? 0) > 0)) continue;
+    (out[r.spellKey] ??= {})[r.element] = r.depth;
+  }
+  return out;
+}
+
+/** The depth standing in one page in one element (0 when the
+ *  page stands unattuned there). */
+export async function pageDepthFor(ownerKey: string, spellKey: string, element: string): Promise<number> {
+  const rows = await db.select().from(schema.grimoireAttunements)
+    .where(and(
+      eq(schema.grimoireAttunements.ownerKey, ownerKey),
+      eq(schema.grimoireAttunements.spellKey, spellKey),
+      eq(schema.grimoireAttunements.element, element as any)
+    )).limit(1);
+  return rows.length ? (rows[0].depth ?? 0) : 0;
+}
+
+/** Lay depth into a page, clamped at the cap. Returns the
+ *  depth the page stands at afterwards. */
+export async function layPageDepth(ownerKey: string, spellKey: string, element: string, laid: number): Promise<number> {
+  const now = new Date();
+  const next = Math.min(PAGE_DEPTH_CAP, (await pageDepthFor(ownerKey, spellKey, element)) + Math.max(0, laid));
+  await db.insert(schema.grimoireAttunements)
+    .values({ ownerKey, spellKey, element: element as any, depth: next, updatedAt: now })
+    .onConflictDoUpdate({
+      target: [schema.grimoireAttunements.ownerKey, schema.grimoireAttunements.spellKey, schema.grimoireAttunements.element],
+      set: { depth: next, updatedAt: now },
+    });
+  return next;
+}
+
+/** The measure a cast of this page carries (Nigel, 2026-10-20):
+ *  the page's attunement LEVEL in the cast's element — the
+ *  standing depth read through the book's band, the same 0–3
+ *  measure the cast-time pour was capped at, now read off the
+ *  page instead of paid at the cast. 0 for unaligned casts
+ *  (no element to draw on) and for workings that take no
+ *  attunement. Both grounds call this, so the reading
+ *  cannot drift. */
+export async function pagePourFor(ownerKey: string, spell: GrimoireSpell, hue: string): Promise<number> {
   if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) return 0;
   if (!hue || hue === "unaligned") return 0;
-  return attunementLevel(pools[hue] ?? 0);
+  return attunementLevel(await pageDepthFor(ownerKey, spell.key, hue));
 }
 
 /** The health a holding working is raised with, snapshotted at
  *  the cast: the book's base + a measure per Tender level + a
- *  measure per point poured. 0 for workings that do not hold. */
+ *  measure per level of the page's standing attunement in the
+ *  cast's element (the `pour` a cast carries now). 0 for
+ *  workings that do not hold. */
 export function hpForCast(spell: GrimoireSpell, tenderLevel: number, pour: number, bright: boolean): number {
   const n = spell.numbers ?? {};
   if (spell.engine === "seal" || spell.engine === "lattice") {
@@ -345,23 +409,28 @@ export function hpForCast(spell: GrimoireSpell, tenderLevel: number, pour: numbe
   return 0;
 }
 
-/** THE WITCH'S POWERING (Nigel, 2026-10-20): when a Witch
- *  pours attunement into a working, her pour LAYS twice what
- *  it costs — the same points leave her pool, twice the depth
- *  stands in the working. The gift runs by the working's
- *  KIND: spell, rune and ward workings drink deep of her;
- *  BINDINGS stand outside it, as they stand outside the pour
- *  itself (binding healing is energy only). Every other class
- *  lays what it spends. This is the one reckoning of the
- *  rate: both grounds (the Table's cast and push, the
- *  homeland's cast and push) call it, so it cannot drift.
- *  It is NOT the Sage's mastery — hers is a depth fiction at
- *  the Table's push (lays amount + 2, the thirty cap standing
- *  over her); the Witch's is a clean rate, and the two never
- *  meet on one caster. */
+/** THE GIFTS AT THE BOOK'S DOOR (Nigel, 2026-10-20): the one
+ *  reckoning of what a pour into a Grimoire page LAYS, for
+ *  what it costs. THE WITCH'S POWERING: when a Witch pours
+ *  attunement into a page of the spell, rune or ward kind,
+ *  her pour LAYS twice what it costs — the same points leave
+ *  her pool, twice the depth stands in the page. THE SAGE'S
+ *  MASTERY: her pours lay +2 beyond what she pays — the
+ *  depth she was first proven at the Table's push, re-homed
+ *  to the book with the pour itself. The gifts run by the
+ *  page's KIND: spell, rune and ward pages drink deep of
+ *  them; BINDINGS stand outside both, as they stand outside
+ *  the pour itself (binding healing is energy only). Every
+ *  other class lays what it spends. The two gifts never meet
+ *  on one caster, and this door — the Grimoire's — is the
+ *  reckoning's only caller now: there is no pouring at a
+ *  cast or at a standing working any more, on either ground. */
 export function pourLaidFor(classKey: string | null | undefined, kind: string | null | undefined, wanted: number): number {
   if (wanted <= 0) return wanted;
-  return classKey === "witch" && (kind === "spell" || kind === "rune" || kind === "ward") ? wanted * 2 : wanted;
+  if (kind !== "spell" && kind !== "rune" && kind !== "ward") return wanted;
+  if (classKey === "witch") return wanted * 2;
+  if (classKey === "sage") return wanted + 2;
+  return wanted;
 }
 
 /** Spend attunement points of one element from a Tender's pool

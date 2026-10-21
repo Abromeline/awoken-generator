@@ -52,6 +52,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 await import("../server/dist/index.js");
 await sleep(2500);
 const db = new Database(join(process.env.DATA_DIR, "app.db"));
+// HARNESS NOTE (the migration-order defect, found 2026-10-20
+// and carried by the Audit — NOT fixed here): on a FRESH
+// database the server's greeter ALTER runs before the
+// awakened table is created, so the column never lands and
+// every full awakened select throws. Stand the column up
+// here, as the harness lessons record; production's
+// database already carries it.
+try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
 
 async function call(action, args, token, expectFail = false) {
   const res = await fetch(`${base}/api/${action}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) }, body: JSON.stringify(args ?? {}) });

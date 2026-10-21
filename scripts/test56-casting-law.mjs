@@ -38,10 +38,14 @@
 //     battle starting; a dark blow across an edge breaks one;
 //     it re-raises ~2.8s later while the unit stands; recall
 //     the unit and the walls come down.
-// (e) SAGE POUR: pourWorking — a Sage pouring 2 root lays 4
-//     into the working (pour 0 → 4, hp +8 at hpPerPoint 2)
+// (e) SAGE ATTUNEMENT, RE-HOMED (Nigel, 2026-10-20): the
+//     Table's push (pourWorking) is retired with every
+//     cast-time pour — powering lives in the Grimoire now.
+//     Her mastery moved with it: at the book's door a Sage
+//     pouring 2 root into the Lattice page lays 4 deep
 //     while her pool pays only 2 (30 → 28); a Warden control
-//     lays exactly 2 and pays exactly 2.
+//     lays exactly 2 and pays exactly 2. (The Witch's rate
+//     and the casts carrying the page are test62's ground.)
 // (f) THE SAGE'S HAND (Nigel, 2026-10-20): +2 to her BASE
 //     attack roll with the runic weapon. Two campaign rooms —
 //     a Sage and a Warden, each Lv 10 with a bare sword,
@@ -74,6 +78,14 @@ await import("../server/dist/index.js");
 await sleep(2500);
 const base = "http://127.0.0.1:39979";
 const db = new Database(join(DATA_DIR, "app.db"));
+// HARNESS NOTE (the migration-order defect, found 2026-10-20
+// and carried by the Audit — NOT fixed here): on a FRESH
+// database the server's greeter ALTER runs before the
+// awakened table is created, so the column never lands and
+// every full awakened select throws. Stand the column up
+// here, as the harness lessons record; production's
+// database already carries it.
+try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
 
 const U = [1292 * 40 / 796, 470 * 40 / 796], V = [0, 948 * 40 / 796];
 const parseId = (id) => id.split(",").map(Number);
@@ -166,55 +178,28 @@ async function joinBound(tt, room, label) {
   return c;
 }
 
-// ── (e) SAGE POUR ─────────────────────────────────────────
-console.log("\n(e) sage attune mastery in pourWorking");
+// ── (e) SAGE ATTUNEMENT AT THE GRIMOIRE ──────────────────
+console.log("\n(e) sage attune mastery at the Grimoire's door");
 {
-  const rw = await seedBoundTender({ tenderName: "Pour Runewright", password: "pour-rw-56", tag: "56E1", classKey: "runewright", filler: 20 });
   const sg = await seedBoundTender({ tenderName: "Pour Sage", password: "pour-sg-56", tag: "56E2", classKey: "sage", filler: 5 });
   const wd = await seedBoundTender({ tenderName: "Pour Warden", password: "pour-wd-56", tag: "56E3", classKey: "warden", filler: 5 });
   for (const k of [sg.ownerKey, wd.ownerKey]) {
     db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, 'root', 30, ?) ON CONFLICT(owner_key, element) DO UPDATE SET points = 30").run(k, Date.now());
   }
-  const room = "table-56-e";
-  const cRW = await joinBound(rw.tt, room, "POUR-RW");
-  const cSG = await joinBound(sg.tt, room, "POUR-SG");
-  const cWD = await joinBound(wd.tt, room, "POUR-WD");
-  check("the sage's seat carries her class", cSG.you.classKey === "sage", `classKey=${cSG.you.classKey}`);
+  const poolOf = (k) => db.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = 'root'").get(k)?.points;
+  const depthOf = (k) => db.prepare("SELECT depth FROM grimoire_attunements WHERE owner_key = ? AND spell_key = 'lattice' AND element = 'root'").get(k)?.depth ?? 0;
 
-  // Two neutral lattices from the Runewright (in-school, so
-  // most casts stand; retry the fizzles the law now deals).
-  const hexes = cRW.state.map.map(t => t.id).filter(id => id !== "0,0" && id !== cRW.you.landing);
-  const castLattice = async (hex) => {
-    for (let tries = 0; tries < 10; tries++) {
-      cRW.send({ type: "castRune", root: "lattice", hue: "unaligned", hexes: [hex], pour: 0 });
-      try {
-        await cRW.waitFor(cc => cc.state.workings.some(w => w.kind === "rune" && w.hex === hex), "the lattice stands", 6000);
-        return cRW.state.workings.find(w => w.kind === "rune" && w.hex === hex);
-      } catch { /* a fizzle — cast again */ }
-    }
-    throw new Error("lattice never stood");
-  };
-  const rune1 = await castLattice(hexes[10]);
-  const rune2 = await castLattice(hexes[20]);
-  check("both neutral lattices stand at pour 0", rune1.pour === 0 && rune2.pour === 0, `p1=${rune1.pour} p2=${rune2.pour}`);
-  const hp1 = rune1.hp, hp2 = rune2.hp;
+  const sgPour = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 2 }, sg.token);
+  check("SAGE: pouring 2 root into the Lattice page lays 4 deep (her mastery, at the book)",
+    sgPour.data?.laid === 4 && sgPour.data?.depth === 4 && depthOf(sg.ownerKey) === 4,
+    JSON.stringify(sgPour.data));
+  check("SAGE: her pool pays only the 2 she named (30 → 28)", poolOf(sg.ownerKey) === 28, `pool=${poolOf(sg.ownerKey)}`);
 
-  cSG.send({ type: "pourWorking", workingId: rune1.id, hue: "root", pour: 2 });
-  await cSG.waitFor(cc => cc.state.workings.find(w => w.id === rune1.id)?.hue === "root", "the sage's pour lands", 8000);
-  const after1 = cRW.state.workings.find(w => w.id === rune1.id);
-  const sagePool = db.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = 'root'").get(sg.ownerKey)?.points;
-  check("SAGE: pouring 2 lays 4 into the working (pour 0 → 4)", after1.pour === 4, `pour=${after1.pour}`);
-  check("SAGE: the working's hp gains the laid measure (+8 at hpPerPoint 2)", after1.hp === hp1 + 8 && after1.maxHp === hp1 + 8, `hp ${hp1} → ${after1.hp}`);
-  check("SAGE: her pool pays only the 2 she named (30 → 28)", sagePool === 28, `pool=${sagePool}`);
-  check("SAGE: the seat's pools echo the pay (28)", Math.floor(cSG.you.pools?.root ?? -1) === 28, `you.pools.root=${cSG.you.pools?.root}`);
-
-  cWD.send({ type: "pourWorking", workingId: rune2.id, hue: "root", pour: 2 });
-  await cWD.waitFor(cc => cc.state.workings.find(w => w.id === rune2.id)?.hue === "root", "the warden's pour lands", 8000);
-  const after2 = cRW.state.workings.find(w => w.id === rune2.id);
-  const wdPool = db.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = 'root'").get(wd.ownerKey)?.points;
-  check("CONTROL: pouring 2 lays exactly 2 (pour 0 → 2, hp +4)", after2.pour === 2 && after2.hp === hp2 + 4, `pour=${after2.pour} hp ${hp2} → ${after2.hp}`);
-  check("CONTROL: the warden's pool pays exactly 2 (30 → 28)", wdPool === 28, `pool=${wdPool}`);
-  cRW.ws.close(); cSG.ws.close(); cWD.ws.close();
+  const wdPour = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 2 }, wd.token);
+  check("CONTROL: the Warden pouring 2 lays exactly 2 deep",
+    wdPour.data?.laid === 2 && wdPour.data?.depth === 2 && depthOf(wd.ownerKey) === 2,
+    JSON.stringify(wdPour.data));
+  check("CONTROL: the warden's pool pays exactly 2 (30 → 28)", poolOf(wd.ownerKey) === 28, `pool=${poolOf(wd.ownerKey)}`);
 }
 
 // ── (a) rollCast CONTROL ──────────────────────────────────

@@ -761,8 +761,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
   // THE POUR MENU IS GONE (Nigel, 2026-10-20): no hue/points
   // choice stands between readying and casting — casts go
-  // unaligned and unpoured until powering re-homes into the
-  // Grimoire; the server's pour doors stand dormant.
+  // unaligned, and powering lives in the Grimoire now: the
+  // server takes no pour at a cast; a cast carries what its
+  // page holds in the book.
   const castHue = "unaligned";
   // The chosen card border (Nigel, 2026-10-17): the hand in the dock
   // wears the same frame as the arena and the Table.

@@ -22,7 +22,7 @@ import {
   type TenderRow,
   requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, pourCapFor, hpForCast, pourLaidFor, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, pourLaidFor, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageDepthFor, pagePourFor, layPageDepth, PAGE_DEPTH_CAP, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants } from "./skills.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
@@ -7346,7 +7346,6 @@ export const handlers = {
       tileId: z.number().int().positive().optional(),
       dir: z.number().int().min(0).max(5).optional(),
       awakenedId: z.number().int().positive().optional(),
-      pour: z.number().int().min(0).max(500).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awokin to receive it.");
     const { spellKey, tileId, dir, awakenedId } = parsed.data;
@@ -7368,9 +7367,8 @@ export const handlers = {
     // ring 6 of his stand — the Table's whole world, Phase
     // D's own in-view ring — and a cast named beyond it is
     // refused before any charge. THE ROLL: one law with the
-    // Table — the purse is charged BEFORE the roll, a fizzle
-    // spends the charge and lands nothing, and the pour is
-    // spent only by a cast that stands.
+    // Table — the purse is charged BEFORE the roll, and a
+    // fizzle spends the charge and lands nothing.
     const castTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const castTileById = new Map(castTiles.map((t) => [t.id, t]));
     const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { down_until: number | null } | undefined;
@@ -7441,7 +7439,6 @@ export const handlers = {
       if (!progress.wardRuneUnlocked) {
         badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
       }
-      if ((parsed.data.pour ?? 0) > 0) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
       if (tileId == null) badRequest("The Springleaf roots on a hex — name the ground.");
       const tile = castTileById.get(tileId) as any;
       if (!tile) badRequest("That hex is not yours to plant.");
@@ -7489,30 +7486,14 @@ export const handlers = {
       badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
     }
 
-    // The Pour (Nigel, 2026-10-17): elemental points of the
-    // poured hue, fed into the working at its cast. The depth is
-    // capped by the Tender's attunement LEVEL in the poured
-    // element (the depth band: ten points per level, L3 at 30+)
-    // — the level alone governs, and everything is checked
-    // BEFORE anything is spent, so a refused cast costs nothing.
-    // Heal never reaches here: binding healing requires energy
-    // only.
-    const pourWanted = parsed.data.pour ?? 0;
-    let pour = 0;
-    if (pourWanted > 0) {
-      if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) badRequest(`“${spell.name}” takes no pour — its strength is not bought with attunement.`);
-      if (hue === "unaligned") badRequest("An unaligned cast has no element to pour — choose a hue, and its pool feeds the working.");
-      const pools = await attunementPools(ownerKey);
-      // The pour's DEPTH is capped by the effective level —
-      // grants deepen the well (tranche one) — while the
-      // points SPENT remain the earned pool's alone.
-      const capPools = { ...pools, [hue]: (pools[hue] ?? 0) + (skillAttunementGrants(ownerKey)[hue] ?? 0) };
-      const cap = pourCapFor(spell, capPools, hue);
-      if (pourWanted > cap) badRequest(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement. Grow the ${hue} pool past the next ten to deepen it.`);
-      const held = pools[hue] ?? 0;
-      if (held < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${held}.`);
-      pour = pourWanted;
-    }
+    // THE PAGE CARRIES IT (Nigel, 2026-10-20): no pour is
+    // named or taken at a cast on this ground any more —
+    // powering lives in the Grimoire. A cast that stands
+    // draws the page's standing attunement LEVEL in the
+    // cast's element off the book's ledger (pagePourFor,
+    // read in each branch below at the moment the working
+    // is raised). Heal never reaches here: binding healing
+    // requires energy only.
 
     if (spell.kind === "ward") {
       if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
@@ -7551,23 +7532,20 @@ export const handlers = {
       const ebbWard = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
       const wardCost = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
       if (!(await spendEnergy(ownerKey, wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
-      // The roll (Homeland Casting): the purse is charged and
-      // the pour still unspent — a fizzle spends the charge
-      // alone and raises nothing.
+      // The roll (Homeland Casting): the purse is charged
+      // before it — a fizzle spends the charge alone and
+      // raises nothing.
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, spellKey: spell.key };
-      if (pour > 0) await spendAttunement(ownerKey, hue, pour);
-      // THE WITCH'S POWERING (Nigel, 2026-10-20): her pool
-      // paid `pour`; the working stands with the laid measure
-      // — twice the spend for a Witch, the common measure for
-      // everyone else (pourLaidFor, the book's one reckoning,
-      // the same the Table calls).
-      const pourLaid = pourLaidFor(progress.classKey, spell.kind, pour);
+      // The cast carries the page's standing attunement in
+      // its element — nothing is spent here; the power was
+      // poured into the book, in the Grimoire, beforehand.
+      const pour = await pagePourFor(ownerKey, spell, hue);
       // The health rating (Nigel, 2026-10-17): holding wards are
       // raised with health grown from the book's base, the
-      // caster's Tender level, and the pour. Bright: an Engine of
-      // yours standing anywhere on the map lifts a new Trees at
-      // its raising, as at the Table.
+      // caster's Tender level, and the pour the cast carries.
+      // Bright: an Engine of yours standing anywhere on the map
+      // lifts a new Trees at its raising, as at the Table.
       let hp = 0;
       // The Zodiac rides the map cast (tranche one, 2026-10-17):
       // the same snapshot modifiers as at the Table.
@@ -7580,14 +7558,14 @@ export const handlers = {
       if (spell.engine === "engine") mapNums.energyPerRound = (mapNums.energyPerRound ?? 1) + eff.engineEnergy;
       if (spell.engine === "trees" || spell.engine === "seal") {
         const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
-        hp = hpForCast(spell, progress.level, pourLaid, !!bright);
+        hp = hpForCast(spell, progress.level, pour, !!bright);
         hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0);
       }
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pourLaid, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour: pourLaid, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, pour, hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -7611,16 +7589,15 @@ export const handlers = {
       const ebbRune = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
       const runeCost = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
       if (!(await spendEnergy(ownerKey, runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
-      // The roll (Homeland Casting): charged before it, the
-      // pour spent only by a cast that stands.
+      // The roll (Homeland Casting): charged before it — a
+      // fizzle spends the charge alone and writes nothing.
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, spellKey: spell.key };
-      if (pour > 0) await spendAttunement(ownerKey, hue, pour);
-      // THE WITCH'S POWERING (Nigel, 2026-10-20), as at the
-      // ward's raising on this ground and at the Table: her
-      // pool paid `pour`; the writing holds the laid measure
-      // (pourLaidFor, the book's one reckoning).
-      const pourLaid = pourLaidFor(progress.classKey, spell.kind, pour);
+      // The cast carries the page's standing attunement in
+      // its element, as at the ward's raising on this ground
+      // — nothing is spent at the cast; the power stands in
+      // the book (pagePourFor).
+      const pour = await pagePourFor(ownerKey, spell, hue);
       const effR = workingEffects(ownerKey);
       const charges = (spell.engine === "blade" || spell.engine === "blades") ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
@@ -7645,18 +7622,18 @@ export const handlers = {
       }
       // The Lattice holds its ground with a health rating, like
       // the holding wards; harm and snare runes carry none.
-      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pourLaid, false) : 0;
+      const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, pour, false) : 0;
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pourLaid, hp, Date.now());
+        .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, pour, hp, Date.now());
       const newId = Number(info.lastInsertRowid);
       // The writing springs the moment it lands, if the dark
       // already stands on its ground or the curse holds that
       // ground (Homeland Casting — the Table's cast-time
       // spring, honored on this ground too).
       const sprungNow = await springHomelandWorking(ownerKey, newId, castTiles as any[]);
-      return { ok: true as const, id: newId, tileId, cost: runeCost, pour: pourLaid, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
+      return { ok: true as const, id: newId, tileId, cost: runeCost, pour, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
     }
 
     badRequest("That page of the book cannot be cast on the land.");
@@ -7671,52 +7648,6 @@ export const handlers = {
     const gone = sqlite.prepare("DELETE FROM territory_workings WHERE owner_key = ? AND id = ?").run(ownerKey, parsed.data.id);
     if (!gone.changes) badRequest("No such working stands on your land.");
     return { ok: true as const };
-  },
-
-  /** PUSH A NEUTRAL RUNE (Nigel, 2026-10-17): a neutral rune
-   *  that already stands may be pushed either way — pour an
-   *  element into it and it takes that hue — but only a rune
-   *  already cast (here, your own on your own land; at the
-   *  Table, an ally's as well). The pour obeys the cast's law:
-   *  your attunement level in the pushed element is the depth
-   *  cap, the points are truly spent, and the working gains the
-   *  pour's measure of health as if fed at its raising. Runes
-   *  that take no pour cannot be pushed. */
-  async pourMapWorking(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      id: z.number().int().positive(),
-      hue: z.enum(["tide", "sky", "stone", "root", "fire"]),
-      pour: z.number().int().min(1).max(99),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Name the standing rune, the element to push it toward, and the depth to pour.");
-    const { id, hue, pour: pourWanted } = parsed.data;
-    const row = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND id = ?").get(ownerKey, id) as any;
-    if (!row) badRequest("No such working stands on your land.");
-    if (row.kind !== "rune") badRequest("Only a rune can be pushed — a ward's hue is chosen at its raising.");
-    if (row.hue !== "unaligned") badRequest(`That rune already burns ${row.hue} — its way is chosen.`);
-    await refreshGrimoire();
-    const spell = spellByKey(row.spell_key);
-    if (!spell) badRequest("That rune's spell is no longer in the book.");
-    if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) badRequest(`“${spell.name}” takes no pour — there is nothing to push it with.`);
-    const pools = await attunementPools(ownerKey);
-    const cap = attunementLevel(pools[hue] ?? 0);
-    if (pourWanted > cap) badRequest(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.`);
-    if ((pools[hue] ?? 0) < pourWanted) badRequest(`Pouring ${pourWanted} ${hue} points — the ${hue} pool holds ${pools[hue] ?? 0}.`);
-    const spent = await spendAttunement(ownerKey, hue, pourWanted);
-    if (!spent.ok) badRequest(`The ${hue} pool holds ${spent.held} — the push fails, and nothing is spent.`);
-    // THE WITCH'S POWERING (Nigel, 2026-10-20): the pool paid
-    // `pourWanted`; the rune takes the laid measure — twice
-    // the spend for a Witch, the common measure for everyone
-    // else (pourLaidFor, the book's one reckoning).
-    const progress = await getTenderProgress(ownerKey);
-    const laid = pourLaidFor(progress.classKey, spell.kind, pourWanted);
-    const gained = Math.floor((spell.numbers.hpPerPoint ?? 0) * laid);
-    const maxHp = (row.max_hp ?? 0) + gained;
-    const hp = (row.hp ?? 0) + gained;
-    sqlite.prepare("UPDATE territory_workings SET hue = ?, pour = ?, hp = ?, max_hp = ? WHERE id = ?")
-      .run(hue, laid, hp, maxHp, id);
-    return { ok: true as const, id, hue, pour: laid, hp, maxHp };
   },
 
   /** Teach an Awoken a skill (WARDING or RUNEING). Until the
@@ -9487,8 +9418,63 @@ export const handlers = {
   // the territory map). getGrimoire is the public read every
   // surface consumes; the writers are workshop-gated in
   // index.ts. State: server/src/grimoire.ts (ui_config).
-  async getGrimoire(_args: unknown) {
-    return refreshGrimoire();
+  async getGrimoire(_args: unknown, ctx?: ActionContext) {
+    const state = await refreshGrimoire();
+    // A bound Tender also reads their own attunement ledger:
+    // the depth standing in each of their pages, by element.
+    // The book itself stays the public read it always was —
+    // the ledger rides only for the Tender it belongs to.
+    if (ctx?.tender) {
+      const ownerKey = ownerKeyFor(ctx);
+      return { ...state, pageAttunements: await pageAttunementsFor(ownerKey) };
+    }
+    return state;
+  },
+
+  /** ATTUNE A PAGE OF THE GRIMOIRE (Nigel, 2026-10-20):
+   *  "remove pour functionality and make the grimoire the
+   *  only way to ATTUNE spells and runes wards." Powering
+   *  lives in the book now: pour whole points of one element
+   *  from your own pool into one page, where the depth
+   *  STANDS — every cast of that page, on either ground,
+   *  draws on the page's standing attunement level in the
+   *  cast's element (pagePourFor). The spend is refused
+   *  whole when the pool cannot pay — nothing is half-spent.
+   *  What the pour LAYS is reckoned once, in the book
+   *  (pourLaidFor): a Witch's pour lays twice what it costs
+   *  into a spell, rune or ward page; a Sage's lays +2
+   *  beyond what she pays; bindings stand outside the pour,
+   *  as they always have. A page stands no deeper than
+   *  thirty points in one element — the top of the level
+   *  band — and a page already there refuses more. Only
+   *  pages whose strength is bought with attunement take a
+   *  pour at all (the book's POUR_ENGINES). */
+  async attuneGrimoirePage(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      spellKey: z.string().min(1).max(80),
+      element: z.enum(["root", "tide", "sky", "stone", "fire"]),
+      points: z.number().int().min(1).max(999),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name a page of the book, one of the five elements, and the points to pour into it.");
+    const { spellKey, element, points } = parsed.data;
+    const ownerKey = ownerKeyFor(ctx);
+    await refreshGrimoire();
+    const spell = spellByKey(spellKey);
+    if (!spell) badRequest("That page is not in the book.");
+    if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) {
+      badRequest(`“${spell.name}” takes no attunement — its strength is not bought with points. Power the pages whose strength is: the holding wards and the Crown Shard.`);
+    }
+    const depthNow = await pageDepthFor(ownerKey, spellKey, element);
+    if (depthNow >= PAGE_DEPTH_CAP) {
+      badRequest(`That page already stands at its deepest in ${element} — Lv ${attunementLevel(PAGE_DEPTH_CAP)}, the full thirty points.`);
+    }
+    const progress = await getTenderProgress(ownerKey);
+    const laid = pourLaidFor(progress.classKey, spell.kind, points);
+    const spent = await spendAttunement(ownerKey, element, points);
+    if (!spent.ok) badRequest(`Pouring ${points} ${element} points — your ${element} pool holds ${Math.floor(spent.held)}. Nothing was spent.`);
+    const depth = await layPageDepth(ownerKey, spellKey, element, laid);
+    return { ok: true as const, spellKey, element, spent: points, laid, depth, level: attunementLevel(depth) };
   },
 
   async uploadGrimoireGlyph(args: unknown) {

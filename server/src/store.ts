@@ -758,6 +758,17 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
 )`);
 try { sqlite.exec(`ALTER TABLE tender_weapons ADD COLUMN manifest_node INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE tender_weapons ADD COLUMN signature_node INTEGER NOT NULL DEFAULT 0`); } catch {}
+// THE GRIMOIRE'S ATTUNEMENT LEDGER (Nigel, 2026-10-20):
+// powering lives in the book — one row per Tender, page and
+// element, holding the depth standing in that page.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS grimoire_attunements (
+  owner_key TEXT NOT NULL,
+  spell_key TEXT NOT NULL,
+  element TEXT NOT NULL,
+  depth INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (owner_key, spell_key, element)
+)`);
 try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN follow INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN march_goal TEXT`); } catch {}
 // THE BASTION'S LEDGERS (Station 4, Nigel 2026-10-20): who is

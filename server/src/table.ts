@@ -32,7 +32,7 @@ import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, handIdsFor, stagedIdsFor } from "./actions.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { HUE_ORDER } from "./workings.js";
-import { grimoireNow, refreshGrimoire, spellByKey, healSpell, pourCapFor, hpForCast, pourLaidFor, spendAttunement, attunementPools, attunementLevel, POUR_ENGINES } from "./grimoire.js";
+import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pagePourFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects } from "./skills.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -141,9 +141,10 @@ interface Player {
   /** The tender-progress owner key for bound seats — where
    *  battle EXP is paid. Null for stand-in seats. */
   expKey: string | null;
-  /** The seat's attunement pools (whole points), for the pour
-   *  stepper — refreshed at the cast; the referee re-reads the
-   *  pool itself before any point is spent. Null unbound. */
+  /** The seat's attunement pools (whole points), served for
+   *  the Attune act — refreshed at the cast; the referee
+   *  re-reads the pool itself before any point is spent.
+   *  Null unbound. */
   pools: Record<string, number> | null;
   /** The company this seat was NOT dealt, and where each
    *  stands instead (the Table Fix Pass, 2026-10-20):
@@ -287,8 +288,9 @@ interface Working {
   hexB: string | null;
   hp: number;
   /** The health the working was raised with (its rating's full
-   *  measure) and the elemental points poured into it at the cast
-   *  (the Pour, Nigel 2026-10-17) — both snapshotted at the cast. */
+   *  measure); its `pour` below is the attunement LEVEL of its
+   *  page in its element, read off the Grimoire at the cast
+   *  (Nigel, 2026-10-20) — both snapshotted at the cast. */
   maxHp: number;
   /** The curse's accrued wither (2026-10-20): fractional
    *  attrition against the working's body — its health, or
@@ -3589,25 +3591,6 @@ function handleConnection(ws: WebSocket): void {
       const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (!isSpringleaf && steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
       if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
-      // The Pour (Nigel, 2026-10-17): elemental points of the
-      // poured hue, fed into the working at its cast — capped by
-      // the book, drawn from the caster's own attunement pool,
-      // and checked before anything is spent, so a refused cast
-      // costs nothing.
-      const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
-      let pour = 0;
-      if (pourWanted > 0) {
-        if (!(POUR_ENGINES as readonly string[]).includes(def.engine)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
-        if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
-        if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
-        const pools = await attunementPools(caster.expKey);
-        const capPools = { ...pools, [hue]: (pools[hue] ?? 0) + (skillAttunementGrants(caster.expKey)[hue] ?? 0) };
-        const cap = pourCapFor(def, capPools, hue);
-        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.` })); return; }
-        const held = pools[hue] ?? 0;
-        if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
-        pour = pourWanted;
-      }
       if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
@@ -3655,23 +3638,21 @@ function handleConnection(ws: WebSocket): void {
       }
       if (secondWallSpent) { caster.secondWallUsed = true; tell(room, `${caster.name}'s Second Wall rises at half its price — the Warden's economy.`); }
       if (steadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
-      if (pour > 0 && caster.expKey) {
-        await spendAttunement(caster.expKey, hue, pour);
-        if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
-      }
-      // THE WITCH'S POWERING (Nigel, 2026-10-20): her pool
-      // paid `pour` above; what STANDS in the working is the
-      // laid measure — twice the spend for a Witch raising a
-      // spell, rune or ward kind, the common measure for
-      // everyone else (pourLaidFor, the book's one reckoning).
-      const pourLaid = pourLaidFor(caster.classKey, def.kind, pour);
+      // THE PAGE CARRIES IT (Nigel, 2026-10-20): no pour is
+      // named or taken at this cast — powering lives in the
+      // Grimoire. The working stands with the page's
+      // attunement LEVEL in the cast's element, poured into
+      // the book beforehand (pagePourFor, the book's one
+      // reading). An unbound seat carries nothing.
+      const pour = caster.expKey ? await pagePourFor(caster.expKey, def, hue) : 0;
       // The health rating: holding wards are raised with health
-      // grown from the book's base, the caster's level, the pour.
+      // grown from the book's base, the caster's level, the pour
+      // the cast carries.
       // The Zodiac rides the snapshot (tranche one): Thick
       // Light's +2 on every ward, the Living Wall's +4 more on
       // the Trees, the Seal's deeper stops and answered
       // riposte, the Engine's deeper song.
-      let hp = hpForCast(def, caster.tenderLevel, pourLaid, engineBright(room, caster.key));
+      let hp = hpForCast(def, caster.tenderLevel, pour, engineBright(room, caster.key));
       hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0);
       // Lore Warden (tranche one): a ward raised on an edge
       // where one of yours fell stands at +2 HP — the edge
@@ -3686,10 +3667,9 @@ function handleConnection(ws: WebSocket): void {
       room.workings.push({
         id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: wardNums, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
-        hp, maxHp: hp, pour: pourLaid, stops: 0, charges: 0,
+        hp, maxHp: hp, pour, stops: 0, charges: 0,
       });
       tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge between ${hexA} and ${hexB}.`);
-      if (pourLaid > pour) tell(room, `${caster.name}'s powering runs deep — her pour lays ${pourLaid} into the working for the ${pour} her pool paid.`);
       caster.castAt = Date.now();
       sendState(room);
       return;
@@ -3724,37 +3704,20 @@ function handleConnection(ws: WebSocket): void {
       const runeSteadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (runeSteadyAmt > 0 && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - runeSteadyAmt); runeSteadySpent = true; }
       if (purseOf(room, caster) < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
-      // The Pour, as at the ward's raising — one pour feeds the
-      // whole cast (the Three Blades drink once, not per hex).
-      const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
-      let pour = 0;
-      if (pourWanted > 0) {
-        if (!(POUR_ENGINES as readonly string[]).includes(def.engine)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} takes no pour — its strength is not bought with attunement.` })); return; }
-        if (hue === "unaligned") { ws.send(JSON.stringify({ type: "error", message: "An unaligned cast has no element to pour — choose a hue, and its pool feeds the working." })); return; }
-        if (!caster.expKey) { ws.send(JSON.stringify({ type: "error", message: "Pouring draws on your attunement pools — bind your Tender at the Table to pour." })); return; }
-        const pools = await attunementPools(caster.expKey);
-        const capPools = { ...pools, [hue]: (pools[hue] ?? 0) + (skillAttunementGrants(caster.expKey)[hue] ?? 0) };
-        const cap = pourCapFor(def, capPools, hue);
-        if (pourWanted > cap) { ws.send(JSON.stringify({ type: "error", message: `Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.` })); return; }
-        const held = pools[hue] ?? 0;
-        if (held < pourWanted) { ws.send(JSON.stringify({ type: "error", message: `Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${held}.` })); return; }
-        pour = pourWanted;
-      }
       if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
       if (!rollCast(caster, def).ok) { castUnravels(room, caster, def.name); sendState(room); return; }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
-      if (pour > 0 && caster.expKey) {
-        await spendAttunement(caster.expKey, hue, pour);
-        if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pour);
-      }
-      // THE WITCH'S POWERING (Nigel, 2026-10-20), as at the
-      // ward's raising: her pool paid `pour`; the working
-      // holds the laid measure (pourLaidFor).
-      const pourLaid = pourLaidFor(caster.classKey, def.kind, pour);
-      const hp = hpForCast(def, caster.tenderLevel, pourLaid, false);
+      // THE PAGE CARRIES IT (Nigel, 2026-10-20), as at the
+      // ward's raising: the cast takes no pour — the writing
+      // holds the page's attunement LEVEL in the cast's
+      // element, poured into the book beforehand
+      // (pagePourFor). One standing measure feeds the whole
+      // cast, however many hexes it writes.
+      const pour = caster.expKey ? await pagePourFor(caster.expKey, def, hue) : 0;
+      const hp = hpForCast(def, caster.tenderLevel, pour, false);
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // LEVEL in the spell's element is snapshotted at the cast,
       // as HP is — the rain that falls later rolls by the sky
@@ -3793,7 +3756,7 @@ function handleConnection(ws: WebSocket): void {
         const wNew: Working = {
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
-          hp, maxHp: hp, pour: pourLaid, stops: 0, charges: chargesNow, maxCharges: chargesNow,
+          hp, maxHp: hp, pour, stops: 0, charges: chargesNow, maxCharges: chargesNow,
           group,
         };
         // The Ground Remembers (tranche one): the FIRST rune
@@ -3807,77 +3770,9 @@ function handleConnection(ws: WebSocket): void {
       tell(room, hexes.length > 1
         ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`
         : `${caster.name} writes ${def.forms[hue] ?? def.name} on the ground of the field.`);
-      if (pourLaid > pour) tell(room, `${caster.name}'s powering runs deep — her pour lays ${pourLaid} into the writing for the ${pour} her pool paid.`);
+
       for (const hx of hexes) springHex(room, hx, new Set());
       caster.castAt = Date.now();
-      sendState(room);
-      return;
-    }
-
-    if (msg.type === "pourWorking") {
-      // PUSH A NEUTRAL RUNE (Nigel, 2026-10-17): a neutral rune
-      // already standing on the field — your own OR AN ALLY'S —
-      // may be pushed either way: pour an element into it and it
-      // takes that hue. The pour obeys the cast's law (your
-      // attunement level in the pushed element is the depth cap,
-      // the points are truly spent) and the rune gains the
-      // pour's measure of health, as if fed at its raising.
-      // Runes that take no pour cannot be pushed.
-      const caster = player;
-      const fail = (message: string) => { ws.send(JSON.stringify({ type: "error", message })); };
-      const w = room.workings.find(x => x.id === String(msg.workingId));
-      if (!w) { fail("No such working stands on the field."); return; }
-      if (w.kind !== "rune") { fail("Only a rune can be pushed — a ward's hue is chosen at its raising."); return; }
-      if (w.hue !== "unaligned") { fail(`That rune already burns ${w.hue} — its way is chosen.`); return; }
-      const def = spellByKey(w.root);
-      if (!def) { fail("That rune's spell is no longer in the book."); return; }
-      if (!(POUR_ENGINES as readonly string[]).includes(def.engine)) { fail(`${def.name} takes no pour — there is nothing to push it with.`); return; }
-      const hue = String(msg.hue ?? "");
-      if (!(HUE_ORDER as readonly string[]).includes(hue) || hue === "unaligned") { fail("Name the element to push the rune toward."); return; }
-      const pourWanted = Math.max(0, Math.floor(Number(msg.pour) || 0));
-      if (pourWanted < 1) { fail("Name the depth to pour."); return; }
-      if (!caster.expKey) { fail("Pouring draws on your attunement pools — bind your Tender at the Table to pour."); return; }
-      const pools = await attunementPools(caster.expKey);
-      const cap = attunementLevel(pools[hue] ?? 0);
-      if (pourWanted > cap) { fail(`Your ${hue} attunement stands at Lv ${cap} — you pour no deeper than your attunement.`); return; }
-      if ((pools[hue] ?? 0) < pourWanted) { fail(`Pouring ${pourWanted} ${hue} points — your ${hue} pool holds ${pools[hue] ?? 0}.`); return; }
-      // THE SAGE'S ATTUNE MASTERY (Phase C; the book's law):
-      // her pour LAYS amount + 2 into the working while her
-      // pool PAYS only `amount`. The thirty-point cap a
-      // working may hold stands over even her — the laid
-      // amount clamps at it, still charging only `amount`;
-      // a working already at the cap refuses the pour.
-      const isSagePour = caster.classKey === "sage";
-      let laid = pourWanted;
-      if (isSagePour) {
-        const room30 = 30 - (w.pour ?? 0);
-        if (room30 <= 0) { fail("That working already holds the full thirty points — even a Sage pours no deeper."); return; }
-        laid = Math.min(pourWanted + 2, room30);
-      }
-      // THE WITCH'S POWERING (Nigel, 2026-10-20): not the
-      // Sage's depth fiction — a RATE. Her pour lays twice
-      // what it costs (pourLaidFor, the book's one reckoning;
-      // the pushed working is always of the rune kind, inside
-      // her gift). The thirty-point cap a working may hold
-      // stands over her as it stands over the Sage, and her
-      // pool still pays only what she named.
-      const witchLaid = pourLaidFor(caster.classKey, def.kind, pourWanted);
-      const isWitchPour = !isSagePour && witchLaid > pourWanted;
-      if (isWitchPour) {
-        const room30 = 30 - (w.pour ?? 0);
-        if (room30 <= 0) { fail("That working already holds the full thirty points — even a Witch pours no deeper."); return; }
-        laid = Math.min(witchLaid, room30);
-      }
-      await spendAttunement(caster.expKey, hue, pourWanted);
-      if (caster.pools) caster.pools[hue] = Math.max(0, (caster.pools[hue] ?? 0) - pourWanted);
-      const gained = Math.floor((def.numbers.hpPerPoint ?? 0) * laid);
-      w.hue = hue; w.pour = (w.pour ?? 0) + laid; w.name = def.forms[hue] ?? w.name;
-      w.hp += gained; w.maxHp += gained;
-      tell(room, isSagePour && laid > pourWanted
-        ? `${caster.name} pushes ${def.name} toward ${hue} — her mastery lays ${laid} deep for the ${pourWanted} her pool paid, and the rune takes the hue.`
-        : isWitchPour && laid > pourWanted
-        ? `${caster.name} pushes ${def.name} toward ${hue} — her powering lays ${laid} deep for the ${pourWanted} her pool paid, and the rune takes the hue.`
-        : `${caster.name} pushes ${def.name} toward ${hue} — poured ${pourWanted} deep, and the rune takes the hue.`);
       sendState(room);
       return;
     }

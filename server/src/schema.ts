@@ -311,6 +311,18 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
   displayRate: real("display_rate").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
+// The Grimoire's attunement ledger (Nigel, 2026-10-20): the
+// depth of one element standing in one page of the book for
+// one Tender — powering lives in the book now, and every cast
+// of that page draws on this standing depth (its level band).
+export const grimoireAttunements = sqliteTable("grimoire_attunements", {
+  ownerKey: text("owner_key").notNull(),
+  spellKey: text("spell_key").notNull(),
+  element: text("element", { enum: ["tide", "sky", "stone", "root", "fire"] }).notNull(),
+  depth: integer("depth").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.spellKey, t.element] })]);
+
 // Glyph library: SVG symbols for elements, magic, hexes, buffs. Used throughout the game.
 export const glyphs = sqliteTable("glyphs", {
   id: integer("id").primaryKey({ autoIncrement: true }),

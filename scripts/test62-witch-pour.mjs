@@ -1,21 +1,38 @@
-// test62 — THE WITCH'S POWERING (Nigel, 2026-10-20): "add a
-// +2 spell attunement to spells for the witch — her spells
-// and runes and wards can be powered at 2x the rate of other
-// characters. Same cost, 2x effect." When a WITCH pours
-// attunement into a working of kind SPELL, RUNE or WARD, the
-// pour LAYS twice what it costs; every other class lays what
-// it spends. BINDINGS stand outside the gift — the exclusion
-// is deliberate (he named spells, runes, wards) and proven,
-// not assumed. The rate is reckoned ONCE, in the book's
-// pourLaidFor (grimoire.ts), and every pour door on both
-// grounds calls it: the Table's cast and push, the homeland's
-// cast and push. It is NOT the Sage's mastery — hers is a
-// depth fiction at the Table's push (lays amount + 2); the
-// two are proven apart in §3, at the same spend of 3: the
-// common hand lays 3, the Sage lays 5, the Witch lays 6.
-// The book holds no kind-"spell" page yet — the law runs by
-// KIND, so the first spell page inherits it (§0 reads the
-// grid straight off the reckoning itself).
+// test62 — ATTUNEMENT LIVES IN THE GRIMOIRE (Nigel,
+// 2026-10-20): "remove pour functionality and make the
+// grimoire the only way to ATTUNE spells and runes wards."
+// This suite once proved the Witch's powering at the cast
+// and the push on both grounds; those doors are RETIRED, and
+// the suite is re-derived against the law that replaced
+// them, as the writ ordered:
+//   §0 THE RECKONING — pourLaidFor's grid: a Witch's pour
+//      into a spell, rune or ward page lays TWICE what it
+//      costs; a Sage's lays +2 beyond what she pays (her
+//      mastery, re-homed from the Table's dead push);
+//      bindings stand outside both gifts; every other hand
+//      lays what it spends. At a spend of 3 the three
+//      measures stand apart: common 3, Sage 5, Witch 6.
+//   §1 THE GRIMOIRE DOOR — the three hands pour stone into
+//      the Seal's page and reach the same Lv I standing at
+//      three prices (Witch 5, Sage 8, Warden 10); the pool
+//      is debited exactly the spend; a pour beyond the pool
+//      is refused whole; a page that takes no attunement
+//      (a binding, a harm rune) refuses it; a page at the
+//      thirty cap refuses more; getGrimoire serves the
+//      ledger to its owner and to no one else.
+//   §2 THE TABLE CARRIES THE PAGE — a cast names no pour
+//      and spends no pool: the working stands with the
+//      page's LEVEL in the cast's element and the health of
+//      that measure, against an unattuned control; a pour
+//      field smuggled into the cast message changes
+//      nothing; the pourWorking message is dead — a neutral
+//      rune pushed by it stands unmoved, its pusher's pool
+//      untouched.
+//   §3 THE HOMELAND CARRIES THE PAGE — the same law through
+//      the HTTP door: seal, lattice and shard casts carry
+//      their pages' levels; the pourMapWorking action is
+//      gone (404); a pour field smuggled into a binding's
+//      cast plants the grove bare, pool untouched.
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,15 +57,25 @@ await import("../server/dist/index.js");
 await sleep(2500);
 const base = "http://127.0.0.1:39962";
 const db = new Database(join(DATA_DIR, "app.db"));
+// HARNESS NOTE (the migration-order defect, found 2026-10-20
+// and carried by the Audit — NOT fixed here): on a FRESH
+// database the server's greeter ALTER runs before the
+// awakened table is created, so the column never lands, and
+// every full awakened select throws — the Table then deals
+// an empty deck and seats a Lv 1 Tender whose wards never
+// wake. Stand the column up here, as the harness lessons
+// record; production's database already carries it.
+try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
 
 const G = await import("../server/dist/grimoire.js");
 const SEAL = G.spellByKey("seal");
 const LATTICE = G.spellByKey("lattice");
 const expHp = (def, level, laid) => G.hpForCast(def, level, laid, false);
-const perPoint = (def) => def.numbers.hpPerPoint ?? 0;
 
 const poolOf = (ownerKey, el) => db.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = ?").get(ownerKey, el)?.points ?? 0;
 const setPool = (ownerKey, el, pts) => db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_key, element) DO UPDATE SET points = excluded.points").run(ownerKey, el, pts, Date.now());
+const pageDepth = (ownerKey, key, el) => db.prepare("SELECT depth FROM grimoire_attunements WHERE owner_key = ? AND spell_key = ? AND element = ?").get(ownerKey, key, el)?.depth ?? 0;
+const setPage = (ownerKey, key, el, depth) => db.prepare("INSERT INTO grimoire_attunements (owner_key, spell_key, element, depth, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_key, spell_key, element) DO UPDATE SET depth = excluded.depth").run(ownerKey, key, el, depth, Date.now());
 
 async function call(action, args, token, expectFail = false) {
   const res = await fetch(`${base}/api/${action}`, {
@@ -61,12 +88,12 @@ async function call(action, args, token, expectFail = false) {
   return { status: res.status, data };
 }
 
-/* ── §0 THE RATE, READ OFF THE RECKONING ITSELF: the whole
+/* ── §0 THE RECKONING, READ OFF THE BOOK ITSELF: the whole
       class × kind grid over pourLaidFor — the Witch doubles
-      spell, rune and ward kinds; binding is NOT doubled;
-      no other class is bent, the Sage included (her fiction
-      lives elsewhere and is not a rate). */
-console.log("\n§0 the witch's rate, read off pourLaidFor itself");
+      spell, rune and ward kinds; the Sage adds +2 to the
+      same kinds; binding stands outside BOTH gifts; no
+      other class is bent. */
+console.log("\n§0 the reckoning — what a pour into a page lays, by class and kind");
 {
   const L = G.pourLaidFor;
   check("the book's kinds stand as the law expects (seal a ward, lattice a rune, springleaf a binding)",
@@ -75,14 +102,20 @@ console.log("\n§0 the witch's rate, read off pourLaidFor itself");
   check("no kind-\"spell\" page stands in the book yet — the law runs by kind, so the first one inherits it",
     !G.grimoireNow().spells.some(s => s.kind === "spell"),
     G.grimoireNow().spells.filter(s => s.kind === "spell").map(s => s.key).join(","));
-  check("WITCH: a pour of 3 lays 6 into spell, rune and ward kinds alike",
+  check("WITCH: a pour of 3 lays 6 into spell, rune and ward pages alike",
     L("witch", "spell", 3) === 6 && L("witch", "rune", 3) === 6 && L("witch", "ward", 3) === 6,
     `${L("witch", "spell", 3)}/${L("witch", "rune", 3)}/${L("witch", "ward", 3)}`);
-  check("WITCH: a BINDING pour is NOT doubled — the exclusion is in the reckoning, not in the doors",
-    L("witch", "binding", 3) === 3, `${L("witch", "binding", 3)}`);
-  check("no other hand is bent: warden, runewright, binder, sage and the classless lay what they spend",
+  check("SAGE: a pour of 3 lays 5 into spell, rune and ward pages alike — her mastery, at the book",
+    L("sage", "spell", 3) === 5 && L("sage", "rune", 3) === 5 && L("sage", "ward", 3) === 5,
+    `${L("sage", "spell", 3)}/${L("sage", "rune", 3)}/${L("sage", "ward", 3)}`);
+  check("BINDINGS stand outside both gifts: the Witch's 3 lays 3, the Sage's 3 lays 3",
+    L("witch", "binding", 3) === 3 && L("sage", "binding", 3) === 3,
+    `${L("witch", "binding", 3)}/${L("sage", "binding", 3)}`);
+  check("no other hand is bent: warden, runewright, binder and the classless lay what they spend",
     L("warden", "ward", 3) === 3 && L("runewright", "rune", 3) === 3 && L("binder", "binding", 3) === 3 &&
-    L("sage", "rune", 3) === 3 && L(null, "ward", 3) === 3 && L("witch", "ward", 0) === 0);
+    L(null, "ward", 3) === 3 && L("witch", "ward", 0) === 0 && L("sage", "ward", 0) === 0);
+  check("the level band the casts read: 9 deep is Lv 0, 10 is Lv I, 29 is Lv II, 30 is Lv III",
+    G.attunementLevel(9) === 0 && G.attunementLevel(10) === 1 && G.attunementLevel(29) === 2 && G.attunementLevel(30) === 3);
 }
 
 /* ── Table harness (test56's shape): a bound Tender at
@@ -160,159 +193,10 @@ async function castUntil(c, msg, find, what, tries = 18) {
   throw new Error(`${c.label}: ${what} never stood`);
 }
 
-/* ── §1 THE TABLE, AT THE CAST: the same Seal poured 2 by a
-      Witch and by a Warden — hers stands at pour 4 with the
-      health of 4 laid, his at pour 2 with the health of 2,
-      and both pools paid exactly 2. The same Lattice poured
-      2 by the Witch and by a Runewright, the same reading.
-      §3 (the exclusion at this ground) rides first, while
-      the Witch's pools stand pristine. */
-console.log("\n§1 the table, at the cast — ward and rune, witch against controls");
-{
-  const wi = await seedBoundTender({ tenderName: "Pour Witch", password: "pour-wi-62", tag: "62W", classKey: "witch", filler: 120 });
-  const wd = await seedBoundTender({ tenderName: "Pour Warden C", password: "pour-wd-62", tag: "62D", classKey: "warden", filler: 40 });
-  const rw = await seedBoundTender({ tenderName: "Pour Runewright C", password: "pour-rw-62", tag: "62R", classKey: "runewright", filler: 40 });
-  setPool(wi.ownerKey, "stone", 25); setPool(wi.ownerKey, "root", 25);
-  setPool(wd.ownerKey, "stone", 25);
-  setPool(rw.ownerKey, "root", 25);
-  const room = "table-62-a";
-  const cWI = await joinBound(wi.tt, room, "POUR-WI");
-  const cWD = await joinBound(wd.tt, room, "POUR-WD");
-  const cRW = await joinBound(rw.tt, room, "POUR-RW");
-  check("the seats carry their classes", cWI.you.classKey === "witch" && cWD.you.classKey === "warden" && cRW.you.classKey === "runewright",
-    `${cWI.you.classKey}/${cWD.you.classKey}/${cRW.you.classKey}`);
-
-  // THE EXCLUSION AT THE TABLE: the Witch names a pour into
-  // the Springleaf — a binding. The door refuses before any
-  // charge: no grove stands, no pool is debited.
-  const wiLanding = cWI.you.landing;
-  const wiEdge = neighbours(wiLanding)[0];
-  cWI.errors.length = 0;
-  cWI.send({ type: "castWard", root: "springleaf", hue: "root", hexA: wiLanding, hexB: wiEdge, pour: 2 });
-  await sleep(1800);
-  check("EXCLUSION (Table): a pour named into a BINDING is refused — 'takes no pour'",
-    cWI.errors.some(e => /takes no pour/.test(e)), JSON.stringify(cWI.errors));
-  check("EXCLUSION (Table): no grove stands from the refused cast, and the Witch's root pool is untouched (25)",
-    !cWI.state.workings.some(w => w.engine === "springleaf" && w.ownerKey === cWI.you.key) && poolOf(wi.ownerKey, "root") === 25,
-    `groves=${cWI.state.workings.filter(w => w.engine === "springleaf").length} pool=${poolOf(wi.ownerKey, "root")}`);
-
-  // THE SEAL — ward kind, poured 2 stone by each hand.
-  const castSeal = async (c, ownerKey) => {
-    const landing = c.you.landing;
-    const hexB = neighbours(landing)[1];
-    return castUntil(c,
-      { type: "castWard", root: "seal", hue: "stone", hexA: landing, hexB, pour: 2 },
-      cc => cc.state.workings.find(w => w.kind === "ward" && w.engine === "seal" && w.hexA === landing && w.hexB === hexB),
-      "the seal stands");
-  };
-  const witchSeal = await castSeal(cWI, wi.ownerKey);
-  check("WITCH (Table cast, ward): pouring 2 lays 4 into the Seal", witchSeal.pour === 4, `pour=${witchSeal.pour}`);
-  check("WITCH (Table cast, ward): the Seal's health is the 4-laid measure, exact",
-    witchSeal.hp === expHp(SEAL, 10, 4) && witchSeal.maxHp === expHp(SEAL, 10, 4), `hp=${witchSeal.hp} expected ${expHp(SEAL, 10, 4)}`);
-  check("WITCH (Table cast, ward): her pool paid only the 2 she named (25 → 23)", poolOf(wi.ownerKey, "stone") === 23, `pool=${poolOf(wi.ownerKey, "stone")}`);
-  const wardenSeal = await castSeal(cWD, wd.ownerKey);
-  check("CONTROL (Table cast, ward): the Warden pouring 2 lays exactly 2, at the shipped health",
-    wardenSeal.pour === 2 && wardenSeal.hp === expHp(SEAL, 10, 2), `pour=${wardenSeal.pour} hp=${wardenSeal.hp} expected ${expHp(SEAL, 10, 2)}`);
-  check("CONTROL (Table cast, ward): the Warden's pool paid exactly 2 (25 → 23)", poolOf(wd.ownerKey, "stone") === 23, `pool=${poolOf(wd.ownerKey, "stone")}`);
-  check("THE DOUBLING, EXACT: the Witch's pour-fed health (over the unpoured base) is twice the control's",
-    (witchSeal.hp - expHp(SEAL, 10, 0)) === 2 * (wardenSeal.hp - expHp(SEAL, 10, 0)),
-    `witch fed ${witchSeal.hp - expHp(SEAL, 10, 0)}, control fed ${wardenSeal.hp - expHp(SEAL, 10, 0)}`);
-
-  // THE LATTICE — rune kind, poured 2 root by each hand.
-  const freeHex = (c, used) => c.state.map.map(t => t.id).find(id => id !== "0,0" && !used.includes(id) && ![cWI, cWD, cRW].some(x => x.you?.landing === id));
-  const used = [];
-  const castLattice = async (c, hex) => castUntil(c,
-    { type: "castRune", root: "lattice", hue: "root", hexes: [hex], pour: 2 },
-    cc => cc.state.workings.find(w => w.kind === "rune" && w.engine === "lattice" && w.hex === hex),
-    "the lattice stands");
-  const wiHex = freeHex(cWI, used); used.push(wiHex);
-  const witchLat = await castLattice(cWI, wiHex);
-  check("WITCH (Table cast, rune): pouring 2 lays 4 into the Lattice", witchLat.pour === 4, `pour=${witchLat.pour}`);
-  check("WITCH (Table cast, rune): the Lattice's health is the 4-laid measure, exact",
-    witchLat.hp === expHp(LATTICE, 10, 4), `hp=${witchLat.hp} expected ${expHp(LATTICE, 10, 4)}`);
-  check("WITCH (Table cast, rune): her root pool paid only 2 (25 → 23)", poolOf(wi.ownerKey, "root") === 23, `pool=${poolOf(wi.ownerKey, "root")}`);
-  const rwHex = freeHex(cRW, used); used.push(rwHex);
-  const rwLat = await castLattice(cRW, rwHex);
-  check("CONTROL (Table cast, rune): the Runewright pouring 2 lays exactly 2, at the shipped health",
-    rwLat.pour === 2 && rwLat.hp === expHp(LATTICE, 10, 2), `pour=${rwLat.pour} hp=${rwLat.hp} expected ${expHp(LATTICE, 10, 2)}`);
-  check("CONTROL (Table cast, rune): the Runewright's pool paid exactly 2 (25 → 23)", poolOf(rw.ownerKey, "root") === 23, `pool=${poolOf(rw.ownerKey, "root")}`);
-  cWI.ws.close(); cWD.ws.close(); cRW.ws.close();
-}
-
-/* ── §2 THE ANTI-TANGLE AT THE CAST: the Sage's mastery is
-      a push fiction — at the CAST she lays what she spends,
-      like everyone else. Her cast-time pour of 2 stands at
-      pour 2, not 4: the Witch's rate did not leak onto her,
-      and her own fiction did not leak onto the cast. */
-console.log("\n§2 the anti-tangle — the sage at the cast lays what she spends");
-{
-  const sg = await seedBoundTender({ tenderName: "Pour Sage C", password: "pour-sg-62", tag: "62S", classKey: "sage", filler: 40 });
-  setPool(sg.ownerKey, "stone", 25);
-  const cSG = await joinBound(sg.tt, "table-62-b", "POUR-SG");
-  const landing = cSG.you.landing;
-  const hexB = neighbours(landing)[1];
-  const seal = await castUntil(cSG,
-    { type: "castWard", root: "seal", hue: "stone", hexA: landing, hexB, pour: 2 },
-    cc => cc.state.workings.find(w => w.kind === "ward" && w.engine === "seal" && w.hexA === landing && w.hexB === hexB),
-    "the sage's seal stands");
-  check("SAGE (Table cast): pouring 2 lays exactly 2 — no rate, no fiction, at the cast",
-    seal.pour === 2 && seal.hp === expHp(SEAL, 10, 2), `pour=${seal.pour} hp=${seal.hp}`);
-  check("SAGE (Table cast): her pool paid exactly 2 (25 → 23)", poolOf(sg.ownerKey, "stone") === 23, `pool=${poolOf(sg.ownerKey, "stone")}`);
-  cSG.ws.close();
-}
-
-/* ── §3 THE TABLE, AT THE PUSH (pourWorking): three neutral
-      lattices, three hands, ONE spend of 3 root each — the
-      common hand lays 3, the Sage lays 5 (her depth fiction,
-      unchanged), the Witch lays 6 (her rate). The three
-      numbers side by side are the proof the two bendings
-      were never tangled. */
-console.log("\n§3 the table, at the push — one spend of 3, three laid measures");
-{
-  const rw = await seedBoundTender({ tenderName: "Push Runewright", password: "push-rw-62", tag: "62PR", classKey: "runewright", filler: 20 });
-  const wi = await seedBoundTender({ tenderName: "Push Witch", password: "push-wi-62", tag: "62PW", classKey: "witch", filler: 20 });
-  const wd = await seedBoundTender({ tenderName: "Push Warden", password: "push-wd-62", tag: "62PD", classKey: "warden", filler: 20 });
-  const sg = await seedBoundTender({ tenderName: "Push Sage", password: "push-sg-62", tag: "62PS", classKey: "sage", filler: 20 });
-  for (const k of [wi.ownerKey, wd.ownerKey, sg.ownerKey]) setPool(k, "root", 40);
-  const room = "table-62-c";
-  const cRW = await joinBound(rw.tt, room, "PUSH-RW");
-  const cWI = await joinBound(wi.tt, room, "PUSH-WI");
-  const cWD = await joinBound(wd.tt, room, "PUSH-WD");
-  const cSG = await joinBound(sg.tt, room, "PUSH-SG");
-  const hexes = cRW.state.map.map(t => t.id).filter(id => id !== "0,0" && ![cRW, cWI, cWD, cSG].some(x => x.you?.landing === id));
-  const castNeutral = async (hex) => castUntil(cRW,
-    { type: "castRune", root: "lattice", hue: "unaligned", hexes: [hex], pour: 0 },
-    cc => cc.state.workings.find(w => w.kind === "rune" && w.hex === hex),
-    "the neutral lattice stands");
-  const r1 = await castNeutral(hexes[10]);
-  const r2 = await castNeutral(hexes[20]);
-  const r3 = await castNeutral(hexes[30]);
-  check("three neutral lattices stand at pour 0", r1.pour === 0 && r2.pour === 0 && r3.pour === 0, `${r1.pour}/${r2.pour}/${r3.pour}`);
-  const push = async (c, rune) => {
-    c.send({ type: "pourWorking", workingId: rune.id, hue: "root", pour: 3 });
-    await c.waitFor(cc => cc.state.workings.find(w => w.id === rune.id)?.hue === "root", "the push lands", 8000);
-    return c.state.workings.find(w => w.id === rune.id);
-  };
-  const aWI = await push(cWI, r1);
-  check("WITCH (Table push): spending 3 lays 6 into the working", aWI.pour === 6, `pour=${aWI.pour}`);
-  check("WITCH (Table push): the working's health gains the 6-laid measure (+6 × hpPerPoint)",
-    aWI.hp === r1.hp + perPoint(LATTICE) * 6 && aWI.maxHp === r1.maxHp + perPoint(LATTICE) * 6, `hp ${r1.hp} → ${aWI.hp}`);
-  check("WITCH (Table push): her pool pays only the 3 she named (40 → 37)", poolOf(wi.ownerKey, "root") === 37, `pool=${poolOf(wi.ownerKey, "root")}`);
-  const aWD = await push(cWD, r2);
-  check("CONTROL (Table push): the Warden spending 3 lays exactly 3, health +3 × hpPerPoint",
-    aWD.pour === 3 && aWD.hp === r2.hp + perPoint(LATTICE) * 3, `pour=${aWD.pour} hp ${r2.hp} → ${aWD.hp}`);
-  check("CONTROL (Table push): the Warden's pool pays exactly 3 (40 → 37)", poolOf(wd.ownerKey, "root") === 37, `pool=${poolOf(wd.ownerKey, "root")}`);
-  const aSG = await push(cSG, r3);
-  check("SAGE (Table push, unchanged): spending 3 lays 5 — her depth fiction, neither 3 nor the Witch's 6",
-    aSG.pour === 5 && aSG.hp === r3.hp + perPoint(LATTICE) * 5, `pour=${aSG.pour} hp ${r3.hp} → ${aSG.hp}`);
-  check("SAGE (Table push, unchanged): her pool pays exactly 3 (40 → 37)", poolOf(sg.ownerKey, "root") === 37, `pool=${poolOf(sg.ownerKey, "root")}`);
-  cRW.ws.close(); cWI.ws.close(); cWD.ws.close(); cSG.ws.close();
-}
-
 /* ── Homeland harness (test61's shape): the same law read
       through the HTTP door. */
 async function claimTender(name, exp = 0) {
-  const claim = await call("claimTender", { password: "witch-pour-password", tenderName: name });
+  const claim = await call("claimTender", { password: "grimoire-password", tenderName: name });
   const token = claim.data.token;
   const me = `tender:${db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.data.tender.code).id}`;
   if (exp) db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = excluded.total_exp").run(me, exp, Date.now());
@@ -323,7 +207,7 @@ const seedAwakened = (me, name, toughness) => {
   const nowMs = Date.now();
   const pieceId = Number(db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, 'body', 'common', 1, ?, 'root', 'test/p.png', 'image/png', ?)").run(name, toughness, nowMs).lastInsertRowid);
   const composition = JSON.stringify([{ source_id: `db:${pieceId}`, name, category: "body", rarity: "common", power: 1, toughness, element: "root" }]);
-  return Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, 'test/a.png', ?, 'tender', 'Witch Pour', ?, ?)").run(name, name, composition, me, nowMs).lastInsertRowid);
+  return Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, 'test/a.png', ?, 'tender', 'Grimoire', ?, ?)").run(name, name, composition, me, nowMs).lastInsertRowid);
 };
 const seedPlacement = (me, awakenedId, tileId, hp) => Number(db.prepare("INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, hp) VALUES (?, ?, ?, ?, ?, ?)").run(me, awakenedId, tileId, Date.now(), Date.now(), hp).lastInsertRowid);
 const castRaw = async (token, body) => call("castMapWorking", body, token, true);
@@ -345,19 +229,152 @@ const sowLand = (me) => {
   return ids;
 };
 
-/* ── §4 THE HOMELAND, AT THE CAST: the same Seal and the
-      same Lattice poured 2 on home ground — the Witch's
-      workings stand at pour 4 with the 4-laid health, the
-      Warden's at pour 2 with the 2-laid health, and both
-      purses of attunement paid exactly 2. */
-console.log("\n§4 the homeland, at the cast — ward and rune, witch against control");
+/* ── §1 THE GRIMOIRE DOOR: three hands pour stone into the
+      Seal's page. The standing they reach is the same — ten
+      deep, Lv I — at three prices, because the gifts ride
+      the pour: the Witch pays 5, the Sage pays 8, the
+      Warden pays 10. The refusals stand guard around it. */
+console.log("\n§1 the grimoire door — pours into a page, the gifts, the refusals");
+{
+  const mk = async (name, classKey) => {
+    const t = await claimTender(name, 3800);
+    await call("chooseClass", { classKey }, t.token);
+    setPool(t.me, "stone", 25); setPool(t.me, "root", 25); setPool(t.me, "fire", 3);
+    return t;
+  };
+  const wi = await mk("Book Witch", "witch");
+  const sg = await mk("Book Sage", "sage");
+  const wd = await mk("Book Warden", "warden");
+
+  const wiPour = await call("attuneGrimoirePage", { spellKey: "seal", element: "stone", points: 5 }, wi.token);
+  check("WITCH: pouring 5 stone lays 10 into the Seal's page — Lv I standing",
+    wiPour.data?.spent === 5 && wiPour.data?.laid === 10 && wiPour.data?.depth === 10 && wiPour.data?.level === 1 &&
+    pageDepth(wi.me, "seal", "stone") === 10, JSON.stringify(wiPour.data));
+  check("WITCH: her stone pool paid exactly the 5 she named (25 → 20)", poolOf(wi.me, "stone") === 20, `pool=${poolOf(wi.me, "stone")}`);
+  const sgPour = await call("attuneGrimoirePage", { spellKey: "seal", element: "stone", points: 8 }, sg.token);
+  check("SAGE: pouring 8 stone lays 10 into the Seal's page — the same Lv I, at her price",
+    sgPour.data?.spent === 8 && sgPour.data?.laid === 10 && sgPour.data?.depth === 10 && sgPour.data?.level === 1 &&
+    pageDepth(sg.me, "seal", "stone") === 10, JSON.stringify(sgPour.data));
+  check("SAGE: her stone pool paid exactly the 8 she named (25 → 17)", poolOf(sg.me, "stone") === 17, `pool=${poolOf(sg.me, "stone")}`);
+  const wdPour = await call("attuneGrimoirePage", { spellKey: "seal", element: "stone", points: 10 }, wd.token);
+  check("CONTROL: the Warden pouring 10 lays exactly 10 — Lv I at the common price",
+    wdPour.data?.spent === 10 && wdPour.data?.laid === 10 && wdPour.data?.depth === 10 && wdPour.data?.level === 1 &&
+    pageDepth(wd.me, "seal", "stone") === 10, JSON.stringify(wdPour.data));
+  check("CONTROL: the Warden's stone pool paid exactly 10 (25 → 15)", poolOf(wd.me, "stone") === 15, `pool=${poolOf(wd.me, "stone")}`);
+
+  const greedy = await call("attuneGrimoirePage", { spellKey: "shard", element: "fire", points: 5 }, wi.token, true);
+  check("REFUSAL: a pour beyond the pool is refused whole (fire holds 3, she named 5)",
+    greedy.status === 400 && /pool holds/.test(JSON.stringify(greedy.data)), `status=${greedy.status} ${JSON.stringify(greedy.data)}`);
+  check("REFUSAL: the refused pour spent nothing and laid nothing",
+    poolOf(wi.me, "fire") === 3 && pageDepth(wi.me, "shard", "fire") === 0, `pool=${poolOf(wi.me, "fire")} depth=${pageDepth(wi.me, "shard", "fire")}`);
+  const intoBinding = await call("attuneGrimoirePage", { spellKey: "springleaf", element: "root", points: 2 }, wi.token, true);
+  check("REFUSAL: a BINDING page takes no attunement — the exclusion lives at the book's door now",
+    intoBinding.status === 400 && /takes no attunement/.test(JSON.stringify(intoBinding.data)), `status=${intoBinding.status} ${JSON.stringify(intoBinding.data)}`);
+  const intoBlade = await call("attuneGrimoirePage", { spellKey: "blade", element: "root", points: 2 }, wi.token, true);
+  check("REFUSAL: a harm rune whose strength is not bought with points refuses it too",
+    intoBlade.status === 400 && /takes no attunement/.test(JSON.stringify(intoBlade.data)), `status=${intoBlade.status} ${JSON.stringify(intoBlade.data)}`);
+  check("REFUSAL: both refusals left the Witch's root pool untouched (25)", poolOf(wi.me, "root") === 25, `pool=${poolOf(wi.me, "root")}`);
+
+  setPool(wd.me, "root", 40);
+  const deep = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 30 }, wd.token);
+  check("THE CAP: thirty root stands the Lattice's page at Lv III, the deepest band",
+    deep.data?.depth === 30 && deep.data?.level === 3 && pageDepth(wd.me, "lattice", "root") === 30, JSON.stringify(deep.data));
+  const pastCap = await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 1 }, wd.token, true);
+  check("THE CAP: a page at its deepest refuses more — and the refusal spends nothing (40 − 30 = 10 stands)",
+    pastCap.status === 400 && /deepest/.test(JSON.stringify(pastCap.data)) && poolOf(wd.me, "root") === 10,
+    `status=${pastCap.status} pool=${poolOf(wd.me, "root")}`);
+
+  const mine = await call("getGrimoire", {}, wi.token);
+  check("THE LEDGER SERVED: getGrimoire shows the Witch her own page standings (seal · stone 10)",
+    mine.data?.pageAttunements?.seal?.stone === 10, JSON.stringify(mine.data?.pageAttunements));
+  const anon = await call("getGrimoire", {}, null);
+  check("THE LEDGER KEPT: an unbound read of the book carries no one's standings",
+    anon.data?.pageAttunements === undefined, JSON.stringify(Object.keys(anon.data ?? {})));
+}
+
+/* ── §2 THE TABLE CARRIES THE PAGE: the Witch's Seal page
+      stands Lv I in stone, her Lattice Lv II in root; the
+      Warden's book is bare. Casts name no pour — the
+      workings stand with the pages' measures, the pools
+      unmoved — and the two dead roads (a pour field in the
+      cast, the pourWorking push) move nothing. */
+console.log("\n§2 the table carries the page — casts draw on the book, the old roads are dead");
+{
+  const wi = await seedBoundTender({ tenderName: "Table Witch", password: "table-wi-62", tag: "62W", classKey: "witch", filler: 120 });
+  const wd = await seedBoundTender({ tenderName: "Table Warden", password: "table-wd-62", tag: "62D", classKey: "warden", filler: 40 });
+  const rw = await seedBoundTender({ tenderName: "Table Runewright", password: "table-rw-62", tag: "62R", classKey: "runewright", filler: 40 });
+  setPool(wi.ownerKey, "stone", 25); setPool(wi.ownerKey, "root", 25);
+  setPool(wd.ownerKey, "stone", 25);
+  setPage(wi.ownerKey, "seal", "stone", 10);
+  setPage(wi.ownerKey, "lattice", "root", 20);
+  const room = "table-62-a";
+  const cWI = await joinBound(wi.tt, room, "TBL-WI");
+  const cWD = await joinBound(wd.tt, room, "TBL-WD");
+  const cRW = await joinBound(rw.tt, room, "TBL-RW");
+  check("the seats carry their classes", cWI.you.classKey === "witch" && cWD.you.classKey === "warden" && cRW.you.classKey === "runewright",
+    `${cWI.you.classKey}/${cWD.you.classKey}/${cRW.you.classKey}`);
+
+  const castSeal = async (c, edgeIdx, extra = {}) => {
+    const landing = c.you.landing;
+    const hexB = neighbours(landing)[edgeIdx];
+    return castUntil(c,
+      { type: "castWard", root: "seal", hue: "stone", hexA: landing, hexB, ...extra },
+      cc => cc.state.workings.find(w => w.kind === "ward" && w.engine === "seal" && w.hexA === landing && w.hexB === hexB),
+      "the seal stands");
+  };
+  const witchSeal = await castSeal(cWI, 1);
+  check("WITCH (Table cast, ward): no pour named — her Seal stands at the page's Lv I",
+    witchSeal.pour === 1, `pour=${witchSeal.pour}`);
+  check("WITCH (Table cast, ward): the Seal's health is the Lv I measure, exact",
+    witchSeal.hp === expHp(SEAL, 10, 1) && witchSeal.maxHp === expHp(SEAL, 10, 1), `hp=${witchSeal.hp} expected ${expHp(SEAL, 10, 1)}`);
+  check("WITCH (Table cast, ward): the cast spent NO pool (stone still 25)", poolOf(wi.ownerKey, "stone") === 25, `pool=${poolOf(wi.ownerKey, "stone")}`);
+  const witchSeal2 = await castSeal(cWI, 2, { pour: 3 });
+  check("THE DEAD FIELD: a pour smuggled into the cast message changes nothing — the second Seal also stands at Lv I",
+    witchSeal2.pour === 1 && witchSeal2.hp === expHp(SEAL, 10, 1), `pour=${witchSeal2.pour} hp=${witchSeal2.hp}`);
+  check("THE DEAD FIELD: the smuggled pour spent nothing either (stone still 25)", poolOf(wi.ownerKey, "stone") === 25, `pool=${poolOf(wi.ownerKey, "stone")}`);
+  const wardenSeal = await castSeal(cWD, 1);
+  check("CONTROL (Table cast, ward): the Warden's bare page casts bare — pour 0 at the unpoured health",
+    wardenSeal.pour === 0 && wardenSeal.hp === expHp(SEAL, 10, 0), `pour=${wardenSeal.pour} hp=${wardenSeal.hp} expected ${expHp(SEAL, 10, 0)}`);
+
+  const freeHex = cWI.state.map.map(t => t.id).find(id => id !== "0,0" && ![cWI, cWD, cRW].some(x => x.you?.landing === id));
+  const witchLat = await castUntil(cWI,
+    { type: "castRune", root: "lattice", hue: "root", hexes: [freeHex] },
+    cc => cc.state.workings.find(w => w.kind === "rune" && w.engine === "lattice" && w.hex === freeHex),
+    "the lattice stands");
+  check("WITCH (Table cast, rune): her Lattice stands at its page's Lv II, health exact, no pool spent",
+    witchLat.pour === 2 && witchLat.hp === expHp(LATTICE, 10, 2) && poolOf(wi.ownerKey, "root") === 25,
+    `pour=${witchLat.pour} hp=${witchLat.hp} expected ${expHp(LATTICE, 10, 2)} pool=${poolOf(wi.ownerKey, "root")}`);
+
+  // THE PUSH IS GONE: a neutral lattice from the Runewright;
+  // the Witch pushes it by the old message — nothing moves.
+  const neutralHex = cWI.state.map.map(t => t.id).filter(id => id !== "0,0" && id !== freeHex && ![cWI, cWD, cRW].some(x => x.you?.landing === id))[5];
+  const neutral = await castUntil(cRW,
+    { type: "castRune", root: "lattice", hue: "unaligned", hexes: [neutralHex] },
+    cc => cc.state.workings.find(w => w.kind === "rune" && w.hex === neutralHex),
+    "the neutral lattice stands");
+  check("a neutral lattice stands at pour 0", neutral.pour === 0 && neutral.hue === "unaligned", `pour=${neutral.pour} hue=${neutral.hue}`);
+  cWI.send({ type: "pourWorking", workingId: neutral.id, hue: "root", pour: 3 });
+  await sleep(1800);
+  const unmoved = cWI.state.workings.find(w => w.id === neutral.id);
+  check("THE DEAD ROAD: pourWorking moves nothing — the rune stands unaligned at pour 0, the Witch's pool untouched (25)",
+    unmoved?.hue === "unaligned" && unmoved?.pour === 0 && poolOf(wi.ownerKey, "root") === 25,
+    `hue=${unmoved?.hue} pour=${unmoved?.pour} pool=${poolOf(wi.ownerKey, "root")}`);
+  cWI.ws.close(); cWD.ws.close(); cRW.ws.close();
+}
+
+/* ── §3 THE HOMELAND CARRIES THE PAGE: the Witch powers
+      her pages through the door itself, then casts on home
+      ground — seal, lattice and shard all carry their
+      pages' Lv I; the Warden's bare book casts bare; the
+      old push action is gone from the world. */
+console.log("\n§3 the homeland carries the page — and the old push action is gone");
 {
   const mkHome = async (name, classKey) => {
     const t = await claimTender(name, 200); // Lv 3
     const ids = sowLand(t.me);
     await call("chooseClass", { classKey }, t.token);
     setEnergy(t.me, 500);
-    setPool(t.me, "stone", 25); setPool(t.me, "root", 25);
+    setPool(t.me, "stone", 25); setPool(t.me, "root", 25); setPool(t.me, "fire", 25);
     const aw = seedAwakened(t.me, `${name} Guard`, 40);
     seedPlacement(t.me, aw, ids["2,0"], 40);
     return { ...t, ids };
@@ -365,60 +382,45 @@ console.log("\n§4 the homeland, at the cast — ward and rune, witch against co
   const wi = await mkHome("Home Witch", "witch");
   const wd = await mkHome("Home Warden", "warden");
 
-  const wiSeal = await castUntilStands(wi.token, { spellKey: "seal", hue: "stone", tileId: wi.ids["2,0"], dir: 2, pour: 2 });
-  check("WITCH (homeland cast, ward): pouring 2 lays 4 — the response speaks it", wiSeal?.pour === 4, JSON.stringify(wiSeal));
-  check("WITCH (homeland cast, ward): the standing Seal holds pour 4 at the 4-laid health",
-    workingRow(wi.me, wiSeal?.id)?.pour === 4 && workingRow(wi.me, wiSeal?.id)?.hp === expHp(SEAL, 3, 4),
-    `row=${JSON.stringify(workingRow(wi.me, wiSeal?.id))} expected hp ${expHp(SEAL, 3, 4)}`);
-  check("WITCH (homeland cast, ward): her stone pool paid only 2 (25 → 23)", poolOf(wi.me, "stone") === 23, `pool=${poolOf(wi.me, "stone")}`);
-  const wdSeal = await castUntilStands(wd.token, { spellKey: "seal", hue: "stone", tileId: wd.ids["2,0"], dir: 2, pour: 2 });
-  check("CONTROL (homeland cast, ward): the Warden pouring 2 lays exactly 2, at the shipped health",
-    wdSeal?.pour === 2 && workingRow(wd.me, wdSeal?.id)?.hp === expHp(SEAL, 3, 2), `res=${JSON.stringify(wdSeal)}`);
-  check("CONTROL (homeland cast, ward): the Warden's stone pool paid exactly 2 (25 → 23)", poolOf(wd.me, "stone") === 23, `pool=${poolOf(wd.me, "stone")}`);
+  await call("attuneGrimoirePage", { spellKey: "seal", element: "stone", points: 5 }, wi.token);
+  await call("attuneGrimoirePage", { spellKey: "lattice", element: "root", points: 5 }, wi.token);
+  await call("attuneGrimoirePage", { spellKey: "shard", element: "fire", points: 5 }, wi.token);
+  check("the Witch's three pages stand Lv I deep, laid by the door itself (5 paid, 10 laid, each)",
+    pageDepth(wi.me, "seal", "stone") === 10 && pageDepth(wi.me, "lattice", "root") === 10 && pageDepth(wi.me, "shard", "fire") === 10,
+    `${pageDepth(wi.me, "seal", "stone")}/${pageDepth(wi.me, "lattice", "root")}/${pageDepth(wi.me, "shard", "fire")}`);
 
-  const wiLat = await castUntilStands(wi.token, { spellKey: "lattice", hue: "root", tileId: wi.ids["1,1"], pour: 2 });
-  check("WITCH (homeland cast, rune): pouring 2 lays 4 into the Lattice, at the 4-laid health",
-    wiLat?.pour === 4 && wiLat?.hp === expHp(LATTICE, 3, 4) && workingRow(wi.me, wiLat?.id)?.pour === 4,
+  const wiSeal = await castUntilStands(wi.token, { spellKey: "seal", hue: "stone", tileId: wi.ids["2,0"], dir: 2 });
+  check("WITCH (homeland cast, ward): the Seal carries its page's Lv I — the response speaks it",
+    wiSeal?.pour === 1, JSON.stringify(wiSeal));
+  check("WITCH (homeland cast, ward): the standing Seal holds Lv I at the Lv I health",
+    workingRow(wi.me, wiSeal?.id)?.pour === 1 && workingRow(wi.me, wiSeal?.id)?.hp === expHp(SEAL, 3, 1),
+    `row=${JSON.stringify(workingRow(wi.me, wiSeal?.id))} expected hp ${expHp(SEAL, 3, 1)}`);
+  check("WITCH (homeland cast, ward): the cast spent no pool (stone 25 → 20 was the door's price alone)",
+    poolOf(wi.me, "stone") === 20, `pool=${poolOf(wi.me, "stone")}`);
+  const wiSeal2 = await castUntilStands(wi.token, { spellKey: "seal", hue: "stone", tileId: wi.ids["1,0"], dir: 2, pour: 5 });
+  check("THE DEAD FIELD: a pour smuggled into the homeland cast changes nothing — Lv I again, pool unmoved",
+    wiSeal2?.pour === 1 && poolOf(wi.me, "stone") === 20, `res=${JSON.stringify(wiSeal2)} pool=${poolOf(wi.me, "stone")}`);
+  const wdSeal = await castUntilStands(wd.token, { spellKey: "seal", hue: "stone", tileId: wd.ids["2,0"], dir: 2 });
+  check("CONTROL (homeland cast, ward): the Warden's bare page casts bare — pour 0 at the unpoured health",
+    wdSeal?.pour === 0 && workingRow(wd.me, wdSeal?.id)?.hp === expHp(SEAL, 3, 0), `res=${JSON.stringify(wdSeal)}`);
+
+  const wiLat = await castUntilStands(wi.token, { spellKey: "lattice", hue: "root", tileId: wi.ids["1,1"] });
+  check("WITCH (homeland cast, rune): the Lattice carries its page's Lv I, health exact",
+    wiLat?.pour === 1 && wiLat?.hp === expHp(LATTICE, 3, 1) && workingRow(wi.me, wiLat?.id)?.pour === 1,
     `res=${JSON.stringify(wiLat)}`);
-  check("WITCH (homeland cast, rune): her root pool paid only 2 (25 → 23)", poolOf(wi.me, "root") === 23, `pool=${poolOf(wi.me, "root")}`);
-  const wdLat = await castUntilStands(wd.token, { spellKey: "lattice", hue: "root", tileId: wd.ids["1,1"], pour: 2 });
-  check("CONTROL (homeland cast, rune): the Warden pouring 2 lays exactly 2, at the shipped health",
-    wdLat?.pour === 2 && wdLat?.hp === expHp(LATTICE, 3, 2), `res=${JSON.stringify(wdLat)}`);
-  check("CONTROL (homeland cast, rune): the Warden's root pool paid exactly 2 (25 → 23)", poolOf(wd.me, "root") === 23, `pool=${poolOf(wd.me, "root")}`);
+  const wiShard = await castUntilStands(wi.token, { spellKey: "shard", hue: "fire", tileId: wi.ids["2,1"] });
+  check("WITCH (homeland cast, rune): the Crown Shard stands holding its page's Lv I — the measure its spring will read",
+    wiShard?.pour === 1 && workingRow(wi.me, wiShard?.id)?.pour === 1, `res=${JSON.stringify(wiShard)}`);
 
-  /* ── §5 THE HOMELAND, AT THE PUSH (pourMapWorking) — and
-        the exclusion on home ground, riding the same maps. */
-  console.log("\n§5 the homeland, at the push — and the binding exclusion at home");
-  const wiNeutral = await castUntilStands(wi.token, { spellKey: "lattice", hue: "unaligned", tileId: wi.ids["2,1"] });
-  const wdNeutral = await castUntilStands(wd.token, { spellKey: "lattice", hue: "unaligned", tileId: wd.ids["2,1"] });
-  check("two neutral lattices stand at home at pour 0",
-    workingRow(wi.me, wiNeutral?.id)?.pour === 0 && workingRow(wd.me, wdNeutral?.id)?.pour === 0,
-    `wi=${JSON.stringify(wiNeutral)} wd=${JSON.stringify(wdNeutral)}`);
-  const wiHp0 = workingRow(wi.me, wiNeutral?.id)?.hp ?? -1;
-  const wdHp0 = workingRow(wd.me, wdNeutral?.id)?.hp ?? -1;
-  const wiPush = await call("pourMapWorking", { id: wiNeutral.id, hue: "root", pour: 2 }, wi.token);
-  check("WITCH (homeland push): spending 2 lays 4 into the rune",
-    wiPush.data?.pour === 4 && workingRow(wi.me, wiNeutral.id)?.pour === 4, JSON.stringify(wiPush.data));
-  check("WITCH (homeland push): the rune's health gains the 4-laid measure (+4 × hpPerPoint)",
-    wiPush.data?.hp === wiHp0 + perPoint(LATTICE) * 4, `hp ${wiHp0} → ${wiPush.data?.hp}`);
-  check("WITCH (homeland push): her root pool paid only 2 more (23 → 21)", poolOf(wi.me, "root") === 21, `pool=${poolOf(wi.me, "root")}`);
-  const wdPush = await call("pourMapWorking", { id: wdNeutral.id, hue: "root", pour: 2 }, wd.token);
-  check("CONTROL (homeland push): the Warden spending 2 lays exactly 2, health +2 × hpPerPoint",
-    wdPush.data?.pour === 2 && wdPush.data?.hp === wdHp0 + perPoint(LATTICE) * 2, JSON.stringify(wdPush.data));
-  check("CONTROL (homeland push): the Warden's root pool paid exactly 2 (23 → 21)", poolOf(wd.me, "root") === 21, `pool=${poolOf(wd.me, "root")}`);
+  const gone = await call("pourMapWorking", { id: wiLat.id, hue: "root", pour: 2 }, wi.token, true);
+  check("THE DEAD ROAD: pourMapWorking is gone from the world (404) — the standing rune is untouched",
+    gone.status === 404 && workingRow(wi.me, wiLat.id)?.pour === 1, `status=${gone.status}`);
 
-  // THE EXCLUSION AT HOME: a pour named into the Springleaf
-  // is refused before any charge — energy and pool unmoved,
-  // no grove planted.
-  const eBefore = energyOf(wi.me);
-  const rSpr = await castRaw(wi.token, { spellKey: "springleaf", hue: "root", tileId: wi.ids["1,0"], pour: 2 });
-  check("EXCLUSION (homeland): a pour named into a BINDING is refused (400, 'takes no pour')",
-    rSpr.status === 400 && /takes no pour/.test(JSON.stringify(rSpr.data)), `status=${rSpr.status} ${JSON.stringify(rSpr.data)}`);
-  check("EXCLUSION (homeland): the refusal cost nothing and planted nothing",
-    energyOf(wi.me) === eBefore && poolOf(wi.me, "root") === 21 &&
-    !db.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'springleaf'").get(wi.me),
-    `energy ${eBefore} → ${energyOf(wi.me)} pool=${poolOf(wi.me, "root")}`);
+  const grove = await castUntilStands(wi.token, { spellKey: "springleaf", hue: "root", tileId: wi.ids["3,0"], pour: 2 });
+  check("THE BINDING STANDS BARE: a pour smuggled into the Springleaf's cast plants the grove at pour 0, pool untouched",
+    !!grove && workingRow(wi.me, grove.id)?.pour === 0 && poolOf(wi.me, "root") === 20,
+    `res=${JSON.stringify(grove)} pool=${poolOf(wi.me, "root")}`);
 }
 
-console.log(`\nWITCH'S POWERING: ${pass} passed, ${fail} failed`);
+console.log(`\nGRIMOIRE ATTUNEMENT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
