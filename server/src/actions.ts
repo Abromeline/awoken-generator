@@ -33,6 +33,8 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // imports this module; the binding is only ever called at
 // request time, long after both modules stand.)
 import { castModFor, partyBattleSeatFor } from "./table.js";
+import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
@@ -1813,22 +1815,29 @@ function corruptSeed(ownerKey: string, seed: { id: number; tile_id: number }) {
   sqlite.prepare("UPDATE territory_tiles SET cursed = 1 WHERE id = ? AND owner_key = ?").run(seed.tile_id, ownerKey);
 }
 
+/* ENEMY AC (Nigel, 2026-10-22) lives in enemyAC.ts: an
+ * enemy's AC is base 10 + its kind's AC bonus off its
+ * workshop record; the roster's armor below is that AC,
+ * read through enemyACFor. */
+
 /** A column's force, from the Compendium's canon numbers,
     hardened by the hosting Tender's level (incursions scale
     with Tender level). */
 export function incursionRoster(size: number, powerTier: number) {
   const bonus = Math.max(0, powerTier - 1);
   const kinds = [
-    { kind: "fray", share: 0.5, power: 1, hp: 3, armor: 4 },
-    { kind: "unraveler", share: 0.25, power: 4, hp: 6, armor: 6 },
-    { kind: "tangle", share: 0.15, power: 3, hp: 8, armor: 8 },
-    { kind: "hollow", share: 0.1, power: 0, hp: 5, armor: 5 },
+    { kind: "fray", share: 0.5, power: 1, hp: 3 },
+    { kind: "unraveler", share: 0.25, power: 4, hp: 6 },
+    { kind: "tangle", share: 0.15, power: 3, hp: 8 },
+    { kind: "hollow", share: 0.1, power: 0, hp: 5 },
   ];
   const out: { kind: string; count: number; power: number; hp: number; armor: number }[] = [];
   let left = size;
   kinds.forEach((k, i) => {
     const n = i === kinds.length - 1 ? left : Math.min(left, Math.round(size * k.share));
-    if (n > 0) out.push({ kind: k.kind, count: n, power: k.power + Math.floor(bonus / 2), hp: k.hp + bonus, armor: k.armor + bonus });
+    // The roster's armor is the kind's full AC (enemyAC.ts),
+    // hardened by the tier as power and hp are.
+    if (n > 0) out.push({ kind: k.kind, count: n, power: k.power + Math.floor(bonus / 2), hp: k.hp + bonus, armor: enemyACFor(k.kind) + bonus });
     left -= Math.max(0, n);
   });
   return out.filter(r => r.count > 0);
@@ -2582,6 +2591,11 @@ async function loadGameConfig() {
     enemies[name] = {
       power: overrides[`enemy.${name}.power`] ?? { fray: 1, unraveler: 4, hollow: 0, tangle: 3 }[name],
       hp: overrides[`enemy.${name}.hp`] ?? { fray: 3, unraveler: 6, hollow: 5, tangle: 8 }[name],
+      // The AC BONUS on the workshop record (Enemy AC,
+      // Nigel 2026-10-22): served beside Power/HP; the full
+      // AC (base 10 + this) is what the referees read live
+      // through enemyACFor.
+      armor: overrides[`enemy.${name}.armor`] ?? ENEMY_ARMOR_DEFAULTS[name],
     };
   }
   const timers = {
@@ -2903,12 +2917,16 @@ export const HOMELAND_WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 
 export const HOMELAND_WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
 export const HOMELAND_ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
 /** The Blind Fray's wound track: the Table's Fray stands at
- *  hp 3 behind armor 4 (ENEMY_STATS / DARK_ARMOR there); the
- *  homeland's wanderers carry the same body now, so blows
- *  land, deepen, and fell — purification is no longer the
- *  only way a wanderer's walking ends. */
+ *  hp 3 behind AC 14 (base 10 + its +4 bonus — DARK_ARMOR
+ *  there); the homeland's wanderers carry the same body
+ *  now, so blows land, deepen, and fell — purification is
+ *  no longer the only way a wanderer's walking ends.
+ *  HOMELAND_FRAY_ARMOR is the Fray's AC under the default
+ *  workshop record: the live referee reads enemyACFor
+ *  (enemyAC.ts), so a workshop edit to the Fray's
+ *  bonus moves this ground's target with the Table's. */
 export const HOMELAND_FRAY_HP = 3;
-export const HOMELAND_FRAY_ARMOR = 4;
+export const HOMELAND_FRAY_ARMOR = ENEMY_AC_BASE + ENEMY_ARMOR_DEFAULTS.fray;
 function homelandDN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
 /** The wielded weapon's homeland reach in hexes — the Table's
  *  weaponRangeHexOf, read from the homeland contract: its base
@@ -6202,7 +6220,7 @@ export const handlers = {
    *  and the wanderers before it): on the Table's own cadence
    *  it strikes the nearest Blind Fray within its reach of his
    *  stand, with the Table's own roll — Fate's level step, and
-   *  the Sage's +2 on her own blows — against the Fray's armor,
+   *  the Sage's +2 on her own blows — against the Fray's AC,
    *  its harm the weapon's die as the Table reckons it, shaped
    *  by the weapon's level and Signature and shaved by Fate's
    *  mitigation. A felled wanderer is removed. The settle never
@@ -6239,6 +6257,10 @@ export const handlers = {
     let record = readRecord();
     let dirty = row.nextAt == null || nextAt !== Number(row.nextAt);
     let strikes = 0;
+    // The Fray's AC, read live off its workshop record
+    // (enemyAC.ts): the hit is declared against it, and
+    // the ratio equation then shaves by the same AC.
+    const frayAC = enemyACFor("fray");
     // The tiles this settle's blows felled a wanderer on —
     // each fell pays the drip (payFellDrip) once the striking
     // is done, in the ground's own element where it holds one.
@@ -6253,10 +6275,10 @@ export const handlers = {
       const blow = (foe: typeof foes[number]) => {
         const roll = homelandDN(20);
         const bonus = homelandWeaponBonusFor(progress.classKey, progress.level);
-        const hit = roll === 20 || (roll !== 1 && roll + bonus >= HOMELAND_FRAY_ARMOR);
+        const hit = roll === 20 || (roll !== 1 && roll + bonus >= frayAC);
         let dmg = 0;
         if (hit) {
-          dmg = homelandFateMitigate(homelandWeaponDamageFor(wk, contract.level, !!contract.signature), HOMELAND_FRAY_ARMOR, progress.level);
+          dmg = homelandFateMitigate(homelandWeaponDamageFor(wk, contract.level, !!contract.signature), frayAC, progress.level);
           foe.hpNow -= dmg;
         }
         const felled = hit && foe.hpNow <= 0;

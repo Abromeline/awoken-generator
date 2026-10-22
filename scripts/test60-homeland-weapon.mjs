@@ -33,6 +33,14 @@ async function call(action, args, token, expectFail = false) {
   return { status: res.status, data };
 }
 const db = new Database(join(process.env.DATA_DIR, "app.db"));
+// HARNESS NOTE (the migration-order defect, found 2026-10-20
+// and carried by the Audit — NOT fixed in the server): on a
+// FRESH database the server's greeter ALTER runs before the
+// awakened table is created, so the column never lands and
+// every full awakened select throws (getTerritory 500s —
+// this suite died on it at §1 until the workaround below
+// was carried over from test56's harness, 2026-10-22).
+try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
 const hexDist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 async function claimTender(name, exp = 0) {
   const claim = await call("claimTender", { password: "homeland-weapon-password", tenderName: name });
@@ -68,7 +76,7 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
   ok("mirror: the base reaches are the Table's", eq(A.HOMELAND_WEAPON_RANGE_HEX, T.WEAPON_RANGE_HEX));
   ok("mirror: the cadences are the Table's", eq(A.HOMELAND_WEAPON_COOLDOWN_MS, T.WEAPON_COOLDOWN_MS));
   ok("mirror: the element reaches are the Table's", eq(A.HOMELAND_ELEMENT_REACH, T.ELEMENT_REACH));
-  ok("mirror: the Fray's body is the Table's (hp 3, armor 4)", A.HOMELAND_FRAY_HP === T.ENEMY_STATS.fray.hp && A.HOMELAND_FRAY_ARMOR === T.DARK_ARMOR.fray);
+  ok("mirror: the Fray's body is the Table's (hp 3, AC 14 — base 10 + the +4 bonus)", A.HOMELAND_FRAY_HP === T.ENEMY_STATS.fray.hp && A.HOMELAND_FRAY_ARMOR === T.DARK_ARMOR.fray);
   let bonusOk = true;
   for (const cls of ["warden", "runewright", "binder", "witch", "sage"]) {
     for (const lv of [1, 2, 3, 6, 9, 10]) {
@@ -131,11 +139,14 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
   // run in ten — mitigates to exactly 1 under the true law.)
   if (rec?.hit) ok("first blood: a fresh sword's harm is die-bounded (raw d10, mitigation only shaves, a landed blow always ≥ 1)", rec.dmg >= 1 && rec.dmg <= 10, `dmg=${rec.dmg}`);
   // The felling: restore the Fray's lawful body and let the
-  // cadence finish it — every hit at this measure fells, so
-  // the wait is for one honest hit, not for dice weather.
+  // cadence finish it. Under Enemy AC (2026-10-22) the Lv 3
+  // Warden's +1 needs 13+ against AC 14 — 40% a settle —
+  // and the wounds accumulate in the ledger between hits,
+  // so the wait is for a couple of honest hits, not for
+  // one: the loop runs 16 deep (no-fell weather ≈ 0.1%).
   db.prepare("UPDATE homeland_wanderers SET hp = 3 WHERE id = ?").run(wid);
   let felledRec = null;
-  for (let i = 0; i < 8 && !felledRec; i++) {
+  for (let i = 0; i < 16 && !felledRec; i++) {
     keepStanding(me, 35);
     forceWeaponDue(me);
     const tt = await terr(token);
@@ -180,11 +191,15 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
   ok("cadence: with prey in reach and the hour held ahead, no strike — the record stands at the first blow",
     tB.weaponStrike?.at === a1 && db.prepare("SELECT COALESCE(SUM(hp), 0) AS s FROM homeland_wanderers WHERE owner_key = ?").get(me).s === 18,
     `at=${tB.weaponStrike?.at} a1=${a1}`);
-  // The window: open the clock ~20 s into arrears. The strikes
-  // that fall due proceed one per cooldown — each hit at this
-  // measure fells its Fray, so the field of six empties, and
-  // the last strike's hour sits exactly on the cadence grid.
-  const S = (a1 ?? 0) + 1100 - 20900;
+  // The window: open the clock ~43 s into arrears. The strikes
+  // that fall due proceed one per cooldown — at AC 14 the
+  // Lv 3 sword lands 40% of them and the wounds accumulate
+  // on the nearest Fray first, so ~39 strikes (expected ~15
+  // hits, ~75 harm against the field's 18) empty the field
+  // of six with room to spare, and the last strike's hour
+  // sits exactly on the cadence grid. (The window was ~20 s
+  // under the old armor-as-target law, when 90% landed.)
+  const S = (a1 ?? 0) + 1100 - 42900;
   keepStanding(me, 35);
   db.prepare("UPDATE tender_progress SET weapon_next_at = ? WHERE owner_key = ?").run(S, me);
   const tC = await terr(token);
@@ -194,7 +209,7 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
     db.prepare("SELECT COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ?").get(me).n === 0,
     `n=${db.prepare("SELECT COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ?").get(me).n}`);
   ok("cadence: the last strike's hour lies exactly on the 1100 ms grid, and the count respects it (≥ 6 blows for six fellings, never faster than the clock)",
-    !!recC && (recC.at - S) % 1100 === 0 && fired >= 6 && fired <= 20, `at=${recC?.at} S=${S} fired=${fired}`);
+    !!recC && (recC.at - S) % 1100 === 0 && fired >= 6 && fired <= 40, `at=${recC?.at} S=${S} fired=${fired}`);
   const tD = await terr(token);
   ok("cadence: with the field empty the clock re-arms — no phantom strikes", tD.weaponStrike?.at === recC?.at);
   void ids; void ids2;
@@ -214,7 +229,10 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
   const aId = seedWanderer(me, near, 100);
   const bId = seedWanderer(me, far, 100);
   let farEverNamed = false, nearStruck = false;
-  for (let i = 0; i < 8; i++) {
+  // 16 settles: at AC 14 the sword lands 40% a settle, so
+  // the wait for one landed blow is near-certain this deep
+  // (under the old law's 90% it took a handful).
+  for (let i = 0; i < 16; i++) {
     keepStanding(me, 35);
     forceWeaponDue(me);
     const t = await terr(token);

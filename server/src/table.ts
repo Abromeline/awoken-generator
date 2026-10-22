@@ -30,6 +30,7 @@ import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip } from "./actions.js";
+import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor } from "./skills.js";
@@ -324,8 +325,13 @@ interface EnemyUnit {
   power: number;
   hp: number;
   maxHp: number;
-  /** FATE: the dark thing's armor — its AC, and its armor
-   *  in Diablo's equation when Awoken blows land on it. */
+  /** FATE: the dark thing's AC — base 10 + its kind's bonus
+   *  (Enemy AC, Nigel 2026-10-22), with the wave/column
+   *  scaling riding on top at spawn. It is the target of
+   *  every to-hit roll against it AND the armor term in
+   *  Diablo's equation when blows land: one number, both
+   *  offices, the hit declared first and the damage
+   *  calculated by the ratio after. */
   armor: number;
   /** Its level for the mitigation denominator and its own
    *  level steps: the wave that dealt it, or a column's tier. */
@@ -406,11 +412,15 @@ interface Working {
   sustainer?: string;
 }
 
-export const ENEMY_STATS: Record<string, { power: number; hp: number; armor: number }> = {
-  fray: { power: 1, hp: 3, armor: 4 },
-  unraveler: { power: 4, hp: 6, armor: 6 },
-  hollow: { power: 0, hp: 5, armor: 5 },
-  tangle: { power: 3, hp: 8, armor: 8 },
+/* The dark's body: power and hp. Its AC is NOT a stat
+ * here — it is read live off the kind's workshop record
+ * (enemyACFor in enemyAC.ts: base 10 + the recorded AC
+ * bonus), so a workshop edit moves the referee's target. */
+export const ENEMY_STATS: Record<string, { power: number; hp: number }> = {
+  fray: { power: 1, hp: 3 },
+  unraveler: { power: 4, hp: 6 },
+  hollow: { power: 0, hp: 5 },
+  tangle: { power: 3, hp: 8 },
 };
 
 /** THE INSTANCE MAP (Nigel, 2026-10-18): the Table's field IS
@@ -792,6 +802,11 @@ function dominantElement(layers: { element?: string | null }[]): string {
 // Then DIABLO's equation mitigates what landed: harm ×
 // (1 − armor/(armor + 50 × attacker's level)), the armor
 // being the defender's toughness — or a dark thing's armor.
+// ENEMY AC (Nigel, 2026-10-22): a dark thing's armor IS
+// its AC — base 10 + its kind's AC bonus, read off its
+// workshop record (enemyACFor) — so the equation's armor
+// term for the dark is the full AC the hit was declared
+// against: one number serves both, hit first, ratio after.
 // What survives burns the Awoken's SHIELD first: toughness
 // × its element die, rolled when it is summoned; overflow
 // wounds. A natural 20 always hits and rolls its harm dice
@@ -887,7 +902,14 @@ function weaponDamageOf(p: Player, wk: string): number {
 function dismissManifests(room: Room, ownerKey: string): void {
   if (room.manifests) room.manifests = room.manifests.filter(m => m.ownerKey !== ownerKey);
 }
-export const DARK_ARMOR: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
+/** The dark's AC under the default workshop record — base
+ *  10 + each kind's bonus (Enemy AC, Nigel 2026-10-22).
+ *  Spawns read the live record through enemyACFor; this
+ *  table is the fallback for a roster entry that carries
+ *  no armor of its own. */
+export const DARK_ARMOR: Record<string, number> = Object.fromEntries(
+  Object.entries(ENEMY_ARMOR_DEFAULTS).map(([k, v]) => [k, ENEMY_AC_BASE + v]),
+);
 const DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
 function dN(sides: number): number { return 1 + Math.floor(Math.random() * sides); }
 function fateLevelBonus(level: number): number { return Math.floor(Math.max(1, level) / 3); }
@@ -2749,7 +2771,9 @@ function dealWave(room: Room): void {
       id: nextDarkId(),
       hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
       power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
-      armor: base.armor + Math.floor((wave - 1) / 3), lvl: wave, speedGauge: 0,
+      // The AC is read live off the kind's workshop record
+      // (base 10 + bonus); the wave scaling rides on top.
+      armor: enemyACFor(kind) + Math.floor((wave - 1) / 3), lvl: wave, speedGauge: 0,
     };
     room.dark.set(foe.id, foe);
   }
@@ -3018,7 +3042,7 @@ async function runRound(room: Room): Promise<void> {
     processGroves(room, now);
     maintainPassiveWalls(room, now);
     // The standing strike first — under FATE (Nigel,
-    // 2026-10-17): a d20 against the dark thing's armor;
+    // 2026-10-17): a d20 against the dark thing's AC;
     // the element and the level lend the bonus; landed harm
     // is the parts' dice, summed, then mitigated by Diablo's
     // equation. Swifter elements strike again as their
@@ -4880,7 +4904,10 @@ function handleConnection(ws: WebSocket): void {
               id: nextDarkId(),
               hex, kind, label: face?.label ?? kind, art: face?.art ?? null,
               power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
-              armor: base.armor + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
+              // The AC is read live off the kind's workshop
+              // record (base 10 + bonus); the level scaling
+              // rides on top.
+              armor: enemyACFor(kind) + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
             };
             R.dark.set(foe.id, foe);
             placed++;

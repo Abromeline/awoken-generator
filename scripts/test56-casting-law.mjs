@@ -23,10 +23,13 @@
 //     room can hold hundreds of casts a side.)
 // (b) THE SAGE'S COMPANY: two campaign rooms in parallel — a
 //     Sage's five stone Awokin vs a Warden's identical five —
-//     against dealt tangles (armor 8). The strikes ledger is
-//     the referee's own witness: the Sage company's light hit
-//     rate must run hotter (+2 attack: 80% vs 70% expected) and
-//     the dark's blows against it must land colder (+2 AC:
+//     against dealt tangles (AC 18 — base 10 + the tangle's
+//     +8 bonus; Enemy AC, Nigel 2026-10-22). The strikes
+//     ledger is the referee's own witness: the Sage company's
+//     light hit rate must run hotter (+2 attack: 30% vs 20%
+//     expected — the AC law moved both centres down by the
+//     same 10, so the +2 contrast is untouched) and the
+//     dark's blows against it must land colder (+2 AC:
 //     victim toughness 11 → AC 13 vs 11, 40% vs 50% expected).
 // (c) SPRINGLEAF: burst heal lands on a wounded ally inside the
 //     radius and NOT on one outside it; 1d4 saplings root over
@@ -50,10 +53,11 @@
 //     attack roll with the runic weapon. Two campaign rooms —
 //     a Sage and a Warden, each Lv 10 with a bare sword,
 //     standing on their stone aegis's own ground while the
-//     Storytender deals only tangles (armor 8 by construction):
-//     the Warden's roll+3 needs 5+ (80%), the Sage's roll+3+2
-//     needs 3+ (90%). The witness ledger's true-sword strikes
-//     are tallied to 220 a side and the rates are judged.
+//     Storytender deals only tangles (AC 18 by construction —
+//     base 10 + the tangle's +8 bonus): the Warden's roll+3
+//     needs 15+ (30%), the Sage's roll+3+2 needs 13+ (40%).
+//     The witness ledger's true-sword strikes are tallied to
+//     220 a side and the rates are judged.
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -813,8 +817,8 @@ console.log("\n(f) the sage's hand — +2 base attack with the runic weapon");
   // Two campaign rooms, driven interleaved: a Sage and a
   // Warden, each Lv 10 with a BARE sword (reach 1 hex, die
   // d10), while the Storytender deals ONLY tangles — every
-  // dark on either field is armor 8 by construction, so
-  // every witnessed true-sword strike is an armor-8 strike
+  // dark on either field is AC 18 by construction, so
+  // every witnessed true-sword strike is an AC-18 strike
   // and no foe-filtering is needed. The scenario's shape
   // was earned by its first failure (8 strikes in 480s):
   // the Tender strikes only what halts within 69px of him,
@@ -832,17 +836,17 @@ console.log("\n(f) the sage's hand — +2 base attack with the runic weapon");
   // dark claw the standing posts, never the Tender
   // gliding beside his aegis, and the field never stands
   // empty — so no campaign can end mid-proof.
-  // The arithmetic of the proof: the Warden rolls
-  // d20 + 3 (the Lv 10 ladder) and needs 5+ against
-  // armor 8 — p = .80. The Sage rolls d20 + 3 + 2
-  // (Nigel's buff, 2026-10-20) and needs 3+ — p = .90.
-  // At 200 strikes a side SE(rate) ≈ .028 (Warden) and
-  // .021 (Sage), so the rate checks stand ~2σ inside
-  // their truths: the Sage ≥ .86 (under the un-buffed
-  // law, centred at .80, the chance of reaching .86 is
-  // ~2%), the Warden ≤ .86 (a buff leaked to him would
-  // centre him at .90), and the gap ≥ .04 (expected
-  // .10, SE of the difference ≈ .035).
+  // The arithmetic of the proof (re-derived for Enemy AC,
+  // 2026-10-22): the Warden rolls d20 + 3 (the Lv 10
+  // ladder) and needs 15+ against AC 18 — p = .30. The
+  // Sage rolls d20 + 3 + 2 (Nigel's buff, 2026-10-20) and
+  // needs 13+ — p = .40. At 200 strikes a side SE(rate)
+  // ≈ .032 (Warden) and .035 (Sage), so the rate checks
+  // stand inside their truths: the Sage ≥ .35 (under the
+  // un-buffed law, centred at .30, the chance of reaching
+  // .35 is ~6%), the Warden ≤ .36 (a buff leaked to him
+  // would centre him at .40), and the gap ≥ .03 (expected
+  // .10, SE of the difference ≈ .047).
   async function handRoom({ room, tenderName, password, tag, classKey }) {
     const st = client(`ST-${tag}`);
     await st.join({ devName: `Story ${tag}`, room, storytender: true });
@@ -963,12 +967,12 @@ console.log("\n(f) the sage's hand — +2 base attack with the runic weapon");
   console.log(`  warden's sword: ${hw.n} strikes, hit rate ${hw.rate.toFixed(2)}`);
   check("both swords saw enough witnessed strikes (≥170 true-sword strikes each)",
     hs.n >= 170 && hw.n >= 170, JSON.stringify({ hs, hw }));
-  check("+2 BASE ATTACK: the Sage's sword lands at her buffed rate (≥.86 against armor 8; un-buffed she would centre on .80)",
-    hs.rate >= 0.86, `sageRate=${hs.rate.toFixed(3)} n=${hs.n}`);
-  check("CONTROL: the Warden's sword stays at the un-buffed rate (≤.86 against armor 8)",
-    hw.rate <= 0.86, `wardenRate=${hw.rate.toFixed(3)} n=${hw.n}`);
-  check("the Sage's rate runs hotter than the Warden's by ≥.04 (expected .10)",
-    hs.rate - hw.rate >= 0.04, `diff=${(hs.rate - hw.rate).toFixed(3)}`);
+  check("+2 BASE ATTACK: the Sage's sword lands at her buffed rate (≥.35 against AC 18; un-buffed she would centre on .30)",
+    hs.rate >= 0.35, `sageRate=${hs.rate.toFixed(3)} n=${hs.n}`);
+  check("CONTROL: the Warden's sword stays at the un-buffed rate (≤.36 against AC 18)",
+    hw.rate <= 0.36, `wardenRate=${hw.rate.toFixed(3)} n=${hw.n}`);
+  check("the Sage's rate runs hotter than the Warden's by ≥.03 (expected .10)",
+    hs.rate - hw.rate >= 0.03, `diff=${(hs.rate - hw.rate).toFixed(3)}`);
   sageH.st.ws.close(); sageH.c.ws.close(); wardH.st.ws.close(); wardH.c.ws.close();
 }
 
