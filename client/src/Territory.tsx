@@ -47,7 +47,8 @@ import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
-import { useEnemyArt, enemyImgFor } from "./enemyArt";
+import { useEnemyArt, enemyImgFor, frayFaceSrc } from "./enemyArt";
+import { FrayFaceSvgImage } from "./EnemyFace";
 import Tutorial, { tutorialComplete } from "./Tutorial";
 import tideImg from "./assets/terrain-iso/tide-v3.png";
 import skyImg from "./assets/terrain-iso/sky-v3.png";
@@ -5006,7 +5007,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // PHASE D — THE BLIND FRAY on the face: each wanderer wears
     // the Fray's own art (Nigel's drawn face, the workshop's live
     // choice respected), standing in its hex on the map's clock —
-    // a slow, sightless sway, nothing like a march.
+    // a slow, sightless sway, nothing like a march. Since "Fray 1"
+    // (2026-10-22) the face itself walks: the five-stride cycle
+    // loops on its own heartbeat while the bundled face is live.
     const wanderersLayer = (
       <g key="wanderers" pointerEvents="none">
         {wanderers.map(w => {
@@ -5022,8 +5025,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           return (
             <g key={w.id}>
               <ellipse cx={cx} cy={cy + size * 0.17} rx={size * 0.3} ry={size * 0.11} fill="rgba(0,0,0,0.42)" />
-              <image href={enemyImgFor("fray", enemyArtData?.art)} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
-                preserveAspectRatio="xMidYMax meet" opacity={0.95} />
+              <FrayFaceSvgImage art={enemyArtData?.art} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
+                opacity={0.95} />
               {wounded && (
                 <g>
                   <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52} height={2.6} fill="rgba(6,4,10,0.82)" stroke="rgba(160,60,50,0.6)" strokeWidth={0.4} />
@@ -6199,7 +6202,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           {renderGrid()}
           {/* Simulation units */}
           {battleUnits.map(u => {
-            const imgSrc = enemyImgFor(u.type, enemyArtData?.art);
+            const imgSrc = u.type === "fray" ? frayFaceSrc(enemyArtData?.art, Date.now()) : enemyImgFor(u.type, enemyArtData?.art);
             return (
             <g key={`battle-${u.id}`} transform={`translate(${u.x},${u.y})`}>
               {imgSrc ? (

@@ -24,6 +24,11 @@ import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
 import tangleImg from "./assets/enemies/tangle.png";
+import frayWalk1 from "./assets/enemies/fray-walk/fray-walk-1.png";
+import frayWalk2 from "./assets/enemies/fray-walk/fray-walk-2.png";
+import frayWalk3 from "./assets/enemies/fray-walk/fray-walk-3.png";
+import frayWalk4 from "./assets/enemies/fray-walk/fray-walk-4.png";
+import frayWalk5 from "./assets/enemies/fray-walk/fray-walk-5.png";
 
 /** The four classic enemies, in the order the tutorial presents them. */
 export const ENEMY_NAMES = ["fray", "unraveler", "hollow", "tangle"] as const;
@@ -54,4 +59,31 @@ export function useEnemyArt() {
  *  when one is live, else the bundled face. */
 export function enemyImgFor(name: string, art?: EnemyArtMap | null): string {
   return art?.[name]?.url || BUNDLED_ENEMIES[name as EnemyName] || "";
+}
+
+/** The Fray's walking cycle (Nigel's "Fray 1", uploaded 2026-10-22):
+ *  the upload held 23 frames that proved to be five distinct strides
+ *  repeated — pixel-identical copies — so the game copy carries the
+ *  five, cropped to the cycle's bounds and scaled (originals untouched;
+ *  see ~/workspace/fray-flipbook-2026-10-22/GAME-COPY.md). The cycle is
+ *  the Fray's face wherever the bundled face is live; a live workshop
+ *  upload still wins, exactly as with every other enemy face, and
+ *  stands still as uploads do. */
+export const FRAY_WALK_FRAMES = [frayWalk1, frayWalk2, frayWalk3, frayWalk4, frayWalk5] as const;
+
+/** One stride's hold: 100 ms a frame, a half-second loop. */
+export const FRAY_WALK_FRAME_MS = 100;
+
+/** Which stride of the cycle a moment falls on — every Fray on a
+ *  surface reads the same wall clock, so they march in step. */
+export function frayWalkFrameAt(nowMs: number): number {
+  return Math.floor(nowMs / FRAY_WALK_FRAME_MS) % FRAY_WALK_FRAMES.length;
+}
+
+/** The Fray's face at a moment: the live upload when one is live, else
+ *  the walking cycle's frame for that moment. */
+export function frayFaceSrc(art: EnemyArtMap | null | undefined, nowMs: number): string {
+  const live = art?.["fray"]?.url;
+  if (live) return live;
+  return FRAY_WALK_FRAMES[frayWalkFrameAt(nowMs)];
 }

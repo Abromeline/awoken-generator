@@ -19,7 +19,8 @@ import { useEffect, useRef, useState, type ReactNode, type PointerEvent as React
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
-import { BUNDLED_ENEMIES } from "./enemyArt";
+import { BUNDLED_ENEMIES, FRAY_WALK_FRAMES, frayWalkFrameAt } from "./enemyArt";
+import { FrayFaceImg } from "./EnemyFace";
 import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
@@ -1670,7 +1671,7 @@ export default function Table() {
   // face the light, its name, its health. Standing or walking,
   // it is drawn the same — only its place differs.
   const renderDarkFigure = (e: SharedState["dark"][number], ax: number, ay: number, moving: boolean): ReactNode => {
-    const art = e.art ?? BUNDLED_ENEMIES[e.kind as keyof typeof BUNDLED_ENEMIES] ?? null;
+    const art = e.art ?? (e.kind === "fray" ? FRAY_WALK_FRAMES[frayWalkFrameAt(nowMs)] : BUNDLED_ENEMIES[e.kind as keyof typeof BUNDLED_ENEMIES]) ?? null;
     return (
       <g key={`${moving ? "dm" : "d"}-${e.id}`} pointerEvents="none">
         {art
@@ -2576,7 +2577,11 @@ export default function Table() {
           <div className="roster">
             {(shared.enemies.length ? shared.enemies : ROSTER.map(r => ({ ...r, art: null }))).map((r) => (
               <div key={r.name} className="roster-row">
-                <img src={r.art ?? BUNDLED_ENEMIES[r.name as keyof typeof BUNDLED_ENEMIES]} alt={r.label} />
+                {r.name === "fray" ? (
+                  <FrayFaceImg art={r.art ? { fray: { url: r.art, spriteId: 0 } } : null} alt={r.label} />
+                ) : (
+                  <img src={r.art ?? BUNDLED_ENEMIES[r.name as keyof typeof BUNDLED_ENEMIES]} alt={r.label} />
+                )}
                 <div>
                   <strong>{r.label}</strong>
                   <p>{r.note}</p>

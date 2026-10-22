@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useEnemyArt, enemyImgFor, ENEMY_NAMES } from "./enemyArt";
+import { FrayFaceImg } from "./EnemyFace";
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
 import hollowImg from "./assets/enemies/hollow.png";
@@ -139,7 +140,11 @@ export default function Tutorial({ onComplete }: { onComplete: () => void }) {
           <div className="tutorial-enemies">
             {displayImages.map((img, i) => (
               <div key={i} className="tutorial-enemy">
-                <img src={img} alt={s.body[i]?.split(":")[0] || "Enemy"} />
+                {ENEMY_NAMES[i] === "fray" ? (
+                  <FrayFaceImg art={enemyArtData?.art} alt={s.body[i]?.split(":")[0] || "Enemy"} />
+                ) : (
+                  <img src={img} alt={s.body[i]?.split(":")[0] || "Enemy"} />
+                )}
                 <p>{s.body[i]}</p>
               </div>
             ))}

@@ -24,6 +24,7 @@ const BATTLE_TRACKS = [
   { name: "Phoenix", url: "/music/phoenix.mp3" },
 ];
 import { useEnemyArt, enemyImgFor } from "./enemyArt";
+import { FrayFaceImg } from "./EnemyFace";
 
 interface Defender {
   placementId: number;
@@ -1108,11 +1109,19 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               if (atk) doAttack(atk, e);
             }}
           >
-            <img
-              src={enemyImgFor(e.img === "fray" ? "fray" : "unraveler", enemyArtData?.art)}
-              alt={e.name}
-              style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
-            />
+            {e.img === "fray" ? (
+              <FrayFaceImg
+                art={enemyArtData?.art}
+                alt={e.name}
+                style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
+              />
+            ) : (
+              <img
+                src={enemyImgFor("unraveler", enemyArtData?.art)}
+                alt={e.name}
+                style={{ width: "100%", height: "auto", display: "block", filter: "hue-rotate(320deg) saturate(2)" }}
+              />
+            )}
             <div className="fighter-stats">❤{e.hp}/{e.maxHp}</div>
             <div className="thermometer enemy-thermo">
               <div className="thermo-fill" style={{ height: `${(e.hp / e.maxHp) * 100}%` }} />
