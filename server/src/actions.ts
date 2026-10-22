@@ -2849,6 +2849,19 @@ function zodiacReached(owned: ReadonlySet<string>): Set<string> {
   return seen;
 }
 
+/** THE WORKSHOP→TENDER INBOX — the reader's half of the
+ *  ledger (ruled 2026-10-20): a tender's letters, newest
+ *  first, with the unread count read off the same rows.
+ *  Reads are always scoped to the caller's own owner key —
+ *  a tender sees ONLY their own letters. */
+function tenderInboxState(ownerKey: string) {
+  const rows = sqlite.prepare("SELECT id, body, sent_at, read_at FROM tender_messages WHERE owner_key = ? ORDER BY sent_at DESC, id DESC").all(ownerKey) as { id: number; body: string; sent_at: number; read_at: number | null }[];
+  return {
+    messages: rows.map(r => ({ id: r.id, body: r.body, sentAt: r.sent_at, readAt: r.read_at })),
+    unread: rows.filter(r => r.read_at == null).length,
+  };
+}
+
 async function skillTreeState(ownerKey: string) {
   const progress = await getTenderProgress(ownerKey);
   const rows = sqlite.prepare("SELECT skill_key FROM tender_skills WHERE owner_key = ?").all(ownerKey) as { skill_key: string }[];
@@ -5117,6 +5130,62 @@ export const handlers = {
     }
     sqlite.prepare("DELETE FROM tender_skills WHERE owner_key = ? AND skill_key = ?").run(ownerKey, key);
     return skillTreeState(ownerKey);
+  },
+
+  /** RESET SKILL POINTS (Nigel, 2026-10-22 14:07): one tap
+   *  releases EVERY star the Tender holds and refunds every
+   *  point — a full clear of the ledger, so the stranding
+   *  rule that guards a single release does not apply. The
+   *  act is fully reversible by re-buying along any road,
+   *  so it carries no confirmation (standing law: no
+   *  unasked gates in a core flow). */
+  async resetSkillPoints(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    sqlite.prepare("DELETE FROM tender_skills WHERE owner_key = ?").run(ownerKey);
+    return skillTreeState(ownerKey);
+  },
+
+  // ── THE WORKSHOP→TENDER INBOX (ruled 2026-10-20; the
+  // tender's Message button ordered by Nigel 2026-10-22) ──
+  // One-way letters from the workshop to one tender, kept
+  // in the tender_messages ledger. The send is workshop-
+  // gated (WORKSHOP_ACTIONS in index.ts) and confirms
+  // against the stored row it just wrote — never a bare
+  // "sent" with nothing behind it.
+
+  async adminSendTenderMessage(args: unknown, _ctx?: ActionContext) {
+    const ownerKey = String((args as any)?.ownerKey ?? "");
+    const body = String((args as any)?.body ?? "").trim();
+    const addressed = /^tender:(\d+)$/.exec(ownerKey);
+    if (!addressed) badRequest("That address names no tender — letters go to one tender's own key.");
+    const tender = sqlite.prepare("SELECT id FROM tenders WHERE id = ?").get(Number(addressed[1])) as { id: number } | undefined;
+    if (!tender) badRequest("No such tender walks the world.");
+    if (!body) badRequest("The letter is empty — write the words first.");
+    if (body.length > 2000) badRequest("The letter runs long — keep it under 2000 characters.");
+    const written = sqlite.prepare("INSERT INTO tender_messages (owner_key, body, sent_at, read_at) VALUES (?, ?, ?, NULL)").run(ownerKey, body, Date.now());
+    const row = sqlite.prepare("SELECT id, owner_key, body, sent_at, read_at FROM tender_messages WHERE id = ?").get(written.lastInsertRowid) as { id: number; owner_key: string; body: string; sent_at: number; read_at: number | null };
+    return { ok: true as const, message: { id: row.id, ownerKey: row.owner_key, body: row.body, sentAt: row.sent_at, readAt: row.read_at } };
+  },
+
+  /** The tender's own inbox — session-bound: the reader is
+   *  whoever holds the session, and the ledger answers for
+   *  their key alone. */
+  async getTenderMessages(_args: unknown, ctx?: ActionContext) {
+    return tenderInboxState(ownerKeyFor(ctx));
+  },
+
+  /** Opening a letter stamps it read — and only its own
+   *  tender can open it; another tender's key is refused
+   *  outright, so privacy between tenders holds in the
+   *  ledger itself, not just in what the screens show. */
+  async markTenderMessageRead(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const id = Number((args as any)?.id ?? 0);
+    const row = sqlite.prepare("SELECT id, owner_key FROM tender_messages WHERE id = ?").get(id) as { id: number; owner_key: string } | undefined;
+    if (!row) badRequest("No such letter stands in the ledger.");
+    if (row.owner_key !== ownerKey) badRequest("That letter is not yours to open.");
+    sqlite.prepare("UPDATE tender_messages SET read_at = ? WHERE id = ? AND read_at IS NULL").run(Date.now(), id);
+    return tenderInboxState(ownerKey);
   },
 
   // ── THE STARWRIGHT (workshop, 2026-10-18) ────────────────

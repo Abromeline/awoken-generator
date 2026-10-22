@@ -210,6 +210,17 @@ export const friendMessages = sqliteTable("friend_messages", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
+// The workshop→tender inbox (ruled 2026-10-20): one-way
+// letters from the workshop to one tender, addressed by
+// owner key; read_at stamps the tender's own opening.
+export const tenderMessages = sqliteTable("tender_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  body: text("body").notNull(),
+  sentAt: integer("sent_at").notNull(),
+  readAt: integer("read_at"),
+});
+
 // Referral codes: invite a brand new player with a shareable link.
 // Accepting births a twin Awoken (with duplicate empowerment bonus).
 export const referralCodes = sqliteTable("referral_codes", {

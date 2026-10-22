@@ -576,6 +576,18 @@ export interface SkillTreeState {
   attunementLevels: Record<string, number>;
 }
 
+/** One letter in the workshop→tender inbox (ruled 2026-10-20). */
+export interface TenderMessage {
+  id: number;
+  body: string;
+  sentAt: number;
+  readAt: number | null;
+}
+export interface TenderInboxState {
+  messages: TenderMessage[];
+  unread: number;
+}
+
 export interface BastionCall {
   id: number; owner_key: string; host_tender_id: number;
   column_id: number | null; seed_id: number | null;
@@ -862,6 +874,11 @@ export const api = {
   getSkillTree: () => post<SkillTreeState>("getSkillTree", {}),
   unlockSkill: (key: string) => post<SkillTreeState>("unlockSkill", { key }),
   releaseSkill: (key: string) => post<SkillTreeState>("releaseSkill", { key }),
+  resetSkillPoints: () => post<SkillTreeState>("resetSkillPoints", {}),
+  getTenderMessages: () => post<TenderInboxState>("getTenderMessages", {}),
+  markTenderMessageRead: (id: number) => post<TenderInboxState>("markTenderMessageRead", { id }),
+  adminSendTenderMessage: (args: { ownerKey: string; body: string }) =>
+    post<{ ok: true; message: TenderMessage & { ownerKey: string } }>("adminSendTenderMessage", args),
   getIncursions: () => post<IncursionsView>("getIncursions", {}),
   getSeeds: () => post<SeedsView>("getSeeds", {}),
   callToArms: (args: { columnId?: number; seedId?: number }) => post<{ ok: boolean; call: BastionCall; already?: boolean }>("callToArms", args),

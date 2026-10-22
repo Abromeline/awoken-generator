@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Bake the Skill Zodiac v2 (Nigel's build order, 2026-10-22)
-from its source of record — the design node table
+"""Bake the Skill Zodiac v2 (Nigel's build order, 2026-10-22;
+the continuation build, Nigel 2026-10-22 14:07) from its
+source of record — the design node table
 ~/workspace/zodiac-tree-design-v2-nodes.csv (194 stars, 208
 points) — into server/src/zodiacData.ts.
 
@@ -13,6 +14,15 @@ band, the capstone at the sector's outer point); the shared
 rim as the outermost ring. rim1's predecessor is "any
 capstone", so it roads from all five capstones.
 
+EVERY ROAD FORKS (the Sage's at the first build; the other
+four as proposed and approved, Nigel 2026-10-22 14:07): each
+first arm splits at its rung into two strands that rejoin
+at the keystone. The layout derives the strands from the
+CSV's roads themselves — the entry star, the two rung heads
+that road from it, and each head's descendants within the
+arm — and draws the strands side by side inside the sector,
+the Sage's original fork drawing generalized to all five.
+
 `class_pathway` in the CSV is the road a star is TAILORED
 to — never an eligibility field (Nigel: no skill is
 class-locked). The legacy fields the living-wheel machinery
@@ -20,10 +30,11 @@ still carries (pool/gate/requires/el/att/syn) are written at
 their neutral values: one pool ("tree"), no gates. A star's
 `requires` names its road predecessors as a SET — the star
 is buyable when ANY of them is held. Chain stars list one;
-the five stars of the connecting ring (the second star of
-each first arm, Nigel 2026-10-22) list their chain
-predecessor plus their sideways ring neighbours, so a
-walker can step from road to road at shallow depth. The
+the stars of the two connecting rings (the rung stars of
+each first arm, and the second star of each second arm —
+Nigel 2026-10-22) list their chain predecessor plus their
+sideways ring neighbours, so a walker can step from road to
+road at shallow depth and again deep in the wheel. The
 rim's first star requires nothing and is reached by its
 five capstone roads instead.
 
@@ -67,26 +78,39 @@ for pi, pathway in enumerate(PATHWAYS):
     keystone = next(r for r in prow if r["kind"] == "keystone")
     capstone = next(r for r in prow if r["kind"] == "capstone")
     assert len(arm_a) == 16 and len(arm_b) == 16, f"{pathway}: arms must hold 16 stars each"
-    if pathway == "Sage":
-        # THE FORK (Nigel, 2026-10-22): the Sage road splits
-        # at the trap rung into two strands that rejoin at
-        # her keystone. The strands are drawn side by side
-        # inside her sector: SWALLOW THE HEART's strand
-        # (sustain/blood/company) on one line, the Summoner's
-        # Power strand (summon/attunement-depth) on the
-        # other, both running from the rung (r 106) out to
-        # the keystone's threshold (r 200). Other roads stay
-        # single chains — the fork is the Sage's alone.
-        coords["s_a1"] = point(centre - 30, 100)
-        swallow = ["s_a2", "s_a4", "s_a5", "s_a6", "s_a8", "s_a9", "s_a10", "s_a12", "s_a13", "s_a15", "s_a16"]
-        summon = ["s_a3", "s_a7", "s_a11", "s_a14"]
-        for idx, sid in enumerate(swallow):
-            coords[sid] = point(centre - 24 + idx * 0.4, 106 + idx * (94.0 / (len(swallow) - 1)))
-        for idx, sid in enumerate(summon):
-            coords[sid] = point(centre - 12 + idx * 0.4, 106 + idx * (94.0 / (len(summon) - 1)))
-    else:
-        for j, r in enumerate(arm_a):
-            coords[r["id"]] = point(centre - 30 + j * (24.0 / 15), 100 + j * (95.0 / 15))
+    # THE FORKS (the Sage's ruled at the first build; every
+    # road's from the continuation build, Nigel 2026-10-22
+    # 14:07): the first arm splits at its rung into two
+    # strands that rejoin at the keystone. The strands are
+    # derived from the CSV's roads: the entry star (the one
+    # roading from the Heart door), the two heads roading
+    # from the entry, and each head's chain of descendants
+    # within the arm. They are drawn side by side inside the
+    # sector, both running from the rung (r 106) out to the
+    # keystone's threshold (r 200) — the Sage's fork drawing,
+    # generalized.
+    def preds_of(r):
+        return [s.strip() for s in r["roads_from"].split(";") if s.strip() and s.strip() not in ("—",)]
+    arm_ids = {r["id"] for r in arm_a}
+    entry = next(r for r in arm_a if any(p not in arm_ids for p in preds_of(r)))
+    heads = [r for r in arm_a if entry["id"] in preds_of(r)]
+    assert len(heads) == 2, f"{pathway}: expected two rung heads, found {[h['id'] for h in heads]}"
+    strands: list[list[str]] = []
+    for h in heads:
+        chain = [h["id"]]
+        while True:
+            nxt = [r["id"] for r in arm_a if chain[-1] in preds_of(r) and r["id"] not in chain]
+            assert len(nxt) <= 1, f"{pathway}: strand forks twice at {chain[-1]}"
+            if not nxt: break
+            chain.append(nxt[0])
+        strands.append(chain)
+    flat = [sid for s in strands for sid in s]
+    assert sorted(flat) == sorted(arm_ids - {entry["id"]}), f"{pathway}: strands do not partition the arm"
+    coords[entry["id"]] = point(centre - 30, 100)
+    for si, strand in enumerate(strands):
+        base = centre - 24 if si == 0 else centre - 12
+        for idx, sid in enumerate(strand):
+            coords[sid] = point(base + idx * 0.4, 106 + idx * (94.0 / max(1, len(strand) - 1)))
     coords[keystone["id"]] = point(centre, 216)
     for j, r in enumerate(arm_b):
         coords[r["id"]] = point(centre + 6 + j * (24.0 / 15), 236 + j * (69.0 / 15))

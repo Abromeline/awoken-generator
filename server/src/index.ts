@@ -58,6 +58,7 @@ const WORKSHOP_ACTIONS = new Set([
   "deleteZodiacEdge",
   "resetZodiacGraph",
   "listTenders",
+  "adminSendTenderMessage",
   "adminResetTender",
   "adminRefillAllEnergy",
   "adminResetWorldTiles",

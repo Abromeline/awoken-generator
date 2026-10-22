@@ -1749,6 +1749,12 @@ function TendersPanel() {
   const [waveEdit, setWaveEdit] = useState<{ ownerKey: string; current: number } | null>(null);
   const codesQuery = useQuery({ queryKey: ["wakeCodes"], queryFn: () => api.adminListWakeCodes() });
   const [aspectCounts, setAspectCounts] = useState<Record<string, number>>({});
+  // THE WORKSHOP→TENDER INBOX (ruled 2026-10-20): each row's
+  // ✉ opens a compose box; a send confirms against the
+  // stored ledger row the server returns, never a bare toast.
+  const [composeFor, setComposeFor] = useState<string | null>(null);
+  const [composeBody, setComposeBody] = useState("");
+  const [sentNotes, setSentNotes] = useState<Record<string, string>>({});
   const grantAspects = async (t: TenderLeaderboardEntry) => {
     const count = aspectCounts[t.ownerKey] ?? 5;
     const els = ["tide", "sky", "stone", "root"] as const;
@@ -1873,7 +1879,31 @@ function TendersPanel() {
           <button className="abtn small" title="Grant random elemental aspect points — The Ancient Creator" onClick={() => void grantAspects(t)}>
             Aspect pts
           </button>
+          <button className="abtn small" title={`Write to ${t.displayName} — the letter waits in their inbox`} onClick={() => { setComposeFor(composeFor === t.ownerKey ? null : t.ownerKey); setComposeBody(""); }}>
+            ✉ Message
+          </button>
         </div>
+        {composeFor === t.ownerKey && (
+          <div className="tender-compose" style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, width: "100%" }}>
+            <textarea value={composeBody} onChange={(e) => setComposeBody(e.target.value)} rows={3} maxLength={2000}
+              placeholder={`A letter for ${t.displayName} — it will wait in their inbox until they open it.`} aria-label={`Letter for ${t.displayName}`} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button className="abtn small" disabled={!composeBody.trim()} onClick={async () => {
+                try {
+                  const r = await api.adminSendTenderMessage({ ownerKey: t.ownerKey, body: composeBody.trim() });
+                  setSentNotes((prev) => ({ ...prev, [t.ownerKey]: `Stored in the ledger as letter #${r.message.id} · ${new Date(r.message.sentAt).toLocaleString()} — it waits in ${t.displayName}'s inbox.` }));
+                  setComposeBody("");
+                } catch (e) {
+                  setAdminMsg("Failed: " + (e as Error).message);
+                }
+              }}>
+                Send letter
+              </button>
+              <button className="abtn small" onClick={() => setComposeFor(null)}>Close</button>
+              {sentNotes[t.ownerKey] && <span className="quiet">{sentNotes[t.ownerKey]}</span>}
+            </div>
+          </div>
+        )}
       </li>)}</ol>
     )}
     <div className="wake-codes" style={{ marginTop: 24 }}>

@@ -26,11 +26,15 @@ export interface LiveNode extends ZodiacNode { fx: FxClause[] }
 export interface ZodiacGraph { nodes: LiveNode[]; edges: [string, string][]; v?: number }
 
 /** The writing of the wheel this code seeds and serves.
- *  v2 (2026-10-22) is the 194-star tree; a persisted graph
- *  from an older writing is not folded forward — it is
- *  replaced by the seed (the store's migration clears the
- *  old held skills alongside, exactly once). */
-export const ZODIAC_WHEEL_VERSION = 2;
+ *  v2 (2026-10-22) is the 194-star tree; v3 is the same
+ *  tree continued the same day (Nigel, 2026-10-22 14:07):
+ *  forks on every road, the deep ring, the lure audit and
+ *  the step rulings folded in. A persisted graph from an
+ *  older writing is not folded forward — it is replaced
+ *  by the seed (the store's migration clears the old held
+ *  skills alongside, exactly once, so every spent point is
+ *  refunded whole). */
+export const ZODIAC_WHEEL_VERSION = 3;
 
 export const FX_PALETTE: { verb: string; label: string; hint: string; hasElement?: boolean }[] = [
   { verb: "tenderHp", label: "Tender HP", hint: "the Tender's own body, at the Table and on the map's standing" },

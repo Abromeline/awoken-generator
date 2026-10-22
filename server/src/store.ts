@@ -323,6 +323,19 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS friend_messages (
   read_at INTEGER,
   created_at INTEGER NOT NULL
 );`);
+// The workshop→tender inbox (ruled 2026-10-20; the tender's
+// Message button ordered 2026-10-22): one-way letters from
+// the workshop to one tender, addressed by owner key. The
+// ledger is the record — a send confirms against the stored
+// row, and a letter is read only through its own tender's
+// session (read_at stamps the opening).
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  body TEXT NOT NULL,
+  sent_at INTEGER NOT NULL,
+  read_at INTEGER
+);`);
 // Experience system.
 if (!awakenedCols.some((col) => col.name === "experience")) {
   sqlite.exec(`ALTER TABLE awakened ADD COLUMN experience INTEGER NOT NULL DEFAULT 0`);
@@ -975,23 +988,29 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS ui_config (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );`);
-// ── THE ZODIAC REPLACED (Nigel's build order, 2026-10-22):
-// the v2 wheel (194 stars, one point pool, 2 points a level)
-// replaces the old tree whole. Every held skill names an
-// old-tree star that no longer stands, so the ledger is
-// cleared ONCE and every Tender re-spends fresh under the
-// new tree; the persisted living graph of the old wheel is
-// dropped with it, so the v2 seed is what rises. Nothing
-// else about a Tender is touched — not level, not Awoken,
-// not decks. Guarded by the wheel-version marker in
-// ui_config, so the clearing runs exactly once and re-boots
-// leave the new ledger alone.
+// ── THE ZODIAC REPLACED, THEN CONTINUED (Nigel's build
+// orders, 2026-10-22): the v2 wheel (194 stars, one point
+// pool, 2 points a level) replaced the old tree whole, and
+// the continuation build (v3) re-stranded its arms, added
+// the deep ring and folded the step rulings in. At each
+// writing the stars' names and roads move under held
+// skills, so the ledger is cleared ONCE per writing and
+// every Tender's purse stands whole again at 2 × level —
+// a FULL refund by construction, however much was spent
+// on the old writing (Nigel, 2026-10-22 14:07: "any tender
+// who has spent skill points is refunded skill points").
+// The persisted living graph of the old writing is dropped
+// with it, so the new seed is what rises. Nothing else
+// about a Tender is touched — not level, not Awoken, not
+// decks. Guarded by the wheel-version marker in ui_config,
+// so the clearing runs exactly once and re-boots leave the
+// new ledger alone.
 try {
   const marker = sqlite.prepare("SELECT value FROM ui_config WHERE key = 'zodiac.wheelVersion'").get() as { value: string } | undefined;
-  if (marker?.value !== "2") {
+  if (marker?.value !== "3") {
     sqlite.exec("DELETE FROM tender_skills");
     sqlite.exec("DELETE FROM ui_config WHERE key = 'zodiac.graph'");
-    sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES ('zodiac.wheelVersion', '2', ?) ON CONFLICT(key) DO UPDATE SET value = '2', updated_at = excluded.updated_at").run(Date.now());
+    sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES ('zodiac.wheelVersion', '3', ?) ON CONFLICT(key) DO UPDATE SET value = '3', updated_at = excluded.updated_at").run(Date.now());
   }
 } catch { /* a bare boot without the tables yet keeps the seed's own fallback */ }
 sqlite.exec(`CREATE TABLE IF NOT EXISTS table_profiles (

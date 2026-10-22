@@ -96,11 +96,28 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     onSuccess: (st) => { apply(st); setMsg(""); },
     onError: (e: any) => setMsg(e?.message ?? "The wheel refused."),
   });
+  // RESET SKILL POINTS (Nigel, 2026-10-22): one tap, no
+  // confirmation — the act is undone by re-buying, and the
+  // standing law keeps unasked gates out of core flows.
+  const resetM = useMutation({
+    mutationFn: () => api.resetSkillPoints(),
+    onSuccess: (st) => { apply(st); setMsg("Every skill point is back in your purse — the wheel stands unwritten before you."); },
+    onError: (e: any) => setMsg(e?.message ?? "The wheel refused."),
+  });
+  // THE INBOX (workshop→tender letters, ruled 2026-10-20):
+  // the Message button in the character card opens it; the
+  // unread count riding that button is a living readout.
+  const inboxQ = useQuery({ queryKey: ["tenderMessages"], queryFn: () => api.getTenderMessages() });
+  const markReadM = useMutation({
+    mutationFn: (id: number) => api.markTenderMessageRead(id),
+    onSuccess: (st) => qc.setQueryData(["tenderMessages"], st),
+    onError: (e: any) => setCharErr(e?.message ?? "The letter refused to open."),
+  });
   // ── THE CHARACTER MENU (Phase C): the Zodiac screen is the
   // character hub — profile card on the right with Profile |
   // Inventory | Grimoire tabs. Every pour/buy/wield refreshes
   // the tender record so the card never lies.
-  const [tab, setTab] = useState<"profile" | "inventory" | "grimoire" | "party">("profile");
+  const [tab, setTab] = useState<"profile" | "inventory" | "grimoire" | "party" | "messages">("profile");
   const [grimTab, setGrimTab] = useState<"weapons" | "spells" | "runes">("weapons");
   const [charMsg, setCharMsg] = useState("");
   const [charErr, setCharErr] = useState("");
@@ -256,6 +273,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
           <div className="zodiac-pools">
             <span>🌳 Tree <strong>{state.tree.left}</strong>/{state.tree.total}</span>
             <span>Tender Lv {state.level} · +{state.pointsPerLevel} 🌳 per level</span>
+            <button type="button" className="zodiac-btn" disabled={state.tree.spent === 0 || resetM.isPending} onClick={() => resetM.mutate()}>Reset Skill Points</button>
           </div>
         )}
         <button type="button" className="zodiac-close" onClick={onClose} aria-label="Close the Zodiac">✕</button>
@@ -346,6 +364,9 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                   <p className="character-wield"><img src={weaponImg(wieldedKey)} alt="" /> Wielding <strong>{WEAPONS[wieldedKey].name}</strong> (d{WEAPONS[wieldedKey].die} · {WEAPONS[wieldedKey].note})</p>
                 ) : <p className="character-wield">No weapon in hand yet.</p>}
               </div>
+              <button type="button" className="zodiac-btn character-messages-btn" aria-pressed={tab === "messages"} onClick={() => setTab("messages")}>
+                ✉ Messages{inboxQ.data && inboxQ.data.unread > 0 ? <> — <strong>{inboxQ.data.unread} unread</strong> ●</> : ""}
+              </button>
             </div>
             <div className="character-tabs" role="tablist" aria-label="Character menu tabs">
               {(["profile", "inventory", "grimoire", "party"] as const).map(t => (
@@ -354,6 +375,27 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
             </div>
             {charMsg && <p className="character-msg" role="status">{charMsg}</p>}
             {charErr && <p className="zodiac-lock" role="alert">{charErr}</p>}
+
+            {tab === "messages" && (
+              <div className="character-pane">
+                <h4>✉ Letters from the workshop</h4>
+                {inboxQ.isLoading ? <p className="zodiac-note">The ledger is opening…</p> : !inboxQ.data || inboxQ.data.messages.length === 0 ? (
+                  <p className="zodiac-note">No letters yet. When the workshop writes to you, its words will wait here.</p>
+                ) : (
+                  <ol className="tender-inbox">
+                    {inboxQ.data.messages.map(m => (
+                      <li key={m.id} className={m.readAt == null ? "unread" : undefined}>
+                        <p className="tender-inbox-when">{new Date(m.sentAt).toLocaleString()}{m.readAt == null ? " · ● new" : ""}</p>
+                        <p className="tender-inbox-body">{m.body}</p>
+                        {m.readAt == null && (
+                          <button type="button" className="zodiac-btn" disabled={markReadM.isPending} onClick={() => markReadM.mutate(m.id)}>Mark as read</button>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            )}
 
             {tab === "profile" && (
               <div className="character-pane">
