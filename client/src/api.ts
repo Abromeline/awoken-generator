@@ -356,6 +356,10 @@ export interface ZodiacGraphNode {
   el: string | null; att: number; pool: "tree" | "canopy"; cost: number;
   gate: { el: string; level: number } | null;
   requires: string[]; anyCore: boolean; fx: ZodiacFxClause[];
+  /** The v2 wheel's writing (2026-10-22): the class the
+   *  star's road is tailored to (never a lock), its god,
+   *  its Deepening tier, and its deepened grant text. */
+  pathway?: string; god?: string; tier?: string; step?: string; grant?: string;
 }
 export interface ZodiacGraphData { nodes: ZodiacGraphNode[]; edges: [string, string][] }
 export interface ZodiacGraphState {
@@ -560,12 +564,14 @@ export interface ZodiacNodeView {
   el: string | null; pool: "tree" | "canopy"; cost: number;
   gate: { el: string; level: number } | null;
   requires: string[]; anyCore: boolean;
+  /** The v2 wheel's writing (2026-10-22): tailoring, god,
+   *  Deepening tier, step standing, deepened grant text. */
+  pathway?: string; god?: string; tier?: string; step?: string; grant?: string;
 }
 export interface SkillTreeState {
   nodes: ZodiacNodeView[]; edges: [string, string][];
   unlocked: string[]; level: number; pointsPerLevel: number;
   tree: { total: number; spent: number; left: number };
-  canopy: { total: number; spent: number; left: number };
   attunement: Record<string, number>;
   attunementLevels: Record<string, number>;
 }

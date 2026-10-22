@@ -23,7 +23,14 @@ import { ZODIAC_NODES, ZODIAC_EDGES, type ZodiacNode } from "./zodiacData.js";
 
 export interface FxClause { verb: string; amount: number; el?: string | null }
 export interface LiveNode extends ZodiacNode { fx: FxClause[] }
-export interface ZodiacGraph { nodes: LiveNode[]; edges: [string, string][] }
+export interface ZodiacGraph { nodes: LiveNode[]; edges: [string, string][]; v?: number }
+
+/** The writing of the wheel this code seeds and serves.
+ *  v2 (2026-10-22) is the 194-star tree; a persisted graph
+ *  from an older writing is not folded forward — it is
+ *  replaced by the seed (the store's migration clears the
+ *  old held skills alongside, exactly once). */
+export const ZODIAC_WHEEL_VERSION = 2;
 
 export const FX_PALETTE: { verb: string; label: string; hint: string; hasElement?: boolean }[] = [
   { verb: "tenderHp", label: "Tender HP", hint: "the Tender's own body, at the Table and on the map's standing" },
@@ -42,57 +49,28 @@ const PALETTE_VERBS = new Set(FX_PALETTE.map(p => p.verb));
 const ELEMENTS = new Set(["tide", "sky", "stone", "root", "fire"]);
 
 /** Stars whose workings are ALSO Keeper-wired in code, beyond
- *  any clauses they carry (the workings tranche's bespoke
- *  machinery). The Starwright labels them honestly. */
-export const BESPOKE_IDS = [
-  "w_thick", "w_answer", "w_rooted", "w_key", "w_banner", "w_second", "w_living", "w_mill", "w_pillar", "w_hewn",
-  "b_mendwall", "b_thread", "b_wide", "b_key", "b_open",
-  "r_ink", "r_patient", "r_hum", "r_long", "r_remembers", "r_hungry", "r_split", "r_crown", "r_key",
-  "fire_warden_n", "stone_warden_n", "tide_binder_n", "sky_runewright_n",
-  "hybB_lore", "hybR_lore", "hybW_lore", "hybR_warground", "hybW_warground", "ray_lore",
-];
+ *  any clauses they carry. The v2 wheel's stars carry NO
+ *  bespoke wiring yet — their grants are display text until
+ *  the effects build seats them — so this stands empty
+ *  rather than naming stars that no longer stand. */
+export const BESPOKE_IDS: string[] = [];
 
-/** The seed's clause-writing: today's wired law, expressed as
- *  clauses, so the living wheel opens behaving exactly as the
- *  game does this morning. Attunement grants ride every node's
- *  own att/el (the catalogue's +3/+6), written as clauses too. */
-const SEED_FX: Record<string, FxClause[]> = {
-  c_hp1: [{ verb: "tenderHp", amount: 5 }],
-  c_en: [{ verb: "tableEnergy", amount: 3 }],
-  c_heal: [{ verb: "heal", amount: 3 }],
-  c_harv: [{ verb: "fellHarvest", amount: 1 }],
-  c_steady: [{ verb: "firstWorkingDiscount", amount: 1 }],
-  c_hp2: [{ verb: "tenderHp", amount: 5 }, { verb: "heal", amount: 2 }],
-  p_constitution: [{ verb: "tenderHp", amount: 4 }],
-  p_breath: [{ verb: "roundEnergy", amount: 1 }],
-  p_blood: [{ verb: "roundMend", amount: 1 }],
-  p_skin: [{ verb: "tenderSkin", amount: 1 }],
-  w_escort: [{ verb: "company", amount: 2 }],
-  b_pennant: [{ verb: "company", amount: 2 }],
-  r_retinue: [{ verb: "company", amount: 2 }],
-  b_muster: [{ verb: "company", amount: 4 }],
-  // THE PARTY SKILL (Nigel, 2026-10-21 — the fold-in): nine
-  // stars of a new type, each carrying one party level. The
-  // party's width is reckoned from the levels held: 3 spots
-  // to start, +1 for every 3 party levels, plus the Muster
-  // clauses above (party.ts holds the reckoning).
-  party_1: [{ verb: "party", amount: 1 }],
-  party_2: [{ verb: "party", amount: 1 }],
-  party_3: [{ verb: "party", amount: 1 }],
-  party_4: [{ verb: "party", amount: 1 }],
-  party_5: [{ verb: "party", amount: 1 }],
-  party_6: [{ verb: "party", amount: 1 }],
-  party_7: [{ verb: "party", amount: 1 }],
-  party_8: [{ verb: "party", amount: 1 }],
-  party_9: [{ verb: "party", amount: 1 }],
-};
+/** The seed's clause-writing. The v2 wheel seeds NO clauses:
+ *  a v2 star's deepened grant is its displayed text (the
+ *  Deepening Rule), and wiring those grants into live effects
+ *  is a separate build. Seeding invented clauses here would
+ *  dress unwired stars as working ones, so the seed is
+ *  honestly empty; the fx readers in skills.ts sum over held
+ *  clauses and return 0s until the effects build writes real
+ *  ones (the Starwright may also write clauses by hand). */
+const SEED_FX: Record<string, FxClause[]> = {};
 function seedGraph(): ZodiacGraph {
   const nodes: LiveNode[] = ZODIAC_NODES.map(n => {
     const fx: FxClause[] = [...(SEED_FX[n.id] ?? [])];
     if (n.el && n.att > 0) fx.push({ verb: "attunement", el: n.el, amount: n.att });
     return { ...n, fx };
   });
-  return { nodes, edges: ZODIAC_EDGES.map(e => [e[0], e[1]] as [string, string]) };
+  return { nodes, edges: ZODIAC_EDGES.map(e => [e[0], e[1]] as [string, string]), v: ZODIAC_WHEEL_VERSION };
 }
 
 const CONFIG_KEY = "zodiac.graph";
@@ -105,42 +83,18 @@ function persist(g: ZodiacGraph): void {
   else sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?)").run(CONFIG_KEY, value, Date.now());
 }
 
-/** Stars a later writing added to the seed after the living
- *  graph was first persisted (the Party skill, 2026-10-21).
- *  A persisted wheel predates them, so the load below folds
- *  in exactly these — additively: a missing star is appended
- *  with its seed clauses, and a seed road touching it is
- *  added when both its ends stand. Nothing already on the
- *  wheel is rewritten or removed by the fold; the
- *  Starwright's own edits stand untouched. */
-const SEED_ADDITION_IDS = ["party_1", "party_2", "party_3", "party_4", "party_5", "party_6", "party_7", "party_8", "party_9"];
-
 export function zodiacGraph(): ZodiacGraph {
   if (cache) return cache;
   try {
     const row = sqlite.prepare("SELECT value FROM ui_config WHERE key = ?").get(CONFIG_KEY) as { value: string } | undefined;
     if (row?.value) {
       const parsed = JSON.parse(row.value) as ZodiacGraph;
-      if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) && parsed.nodes.length > 0) {
-        const seed = seedGraph();
-        const have = new Set(parsed.nodes.map(n => n.id));
-        let changed = false;
-        for (const sn of seed.nodes) {
-          if (!SEED_ADDITION_IDS.includes(sn.id) || have.has(sn.id)) continue;
-          parsed.nodes.push(sn);
-          have.add(sn.id);
-          changed = true;
-        }
-        if (changed) {
-          const edgeKeys = new Set(parsed.edges.map(([a, b]) => `${a}|${b}`));
-          for (const [a, b] of seed.edges) {
-            if (!have.has(a) || !have.has(b)) continue;
-            if (!SEED_ADDITION_IDS.includes(a) && !SEED_ADDITION_IDS.includes(b)) continue;
-            if (edgeKeys.has(`${a}|${b}`) || edgeKeys.has(`${b}|${a}`)) continue;
-            parsed.edges.push([a, b]);
-          }
-          try { persist(parsed); } catch { /* the folded wheel still serves from memory */ }
-        }
+      // A persisted wheel of the CURRENT writing serves as it
+      // stands (the Starwright's edits live there). A wheel
+      // from an older writing — no version stamp, or a stamp
+      // behind this code's — is replaced by the v2 seed: the
+      // old tree is gone whole, not folded forward.
+      if (parsed.v === ZODIAC_WHEEL_VERSION && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) && parsed.nodes.length > 0) {
         cache = parsed;
         return cache;
       }
@@ -211,6 +165,11 @@ export function sanitizeNode(raw: any, existingIds: Set<string>): LiveNode {
     gate,
     requires,
     anyCore: !!raw?.anyCore,
+    pathway: cleanStr(raw?.pathway, 30),
+    god: cleanStr(raw?.god, 40),
+    tier: cleanStr(raw?.tier, 40),
+    step: cleanStr(raw?.step, 20),
+    grant: cleanStr(raw?.grant, 600),
     fx,
   };
 }

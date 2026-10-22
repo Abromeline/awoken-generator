@@ -2819,16 +2819,20 @@ async function cardBorderState() {
   };
 }
 
-// ── THE SKILL ZODIAC (Nigel's directive via Law, 2026-10-17):
-// the catalogue rides the wheel. Points: EVERY LEVEL grants
-// multiple skill points — the per-level number is a single
-// tunable constant (Law's arithmetic note: 5/level x 10
-// levels = the budget law's 50 exactly); the canopy pool is
-// separate (35 in a life, "a later light": it begins at
-// level 6 and grows 7 a level to its 35 at level 10).
-export const SKILL_POINTS_PER_LEVEL = 5;
-export const CANOPY_POINTS_START_LEVEL = 6;
-export const CANOPY_POINTS_PER_LEVEL = 7;
+// ── THE SKILL ZODIAC (Nigel's directive via Law, 2026-10-17;
+// the v2 wheel, Nigel's build order 2026-10-22): the wheel is
+// ONE pool of points — the old separate canopy pool is
+// retired, because the v2 tree prices everything (194 stars,
+// 208 points) in the one pool. EVERY LEVEL grants 2 points
+// (Nigel, 2026-10-22 — supersedes the old 5-per-level budget
+// law), so the points a Tender holds are level x 2, nothing
+// else. NO SKILL IS CLASS-LOCKED: a star's road may be
+// tailored to a class, but any Tender may buy any star; the
+// only gates are Heart-first, the road walked star by star,
+// and the point cost (Nigel, 2026-10-22 — off-road freedom:
+// wandering roads carries no penalty beyond the Deepening
+// Rule's own economics).
+export const SKILL_POINTS_PER_LEVEL = 2;
 
 /** The wheel walked from the Heart: the set of nodes lying
  *  on held roads (owned nodes connected to the Heart
@@ -2850,13 +2854,10 @@ async function skillTreeState(ownerKey: string) {
   const rows = sqlite.prepare("SELECT skill_key FROM tender_skills WHERE owner_key = ?").all(ownerKey) as { skill_key: string }[];
   const byId = liveById();
   const unlocked = rows.map(r => r.skill_key).filter(k => byId.has(k));
-  const spent: Record<string, number> = { tree: 0, canopy: 0 };
-  for (const k of unlocked) { const n = byId.get(k)!; spent[n.pool] += n.cost; }
+  let spent = 0;
+  for (const k of unlocked) { spent += byId.get(k)!.cost; }
   const level = progress.level;
-  const totals = {
-    tree: level * SKILL_POINTS_PER_LEVEL,
-    canopy: Math.max(0, level - (CANOPY_POINTS_START_LEVEL - 1)) * CANOPY_POINTS_PER_LEVEL,
-  };
+  const total = level * SKILL_POINTS_PER_LEVEL;
   const attRows = await db.select().from(schema.aspectAttunement).where(eq(schema.aspectAttunement.ownerKey, ownerKey));
   const attunement: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   for (const r of attRows as any[]) attunement[r.element] = r.points ?? 0;
@@ -2870,8 +2871,7 @@ async function skillTreeState(ownerKey: string) {
   return {
     nodes: liveNodes(), edges: liveEdges(), unlocked, level,
     pointsPerLevel: SKILL_POINTS_PER_LEVEL,
-    tree: { total: totals.tree, spent: spent.tree, left: totals.tree - spent.tree },
-    canopy: { total: totals.canopy, spent: spent.canopy, left: totals.canopy - spent.canopy },
+    tree: { total, spent, left: total - spent },
     attunement, attunementLevels,
   };
 }
@@ -5066,11 +5066,14 @@ export const handlers = {
     return skillTreeState(ownerKey);
   },
 
-  /** Unlock a skill on the wheel. The catalogue's law is
-   *  enforced whole: points from the right pool, the Heart
-   *  first, named requirements held, attunement gates open,
-   *  and a ROAD of held skills from the Heart — the wheel
-   *  is walked, not jumped to. */
+  /** Unlock a skill on the wheel. The v2 law is enforced
+   *  whole, and it is short (Nigel, 2026-10-22): the Heart
+   *  first, the star's road-predecessor held, a road of held
+   *  skills from the Heart, and the point cost paid from the
+   *  one pool. There is NO class gate, NO attunement gate
+   *  and NO off-road penalty — a star belongs to whoever
+   *  buys it, whatever class they walk (the effect follows
+   *  the star, never the class). */
   async unlockSkill(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const key = String((args as any)?.key ?? "");
@@ -5080,17 +5083,15 @@ export const handlers = {
     const state = await skillTreeState(ownerKey);
     const owned = new Set(state.unlocked);
     if (owned.has(key)) badRequest(`${node.name} is already yours.`);
-    const pool = node.pool === "canopy" ? state.canopy : state.tree;
-    if (pool.left < node.cost) badRequest(`${node.name} costs ${node.cost} ${node.pool} point${node.cost > 1 ? "s" : ""} — you hold ${pool.left}. Levels grant ${SKILL_POINTS_PER_LEVEL} tree points each; the wheel is a life's walking.`);
+    if (state.tree.left < node.cost) badRequest(`${node.name} costs ${node.cost} point${node.cost > 1 ? "s" : ""} — you hold ${state.tree.left}. Levels grant ${SKILL_POINTS_PER_LEVEL} points each; the wheel is a life's walking.`);
     const heartHeld = state.unlocked.some(k => liveById().get(k)?.sector === "heart");
     if (node.sector !== "heart" && !heartHeld) badRequest("The Heart must beat before the limbs move — take a heart-ring skill first.");
-    if (node.anyCore && !state.unlocked.some(k => k.startsWith("c_"))) badRequest("The Long Watch keeps company — another heart-ring skill must be held first.");
-    if (node.gate) {
-      const lvl = state.attunementLevels[node.gate.el] ?? 0;
-      if (lvl < node.gate.level) badRequest(`${node.name} stands behind the ${node.gate.el} gate: your ${node.gate.el} attunement is level ${lvl}, and the road opens at level ${node.gate.level}.`);
-    }
-    for (const req of node.requires) {
-      if (!owned.has(req)) badRequest(`${node.name} requires ${liveById().get(req)?.name ?? req} first — the catalogue's law.`);
+    // Predecessors are a SET (Nigel, 2026-10-22 — the
+    // connecting ring): the star opens when ANY listed
+    // predecessor is held — its chain predecessor, or a
+    // sideways ring neighbour for the ring's five stars.
+    if (node.requires.length > 0 && !node.requires.some(req => owned.has(req))) {
+      badRequest(`${node.name} requires ${node.requires.map(req => liveById().get(req)?.name ?? req).join(" or ")} first — the path is unlocked along the way, star by star.`);
     }
     const reached = zodiacReached(owned);
     if (!(liveAdj()[key] ?? []).some(nb => reached.has(nb))) badRequest(`No road of held skills reaches ${node.name} — unlock along the roads from your Heart, trunk to limb to twig.`);

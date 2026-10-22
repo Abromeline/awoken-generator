@@ -975,6 +975,25 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS ui_config (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );`);
+// ── THE ZODIAC REPLACED (Nigel's build order, 2026-10-22):
+// the v2 wheel (194 stars, one point pool, 2 points a level)
+// replaces the old tree whole. Every held skill names an
+// old-tree star that no longer stands, so the ledger is
+// cleared ONCE and every Tender re-spends fresh under the
+// new tree; the persisted living graph of the old wheel is
+// dropped with it, so the v2 seed is what rises. Nothing
+// else about a Tender is touched — not level, not Awoken,
+// not decks. Guarded by the wheel-version marker in
+// ui_config, so the clearing runs exactly once and re-boots
+// leave the new ledger alone.
+try {
+  const marker = sqlite.prepare("SELECT value FROM ui_config WHERE key = 'zodiac.wheelVersion'").get() as { value: string } | undefined;
+  if (marker?.value !== "2") {
+    sqlite.exec("DELETE FROM tender_skills");
+    sqlite.exec("DELETE FROM ui_config WHERE key = 'zodiac.graph'");
+    sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES ('zodiac.wheelVersion', '2', ?) ON CONFLICT(key) DO UPDATE SET value = '2', updated_at = excluded.updated_at").run(Date.now());
+  }
+} catch { /* a bare boot without the tables yet keeps the seed's own fallback */ }
 sqlite.exec(`CREATE TABLE IF NOT EXISTS table_profiles (
   player_key TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
