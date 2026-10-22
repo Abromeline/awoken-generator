@@ -1108,6 +1108,11 @@ const lateCols: Record<string, [string, string][]> = {
   awakened: [
     ["spent_power", "INTEGER NOT NULL DEFAULT 0"],
     ["spent_toughness", "INTEGER NOT NULL DEFAULT 0"],
+    // The greeting Awoken's mark (2026-10-20) shipped with only the
+    // pre-DDL ALTER above, so it never landed on a fresh database —
+    // found by Nigel on the Vultr standby's first fresh world
+    // (2026-10-22): the front door died on awakened.greeter.
+    ["greeter", "INTEGER NOT NULL DEFAULT 0"],
   ],
   field_placements: [
     ["hp", "INTEGER"],
