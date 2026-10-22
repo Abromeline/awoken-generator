@@ -5,15 +5,17 @@
 // target (a Fray was hit on a roll total of 4). This drive
 // proves, on a scratch server:
 //   §0 the record is served: getGameConfig carries each
-//      kind's bonus (4/6/5/8), and the module arithmetic
-//      reads AC 14/16/15/18 with the homeland mirror whole.
-//   §1 the Table: dealt Frays stand at AC 14 in the served
+//      kind's bonus (1/3/2/5 — Nigel's drop of 2026-10-22
+//      16:49 took 3 off every kind's bonus; the base stays
+//      10), and the module arithmetic reads AC 11/13/12/15
+//      with the homeland mirror whole.
+//   §1 the Table: dealt Frays stand at AC 11 in the served
 //      state, and a known striker (stone Awokin, Lv 1 card,
 //      bonus +1 — a roll total of 9 was a HIT under the
-//      old law) lands at the AC-14 truth of 40%, decisively
+//      old law) lands at the AC-11 truth of ~55%, decisively
 //      below the old law's 90%.
 //   §2 the homeland: the weapon referee strikes the same
-//      AC — a Lv 3 Warden's sword (bonus +1) lands ~40%
+//      AC — a Lv 3 Warden's sword (bonus +1) lands ~55%
 //      of 40 forced settles (old law ~90%).
 //   §3 the workshop moves the target: setUiConfig writes
 //      enemy.fray.armor = 9 through the real workshop API,
@@ -231,26 +233,26 @@ function tendRoom(ctx, kind) {
 console.log("\n§0 the record, served — bonuses on the config, AC by the arithmetic");
 {
   const cfg = (await call("getGameConfig", {})).data;
-  check("the served record carries each kind's AC bonus (fray 4, unraveler 6, hollow 5, tangle 8)",
-    cfg.enemies.fray.armor === 4 && cfg.enemies.unraveler.armor === 6 && cfg.enemies.hollow.armor === 5 && cfg.enemies.tangle.armor === 8,
+  check("the served record carries each kind's AC bonus (fray 1, unraveler 3, hollow 2, tangle 5)",
+    cfg.enemies.fray.armor === 1 && cfg.enemies.unraveler.armor === 3 && cfg.enemies.hollow.armor === 2 && cfg.enemies.tangle.armor === 5,
     JSON.stringify(cfg.enemies));
   const A = await import("../server/dist/actions.js");
   const T = await import("../server/dist/table.js");
-  check("the AC arithmetic: base 10 + bonus reads 14 / 16 / 15 / 18",
-    A.enemyACFor("fray") === 14 && A.enemyACFor("unraveler") === 16 && A.enemyACFor("hollow") === 15 && A.enemyACFor("tangle") === 18,
+  check("the AC arithmetic: base 10 + bonus reads 11 / 13 / 12 / 15",
+    A.enemyACFor("fray") === 11 && A.enemyACFor("unraveler") === 13 && A.enemyACFor("hollow") === 12 && A.enemyACFor("tangle") === 15,
     `${A.enemyACFor("fray")}/${A.enemyACFor("unraveler")}/${A.enemyACFor("hollow")}/${A.enemyACFor("tangle")}`);
-  check("the default AC table and the homeland mirror read the same 14 for the Fray",
-    T.DARK_ARMOR.fray === 14 && A.HOMELAND_FRAY_ARMOR === 14 && JSON.stringify(T.DARK_ARMOR) === JSON.stringify({ fray: 14, unraveler: 16, hollow: 15, tangle: 18 }),
+  check("the default AC table and the homeland mirror read the same 11 for the Fray",
+    T.DARK_ARMOR.fray === 11 && A.HOMELAND_FRAY_ARMOR === 11 && JSON.stringify(T.DARK_ARMOR) === JSON.stringify({ fray: 11, unraveler: 13, hollow: 12, tangle: 15 }),
     JSON.stringify(T.DARK_ARMOR));
 }
 
-// ── §1 THE TABLE — Frays at AC 14 ────────────────────────
-console.log("\n§1 the Table — dealt Frays stand at AC 14, and the stone company's rate tells it");
+// ── §1 THE TABLE — Frays at AC 11 ────────────────────────
+console.log("\n§1 the Table — dealt Frays stand at AC 11, and the stone company's rate tells it");
 {
-  // The dealt AC: base 10 + bonus 4, with the campaign's
+  // The dealt AC: base 10 + bonus 1, with the campaign's
   // own level scaling riding on top — floor((lvl−1)/2),
   // the scaling the law keeps.
-  const dealtAC = (d) => 14 + Math.floor(((d.lvl ?? 1) - 1) / 2);
+  const dealtAC = (d) => 11 + Math.floor(((d.lvl ?? 1) - 1) / 2);
   let armorViolations = 0, armorSeen = 0;
   let strikes = [];
   // A campaign can FALL mid-proof (the bank drains while
@@ -280,20 +282,21 @@ console.log("\n§1 the Table — dealt Frays stand at AC 14, and the stone compa
   const n = strikes.length;
   const rate = n ? strikes.filter(s => s.hit).length / n : 0;
   console.log(`  stone company: ${n} strikes, hit rate ${rate.toFixed(3)}`);
-  check("every dealt Fray the drive saw stood at base 10 + bonus 4 + the campaign's scaling in the served state",
+  check("every dealt Fray the drive saw stood at base 10 + bonus 1 + the campaign's scaling in the served state",
     armorSeen > 0 && armorViolations === 0, `seen=${armorSeen} violations=${armorViolations}`);
   check("enough witnessed strikes accrued (≥45 stone strikes)", n >= 45, `n=${n}`);
   // The striker's truth: stone +1, Lv 1 card — a roll total
-  // of 9 HIT under the old law (target 4); against AC 14
-  // the rate centres on .40. The band is ±~2.3σ at n=45.
-  check("the hit rate centres on the AC-14 truth (.25–.57; the old law centred on .90)",
-    rate >= 0.25 && rate <= 0.57, `rate=${rate.toFixed(3)} n=${n}`);
-  check("the old armor-as-target law is decisively excluded (rate < .65)",
-    rate < 0.65, `rate=${rate.toFixed(3)}`);
+  // of 9 HIT under the old law (target 4); against AC 11
+  // (before the campaign's own scaling, which only firms
+  // it) the rate centres on .55. The band is ±~2.3σ at n=45.
+  check("the hit rate centres on the AC-11 truth (.36–.72; the old law centred on .90)",
+    rate >= 0.36 && rate <= 0.72, `rate=${rate.toFixed(3)} n=${n}`);
+  check("the old armor-as-target law is decisively excluded (rate < .80)",
+    rate < 0.80, `rate=${rate.toFixed(3)}`);
 }
 
 // ── §2 THE HOMELAND — the same AC at the weapon referee ──
-console.log("\n§2 the homeland — the sword strikes AC 14 there too");
+console.log("\n§2 the homeland — the sword strikes AC 11 there too");
 {
   const claim = await call("claimTender", { password: "ac-homeland-drive", tenderName: "AC Homeland Tender" });
   const token = claim.data.token;
@@ -317,11 +320,11 @@ console.log("\n§2 the homeland — the sword strikes AC 14 there too");
   const hits = records.filter(r => r.hit).length;
   console.log(`  homeland sword: ${records.length} strikes, ${hits} hits`);
   check("40 forced settles each produced a fresh strike record", records.length === 40, `records=${records.length}`);
-  // The truth: bonus +1 (Lv 3 ladder) vs AC 14 → 40%.
+  // The truth: bonus +1 (Lv 3 ladder) vs AC 11 → 55%.
   // Under the old law (target 4) ~36 of 40 would land;
-  // the band [6, 26] is the AC-14 truth at ±~3σ.
-  check("the homeland hit count centres on the AC-14 truth (6–26 of 40; the old law would land ~36)",
-    hits >= 6 && hits <= 26, `hits=${hits}`);
+  // the band [13, 31] is the AC-11 truth at ±~3σ.
+  check("the homeland hit count centres on the AC-11 truth (13–31 of 40; the old law would land ~36)",
+    hits >= 13 && hits <= 31, `hits=${hits}`);
 }
 
 // ── §3 THE WORKSHOP MOVES THE TARGET ─────────────────────

@@ -2917,7 +2917,7 @@ export const HOMELAND_WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 
 export const HOMELAND_WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
 export const HOMELAND_ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
 /** The Blind Fray's wound track: the Table's Fray stands at
- *  hp 3 behind AC 14 (base 10 + its +4 bonus — DARK_ARMOR
+ *  hp 3 behind AC 11 (base 10 + its +1 bonus — DARK_ARMOR
  *  there); the homeland's wanderers carry the same body
  *  now, so blows land, deepen, and fell — purification is
  *  no longer the only way a wanderer's walking ends.

@@ -9,7 +9,11 @@
  * edited beside its Power and HP — with these defaults as
  * the record's fallback. Every referee reads the record
  * through enemyACFor, so a workshop edit moves the target
- * on both grounds.
+ * on both grounds. (The defaults below carry Nigel's
+ * ruling of 2026-10-22 16:49 — \"drop all enemy AC by 3\" —
+ * read off the bonuses: the base stays 10 for all kinds,
+ * so Fray +1 · Hollow +2 · Unraveler +3 · Tangle +5, and
+ * the totals a player faces are 11 / 12 / 13 / 15.)
  *
  * This module stands alone (it imports only the store) so
  * both referees — actions.ts and table.ts, which import
@@ -18,7 +22,7 @@
 import { sqlite } from "./store.js";
 
 export const ENEMY_AC_BASE = 10;
-export const ENEMY_ARMOR_DEFAULTS: Record<string, number> = { fray: 4, unraveler: 6, hollow: 5, tangle: 8 };
+export const ENEMY_ARMOR_DEFAULTS: Record<string, number> = { fray: 1, unraveler: 3, hollow: 2, tangle: 5 };
 
 /** A dark kind's AC bonus as the workshop record holds it
  *  (the default above when the record is silent or garbled). */

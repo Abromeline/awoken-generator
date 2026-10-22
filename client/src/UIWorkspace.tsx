@@ -100,10 +100,10 @@ interface UiSprite {
 // Default config values
 const DEFAULTS: Record<string, any> = {
   // Enemies
-  "enemy.fray.power": 1, "enemy.fray.hp": 3, "enemy.fray.armor": 4,
-  "enemy.unraveler.power": 4, "enemy.unraveler.hp": 6, "enemy.unraveler.armor": 6,
-  "enemy.hollow.power": 0, "enemy.hollow.hp": 5, "enemy.hollow.armor": 5,
-  "enemy.tangle.power": 3, "enemy.tangle.hp": 8, "enemy.tangle.armor": 8,
+  "enemy.fray.power": 1, "enemy.fray.hp": 3, "enemy.fray.armor": 1,
+  "enemy.unraveler.power": 4, "enemy.unraveler.hp": 6, "enemy.unraveler.armor": 3,
+  "enemy.hollow.power": 0, "enemy.hollow.hp": 5, "enemy.hollow.armor": 2,
+  "enemy.tangle.power": 3, "enemy.tangle.hp": 8, "enemy.tangle.armor": 5,
   // Buildings
   "building.watchtower.cost": 2, "building.watchtower.buildMinutes": 15,
   "building.watchtower.damage": 3, "building.watchtower.powerBonus": 2, "building.watchtower.upkeepPerHour": 2,
