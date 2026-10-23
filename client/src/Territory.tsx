@@ -713,7 +713,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const pendingSummonRef = useRef<{ awakenedId: number; name: string; at: number } | null>(null);
   const prevPlacementsRef = useRef<FieldPlacement[] | null>(null);
   // The Tender's cast gesture — the Ground's cast() — raised
-  // by castSummon at the tap, in his facing of the moment.
+  // by castSummon at the tap and by doCastMap at a working
+  // cast's firing, each in its facing of the moment.
   const [tenderCastAt, setTenderCastAt] = useState(0);
   const tenderCastDirRef = useRef<TenderDir>("S");
   // The gesture's clock: while it plays, the map's own clock
@@ -2471,6 +2472,29 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   endMapCastRunRef.current = endMapCastRun;
   const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number }) => {
     if (!castSpell) return;
+    // THE CAST GESTURE FOR WORKINGS (Nigel, 2026-10-23 —
+    // "I want casting animation on homeland too"): a working
+    // cast raises the Tender's cast pose exactly as a summon
+    // cast does — the Table's beginCast law: the gesture
+    // begins with the order itself, at the firing, whatever
+    // the reckoning (a fizzle was still cast; a refusal was
+    // still ordered). He faces the working's ground where
+    // the cast names it — the tapped hex, or the hex the
+    // mended one stands on — and keeps his standing facing
+    // where it names none. Every homeland door ends here:
+    // the wheel's Spell/Ward/Rune/Binding branches and the
+    // hotbar's pinned workings only READY the working; the
+    // land's tap and the ward's edge fire through this one
+    // mouth, so this one raising covers them all. The pours
+    // and attunings (pourBuild, attuneTile) are not casts
+    // and never come through here — no gesture for them,
+    // as at the Table.
+    const targetTileId = args.tileId ?? (args.awakenedId != null ? placements.find((p) => p.awakenedId === args.awakenedId)?.tileId : undefined);
+    const targetC = targetTileId != null ? tilePosCache.current.get(targetTileId) : undefined;
+    tenderCastDirRef.current = targetC && tenderFig
+      ? tenderDirOf(targetC.cx - tenderFig.x, targetC.cy - tenderFig.y)
+      : tenderFig?.dir ?? "S";
+    setTenderCastAt(Date.now());
     try {
       const res = await api.castMapWorking({ spellKey: castSpell.key, ...args });
       const formName = castSpell.forms[castHueFor(castSpell)] ?? castSpell.name;
@@ -4954,10 +4978,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!art) return null;
       const anchorTile = tiles.find(t => t.id === (tenderAnchorRef.current ?? tenderStand.tileId));
       const anchorC = anchorTile ? tilePos(anchorTile) : null;
-      // A summon cast in flight outranks the stride: the
-      // Tender plays tenderArt's casting beats (the Proving
-      // Ground's cast(), CAST_BEATS and all) in the facing he
-      // cast in, for the gesture's 950 ms.
+      // A cast in flight — a summon or a working — outranks
+      // the stride: the Tender plays tenderArt's casting
+      // beats (the Proving Ground's cast(), CAST_BEATS and
+      // all) in the facing he cast in, for the gesture's
+      // 950 ms.
       const castPose = tenderCastAt ? tenderCastPose(art, tenderCastDirRef.current, Date.now() - tenderCastAt) : null;
       const pose = castPose ?? tenderPose(art, tenderFig.dir, tenderFig.walking, tenderFig.step);
       const h = 62 * zoom;
