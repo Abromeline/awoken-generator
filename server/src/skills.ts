@@ -102,19 +102,25 @@ export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?:
  *  curse's −3. Three grants summed:
  *    1. THE ZODIAC CLAUSE — stars carrying a "summoner"
  *       clause add their amounts, read through fxSum like
- *       every other clause sum ("company", "party"). NO
- *       stars carry it yet — the stars arrive with the
- *       effects build; the reader stands now and returns 0
- *       cleanly until they do.
- *    2. LEVELS — +2 for every 3 tender levels, automatic:
- *       2 × ⌊tenderLevel / 3⌋, from the same level the band
- *       caps read.
+ *       every other clause sum ("company", "party"). The
+ *       stars arrived with the effects build (Recovery #1,
+ *       2026-10-23): the wheel's eight Summoner's Power
+ *       stars carry the clause at their deepened values
+ *       (the dictation's step for this family stands open;
+ *       the held reading is +1 per level, deepened like
+ *       every grant — flagged in the build report).
+ *    2. LEVELS — THE SPREAD (Nigel, 2026-10-22): the
+ *       dictation's +6 total, spread over the road — +1
+ *       per 7 tender levels, +6 in all, the whole of it
+ *       standing at level 42: min(6, ⌊level / 7⌋). The
+ *       pre-Spread shape (+2 per 3 levels, +28 by 42) is
+ *       struck whole — the re-curve is this build's.
  *    3. THE SAGE — +3 flat when the caster's class is Sage,
  *       read off the seat's bound class.
  *  One helper, so the summon cast's reckoning is the only
  *  reckoning there is. */
 export function summonersPowerFor(ownerKey: string | null | undefined, tenderLevel?: number | null, classKey?: string | null): number {
-  const fromLevels = 2 * Math.floor(Math.max(0, tenderLevel ?? 0) / 3);
+  const fromLevels = Math.min(6, Math.floor(Math.max(0, tenderLevel ?? 0) / 7));
   return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0);
 }
 
@@ -125,9 +131,11 @@ export function summonersPowerFor(ownerKey: string | null | undefined, tenderLev
  *  bonus is a zodiac skill effect like any other: stars
  *  carrying an "attuneReach" clause widen the reach by
  *  their amounts, read through fxSum like every other
- *  clause sum ("company", "party", "summoner"). NO stars
- *  carry it yet — the stars arrive with the effects build;
- *  the reader stands now and returns 0 cleanly until they
+ *  clause sum ("company", "party", "summoner"). NO star
+ *  on the v2 wheel carries it (the effects build seated
+ *  every grant the wheel's texts name, and reach is not
+ *  among them); the reader stands and returns 0 cleanly
+ *  until a star does
  *  do. One helper, so every attune door's reckoning is the
  *  only reckoning there is: the doors add their ring (1) to
  *  this sum. */

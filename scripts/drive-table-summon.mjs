@@ -21,11 +21,13 @@
 //      exactly the price; an already-fielded member is
 //      refused; the fifth body on one tile meets the stack
 //      cap; the retired "summon" message no longer answers;
-//   §B the Sage: a Lv 6 Sage's tale carries +7 against the
-//      same power — the +3 over a same-level Warden's +4;
-//   §C a Lv 3 tender's tale carries +2 — the levels grant's
-//      first step (the reader in §0 pins Lv 1–2 at +0; no
-//      tender under Lv 3 can sit at the Table to roll);
+//   §B the Sage: a Lv 6 Sage's tale carries +3 against the
+//      same power — her own +3 over a same-level Warden's +0
+//      (the Spread, 2026-10-22, re-curved the levels grant:
+//      +1 per 7 levels, +6 in all — §0 pins the whole curve);
+//   §C a Lv 3 tender's tale carries +0 — the Spread grants
+//      nothing before Lv 7 (the reader in §0 pins the curve;
+//      no tender under Lv 3 can sit at the Table to roll);
 //   §D cursed ground: the Tender glides into the curse and
 //      summons there — the tale names "−3 the curse presses"
 //      beside the summoner's power, and the call lands;
@@ -35,7 +37,7 @@
 //      produces a reckoning with no curse in it;
 //   §F the wheel itself (browser): no hand cards stand in the
 //      satchel; the Awoken branch lists the member with its
-//      price and "+4 summoner's power"; choosing it and
+//      price and "+0 summoner's power"; choosing it and
 //      tapping ground at the Tender's side lands the summon.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-table-summon.mjs
 import { createRequire } from "node:module";
@@ -148,20 +150,23 @@ for (const id of [aAlpha, aBeta, aGamma, aDelta, aEpsilon]) await call("addToPar
 // owned fillers who are nobody's party members.
 const fillers = (t, n, tag) => { for (let i = 0; i < n; i++) mkAwokin(t.ownerKey, t.name, `${tag} ${i + 1}`, 2); };
 // A's bench is deep: Alpha's cast (DC 18, ✦8 a try) lands
-// at 35%, and §A spends from this purse all section long.
+// at 15% under the Spread (gift +0, power +0), and §A
+// spends from this purse all section long.
 fillers(A, 30, "ABench");
 // B: the Lv 6 Sage — the same exp, the same power of Awokin.
 const B = await mkTender("Wheel Sage", 800, "sage", "disc-wheel-b");
 const bSagekin = mkAwokin(B.ownerKey, B.name, "Sagekin", 8);
 await call("addToParty", { awakenedId: bSagekin }, B.token);
-// The Sage's gift runs −2 (the summon gift's pencil), so
-// her cast against DC 18 lands at 40% — her bench is deep
-// so the retry purse cannot starve mid-proof.
+// The Sage's gift runs −2 (the summon gift's pencil) and
+// her own +3 rides it, so her cast against DC 18 lands at
+// 20% — her bench is deep so the retry purse cannot
+// starve mid-proof.
 fillers(B, 40, "BBench");
 // C: the Lv 3 Warden — the lowest seat the Table takes
-// (classes wake at Lv 3), carrying the levels grant's first
-// step, +2. The +0 of Lv 1–2 is pinned at the reader in §0 —
-// no Lv 2 tender can sit at the Table to roll it.
+// (classes wake at Lv 3), carrying +0 of the levels grant:
+// under the Spread its first step stands at Lv 7. The
+// curve is pinned at the reader in §0 — no Lv 2 tender
+// can sit at the Table to roll it.
 const C = await mkTender("Wheel Low", 150, "warden", "disc-wheel-c");
 const cLowkin = mkAwokin(C.ownerKey, C.name, "Lowkin", 2);
 await call("addToParty", { awakenedId: cLowkin }, C.token);
@@ -207,11 +212,13 @@ console.log("seeded: Lv6 Warden (5 members + an outsider + bench), Lv6 Sage, Lv3
 const { summonersPowerFor } = await import("../server/dist/table.js");
 ok("the reader answers 0 at Lv 1 (no clause stars, no levels, no Sage)", summonersPowerFor(A.ownerKey, 1, "warden") === 0, String(summonersPowerFor(A.ownerKey, 1, "warden")));
 ok("the reader answers 0 at Lv 2", summonersPowerFor(A.ownerKey, 2, "warden") === 0);
-ok("the levels grant answers +2 at Lv 3", summonersPowerFor(A.ownerKey, 3, "warden") === 2);
-ok("the levels grant answers +4 at Lv 6", summonersPowerFor(A.ownerKey, 6, "warden") === 4);
-ok("the Sage's grant answers +7 at Lv 6 (4 levels + 3 Sage)", summonersPowerFor(A.ownerKey, 6, "sage") === 7);
-ok("the reader answers +9 at Lv 9 for a Sage (6 levels + 3 Sage)", summonersPowerFor(A.ownerKey, 9, "sage") === 9);
-ok("another class at Lv 10 answers +6 (levels only)", summonersPowerFor(A.ownerKey, 10, "runewright") === 6);
+ok("the Spread's levels grant answers +0 at Lv 3 (its first step stands at Lv 7)", summonersPowerFor(A.ownerKey, 3, "warden") === 0);
+ok("the levels grant answers +0 at Lv 6", summonersPowerFor(A.ownerKey, 6, "warden") === 0);
+ok("the levels grant's first step answers +1 at Lv 7", summonersPowerFor(A.ownerKey, 7, "warden") === 1);
+ok("the Sage's grant answers +3 at Lv 6 (no level step yet + 3 Sage)", summonersPowerFor(A.ownerKey, 6, "sage") === 3);
+ok("the reader answers +4 at Lv 9 for a Sage (1 level step + 3 Sage)", summonersPowerFor(A.ownerKey, 9, "sage") === 4);
+ok("another class at Lv 10 answers +1 (levels only)", summonersPowerFor(A.ownerKey, 10, "runewright") === 1);
+ok("the whole grant stands at Lv 42: +6, and never more past it", summonersPowerFor(A.ownerKey, 42, "warden") === 6 && summonersPowerFor(A.ownerKey, 104, "warden") === 6);
 
 // ── Sockets: a watcher for room truth, actors for the casts ─
 const ROOM = "wheel-summon";
@@ -302,7 +309,7 @@ await waitFor(() => !!seatOf(A.name)?.hex, "the watcher reads A's landing");
 const aHex = seatOf(A.name).hex;
 ok("A's company at the wheel lists the five party members", ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"].every((n) => a.you.company.some((c) => c.name === n)), JSON.stringify(a.you.company.map((c) => c.name)));
 ok("the company does NOT list the owned non-member", !a.you.company.some((c) => c.name === "Outsider"));
-ok("A's seat carries summoner's power +4 to show the wheel (Lv 6 Warden)", a.you.summonersPower === 4, String(a.you.summonersPower));
+ok("A's seat carries summoner's power +0 to show the wheel (Lv 6 Warden — the Spread's first step stands at Lv 7)", a.you.summonersPower === 0, String(a.you.summonersPower));
 ok("no hand rides A's seat any more", a.you.hand === undefined);
 
 a.errors.length = 0; const aPurse0 = a.you.energy;
@@ -325,7 +332,7 @@ ok("the retired hand-era 'summon' message no longer answers", true);
 
 const alphaRun = await castUntil(a, { awakenedId: aAlpha, hex: aHex }, 8, "Alpha's summon");
 ok("Alpha lands on held ground at the Tender's side", fieldOf(A.name).some((u) => u.name === "Alpha" && u.hex === aHex));
-ok("the tale names the summoner's power (+4 at Lv 6)", /summoner's power \+4/.test(alphaRun.tale), alphaRun.tale);
+ok("the tale names the summoner's power (+0 at Lv 6)", /summoner's power \+0/.test(alphaRun.tale), alphaRun.tale);
 ok("the tale names the DC (10 + power 8 = 18)", /against DC 18/.test(alphaRun.tale), alphaRun.tale);
 ok("no curse term rides a held-ground cast", !/curse presses/.test(alphaRun.tale), alphaRun.tale);
 console.log(`    (Alpha took ${alphaRun.attempts} cast(s), ${alphaRun.falters} falter(s) — every one charged ✦8 before its roll)`);
@@ -347,15 +354,15 @@ ok("the fifth body on one tile meets the stack cap, refused before any charge", 
 
 // ── §B. THE SAGE'S +3 ─────────────────────────────────────
 const b = new Actor(); await b.join(B.tt, ROOM); await b.waitYou("B's seat");
-ok("the Sage's seat carries summoner's power +7 to show the wheel", b.you.summonersPower === 7, String(b.you.summonersPower));
+ok("the Sage's seat carries summoner's power +3 to show the wheel (her own +3; no level step at Lv 6)", b.you.summonersPower === 3, String(b.you.summonersPower));
 const sageRun = await castUntil(b, { awakenedId: bSagekin, hex: seatOf(B.name).hex }, 8, "Sagekin's summon");
-ok("the Sage's tale carries +7 against the same DC 18 — +3 over the Warden's +4", /summoner's power \+7/.test(sageRun.tale) && /against DC 18/.test(sageRun.tale), sageRun.tale);
+ok("the Sage's tale carries +3 against the same DC 18 — her own +3 over the Warden's +0", /summoner's power \+3/.test(sageRun.tale) && /against DC 18/.test(sageRun.tale), sageRun.tale);
 
-// ── §C. LEVEL THREE — the grant's first step ──────────────
+// ── §C. LEVEL THREE — no step yet under the Spread ───────
 const c = new Actor(); await c.join(C.tt, ROOM); await c.waitYou("C's seat");
-ok("the Lv 3 seat carries summoner's power +2", c.you.summonersPower === 2, String(c.you.summonersPower));
+ok("the Lv 3 seat carries summoner's power +0 (the Spread grants nothing before Lv 7)", c.you.summonersPower === 0, String(c.you.summonersPower));
 const lowRun = await castUntil(c, { awakenedId: cLowkin, hex: seatOf(C.name).hex }, 2, "Lowkin's summon");
-ok("the Lv 3 tale names the grant's first step, +2", /summoner's power \+2/.test(lowRun.tale), lowRun.tale);
+ok("the Lv 3 tale names the power plainly, +0", /summoner's power \+0/.test(lowRun.tale), lowRun.tale);
 ok("Lowkin stands fielded all the same", fieldOf(C.name).some((u) => u.name === "Lowkin"));
 
 // ── §D. CURSED GROUND — the summon at −3 ──────────────────
@@ -368,7 +375,7 @@ const cursedLanding = neighbours(aCursed.id).find((t) => tileById(t)?.cursed) ??
 const epsRun = await castUntil(a, { awakenedId: aEpsilon, hex: cursedLanding }, 2, "Epsilon's cursed summon");
 ok("Epsilon's call LANDS from cursed ground", fieldOf(A.name).some((u) => u.name === "Epsilon"));
 ok("the tale names the curse's −3", /−3 the curse presses/.test(epsRun.tale), epsRun.tale);
-ok("the tale still names the summoner's power beside it", /summoner's power \+4/.test(epsRun.tale), epsRun.tale);
+ok("the tale still names the summoner's power beside it", /summoner's power \+0/.test(epsRun.tale), epsRun.tale);
 
 // ── §E. THE SPELL DOORS AT −3 ─────────────────────────────
 const grim = await (await fetch(`${BASE}/api/getGrimoire`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
@@ -452,7 +459,7 @@ await pressDisc(() => { const d = document.querySelector('.gw-disc[aria-label="A
 await waitPage(() => [...document.querySelectorAll(".gw-disc")].some((d) => (d.getAttribute("aria-label") ?? "").includes("Pagekin")), "the company lists Pagekin");
 const memberLabel = await page.evaluate(() => [...document.querySelectorAll(".gw-disc")].map((d) => d.getAttribute("aria-label")).find((l) => l?.includes("Pagekin")) ?? "");
 ok("the wheel's listing names the price in ✦", memberLabel.includes("✦2"), memberLabel);
-ok("the wheel's listing shows the cast's shape: +4 summoner's power", memberLabel.includes("+4 summoner's power"), memberLabel);
+ok("the wheel's listing shows the cast's shape: +0 summoner's power", memberLabel.includes("+0 summoner's power"), memberLabel);
 await pressDisc(() => { const d = [...document.querySelectorAll(".gw-disc")].find((x) => (x.getAttribute("aria-label") ?? "").includes("Pagekin")); if (!d) return null; const r = d.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
 await sleep(600);
 // THE PICK IS THE CAST (2026-10-22): no call stands readied

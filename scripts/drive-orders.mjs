@@ -423,10 +423,10 @@ console.log("§B the Table orders — the wheel on the unit's tap; March obeyed;
   const bindRes = await fetch(`${BASE}/api/table/bind`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: tt, code: bindCode }) });
   if (!bindRes.ok) throw new Error("table/bind failed: " + bindRes.status);
   // The three are seeded at part-power 1 (card power 3):
-  // their casts cost ✦3 against DC 13 with +4 summoner's
-  // power (a 60% land), so the seat's purse — 10 + the
-  // roster's cap bonuses — carries the proof's dice
-  // without a starvation tail. The bench is seeded fat
+  // their casts cost ✦3 against DC 13 with +0 summoner's
+  // power under the Spread (a 40% land), so the seat's
+  // purse — 10 + the roster's cap bonuses — carries the
+  // proof's dice without a starvation tail. The bench is seeded fat
   // (card power 9, +6 cap each) purely to widen the cap.
   const u1 = seedAwokin(ownerKey, "Orders Table", "Table One", 1);
   const u2 = seedAwokin(ownerKey, "Orders Table", "Table Two", 1);

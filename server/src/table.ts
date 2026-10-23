@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, fxSum } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
@@ -925,13 +925,22 @@ function partsOf(card: TableCard): { element: string; power: number }[] {
   if (card.parts && card.parts.length) return card.parts;
   return [{ element: card.element, power: card.power }];
 }
-function fatePartsDamage(card: TableCard, crit: boolean): number {
+function fatePartsDamage(card: TableCard, crit: boolean, critHalfSteps = 0): number {
   let total = 0;
   for (const part of partsOf(card)) {
     const die = FATE_DIE[part.element] ?? 6;
     total += dN(die) + part.power;
     if (crit) total += dN(die);
   }
+  // CRITICAL DEEPENING (the zodiac's crit-damage reading,
+  // Recovery #1): a crit deals 2× damage, and each
+  // half-step of "critDamage" the striker's Tender holds
+  // adds +0.5× to that multiple — the doubled total is
+  // scaled by (2 + 0.5 × half-steps) / 2. At zero held the
+  // scale is exactly 1: the machinery is untouched. No
+  // star on the v2 wheel carries the verb yet; the
+  // Starwright can write it, and the seam reads it.
+  if (crit && critHalfSteps > 0) total = Math.round(total * (2 + 0.5 * critHalfSteps) / 2);
   return total;
 }
 /** The dark's harm: its power, rolled as that many of the
@@ -942,9 +951,16 @@ function fateDarkDamage(enemy: EnemyUnit, crit: boolean): number {
   for (let i = 0; i < n; i++) { total += dN(6); if (crit) total += dN(6); }
   return total;
 }
-/** AC beyond toughness: skills, spells, and runes will add
- *  here (Nigel's naming). Nothing adds yet. */
-function acBonusOf(_unit: FieldUnit): number { return 0; }
+/** AC beyond toughness (Nigel's naming): the zodiac's
+ *  Awokin AC clauses, summed over the stars the unit's
+ *  Tender holds (Recovery #1 — the seam the effects ledger
+ *  named: this function "returns 0 today — 'Nothing adds
+ *  yet'"; now the wheel adds). An unbound seat holds no
+ *  stars and adds nothing. */
+function acBonusOf(room: Room, unit: FieldUnit): number {
+  const seat = seatByKey(room, unit.ownerKey);
+  return seat?.expKey ? fxSum(seat.expKey, "awokinAc") : 0;
+}
 
 // ── THE CASTING LAW AT THE TABLE (Phase C; the book's law,
 // grimoire.ts): each class owns a school — Warden the Ward,
@@ -2245,6 +2261,32 @@ function beaconReach(w: Working, extraRings = 0): Set<string> {
   return out;
 }
 
+/** SWALLOW THE HEART (the zodiac's HP-on-kill star, s_a2;
+ *  Recovery #1): "On a kill, 1 HP returns to the tender
+ *  and the tender's Awokin." When a kill is made by a
+ *  Tender's side — her weapon's felling (fellDark's
+ *  killer) or her Awokin's strike (strikeOnce's kill
+ *  branch) — the holder's sum returns to the Tender's own
+ *  body and to EVERY Awokin of hers standing on the
+ *  field, each capped at its own measure. The star's text
+ *  names no single killer Awokin, so the whole standing
+ *  company drinks (the reading is flagged in the build
+ *  report). Kills by workings and the dark's own ends pay
+ *  nothing here — no Tender's side made them. */
+function swallowTheHeart(room: Room, seat: Player): void {
+  if (!seat.expKey) return;
+  const amt = fxSum(seat.expKey, "hpOnKill");
+  if (amt <= 0) return;
+  if (!seat.fallen && seat.tenderHp > 0 && seat.tenderHp < seat.maxTenderHp) {
+    seat.tenderHp = Math.min(seat.maxTenderHp, seat.tenderHp + amt);
+  }
+  for (const u of room.field.values()) {
+    if (u.ownerKey !== seat.key) continue;
+    if (u.hp > 0 && u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + amt);
+  }
+  tell(room, `Swallow the Heart — the kill feeds ${seat.name} and their standing Awokin (${amt} HP).`);
+}
+
 function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
   room.dark.delete(enemy.id);
   tell(room, `The ${enemy.label} unravels!`);
@@ -2260,6 +2302,9 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
   // element follows the ground (payFellDrip, actions.ts).
   const groundElement = tile?.element ?? null;
   if (tile) purifyTile(room, tile, "neutral");
+  // Swallow the Heart rides every felling a Tender's own
+  // hand makes, campaign or free field alike.
+  if (killer) swallowTheHeart(room, killer);
   if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer, groundElement); return; }
   if (killer && !killer.fallen) {
     killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
@@ -2480,6 +2525,38 @@ function chargePurse(room: Room, player: Player, cost: number): boolean {
 
 function purseName(room: Room): string {
   return room.campaign && !room.campaign.over && room.campaign.seeded ? "the bank" : "you";
+}
+
+/** A refund to the purse a charge came from — the bank in
+ *  a seeded campaign, else the seat's own energy (capped
+ *  as every Table gain is capped, at max + 10). */
+function refundPurse(room: Room, player: Player, amount: number): void {
+  if (amount <= 0) return;
+  if (room.campaign && !room.campaign.over && room.campaign.seeded) {
+    room.campaign.bank += amount;
+    return;
+  }
+  player.energy = Math.min(player.maxEnergy + 10, player.energy + amount);
+}
+
+/** MISCAS​T MERCY — THE STAR'S (the zodiac clause wi_a2,
+ *  Recovery #1): "25% of the energy spent on a miscast
+ *  returns." Read as the holder's mercy sum — a percent —
+ *  of what the fizzled cast SPENT (the price actually
+ *  charged, after Steady Attention and Second Wall have
+ *  had their say), floored, returned to the same purse.
+ *  This is the ZODIAC clause only: the Witch's own
+ *  miscast gift is a separate law (Recovery #8) and is
+ *  NOT added here. A holder without the star is refunded
+ *  nothing — a fizzle spends, as it always has. */
+function mercyRefund(room: Room, player: Player, spent: number): void {
+  if (!player.expKey || spent <= 0) return;
+  const pct = fxSum(player.expKey, "mercy");
+  if (pct <= 0) return;
+  const back = Math.floor(spent * pct / 100);
+  if (back <= 0) return;
+  refundPurse(room, player, back);
+  tell(room, `Mercy rides ${player.name}'s unravelled cast — ✦${back} of the spent price returns.`);
 }
 
 /** The recast law: a dissipated Awokin's return costs its
@@ -2921,10 +2998,28 @@ function endBattle(room: Room): void {
  *  room's other state is left. The tale names what was lost,
  *  by name. */
 function dissipateFieldedNonParty(room: Room): void {
+  // RETURN (the zodiac's clause, Recovery #1): "one more
+  // Awokin returns home undissipated" — per Tender, her
+  // returnHome sum is the count of her fielded non-party
+  // Awokin this ending SPARES: they leave the field as
+  // every unit does at the end, but whole — no
+  // re-coalescence is written, and the tale says so. The
+  // spared are taken in the order they stand on the field
+  // (the record names no other choosing; flagged in the
+  // build report).
+  const savesBySeat = new Map<string, number>();
   for (const u of [...room.field.values()]) {
     const seat = seatByKey(room, u.ownerKey);
     if (!seat?.expKey || !u.card.awokenId) continue;
     if (isPartyMember(seat.expKey, u.card.awokenId)) continue;
+    if (!savesBySeat.has(seat.key)) savesBySeat.set(seat.key, fxSum(seat.expKey, "returnHome"));
+    const savesLeft = savesBySeat.get(seat.key) ?? 0;
+    if (savesLeft > 0) {
+      savesBySeat.set(seat.key, savesLeft - 1);
+      removeUnit(room, u);
+      tell(room, `${u.card.name} stood outside ${seat.name}'s party when the battle ended — but the wheel's Return carries it home whole: undissipated, no timer, standing in the company again.`);
+      continue;
+    }
     removeUnit(room, u);
     sqlite.prepare("UPDATE awakened SET dispersed_until = ? WHERE id = ?")
       .run(Date.now() + RECOALESCE_MS, u.card.awokenId);
@@ -2986,6 +3081,18 @@ async function runRound(room: Room): Promise<void> {
         p.tenderHp += mend;
         tell(room, `The Returning Blood knits ${p.name} — ${mend} HP returns with the round.`);
       }
+    }
+    // THE ZODIAC'S REGENERATION (Recovery #1): on the same
+    // beat, a holder's standing Awokin knit their regen
+    // sum — HP per beat, each to its own measure. Silent
+    // bookkeeping, as the curse's attrition is silent; the
+    // mend shows in the figure's body.
+    for (const u of room.field.values()) {
+      if (u.hp <= 0 || u.hp >= u.maxHp) continue;
+      const seat = seatByKey(room, u.ownerKey);
+      if (!seat?.expKey) continue;
+      const rg = fxSum(seat.expKey, "awokinRegen");
+      if (rg > 0) u.hp = Math.min(u.maxHp, u.hp + rg);
     }
     // (the witness is defined above the beat now — the strikes
     // it records fly on the clock, not on the beat.)
@@ -3078,26 +3185,39 @@ async function runRound(room: Room): Promise<void> {
         return w.ownerKey === unit.ownerKey || oEff.brightPillar;
       });
       const roll = dN(20);
+      // THE ZODIAC RIDES THE STRIKE (Recovery #1): the
+      // owner's Awokin attack-bonus clauses join the roll,
+      // and the critical threshold falls by her crit stars
+      // (−1 per level from a natural 20 — a roll at or
+      // above the threshold lands, and lands critical).
+      const ownerSeat = seatByKey(room, unit.ownerKey);
       const bonus = (ELEMENT_HIT_BONUS[unit.card.element] ?? 0)
         + fateLevelBonus(unit.card.level ?? 1)
         + (ownerIsSage(room, unit.ownerKey) ? 2 : 0) // THE SAGE'S COMPANY (Phase C): her Awokin strike at +2
+        + (ownerSeat?.expKey ? fxSum(ownerSeat.expKey, "awokinAb") : 0)
         + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush lends its edge to the roll
-      const hit = roll === 20 || (roll !== 1 && roll + bonus >= target.armor);
+      const critAt = 20 - (ownerSeat?.expKey ? fxSum(ownerSeat.expKey, "critChance") : 0);
+      const crit = roll >= critAt;
+      const hit = crit || (roll !== 1 && roll + bonus >= target.armor);
       if (!hit) {
         witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", false, false);
         if (roll === 1) tell(room, `${unit.card.name}'s strike goes wide — a cast of one, and the dark keeps its ground.`);
         return;
       }
-      let raw = fatePartsDamage(unit.card, roll === 20)
+      let raw = fatePartsDamage(unit.card, crit, ownerSeat?.expKey ? fxSum(ownerSeat.expKey, "critDamage") : 0)
         + (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0)
         + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
       const dmg = fateMitigate(raw, target.armor, unit.card.level ?? 1);
       target.hp -= dmg;
       witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
-      if (roll === 20) tell(room, `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`);
+      if (crit) tell(room, roll === 20
+        ? `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`
+        : `${unit.card.name}'s strike lands critical on a ${roll} — the blow lands true and terrible (${dmg})!`);
       if (target.hp <= 0) {
         room.dark.delete(target.id);
         tell(room, `${unit.card.name} unravels the ${target.label}!`);
+        // Swallow the Heart: her Awokin made the kill.
+        if (ownerSeat) swallowTheHeart(room, ownerSeat);
         const freedTile = room.map.get(target.hex);
         // The element the ground held as the dark fell on
         // it, read before the freeing — the drip's element.
@@ -3165,13 +3285,25 @@ async function runRound(room: Room): Promise<void> {
         // never added there. One roll site serves the true
         // weapon and its Manifest copies alike, so copies of
         // her weapon carry her aim as they carry her die.
-        const atkBonus = fateLevelBonus(p.tenderLevel) + (p.classKey === "sage" ? 2 : 0);
-        const hit = roll === 20 || (roll !== 1 && roll + atkBonus >= foe.armor);
+        // THE ZODIAC RIDES HER HAND (Recovery #1): her
+        // Tender attack-bonus clauses join the roll, and
+        // her crit stars lower the threshold her weapon
+        // crits on; a critical carries the crit law's 2×,
+        // deepened by any crit-damage half-steps she holds.
+        // (Aim's clauses also accrue — they wait on her
+        // CHOICE of the one rune weapon, which no surface
+        // yet asks; see the palette note in zodiacLive.ts.)
+        const atkBonus = fateLevelBonus(p.tenderLevel) + (p.classKey === "sage" ? 2 : 0)
+          + (p.expKey ? fxSum(p.expKey, "tenderAb") : 0);
+        const critAt = 20 - (p.expKey ? fxSum(p.expKey, "critChance") : 0);
+        const crit = roll >= critAt;
+        const hit = crit || (roll !== 1 && roll + atkBonus >= foe.armor);
         if (!hit) {
           witness(p.pos!, foe.pos, null, "light", false, false, wk, { copy, pierce });
           return;
         }
-        const dmg = fateMitigate(weaponDamageOf(p, wk), foe.armor, p.tenderLevel);
+        const critScale = crit ? 2 + 0.5 * (p.expKey ? fxSum(p.expKey, "critDamage") : 0) : 1;
+        const dmg = fateMitigate(weaponDamageOf(p, wk) * critScale, foe.armor, p.tenderLevel);
         foe.hp -= dmg;
         if (foe.hp <= 0) {
           p.weaponKills = (p.weaponKills ?? 0) + 1;
@@ -3258,7 +3390,7 @@ async function runRound(room: Room): Promise<void> {
           enemy.struck = true;
           const roll = dN(20);
           const bonus = fateLevelBonus(enemy.lvl);
-          const ac = victim.card.toughness + acBonusOf(victim)
+          const ac = victim.card.toughness + acBonusOf(room, victim)
             + (ownerIsSage(room, victim.ownerKey) ? 2 : 0) // THE SAGE'S COMPANY (Phase C): her Awokin stand at +2 AC
             + (room.bastion?.prepared && seatByKey(room, victim.ownerKey)?.expKey === room.bastion.hostKey ? 3 : 0); // THE PREPARED BASTION (Station 4): the host's Awokin behind walls raised in time
           const hit = roll === 20 || (roll !== 1 && roll + bonus >= ac);
@@ -3410,8 +3542,11 @@ async function runRound(room: Room): Promise<void> {
           + (tender.weaponKey === "swordshield" && tender.weaponSignature ? 1 : 0);
         const roll = dN(20);
         // THE PREPARED BASTION (Station 4): the host himself
-        // stands behind the same walls as his Awokin.
-        const ac = 10 + wac + (room.bastion?.prepared && tender.expKey === room.bastion.hostKey ? 3 : 0);
+        // stands behind the same walls as his Awokin. THE
+        // ZODIAC (Recovery #1): his Tender AC clauses stand
+        // here too — this path never read acBonusOf (that
+        // sum is his Awokin's), it reads tenderAc by name.
+        const ac = 10 + wac + (tender.expKey ? fxSum(tender.expKey, "tenderAc") : 0) + (room.bastion?.prepared && tender.expKey === room.bastion.hostKey ? 3 : 0);
         const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(enemy.lvl) >= ac);
         if (tender.pos) witness(enemy.pos, tender.pos, "dark", "dark", hit, false);
         if (hit) {
@@ -4093,10 +4228,12 @@ function handleConnection(ws: WebSocket): void {
       // class truth alone — summoning is no Grimoire page, so
       // no school terms ride it) + SUMMONER'S POWER (Nigel,
       // 2026-10-21 17:13: the zodiac "summoner" clause sum +
-      // 2 per 3 tender levels + 3 for the Sage) − 3 if the
-      // caster stands in the curse, against DC 10 + the
-      // Awokin's power. A natural 20 always lands; a natural
-      // 1 always falters — Fate's manners, as at every cast.
+      // the level grant SPREAD at +1 per 7 levels, +6 in all
+      // — the Spread re-curve, wired 2026-10-23 — + 3 for the
+      // Sage) − 3 if the caster stands in the curse, against
+      // DC 10 + the Awokin's power. A natural 20 always
+      // lands; a natural 1 always falters — Fate's manners,
+      // as at every cast.
       // The tale names every term it rolled with, so the
       // number is never a mystery.
       const gift = summonGiftFor(player);
@@ -4111,7 +4248,16 @@ function handleConnection(ws: WebSocket): void {
         sendState(room);
         return;
       }
-      const shield = card.toughness * dN(FATE_DIE[card.element] ?? 6);
+      // THE SHIELD POOL, as this ground still reckons it
+      // (toughness × the card's element die — Recovery #2
+      // re-composes it as the sum of parts, aspects
+      // included), PLUS THE ZODIAC'S SHIELD DICE (Recovery
+      // #1): each shieldDice point the caster holds rolls
+      // one more of the same die into the pool.
+      const shieldDie = FATE_DIE[card.element] ?? 6;
+      let shield = card.toughness * dN(shieldDie);
+      const extraDice = player.expKey ? fxSum(player.expKey, "shieldDice") : 0;
+      for (let i = 0; i < extraDice; i++) shield += dN(shieldDie);
       placeUnit(room, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
         shield, maxShield: shield, speedGauge: 0,
@@ -4421,7 +4567,12 @@ function handleConnection(ws: WebSocket): void {
       const spent = await spendAttunement(player.expKey, element, 1);
       if (!spent.ok) { ws.send(JSON.stringify({ type: "error", message: `Attuning a tile costs 1 ${element} point — your ${element} pool holds ${spent.held}.` })); return; }
       if (player.pools) player.pools[element] = Math.max(0, (player.pools[element] ?? 0) - 1);
-      tile.points[element] = (tile.points[element] ?? 0) + 1;
+      // THE ATTUNEMENT RATE (the zodiac's clause, Recovery
+      // #1): "every attunement point laid grants one more"
+      // — the SPEND stays one point; the LAY is one plus
+      // the holder's rate sum.
+      const laidPoints = 1 + fxSum(player.expKey, "attunementRate");
+      tile.points[element] = (tile.points[element] ?? 0) + laidPoints;
       tile.element = elementFromPoints(tile);
       // A working standing on the tapped ground lends the
       // tale its name — the point still rests in the tile's
@@ -4433,9 +4584,9 @@ function handleConnection(ws: WebSocket): void {
         .sort((a, b) => Number(b.ownerKey === mySeatKey) - Number(a.ownerKey === mySeatKey))[0] : undefined;
       const workingHere = runeHere ?? wardHere;
       if (workingHere) {
-        tell(room, `✦ ${player.name} attunes the ${workingHere.name} — a ${element} point rests on its ground now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+        tell(room, `✦ ${player.name} attunes the ${workingHere.name} — ${laidPoints} ${element} point${laidPoints === 1 ? "" : "s"} rest on its ground now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
       } else {
-        tell(room, `✦ ${player.name} attunes the ground — a ${element} point rests on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+        tell(room, `✦ ${player.name} attunes the ground — ${laidPoints} ${element} point${laidPoints === 1 ? "" : "s"} rest on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
       }
       sendState(room);
       return;
@@ -4463,7 +4614,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): Heal is a binding-school
       // cast and rolls for its standing, energy already spent.
       const healDef = healSpell();
-      if (healDef) { const reck = rollCast(room, player, healDef); if (!reck.ok) { castUnravels(room, player, healDef.name, reck); sendState(room); return; } }
+      if (healDef) { const reck = rollCast(room, player, healDef); if (!reck.ok) { castUnravels(room, player, healDef.name, reck); mercyRefund(room, player, healCost); sendState(room); return; } }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -4545,7 +4696,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and the working simply does not happen.
-      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
+      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); mercyRefund(room, caster, castCost); sendState(room); return; } }
       if (isSpringleaf) {
         // THE SPRINGLEAF AT THE TABLE (Phase C; shape ruled in
         // the book): a GROVE stands at the target hex — hexB,
@@ -4608,7 +4759,8 @@ function handleConnection(ws: WebSocket): void {
       // the Trees, the Seal's deeper stops and answered
       // riposte, the Engine's deeper song.
       let hp = hpForCast(def, caster.tenderLevel, slots, engineBright(room, caster.key));
-      hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0);
+      hp += eff.wardHp + (def.engine === "trees" ? eff.treesHp : 0)
+        + (caster.expKey ? fxSum(caster.expKey, "wardHp") : 0); // THE ZODIAC'S WARD HEALTH (Recovery #1): "Wards gain +1 HP" per level, deepened
       // Lore Warden (tranche one): a ward raised on an edge
       // where one of yours fell stands at +2 HP — the edge
       // remembers its last state.
@@ -4666,7 +4818,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
-      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
+      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); mercyRefund(room, caster, runeCost); sendState(room); return; } }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
       // 2026-10-21), as at the ward's raising: the cast takes
@@ -4693,7 +4845,8 @@ function handleConnection(ws: WebSocket): void {
       // harm and its pins; Patient Light lengthens the hold;
       // the Lowered Crown feeds the Shard on lesser power;
       // Ebb Walker fattens the Coil's return.
-      if (typeof rainNums.power === "number") rainNums.power += eff.runePower;
+      if (typeof rainNums.power === "number") rainNums.power += eff.runePower
+        + (caster.expKey ? fxSum(caster.expKey, "runeDamage") : 0); // THE ZODIAC'S RUNE DAMAGE (Recovery #1): "Rune damage +1" per level, deepened, snapshotted with the rest
       if (typeof rainNums.pinRounds === "number") rainNums.pinRounds += eff.runePin;
       if (def.engine === "shard" && eff.crownThreshold != null) rainNums.minPower = Math.min(rainNums.minPower ?? 5, eff.crownThreshold);
       if (def.engine === "coil") rainNums.energyPerDark = (rainNums.energyPerDark ?? 1) + eff.coilReturn;

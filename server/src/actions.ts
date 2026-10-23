@@ -24,7 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
-import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, fxSum } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
@@ -2598,11 +2598,25 @@ async function damagePlacement(
  *  table), rolled as the figure takes the field. The Table's
  *  older toughness × one-die reading is NOT this law; the
  *  homeland keeps the per-part sum. */
-async function rollShieldFor(awakenedId: number): Promise<number> {
+async function rollShieldFor(awakenedId: number, ownerKey?: string): Promise<number> {
   const payload = await awakenedPayloadById(awakenedId);
   const layers = (payload?.layers ?? []) as { element?: string | null }[];
   let pool = 0;
   for (const l of layers) pool += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
+  // THE ZODIAC'S SHIELD DICE (Recovery #1): each shieldDice
+  // point the Tender holds rolls ONE MORE DIE into the
+  // pool — the parts' dice again, in their own order,
+  // cycling as many times as the sum runs (the reading is
+  // flagged in the build report: the star names dice, not
+  // parts, and the parts' dice are the only dice a shield
+  // is made of).
+  const extra = ownerKey ? fxSum(ownerKey, "shieldDice") : 0;
+  if (extra > 0 && layers.length > 0) {
+    for (let i = 0; i < extra; i++) {
+      const l = layers[i % layers.length];
+      pool += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
+    }
+  }
   return pool;
 }
 
@@ -2619,7 +2633,7 @@ async function damagePlacementShielded(
   let shield = placement.shield == null ? null : Number(placement.shield);
   let shieldMax = placement.shieldMax == null ? null : Number(placement.shieldMax);
   if (shield === null || shieldMax === null) {
-    shieldMax = await rollShieldFor(placement.awakenedId);
+    shieldMax = await rollShieldFor(placement.awakenedId, placement.ownerKey);
     shield = shieldMax;
     await db.update(schema.fieldPlacements)
       .set({ shield, shieldMax })
@@ -2642,6 +2656,25 @@ async function damagePlacementShielded(
   const res = await damagePlacement(placement, rest);
   if (res.dissipated) return { ...res, shield: 0 };
   return { ...res, shield };
+}
+
+/** MISCAS​T MERCY — THE STAR'S (the zodiac clause wi_a2;
+ *  Recovery #1): "25% of the energy spent on a miscast
+ *  returns." The homeland door of the Table's mercyRefund:
+ *  the holder's mercy sum — a percent — of what a fizzled
+ *  cast SPENT (the price actually charged), floored,
+ *  returned to the Tender's pool. The Witch's own miscast
+ *  gift is a separate law (Recovery #8), not added here.
+ *  Returns the amount refunded (0 for no star), so the
+ *  cast's answer can name it. */
+async function mercyRefundHomeland(ownerKey: string, spent: number): Promise<number> {
+  if (spent <= 0) return 0;
+  const pct = fxSum(ownerKey, "mercy");
+  if (pct <= 0) return 0;
+  const back = Math.floor((spent * pct) / 100);
+  if (back <= 0) return 0;
+  await gainEnergy(ownerKey, back, await calculateMaxEnergy(ownerKey));
+  return back;
 }
 
 // Standalone game config loader (used by both handlers and internal functions)
@@ -3566,6 +3599,14 @@ async function settleProtection(ownerKey: string): Promise<void> {
     .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), lit ? 1 : 0, now, intensity, mark, ownerKey);
 }
 
+/** Fractional regeneration banks, per placement id — the
+ *  zodiac's Awokin regen accrues over real settled time
+ *  (HP per 2.8 s beat), and the fraction between whole
+ *  points is carried here between settles, as the Table
+ *  carries its room state in memory. A restart forgets
+ *  only the unlanded fraction; no point is ever invented. */
+const regenBankByPlacement = new Map<number, number>();
+
 /** THE LIVING BATTLE, settled on the map read. One settle
  *  never reckons more than a minute of world (the wanderer
  *  watermark's own cap), walked in half-second sub-steps so
@@ -3650,6 +3691,38 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       dead: false,
     });
   }
+  // ── THE ZODIAC ON THIS GROUND (Recovery #1, "wire and
+  // fix"): the map owner's clause sums, read once per
+  // settle and ridden by every strike reckoning below —
+  // his Tender AC and attack bonus, his Awokin's AC and
+  // attack bonus, the lowered critical threshold and its
+  // deepened damage, and the regeneration that knits his
+  // standing figures over the settled window (HP per
+  // 2.8 s beat, the Table's own rhythm, accrued
+  // fractionally per figure until a whole point lands).
+  const zTenderAc = fxSum(ownerKey, "tenderAc");
+  const zAwokinAc = fxSum(ownerKey, "awokinAc");
+  const zAwokinAb = fxSum(ownerKey, "awokinAb");
+  const zCritAt = 20 - fxSum(ownerKey, "critChance");
+  const zCritHalf = fxSum(ownerKey, "critDamage");
+  const zRegen = fxSum(ownerKey, "awokinRegen");
+  if (zRegen > 0 && elapsed > 0) {
+    const alive = new Set<number>();
+    for (const f of fighters) {
+      if (f.dead) continue;
+      alive.add(f.id);
+      if (f.hp >= f.maxHp) { regenBankByPlacement.delete(f.id); continue; }
+      const bank = (regenBankByPlacement.get(f.id) ?? 0) + (zRegen * elapsed) / BATTLE_BEAT_MS;
+      const whole = Math.floor(bank);
+      regenBankByPlacement.set(f.id, bank - whole);
+      if (whole > 0) {
+        const healed = await mendPlacement(f.id, whole);
+        f.hp += healed;
+        f.row.hp = f.hp;
+      }
+    }
+    for (const id of [...regenBankByPlacement.keys()]) if (!alive.has(id)) regenBankByPlacement.delete(id);
+  }
   const crowdOf = (tileId: number): number => {
     let n = 0;
     for (const f of fighters) if (!f.dead && f.tileId === tileId) n++;
@@ -3723,6 +3796,30 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     d.dead = true;
     const t = byId.get(d.tileId);
     await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer);
+    // SWALLOW THE HEART (the zodiac's HP-on-kill star;
+    // Recovery #1): a kill one of his Awokin had a hand
+    // in (the killer stands named on the body) returns
+    // the holder's sum to the Tender and to every one of
+    // his standing Awokin — the star's own words, "the
+    // tender and the tender's Awokin". Kills the light
+    // itself makes (attrition, the lighthouse) name no
+    // killer and pay nothing here.
+    if (d.killer != null) {
+      const amt = fxSum(ownerKey, "hpOnKill");
+      if (amt > 0) {
+        const trow = sqlite.prepare("SELECT hp FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+        if (trow && trow.hp != null && Number(trow.hp) > 0 && Number(trow.hp) < progress.maxTenderHp) {
+          sqlite.prepare("UPDATE tender_progress SET hp = ? WHERE owner_key = ?")
+            .run(Math.min(progress.maxTenderHp, Number(trow.hp) + amt), ownerKey);
+        }
+        for (const f of fighters) {
+          if (f.dead || f.hp >= f.maxHp) continue;
+          const healed = await mendPlacement(f.id, amt);
+          f.hp += healed;
+          f.row.hp = f.hp;
+        }
+      }
+    }
   };
   const hurtDark = async (d: Dark, dmg: number, byAwakenedId: number | null): Promise<void> => {
     if (d.dead || dmg <= 0) return;
@@ -3823,7 +3920,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         else if (d.kind === "unraveler") victim = inReach.reduce((a, b) => (b.power > a.power ? b : a));
         else victim = inReach.reduce((a, b) => (axialDist(d, b) < axialDist(d, a) ? b : a));
         const roll = homelandDN(20);
-        const victimAC = victim.toughness + (sageCompany ? 2 : 0);
+        const victimAC = victim.toughness + (sageCompany ? 2 : 0) + zAwokinAc; // + THE ZODIAC'S AWOKIN AC (Recovery #1)
         let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
         for (let i = 0; i < dice; i++) raw += homelandDN(6);
         const dmg = homelandFateMitigate(raw, victimAC, d.lvl);
@@ -3882,7 +3979,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         const stand = byId.get(standTileId);
         if (stand && axialDist(d, stand) <= ENEMY_BITE_REACH) {
           const roll = homelandDN(20);
-          const tAC = 10; // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard
+          const tAC = 10 + zTenderAc; // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard — plus THE ZODIAC'S TENDER AC (Recovery #1)
           if (roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= tAC)) {
             let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
             for (let i = 0; i < dice; i++) raw += homelandDN(6);
@@ -3943,17 +4040,25 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         .sort((a, b) => axialDist(f, a) - axialDist(f, b))[0];
       if (!target) continue;
       const roll = homelandDN(20);
-      const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + (sageCompany ? 2 : 0);
+      const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + (sageCompany ? 2 : 0) + zAwokinAb; // + THE ZODIAC'S AWOKIN ATTACK BONUS (Recovery #1)
       const targetAC = Math.max(1, enemyACFor(target.kind) - target.cracked);
-      const hit = roll === 20 || (roll !== 1 && roll + bonus >= targetAC);
+      // THE CRITICAL REACH (Recovery #1): the threshold
+      // falls by the owner's crit stars from a natural 20;
+      // a roll at or above it lands, and lands critical.
+      const crit = roll >= zCritAt;
+      const hit = crit || (roll !== 1 && roll + bonus >= targetAC);
       if (!hit) continue;
       const payload = await awakenedPayloadById(f.awakenedId);
       const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
       let raw = 0;
       for (const l of layers) {
         raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6) + (l.power ?? 0);
-        if (roll === 20) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
+        if (crit) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
       }
+      // CRITICAL DEEPENING (Recovery #1): the doubled
+      // total scales by (2 + 0.5 × half-steps) / 2 — at
+      // zero held, exactly the crit the law already dealt.
+      if (crit && zCritHalf > 0) raw = Math.round(raw * (2 + 0.5 * zCritHalf) / 2);
       if (f.dominant === "sky" && tNow < target.wetUntil) raw += 2; // Sky strikes land +2 on the wet
       const dmg = homelandFateMitigate(raw, targetAC, f.level);
       await hurtDark(target, dmg, f.awakenedId);
@@ -6950,6 +7055,12 @@ export const handlers = {
     // each fell pays the drip (payFellDrip) once the striking
     // is done, in the ground's own element where it holds one.
     const fellTiles: number[] = [];
+    // THE ZODIAC RIDES HIS HAND (Recovery #1): his Tender
+    // attack-bonus clauses join the weapon's roll, and his
+    // crit stars lower the threshold the weapon crits on.
+    const zTenderAb = fxSum(ownerKey, "tenderAb");
+    const zCritAt = 20 - fxSum(ownerKey, "critChance");
+    const zCritHalf = fxSum(ownerKey, "critDamage");
     while (nextAt <= now && strikes < 40) {
       const foes = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
         .map(w => ({ ...w, tile: tiles.find((t: any) => t.id === w.tileId), hpNow: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp) }))
@@ -6959,11 +7070,16 @@ export const handlers = {
       const strikeAt = nextAt;
       const blow = (foe: typeof foes[number]) => {
         const roll = homelandDN(20);
-        const bonus = homelandWeaponBonusFor(progress.classKey, progress.level);
-        const hit = roll === 20 || (roll !== 1 && roll + bonus >= frayAC);
+        const bonus = homelandWeaponBonusFor(progress.classKey, progress.level) + zTenderAb;
+        const crit = roll >= zCritAt;
+        const hit = crit || (roll !== 1 && roll + bonus >= frayAC);
         let dmg = 0;
         if (hit) {
-          dmg = homelandFateMitigate(homelandWeaponDamageFor(wk, contract.level, !!contract.signature), frayAC, progress.level);
+          // A critical carries the crit law's 2×, deepened
+          // by any crit-damage half-steps held — the same
+          // reading the Table's strikeFoe keeps.
+          const critScale = crit ? 2 + 0.5 * zCritHalf : 1;
+          dmg = homelandFateMitigate(homelandWeaponDamageFor(wk, contract.level, !!contract.signature) * critScale, frayAC, progress.level);
           foe.hpNow -= dmg;
         }
         const felled = hit && foe.hpNow <= 0;
@@ -7246,7 +7362,12 @@ export const handlers = {
       // fills. A full stack (6 sealed) grows no further.
       const growStack = async (t: any, pts: number) => {
         if ((t.sealedTrays ?? 0) >= TRAY_CAP) return;
-        let grow = (t.growPoints ?? 0) + pts;
+        // PLANT GROWTH (the zodiac's clause, Recovery #1):
+        // "Plants grow 5% faster" per level, deepened —
+        // every growth point the press lays lands swelled
+        // by the holder's plant-growth sum.
+        const growPts = pts * (1 + fxSum(ownerKey, "plantGrowth") / 100);
+        let grow = (t.growPoints ?? 0) + growPts;
         let sealed = t.sealedTrays ?? 0;
         while (grow >= TRAY_SEAL && sealed < TRAY_CAP) { grow -= TRAY_SEAL; sealed += 1; }
         if (sealed >= TRAY_CAP) grow = 0;
@@ -7266,8 +7387,15 @@ export const handlers = {
         const curse = curseHpFor(ring, skyMood);
         const victims = placements.filter(p => p.tileId === t.id);
         const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
+        // RETURN (the zodiac's clause, Recovery #1): the
+        // holder's returnHome sum is the count of this
+        // fall's victims who return home WHOLE — their
+        // placements clear with the tile, as all do here,
+        // but no re-coalescence is written on them.
+        let returnSaves = fxSum(ownerKey, "returnHome");
         for (const v of victims) {
-          await db.update(schema.awakened).set({ dispersedUntil }).where(eq(schema.awakened.id, v.awakenedId));
+          if (returnSaves > 0) returnSaves--;
+          else await db.update(schema.awakened).set({ dispersedUntil }).where(eq(schema.awakened.id, v.awakenedId));
           await db.delete(schema.fieldPlacements).where(eq(schema.fieldPlacements.awakenedId, v.awakenedId));
           const idx = placements.indexOf(v);
           if (idx >= 0) placements.splice(idx, 1);
@@ -7895,6 +8023,12 @@ export const handlers = {
     if ((tile as any).baked) badRequest("That ground is baked sealed — the kiln shut its bank, and no attunement pours into it.");
     const spent = await spendAttunement(ownerKey, element, 1);
     if (!spent.ok) badRequest(`Attuning the ground costs 1 ${element} point — your ${element} pool holds ${Math.floor(spent.held)}.`);
+    // THE ATTUNEMENT RATE (the zodiac's clause, Recovery
+    // #1): "every attunement point laid grants one more"
+    // — the spend stays one point; the lay is one plus
+    // the holder's rate sum, in the bank and in the tray
+    // growth below alike.
+    const laidPoints = 1 + fxSum(ownerKey, "attunementRate");
     // A working of his standing on the target ground lends
     // the answer its name — the point pours into the tile's
     // bank either way, as the tile law holds. A rune (or a
@@ -7916,7 +8050,7 @@ export const handlers = {
       }
     }
     const elementBefore = tile.element as string;
-    const upd = pourAttunementBank(tile, element, 1);
+    const upd = pourAttunementBank(tile, element, laidPoints);
     if (upd) Object.assign(tile, upd);
     const turned = (tile.element as string) !== elementBefore;
     let traysMoved = false;
@@ -7933,7 +8067,7 @@ export const handlers = {
       // never reaches this branch, its element is its own).
       const sealed = tile.sealedTrays ?? 0;
       if (sealed < 6) {
-        let grow = (tile.growPoints ?? 0) + 1;
+        let grow = (tile.growPoints ?? 0) + laidPoints;
         let sealedNow = sealed;
         while (grow >= 30 && sealedNow < 6) { grow -= 30; sealedNow += 1; }
         if (sealedNow >= 6) grow = 0;
@@ -8077,7 +8211,7 @@ export const handlers = {
     if (!landed) {
       return { ok: true as const, summoned: false as const, faltered: true as const, name: payload.name, roll, gift, summonersPower: sp, curse, dc, cost };
     }
-    const bornShield = await rollShieldFor(awakenedId);
+    const bornShield = await rollShieldFor(awakenedId, ownerKey);
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId, tileId: landing.id,
       // A SUMMONED AWOKEN FOLLOWS ITS TENDER (the party's
@@ -8191,7 +8325,7 @@ export const handlers = {
     }
     if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
     for (const f of fighters) {
-      const shield = await rollShieldFor(f.id);
+      const shield = await rollShieldFor(f.id, ownerKey);
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
         posQ: tile[0].q, posR: tile[0].r,
@@ -8682,7 +8816,7 @@ export const handlers = {
       // The roll (Homeland Casting): the purse is already
       // charged — a fizzle spends it and mends nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+      if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, spell.cost); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       const healed = Math.min(progress.healAmount, maxHp - curHp);
       await db.update(schema.fieldPlacements).set({ hp: curHp + healed })
         .where(eq(schema.fieldPlacements.id, placement.id));
@@ -8719,7 +8853,7 @@ export const handlers = {
       assertCastReach(tile);
       if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+      if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, spell.cost); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       const radiusHexes = Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80));
       const now = Date.now();
       // The raising burst: every one of his standing in the
@@ -8816,7 +8950,7 @@ export const handlers = {
       // before it — a fizzle spends the charge alone and
       // raises nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, spellKey: spell.key };
+      if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, wardCost); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       // The cast carries the page's filled slots in its
       // element — nothing is spent here; the power was laid
       // into the book, in the Grimoire, beforehand.
@@ -8842,7 +8976,8 @@ export const handlers = {
       if (spell.engine === "trees" || spell.engine === "seal") {
         const bright = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey) as any;
         hp = hpForCast(spell, progress.level, slots, !!bright);
-        hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0);
+        hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0)
+          + fxSum(ownerKey, "wardHp"); // THE ZODIAC'S WARD HEALTH (Recovery #1), at the Table's own application point
       }
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
@@ -8875,7 +9010,7 @@ export const handlers = {
       // The roll (Homeland Casting): charged before it — a
       // fizzle spends the charge alone and writes nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, spellKey: spell.key };
+      if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, runeCost); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       // The cast carries the page's filled slots in its
       // element, as at the ward's raising on this ground
       // — nothing is spent at the cast; the power stands in
@@ -8894,7 +9029,8 @@ export const handlers = {
       // never feed the Rain (it holds none).
       let numsToStore: Record<string, number> = { ...(spell.numbers ?? {}) };
       // The Zodiac rides the rune's stored numbers (tranche one).
-      if (typeof numsToStore.power === "number") numsToStore.power += effR.runePower;
+      if (typeof numsToStore.power === "number") numsToStore.power += effR.runePower
+        + fxSum(ownerKey, "runeDamage"); // THE ZODIAC'S RUNE DAMAGE (Recovery #1), snapshotted with the rest
       if (typeof numsToStore.pinRounds === "number") numsToStore.pinRounds += effR.runePin;
       if (spell.engine === "shard" && effR.crownThreshold != null) numsToStore.minPower = Math.min(numsToStore.minPower ?? 5, effR.crownThreshold);
       if (spell.engine === "coil") numsToStore.energyPerDark = (numsToStore.energyPerDark ?? 1) + effR.coilReturn;
@@ -10558,7 +10694,10 @@ export const handlers = {
     } else if (existing.some(b => b.buildingType === "hall-of-champions")) {
       badRequest("The Hall of Champions stands alone.");
     }
-    const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes * synergyMultiplier / timeDivisor));
+    // BUILD SPEED (the zodiac's clause, Recovery #1):
+    // "builds complete 5% faster" per level, deepened —
+    // the clause's own direction: TIME DOWN by the sum.
+    const actualBuildMinutes = Math.max(1, Math.floor(def.buildMinutes * synergyMultiplier / timeDivisor * (1 - fxSum(ownerKey, "buildSpeed") / 100)));
     const energyRes = await this.getEnergy({}, ctx);
     if (energyRes.energy < def.cost) badRequest("Not enough energy.");
     await db.update(schema.tenderResources)
@@ -11241,7 +11380,10 @@ export const handlers = {
     const def: any = gameConfig.buildings[building.buildingType] || {};
     const harvestEnergy = def.harvestEnergy ?? 4;
     const growHours = def.growHours ?? 4;
-    const growMs = growHours * 60 * 60 * 1000;
+    // PLANT GROWTH (Recovery #1): the crop's regrowth runs
+    // faster by the holder's plant-growth sum — the same
+    // clause that swells the trays' growth under a press.
+    const growMs = (growHours * 60 * 60 * 1000) / (1 + fxSum(ownerKey, "plantGrowth") / 100);
     const lastHarvest = building.lastHarvestAt ? new Date(building.lastHarvestAt).getTime()
       : building.readyAt ? new Date(building.readyAt).getTime() : Date.now();
     if (Date.now() - lastHarvest < growMs) badRequest("Not ready yet.");
@@ -11672,8 +11814,13 @@ export const handlers = {
           .from(schema.fieldPlacements)
           .where(eq(schema.fieldPlacements.tileId, victim.id));
         const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
+        // RETURN (the zodiac's clause, Recovery #1), as at
+        // the tile-fall above: the first returnHome-many
+        // victims return home whole — no timer written.
+        let returnSaves = fxSum(ownerKey, "returnHome");
         for (const v of victims) {
-          await db.update(schema.awakened)
+          if (returnSaves > 0) returnSaves--;
+          else await db.update(schema.awakened)
             .set({ dispersedUntil })
             .where(eq(schema.awakened.id, v.awakenedId));
           await db.delete(schema.fieldPlacements)
@@ -12140,7 +12287,9 @@ export const handlers = {
     for (const el of ["tide", "sky", "stone", "root"] as const) {
       if (fund[el] < cost.elementalEach) badRequest(`${el} reservoir: ${fund[el]}/${cost.elementalEach}.`);
     }
-    const readyAt = new Date(Date.now() + cost.buildMinutes * 60 * 1000);
+    // The Hall's rising is a build too — the zodiac's
+    // build-speed clause strikes its share of the time.
+    const readyAt = new Date(Date.now() + cost.buildMinutes * (1 - fxSum(ownerKey, "buildSpeed") / 100) * 60 * 1000);
     await db.update(schema.territoryBuildings)
       .set({ fundJson: JSON.stringify({ energy: 0, tide: 0, sky: 0, stone: 0, root: 0 }), upgradeReadyAt: readyAt })
       .where(eq(schema.territoryBuildings.id, hall.id));
