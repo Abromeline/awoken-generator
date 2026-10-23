@@ -66,6 +66,20 @@ interface TableCard {
   /** FATE: the worn pieces (body, arms, head, aura), each
    *  rolling its own element's die when the Awoken strikes. */
   parts?: { element: string; power: number }[];
+  /** THE SHIELD'S PARTS (the shield law, Nigel 2026-10-22):
+   *  EVERY layer of the creature's payload, in payload order,
+   *  carrying its own element alone — background, body, arms,
+   *  aura, head and aspect layers alike, with NO category
+   *  filter, exactly the layers the homeland's rollShieldFor
+   *  reads off parseLayers in actions.ts. This is a separate
+   *  reckoning from `parts` above: Fate's damage and the march
+   *  pace read `parts`, and neither of those laws is this one,
+   *  so `parts` must not grow to serve the shield. Real-deck
+   *  cards only (built by cardFromPayload, which sets this
+   *  field even when a payload somehow carries no layers);
+   *  stand-in cards carry none, and shieldPoolFor keeps the
+   *  old fallback for them. */
+  shieldParts?: { element: string }[];
   /** The piece art itself (source, category, current image URL),
    *  so the field can stand the Awoken as a cutout — the battleground's
    *  own sources — never the flattened card face (Nigel, 2026-10-18:
@@ -243,8 +257,8 @@ interface FieldUnit {
   card: TableCard;
   hp: number;
   maxHp: number;
-  /** FATE: the shield — toughness × the element die, rolled
-   *  at the summoning. Mitigated harm burns it before HP. */
+  /** FATE: the shield — the sum of the parts (shieldPoolFor),
+   *  rolled at the summoning. Mitigated harm burns it before HP. */
   shield: number;
   maxShield: number;
   /** FATE: the speed gauge — swifter elements bank extra
@@ -807,8 +821,9 @@ function dominantElement(layers: { element?: string | null }[]): string {
 // workshop record (enemyACFor) — so the equation's armor
 // term for the dark is the full AC the hit was declared
 // against: one number serves both, hit first, ratio after.
-// What survives burns the Awoken's SHIELD first: toughness
-// × its element die, rolled when it is summoned; overflow
+// What survives burns the Awoken's SHIELD first: the sum
+// of its parts — each part rolling its own element's die —
+// rolled when it is summoned (shieldPoolFor, below); overflow
 // wounds. A natural 20 always hits and rolls its harm dice
 // twice; a natural 1 always misses. The Written Light is
 // not a blow: workings' harm ignores AC and armor alike,
@@ -934,6 +949,31 @@ function fatePartsDamage(card: TableCard, crit: boolean): number {
   }
   return total;
 }
+/** THE SHIELD POOL (the shield law, Nigel 2026-10-22 — the
+ *  homeland's rollShieldFor in actions.ts, mirrored exactly
+ *  so both grounds reckon identically): an Awoken's shield
+ *  pool is the SUM of its parts — EVERY layer of its payload
+ *  rolls ONE die of its own element (Sky d4 · Root d6 · Tide
+ *  d8 · Fire d10 · Stone d12; an unfiled layer is neutral,
+ *  d6), aspect layers counted like any other part, and no
+ *  layer's power or toughness feeds the roll: one layer, one
+ *  die. Rolled at the summoning, when the Awoken takes the
+ *  field; the pool burns before HP, as it always has. A card
+ *  with no shieldParts at all never came from a payload —
+ *  it is a stand-in (the TEST_POOL company an unbound seat
+ *  brings, built at the join with synthetic strike parts but
+ *  no real layers) — and for those the fallback preserves
+ *  the old reading whole: toughness × one die of the card's
+ *  single element. Exported so a proof can read the reckoning
+ *  directly, as castModFor is read. */
+export function shieldPoolFor(card: TableCard): number {
+  if (card.shieldParts) {
+    let pool = 0;
+    for (const layer of card.shieldParts) pool += dN(FATE_DIE[layer.element ?? "neutral"] ?? 6);
+    return pool;
+  }
+  return card.toughness * dN(FATE_DIE[card.element] ?? 6);
+}
 /** The dark's harm: its power, rolled as that many of the
  *  curse's dice (d6), summed; a critical rolls them twice. */
 function fateDarkDamage(enemy: EnemyUnit, crit: boolean): number {
@@ -1048,6 +1088,14 @@ function cardFromPayload(payload: NonNullable<Awaited<ReturnType<typeof awakened
     parts: ((payload.layers ?? []) as { category?: string; element?: string | null; power?: number | null }[])
       .filter(l => ["body", "arms", "head", "aura"].includes(l.category ?? ""))
       .map(l => ({ element: l.element ?? "neutral", power: l.power ?? 0 })),
+    // The shield's parts: the payload's layers WHOLE — no
+    // category filter, payload order kept — so background
+    // and aspect layers roll their dice beside body, arms,
+    // head and aura, as the homeland's rollShieldFor reads
+    // parseLayers' output (every layer it returns, one die
+    // of the layer's own element apiece).
+    shieldParts: ((payload.layers ?? []) as { element?: string | null }[])
+      .map(l => ({ element: l.element ?? "neutral" })),
     layers: ((payload.layers ?? []) as { source_id?: string; category?: string; imageUrl?: string | null }[])
       .map(l => ({ source_id: l.source_id ?? "", category: l.category ?? "", imageUrl: l.imageUrl ?? null })),
   };
@@ -4111,7 +4159,7 @@ function handleConnection(ws: WebSocket): void {
         sendState(room);
         return;
       }
-      const shield = card.toughness * dN(FATE_DIE[card.element] ?? 6);
+      const shield = shieldPoolFor(card);
       placeUnit(room, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
         shield, maxShield: shield, speedGauge: 0,

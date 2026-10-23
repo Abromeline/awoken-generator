@@ -37,6 +37,15 @@
 //      satchel; the Awoken branch lists the member with its
 //      price and "+4 summoner's power"; choosing it and
 //      tapping ground at the Tender's side lands the summon.
+//   §H the shield pool (the shield law, Nigel 2026-10-22):
+//      a six-layer, multi-element member — background stone,
+//      body sky, arms root, head tide, aura sky, aspect fire,
+//      toughness 1 in all — fields with a pool of 6–44 (one
+//      die per layer: d12+d4+d6+d8+d4+d10), a pool the old
+//      toughness × dominant-die reading (1 × d4 = 1–4) could
+//      never roll; the reader checks in §0 pin the same bounds
+//      with toughness set absurd, and a layerless stand-in
+//      card keeps the old fallback whole.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-table-summon.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -100,6 +109,36 @@ const mkAwokin = (ownerKey, ownerName, name, power) => {
     { source_id: `db:${part(name + " Arms", "arms", 0, 0)}`, name: name + " Arms", category: "arms", rarity: "common", power: 0, toughness: 0, element: "sky" },
     { source_id: `db:${part(name + " Head", "head", 0, 0)}`, name: name + " Head", category: "head", rarity: "common", power: 0, toughness: 0, element: "sky" },
   ]);
+  return Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
+    .run(name, name, "fix/awokin.png", comp, ownerName, ownerKey, now).lastInsertRowid);
+};
+// §H's shield member: an element-carrying part, and a
+// six-layer Awokin built from the shield law's own spread —
+// every category parseLayers serves, background and aspect
+// included, a different element on nearly every layer, and
+// toughness 1 in all (the body alone carries it), so its
+// DOMINANT element (sky, twice) and its toughness together
+// cap the old reading at 1 × d4, while the sum of the parts
+// runs d12+d4+d6+d8+d4+d10 = 6–44.
+const partEl = (name, category, power, toughness, element) => Number(db.prepare(
+  "INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, ?, ?, 'image/png', ?)")
+  .run(name, category, power, toughness, element, `fix/${name}.png`, now).lastInsertRowid);
+const SHIELD_PARTS = [
+  ["background", "stone", 0, 0],
+  ["body", "sky", 2, 1],
+  ["arms", "root", 0, 0],
+  ["head", "tide", 0, 0],
+  ["aura", "sky", 0, 0],
+  ["aspect", "fire", 0, 0],
+];
+const mkShieldkin = (ownerKey, ownerName, name) => {
+  const comp = JSON.stringify(SHIELD_PARTS.map(([category, element, power, toughness]) => {
+    const label = `${name} ${category[0].toUpperCase()}${category.slice(1)}`;
+    return {
+      source_id: `db:${partEl(label, category, power, toughness, element)}`, name: label, category, rarity: "common", power, toughness, element,
+      ...(category === "aspect" ? { aspectLevel: 1, aspectElement: element } : {}),
+    };
+  }));
   return Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
     .run(name, name, "fix/awokin.png", comp, ownerName, ownerKey, now).lastInsertRowid);
 };
@@ -178,7 +217,13 @@ const D = await mkTender("Wheel Page", 800, "warden", "disc-wheel-d");
 const dPagekin = mkAwokin(D.ownerKey, D.name, "Pagekin", 2);
 await call("addToParty", { awakenedId: dPagekin }, D.token);
 fillers(D, 4, "DBench");
-console.log("seeded: Lv6 Warden (5 members + an outsider + bench), Lv6 Sage, Lv3 Warden, Lv10 Warder, Lv6 Page tender");
+// S: the Lv 3 Warden of §H — one member only, Shieldkin,
+// whose six layers are the shield law's spread (above).
+const S = await mkTender("Shield Warden", 150, "warden", "disc-wheel-s");
+const sShieldkin = mkShieldkin(S.ownerKey, S.name, "Shieldkin");
+await call("addToParty", { awakenedId: sShieldkin }, S.token);
+fillers(S, 20, "SBench");
+console.log("seeded: Lv6 Warden (5 members + an outsider + bench), Lv6 Sage, Lv3 Warden, Lv10 Warder, Lv6 Page tender, Lv3 Shield tender");
 
 // ── §G. THE WIDTH ITSELF — effect against control ─────────
 // Nigel, 2026-10-22: "each party star is a spot: +1,
@@ -204,7 +249,7 @@ console.log("seeded: Lv6 Warden (5 members + an outsider + bench), Lv6 Sage, Lv3
 }
 
 // ── §0. THE SUMMONER'S POWER READER ───────────────────────
-const { summonersPowerFor } = await import("../server/dist/table.js");
+const { summonersPowerFor, shieldPoolFor } = await import("../server/dist/table.js");
 ok("the reader answers 0 at Lv 1 (no clause stars, no levels, no Sage)", summonersPowerFor(A.ownerKey, 1, "warden") === 0, String(summonersPowerFor(A.ownerKey, 1, "warden")));
 ok("the reader answers 0 at Lv 2", summonersPowerFor(A.ownerKey, 2, "warden") === 0);
 ok("the levels grant answers +2 at Lv 3", summonersPowerFor(A.ownerKey, 3, "warden") === 2);
@@ -212,6 +257,26 @@ ok("the levels grant answers +4 at Lv 6", summonersPowerFor(A.ownerKey, 6, "ward
 ok("the Sage's grant answers +7 at Lv 6 (4 levels + 3 Sage)", summonersPowerFor(A.ownerKey, 6, "sage") === 7);
 ok("the reader answers +9 at Lv 9 for a Sage (6 levels + 3 Sage)", summonersPowerFor(A.ownerKey, 9, "sage") === 9);
 ok("another class at Lv 10 answers +6 (levels only)", summonersPowerFor(A.ownerKey, 10, "runewright") === 6);
+
+// ── §0b. THE SHIELD READER (the shield law, Nigel
+// 2026-10-22): one die per layer, of the layer's own
+// element — §H's six layers run 6–44 however the dice fall,
+// and the card's toughness (set absurd, 99) moves nothing:
+// it is the parts that are counted, never the toughness.
+{
+  const probe = { id: "probe", name: "Probe", power: 2, toughness: 99, element: "sky", shieldParts: SHIELD_PARTS.map(([, el]) => ({ element: el })) };
+  let partsOk = true;
+  for (let i = 0; i < 60; i++) { const v = shieldPoolFor(probe); if (v < 6 || v > 44) partsOk = false; }
+  ok("the shield reader rolls one die per layer — six layers, six dice (d12+d4+d6+d8+d4+d10 = 6–44), toughness 99 moving nothing", partsOk);
+  // A card carrying NO shieldParts never came from a
+  // payload — a stand-in — and keeps the old fallback
+  // whole: toughness × one die of its single element,
+  // which for toughness 4 on stone (d12) is always a
+  // multiple of 4 between 4 and 48.
+  let fallbackOk = true;
+  for (let i = 0; i < 60; i++) { const v = shieldPoolFor({ id: "stand-in", name: "Stand-in", power: 3, toughness: 4, element: "stone" }); if (v < 4 || v > 48 || v % 4 !== 0) fallbackOk = false; }
+  ok("a card with no payload layers keeps the stand-in fallback whole — toughness × one die of its element (multiples of 4, 4–48)", fallbackOk);
+}
 
 // ── Sockets: a watcher for room truth, actors for the casts ─
 const ROOM = "wheel-summon";
@@ -406,6 +471,26 @@ ok("E glides back to held ground", await glideTo(e, E.name, eHeld.id), seatOf(E.
 const heldFizzle = await fizzleHunt(e, eHeld.id, 22);
 ok("a ward cast from held ground unravelled within the hunt", !!heldFizzle);
 ok("its reckoning carries NO curse term", !!heldFizzle && !/curse presses/.test(heldFizzle), heldFizzle ?? "");
+
+// ── §H. THE SHIELD POOL — SUM OF THE PARTS ────────────────
+const s = new Actor(); await s.join(S.tt, ROOM); await s.waitYou("S's seat");
+await waitFor(() => !!seatOf(S.name)?.hex, "the watcher reads S's landing");
+const sHex = seatOf(S.name).hex;
+const sCard = (s.you.company ?? []).find((cd) => cd.name === "Shieldkin");
+ok("Shieldkin's company card carries every layer for the shield — background, body, arms, head, aura, aspect, in payload order",
+  JSON.stringify(sCard?.shieldParts?.map((p) => p.element)) === JSON.stringify(["stone", "sky", "root", "tide", "sky", "fire"]),
+  JSON.stringify(sCard?.shieldParts));
+ok("Shieldkin's card toughness is 1 and its dominant element sky — the old reading could roll only 1 × d4 (1–4)",
+  sCard?.toughness === 1 && sCard?.element === "sky",
+  JSON.stringify(sCard && { toughness: sCard.toughness, element: sCard.element }));
+await castUntil(s, { awakenedId: sShieldkin, hex: sHex }, 2, "Shieldkin's summon");
+const sUnit = fieldOf(S.name).find((u) => u.name === "Shieldkin");
+ok("Shieldkin fields with its shield whole — shield == maxShield at the fielding, before any blow",
+  !!sUnit && sUnit.shield === sUnit.maxShield,
+  JSON.stringify(sUnit && { shield: sUnit.shield, maxShield: sUnit.maxShield }));
+ok("Shieldkin's pool is the sum of its six parts (d12+d4+d6+d8+d4+d10 = 6–44) — above the old reading's ceiling of 4",
+  !!sUnit && sUnit.maxShield >= 6 && sUnit.maxShield <= 44, String(sUnit?.maxShield));
+s.ws.close();
 
 // ── §F. THE WHEEL ITSELF (browser) ────────────────────────
 const browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--mute-audio", "--autoplay-policy=no-user-gesture-required"] });
