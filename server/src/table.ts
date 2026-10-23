@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
@@ -1111,6 +1111,43 @@ function summonGiftFor(player: Player): number {
  *  own companies.) */
 function ownerIsSage(room: Room, ownerKey: string): boolean {
   return seatByKey(room, ownerKey)?.classKey === "sage";
+}
+
+/** AN AWOKIN'S ARMOR CLASS AT THE TABLE (the Company
+ *  Bonuses, Nigel 2026-10-22 12:27; coded in 2026-10-23,
+ *  Recovery R7): its toughness, plus acBonusOf's standing
+ *  term, plus its Tender's COMPANY AC (companyAcBonusFor —
+ *  the Warden's +4, the Sage's +2), plus the prepared
+ *  bastion's +3 for the host's own Awokin behind walls
+ *  raised in time. One reckoning, read by the dark's blow
+ *  whole; exported so a proof can read it directly, as
+ *  castModFor and shieldPoolFor are read. Fate's MITIGATION
+ *  of a landed blow reads the same company term without
+ *  the bastion's walls (the walls turn blows aside at the
+ *  roll; they are not the Awokin's own hide) — see blowOnce. */
+export function awokinAcFor(room: Room, victim: FieldUnit): number {
+  return victim.card.toughness + acBonusOf(victim)
+    + companyAcBonusFor(seatByKey(room, victim.ownerKey)?.classKey)
+    + (room.bastion?.prepared && seatByKey(room, victim.ownerKey)?.expKey === room.bastion.hostKey ? 3 : 0);
+}
+
+/** THE WITCH'S COMPANY PRICE (Nigel, 2026-10-22 12:27;
+ *  Recovery R7): "party members she has cast grant a
+ *  half-energy bonus to her casting until they dissipate."
+ *  At the Table every standing Awokin arrived by its
+ *  owner's summon cast — placeUnit has no other caller —
+ *  and the summon itself refuses any but party members for
+ *  a bound seat, so a cast party member stands exactly
+ *  when one of her Awokin stands whose card is of her
+ *  party (an unbound seat's company counts whole, as its
+ *  summon gate counts it). The price of every cast she
+ *  makes — the summon cast and the Grimoire doors alike —
+ *  reads through witchCastCostFor with that standing. */
+function witchCompanyPrice(room: Room, player: Player, cost: number): number {
+  if (player.classKey !== "witch") return cost;
+  const standing = [...room.field.values()].some(u => u.ownerKey === player.key
+    && (u.card.awokenId == null || !player.expKey || isPartyMember(player.expKey, u.card.awokenId)));
+  return witchCastCostFor(player.classKey, cost, standing);
 }
 
 /** One roster creature's Table card, built from its payload
@@ -2204,9 +2241,17 @@ function darkGround(room: Room, count: number): string[] {
 /** The curse withers its guests (attrition, Nigel,
  *  2026-10-19): a standing Awokin on cursed ground pays the
  *  ring's share of its greatest health each beat — its shield
- *  drinks first, as for any harm; what gets through unbinds. */
-function hurtByCurse(room: Room, u: FieldUnit, burn: number): void {
-  let wound = burn;
+ *  drinks first, as for any harm; what gets through unbinds.
+ *  THE RUNEWRIGHT'S COMPANY (Nigel, 2026-10-22 12:27;
+ *  Recovery R7): her Awokin suffer less of it — the burn is
+ *  relieved by curseReliefFor (1 to start, +1 per 3rd tender
+ *  level) for every beat the reckoning spans, never below
+ *  nothing. Her Tender's own withering, above, is not her
+ *  Awokin's and takes no relief. */
+function hurtByCurse(room: Room, u: FieldUnit, burn: number, beats = 1): void {
+  const seat = seatByKey(room, u.ownerKey);
+  const relief = curseReliefFor(seat?.classKey, seat?.tenderLevel ?? 1) * Math.max(0, beats);
+  let wound = Math.max(0, burn - relief);
   if (u.shield > 0) {
     const absorbed = Math.min(u.shield, wound);
     u.shield -= absorbed;
@@ -2272,7 +2317,7 @@ function settleCurseWithering(room: Room, dtSec: number): boolean {
     const tile = room.map.get(u.hex);
     if (!tile || !tile.cursed) continue;
     changed = true;
-    hurtByCurse(room, u, u.maxHp * curseAttritionPct(ringOf(tile.id)) * rate);
+    hurtByCurse(room, u, u.maxHp * curseAttritionPct(ringOf(tile.id)) * rate, rate);
     if (!unitStanding(room, u)) continue; // the burn unbound it
     if (darkOn(room, tile.id)) continue; // the dark holds this ground
     const g = grind.get(tile.id) ?? { dmg: 0, best: null };
@@ -2516,10 +2561,17 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
  *  OWN element die, rolled once through the castHeal
  *  machinery's dice (FATE_DIE), applied hp-then-shield as
  *  Heal applies it. `half` halves the roll (min 1) — the
- *  saplings' measure. Returns the amount that truly landed. */
-function groveBurstHeal(u: FieldUnit, half: boolean): number {
+ *  saplings' measure. `binderBonus` is the Binder's company
+ *  gift (bindingHealBonusFor, Recovery R7): the Springleaf
+ *  is a Binding working, so a grove a Binder planted heals
+ *  +4 more with every burst, the mother's and the
+ *  saplings' alike — the bonus rides the heal's amount,
+ *  after the sapling's halving, as Heal's +4 rides its
+ *  dice. Returns the amount that truly landed. */
+function groveBurstHeal(u: FieldUnit, half: boolean, binderBonus = 0): number {
   let amount = dN(FATE_DIE[u.card.element] ?? 6);
   if (half) amount = Math.max(1, Math.floor(amount / 2));
+  amount += binderBonus;
   const toHp = Math.min(u.maxHp - u.hp, amount);
   u.hp += toHp;
   const toShield = Math.min(u.maxShield - u.shield, amount - toHp);
@@ -2554,7 +2606,8 @@ function processGroves(room: Room, now: number): void {
       };
       room.workings.push(sapling);
       let mended = 0;
-      for (const u of alliesInRadius(room, pos, radiusPx)) mended += groveBurstHeal(u, true);
+      const sapBinderBonus = bindingHealBonusFor(seatByKey(room, mother.ownerKey)?.classKey);
+      for (const u of alliesInRadius(room, pos, radiusPx)) mended += groveBurstHeal(u, true, sapBinderBonus);
       tell(room, `A sapling of ${mother.name} takes root — its first breath mends ${mended} among those standing in its glow.`);
     }
   }
@@ -2569,8 +2622,12 @@ function processGroves(room: Room, now: number): void {
     if (now - (g.lastMend ?? 0) >= BEAT_MS) {
       g.lastMend = now;
       if (g.pos && g.radiusPx) {
+        // The per-beat mend is the grove's healing too: a
+        // Binder's grove mends +4 more a breath (the
+        // Binder's company, Recovery R7).
+        const mendAmt = 1 + bindingHealBonusFor(seatByKey(room, g.ownerKey)?.classKey);
         for (const u of alliesInRadius(room, g.pos, g.radiusPx)) {
-          if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + 1);
+          if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + mendAmt);
         }
       }
     }
@@ -3650,9 +3707,11 @@ async function runRound(room: Room): Promise<void> {
           enemy.struck = true;
           const roll = dN(20);
           const bonus = fateLevelBonus(enemy.lvl);
-          const ac = victim.card.toughness + acBonusOf(victim)
-            + (ownerIsSage(room, victim.ownerKey) ? 2 : 0) // THE SAGE'S COMPANY (Phase C): her Awokin stand at +2 AC
-            + (room.bastion?.prepared && seatByKey(room, victim.ownerKey)?.expKey === room.bastion.hostKey ? 3 : 0); // THE PREPARED BASTION (Station 4): the host's Awokin behind walls raised in time
+          // THE AWOKIN'S AC, one reckoning (awokinAcFor): its
+          // toughness, its Tender's company AC — THE WARDEN'S
+          // +4 and THE SAGE'S +2 alike (the Company Bonuses,
+          // Recovery R7) — and the prepared bastion's walls.
+          const ac = awokinAcFor(room, victim);
           const hit = roll === 20 || (roll !== 1 && roll + bonus >= ac);
           if (!hit) {
             witness(enemy.pos, victim.pos, "dark", "dark", false, false);
@@ -3665,7 +3724,14 @@ async function runRound(room: Room): Promise<void> {
           const wary = room.workings.some(w => w.hue === "fire"
             && workingEffects(seatByKey(room, w.ownerKey)?.expKey).brandWalker
             && workingBeside(w, enemy.hex));
-          let dmg = fateMitigate(fateDarkDamage(wary ? { ...enemy, power: Math.max(0, enemy.power - 1) } : enemy, roll === 20), victim.card.toughness, enemy.lvl);
+          // FATE'S MITIGATION reads the victim's own hide: its
+          // toughness plus its Tender's company AC (the
+          // Warden's +4, the Sage's +2 — the Company Bonuses,
+          // Recovery R7), the same term the homeland's
+          // victimAC carries into homelandFateMitigate. The
+          // bastion's +3 stands only in the roll above: walls
+          // turn blows aside, they do not thicken the hide.
+          let dmg = fateMitigate(fateDarkDamage(wary ? { ...enemy, power: Math.max(0, enemy.power - 1) } : enemy, roll === 20), victim.card.toughness + companyAcBonusFor(seatByKey(room, victim.ownerKey)?.classKey), enemy.lvl);
           const edgeWards = room.workings.filter(w => w.kind === "ward" && w.ownerKey === victim.ownerKey &&
             ((w.hexA === enemy.hex && w.hexB === victim.hex) || (w.hexA === victim.hex && w.hexB === enemy.hex)));
           const seal = edgeWards.find(w => w.engine === "seal");
@@ -4464,7 +4530,10 @@ function handleConnection(ws: WebSocket): void {
       // working spends its energy (castUnravels). A begun
       // bastion charges its one pool instead, as the old
       // summon road did.
-      const cost = castCost(room, player, card);
+      // THE WITCH'S COMPANY PRICE (Recovery R7): the summon
+      // is a cast like any other — while a party member she
+      // has cast stands, this one costs her half.
+      const cost = witchCompanyPrice(room, player, castCost(room, player, card));
       if (room.bastion?.begun && !room.bastion.resolved) {
         // One pool binds the muster (Nigel, 2026-10-17): joining
         // Tenders' energy joins the pool, scaled by level.
@@ -4871,7 +4940,7 @@ function handleConnection(ws: WebSocket): void {
         .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
-      const healCost = healSpell()?.cost ?? 2;
+      const healCost = witchCompanyPrice(room, player, healSpell()?.cost ?? 2);
       if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ✦${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` })); return; }
       // THE CASTING LAW (Phase C): Heal is a binding-school
       // cast and rolls for its standing, energy already spent.
@@ -4889,12 +4958,16 @@ function handleConnection(ws: WebSocket): void {
       // 2026-10-18): the tree's promised heal rides on top of
       // the dice — flat mending, named in the tale.
       const heartHeal = player.expKey ? heartEffects(player.expKey).heal : 0;
-      const amount = dieAmount + heartHeal;
+      // THE BINDER'S COMPANY (Nigel, 2026-10-22 12:27;
+      // Recovery R7): Heal is a Binding working, and a
+      // Binder's Binding healing mends +4 more.
+      const binderHeal = bindingHealBonusFor(player.classKey);
+      const amount = dieAmount + heartHeal + binderHeal;
       const toHp = Math.min(unit.maxHp - unit.hp, amount);
       unit.hp += toHp;
       const toShield = Math.min(unit.maxShield - unit.shield, amount - toHp);
       unit.shield += toShield;
-      tell(room, `${player.name} mends ${unit.card.name} — ${toHp + toShield} restored (${dieAmount} by the ${unit.card.element} die${heartHeal ? `, ${heartHeal} by the Heart's mending` : ""}; Heal, Tier ${player.healTier}).`);
+      tell(room, `${player.name} mends ${unit.card.name} — ${toHp + toShield} restored (${dieAmount} by the ${unit.card.element} die${heartHeal ? `, ${heartHeal} by the Heart's mending` : ""}${binderHeal ? `, ${binderHeal} by the Binder's company` : ""}; Heal, Tier ${player.healTier}).`);
       player.castAt = Date.now();
       sendState(room);
       return;
@@ -4953,6 +5026,10 @@ function handleConnection(ws: WebSocket): void {
       let steadySpent = false;
       const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (!isSpringleaf && steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
+      // THE WITCH'S COMPANY PRICE (Recovery R7): the ward
+      // door's final reckoned price, halved while a party
+      // member she has cast stands.
+      castCost = witchCompanyPrice(room, caster, castCost);
       if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the
@@ -4971,9 +5048,11 @@ function handleConnection(ws: WebSocket): void {
         const radiusPx = (66 + 12 * caster.tenderLevel) * 2.75 * (69 / 80);
         const groveHue = hue === "unaligned" ? "root" : hue;
         // The BURST: every ally in the glow rolls its own
-        // element die once, hp-then-shield.
+        // element die once, hp-then-shield — a Binder's
+        // burst +4 more a head (her company, Recovery R7).
         let burst = 0;
-        for (const u of alliesInRadius(room, centre, radiusPx)) burst += groveBurstHeal(u, false);
+        const castBinderBonus = bindingHealBonusFor(caster.classKey);
+        for (const u of alliesInRadius(room, centre, radiusPx)) burst += groveBurstHeal(u, false, castBinderBonus);
         // 1d4 saplings, rooting ~1.6s apart within 0.55 × the
         // radius — their rooting points are rolled now, their
         // rooting itself rides processGroves on the tick.
@@ -5095,6 +5174,10 @@ function handleConnection(ws: WebSocket): void {
       let runeSteadySpent = false;
       const runeSteadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
       if (runeSteadyAmt > 0 && !caster.steadyUsed) { runeCost = Math.max(0, runeCost - runeSteadyAmt); runeSteadySpent = true; }
+      // THE WITCH'S COMPANY PRICE (Recovery R7), as at the
+      // ward door: the rune door's final price, halved while
+      // a party member she has cast stands.
+      runeCost = witchCompanyPrice(room, caster, runeCost);
       if (purseOf(room, caster) < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the

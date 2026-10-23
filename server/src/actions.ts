@@ -24,7 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
-import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
@@ -3056,6 +3056,42 @@ export function homelandWeaponDamageFor(weaponKey: string, weaponLevel: number, 
     + Math.max(0, (weaponLevel ?? 1) - 1)
     + (weaponKey === "sword" && signature ? 2 : 0);
 }
+/** An Awokin's ARMOR CLASS on the homeland (the Company
+ *  Bonuses, Nigel 2026-10-22 12:27; Recovery R7): its
+ *  toughness plus its Tender's company AC — the Warden's
+ *  +4, the Sage's +2 — read through the one reader both
+ *  grounds share (companyAcBonusFor in skills.ts). The
+ *  living battle's dark strikes reckon the hit AND Fate's
+ *  mitigation against this one number, and a ward at the
+ *  border turns a blow whose measure was reckoned against
+ *  it. Exported so a proof can read the reckoning directly. */
+export function homelandVictimAcFor(toughness: number, classKey: string | null | undefined): number {
+  return toughness + companyAcBonusFor(classKey);
+}
+
+/** THE WITCH'S COMPANY PRICE ON THE HOMELAND (Nigel,
+ *  2026-10-22 12:27; Recovery R7): while a party member she
+ *  has cast stands on her field, her casting costs half.
+ *  The homeland keeps no record of which door a placement
+ *  arrived by — the summon cast is the casting door, and
+ *  only party members can be summoned at all — so the
+ *  standing is read as the party's own: a member of her
+ *  party standing among her field placements. (A party
+ *  member fielded by the assault door, deployBattle, would
+ *  read as standing too; the ledger cannot tell the two
+ *  arrivals apart, and the reading is named here rather
+ *  than hidden.) */
+async function witchCompanyStanding(ownerKey: string): Promise<boolean> {
+  const party = new Set(partyIdsFor(ownerKey));
+  if (!party.size) return false;
+  const rows = sqlite.prepare("SELECT awakened_id AS awakenedId FROM field_placements WHERE owner_key = ?").all(ownerKey) as { awakenedId: number }[];
+  return rows.some(r => party.has(Number(r.awakenedId)));
+}
+async function witchPriceFor(ownerKey: string, classKey: string | null | undefined, cost: number): Promise<number> {
+  if (classKey !== "witch") return cost;
+  return witchCastCostFor(classKey, cost, await witchCompanyStanding(ownerKey));
+}
+
 /** Fate's mitigation, the Table's own formula: armor shaves a
  *  share that shrinks as the attacker's level grows; a landed
  *  blow always draws at least a point of blood. */
@@ -3150,12 +3186,17 @@ async function mendPlacement(placementId: number, amount: number): Promise<numbe
 /** One burst of the Springleaf's healing on this ground — the
  *  Table's groveBurstHeal read whole: the mended one's OWN
  *  element die, rolled once; a sapling's breath is half the
- *  roll (min 1). */
-async function groveBurstHealPlacement(placementId: number, awakenedId: number, half: boolean): Promise<number> {
+ *  roll (min 1). `binderBonus` is the Binder's company gift
+ *  (bindingHealBonusFor, Recovery R7): the Springleaf is a
+ *  Binding working, so a grove a Binder planted heals +4
+ *  more with every burst — the bonus rides the heal's
+ *  amount, after the sapling's halving, as at the Table. */
+async function groveBurstHealPlacement(placementId: number, awakenedId: number, half: boolean, binderBonus = 0): Promise<number> {
   const payload = await awakenedPayloadById(awakenedId);
   const element = homelandPlacementElement((payload?.layers ?? []) as any[]);
   let amount = homelandDN(HOMELAND_FATE_DIE[element] ?? 6);
   if (half) amount = Math.max(1, Math.floor(amount / 2));
+  amount += binderBonus;
   return mendPlacement(placementId, amount);
 }
 
@@ -4105,7 +4146,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         else if (d.kind === "unraveler") victim = inReach.reduce((a, b) => (b.power > a.power ? b : a));
         else victim = inReach.reduce((a, b) => (axialDist(d, b) < axialDist(d, a) ? b : a));
         const roll = homelandDN(20);
-        const victimAC = victim.toughness + (sageCompany ? 2 : 0);
+        // THE VICTIM'S AC, one reckoning (homelandVictimAcFor):
+        // its toughness plus its Tender's company AC — the
+        // Warden's +4 and the Sage's +2 alike (Recovery R7).
+        // The hit roll, Fate's mitigation and the border
+        // ward's turned blow all read this same number below.
+        const victimAC = homelandVictimAcFor(victim.toughness, progress.classKey);
         let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
         for (let i = 0; i < dice; i++) raw += homelandDN(6);
         const dmg = homelandFateMitigate(raw, victimAC, d.lvl);
@@ -4386,6 +4432,12 @@ async function settleHomelandWorkingAttrition(ownerKey: string, tiles: any[]): P
 async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<void> {
   const rows = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine = 'springleaf'").all(ownerKey) as any[];
   if (!rows.length) return;
+  // THE BINDER'S COMPANY (Recovery R7): every heal these
+  // groves land — the saplings' rooting bursts and the
+  // per-beat mending alike — is +4 when their planter is a
+  // Binder, read once for the settle.
+  const groveProgress = await getTenderProgress(ownerKey).catch(() => null);
+  const groveBinderBonus = bindingHealBonusFor(groveProgress?.classKey);
   const now = Date.now();
   const byId = new Map<number, any>((tiles as any[]).map(t => [t.id, t]));
   const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
@@ -4410,7 +4462,7 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
         if (st) {
           for (const p of placements) {
             const pt = byId.get(p.tileId);
-            if (pt && hexDistTiles(pt, st) <= sapRadius) await groveBurstHealPlacement(p.id, p.awakenedId, true);
+            if (pt && hexDistTiles(pt, st) <= sapRadius) await groveBurstHealPlacement(p.id, p.awakenedId, true, groveBinderBonus);
           }
         }
       }
@@ -4436,7 +4488,7 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
           if (!pt) continue;
           let cover = 0;
           for (const z of zones) if (hexDistTiles(pt, z.tile) <= z.radius) cover++;
-          if (cover > 0) await mendPlacement(p.id, beats * healPerBreath * cover);
+          if (cover > 0) await mendPlacement(p.id, beats * (healPerBreath + groveBinderBonus) * cover);
         }
       }
     }
@@ -8374,7 +8426,11 @@ export const handlers = {
     const payload = await awakenedPayloadById(awakenedId).catch(() => null);
     if (!payload) badRequest("That Awokin is not yours to call.");
     const power = payload.power;
-    const cost = Math.max(1, power);
+    // THE WITCH'S COMPANY PRICE (Recovery R7): the summon is
+    // a cast — while a party member she has cast already
+    // stands, this call costs her half. The first member she
+    // ever fields pays full price: none stands yet to grant it.
+    const cost = await witchPriceFor(ownerKey, progress.classKey, Math.max(1, power));
     // THE LANDING, chosen before the charge (as the Table
     // checks its ground before its purse): the Tender's own
     // tile first, then the tiles beside it — open ground that
@@ -9019,15 +9075,21 @@ export const handlers = {
       const maxHp = (payload?.toughness ?? 3) + (myTile && towerTiles.some((tt) => hexDist(myTile, tt) <= 1) ? towerBonus : 0);
       const curHp = placement.hp ?? maxHp;
       if (curHp >= maxHp) badRequest(`${payload?.name ?? "That Awokin"} stands whole already.`);
-      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      // THE WITCH'S COMPANY PRICE (Recovery R7): while a
+      // party member she has cast stands, the Heal costs her
+      // half — here and at every homeland cast door below.
+      const healPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
+      if (!(await spendEnergy(ownerKey, healPrice))) badRequest(`Not enough energy — ${spell.name} costs ${healPrice}.`);
       // The roll (Homeland Casting): the purse is already
       // charged — a fizzle spends it and mends nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
-      const healed = Math.min(progress.healAmount, maxHp - curHp);
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: healPrice, spellKey: spell.key };
+      // THE BINDER'S COMPANY (Recovery R7): Heal is a Binding
+      // working — a Binder's casting of it mends +4 more.
+      const healed = Math.min(progress.healAmount + bindingHealBonusFor(progress.classKey), maxHp - curHp);
       await db.update(schema.fieldPlacements).set({ hp: curHp + healed })
         .where(eq(schema.fieldPlacements.id, placement.id));
-      return { ok: true as const, healed, hp: curHp + healed, maxHp, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+      return { ok: true as const, healed, hp: curHp + healed, maxHp, cost: healPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     // The classless silence (Homeland Casting): no choosing,
@@ -9058,18 +9120,21 @@ export const handlers = {
       const tile = castTileById.get(tileId) as any;
       if (!tile) badRequest("That hex is not yours to plant.");
       assertCastReach(tile);
-      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      const springleafPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
+      if (!(await spendEnergy(ownerKey, springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: springleafPrice, spellKey: spell.key };
       const radiusHexes = Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80));
       const now = Date.now();
       // The raising burst: every one of his standing in the
-      // glow rolls its OWN element die, as at the Table.
+      // glow rolls its OWN element die, as at the Table — a
+      // Binder's burst +4 more a head (her company, R7).
       let burst = 0;
+      const castBinderBonus = bindingHealBonusFor(progress.classKey);
       const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
       for (const p of placements as any[]) {
         const pt = castTileById.get(p.tileId);
-        if (pt && hexDistTiles(pt as any, tile) <= radiusHexes) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false);
+        if (pt && hexDistTiles(pt as any, tile) <= radiusHexes) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false, castBinderBonus);
       }
       // The saplings: 1d4, on distinct ground within 0.55 of
       // her radius (the Table's spacing), her own hex filling
@@ -9093,7 +9158,7 @@ export const handlers = {
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, 'springleaf', 'binding', ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
         .run(ownerKey, spell.key, hue, tileId, tile.q, tile.r, JSON.stringify(groveNums), now);
-      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, radiusHexes, burst, saplings: sapCount, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+      return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: springleafPrice, radiusHexes, burst, saplings: sapCount, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     // Wards and runes wake at Tender Lv 3 (the standing law).
@@ -9151,7 +9216,10 @@ export const handlers = {
       // Ebb Walker (tranche one): a Tide working cast on Tide
       // or neutral ground costs 1✦ less.
       const ebbWard = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
-      const wardCost = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
+      const wardBase = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
+      // THE WITCH'S COMPANY PRICE (Recovery R7) rides the
+      // ward door's final reckoned price, as at the Table.
+      const wardCost = await witchPriceFor(ownerKey, progress.classKey, wardBase);
       if (!(await spendEnergy(ownerKey, wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
       // The roll (Homeland Casting): the purse is charged
       // before it — a fizzle spends the charge alone and
@@ -9201,6 +9269,9 @@ export const handlers = {
     // they branch here, before the written ground.
     if (spell.engine === "bats" || spell.engine === "holdrune" || spell.engine === "shatter") {
       const nowCast = Date.now();
+      // THE WITCH'S COMPANY PRICE (Recovery R7): one price
+      // for the branch's three doors, reckoned once here.
+      const newWorkingPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
       if (spell.engine === "bats") {
         // The cap (Nigel, 2026-10-22): three swarms standing
         // for one caster — the Witch suffers no cap.
@@ -9209,15 +9280,15 @@ export const handlers = {
           if ((standing?.n ?? 0) >= 3) badRequest("Three swarms already hunt for you — the cap is three to a caster, and the Witch alone suffers none.");
         }
         if (!standTile) badRequest("You have no stand on this land to cast from.");
-        if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+        if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
         const cast = homelandCastRoll(progress, spell);
-        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, spellKey: spell.key };
         const info = sqlite.prepare(`INSERT INTO territory_workings
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
           VALUES (?, ?, 'bats', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
           .run(ownerKey, spell.key, spell.kind, hue, standTile!.id, standTile!.q, standTile!.r,
             JSON.stringify({ bornAt: nowCast, nextBiteAt: nowCast + BATS_BITE_MS, bites: 0, targetId: null }), nowCast);
-        return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile!.id, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile!.id, cost: newWorkingPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
       }
       if (spell.engine === "holdrune") {
         if (tileId == null) badRequest("Hold Rune needs a foe under the tap — name the hex it stands on.");
@@ -9235,15 +9306,15 @@ export const handlers = {
             return cell.q === tile.q && cell.r === tile.r;
           });
         if (!target) badRequest("Hold Rune needs a shade under the tap — no dark stands on that ground.");
-        if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+        if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
         const cast = homelandCastRoll(progress, spell);
-        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, spellKey: spell.key };
         const info = sqlite.prepare(`INSERT INTO territory_workings
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
           VALUES (?, ?, 'holdrune', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
           .run(ownerKey, spell.key, spell.kind, hue, tileId, tile.q, tile.r,
             JSON.stringify({ bornAt: nowCast, targetId: Number(target.id), struckAt: null, holdUntil: 0 }), nowCast);
-        return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, targetId: Number(target.id) };
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: newWorkingPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, targetId: Number(target.id) };
       }
       // RUNE SHATTER — a straight shot at the named ground,
       // 2 tiles from where he stands (the SPEC's reach).
@@ -9254,9 +9325,9 @@ export const handlers = {
       if (hexDistTiles(standTile as any, tile as any) > SHATTER_RANGE) {
         badRequest("Beyond reach — 2 tiles is Rune Shatter's edge.");
       }
-      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, spellKey: spell.key };
       const bonus = castModFor(progress.classKey, progress.level, spell.kind);
       const foe = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
         .find((x: any) => {
@@ -9300,7 +9371,7 @@ export const handlers = {
             JSON.stringify({ streamUntil: nowCast + heldSeconds * 1000, nextChargeAt: nowCast + 1000, nextPieceAt: nowCast + 333 }), nowCast);
         streamId = Number(info.lastInsertRowid);
       }
-      return { ok: true as const, id: streamId ?? undefined, tileId, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, shots, felled: felledShatter, hits: shots.filter(s => s.hit).length };
+      return { ok: true as const, id: streamId ?? undefined, tileId, cost: newWorkingPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, shots, felled: felledShatter, hits: shots.filter(s => s.hit).length };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {
@@ -9322,7 +9393,10 @@ export const handlers = {
       // cast, with the Table's own charges — cast it thrice for
       // the volley, as the Table plants it on up to three hexes.
       const ebbRune = workingEffects(ownerKey).ebbWalker && hue === "tide" && (tile.element === "tide" || tile.element === "neutral");
-      const runeCost = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
+      const runeBase = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
+      // THE WITCH'S COMPANY PRICE (Recovery R7) rides the
+      // rune door's final reckoned price, as at the Table.
+      const runeCost = await witchPriceFor(ownerKey, progress.classKey, runeBase);
       if (!(await spendEnergy(ownerKey, runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
       // The roll (Homeland Casting): charged before it — a
       // fizzle spends the charge alone and writes nothing.
@@ -9542,6 +9616,13 @@ export const handlers = {
        FROM field_placements p LEFT JOIN territory_tiles t ON t.id = p.tile_id
        WHERE p.owner_key = ?`
     ).all(ownerKey) as any[];
+    // THE RUNEWRIGHT'S COMPANY (Nigel, 2026-10-22 12:27;
+    // Recovery R7): her Awokin suffer less of this withering
+    // — curseReliefFor (1 to start, +1 per 3rd tender level)
+    // off the damage for every beat of the curse's own clock
+    // (2.8 s) the reckoning spans, read once for the settle.
+    const marchProgress = await getTenderProgress(ownerKey).catch(() => null);
+    const curseRelief = curseReliefFor(marchProgress?.classKey, marchProgress?.level ?? 1);
     for (const s of standings) {
       if (!s.cursed) {
         if (s.curse_since != null) sqlite.prepare("UPDATE field_placements SET curse_since = NULL WHERE id = ?").run(s.id);
@@ -9555,7 +9636,7 @@ export const handlers = {
       if (elapsed < 1000) continue;
       const ring = Math.max(Math.abs(s.q ?? 0), Math.abs(s.r ?? 0), Math.abs((s.q ?? 0) + (s.r ?? 0)));
       const maxHp = await placementMaxHp(s.awakened_id);
-      const dmg = maxHp * (0.01 * (ring + 1)) * (elapsed / 2800);
+      const dmg = Math.max(0, maxHp * (0.01 * (ring + 1)) * (elapsed / 2800) - curseRelief * (elapsed / 2800));
       if (dmg <= 0) continue;
       const result = await damagePlacement({ id: s.id, awakenedId: s.awakened_id, hp: s.hp } as any, dmg);
       if (!result.dissipated) sqlite.prepare("UPDATE field_placements SET curse_since = ? WHERE id = ?").run(now, s.id);

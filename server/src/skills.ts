@@ -118,6 +118,52 @@ export function summonersPowerFor(ownerKey: string | null | undefined, tenderLev
   return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0);
 }
 
+/** THE COMPANY BONUSES (Nigel, 2026-10-22 12:27 — set while
+ *  editing the class cards, and entered in the class-cards
+ *  spreadsheet as the CURRENT bonuses; coded in 2026-10-23,
+ *  Recovery R7). What a Tender's company gains from her
+ *  class, one honest reader per bonus, read by every path
+ *  that reckons it on either ground:
+ *    WARDEN     — her Awokin gain +4 AC.
+ *    SAGE       — her Awokin gain +2 AC and +2 attack (the
+ *                 attack half was already read at the strike
+ *                 sites; the AC half reads through the same
+ *                 reader below, so both grounds' AC agrees).
+ *    RUNEWRIGHT — her Awokin suffer less curse damage: the
+ *                 damage is relieved by 1 to start, the
+ *                 relief growing +1 at every 3rd tender
+ *                 level (Lv 3 → 2, Lv 6 → 3…). The relief is
+ *                 reckoned per BEAT of the curse's own clock
+ *                 (2.8 s), the grain attrition itself is
+ *                 reckoned in on both grounds.
+ *    BINDER     — healing from Binding workings +4: every
+ *                 heal a Binding working of hers lands is
+ *                 4 greater.
+ *    WITCH      — party members she has cast grant a
+ *                 half-energy bonus to her casting until
+ *                 they dissipate: while one stands, her
+ *                 casting costs half (halved upward, the
+ *                 Second Wall's own rounding). Whether a
+ *                 cast member stands is each ground's fact —
+ *                 the readers below take it as given, so the
+ *                 price reckoning is one reckoning. */
+export function companyAcBonusFor(classKey: string | null | undefined): number {
+  if (classKey === "warden") return 4;
+  if (classKey === "sage") return 2;
+  return 0;
+}
+export function curseReliefFor(classKey: string | null | undefined, tenderLevel?: number | null): number {
+  if (classKey !== "runewright") return 0;
+  return 1 + Math.floor(Math.max(0, tenderLevel ?? 0) / 3);
+}
+export function bindingHealBonusFor(classKey: string | null | undefined): number {
+  return classKey === "binder" ? 4 : 0;
+}
+export function witchCastCostFor(classKey: string | null | undefined, cost: number, castPartyMemberStanding: boolean): number {
+  if (classKey !== "witch" || !castPartyMemberStanding) return cost;
+  return Math.ceil(cost / 2);
+}
+
 /** ATTUNEMENT REACH (Nigel, 2026-10-21 16:40 — struck the
  *  Keeper's first no-limit pencil): the Attune ability's
  *  reach is ONE TILE away from where the Tender stands —
