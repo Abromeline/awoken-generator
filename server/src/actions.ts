@@ -77,7 +77,7 @@ function assertPngBytes(bytes: Buffer): void {
 // --- Pending newborn claims -------------------------------------------------
 // A newborn is EARNED, never asserted. The server-side event that
 // qualifies records one claim in pending_newborn_claims, and the birth
-// endpoints (birthNewbornToHand, birthFieldAwoken) consume exactly one
+// endpoint (birthNewbornToHand) consumes exactly one
 // claim per birth. Before this ledger existed, birthNewbornToHand
 // granted a paid wake credit to any caller on demand — an open mint on
 // the credits Stripe sells. (Corrected 2026-10-15: purification events
@@ -4008,17 +4008,6 @@ export const handlers = {
     return { decks };
   },
 
-  async renameDeck(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z
-      .object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(60) })
-      .safeParse(args);
-    if (!parsed.success) badRequest("Invalid rename.");
-    await ownDeck(parsed.data.id, ownerKey);
-    await db.update(schema.decks).set({ name: parsed.data.name }).where(eq(schema.decks.id, parsed.data.id));
-    return okResponse.parse({ ok: true });
-  },
-
   async deleteDeck(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
@@ -4569,50 +4558,6 @@ export const handlers = {
     if (!parsed.success) badRequest("Invalid id.");
     await db.delete(schema.glyphs).where(eq(schema.glyphs.id, parsed.data.id));
     return { ok: true as const };
-  },
-
-  async cleanDeckCards(args: unknown) {
-    const parsed = z.object({
-      dryRun: z.boolean().default(true),
-      awakenedIds: z.array(z.number().int().positive()).optional(),
-      imagelessOnly: z.boolean().default(false),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid request.");
-    // Find deck_cards to remove
-    let cards;
-    if (parsed.data.awakenedIds?.length) {
-      // Specific cards
-      cards = await db.select({
-        deckId: schema.deckCards.deckId,
-        awakenedId: schema.deckCards.awakenedId,
-        imageBlobKey: schema.awakened.imageBlobKey,
-        name: schema.awakened.name,
-      }).from(schema.deckCards)
-        .innerJoin(schema.awakened, eq(schema.deckCards.awakenedId, schema.awakened.id))
-        .where(inArray(schema.deckCards.awakenedId, parsed.data.awakenedIds));
-    } else {
-      // All cards, optionally filtered to imageless only
-      cards = await db.select({
-        deckId: schema.deckCards.deckId,
-        awakenedId: schema.deckCards.awakenedId,
-        imageBlobKey: schema.awakened.imageBlobKey,
-        name: schema.awakened.name,
-      }).from(schema.deckCards)
-        .innerJoin(schema.awakened, eq(schema.deckCards.awakenedId, schema.awakened.id));
-    }
-    const targets = parsed.data.imagelessOnly
-      ? cards.filter(c => !c.imageBlobKey || c.imageBlobKey.trim() === "")
-      : cards;
-    if (!parsed.data.dryRun) {
-      for (const t of targets) {
-        await db.delete(schema.deckCards)
-          .where(and(
-            eq(schema.deckCards.deckId, t.deckId),
-            eq(schema.deckCards.awakenedId, t.awakenedId)
-          ));
-      }
-    }
-    return { ok: true as const, removed: parsed.data.dryRun ? 0 : targets.length, found: targets.length, cards: targets.map(t => ({ deckId: t.deckId, awakenedId: t.awakenedId, name: t.name })) };
   },
 
   async applyAspect(args: unknown, ctx?: ActionContext) {
@@ -7462,7 +7407,7 @@ export const handlers = {
           .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, tile[0].id));
         // The neighboring cursed land feels the shift — their 48h
-        // passive timers start now (as directAttack does).
+        // passive timers start now.
         const now = new Date();
         const neighborCoords = [
           [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
@@ -9430,42 +9375,6 @@ export const handlers = {
     return { energy, maxEnergy };
   },
 
-  // Admin: reset a tender's territory, field, waves, and timers. Keeps their Awoken.
-  async adminResetTender(args: unknown, ctx?: ActionContext) {
-    // TODO: verify admin workshop password
-    const parsed = z.object({ ownerKey: z.string() }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid reset.");
-    const targetKey = parsed.data.ownerKey;
-    // Clear field placements
-    await db.delete(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, targetKey));
-    // Clear territory tiles
-    await db.delete(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, targetKey));
-    // Clear dispersed (return Awoken from time)
-    await db.update(schema.awakened)
-      .set({ dispersedUntil: null })
-      .where(eq(schema.awakened.ownerKey, targetKey));
-    // Reset waves
-    await db.delete(schema.waveState).where(eq(schema.waveState.ownerKey, targetKey));
-    // Reset energy to 5
-    await db.insert(schema.tenderResources)
-      .values({ ownerKey: targetKey, energy: 5 })
-      .onConflictDoUpdate({ target: schema.tenderResources.ownerKey, set: { energy: 5 } });
-    // Re-create the bastion: center purified + 6 cursed ring
-    const now = new Date();
-    const { mood: adminSky } = await getWorldMood();
-    const adminRingHp = curseHpFor(1, adminSky);
-    await db.insert(schema.territoryTiles).values({
-      ownerKey: targetKey, q: 0, r: 0, element: "neutral", cursed: 0, createdAt: now,
-    });
-    for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) {
-      await db.insert(schema.territoryTiles).values({
-        ownerKey: targetKey, q: dq, r: dr, element: "neutral", cursed: 1, createdAt: now,
-        curseHp: adminRingHp, curseMaxHp: adminRingHp,
-      });
-    }
-    return { ok: true };
-  },
-
   // Admin: set a tender's energy.
   async adminRefillAllEnergy(args: unknown, ctx?: ActionContext) {
     // TODO: verify admin workshop password
@@ -9862,13 +9771,6 @@ export const handlers = {
       ...s,
       url: `/blobs/${Buffer.from(s.blobKey).toString("base64url")}`,
     })) };
-  },
-
-  async deleteUiSprite(args: unknown, ctx?: ActionContext) {
-    const parsed = z.object({ id: z.number().int() }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid.");
-    await db.delete(schema.uiSprites).where(eq(schema.uiSprites.id, parsed.data.id));
-    return { ok: true };
   },
 
   // Enemy sprite selection: which uploaded art is LIVE for each enemy.
@@ -10738,29 +10640,6 @@ export const handlers = {
 
   // Resolve an interactive battleground battle. Client reports the outcome,
   // server validates plausibility and applies territory changes.
-  async dissipateAwoken(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid request.");
-    // Verify ownership and field placement
-    const placement = await db.select().from(schema.fieldPlacements)
-      .where(and(
-        eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
-        eq(schema.fieldPlacements.ownerKey, ownerKey)
-      )).limit(1);
-    if (!placement.length) badRequest("Awokin not on field.");
-    // Remove from field
-    await db.delete(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
-    // 8h re-coalescence (double the 4h for voluntary dissipation)
-    const dispersedUntil = new Date(Date.now() + 8 * 60 * 60 * 1000);
-    await db.update(schema.awakened)
-      .set({ dispersedUntil })
-      .where(eq(schema.awakened.id, parsed.data.awakenedId));
-    return { ok: true };
-  },
-
-
   async resolveBattle(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     await this.settleMarches(ownerKey);
@@ -11134,64 +11013,6 @@ export const handlers = {
         return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
           .parse({ ok: true, purified: true, sparked, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
-  },
-
-  async birthFieldAwoken(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsedResult = z.object({
-      layers: z.array(layerRefShape),
-      imageBase64: z.string(),
-      tileId: z.number(),
-      liberatorNames: z.array(z.string()),
-      toHand: z.boolean().optional(),
-    }).safeParse(args);
-    if (!parsedResult.success) badRequest(`Invalid birth — ${describeValidationIssues(parsedResult.error)}.`);
-    const parsed = parsedResult.data;
-    const story = `Liberated by ${parsed.liberatorNames.join(", ")}. When the dark broke over this tile, I opened my eyes on reclaimed land. They stood over me — the ones who fought the Unraveler back. This is where I began, on ground they made safe.`;
-    const blobKey = `fieldborn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const base64Data = parsed.imageBase64.split(",")[1] ?? parsed.imageBase64;
-    const imageBytes = Buffer.from(base64Data, "base64");
-    // Stored as image/png — so it must BE a PNG (uploadLayerAsset's test).
-    assertPngBytes(imageBytes);
-    // Placing the newborn obeys the same ground rules as any deployment
-    // (deployBattle's checks): the tile must be the caller's own, already
-    // reclaimed, and hold fewer than 4 Awoken. Before this, any caller
-    // could pin a newborn onto another Tender's tile.
-    if (!parsed.toHand) {
-      const tile = await db.select().from(schema.territoryTiles)
-        .where(and(eq(schema.territoryTiles.id, parsed.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
-      if (!tile.length) badRequest("That tile is not yours.");
-      if (tile[0].cursed) badRequest("A newborn can only be placed on reclaimed land.");
-      const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
-        .where(eq(schema.fieldPlacements.tileId, parsed.tileId));
-      if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");
-    }
-    // A birth follows a victory, and the victory is the server's own
-    // record: consume exactly one pending claim. No claim, no birth.
-    if (!consumeNewbornClaim(ownerKey)) {
-      badRequest("No newborn is waiting — a birth follows a victory, and this victory's newborn has already been gathered.");
-    }
-    blobs.put(blobKey, imageBytes, "image/png");
-    const [newborn] = await db.insert(schema.awakened).values({
-      name: "Newborn of the Purified Land",
-      mintedName: "Newborn of the Purified Land",
-      imageBlobKey: blobKey,
-      compositionJson: JSON.stringify(parsed.layers),
-      collection: "tender",
-      ownerName: ownerKey,
-      ownerKey,
-      identityKey: `newborn-${Date.now()}`,
-      flavorText: story,
-      fieldBorn: 1,
-    }).returning({ id: schema.awakened.id });
-    // Newborns from battle purification join the hand, not the field.
-    if (!parsed.toHand) {
-      await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: newborn.id, tileId: parsed.tileId,
-        hp: await placementMaxHp(newborn.id),
-      });
-    }
-    return okResponse.parse({ ok: true, id: newborn.id });
   },
 
 
@@ -11915,98 +11736,6 @@ export const handlers = {
       totalTenders: counts.length,
       nearby,
     };
-  },
-
-  /**
-   * Direct attack: send exactly 3 Awoken at a cursed tile. Overwhelming force
-   * breaks the dark — the tile is purified, takes the dominant element of the
-   * attackers (fire is never inherited; ties stay neutral), and the attackers
-   * stand on the reclaimed land. Energy cost is enforced client-side.
-   */
-  async directAttack(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      awakenedIds: z.array(z.number().int().positive()).length(3),
-      tileId: z.number().int().positive(),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid direct attack.");
-    if (new Set(parsed.data.awakenedIds).size !== 3) badRequest("Three distinct Awokin must strike together.");
-    // Verify the tile belongs to the Tender and is cursed.
-    const tile = await db.select().from(schema.territoryTiles)
-      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
-    if (!tile.length) badRequest("That tile is not yours.");
-    if (!tile[0].cursed) badRequest("The dark has already broken there.");
-    // Verify all three Awoken belong to the Tender and are not on the field.
-    const owned = await db.select().from(schema.awakened)
-      .where(and(eq(schema.awakened.ownerKey, ownerKey)));
-    const attackers = owned.filter(t => parsed.data.awakenedIds.includes(t.id));
-    if (attackers.length !== 3) badRequest("Those Awokin are not all yours.");
-    const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
-      .from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
-    for (const a of attackers) {
-      if (!canTouchAwoken(a, ownerKey)) badRequest("That Awokin is not yours to send.");
-      if (placedIds.has(a.id)) badRequest("Already on the field.");
-    }
-    // The tile becomes what the attackers are: dominant element of their
-    // layers, read from piece names. Fire never sparks on conquered land.
-    const assetRows = await db.select().from(schema.layerAssets);
-    const assetStats = new Map<number, AssetStats>();
-    for (const assetRow of assetRows) {
-      const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
-    }
-    const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-    for (const a of attackers) {
-      for (const layer of parseLayers(a.compositionJson, assetStats)) {
-        const el = storedElement((layer as any).element);
-        if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
-      }
-    }
-    let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
-    let maxCount = 0; let tie = false;
-    for (const [el, count] of Object.entries(elementCounts)) {
-      if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
-      else if (count === maxCount && count > 0) { tie = true; }
-    }
-    if (tie) element = "neutral";
-    // Break the curse.
-    await db.update(schema.territoryTiles)
-      .set({ cursed: 0, element, ...PURIFIED_TILE_FIELDS })
-      .where(eq(schema.territoryTiles.id, tile[0].id));
-    // Unified XP: each striker made an ATTACK EVENT (+10), and their
-    // combined blow took the hex — HEX-TAKEN XP (+50) to each.
-    const xpById = new Map<number, XpGainReport>();
-    for (const a of attackers) {
-      await grantEventXp(xpById, a.id, XP_PER_ATTACK);
-      await grantEventXp(xpById, a.id, XP_PER_HEX_TAKEN);
-    }
-    // The attackers stand on the reclaimed land (3 < 4 tile cap).
-    for (const a of attackers) {
-      await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: a.id, tileId: tile[0].id,
-        hp: await placementMaxHp(a.id),
-      });
-    }
-    // The neighboring cursed land feels the shift — their 48h passive timers
-    // start now.
-    const now = new Date();
-    const neighborCoords = [
-      [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
-      [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
-      [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
-    ];
-    for (const [nq, nr] of neighborCoords) {
-      await db.update(schema.territoryTiles)
-        .set({ lastPassiveAt: now })
-        .where(and(
-          eq(schema.territoryTiles.ownerKey, ownerKey),
-          eq(schema.territoryTiles.q, nq),
-          eq(schema.territoryTiles.r, nr),
-          eq(schema.territoryTiles.cursed, 1),
-        ));
-    }
-    return { ok: true as const, xpGains: [...xpById.values()] };
   },
 
   /**
