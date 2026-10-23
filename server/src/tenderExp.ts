@@ -21,8 +21,38 @@ import { db, schema } from "./store.js";
 import { and, eq } from "drizzle-orm";
 import { heartEffects } from "./skills.js";
 
-/** Cumulative EXP at which each level is reached (index 0 = Lv 1). */
-export const TENDER_LEVEL_THRESHOLDS = [0, 50, 150, 300, 500, 800, 1200, 1800, 2600, 3800];
+/**
+ * Cumulative EXP at which each level is reached (index 0 = Lv 1).
+ *
+ * THE LONG ROAD (Nigel, ruled 2026-10-22; design:
+ * zodiac-tree-design-v2-2026-10-22.md, "The long road"): the
+ * Tender level cap is 104, and at 2 skill points a level the
+ * cap pays exactly 208 — the whole v2 wheel's cost, with
+ * nothing to spare. Levels 1–10 are the original table,
+ * unchanged (his anchor stands: 150 EXP = Lv 3, and no stored
+ * EXP total changes its level). Levels 11–42 are the sane
+ * road: each step costs the previous step × 1.035, rounded to
+ * the nearest 50 (ties to even), so Lv 42 stands at 73,150.
+ * Past 42 the curve turns steep, baked into this table — the
+ * same road for everyone, with no per-Tender or per-pathway
+ * multiplier anywhere (his escalation ruling, 2026-10-22:
+ * "Baked in: one steep road past 42, the same for
+ * everyone"): Lv 43's step doubles Lv 42's, and each step
+ * after grows × 1.05, so Lv 104 stands at 2,768,700.
+ */
+export const TENDER_LEVEL_THRESHOLDS = [
+  0, 50, 150, 300, 500, 800, 1200, 1800, 2600, 3800,  // Lv 1–10
+  5050, 6350, 7700, 9100, 10550, 12050, 13600, 15200, 16850, 18550,  // Lv 11–20
+  20300, 22100, 23950, 25850, 27800, 29800, 31850, 33950, 36100, 38350,  // Lv 21–30
+  40700, 43150, 45700, 48350, 51100, 53950, 56900, 59950, 63100, 66350,  // Lv 31–40
+  69700, 73150, 80050, 87300, 94900, 102900, 111300, 120100, 129350, 139050,  // Lv 41–50
+  149250, 159950, 171200, 183000, 195400, 208400, 222050, 236400, 251450, 267250,  // Lv 51–60
+  283850, 301300, 319600, 338800, 358950, 380100, 402300, 425600, 450050, 475700,  // Lv 61–70
+  502650, 530950, 560650, 591850, 624600, 659000, 695100, 733000, 772800, 814600,  // Lv 71–80
+  858500, 904600, 953000, 1003800, 1057150, 1113150, 1171950, 1233700, 1298550, 1366650,  // Lv 81–90
+  1438150, 1513250, 1592100, 1674900, 1761850, 1853150, 1949000, 2049650, 2155350, 2266350,  // Lv 91–100
+  2382900, 2505300, 2633800, 2768700,  // Lv 101–104
+];
 
 export function levelForExp(exp: number): number {
   let level = 1;
