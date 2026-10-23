@@ -11,8 +11,9 @@
 //      gets ONE group wheel (March · Attack · Defend ·
 //      Follow); March + a tap on the land OBEYS AT ONCE —
 //      no quote, no confirm stands anywhere in the flow.
-//      A right-dragged line (War-Grounds open, March armed)
-//      spreads the selection EVENLY along it — the march
+//      A right-dragged line (March armed — the right hand
+//      draws it by the click law, Nigel 2026-10-23) spreads
+//      the selection EVENLY along it — the march
 //      destinations are asserted from the server's read.
 //   §B THE TABLE (browser): a tap on my Awokin's ground
 //      opens its orders wheel (the unit bar is gone);
@@ -269,24 +270,21 @@ console.log("§A the homeland orders — the wheel on the figure, the company wh
   await waitFor(async () => (await placementOf(T.token, fol))?.follow === 1, "the Follow order lands", 15000);
   ok("the wheel's Follow order returns the marched Awokin to following", true);
 
-  // Pan the land east — War-Grounds still shut, so the
-  // drag pans by the Drag Law — until the western pair
-  // stands clear of the fine-edit panel the War-Grounds
-  // slide over the map's left side; then solve the
-  // lattice again on the panned land. (The pan takes
-  // the drag's measure in MAP units, so a ~125px drag
-  // moves the painted land ~350px.)
+  // Pan the land east with the MIDDLE hand (the button
+  // law, Nigel 2026-10-23: the left hand chooses, the
+  // middle moves the screen, the right only clicks) —
+  // then solve the lattice again on the panned land.
+  // (The pan takes the drag's measure in MAP units, so
+  // a ~125px drag moves the painted land ~350px.)
   await page.mouse.move(600, 760);
-  await page.mouse.down();
+  await page.mouse.down({ button: "middle" });
   await page.mouse.move(725, 760, { steps: 12 });
-  await page.mouse.up();
+  await page.mouse.up({ button: "middle" });
   await sleep(600);
   lattice = await solveLattice();
 
-  // Open the War-Grounds (the Drag Law's gate), then
-  // band-select the western pair.
-  await page.click(".wg-toggle");
-  await sleep(600);
+  // Band-select the western pair with the LEFT hand —
+  // no gate stands before the choosing drag any more.
   const dragBand = async (ids) => {
     const pts = ids.map((id) => lattice.points[id].svg);
     const x0 = Math.min(...pts.map((p) => p.x)) - 18, x1 = Math.max(...pts.map((p) => p.x)) + 18;
@@ -353,7 +351,7 @@ console.log("§A the homeland orders — the wheel on the figure, the company wh
   // THE LINE: the northern trio — the page has never
   // lost sight of their posts (unlike an API re-seat,
   // whose marches the page never sees). Band them,
-  // arm March, and right-drag the line along their row,
+  // arm March, and drag the line along their row,
   // EAST to WEST: the members take their slots in
   // placement order, so the reversed draw keeps every
   // figure off its own standing (a figure already on

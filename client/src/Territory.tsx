@@ -499,7 +499,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     return () => window.clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   // ── THE TENDER'S BODY ON THE HOMELAND (Nigel, 2026-10-19) ──────
   // The server holds the ANCHOR: the hex the Tender stands on
@@ -615,6 +614,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const padKeysRef = useRef<string[]>([]);
   const [padKnob, setPadKnob] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const rightPressRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const linePressRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const tenderStandRef = useRef<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
   const tenderPosRef = useRef<{ x: number; y: number } | null>(null);
   const tenderAnchorRef = useRef<number | null>(null);
@@ -658,8 +658,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // wheel speaks for the whole selection. The wheel carries
   // March · Attack · Defend · Follow (and the rest of the
   // Awokin's doors); picking March arms the order — the next
-  // tap on the land, or a right-dragged line under the Drag
-  // Law, is obeyed AT ONCE. The quote→confirm march bars and
+  // tap on the land, or a line dragged
+  // under the button law, is obeyed AT ONCE. The quote→confirm march bars and
   // the under-figure stance picker are retired by this law:
   // click the action, tap the target, obey — no confirm.
   const [ordersWheel, setOrdersWheel] = useState<{ ids: number[]; x: number; y: number } | null>(null);
@@ -678,8 +678,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [orbBump, setOrbBump] = useState(0);
   // Drag-selection (War-Ground, Nigel 2026-10-16): a left-drag on the
   // map draws a band; the wardens inside it are chosen together and
-  // can be given a company march. (Pan is right-drag, so the left
-  // hand was free for this.)
+  // can be given a company march. (By the button law, Nigel
+  // 2026-10-23, the left hand always chooses on a mouse — the
+  // middle hand alone moves the screen, the right only clicks.)
   const [selectedGroup, setSelectedGroup] = useState<number[]>([]);
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const bandRef = useRef<{ cx: number; cy: number; sx: number; sy: number; active: boolean } | null>(null);
@@ -1945,12 +1946,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // off from here), its patrol road, and its party door.
   // The company's wheel carries March · Attack · Defend ·
   // Follow for the whole selection. Picking March arms the
-  // order; the next tap on the land — or a right-dragged
-  // line under the Drag Law — obeys at once.
+  // order; the next tap on the land — or a dragged
+  // line under the button law — obeys at once.
   const buildOrdersEntries = (ids: number[]): WheelEntry[] => {
     if (ids.length > 1) {
       return [
-        { key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [...ids] }); showHexNotice("March — tap the ground the company should muster on, or right-drag a line for them to stand along."); } },
+        { key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [...ids] }); showHexNotice("March — tap the ground the company should muster on, or drag a line for them to stand along."); } },
         { key: "ord-attack", sigil: "sword", label: "Attack", act: () => { void (async () => { for (const id of ids) await handleSetStance(id, "attack"); showHexNotice("The company takes the Attack stance."); })(); } },
         { key: "ord-defend", sigil: "swordshield", label: "Defend", act: () => { void (async () => { for (const id of ids) await handleSetStance(id, "defense"); showHexNotice("The company takes the Defend stance."); })(); } },
         { key: "ord-follow", sigil: "awo", label: "Follow", act: () => { void (async () => { for (const id of ids) { const p = placements.find(x => x.awakenedId === id); if (p) await toggleFollow(p.id, true); } showHexNotice("The company follows you."); })(); } },
@@ -1963,7 +1964,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (p.marchPath) {
       entries.push({ key: "ord-recall", emoji: "✋", label: "Halt march", act: () => { void (async () => { try { await api.recallMarch({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name} halts where it stands.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The halt was refused."); } })(); } } as WheelEntry);
     } else {
-      entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [id] }); setSelectedAwoken(id); showHexNotice(`March — tap the ground ${p.name} should march to, or right-drag a line for it to stand on.`); } } as WheelEntry);
+      entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [id] }); setSelectedAwoken(id); showHexNotice(`March — tap the ground ${p.name} should march to, or drag a line for it to stand on.`); } } as WheelEntry);
     }
     entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
@@ -2571,7 +2572,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   // ── MARCH ORDERS OBEYED (Nigel, 2026-10-22 — the
   // marching-orders spec): the wheel arms the order; the tap
-  // on the land — or the right-dragged line — IS the order.
+  // on the land — or the dragged line — IS the order.
   // No quote, no confirm: the server's march verb is fired
   // at once and speaks any refusal itself. The company
   // muster keeps the quote era's assignment arithmetic
@@ -2626,7 +2627,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
 
   // The line spread (spec): the selection stands EVENLY
-  // along the right-dragged line — figure i takes the tile
+  // along the dragged line — figure i takes the tile
   // nearest the i-th even point of the segment, by its own
   // road, four to a hex.
   const fireLineMarch = async (ids: number[], a: { x: number; y: number }, b: { x: number; y: number }) => {
@@ -2636,7 +2637,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (!members.length) { showHexNotice("None of the company can take the line — they are already on the road."); return; }
     const n = members.length;
     const pts = members.map((_, i) => n === 1
-      ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      ? { x: b.x, y: b.y } // a lone Awokin takes the line's FAR end (Nigel, 2026-10-23)
       : { x: a.x + (b.x - a.x) * (i / (n - 1)), y: a.y + (b.y - a.y) * (i / (n - 1)) });
     const occupants = new Map<number, number>();
     for (const p of placements) {
@@ -4950,13 +4951,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
     })() : null;
     // The line, while the right hand draws it (the orders
-    // law): the selection will stand spread evenly along it.
+    // law; the blips ruled by Nigel, 2026-10-23): the line
+    // itself, and on it one BLIP for each Awokin the order
+    // targets — spread evenly with one at each end, so the
+    // hand sees where every figure will stand before the
+    // release speaks. A lone Awokin's blip sits at the far
+    // end, the point dragged to.
+    const lineBlips = (() => {
+      if (!lineDrag) return [] as { x: number; y: number }[];
+      const n = pendingMarch?.ids.length ?? 1;
+      if (n <= 1) return [{ x: lineDrag.x1, y: lineDrag.y1 }];
+      return Array.from({ length: n }, (_, i) => ({
+        x: lineDrag.x0 + (lineDrag.x1 - lineDrag.x0) * (i / (n - 1)),
+        y: lineDrag.y0 + (lineDrag.y1 - lineDrag.y0) * (i / (n - 1)),
+      }));
+    })();
     const lineLayer = lineDrag ? (
       <g key="march-line" pointerEvents="none">
         <line x1={lineDrag.x0} y1={lineDrag.y0} x2={lineDrag.x1} y2={lineDrag.y1}
           stroke="rgba(255,215,0,0.9)" strokeWidth={2} strokeDasharray="6 4" strokeLinecap="round" />
-        <circle cx={lineDrag.x0} cy={lineDrag.y0} r={4} fill="#ffd700" />
-        <circle cx={lineDrag.x1} cy={lineDrag.y1} r={4} fill="#ffd700" />
+        {lineBlips.map((bl, i) => (
+          <circle key={`blip-${i}`} cx={bl.x} cy={bl.y} r={5} fill="#ffd700" stroke="rgba(20,16,4,0.85)" strokeWidth={1.2} />
+        ))}
       </g>
     ) : null;
     // The drag band itself, while the hand is down.
@@ -6030,10 +6046,32 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           // raises mist + confirm; a mouse glows on hover and commits
           // on click. Pens count as touch — they tap like fingers.
           setTouchMode(e.pointerType !== "mouse");
-          if (e.button === 2) return; // the right hand pans via the svg's own handlers, as ever
-          // THE DRAG LAW (Nigel, 2026-10-16): a drag MOVES THE SCREEN
-          // — until the War-Grounds are opened; while they are open,
-          // the same drag draws the choosing band instead.
+          if (e.pointerType === "mouse") {
+            // THE BUTTON LAW (Nigel, 2026-10-23): on a mouse the
+            // buttons divide the drags — the LEFT hand chooses
+            // (the band), the MIDDLE hand moves the screen, and
+            // the RIGHT hand only ever clicks (the wheel, casts,
+            // orders; the svg's own handlers keep its measure).
+            // No tab gates the split: the War-Grounds' open state
+            // no longer chooses what a mouse drag does.
+            if (e.button === 2) return;
+            if (e.button === 1) {
+              e.preventDefault(); // a middle press must not wake the browser's autoscroll
+              panDragRef.current = { cx: e.clientX, cy: e.clientY, panX: pan.x, panY: pan.y, moved: false };
+              return;
+            }
+            // The left hand's choosing drag. (The March order's
+            // line is the right hand's drag, kept by the svg's
+            // own handlers below.)
+            const p = svgPoint(e.clientX, e.clientY);
+            if (p) bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
+            return;
+          }
+          // THE DRAG LAW for a finger (Nigel, 2026-10-16 — touch
+          // is untouched by the button law): a drag MOVES THE
+          // SCREEN — until the War-Grounds are opened; while
+          // they are open, the same drag draws the choosing
+          // band instead.
           if (wgTileId !== null) {
             const p = svgPoint(e.clientX, e.clientY);
             if (p) bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
@@ -6128,38 +6166,38 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <svg ref={svgRef} viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
           onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => {
-            if (e.button === 2) { // Right click
+            if (e.button === 2) { // Right press
               // THE LINE (Nigel, 2026-10-22 — the marching-
-              // orders spec, under the Drag Law): while the
-              // War-Grounds stand open and a March order is
-              // armed, a right-drag draws the line the
-              // selection will stand along — it does not pan.
-              if (wgTileId !== null && pendingMarch) {
+              // orders spec; its hand confirmed 2026-10-23):
+              // while a March order is armed, a right-drag
+              // draws the line the selection will stand along.
+              // No tab gates the gesture — the armed order is
+              // the gate, as on every ground.
+              if (pendingMarch) {
                 const p = svgPoint(e.clientX, e.clientY);
                 if (p) {
                   lineDragRef.current = { sx: p.x, sy: p.y };
                   setLineDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
-                  dragRef.current = null;
-                  rightPressRef.current = { x: e.clientX, y: e.clientY, moved: false };
+                  linePressRef.current = { x: e.clientX, y: e.clientY, moved: false };
                   return;
                 }
               }
-              dragRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+              // THE CLICK LAW (Nigel, 2026-10-23): the right
+              // hand never casts and never drags the screen —
+              // its plain press is only measured, so the
+              // release can tell a click from a drag. A moved
+              // press is simply spent; an unmoved one cancels
+              // a readied working or calls the wheel.
               rightPressRef.current = { x: e.clientX, y: e.clientY, moved: false };
             }
           }}
           onMouseMove={(e) => {
+            const rp = rightPressRef.current;
+            if (rp && (e.buttons & 2) && Math.hypot(e.clientX - rp.x, e.clientY - rp.y) > 6) rp.moved = true;
             if (lineDragRef.current) {
-              if (rightPressRef.current && Math.hypot(e.clientX - rightPressRef.current.x, e.clientY - rightPressRef.current.y) > 6) rightPressRef.current.moved = true;
+              if (linePressRef.current && Math.hypot(e.clientX - linePressRef.current.x, e.clientY - linePressRef.current.y) > 6) linePressRef.current.moved = true;
               const p = svgPoint(e.clientX, e.clientY);
               if (p) setLineDrag(ld => ld ? { ...ld, x1: p.x, y1: p.y } : ld);
-              return;
-            }
-            if (dragRef.current) {
-              const dx = e.clientX - dragRef.current.x;
-              const dy = e.clientY - dragRef.current.y;
-              if (rightPressRef.current && Math.hypot(dx, dy) > 6) rightPressRef.current.moved = true;
-              setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
             }
           }}
           onMouseUp={(e) => {
@@ -6169,44 +6207,42 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               // along it, at once, no confirm.
               if (lineDragRef.current) {
                 const ld = lineDrag;
-                const wasMoved = !!rightPressRef.current?.moved;
+                const wasMoved = !!linePressRef.current?.moved;
                 lineDragRef.current = null;
+                linePressRef.current = null;
                 setLineDrag(null);
                 if (wasMoved && ld && pendingMarch) {
                   const ids = pendingMarch.ids;
                   setPendingMarch(null);
                   setSelectedGroup([]);
                   void fireLineMarch(ids, { x: ld.x0, y: ld.y0 }, { x: ld.x1, y: ld.y1 });
-                  rightPressRef.current = null;
-                  return;
                 }
+                return;
               }
-              dragRef.current = null;
-              // A right CLICK — pressed and released unmoved —
-              // calls the wheel (Nigel, 2026-10-19), even
-              // mid-glide; a right DRAG still pans, as ever.
-              // CASTING'S LAW (Nigel, 2026-10-22): right-click
-              // opens the wheel in tender mode — and a readied
-              // working must not bar it, for the wheel is how
-              // a caster picks ANOTHER working mid-road ("pick
-              // spell, click cast, click cast" — then pick
-              // again). So a cast-armed hand (castMode alone)
-              // no longer counts as blocked for this gate;
-              // every other armed flow keeps its right hand.
+              // A right CLICK — pressed and released unmoved.
+              // THE CLICK LAW (Nigel, 2026-10-23): the right
+              // hand never casts. While a working stands
+              // readied, the first right-click CANCELS it —
+              // the run is set down and no wheel opens; the
+              // NEXT right-click opens the wheel, as an
+              // unarmed right-click does (Nigel, 2026-10-19:
+              // the wheel where the hand rests, even mid-
+              // glide). A right DRAG is simply spent: it
+              // neither cancels nor calls. This replaces the
+              // 2026-10-22 carve-out that let an armed caster
+              // re-pick on the wheel with the same click.
               const rp = rightPressRef.current;
               rightPressRef.current = null;
-              const castArmedOnly = castMode && !(
-                moveTargeting || attackTargeting ||
-                patrolSettingFor !== null || pendingMarch !== null || battlePool.length > 0 ||
-                showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
-              );
-              if (rp && !rp.moved && tenderStandRef.current && (!tenderInputBlockedRef.current || castArmedOnly)) {
-                const p = svgPoint(e.clientX, e.clientY);
-                if (p) { setTenderRadial(p); }
+              if (rp && !rp.moved && tenderStandRef.current) {
+                if (castMode) { endMapCastRunRef.current(); return; }
+                if (!tenderInputBlockedRef.current) {
+                  const p = svgPoint(e.clientX, e.clientY);
+                  if (p) { setTenderRadial(p); }
+                }
               }
             }
           }}
-          onMouseLeave={() => { dragRef.current = null; lineDragRef.current = null; setLineDrag(null); }}>
+          onMouseLeave={() => { lineDragRef.current = null; linePressRef.current = null; setLineDrag(null); }}>
           <defs>
             <radialGradient id="corruptionHalo" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="rgba(96,4,18,0)" />
@@ -6731,7 +6767,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           if (!target) { showHexNotice("Station an Awokin on the field first — the War-Grounds open on the hex an Awokin stands on."); return; }
           setWgArmedWork(null);
           setWgTileId(target.tileId);
-          showHexNotice("The War-Grounds are open — while they are open, dragging on the map chooses wardens. Close them (⚔️) to drag the map again.");
+          showHexNotice("The War-Grounds are open.");
         }}
         title={battleActive ? "The War-Grounds are shut while battle is joined" : "War-Grounds — fine work on one hex: edge works, buildings, readings"}
         disabled={battleActive}

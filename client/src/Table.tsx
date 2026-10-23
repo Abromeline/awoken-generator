@@ -961,7 +961,11 @@ export default function Table() {
   // barely moved — drags must never read as tile taps.
   const [view, setView] = useState<{ zoom: number; pan: { x: number; y: number } }>({ zoom: 1, pan: { x: 0, y: 0 } });
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean; t: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean; t: number; btn: number } | null>(null);
+  // When a right-hand drag was last spent on this stage — its
+  // release raises a contextmenu the click law must swallow
+  // (the lineJustDrawnRef idiom, for the plainer drag).
+  const rightDragAt = useRef(0);
   const suppressTapRef = useRef(false);
   const [diceOpen, setDiceOpen] = useState(false);
   // THE ORDERS WHEEL (Nigel, 2026-10-22 — the marching-
@@ -1490,7 +1494,7 @@ export default function Table() {
     for (const u of units) load.set(u.hex, (load.get(u.hex) ?? 1) - 1);
     units.forEach((u, i) => {
       const pt = n === 1
-        ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        ? { x: b.x, y: b.y } // a lone Awokin takes the line's FAR end (Nigel, 2026-10-23)
         : { x: a.x + (b.x - a.x) * (i / (n - 1)), y: a.y + (b.y - a.y) * (i / (n - 1)) };
       const cands = tiles
         .filter(t => !t.cursed)
@@ -1534,7 +1538,16 @@ export default function Table() {
         }
       }
     }
-    dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false, t: Date.now() };
+    // THE CLICK LAW (Nigel, 2026-10-23 — one map on every
+    // ground): on a mouse, only the MIDDLE hand drags the
+    // screen. The left hand from empty ground only clicks;
+    // the right hand's press is measured, never panned, so
+    // its release can tell a click from a spent drag. A
+    // finger keeps this ground's own ways (a drag pans; a
+    // long, still press opens the wheel).
+    if (e.pointerType === "mouse" && e.button === 0) return;
+    if (e.button === 1) e.preventDefault(); // the middle press must not wake the browser's autoscroll
+    dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false, t: Date.now(), btn: e.button };
     // No pointer capture yet (2026-10-19): capturing at the
     // press retargets the release — and with it the click —
     // to the stage itself, so the wheel's nodes, the figures
@@ -1566,6 +1579,14 @@ export default function Table() {
     if (!d) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    if (d.btn === 2) {
+      // The right hand is measured, never dragged (the click
+      // law): past the measure the press is spent — no pan,
+      // and its release will open nothing.
+      d.moved = true;
+      suppressTapRef.current = true;
+      return;
+    }
     if (!d.moved) {
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a courtesy */ }
     }
@@ -1625,10 +1646,13 @@ export default function Table() {
     }
     const d = dragRef.current;
     dragRef.current = null;
+    if (d?.btn === 2 && d.moved) rightDragAt.current = Date.now();
     if (d?.moved) setTimeout(() => { suppressTapRef.current = false; }, 80);
     // A long, still press (the iPad's right-click) opens the
-    // glyph wheel where the finger rests.
-    if (e && e.type === "pointerup" && d && !d.moved && Date.now() - d.t >= 500) {
+    // glyph wheel where the finger rests. The right hand
+    // never comes through this door — its wheel rides the
+    // contextmenu, under the click law.
+    if (e && e.type === "pointerup" && d && d.btn !== 2 && !d.moved && Date.now() - d.t >= 500) {
       const pt = stagePointOf(e.clientX, e.clientY);
       if (pt && you && shared.players.some(p => p.key === you.key && p.hex)) {
         suppressTapRef.current = true;
@@ -2466,7 +2490,17 @@ export default function Table() {
               onPointerMove={onStageMove}
               onPointerUp={onStageUp}
               onPointerCancel={onStageUp}
-              onContextMenu={(e) => { e.preventDefault(); if (Date.now() - lineJustDrawnRef.current < 500) return; openRadialAt(e.clientX, e.clientY); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (Date.now() - lineJustDrawnRef.current < 500) return; // a drawn line's release is not a click
+                if (Date.now() - rightDragAt.current < 500) return; // neither is a spent right drag's
+                // THE CLICK LAW (Nigel, 2026-10-23): the right
+                // hand never casts — while a working stands
+                // readied, this click CANCELS it and no wheel
+                // opens; the next right-click opens the wheel.
+                if (placing) { unloadCast(); return; }
+                openRadialAt(e.clientX, e.clientY);
+              }}
             >
             <g transform={`translate(${view.pan.x} ${view.pan.y}) scale(${view.zoom})`}>
               {/* The land itself, back tiles first: every tile
@@ -2547,8 +2581,19 @@ export default function Table() {
                 <g pointerEvents="none">
                   <line x1={lineSel.x0} y1={lineSel.y0} x2={lineSel.x1} y2={lineSel.y1}
                     stroke="rgba(255,215,0,0.9)" strokeWidth={2} strokeDasharray="6 4" strokeLinecap="round" />
-                  <circle cx={lineSel.x0} cy={lineSel.y0} r={4} fill="#ffd700" />
-                  <circle cx={lineSel.x1} cy={lineSel.y1} r={4} fill="#ffd700" />
+                  {/* THE BLIPS (Nigel, 2026-10-23): one for each
+                      Awokin the order targets, spread evenly
+                      with one at each end — a lone Awokin's at
+                      the far end, the point dragged to. */}
+                  {(marchArmed && marchArmed.length > 1
+                    ? marchArmed.map((_, i) => ({
+                        x: lineSel.x0 + (lineSel.x1 - lineSel.x0) * (i / (marchArmed.length - 1)),
+                        y: lineSel.y0 + (lineSel.y1 - lineSel.y0) * (i / (marchArmed.length - 1)),
+                      }))
+                    : [{ x: lineSel.x1, y: lineSel.y1 }]
+                  ).map((bl, i) => (
+                    <circle key={`line-blip-${i}`} cx={bl.x} cy={bl.y} r={5} fill="#ffd700" stroke="rgba(20,16,4,0.85)" strokeWidth={1.2} />
+                  ))}
                 </g>
               )}
               {/* The Written Light, laid on the land: runes wait
