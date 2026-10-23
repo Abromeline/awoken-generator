@@ -781,6 +781,11 @@ try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN pinned_beats INTEGE
 for (const col of ["pos_q REAL", "pos_r REAL", "power INTEGER NOT NULL DEFAULT 1", "lvl INTEGER NOT NULL DEFAULT 1", "wet_until INTEGER NOT NULL DEFAULT 0", "cracked INTEGER NOT NULL DEFAULT 0", "last_strike_at INTEGER NOT NULL DEFAULT 0", "chew_tile_id INTEGER", "chew_progress REAL NOT NULL DEFAULT 0"]) {
   try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN ${col}`); } catch { /* exists */ }
 }
+// THE HOLD RUNE (Nigel, 2026-10-22; seated 2026-10-23): a
+// wanderer the rune's crash has struck stands HELD until a
+// moment in time — the placements' pinned_until in the dark's
+// own ledger, read by the living battle's walk and strike.
+try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN held_until INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // The battle's own ledgers on the progress row: the Shadow
 // Matter hoard, the banked protection and the lighthouse that
 // spends it, the standing wave intensity and the weather

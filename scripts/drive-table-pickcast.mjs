@@ -20,6 +20,20 @@
 //      their targets untouched (the ward door still wants
 //      its ground; not this drive's proof — the cast-flow
 //      and wheel-law drives carry it).
+//   §E THE NEW WORKINGS AT THE TABLE (Nigel, 2026-10-22;
+//      seated 2026-10-23 — ported whole from the Proving
+//      Ground): Bats, the Hold Rune and Rune Shatter ride
+//      the Table's own castRune door in a Witch's seat —
+//      the swarm stands as a living working (kind "spell")
+//      and bites 1d4 past all armor (the tale speaks it),
+//      the Hold Rune's hold BEGINS at its crash (~4 s on,
+//      read off the dark's own pinnedUntil), and Rune
+//      Shatter's tap looses its pieces while a HELD cast
+//      stands a stream that drinks 1✦ a second. (This
+//      proof lives here, not in test63: test63 dies in its
+//      Room A at HEAD a95d9ce — the Warden's hand comes up
+//      empty — a breakage that predates this build and is
+//      flagged with it.)
 // Run: node scripts/drive-table-pickcast.mjs
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -229,6 +243,119 @@ console.log("§D a named hex far beyond the ring is refused — the referee dema
   ok("a named hex beyond the ring is refused ('at your side') — and nothing was spent",
     a2.you.energy === purse, `${purse} -> ${a2.you.energy}`);
   a2.ws.close();
+}
+
+/* ══ §E THE NEW WORKINGS AT THE TABLE ═════════════════════ */
+console.log("§E the new workings at the Table — bats, the hold rune, rune shatter (a Witch's seat)");
+{
+  const W = await mkTender("Pickcast Witch", 800, "witch", "disc-pick-w");
+  fillers(W, 30, "WBench");
+  // §E sits in its OWN room: §A–§D's fielded Awokin share
+  // the main room's field, and a standing company clears
+  // the fragile first wave — and draws the dark to itself —
+  // faster than the Hold Rune's crash can land or Shatter's
+  // reach can be met (found in this section's first runnings).
+  const w = new Actor(); await w.join(W.tt, "pickcast-e"); await w.waitYou("W's seat");
+  await waitFor(() => !!(w.state?.players ?? []).find((p) => p.name === W.name)?.hex, "W's seat stands in her own room");
+  // No Awokin is fielded in this section: a fighter clears
+  // the fragile first wave faster than the Hold Rune's
+  // 4-second crash can land (found in the first running of
+  // this section — the wave broke under the proof). The
+  // dark march on the Tender herself, and she bears it.
+  const wWorkings = () => w.state?.workings ?? [];
+  const wDark = () => w.state?.dark ?? [];
+  const wTaleHas = (re) => (w.state?.tale ?? []).some((t) => re.test(typeof t === "string" ? t : t?.text ?? ""));
+  const ensureWave = async () => {
+    if (w.state?.battle?.active && wDark().length > 0) return true;
+    w.send({ type: "startWave" });
+    try { await waitFor(() => (w.state?.battle?.active && wDark().length > 0), "the wave is dealt (startWave)", 8000); return true; }
+    catch { w.send({ type: "begin" }); await waitFor(() => (w.state?.battle?.active && wDark().length > 0), "the wave is dealt (begin)", 25000); return true; }
+  };
+  ok("the Witch's wave is dealt", await ensureWave(), `dark=${wDark().length}`);
+
+  /** Cast one of the new workings through the rune door
+   *  until it stands (a fizzle is an honest face — cast
+   *  again, the hex read fresh each try). */
+  const castNewUntil = async (root, engine, hexOf, extra = {}, tries = 12) => {
+    for (let i = 0; i < tries; i++) {
+      const hex = hexOf();
+      if (!hex) { await sleep(600); continue; }
+      w.send({ type: "castRune", root, hue: "unaligned", hexes: [hex], pour: 0, ...extra });
+      try { await waitFor(() => wWorkings().some((x) => x.engine === engine), `${root} stands`, 2500); return true; }
+      catch { /* fizzled or refused — cast again */ }
+    }
+    return false;
+  };
+
+  // HOLD RUNE first — the hold begins at the crash. (The
+  // Witch rolls runes cross-school at −3, so the fizzle is
+  // the common face; the loop casts on, as a player would.
+  // The crash needs its shade alive for ~4 s, so the rune
+  // goes before the swarm is loosed to bite.)
+  let holdStood = false, pinSeen = false;
+  for (let attempt = 0; attempt < 5 && !pinSeen; attempt++) {
+    if (!(await ensureWave())) break;
+    const d = [...wDark()].sort((a, b) => b.hp - a.hp)[0];
+    if (!d) break;
+    holdStood = await castNewUntil("holdrune", "holdrune", () => wDark().find((x) => x.id === d.id)?.hex, {}, 8);
+    if (!holdStood) continue;
+    try {
+      await waitFor(() => { const dd = wDark().find((x) => x.id === d.id); return !!dd && (dd.pinnedUntil ?? 0) > Date.now(); },
+        "the crash lands and the hold begins (pinnedUntil on the dark)", 25000);
+      pinSeen = true;
+    } catch { /* the shade fell first — try the next */ }
+  }
+  ok("hold rune @Table: cast over a standing shade, its crash lands ~4 s on and the HOLD BEGINS — the dark's own pinnedUntil carries it",
+    holdStood && pinSeen, `errors=${JSON.stringify(w.errors.slice(-2))}`);
+
+  // BATS — the swarm stands, flies, and bites.
+  await ensureWave();
+  const batsStood = await castNewUntil("bats", "bats", () => wDark()[0]?.hex);
+  ok("bats @Table: the cast stands a living swarm working (kind spell) through the rune door",
+    batsStood && wWorkings().some((x) => x.engine === "bats" && x.kind === "spell"),
+    `errors=${JSON.stringify(w.errors.slice(-2))}`);
+  let biteSeen = false;
+  try { await waitFor(() => wTaleHas(/Bats — bite \d of 3: 1d4 = \d, past all armor/), "the swarm's first bite in the tale", 60000); biteSeen = true; } catch { /* never landed */ }
+  ok("bats @Table: the swarm BITES the dark — 1d4 past all armor, AC never consulted (the tale speaks it)", biteSeen);
+
+  // RUNE SHATTER — the volley, then the held stream.
+  await ensureWave();
+  const myHex = () => (w.state?.players ?? []).find((p) => p.name === W.name)?.hex;
+  const nearDark = () => wDark().filter((x) => myHex() && axDist(myHex(), x.hex) <= 2).sort((a, b) => b.hp - a.hp)[0];
+  let volleySeen = false;
+  const fliesCount = () => (w.state?.tale ?? []).filter((t) => /Rune Shatter — a piece flies/.test(typeof t === "string" ? t : t?.text ?? "")).length;
+  const vStart = Date.now();
+  while (Date.now() - vStart < 90000 && !volleySeen) {
+    const d = nearDark();
+    if (d) {
+      // The volley's signature, counted over the whole tale
+      // before and after the tap (the tale is a rolling
+      // window — a length-slice races its trimming; a count
+      // of the piece reports does not).
+      const before = fliesCount();
+      w.send({ type: "castRune", root: "shatter", hue: "unaligned", hexes: [d.hex], pour: 0 });
+      try {
+        await waitFor(() => fliesCount() > before || wTaleHas(/Shatter.*unravels|unravels/), "the volley speaks (or fizzles)", 6000);
+        volleySeen = fliesCount() > before;
+      } catch { /* cast again */ }
+    }
+    if (!volleySeen) await sleep(700);
+  }
+  ok("shatter @Table: the tap looses its pieces in reach — each piece its own shot in the tale (d20 + bonus − 2 vs AC)", volleySeen,
+    `errors=${JSON.stringify(w.errors.slice(-2))}`);
+  let streamStood = false;
+  for (let attempt = 0; attempt < 6 && !streamStood; attempt++) {
+    await ensureWave();
+    streamStood = await castNewUntil("shatter", "shatter", () => nearDark()?.hex, { heldMs: 4000 }, 4);
+    if (!streamStood) await sleep(1200);
+  }
+  ok("shatter @Table: a HELD cast stands the stream as a working", streamStood, `errors=${JSON.stringify(w.errors.slice(-2))}`);
+  let drankSeen = false;
+  if (streamStood) {
+    try { await waitFor(() => wTaleHas(/the held stream drinks 1 ✦/), "the stream drinks its first second", 20000); drankSeen = true; } catch { /* never drank */ }
+  }
+  ok("shatter @Table: the held stream DRINKS 1✦ for its second, as the spec holds", drankSeen);
+  w.ws.close();
 }
 
 wws.close();

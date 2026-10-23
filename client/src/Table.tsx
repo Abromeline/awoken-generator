@@ -37,6 +37,7 @@ import glyphBlade from "./assets/glyphs/blade.png";
 import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
+import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
 import { elementPalette } from "./palette";
 
@@ -70,8 +71,13 @@ const HUE_FILTERS: Record<string, string> = {
 const HUE_GLOWS: Record<string, string> = { unaligned: "#ffd98a", tide: "#57c8ff", sky: "#cdb9ff", stone: "#e8a33d", root: "#7dd069", fire: "#ff7a33" };
 
 interface WorkingView {
-  id: string; kind: "ward" | "rune" | "grove"; root: string; name: string; hue: string;
+  id: string; kind: "ward" | "rune" | "grove" | "spell"; root: string; name: string; hue: string;
   engine?: string;
+  /** THE NEW WORKINGS (Nigel, 2026-10-22; seated 2026-10-23):
+   *  the swarm's and the rune's clocks, for workingFx's frames. */
+  bornAt?: number;
+  struckAt?: number | null;
+  targetId?: string | null;
   ownerKey: string; ownerName: string;
   hex: string | null; hexA: string | null; hexB: string | null;
   hp: number; stops: number; charges: number;
@@ -525,6 +531,10 @@ export default function Table() {
   // element being laid). One flow, one unloading law: the
   // run stays armed across taps until it is set down.
   const [placing, setPlacing] = useState<{ kind: "ward" | "rune" | "heal" | "attune"; root: string } | null>(null);
+  // RUNE SHATTER'S HELD CAST (Nigel, 2026-10-22): the press's
+  // measure, taken at the tile's pointerdown and read at its
+  // tap — the held stream is bought by that measure.
+  const castPressAtRef = useRef<number>(0);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [callKeyInput, setCallKeyInput] = useState("");
@@ -1764,7 +1774,13 @@ export default function Table() {
       return axialDist(meTile, t) <= 1 + (you.attuneReach ?? 0);
     }
     if (placing.kind === "heal") return myUnitOn(t.id);
-    if (placing.kind === "rune") return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
+    if (placing.kind === "rune") {
+      // The new workings are not writings on a hex — the
+      // one-writing law is not theirs, as the referee holds.
+      const eng = defs[placing.root]?.engine;
+      if (eng === "bats" || eng === "holdrune" || eng === "shatter") return true;
+      return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
+    }
     if (!wardAnchor) return true; // WARDS STAND ANYWHERE (2026-10-20): any hex may anchor a ward.
     const anchor = tileById.get(wardAnchor);
     return !!anchor && axialDist(anchor, t) === 1;
@@ -1797,6 +1813,14 @@ export default function Table() {
         if (eng === "blades" || eng === "shardrain") {
           const maxT = eng === "shardrain" ? (defs[placing.root]?.numbers.maxHexes ?? 3) : (defs[placing.root]?.numbers.maxTargets ?? 3);
           setBladePicks(prev => prev.includes(t.id) ? prev.filter(x => x !== t.id) : prev.length >= maxT ? prev : [...prev, t.id]);
+          return;
+        }
+        if (eng === "bats" || eng === "holdrune" || eng === "shatter") {
+          // The new workings ride this same door; Shatter's
+          // held stream is measured by the press itself.
+          const heldMs = eng === "shatter" && castPressAtRef.current ? Math.max(0, Date.now() - castPressAtRef.current) : undefined;
+          send({ type: "castRune", root: placing.root, hexes: [t.id], ...(heldMs ? { heldMs } : {}) });
+          beginCast(t.id);
           return;
         }
         if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
@@ -2562,6 +2586,7 @@ export default function Table() {
                       points={hexCellPoints(cx, cy, TILE_SIZE)}
                       fill="transparent"
                       pointerEvents="all"
+                      onPointerDown={() => { castPressAtRef.current = Date.now(); }}
                       onClick={() => onTileTap(t)}
                       style={{ cursor: overlay || myUnitOn(t.id) ? "pointer" : "default" }}
                     />
@@ -2616,6 +2641,40 @@ export default function Table() {
                       <circle cx={w.pos.x} cy={w.pos.y} r={w.radiusPx} fill="none" stroke="#7dd069" strokeWidth={1.6} opacity={0.28 + 0.25 * fade} style={{ filter: "drop-shadow(0 0 7px #7dd069)" }} />
                       <image href={ANIMATED_GLYPH.trees} x={w.pos.x - 17} y={w.pos.y - 17} width={34} height={34} opacity={0.55 + 0.4 * fade} />
                       <text className="ts-tag" x={w.pos.x} y={w.pos.y + 27}>{w.mother ? "🌿" : "🌱"} {Math.max(0, Math.ceil(left / 1000))}s</text>
+                    </g>
+                  );
+                }
+                if (w.engine === "bats" && w.pos) {
+                  // THE SWARM (Nigel, 2026-10-22; seated
+                  // 2026-10-23): Nigel's 43 frames at the
+                  // swarm's flown position, the page's tempo.
+                  const bw = 118, bh = bw * (348 / 660);
+                  return (
+                    <g key={w.id} pointerEvents="none">
+                      <image href={batsFrameAt(nowMs)} x={w.pos.x - bw / 2} y={w.pos.y - bh / 2} width={bw} height={bh} opacity={0.95} />
+                    </g>
+                  );
+                }
+                if (w.engine === "holdrune" && w.pos) {
+                  // THE HOLD RUNE (Nigel, 2026-10-22): the
+                  // game copy's frames over its shade's head —
+                  // form and hover once, then the crash loops
+                  // for the hold (workingFx keeps the order).
+                  const hw = 168, hh = hw * (388 / 768);
+                  return (
+                    <g key={w.id} pointerEvents="none">
+                      <image href={holdRuneFrameAt(nowMs, w.bornAt ?? nowMs, w.struckAt ?? null)} x={w.pos.x - hw / 2} y={w.pos.y - hh - 26} width={hw} height={hh} opacity={0.95} />
+                    </g>
+                  );
+                }
+                if (w.engine === "shatter" && w.pos) {
+                  // THE HELD STREAM (Nigel, 2026-10-22): the
+                  // rune's pieces, cycling as they fly — the
+                  // strikes themselves ride room.strikes.
+                  const piece = SHATTER_PIECES[Math.floor(nowMs / 333) % SHATTER_PIECES.length];
+                  return (
+                    <g key={w.id} pointerEvents="none">
+                      <image href={piece} x={w.pos.x - 21} y={w.pos.y - 21} width={42} height={42} opacity={0.9} />
                     </g>
                   );
                 }

@@ -3314,6 +3314,148 @@ async function settleHomelandWorkings(ownerKey: string, tiles: any[]): Promise<v
   }
 }
 
+/* ── THE NEW WORKINGS ON THE LAND (Nigel, 2026-10-22; seated
+ * 2026-10-23 — ported whole from the Proving Ground under the
+ * porting law: counts, timings and behaviour unchanged).
+ * These three are not writings that wait on a hex: they are
+ * living effects with clocks of their own, stored in the
+ * same territory_workings ledger (their state in nums) and
+ * settled on the territory read, as every homeland reckoning
+ * is settled — lazily, from timestamps.
+ *  · BATS (spell, 5✦): the swarm hunts the STRONGEST standing
+ *    wanderer (the most body left), biting 1d4 every 3 s
+ *    IGNORING AC — three bites over a fixed 9 s, then it
+ *    dissipates. A fallen quarry sends it to the next
+ *    strongest; an empty field sends it home, and it is gone.
+ *  · HOLD RUNE (rune, 7✦): the rune forms over its target —
+ *    33 slots at ~122 ms (4026 ms) — and the HOLD BEGINS AT
+ *    THE CRASH'S FIRST STRIKE: the struck wanderer stands
+ *    held (held_until) for 3 s while the crash loops; then
+ *    the working is spent. A target fallen before the crash
+ *    takes the rune with it, as on the page.
+ *  · RUNE SHATTER (spell, 1✦): its volley lands at the cast;
+ *    a HELD cast stands here as a stream — 1✦ a second,
+ *    three pieces a second, each piece its own shot (below). */
+export const BATS_LIFE_MS = 9000;
+export const BATS_BITE_MS = 3000;
+export const HOLD_RUNE_FORM_MS = 33 * 122;
+export const HOLD_RUNE_HOLD_MS = 3000;
+export const SHATTER_RANGE = 2;
+/** One Shatter piece's shot, in the page's own reckoning:
+ *  d20 + the cast's bonus − 2 against the target's AC; a
+ *  natural 20 always strikes, a natural 1 always glances. */
+export function shatterPieceRoll(bonus: number, ac: number): { roll: number; total: number; hit: boolean } {
+  const roll = homelandDN(20);
+  const total = roll + bonus - 2;
+  return { roll, total, hit: roll === 20 || (roll !== 1 && total >= ac) };
+}
+
+async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<void> {
+  const rows = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine IN ('bats', 'holdrune', 'shatter') ORDER BY id").all(ownerKey) as any[];
+  if (!rows.length) return;
+  const now = Date.now();
+  const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
+  const saveNums = (id: number, nums: Record<string, any>): void => {
+    sqlite.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), id);
+  };
+  const drop = (id: number): void => { sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(id); };
+  const wandererById = (id: number): any => sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ? AND id = ?").get(ownerKey, id) as any;
+  const harmWanderer = async (w: any, harm: number): Promise<boolean> => {
+    const maxHp = (HOMELAND_DARK_HP[String(w.kind ?? "fray")] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
+    const cur = w.hp == null ? maxHp : Number(w.hp);
+    const next = cur - harm;
+    if (next <= 0) {
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(w.id);
+      const t = byId.get(w.tile_id);
+      await creditBattleKill(ownerKey, String(w.kind ?? "fray"), t?.element ?? null, null);
+      return true;
+    }
+    sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, w.id);
+    return false;
+  };
+  for (const w of rows) {
+    let nums: Record<string, any> = {};
+    try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
+    if (w.engine === "bats") {
+      const born = Number(nums.bornAt ?? w.created_at ?? now);
+      if (now - born >= BATS_LIFE_MS) { drop(w.id); continue; }
+      let bites = Number(nums.bites ?? 0);
+      let nextBiteAt = Number(nums.nextBiteAt ?? born + BATS_BITE_MS);
+      let targetId = nums.targetId != null ? Number(nums.targetId) : null;
+      let acted = false;
+      while (bites < 3 && now >= nextBiteAt) {
+        // The strongest standing = the most body left.
+        const foes = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
+        if (!foes.length) { drop(w.id); acted = true; break; } // an empty field sends it home to dissipate
+        foes.sort((a, b) => {
+          const hpOf = (x: any) => x.hp == null ? (HOMELAND_DARK_HP[String(x.kind ?? "fray")] ?? 3) + Math.max(0, (Number(x.lvl) || 1) - 1) : Number(x.hp);
+          return hpOf(b) - hpOf(a);
+        });
+        const target = foes[0];
+        targetId = Number(target.id);
+        await harmWanderer(target, homelandDN(4)); // 1d4, past all armor — AC is never consulted
+        bites++; nextBiteAt += BATS_BITE_MS; acted = true;
+      }
+      if (!acted && targetId != null && !wandererById(targetId)) targetId = null;
+      if (sqlite.prepare("SELECT id FROM territory_workings WHERE id = ?").get(w.id)) {
+        saveNums(w.id, { ...nums, bornAt: born, bites, nextBiteAt, targetId });
+      }
+      continue;
+    }
+    if (w.engine === "holdrune") {
+      const target = nums.targetId != null ? wandererById(Number(nums.targetId)) : null;
+      if (!target) { drop(w.id); continue; }
+      const born = Number(nums.bornAt ?? w.created_at ?? now);
+      if (!nums.struckAt) {
+        if (now - born >= HOLD_RUNE_FORM_MS) {
+          const until = now + HOLD_RUNE_HOLD_MS;
+          sqlite.prepare("UPDATE homeland_wanderers SET held_until = MAX(held_until, ?) WHERE id = ?").run(until, target.id);
+          saveNums(w.id, { ...nums, bornAt: born, struckAt: now, holdUntil: until });
+        }
+        continue;
+      }
+      if (now >= Number(nums.holdUntil ?? 0)) drop(w.id);
+      continue;
+    }
+    if (w.engine === "shatter") {
+      // The held stream, settled on the read: its seconds are
+      // charged as they pass and its pieces fired as they
+      // fall due — three a second, each its own shot at the
+      // dark standing on the aim tile.
+      const until = Number(nums.streamUntil ?? 0);
+      let nextChargeAt = Number(nums.nextChargeAt ?? until);
+      let nextPieceAt = Number(nums.nextPieceAt ?? until);
+      let starved = false;
+      while (nextChargeAt <= Math.min(now, until)) {
+        if (!(await spendEnergy(ownerKey, 1))) { starved = true; break; }
+        nextChargeAt += 1000;
+      }
+      if (!starved) {
+        const progress = await getTenderProgress(ownerKey);
+        const bonus = castModFor(progress.classKey, progress.level, "spell");
+        while (nextPieceAt <= Math.min(now, until)) {
+          nextPieceAt += 333;
+          const aimTile = byId.get(w.tile_id);
+          if (!aimTile) continue;
+          const foe = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+            .find((x: any) => {
+              if (Number(x.tile_id) === Number(w.tile_id)) return true;
+              if (x.pos_q == null || x.pos_r == null) return false;
+              const cell = axialRound(Number(x.pos_q), Number(x.pos_r));
+              return cell.q === aimTile.q && cell.r === aimTile.r;
+            });
+          if (!foe) continue;
+          const shot = shatterPieceRoll(bonus, enemyACFor(String(foe.kind ?? "fray")));
+          if (shot.hit) await harmWanderer(foe, 1);
+        }
+      }
+      if (starved || now >= until) { drop(w.id); continue; }
+      saveNums(w.id, { ...nums, nextChargeAt, nextPieceAt });
+      continue;
+    }
+  }
+}
+
 /* ══ THE REAL-TIME BATTLE ENGINE (Nigel, 2026-10-23) ═══════════
  * The homeland battle is a LIVING simulation now, and this
  * block is its whole machinery. The model, in Nigel's words as
@@ -3593,8 +3735,10 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     id: number; kind: string; tileId: number; q: number; r: number; hp: number; maxHp: number;
     power: number; lvl: number; wetUntil: number; cracked: number; lastStrikeAt: number;
     pinnedBeats: number; chewTileId: number | null; chewProgress: number; brambleCarry: number; dead: boolean; killer: number | null;
+    /** The Hold Rune's grip: held until this moment (0 = free). */
+    heldUntil: number;
   };
-  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
+  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress, held_until AS heldUntil FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
     const t = byId.get(w.tileId);
     const kind = String(w.kind ?? "fray");
     const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
@@ -3607,6 +3751,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       lastStrikeAt: Number(w.lastStrikeAt) || 0, pinnedBeats: Number(w.pinnedBeats) || 0,
       chewTileId: w.chewTileId == null ? null : Number(w.chewTileId), chewProgress: Number(w.chewProgress) || 0,
       brambleCarry: 0, dead: false, killer: null,
+      heldUntil: Number(w.heldUntil) || 0,
     };
   });
   type Fighter = {
@@ -3741,7 +3886,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     // ── THE WALK ────────────────────────────────────────
     for (const d of darks) {
       if (d.dead || lit) continue;
-      if (d.pinnedBeats > 0) continue; // a Lattice's hold: it neither wanders nor chews
+      if (d.pinnedBeats > 0 || tNow < d.heldUntil) continue; // a Lattice's hold, or the Hold Rune's: it neither wanders nor chews
       const wet = tNow < d.wetUntil;
       let pace = 1 / enemySecPerHex(d.kind, wet); // axial units per second
       pace /= crowdTax(crowdOf(d.tileId));
@@ -3799,7 +3944,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     // ── THE DARK STRIKES ────────────────────────────────
     for (const d of darks) {
       if (d.dead || lit) continue;
-      if (d.pinnedBeats > 0) continue;
+      if (d.pinnedBeats > 0 || tNow < d.heldUntil) continue;
       const wet = tNow < d.wetUntil;
       const interval = enemyStrikeMs(d.kind, wet) * crowdTax(crowdOf(d.tileId));
       if (d.lastStrikeAt === 0) { d.lastStrikeAt = tNow; continue; }
@@ -4003,8 +4148,8 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // ── Write the dark back ───────────────────────────────
   for (const d of darks) {
     if (d.dead) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(d.id); continue; }
-    sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ?, pos_q = ?, pos_r = ?, hp = ?, wet_until = ?, cracked = ?, last_strike_at = ?, pinned_beats = ?, chew_tile_id = ?, chew_progress = ? WHERE id = ?")
-      .run(d.tileId, d.q, d.r, d.hp, d.wetUntil, d.cracked, d.lastStrikeAt, d.pinnedBeats, d.chewTileId, d.chewProgress, d.id);
+    sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ?, pos_q = ?, pos_r = ?, hp = ?, wet_until = ?, cracked = ?, last_strike_at = ?, pinned_beats = ?, chew_tile_id = ?, chew_progress = ?, held_until = ? WHERE id = ?")
+      .run(d.tileId, d.q, d.r, d.hp, d.wetUntil, d.cracked, d.lastStrikeAt, d.pinnedBeats, d.chewTileId, d.chewProgress, d.heldUntil, d.id);
   }
   for (const f of fighters) {
     if (f.row.battleNextAt != null) sqlite.prepare("UPDATE field_placements SET battle_next_at = ? WHERE id = ?").run(f.row.battleNextAt, f.id);
@@ -7075,6 +7220,11 @@ export const handlers = {
       // spring, lattices pin, coils throw back — before the
       // weapon looks for its quarry among the survivors.
       await settleHomelandWorkings(ownerKey, tiles as any[]);
+      // THE NEW WORKINGS (Nigel, 2026-10-22; seated
+      // 2026-10-23): the swarm's bites, the Hold Rune's crash
+      // and grip, and Rune Shatter's held stream settle on
+      // this same read, from their own timestamps.
+      await settleTransientWorkings(ownerKey, tiles as any[]);
       // THE CURSE EATS THE WRITTEN LIGHT (Nigel, 2026-10-20):
       // the workings standing on cursed ground wither beside
       // their guests, on this same read — wards and runes are
@@ -8614,9 +8764,13 @@ export const handlers = {
       tileId: z.number().int().positive().optional(),
       dir: z.number().int().min(0).max(5).optional(),
       awakenedId: z.number().int().positive().optional(),
+      // RUNE SHATTER'S HELD CAST (Nigel, 2026-10-22): how long
+      // the tap was held — the stream it buys is reckoned by
+      // the settle, at 1✦ a second and three pieces a second.
+      heldMs: z.number().int().min(0).max(60000).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awokin to receive it.");
-    const { spellKey, tileId, dir, awakenedId } = parsed.data;
+    const { spellKey, tileId, dir, awakenedId, heldMs } = parsed.data;
     await refreshGrimoire();
     const spell = spellByKey(spellKey);
     if (!spell) badRequest("That spell is not in the book.");
@@ -8849,6 +9003,117 @@ export const handlers = {
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
         .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, slots, hp, Date.now());
       return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour: slots, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+    }
+
+    // ── THE NEW WORKINGS (Nigel, 2026-10-22; seated
+    // 2026-10-23) — Bats, the Hold Rune and Rune Shatter,
+    // cast on the land through this same door: the purse
+    // charged before the roll, a fizzle spent, as every
+    // homeland cast stands. They are not writings on a hex —
+    // the one-writing-per-hex law below is not theirs — so
+    // they branch here, before the written ground.
+    if (spell.engine === "bats" || spell.engine === "holdrune" || spell.engine === "shatter") {
+      const nowCast = Date.now();
+      if (spell.engine === "bats") {
+        // The cap (Nigel, 2026-10-22): three swarms standing
+        // for one caster — the Witch suffers no cap.
+        if (progress.classKey !== "witch") {
+          const standing = sqlite.prepare("SELECT COUNT(*) AS n FROM territory_workings WHERE owner_key = ? AND engine = 'bats'").get(ownerKey) as any;
+          if ((standing?.n ?? 0) >= 3) badRequest("Three swarms already hunt for you — the cap is three to a caster, and the Witch alone suffers none.");
+        }
+        if (!standTile) badRequest("You have no stand on this land to cast from.");
+        if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+        const cast = homelandCastRoll(progress, spell);
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+        const info = sqlite.prepare(`INSERT INTO territory_workings
+          (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+          VALUES (?, ?, 'bats', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
+          .run(ownerKey, spell.key, spell.kind, hue, standTile!.id, standTile!.q, standTile!.r,
+            JSON.stringify({ bornAt: nowCast, nextBiteAt: nowCast + BATS_BITE_MS, bites: 0, targetId: null }), nowCast);
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile!.id, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+      }
+      if (spell.engine === "holdrune") {
+        if (tileId == null) badRequest("Hold Rune needs a foe under the tap — name the hex it stands on.");
+        const tile = castTileById.get(tileId) as any;
+        if (!tile) badRequest("That hex is not on your map.");
+        assertCastReach(tile);
+        // The dark standing on the named ground: by its tile,
+        // or by its free point's cell (the living battle's
+        // tongue — a wanderer stands where its point stands).
+        const target = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+          .find((x: any) => {
+            if (Number(x.tile_id) === tileId) return true;
+            if (x.pos_q == null || x.pos_r == null) return false;
+            const cell = axialRound(Number(x.pos_q), Number(x.pos_r));
+            return cell.q === tile.q && cell.r === tile.r;
+          });
+        if (!target) badRequest("Hold Rune needs a shade under the tap — no dark stands on that ground.");
+        if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+        const cast = homelandCastRoll(progress, spell);
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+        const info = sqlite.prepare(`INSERT INTO territory_workings
+          (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+          VALUES (?, ?, 'holdrune', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
+          .run(ownerKey, spell.key, spell.kind, hue, tileId, tile.q, tile.r,
+            JSON.stringify({ bornAt: nowCast, targetId: Number(target.id), struckAt: null, holdUntil: 0 }), nowCast);
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, targetId: Number(target.id) };
+      }
+      // RUNE SHATTER — a straight shot at the named ground,
+      // 2 tiles from where he stands (the SPEC's reach).
+      if (tileId == null) badRequest("Rune Shatter fires at a hex — name the ground.");
+      const tile = castTileById.get(tileId) as any;
+      if (!tile) badRequest("That hex is not on your map.");
+      if (!standTile) badRequest("You have no stand on this land to cast from.");
+      if (hexDistTiles(standTile as any, tile as any) > SHATTER_RANGE) {
+        badRequest("Beyond reach — 2 tiles is Rune Shatter's edge.");
+      }
+      if (!(await spendEnergy(ownerKey, spell.cost))) badRequest(`Not enough energy — ${spell.name} costs ${spell.cost}.`);
+      const cast = homelandCastRoll(progress, spell);
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: spell.cost, spellKey: spell.key };
+      const bonus = castModFor(progress.classKey, progress.level, spell.kind);
+      const foe = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+        .find((x: any) => {
+          if (Number(x.tile_id) === tileId) return true;
+          if (x.pos_q == null || x.pos_r == null) return false;
+          const cell = axialRound(Number(x.pos_q), Number(x.pos_r));
+          return cell.q === tile.q && cell.r === tile.r;
+        });
+      // A tap looses the three pieces; each is its own shot.
+      const shots: { roll: number; total: number; ac: number; hit: boolean }[] = [];
+      let felledShatter = false;
+      if (foe) {
+        const ac = enemyACFor(String(foe.kind ?? "fray"));
+        const maxHp = (HOMELAND_DARK_HP[String(foe.kind ?? "fray")] ?? 3) + Math.max(0, (Number(foe.lvl) || 1) - 1);
+        let hp = foe.hp == null ? maxHp : Number(foe.hp);
+        for (let j = 0; j < 3; j++) {
+          const shot = shatterPieceRoll(bonus, ac);
+          shots.push({ ...shot, ac });
+          if (shot.hit) hp -= 1;
+          if (hp <= 0) break;
+        }
+        if (hp <= 0) {
+          sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(foe.id);
+          await creditBattleKill(ownerKey, String(foe.kind ?? "fray"), tile.element ?? null, null);
+          felledShatter = true;
+        } else if (shots.some(s => s.hit)) {
+          sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(hp, foe.id);
+        }
+      } else {
+        for (let j = 0; j < 3; j++) { const shot = shatterPieceRoll(bonus, 10); shots.push({ ...shot, ac: 10 }); }
+      }
+      // HELD: the stream stands as a working of its own —
+      // its seconds and pieces are the settle's to reckon.
+      let streamId: number | null = null;
+      const heldSeconds = Math.floor(Math.max(0, heldMs ?? 0) / 1000);
+      if (heldSeconds >= 1) {
+        const info = sqlite.prepare(`INSERT INTO territory_workings
+          (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
+          VALUES (?, ?, 'shatter', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
+          .run(ownerKey, spell.key, spell.kind, hue, tileId, tile.q, tile.r,
+            JSON.stringify({ streamUntil: nowCast + heldSeconds * 1000, nextChargeAt: nowCast + 1000, nextPieceAt: nowCast + 333 }), nowCast);
+        streamId = Number(info.lastInsertRowid);
+      }
+      return { ok: true as const, id: streamId ?? undefined, tileId, cost: spell.cost, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, shots, felled: felledShatter, hits: shots.filter(s => s.hit).length };
     }
 
     if (spell.kind === "rune" || spell.kind === "spell") {

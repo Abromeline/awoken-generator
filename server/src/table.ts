@@ -369,7 +369,7 @@ interface EnemyUnit {
  *  hangs unfed, has fallen where it must. */
 interface Working {
   id: string;
-  kind: "ward" | "rune" | "grove";
+  kind: "ward" | "rune" | "grove" | "spell";
   root: string;
   /** The Grimoire spell's engine and its numbers, snapshotted
    *  at the cast (Nigel, 2026-10-17): tuning the book changes
@@ -424,6 +424,23 @@ interface Working {
    *  ward — when that unit no longer stands on one of the
    *  ward's two hexes, the wall comes down. */
   sustainer?: string;
+  /** THE NEW WORKINGS (Nigel, 2026-10-22; seated 2026-10-23):
+   *  Bats, the Hold Rune and Rune Shatter's held stream are
+   *  living effects with clocks of their own, reckoned by
+   *  processTransientWorkings on the room's tick — the swarm's
+   *  birth and next bite and its quarry, the rune's cast
+   *  moment and the strike that begins its hold, the stream's
+   *  next piece and next charge and its end. */
+  bornAt?: number;
+  nextBiteAt?: number;
+  bites?: number;
+  targetId?: string | null;
+  heading?: number;
+  struckAt?: number | null;
+  holdUntil?: number;
+  streamUntil?: number;
+  nextPieceAt?: number;
+  nextChargeAt?: number;
 }
 
 /* The dark's body: power and hp. Its AC is NOT a stat
@@ -2274,7 +2291,11 @@ function roomPulse(room: Room): void {
   integrate(room, now);
   const changed = settleCurseWithering(room, dtMs / 1000) || settleWorkingWithering(room, dtMs / 1000);
   const attuned = settleStandingAttunement(room, dtMs / 1000);
-  if (changed || attuned) sendState(room);
+  // The new workings keep their clocks at a quiet table too
+  // (a swarm loosed before the wave is called still flies).
+  const transient = room.workings.some(w => w.engine === "bats" || w.engine === "holdrune" || w.engine === "shatter");
+  if (transient) processTransientWorkings(room, now, dtMs / 1000);
+  if (changed || attuned || transient) sendState(room);
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -2381,6 +2402,139 @@ function processGroves(room: Room, now: number): void {
           if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + 1);
         }
       }
+    }
+  }
+}
+/* ── THE NEW WORKINGS AT THE TABLE (Nigel, 2026-10-22;
+ * seated 2026-10-23 — ported whole from the Proving Ground
+ * under the porting law: counts, timings, motion and
+ * behaviour unchanged).
+ *  · BATS (spell, 5✦): the swarm flies the runic arrow's own
+ *    road on this ground — its heading steered to its goal
+ *    under the same turn clamp (3.6 rad/s), its speed checked
+ *    as it closes (170–520 px/s by the page's own measure),
+ *    wheeling on an orbit around the STRONGEST standing dark
+ *    (orbit radius 46×26 px, turning 2.4 rad/s) and biting
+ *    1d4 every 3 s when within 130 px of its quarry — past
+ *    all armor, AC never consulted. Three bites over a fixed
+ *    9 s; a fallen quarry sends it to the next strongest; an
+ *    empty field sends it home to its caster, and reaching
+ *    home (20 px) or the 9 s ends it.
+ *  · HOLD RUNE (rune, 7✦): the rune forms over its target
+ *    (33 slots × ~122 ms), and THE HOLD BEGINS AT THE CRASH'S
+ *    FIRST STRIKE — the target stands pinned 3 s while the
+ *    crash loops; then the working is spent. A target fallen
+ *    before the crash takes the rune with it.
+ *  · RUNE SHATTER (spell, 1✦): each piece is its own shot —
+ *    d20 + the cast's bonus − 2 against the target's AC, 1
+ *    damage a hit, fired in a straight shot at 700 px/s (the
+ *    page's own flight reckoning, kept here as the shot's
+ *    measure; the referee lands the harm as the piece lands).
+ *    A tap looses three pieces; HELD, the stream runs on —
+ *    1✦ a second, three pieces a second — until the held
+ *    time is spent or the purse starves. */
+export const BATS_LIFE_MS = 9000;
+export const HOLD_RUNE_FORM_MS = 33 * 122;
+export const HOLD_RUNE_HOLD_MS = 3000;
+export const SHATTER_STREAM_PIECE_MS = 333;
+export function shatterPieceHit(roll: number, bonus: number, ac: number): { total: number; hit: boolean } {
+  const total = roll + bonus - 2;
+  return { total, hit: roll === 20 || (roll !== 1 && total >= ac) };
+}
+function strongestDark(room: Room): EnemyUnit | null {
+  let best: EnemyUnit | null = null;
+  for (const e of room.dark.values()) if (!best || e.hp > best.hp) best = e;
+  return best;
+}
+function fireShatterPiece(room: Room, caster: Player, from: Pt, aimHex: string): void {
+  const aim = TILE_CENTERS.get(aimHex);
+  if (!aim) return;
+  const target = [...room.dark.values()].find(e => e.hex === aimHex) ?? null;
+  const bonus = castModFor(caster.classKey, caster.tenderLevel, "spell");
+  const ac = target ? target.armor : 10;
+  const roll = dN(20);
+  const { total, hit } = shatterPieceHit(roll, bonus, ac);
+  if (room.strikes.length < 40) {
+    room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: Date.now(), from: roundPos(from), to: roundPos(aim), element: null, side: "light", hit, killed: !!(target && hit && target.hp <= 1), weapon: "shatter" });
+  }
+  tell(room, `Rune Shatter — a piece flies: 🎲 ${roll} ${signedTerm(bonus)} − 2 (the Shatter's tax) = ${total} vs AC ${ac}${hit ? " — it strikes." : " — it glances away."}`);
+  if (target && hit) {
+    target.hp -= 1;
+    if (target.hp <= 0) fellDark(room, target, caster);
+  }
+}
+function processTransientWorkings(room: Room, now: number, dtSec: number): void {
+  for (const w of [...room.workings]) {
+    const caster = seatByKey(room, w.ownerKey) ?? null;
+    if (w.engine === "bats") {
+      if (!w.pos) { room.workings = room.workings.filter(x => x !== w); continue; }
+      if (now - (w.bornAt ?? now) >= BATS_LIFE_MS) { room.workings = room.workings.filter(x => x !== w); continue; }
+      let target = w.targetId ? room.dark.get(w.targetId) ?? null : null;
+      if (!target) { target = strongestDark(room); w.targetId = target?.id ?? null; }
+      let gx: number, gy: number, home = false;
+      if (target) {
+        const orbit = ((now - (w.bornAt ?? now)) / 1000) * 2.4 + (w.id.charCodeAt(0) % 7);
+        gx = target.pos.x + Math.cos(orbit) * 46;
+        gy = target.pos.y - 6 + Math.sin(orbit) * 26;
+      } else if (caster?.pos) { gx = caster.pos.x; gy = caster.pos.y - 58; home = true; }
+      else { room.workings = room.workings.filter(x => x !== w); continue; }
+      const want = Math.atan2(gy - w.pos.y, gx - w.pos.x);
+      let dh = want - (w.heading ?? -Math.PI / 2);
+      while (dh > Math.PI) dh -= 2 * Math.PI;
+      while (dh < -Math.PI) dh += 2 * Math.PI;
+      const turn = 3.6 * dtSec;
+      w.heading = (w.heading ?? -Math.PI / 2) + Math.max(-turn, Math.min(turn, dh));
+      const gd = Math.hypot(gx - w.pos.x, gy - w.pos.y);
+      const step = Math.max(170, Math.min(520, gd * 2.6)) * dtSec;
+      w.pos = { x: w.pos.x + Math.cos(w.heading) * step, y: w.pos.y + Math.sin(w.heading) * step };
+      if (home && Math.hypot(w.pos.x - gx, w.pos.y - gy) < 20) { room.workings = room.workings.filter(x => x !== w); continue; }
+      if (target && (w.bites ?? 0) < 3 && now >= (w.nextBiteAt ?? Infinity)) {
+        if (Math.hypot(w.pos.x - target.pos.x, w.pos.y - target.pos.y) < 130) {
+          w.bites = (w.bites ?? 0) + 1;
+          w.nextBiteAt = (w.nextBiteAt ?? now) + 3000;
+          const dmg = dN(4);
+          target.hp -= dmg;
+          tell(room, `Bats — bite ${w.bites} of 3: 1d4 = ${dmg}, past all armor (AC never consulted).`);
+          if (target.hp <= 0) { fellDark(room, target, caster); w.targetId = null; }
+        }
+      }
+      continue;
+    }
+    if (w.engine === "holdrune") {
+      const target = w.targetId ? room.dark.get(w.targetId) ?? null : null;
+      if (!target) { room.workings = room.workings.filter(x => x !== w); continue; }
+      w.hex = target.hex;
+      w.pos = { ...target.pos };
+      if (!w.struckAt) {
+        if (now - (w.bornAt ?? now) >= HOLD_RUNE_FORM_MS) {
+          w.struckAt = now;
+          w.holdUntil = now + HOLD_RUNE_HOLD_MS;
+          target.pinnedUntil = Math.max(target.pinnedUntil ?? 0, w.holdUntil);
+          tell(room, "Hold Rune — the crash lands: the hold begins (3 s), and the runes keep falling while it holds.");
+        }
+        continue;
+      }
+      if (now >= (w.holdUntil ?? 0)) room.workings = room.workings.filter(x => x !== w);
+      continue;
+    }
+    if (w.engine === "shatter") {
+      const until = w.streamUntil ?? 0;
+      if (!caster) { room.workings = room.workings.filter(x => x !== w); continue; }
+      let starved = false;
+      while ((w.nextChargeAt ?? Infinity) <= Math.min(now, until)) {
+        if (!chargePurse(room, caster, 1)) { starved = true; tell(room, "Rune Shatter — the stream starves: no ✦ left."); break; }
+        w.nextChargeAt = (w.nextChargeAt ?? now) + 1000;
+        tell(room, "Rune Shatter — the held stream drinks 1 ✦ for its second.");
+      }
+      if (!starved) {
+        const from = caster.pos ?? w.pos ?? { x: 0, y: 0 };
+        while ((w.nextPieceAt ?? Infinity) <= Math.min(now, until)) {
+          w.nextPieceAt = (w.nextPieceAt ?? now) + SHATTER_STREAM_PIECE_MS;
+          if (w.hex) fireShatterPiece(room, caster, { x: from.x, y: from.y - 58 }, w.hex);
+        }
+      }
+      if (starved || now >= until) room.workings = room.workings.filter(x => x !== w);
+      continue;
     }
   }
 }
@@ -3088,6 +3242,10 @@ async function runRound(room: Room): Promise<void> {
     // now — saplings root, groves mend and fade, and stone /
     // root hands raise their passive walls on this same tick.
     processGroves(room, now);
+    // THE NEW WORKINGS (Nigel, 2026-10-22; seated 2026-10-23):
+    // the swarm's flight and bites, the Hold Rune's crash and
+    // grip, and Rune Shatter's held stream, on this same tick.
+    processTransientWorkings(room, now, dtSec);
     maintainPassiveWalls(room, now);
     // The standing strike first — under FATE (Nigel,
     // 2026-10-17): a d20 against the dark thing's AC;
@@ -4700,7 +4858,28 @@ function handleConnection(ws: WebSocket): void {
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
         if (!TILE_BY_ID.has(hx) || hx === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: hx === SEED_TILE ? "Runes are written on the land's ground — not on the star-seed's tile." : "That is no tile of this land." })); return; }
-        if (room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
+        // The new workings are not writings on a hex — the
+        // one-writing law is not theirs (Bats flies, the Hold
+        // Rune hangs over its target, Shatter is a shot).
+        if (def.engine !== "bats" && def.engine !== "holdrune" && def.engine !== "shatter"
+          && room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
+      }
+      // THE NEW WORKINGS' OWN GATES (Nigel, 2026-10-22),
+      // judged before any charge, as the page judged them:
+      // Bats' cap of three standing swarms (the Witch suffers
+      // none), the Hold Rune's need of a shade under the tap,
+      // and Rune Shatter's 2-tile reach from the caster's
+      // standing (a seat that stands nowhere — the
+      // storytender — is measured by no ring, as with Attune).
+      if (def.engine === "bats" && caster.classKey !== "witch"
+        && room.workings.filter(w => w.engine === "bats" && w.ownerKey === caster.key).length >= 3) {
+        ws.send(JSON.stringify({ type: "error", message: "Three swarms already hunt for you — the cap is three to a caster, and the Witch alone suffers none." })); return;
+      }
+      if (def.engine === "holdrune" && !darkAt(room, hexes[0])) {
+        ws.send(JSON.stringify({ type: "error", message: "Hold Rune needs a shade under the tap." })); return;
+      }
+      if (def.engine === "shatter" && caster.hex && axialDist(caster.hex, hexes[0]) > 2) {
+        ws.send(JSON.stringify({ type: "error", message: "Beyond reach — 2 tiles is Rune Shatter's edge." })); return;
       }
       // Steady Attention (the Heart, 2026-10-18): the first
       // ward or rune of the battle costs 1✦ less — one flag,
@@ -4715,6 +4894,58 @@ function handleConnection(ws: WebSocket): void {
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
       { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
+      // ── THE NEW WORKINGS (Nigel, 2026-10-22; seated
+      // 2026-10-23): they stand here, past the roll — Bats
+      // loosed as a living swarm, the Hold Rune forming over
+      // its shade, Rune Shatter's volley fired at once and
+      // its held stream set running. Their reckoning rides
+      // processTransientWorkings on the room's tick.
+      if (def.engine === "bats" || def.engine === "holdrune" || def.engine === "shatter") {
+        if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
+        const nowC = Date.now();
+        if (def.engine === "bats") {
+          const from = caster.pos ?? TILE_CENTERS.get(caster.hex ?? "") ?? { x: 0, y: 0 };
+          room.workings.push({
+            id: randomUUID(), kind: "spell", root: def.key, engine: "bats", nums: { ...def.numbers },
+            name: def.forms[hue] ?? def.name, hue, ownerKey: caster.key, ownerName: caster.name,
+            hex: null, hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
+            pos: { x: from.x, y: from.y - 58 }, bornAt: nowC, nextBiteAt: nowC + 3000, bites: 0, targetId: null, heading: -Math.PI / 2,
+          });
+          tell(room, `${caster.name} looses ${def.forms[hue] ?? def.name} — the swarm hunts the strongest standing.`);
+        } else if (def.engine === "holdrune") {
+          const target = darkAt(room, hexes[0])!;
+          room.workings.push({
+            id: randomUUID(), kind: "rune", root: def.key, engine: "holdrune", nums: { ...def.numbers },
+            name: def.forms[hue] ?? def.name, hue, ownerKey: caster.key, ownerName: caster.name,
+            hex: target.hex, hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
+            pos: { ...target.pos }, bornAt: nowC, targetId: target.id, struckAt: null, holdUntil: 0,
+          });
+          tell(room, `${caster.name} casts ${def.forms[hue] ?? def.name} — the rune forms over the ${target.label}'s head.`);
+        } else {
+          const from = caster.pos ?? TILE_CENTERS.get(caster.hex ?? "") ?? { x: 0, y: 0 };
+          const aimHex = hexes[0];
+          // A tap looses the three pieces, 60 ms apart on the
+          // page — the referee fires them in one breath here,
+          // each its own shot (fireShatterPiece).
+          for (let j = 0; j < 3; j++) fireShatterPiece(room, caster, { x: from.x, y: from.y - 58 }, aimHex);
+          // HELD: the stream stands as a working — its
+          // seconds and pieces are the tick's to reckon.
+          const heldSeconds = Math.floor(Math.max(0, Math.min(60000, Number((msg as any).heldMs ?? 0))) / 1000);
+          if (heldSeconds >= 1) {
+            room.workings.push({
+              id: randomUUID(), kind: "spell", root: def.key, engine: "shatter", nums: { ...def.numbers },
+              name: def.forms[hue] ?? def.name, hue, ownerKey: caster.key, ownerName: caster.name,
+              hex: aimHex, hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
+              pos: { ...(TILE_CENTERS.get(aimHex) ?? from) },
+              streamUntil: nowC + heldSeconds * 1000, nextChargeAt: nowC + 1000, nextPieceAt: nowC + SHATTER_STREAM_PIECE_MS,
+            });
+            tell(room, `${caster.name} holds Rune Shatter — the pieces stream on.`);
+          }
+        }
+        caster.castAt = Date.now();
+        sendState(room);
+        return;
+      }
       if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
       // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
       // 2026-10-21), as at the ward's raising: the cast takes

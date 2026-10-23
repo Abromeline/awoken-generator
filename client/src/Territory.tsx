@@ -32,6 +32,7 @@ import grimGlyphBlade from "./assets/glyphs/blade.png";
 import grimGlyphBlades from "./assets/glyphs/blades.png";
 import grimGlyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
+import { batsFrameAt, holdRuneFrameAt } from "./workingFx";
 const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
 /** The hues of the Written Light — the grimoire's filter recipes,
  *  the same as the Table's (Table.tsx). */
@@ -868,6 +869,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // until the player sets it down, the purse refuses, or a
   // roll fizzles and the working slips from the hand.
   const [workings, setWorkings] = useState<MapWorking[]>([]);
+  // The new workings' frames ride the map's clock; while a
+  // swarm or a hold rune stands, the clock ticks at the
+  // map's own cadence so Nigel's frames play (the map is
+  // otherwise a still painting at rest).
+  const anyTransientFx = workings.some((w) => w.engine === "bats" || w.engine === "holdrune");
+  useEffect(() => {
+    if (!anyTransientFx) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
+    return () => window.clearInterval(iv);
+  }, [anyTransientFx]);
   const [grim, setGrim] = useState<GrimoireState | null>(null);
   const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
   const [castMode, setCastMode] = useState(false);
@@ -2493,7 +2504,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // through this ref, kept current every render.
   const endMapCastRunRef = useRef<() => void>(() => {});
   endMapCastRunRef.current = endMapCastRun;
-  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number }) => {
+  // RUNE SHATTER'S HELD CAST (Nigel, 2026-10-22): the tap's
+  // own measure — the press began on the map (the container's
+  // pointerdown below) and ends at the cast tap; the held
+  // stream the server stands is bought by that measure.
+  const castPressAtRef = useRef<number>(0);
+  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number; heldMs?: number }) => {
     if (!castSpell) return;
     // THE CAST GESTURE FOR WORKINGS (Nigel, 2026-10-23 —
     // "I want casting animation on homeland too"): a working
@@ -2535,6 +2551,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
       showHexNotice(castSpell.engine === "heal"
         ? `${formName} mends ${res.healed ?? 0} HP — the binding light, at your word.`
+        : castSpell.engine === "bats"
+          ? `${formName} rises — the swarm hunts the strongest dark standing, and its bites find flesh past all armour.`
+          : castSpell.engine === "holdrune"
+            ? `${formName} forms above its quarry — when the crash falls, the hold begins.`
+            : castSpell.engine === "shatter"
+              ? `${formName} shatters over the dark — ${res.hits ?? 0} of its pieces strike home${res.felled ? ", and it falls" : ""}.`
         : castSpell.engine === "springleaf"
           ? `${formName} takes root — a grove of ${res.radiusHexes ?? 1} hexes' glow; its burst mends ${res.burst ?? 0} HP, and ${res.saplings ?? 0} saplings follow.`
           : castSpell.kind === "ward"
@@ -2587,6 +2609,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
       if (tile.id === castAnchor) { setCastAnchor(null); return; }
       showHexNotice("Tap one of the glowing edges — or the anchor hex again to choose another.");
+      return;
+    }
+    if (castSpell.engine === "shatter") {
+      const heldMs = castPressAtRef.current ? Math.max(0, Date.now() - castPressAtRef.current) : 0;
+      void doCastMap({ tileId: tile.id, heldMs });
       return;
     }
     void doCastMap({ tileId: tile.id });
@@ -4761,6 +4788,42 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               </g>
             );
           }
+          if (w.engine === "bats" || w.engine === "holdrune") {
+            // THE NEW WORKINGS' OWN ART (Nigel, 2026-10-22;
+            // ported whole 2026-10-23): the swarm drawn at
+            // its quarry's standing point, the rune above
+            // its held one's head — Nigel's frames, played
+            // by workingFx at the page's own tempos. The
+            // quarry is read from the working's own numbers
+            // (the server's target), never invented here.
+            const target = w.nums.targetId != null ? wanderers.find((x) => x.id === w.nums.targetId) : undefined;
+            let fx = cx, fy = cy;
+            if (target) {
+              const tt2 = tiles.find((x) => x.id === target.tileId);
+              if (tt2) {
+                const tb = tilePos(tt2);
+                const dp2 = isoOffset(target.posQ, target.posR, size);
+                const dc2 = isoOffset(tt2.q, tt2.r, size);
+                fx = tb.cx + (dp2.px - dc2.px); fy = tb.cy + (dp2.py - dc2.py);
+              }
+            }
+            if (w.engine === "bats") {
+              const bw = size * 1.7, bh = bw * (348 / 660);
+              return (
+                <g key={w.id} opacity={0.95}>
+                  <title>{`${title} — the swarm hunts the strongest dark; ${Math.max(0, 3 - (w.nums.bites ?? 0))} bites remain.`}</title>
+                  <image href={batsFrameAt(marchNow)} x={fx - bw / 2} y={fy - bh * 0.95} width={bw} height={bh} pointerEvents="none" />
+                </g>
+              );
+            }
+            const hw = size * 2.1, hh = hw * (388 / 768);
+            return (
+              <g key={w.id} opacity={0.95}>
+                <title>{`${title} — the rune forms, crashes, and holds.`}</title>
+                <image href={holdRuneFrameAt(marchNow, w.nums.bornAt ?? marchNow, w.nums.struckAt || null)} x={fx - hw / 2} y={fy - hh * 0.92} width={hw} height={hh} pointerEvents="none" />
+              </g>
+            );
+          }
           return (
             <g key={w.id} opacity={0.92}>
               <title>{title}</title>
@@ -6270,6 +6333,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 
       <div className="territory-map"
         onPointerDown={(e) => {
+          castPressAtRef.current = Date.now();
           // Modality follows the actual input (#13 refined): a touch
           // raises mist + confirm; a mouse glows on hover and commits
           // on click. Pens count as touch — they tap like fingers.

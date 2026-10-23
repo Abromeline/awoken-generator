@@ -390,5 +390,138 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
     wRow()?.pb === 2 && latRow()?.hp === latHp0 - 2, `pb=${wRow()?.pb} latHp=${latRow()?.hp} (was ${latHp0})`);
 }
 
+/* ── §8 THE NEW WORKINGS ON THE LAND (Nigel, 2026-10-22;
+      seated 2026-10-23 — ported whole from the Proving
+      Ground): Bats hunts the strongest and bites 1d4 past
+      all armour, three bites over 9 s, capped at three
+      swarms to a caster (the Witch suffers no cap); the
+      Hold Rune's hold BEGINS at the crash — 33 slots at
+      ~122 ms after the cast — and lasts 3 s, dying with its
+      target; Rune Shatter looses three pieces, each its own
+      d20 + bonus − 2 against AC for 1 damage, reaches only
+      2 tiles, and HELD stands a stream that drinks 1✦ a
+      second and fires three pieces a second. The settle is
+      timestamp-driven, so the proofs set the workings' own
+      clocks back and let the territory read reckon them —
+      the same road a player's wait travels. */
+{
+  const wandererHp = (id) => db.prepare("SELECT hp FROM homeland_wanderers WHERE id = ?").get(id)?.hp;
+  const workingRow = (me, engine) => db.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine = ? ORDER BY id DESC").get(me, engine);
+  const setNums = (id, patch) => { const row = db.prepare("SELECT nums FROM territory_workings WHERE id = ?").get(id); const nums = { ...JSON.parse(row.nums ?? "{}"), ...patch }; db.prepare("UPDATE territory_workings SET nums = ? WHERE id = ?").run(JSON.stringify(nums), id); };
+
+  // BATS — the hunt and the bites.
+  const b = await claimTender("Bat Tender", 200); // Lv 3
+  const bt = seedTile(b.me);
+  bt(0, 0, 0); bt(1, 0, 0); bt(2, 0, 0); bt(3, 0, 0);
+  await call("chooseClass", { classKey: "witch" }, b.token);
+  setEnergy(b.me, 500);
+  const strongTile = Number(db.prepare("SELECT id FROM territory_tiles WHERE owner_key = ? AND q = 2 AND r = 0").get(b.me).id);
+  const weakTile = Number(db.prepare("SELECT id FROM territory_tiles WHERE owner_key = ? AND q = 1 AND r = 0").get(b.me).id);
+  const strongId = seedWanderer(b.me, strongTile, 10);
+  const weakId = seedWanderer(b.me, weakTile, 2);
+  const swarm = await castUntilStands(b.token, { spellKey: "bats", hue: "unaligned" });
+  ok("bats: the cast stands a swarm working on the land (spell, 5✦)", !!swarm?.id && !!workingRow(b.me, "bats"), JSON.stringify(swarm));
+  const swarmRow = workingRow(b.me, "bats");
+  setNums(swarmRow.id, { nextBiteAt: Date.now() - 1 }); // the first bite falls due
+  await terr(b.token);
+  const strongAfter1 = wandererHp(strongId);
+  ok("bats: the first bite found the STRONGEST standing (10 hp), past all armour — 1d4 gone, the weak one untouched",
+    strongAfter1 != null && strongAfter1 <= 9 && strongAfter1 >= 6 && wandererHp(weakId) === 2,
+    `strong=${strongAfter1} weak=${wandererHp(weakId)}`);
+  ok("bats: the bite is counted on the working (1 of 3)", JSON.parse(workingRow(b.me, "bats")?.nums ?? "{}").bites === 1);
+  setNums(swarmRow.id, { bites: 2, nextBiteAt: Date.now() - 1 }); // the third bite falls due
+  await terr(b.token);
+  setNums(swarmRow.id, { bornAt: Date.now() - 9001, nextBiteAt: Date.now() + 60000 }); // its 9 s spent
+  await terr(b.token);
+  ok("bats: after three bites and its 9 s the swarm is gone from the land", !workingRow(b.me, "bats"));
+
+  // BATS — the cap, and the Witch's exemption.
+  const c = await claimTender("Capped Tender", 200);
+  const ct2 = seedTile(c.me);
+  ct2(0, 0, 0); const cField = ct2(1, 0, 0);
+  await call("chooseClass", { classKey: "binder" }, c.token);
+  setEnergy(c.me, 500);
+  seedWanderer(c.me, cField, 10);
+  let stood3 = 0;
+  for (let i = 0; i < 3; i++) { if (await castUntilStands(c.token, { spellKey: "bats", hue: "unaligned" })) stood3++; }
+  ok("bats: three swarms stand for one caster", stood3 === 3 &&
+    db.prepare("SELECT COUNT(*) AS n FROM territory_workings WHERE owner_key = ? AND engine = 'bats'").get(c.me).n === 3, `stood=${stood3}`);
+  const capBefore = energyOf(c.me);
+  const capTry = await castRaw(c.token, { spellKey: "bats", hue: "unaligned" });
+  ok("bats: the fourth swarm is refused at the cap BEFORE any charge", capTry.status === 400 && energyOf(c.me) === capBefore,
+    `status=${capTry.status} energy ${capBefore}→${energyOf(c.me)}`);
+  const w = await claimTender("Witch Tender", 200);
+  const wt2 = seedTile(w.me);
+  wt2(0, 0, 0); const wField = wt2(1, 0, 0);
+  await call("chooseClass", { classKey: "witch" }, w.token);
+  setEnergy(w.me, 500);
+  seedWanderer(w.me, wField, 10);
+  let stood4 = 0;
+  for (let i = 0; i < 4; i++) { if (await castUntilStands(w.token, { spellKey: "bats", hue: "unaligned" })) stood4++; }
+  ok("bats: the Witch suffers NO cap — her fourth swarm stands", stood4 === 4, `stood=${stood4}`);
+
+  // HOLD RUNE — the hold begins at the crash.
+  const h = await claimTender("Hold Tender", 200); // Lv 3
+  const ht = seedTile(h.me);
+  ht(0, 0, 0); const hField = ht(1, 0, 0);
+  await call("chooseClass", { classKey: "runewright" }, h.token);
+  setEnergy(h.me, 500);
+  const hTarget = seedWanderer(h.me, hField, 10);
+  const holdCast = await castUntilStands(h.token, { spellKey: "holdrune", hue: "unaligned", tileId: hField });
+  ok("hold rune: the cast stands over its named shade (rune, 7✦)", !!holdCast?.id && holdCast.targetId === hTarget, JSON.stringify(holdCast));
+  const holdRow = workingRow(h.me, "holdrune");
+  const heldBefore = db.prepare("SELECT held_until AS hu FROM homeland_wanderers WHERE id = ?").get(hTarget)?.hu ?? 0;
+  ok("hold rune: before the crash the shade stands FREE (the hold has not begun)", !(heldBefore > Date.now()), `held_until=${heldBefore}`);
+  setNums(holdRow.id, { bornAt: Date.now() - 5000 }); // the form's 4026 ms are spent — the crash falls
+  await terr(h.token);
+  const heldAfter = db.prepare("SELECT held_until AS hu FROM homeland_wanderers WHERE id = ?").get(hTarget)?.hu ?? 0;
+  ok("hold rune: at the crash's first strike the hold BEGINS — held_until stands ~3 s out",
+    heldAfter > Date.now() + 1500 && heldAfter <= Date.now() + 3100, `held_until-now=${heldAfter - Date.now()}`);
+  setNums(holdRow.id, { holdUntil: Date.now() - 1 }); // the hold is spent
+  await terr(h.token);
+  ok("hold rune: when the hold ends the working is spent and gone", !workingRow(h.me, "holdrune"));
+  const hField2 = ht(2, 0, 0);
+  const hTarget2 = seedWanderer(h.me, hField2, 10);
+  const holdCast2 = await castUntilStands(h.token, { spellKey: "holdrune", hue: "unaligned", tileId: hField2 });
+  ok("hold rune: a second cast stands over the second shade", !!holdCast2?.id);
+  db.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(hTarget2); // its shade falls before the crash
+  await terr(h.token);
+  ok("hold rune: a target fallen before the crash takes the rune with it", !workingRow(h.me, "holdrune"));
+
+  // RUNE SHATTER — the volley, the reach, the held stream.
+  const s = await claimTender("Shatter Tender", 200); // Lv 3 Witch: the spell school is hers
+  const st = seedTile(s.me);
+  st(0, 0, 0); const sNear = st(1, 0, 0); const sFar = st(3, 0, 0);
+  await call("chooseClass", { classKey: "witch" }, s.token);
+  setEnergy(s.me, 500);
+  const farBefore = energyOf(s.me);
+  const farTry = await castRaw(s.token, { spellKey: "shatter", hue: "unaligned", tileId: sFar });
+  ok("shatter: a shot beyond 2 tiles is refused BEFORE any charge", farTry.status === 400 && energyOf(s.me) === farBefore,
+    `status=${farTry.status} energy ${farBefore}→${energyOf(s.me)}`);
+  const sTarget = seedWanderer(s.me, sNear, 3);
+  let volley = null;
+  for (let i = 0; i < 12 && !volley; i++) { const r = await castRaw(s.token, { spellKey: "shatter", hue: "unaligned", tileId: sNear }); if (r.status === 200 && !r.data.fizzled) volley = r.data; }
+  ok("shatter: the tap looses THREE pieces, each its own shot (hits counted on the answer)", !!volley && typeof volley.hits === "number" && volley.hits >= 0 && volley.hits <= 3, JSON.stringify(volley));
+  const sHpAfter = wandererHp(sTarget);
+  ok("shatter: the standing shade bears exactly the hits — 1 damage apiece (3 hp − hits, or fallen at 3)",
+    volley && ((volley.hits === 3 && sHpAfter == null) || sHpAfter === 3 - volley.hits), `hits=${volley?.hits} hp=${sHpAfter}`);
+  // The held stream: 1✦ a second, three pieces a second.
+  const sTarget2 = seedWanderer(s.me, sNear, 10);
+  let streamCast = null;
+  for (let i = 0; i < 12 && !streamCast; i++) { const r = await castRaw(s.token, { spellKey: "shatter", hue: "unaligned", tileId: sNear, heldMs: 3000 }); if (r.status === 200 && !r.data.fizzled) streamCast = r.data; }
+  const streamRow = workingRow(s.me, "shatter");
+  ok("shatter: a HELD cast stands the stream as a working of its own", !!streamCast && !!streamRow, JSON.stringify(streamCast));
+  const energyBeforeStream = energyOf(s.me);
+  const hpBeforeStream = wandererHp(sTarget2);
+  setNums(streamRow.id, { nextChargeAt: Date.now() - 500, nextPieceAt: Date.now() - 900, streamUntil: Date.now() + 60000 }); // one second of the stream falls due (one charge, three pieces)
+  await terr(s.token);
+  ok("shatter: the stream's passed second drank exactly 1✦", energyOf(s.me) === energyBeforeStream - 1,
+    `energy ${energyBeforeStream}→${energyOf(s.me)}`);
+  const hpAfterStream = wandererHp(sTarget2);
+  ok("shatter: the stream's due pieces (three in the second) struck for at most 1 apiece and never healed",
+    hpAfterStream != null && hpBeforeStream != null && hpAfterStream <= hpBeforeStream && hpAfterStream >= hpBeforeStream - 3,
+    `hp ${hpBeforeStream}→${hpAfterStream}`);
+}
+
 console.log(`\nHOMELAND CASTING: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

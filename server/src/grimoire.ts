@@ -102,6 +102,14 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "energyCap", label: "Most energy one Coil returns", def: 3 },
   ],
   heal: [],
+  // THE NEW WORKINGS (Nigel, 2026-10-22; seated 2026-10-23):
+  // their numbers are the rulings themselves, carried in the
+  // engines' own law (Bats' 9 s and three bites, the Hold
+  // Rune's 3 s hold, Rune Shatter's −2 and its held stream) —
+  // no tunable field stands in the book for them yet.
+  bats: [],
+  holdrune: [],
+  shatter: [],
   none: [],
 };
 
@@ -288,6 +296,69 @@ export function defaultGrimoire(): GrimoireState {
     blurb: "A doom written over up to three hexes of ground: when the dark stands on its covered ground, the sky opens once — two dice, plus one more per attunement level in the spell's element — rolled as one pool and split between every enemy standing under it.",
     numbers: {},
     forms: { unaligned: "Shard Rain", tide: "Tide Shard Rain", sky: "Sky Shard Rain", stone: "Stone Shard Rain", root: "Root Shard Rain", fire: "Fire Shard Rain" },
+    builtin: true,
+  });
+  // BATS (Nigel, 2026-10-22): a SPELL, 5 energy. A steered
+  // swarm hunts the strongest standing foe — homing like the
+  // runic arrow — and bites 1d4 every 3 seconds IGNORING AC:
+  // three bites over a fixed 9 seconds, then it dissipates.
+  // At most three swarms stand for one caster; the Witch
+  // suffers no cap. A fallen quarry sends the swarm on to
+  // the next strongest; only an empty field sends it home to
+  // dissipate there. Its art is Nigel's own 43-frame sequence.
+  // Its glyph is owed, like Shard Rain's.
+  spells.push({
+    key: "bats",
+    name: "Bats",
+    kind: "spell",
+    engine: "bats",
+    glyphId: null,
+    cost: 5,
+    blurb: "A swarm loosed at the field: it hunts the strongest standing foe, biting 1d4 every 3 seconds past all armor — three bites over 9 seconds, then it dissipates. Three swarms may hunt for one caster; the Witch suffers no cap.",
+    numbers: { level: 1 },
+    forms: { unaligned: "Bats", tide: "Tide Bats", sky: "Sky Bats", stone: "Stone Bats", root: "Root Bats", fire: "Fire Bats" },
+    builtin: true,
+  });
+  // HOLD RUNE (Nigel, 2026-10-22): a RUNE, 7 energy. Cast on
+  // a target: the rune materialises over its head, hovers a
+  // moment, then the multiplying runes come crashing down
+  // around it, holding it in place — stunned for 3 seconds.
+  // The hold BEGINS at the crash's first strike, and the
+  // crash section loops for the whole hold. Its art is
+  // Nigel's own sequence, in the condensed game copy (47
+  // slots). Its glyph is owed, like Shard Rain's.
+  spells.push({
+    key: "holdrune",
+    name: "Hold Rune",
+    kind: "rune",
+    engine: "holdrune",
+    glyphId: null,
+    cost: 7,
+    blurb: "The rune forms over the target's head and hovers — then the runes come crashing down around it and hold it in place for 3 seconds. The hold begins at the crash's first strike, and the runes keep falling for the whole hold.",
+    numbers: { level: 1 },
+    forms: { unaligned: "Hold Rune", tide: "Tide Hold Rune", sky: "Sky Hold Rune", stone: "Stone Hold Rune", root: "Root Hold Rune", fire: "Fire Hold Rune" },
+    builtin: true,
+  });
+  // RUNE SHATTER (Nigel, 2026-10-22 — its SPEC governs): a
+  // SPELL, 1 energy. It fires the individual pieces of the
+  // Hold Rune — the rune broken into its pieces — in a
+  // straight shot at the target, 2 tiles of reach. Each piece
+  // rolls d20 + the cast's bonus − 2 (a hard spell to aim)
+  // against the target's AC and deals 1 on a hit. A tap
+  // looses three pieces; HELD, the cast streams — 1 energy
+  // per second, three pieces per second, each its own shot.
+  // Its art is the Hold Rune's own glyph, in pieces — no new
+  // art. Its glyph is owed, like Shard Rain's.
+  spells.push({
+    key: "shatter",
+    name: "Rune Shatter",
+    kind: "spell",
+    engine: "shatter",
+    glyphId: null,
+    cost: 1,
+    blurb: "The Hold Rune broken into its pieces, fired in a straight shot — 2 tiles of reach, each piece at −2 to hit, 1 damage a hit. A tap looses three pieces; held, it streams three pieces a second for 1 energy a second.",
+    numbers: { level: 1 },
+    forms: { unaligned: "Rune Shatter", tide: "Tide Rune Shatter", sky: "Sky Rune Shatter", stone: "Stone Rune Shatter", root: "Root Rune Shatter", fire: "Fire Rune Shatter" },
     builtin: true,
   });
   return { glyphs, spells };
