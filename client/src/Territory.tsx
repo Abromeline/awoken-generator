@@ -9,7 +9,8 @@ import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
 
 import FieldAwoken from "./FieldAwoken";
-import { TENDER_CLASSES, tenderDirOf, tenderPose, type TenderClassId, type TenderDir } from "./tenderArt";
+import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
+import { TENDER_CLASSES, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
@@ -702,6 +703,83 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
     return () => window.clearInterval(iv);
   }, [anyPatrol, anyMarch, patrolSettingFor]);
+  // ── THE SUMMON SEQUENCE (Nigel, 2026-10-23 — the Proving
+  // Ground's theatre, ported whole; see summonFx.ts) ────────
+  // A landed summon cast leaves its reckoning here; the
+  // placements effect below plays the sequence the moment
+  // the figure stands in the field. NOTHING else raises it:
+  // not the first read, not a figure marching in, not a
+  // newborn — only the Tender's own landed cast.
+  const pendingSummonRef = useRef<{ awakenedId: number; name: string; at: number } | null>(null);
+  const prevPlacementsRef = useRef<FieldPlacement[] | null>(null);
+  // The Tender's cast gesture — the Ground's cast() — raised
+  // by castSummon at the tap, in his facing of the moment.
+  const [tenderCastAt, setTenderCastAt] = useState(0);
+  const tenderCastDirRef = useRef<TenderDir>("S");
+  // The gesture's clock: while it plays, the map's own clock
+  // ticks so tenderLayer can walk tenderArt's beats.
+  useEffect(() => {
+    if (!tenderCastAt) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), 100);
+    const to = window.setTimeout(() => { window.clearInterval(iv); setMarchNow(Date.now()); }, CAST_MS + 150);
+    return () => { window.clearInterval(iv); window.clearTimeout(to); };
+  }, [tenderCastAt]);
+  /** A tile's centre (the svg's own 500×340 measure) carried
+   *  into client coordinates through the letterboxed frame —
+   *  the fx layer's tongue. */
+  const territoryToClient = (cx: number, cy: number): { x: number; y: number } | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const k = Math.min(rect.width / 500, rect.height / 340);
+    return { x: rect.left + (rect.width - 500 * k) / 2 + cx * k, y: rect.top + (rect.height - 340 * k) / 2 + cy * k };
+  };
+  /** A standing figure's height on the screen, for a poof
+   *  whose figure is already gone: the Lv 1 measure (20 units
+   *  at the standing scale), carried through the frame. */
+  const fieldFigureHeightClient = (): number => {
+    const svg = svgRef.current;
+    if (!svg) return 73;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return 73;
+    return 20 * (0.8 + tenderZoomRef.current * 0.5) * Math.min(rect.width / 500, rect.height / 340);
+  };
+  useEffect(() => {
+    const prev = prevPlacementsRef.current;
+    prevPlacementsRef.current = placements;
+    if (!prev) return; // the first read only seeds the reckoning — the standing field plays nothing
+    const nowIds = new Set(placements.map(p => p.id));
+    // Departures take the recall's poof with them — the
+    // Ground's toggle the other way, at the figure's last tile.
+    for (const p of prev) {
+      if (nowIds.has(p.id)) continue;
+      const c = tenderTileCenter(p.tileId);
+      const pt = c ? territoryToClient(c.cx, c.cy) : null;
+      if (pt) playRecallPoof(pt.x, pt.y, fieldFigureHeightClient());
+    }
+    // The landed summon: the sequence plays at the figure
+    // itself, timed as it appears — shards converging at its
+    // ground point while the figure rises.
+    const pend = pendingSummonRef.current;
+    if (!pend) return;
+    if (Date.now() - pend.at > 5000) { pendingSummonRef.current = null; return; }
+    const prevIds = new Set(prev.map(p => p.id));
+    const stood = placements.find(p => p.awakenedId === pend.awakenedId && !prevIds.has(p.id));
+    if (!stood) return;
+    pendingSummonRef.current = null;
+    const node = document.querySelector(`g[data-summon-fig="${pend.awakenedId}"]`);
+    if (node) {
+      const rect = node.getBoundingClientRect();
+      playSummonFx(rect.left + rect.width / 2, rect.bottom, rect.height, { name: pend.name });
+      playFigureRise(node, figureArtEls(node));
+    } else {
+      const c = tenderTileCenter(stood.tileId);
+      const pt = c ? territoryToClient(c.cx, c.cy) : null;
+      if (pt) playSummonFx(pt.x, pt.y, fieldFigureHeightClient(), { name: pend.name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placements]);
   const patrolRoadOf = (p: { patrolPath?: string | null }): number[] => {
     try {
       const v = JSON.parse(p.patrolPath ?? "[]");
@@ -1709,8 +1787,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
    *  price and stands nothing, and the branch — read fresh
    *  with the field — is ready to pick again at once. */
   const castSummon = async (entry: { awakenedId: number; name: string }) => {
+    // The Tender's gesture begins with the order itself —
+    // the Proving Ground's cast() at the tap, the Table's
+    // beginCast law: he casts, and THEN the reckoning lands.
+    tenderCastDirRef.current = tenderFig?.dir ?? "S";
+    setTenderCastAt(Date.now());
     try {
       const r = await api.summonAwoken({ awakenedId: entry.awakenedId });
+      // A landed cast leaves its reckoning for the placements
+      // effect, which plays the Ground's summon sequence the
+      // moment the figure stands (see the block at marchNow).
+      if (r.summoned) pendingSummonRef.current = { awakenedId: entry.awakenedId, name: r.name, at: Date.now() };
       await refreshEnergy();
       await refreshTerritory();
       if (r.summoned) {
@@ -4084,7 +4171,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14 * awScale * lvlScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
                     )}
-                    <g style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))" }}>
+                    <g data-summon-fig={a.id} style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))" }}>
                     <FieldAwoken awoken={a} assets={assets}
                       x={kx - aws / 2} y={ky + baseAhs / 2 - ahs}
                       width={aws} height={ahs} />
@@ -4867,7 +4954,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!art) return null;
       const anchorTile = tiles.find(t => t.id === (tenderAnchorRef.current ?? tenderStand.tileId));
       const anchorC = anchorTile ? tilePos(anchorTile) : null;
-      const pose = tenderPose(art, tenderFig.dir, tenderFig.walking, tenderFig.step);
+      // A summon cast in flight outranks the stride: the
+      // Tender plays tenderArt's casting beats (the Proving
+      // Ground's cast(), CAST_BEATS and all) in the facing he
+      // cast in, for the gesture's 950 ms.
+      const castPose = tenderCastAt ? tenderCastPose(art, tenderCastDirRef.current, Date.now() - tenderCastAt) : null;
+      const pose = castPose ?? tenderPose(art, tenderFig.dir, tenderFig.walking, tenderFig.step);
       const h = 62 * zoom;
       // THE JUMP on the face: the figure rises by the stride's
       // measured height; the Sage's backflip turns the sprite

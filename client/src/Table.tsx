@@ -37,6 +37,8 @@ import glyphBlade from "./assets/glyphs/blade.png";
 import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
+import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
+import { elementPalette } from "./palette";
 
 const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain };
 
@@ -688,6 +690,13 @@ export default function Table() {
   // server's castAt echo and face their newest working.
   const castAnimRef = useRef(new Map<string, { startedAt: number; dir: TenderDir }>());
   const ownCastMarkRef = useRef(0);
+  // THE SUMMON SEQUENCE'S RECKONING (Nigel, 2026-10-23): the
+  // unit keys this screen has already seen standing, and each
+  // standing unit's last drawn ground point — the field diff
+  // below plays the Proving Ground's sequence for a unit that
+  // newly stands, and the recall's poof for one that leaves.
+  const seenUnitsRef = useRef<Set<string> | null>(null);
+  const unitAnchorRef = useRef(new Map<string, { x: number; y: number }>());
   const seenCastRef = useRef(new Map<string, number>());
   const beginCast = (targetHexId: string | null) => {
     if (!you || !shared) return;
@@ -726,6 +735,78 @@ export default function Table() {
       const dir = from && to ? tenderDirOf(to.x - from.x, to.y - from.y) : "S";
       castAnimRef.current.set(p.key, { startedAt: Date.now(), dir });
     }
+  }, [shared]);
+  // THE SUMMON SEQUENCE (Nigel, 2026-10-23 — the Proving
+  // Ground's theatre, ported whole; see summonFx.ts): the
+  // field is the programme. A player unit that newly stands
+  // after this screen's first snapshot was landed by a summon
+  // cast, and the Ground's whole sequence plays at its figure
+  // for EVERY seat at the Table — shards converging while the
+  // figure rises, the flash and poof at 640 ms, its name
+  // answering at the rise's end. A unit that leaves the field
+  // takes the recall's poof at its last ground point. The
+  // first snapshot only seeds the reckoning — no one plays
+  // for a figure already standing when a viewer arrives, and
+  // the dark (shared.dark) never plays at all: enemies are
+  // not summons.
+  useEffect(() => {
+    if (!shared) { seenUnitsRef.current = null; return; }
+    const seen = seenUnitsRef.current;
+    if (!seen) {
+      seenUnitsRef.current = new Set(shared.field.map(u => `${u.ownerKey}|${u.cardId}`));
+      return;
+    }
+    // A stage point (inside the board's pan/zoom group)
+    // carried into the fx layer's client coordinates.
+    const stageToClient = (ax: number, ay: number): { x: number; y: number } | null => {
+      const svg = svgRef.current;
+      if (!svg) return null;
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const k = Math.min(rect.width / stageBox.w, rect.height / stageBox.h);
+      return {
+        x: rect.left + (rect.width - stageBox.w * k) / 2 + (ax * view.zoom + view.pan.x - stageBox.x) * k,
+        y: rect.top + (rect.height - stageBox.h * k) / 2 + (ay * view.zoom + view.pan.y - stageBox.y) * k,
+      };
+    };
+    const unitHeightClient = (): number => {
+      const svg = svgRef.current;
+      if (!svg) return 40;
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0) return 40;
+      return 40 * view.zoom * Math.min(rect.width / stageBox.w, rect.height / stageBox.h);
+    };
+    const nowKeys = new Set<string>();
+    for (const u of shared.field) {
+      const key = `${u.ownerKey}|${u.cardId}`;
+      nowKeys.add(key);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const color = (elementPalette as unknown as Record<string, string>)[u.element] ?? null;
+      // The sequence anchors at the unit's own ground point —
+      // the anchor the figures loop just drew it at (the unit
+      // group's box runs on into its nameplate and bars, so
+      // the box is not the ground) — and the rise plays on
+      // the unit's rendered node.
+      const anchor = unitAnchorRef.current.get(key);
+      const node = Array.from(document.querySelectorAll("g[data-unit-key]")).find(n => (n as SVGGElement).dataset.unitKey === key);
+      const pt = anchor ? stageToClient(anchor.x, anchor.y) : null;
+      if (pt) playSummonFx(pt.x, pt.y, unitHeightClient(), { name: u.name, color });
+      else if (node) {
+        const rect = node.getBoundingClientRect();
+        playSummonFx(rect.left + rect.width / 2, rect.bottom, rect.height, { name: u.name, color });
+      }
+      if (node) playFigureRise(node, figureArtEls(node));
+    }
+    for (const key of Array.from(seen)) {
+      if (nowKeys.has(key)) continue;
+      seen.delete(key);
+      const anchor = unitAnchorRef.current.get(key);
+      unitAnchorRef.current.delete(key);
+      const pt = anchor ? stageToClient(anchor.x, anchor.y) : null;
+      if (pt) playRecallPoof(pt.x, pt.y, unitHeightClient());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shared]);
   // THE SLIP (Nigel, 2026-10-20): a fizzled roll ends the
   // run — the working leaves the readying and must be readied
@@ -1871,7 +1952,7 @@ export default function Table() {
       });
     const chosen = mine && selUnitId === u.cardId;
     return (
-      <g key={`u-${u.ownerKey}-${u.cardId}`} pointerEvents="none">
+      <g key={`u-${u.ownerKey}-${u.cardId}`} data-unit-key={`${u.ownerKey}|${u.cardId}`} pointerEvents="none">
         {chosen && <circle cx={ax} cy={ay - 19} r={22} fill="none" stroke="#ffd977" strokeWidth={1.6} />}
         {cutout.length
           ? cutout.map((l, i) => <image key={i} href={l.imageUrl as string} x={ax - 20} y={ay - 38} width={40} height={40} />)
@@ -1933,6 +2014,10 @@ export default function Table() {
     const unitKey = `${u.ownerKey}|${u.cardId}`;
     const anchor = smoothedPos(unitKey, u.pos);
     const ax = anchor.x + dx, ay = anchor.y - 4 + dy;
+    // The summon reckoning keeps each standing unit's ground
+    // point (a ref written in render, as smoothedPos itself
+    // is) — a departure's poof is read from it.
+    unitAnchorRef.current.set(unitKey, { x: ax, y: ay });
     figures.push({ key: `u-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, u.moving) });
   }
   for (const e of shared.dark) {
