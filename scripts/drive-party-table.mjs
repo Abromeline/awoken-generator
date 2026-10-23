@@ -47,11 +47,12 @@
 //      untouched; the member filled mid-battle (at once,
 //      under §R) stands unfielded and untouched, its fill
 //      having cost the bank nothing.
-//   §L THE PARTY LEVEL (Nigel's fold-in, 2026-10-21 11:41,
-//      corrected 11:42) — the Party skill stands on the wheel
-//      as a type of its own; untrained the party starts at 3;
-//      every 3 party levels add a spot; the Muster stars'
-//      bonus stands on top: cap = 3 + ⌊partyLevel/3⌋ + Muster.
+//   §L THE PARTY STARS (Nigel, 2026-10-22 20:24 — "each
+//      party star is a spot: +1, second-arm stars +2"; this
+//      replaces the 2026-10-21 party-level fold-in whole) —
+//      untrained the party starts at 3; every party star
+//      held adds its deepened grant: cap = 3 + the held
+//      party stars' grants, summed.
 // Run: node scripts/drive-party-table.mjs
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -191,14 +192,16 @@ async function summonCounted(c, cardId, name, nearId) {
 {
   console.log("§D the company — a composed party is the company at the wheel; the strict control");
   const P = await claimBound("Deal Tender", "pt-d");
-  // The width now comes from the Party skill (the fold-in):
-  // three Party levels bought on the wheel make the party
-  // four wide — room for the four members below.
-  await call("unlockSkill", { key: "c_hp1" }, P.token);
-  for (const k of ["party_1", "party_2", "party_3"]) await call("unlockSkill", { key: k }, P.token);
+  // The width comes from the party stars (Nigel,
+  // 2026-10-22: each party star is a spot): the road up
+  // the Heart's ring to the Wide Heart — five lawful buys,
+  // the last of them the party star itself, its +1 the
+  // whole widening — makes the party four wide, room for
+  // the four members below.
+  for (const k of ["h1", "h2", "h3", "h4", "h5"]) await call("unlockSkill", { key: k }, P.token);
   const vP = await call("getParty", {}, P.token);
-  ok("the Party skill widens this party to four before it is composed",
-    vP.partyLevel === 3 && vP.levelBonus === 1 && vP.musterBonus === 0 && vP.cap === 4, JSON.stringify(vP));
+  ok("the Wide Heart widens this party to four before it is composed — one party star held, its +1 the whole bonus",
+    vP.partyLevel === 1 && vP.levelBonus === 0 && vP.musterBonus === 1 && vP.cap === 4, JSON.stringify(vP));
   const P1 = seedAwokin(P.ownerKey, "Deal Tender", "Party One");
   const P2 = seedAwokin(P.ownerKey, "Deal Tender", "Party Two");
   const P3 = seedAwokin(P.ownerKey, "Deal Tender", "Deck Three");
@@ -293,10 +296,14 @@ async function summonCounted(c, cardId, name, nearId) {
 {
   console.log("§R the fill lands at once — the road is retired; the cast is the only gate");
   const U = await claimBound("Road Tender", "pt-u");
-  // Six Party levels on the wheel: the party stands five
-  // wide (3 + ⌊6/3⌋), as the checks below reckon.
-  await call("unlockSkill", { key: "c_hp1" }, U.token);
-  for (const k of ["party_1", "party_2", "party_3", "party_4", "party_5", "party_6"]) await call("unlockSkill", { key: k }, U.token);
+  // The road to the Company Standard, walked lawfully
+  // star by star — eighteen points of this Lv 10 life:
+  // the Heart's ring, the Warden's first arm, across the
+  // rings to the Sage's keystone and down his second arm
+  // to the ring star itself. The party stands six wide —
+  // 3 + 1 (the Wide Heart, taken on the way) + 2 (the
+  // Company Standard) — as the checks below reckon.
+  for (const k of ["h1", "h2", "h3", "h4", "h5", "h6", "h7", "w_a1", "w_a2", "s_a3", "s_a7", "s_a11", "s_a14", "s_k", "s_b1", "s_b2", "w_b2"]) await call("unlockSkill", { key: k }, U.token);
   const M1 = seedAwokin(U.ownerKey, "Road Tender", "Member One", 1);   // power 3
   const R1 = seedAwokin(U.ownerKey, "Road Tender", "Road One", 1);     // power 3
   const R4 = seedAwokin(U.ownerKey, "Road Tender", "Road Pricey", 3);  // power 9
@@ -314,7 +321,7 @@ async function summonCounted(c, cardId, name, nearId) {
   ok("the battle stands", true);
   await b.poke();
   ok("the seat's party display shows the member on the field and the open spots",
-    b.you.partyView?.members.find((m) => m.awakenedId === M1)?.standing === "field" && b.you.partyView?.openSpots === 4,
+    b.you.partyView?.members.find((m) => m.awakenedId === M1)?.standing === "field" && b.you.partyView?.openSpots === 5,
     JSON.stringify(b.you.partyView));
 
   const e0 = b.you.energy;
@@ -447,39 +454,40 @@ async function summonCounted(c, cardId, name, nearId) {
 
 /* ── §L THE PARTY LEVEL ─────────────────────────────────── */
 {
-  console.log("§L the party level — a skill of its own type; the Muster bonus on top");
+  console.log("§L the party stars — each one a spot at its deepened grant");
   const L = await claimBound("Level Tender", "pt-l");
   const v0 = await call("getParty", {}, L.token);
   ok("untrained, the party starts at 3 spots (Nigel's confirmed number)",
     v0.cap === 3 && v0.partyLevel === 0 && v0.levelBonus === 0 && v0.musterBonus === 0,
     JSON.stringify({ cap: v0.cap, partyLevel: v0.partyLevel, levelBonus: v0.levelBonus, musterBonus: v0.musterBonus }));
   const tree = await call("getSkillTree", {}, L.token);
-  ok("the wheel carries nine Party stars as a type (sector) of their own",
-    tree.nodes.filter((n) => n.sector === "party").length === 9,
-    `party-sector nodes: ${tree.nodes.filter((n) => n.sector === "party").length} of ${tree.nodes.length}`);
-  await call("unlockSkill", { key: "c_hp1" }, L.token);
-  await call("unlockSkill", { key: "party_1" }, L.token);
-  await call("unlockSkill", { key: "party_2" }, L.token);
+  ok("the wheel's party stars carry their spots as live clauses — thirteen of them stand on the roads",
+    tree.nodes.filter((n) => (n.fx ?? []).some((c) => c.verb === "company")).length === 13,
+    `company-clause nodes: ${tree.nodes.filter((n) => (n.fx ?? []).some((c) => c.verb === "company")).length} of ${tree.nodes.length}`);
+  await call("unlockSkill", { key: "h1" }, L.token);
+  await call("unlockSkill", { key: "h2" }, L.token);
   const v2 = await call("getParty", {}, L.token);
-  ok("two party levels, bought with ordinary skill points — the count holds at 3 (a spot lands every 3 levels)",
-    v2.partyLevel === 2 && v2.levelBonus === 0 && v2.cap === 3, JSON.stringify({ partyLevel: v2.partyLevel, cap: v2.cap }));
-  await call("unlockSkill", { key: "party_3" }, L.token);
+  ok("two stars bought with ordinary skill points on the road, neither of them a party star — the count holds at 3",
+    v2.partyLevel === 0 && v2.levelBonus === 0 && v2.musterBonus === 0 && v2.cap === 3,
+    JSON.stringify({ partyLevel: v2.partyLevel, cap: v2.cap }));
+  await call("unlockSkill", { key: "h3" }, L.token);
+  await call("unlockSkill", { key: "h4" }, L.token);
+  await call("unlockSkill", { key: "h5" }, L.token);
   const v3 = await call("getParty", {}, L.token);
-  ok("the third party level widens the party to 4",
-    v3.partyLevel === 3 && v3.levelBonus === 1 && v3.cap === 4, JSON.stringify({ partyLevel: v3.partyLevel, cap: v3.cap }));
-  // The Muster term: the Escort's ledger row is written
-  // directly — its road across the wheel is long, and the
-  // wheel's reaching law is proven elsewhere; the seam under
-  // proof here is that a HELD Muster star adds its clause on
-  // top of the party level's count, as it already stood.
-  db.prepare("INSERT INTO tender_skills (owner_key, skill_key, pool, created_at) VALUES (?, 'w_escort', 'tree', ?)").run(L.ownerKey, Date.now());
-  const v4 = await call("getParty", {}, L.token);
-  ok("the Muster bonus stands on top of the levels' count — the Escort's +2 makes 6",
-    v4.musterBonus === 2 && v4.cap === 6, JSON.stringify({ musterBonus: v4.musterBonus, cap: v4.cap }));
-  for (const k of ["party_4", "party_5", "party_6"]) await call("unlockSkill", { key: k }, L.token);
+  ok("the Wide Heart lands — one party star held, its +1 widens the party to 4",
+    v3.partyLevel === 1 && v3.levelBonus === 0 && v3.musterBonus === 1 && v3.cap === 4,
+    JSON.stringify({ partyLevel: v3.partyLevel, musterBonus: v3.musterBonus, cap: v3.cap }));
+  // The road onward, walked lawfully to the end: the
+  // Heart's ring out, the Warden's first arm, across the
+  // rings to the Sage's keystone and down his second arm
+  // to the Company Standard — a second-arm party star,
+  // +2 by the Deepening Rule. Eighteen points of this
+  // Lv 10 life in all, and every star on the way stands
+  // in the ledger by the wheel's own doors.
+  for (const k of ["h6", "h7", "w_a1", "w_a2", "s_a3", "s_a7", "s_a11", "s_a14", "s_k", "s_b1", "s_b2", "w_b2"]) await call("unlockSkill", { key: k }, L.token);
   const v6 = await call("getParty", {}, L.token);
-  ok("the whole formula in one count: 3 to start + 2 from six party levels + 2 from the Muster = 7 spots",
-    v6.partyLevel === 6 && v6.levelBonus === 2 && v6.musterBonus === 2 && v6.cap === 7,
+  ok("the whole reckoning in one count: 3 to start + 1 (the Wide Heart) + 2 (the Company Standard) = 6 spots — each party star a spot at its deepened grant",
+    v6.partyLevel === 2 && v6.levelBonus === 0 && v6.musterBonus === 3 && v6.cap === 6,
     JSON.stringify({ partyLevel: v6.partyLevel, levelBonus: v6.levelBonus, musterBonus: v6.musterBonus, cap: v6.cap }));
 }
 

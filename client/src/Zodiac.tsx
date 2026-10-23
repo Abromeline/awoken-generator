@@ -423,11 +423,11 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                     the same spots and deck as the Party tab.
                     No new mechanics, no second state. */}
                 <h4>Your party</h4>
-                <p className="zodiac-note small">The same party the Party tab keeps — set it from either surface; the membership is one ledger. The spots are reckoned: 3 to start, +1 for every 3 party levels, plus your Muster stars.</p>
+                <p className="zodiac-note small">The same party the Party tab keeps — set it from either surface; the membership is one ledger. The spots are reckoned: 3 to start, plus a spot for every party star you hold on the wheel — a star on a road's second arm counts two.</p>
                 {partyQ.isLoading && <p className="zodiac-note small">Your party is gathering…</p>}
                 {partyQ.data && (
                   <>
-                    <p>{partyQ.data.size} of {partyQ.data.cap} spots filled · Party Lv {partyQ.data.partyLevel ?? 0}</p>
+                    <p>{partyQ.data.size} of {partyQ.data.cap} spots filled · {partyQ.data.partyLevel ?? 0} party stars held</p>
                     {(partyQ.data.incoming ?? []).length > 0 && (
                       <p className="zodiac-note small">
                         {(partyQ.data.incoming ?? []).map(i => (
@@ -503,7 +503,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                 {partyQ.data && (
                   <>
                     <p>{partyQ.data.size} of {partyQ.data.cap} spots filled.</p>
-                    <p className="zodiac-note small">The spots are reckoned: 3 to start, +1 for every 3 party levels (your Party skill stands at level {partyQ.data.partyLevel ?? 0} → +{partyQ.data.levelBonus ?? 0}), +{partyQ.data.musterBonus ?? 0} from your Muster stars. Party levels are bought on the wheel — the Party stars, a type of their own, running south of the Heart, one skill point a level.</p>
+                    <p className="zodiac-note small">The spots are reckoned: 3 to start, plus a spot for every party star you hold — the Wide Heart in the Heart's ring grants one, and each party star on a road's second arm grants two, by the Deepening Rule. You hold {partyQ.data.partyLevel ?? 0} party stars → +{partyQ.data.musterBonus ?? 0} spots from them. Party stars are bought on the wheel like any others — they stand on the Heart's ring and on every road, one skill point apiece.</p>
                     {(partyQ.data.incoming ?? []).length > 0 && (
                       <p className="zodiac-note small">
                         {(partyQ.data.incoming ?? []).map(i => (

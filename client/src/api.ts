@@ -272,17 +272,18 @@ export interface PartyFace {
 export interface PartyView {
   members: PartyFace[];
   deck: PartyFace[];
-  /** How wide the party may stand — the party level's
-   *  reckoning: 3 to start, +1 for every 3 party levels,
-   *  plus the Muster stars' bonus (its parts ride below). */
+  /** How wide the party may stand — the party stars'
+   *  reckoning (Nigel, 2026-10-22): 3 to start, plus a
+   *  spot for every party star held, at its deepened
+   *  grant (+1 from the Heart, +2 on a second arm). */
   cap: number;
   size: number;
   level: number;
-  /** The Party skill's level (its stars held on the wheel). */
+  /** How many party stars stand held on the wheel. */
   partyLevel?: number;
-  /** Spots the party levels themselves grant: ⌊level / 3⌋. */
+  /** The abolished levels road — stands at 0 (Nigel, 2026-10-22). */
   levelBonus?: number;
-  /** Spots the Muster stars grant on top. */
+  /** Spots the held party stars grant, summed at their deepened values. */
   musterBonus?: number;
   /** Reinforcements on the road (build 2): mid-battle deck
    *  fills whose timer has not landed — they hold a spot

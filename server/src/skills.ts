@@ -87,8 +87,9 @@ export function bandBaseForLevel(level: number): number {
   return 3;
 }
 export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?: number | null): number {
-  // The Muster's width is clause law now (the Living Wheel):
-  // the seed writes +2/+2/+2/+4 onto the four company stars.
+  // The width is clause law now (the Living Wheel): the
+  // seed writes the party stars' company clauses (the Wide
+  // Heart +1; each second-arm party star +2 — zodiacLive.ts).
   // Beneath the clauses stands the level base (Nigel, 2026-10-18);
   // an unknown level (an unbound seat) keeps the old full base.
   const base = tenderLevel == null ? COMPANY_BASE : bandBaseForLevel(tenderLevel);
@@ -139,9 +140,11 @@ export function attuneReachFor(ownerKey: string | null | undefined): number {
  *  skill"): the Party skill's stars each carry one party
  *  level as a clause, and the level a Tender stands at is
  *  the sum of the levels their held stars carry. The
- *  party's WIDTH is reckoned from it in party.ts: 3 spots
- *  to start, +1 for every 3 party levels, plus the Muster
- *  clauses summed above ("company"). companyCapFor itself
+ *  party's WIDTH was reckoned from it in party.ts until
+ *  Nigel's ruling of 2026-10-22 ("each party star is a
+ *  spot") moved the reckoning onto the party stars' own
+ *  "company" clauses; this reader stands for any "party"
+ *  clauses the Starwright writes by hand. companyCapFor itself
  *  is untouched — it remains the Table's standing-band law,
  *  a different count from the party's width. */
 export function partyLevelFor(ownerKey: string | null | undefined): number {

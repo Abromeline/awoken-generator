@@ -117,12 +117,24 @@ async function mkTender(name, exp, classKey, discId) {
   return { token: claim.token, ownerKey, tt, name };
 }
 
-// A: the Lv 6 Warden — five members (the party is widened to
-// five by the Party skill: six party levels, +1 spot per 3)
-// and one owned Awokin who is NOT of the party.
+// A: the Lv 6 Warden — five members (the party is widened
+// past five by the party stars, Nigel 2026-10-22: each
+// party star is a spot — the Wide Heart's +1, bought
+// lawfully up the Heart's ring, and the Company
+// Standard's +2: cap 3 + 1 + 2 = 6) and one owned Awokin
+// who is NOT of the party.
 const A = await mkTender("Wheel Warden", 800, "warden", "disc-wheel-a");
-await call("unlockSkill", { key: "c_hp1" }, A.token);
-for (const k of ["party_1", "party_2", "party_3", "party_4", "party_5", "party_6"]) await call("unlockSkill", { key: k }, A.token);
+for (const k of ["h1", "h2", "h3", "h4", "h5"]) await call("unlockSkill", { key: k }, A.token);
+// The Company Standard (w_b2, +2) stands at the end of an
+// 18-point road — h1–h7, the Warden's first arm, across
+// the rings to the Sage's keystone, s_b1, s_b2, then the
+// ring star itself — longer than a Lv 6 life's 12 points,
+// so this drive writes its ledger row directly, as
+// drive-party-table's §L once wrote the Escort's: the
+// wheel's reaching law is proven by the zodiac drive, and
+// the seam under proof here is the width a HELD party
+// star grants under party.ts's reckoning.
+db.prepare("INSERT INTO tender_skills (owner_key, skill_key, pool, created_at) VALUES (?, 'w_b2', 'tree', ?)").run(A.ownerKey, Date.now());
 const aAlpha = mkAwokin(A.ownerKey, A.name, "Alpha", 8);
 const aBeta = mkAwokin(A.ownerKey, A.name, "Beta", 2);
 const aGamma = mkAwokin(A.ownerKey, A.name, "Gamma", 2);
@@ -167,6 +179,29 @@ const dPagekin = mkAwokin(D.ownerKey, D.name, "Pagekin", 2);
 await call("addToParty", { awakenedId: dPagekin }, D.token);
 fillers(D, 4, "DBench");
 console.log("seeded: Lv6 Warden (5 members + an outsider + bench), Lv6 Sage, Lv3 Warden, Lv10 Warder, Lv6 Page tender");
+
+// ── §G. THE WIDTH ITSELF — effect against control ─────────
+// Nigel, 2026-10-22: "each party star is a spot: +1,
+// second-arm stars +2." A tender holding NO party stars
+// caps at exactly 3 and is refused a fourth member; A,
+// holding the Wide Heart (+1) and the Company Standard
+// (+2), caps at 3 + 1 + 2 = 6.
+{
+  const F = await mkTender("Wheel Plain", 150, "warden", "disc-wheel-f");
+  const fIds = [1, 2, 3, 4].map((i) => mkAwokin(F.ownerKey, F.name, `Plain ${i}`, 2));
+  const vF0 = await call("getParty", {}, F.token);
+  ok("the control: no party stars held — the party caps at exactly 3",
+    vF0.cap === 3 && vF0.partyLevel === 0 && vF0.musterBonus === 0, JSON.stringify({ cap: vF0.cap, partyLevel: vF0.partyLevel, musterBonus: vF0.musterBonus }));
+  for (const id of fIds.slice(0, 3)) await call("addToParty", { awakenedId: id }, F.token);
+  let fRefused = null;
+  try { await call("addToParty", { awakenedId: fIds[3] }, F.token); } catch (e) { fRefused = e; }
+  ok("the control: the fourth member is refused whole — the party stands full at 3",
+    !!fRefused && /stands full/.test(fRefused.message), fRefused ? fRefused.message : "no refusal");
+  const vA0 = await call("getParty", {}, A.token);
+  ok("the effect: A's two party stars widen the party to 6 — 3 + 1 (the Wide Heart) + 2 (the Company Standard)",
+    vA0.cap === 6 && vA0.partyLevel === 2 && vA0.levelBonus === 0 && vA0.musterBonus === 3,
+    JSON.stringify({ cap: vA0.cap, partyLevel: vA0.partyLevel, levelBonus: vA0.levelBonus, musterBonus: vA0.musterBonus }));
+}
 
 // ── §0. THE SUMMONER'S POWER READER ───────────────────────
 const { summonersPowerFor } = await import("../server/dist/table.js");

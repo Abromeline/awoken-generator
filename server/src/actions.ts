@@ -3455,9 +3455,10 @@ async function partyViewFor(ownerKey: string) {
   // letting the spot look merely unfilled.
   const seat = partyBattleSeatFor(ownerKey);
   const incoming = seat ? (seat.player.incoming ?? []).map(i => ({ awakenedId: i.awakenedId, name: i.name, arrivesAt: i.arrivesAt, cost: i.cost })) : [];
-  // The count's parts ride along (Nigel, 2026-10-21): the
-  // surfaces name the formula in plain words — 3 to start,
-  // +1 for every 3 party levels, plus the Muster stars.
+  // The count's parts ride along (Nigel, 2026-10-21; the
+  // reckoning Nigel, 2026-10-22): the surfaces name the
+  // formula in plain words — 3 to start, plus a spot for
+  // every party star held, at its deepened grant.
   const count = partyCountFor(ownerKey);
   return { members, deck, cap, size: members.length, level: progress.level, incoming, partyLevel: count.partyLevel, levelBonus: count.levelBonus, musterBonus: count.musterBonus };
 }

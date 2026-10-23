@@ -40,8 +40,8 @@ export const FX_PALETTE: { verb: string; label: string; hint: string; hasElement
   { verb: "tenderHp", label: "Tender HP", hint: "the Tender's own body, at the Table and on the map's standing" },
   { verb: "heal", label: "Healing done", hint: "added to every mending the Tender works" },
   { verb: "tableEnergy", label: "Max energy at the Table", hint: "the seat's purse, and the Bastion's pool share" },
-  { verb: "company", label: "Travelling company", hint: "how many Awokin may stand at the Table at once" },
-  { verb: "party", label: "Party level", hint: "one level of the Party skill — party spots are 3, +1 for every 3 party levels, plus the Muster stars" },
+  { verb: "company", label: "Travelling company", hint: "spots beyond the party's base 3 — the wheel's party stars carry this clause (+1 from the Heart, +2 on a road's second arm) — and how many Awokin may stand at the Table at once" },
+  { verb: "party", label: "Party level", hint: "a count the party's width is no longer reckoned from (Nigel, 2026-10-22: each party star is a spot, carried as a company clause); kept on the palette for the Starwright's hand" },
   { verb: "attunement", label: "Attunement granted", hint: "standing points in a hue, raising levels, gates and pour caps", hasElement: true },
   { verb: "fellHarvest", label: "Harvest of the fell", hint: "energy when your Awokin fell the dark at the Table" },
   { verb: "roundEnergy", label: "Breath of rounds", hint: "energy returning at each battle round's start" },
@@ -59,15 +59,42 @@ const ELEMENTS = new Set(["tide", "sky", "stone", "root", "fire"]);
  *  rather than naming stars that no longer stand. */
 export const BESPOKE_IDS: string[] = [];
 
-/** The seed's clause-writing. The v2 wheel seeds NO clauses:
- *  a v2 star's deepened grant is its displayed text (the
- *  Deepening Rule), and wiring those grants into live effects
- *  is a separate build. Seeding invented clauses here would
- *  dress unwired stars as working ones, so the seed is
- *  honestly empty; the fx readers in skills.ts sum over held
- *  clauses and return 0s until the effects build writes real
- *  ones (the Starwright may also write clauses by hand). */
-const SEED_FX: Record<string, FxClause[]> = {};
+/** The seed's clause-writing. Most v2 stars still seed NO
+ *  clauses — their deepened grants are displayed text (the
+ *  Deepening Rule) until the effects build seats them, and
+ *  seeding invented clauses would dress unwired stars as
+ *  working ones (the Starwright may also write clauses by
+ *  hand). The ONE family wired so far is the party stars
+ *  (Nigel, 2026-10-22 20:24: "each party star is a spot:
+ *  +1, second-arm stars +2"): every star whose grant is a
+ *  party-size grant carries it as a "company" clause at
+ *  its deepened value — the Wide Heart +1 from the Heart
+ *  (×1), and +2 from each road's second arm (×2) — and
+ *  party.ts reckons the party's width from these clauses
+ *  (companyCapFor reads the same sum for the Table's
+ *  standing band, as both counts always read one sum).
+ *  The full list, from the design of record
+ *  (zodiac-tree-design-v2-nodes.csv): h5; w_b2, w_b7,
+ *  w_b10, w_b16; r_b4, r_b8, r_b16; b_b3, b_b6, b_b12;
+ *  wi_b7, wi_b11 — thirteen stars, no others. (A graph
+ *  already persisted at this wheel's version serves as
+ *  it stands, so a world seeded before this wiring keeps
+ *  its empty clauses until its graph is re-seeded.) */
+const SEED_FX: Record<string, FxClause[]> = {
+  h5: [{ verb: "company", amount: 1 }],
+  w_b2: [{ verb: "company", amount: 2 }],
+  w_b7: [{ verb: "company", amount: 2 }],
+  w_b10: [{ verb: "company", amount: 2 }],
+  w_b16: [{ verb: "company", amount: 2 }],
+  r_b4: [{ verb: "company", amount: 2 }],
+  r_b8: [{ verb: "company", amount: 2 }],
+  r_b16: [{ verb: "company", amount: 2 }],
+  b_b3: [{ verb: "company", amount: 2 }],
+  b_b6: [{ verb: "company", amount: 2 }],
+  b_b12: [{ verb: "company", amount: 2 }],
+  wi_b7: [{ verb: "company", amount: 2 }],
+  wi_b11: [{ verb: "company", amount: 2 }],
+};
 function seedGraph(): ZodiacGraph {
   const nodes: LiveNode[] = ZODIAC_NODES.map(n => {
     const fx: FxClause[] = [...(SEED_FX[n.id] ?? [])];
