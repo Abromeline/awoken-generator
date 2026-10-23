@@ -33,7 +33,7 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // imports this module; the binding is only ever called at
 // request time, long after both modules stand.)
 import { castModFor, partyBattleSeatFor } from "./table.js";
-import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
@@ -2136,6 +2136,19 @@ async function getWorldMood(): Promise<WorldMoodState> {
   const mood = firstReign ? "quiet" : rollWorldMood(lastMood);
   const endsAt = new Date(now + worldMoodReignMs(mood, firstReign)).toISOString();
   const stored = await storeWorldMood({ mood, description: MOOD_DESCRIPTIONS[mood], endsAt });
+  // THE WEATHER CHANGE, COUNTED (the battle engine, Nigel
+  // 2026-10-23): every NEW reign — and only a new reign; the
+  // cut-short leftover above keeps the sky it was under — is
+  // one turn of the escalation clock. The count lives in
+  // settings beside the sky itself, so every Tender's wave
+  // intensity reckons from the same weather.
+  if (!firstReign) {
+    try {
+      const cur = sqlite.prepare("SELECT value FROM settings WHERE key = 'weather_reign_count'").get() as { value: string } | undefined;
+      const n = (cur ? Number(JSON.parse(cur.value)) || 0 : 0) + 1;
+      sqlite.prepare("INSERT INTO settings (key, value) VALUES ('weather_reign_count', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(n));
+    } catch { /* the count is bookkeeping; the sky never waits on it */ }
+  }
   // A new reign is the one moment the Voice speaks the weather —
   // fire-and-forget, so no reader ever waits on Discord.
   void announceWeatherReign(mood, endsAt);
@@ -2576,6 +2589,59 @@ async function damagePlacement(
     .set({ hp: newHp })
     .where(eq(schema.fieldPlacements.id, placement.id));
   return { hp: newHp, maxHp, dissipated: false };
+}
+
+/** THE SHIELD ROLL (the shield law, Nigel 2026-10-22): an
+ *  Awokin's shield pool is the SUM of its parts, each part
+ *  rolling its own element's die (Sky d4 · Root d6 · Tide d8 ·
+ *  Stone d12 · Fire d10 — HOMELAND_FATE_DIE carries the same
+ *  table), rolled as the figure takes the field. The Table's
+ *  older toughness × one-die reading is NOT this law; the
+ *  homeland keeps the per-part sum. */
+async function rollShieldFor(awakenedId: number): Promise<number> {
+  const payload = await awakenedPayloadById(awakenedId);
+  const layers = (payload?.layers ?? []) as { element?: string | null }[];
+  let pool = 0;
+  for (const l of layers) pool += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
+  return pool;
+}
+
+/** Wound a placement through its shield: the pool burns
+ *  before the body, always (the shield law). Legacy standings
+ *  whose shield was never rolled roll it here, at the first
+ *  blow that finds them — the roll is the summoning's, only
+ *  its bookkeeping waited. Returns what damagePlacement
+ *  returns, plus the shield that remains. */
+async function damagePlacementShielded(
+  placement: PlacementRow,
+  damage: number
+): Promise<{ hp: number; maxHp: number; dissipated: boolean; shield: number }> {
+  let shield = placement.shield == null ? null : Number(placement.shield);
+  let shieldMax = placement.shieldMax == null ? null : Number(placement.shieldMax);
+  if (shield === null || shieldMax === null) {
+    shieldMax = await rollShieldFor(placement.awakenedId);
+    shield = shieldMax;
+    await db.update(schema.fieldPlacements)
+      .set({ shield, shieldMax })
+      .where(eq(schema.fieldPlacements.id, placement.id));
+    placement.shield = shield; placement.shieldMax = shieldMax;
+  }
+  let rest = Math.max(0, damage);
+  if (rest > 0 && shield > 0) {
+    const absorbed = Math.min(shield, rest);
+    shield -= absorbed; rest -= absorbed;
+    await db.update(schema.fieldPlacements)
+      .set({ shield })
+      .where(eq(schema.fieldPlacements.id, placement.id));
+    placement.shield = shield;
+  }
+  if (rest <= 0) {
+    const maxHp = await placementMaxHp(placement.awakenedId);
+    return { hp: placement.hp ?? maxHp, maxHp, dissipated: false, shield };
+  }
+  const res = await damagePlacement(placement, rest);
+  if (res.dissipated) return { ...res, shield: 0 };
+  return { ...res, shield };
 }
 
 // Standalone game config loader (used by both handlers and internal functions)
@@ -3233,15 +3299,725 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
 async function settleHomelandWorkings(ownerKey: string, tiles: any[]): Promise<void> {
   const rows = sqlite.prepare("SELECT id, tile_id AS tileId FROM territory_workings WHERE owner_key = ? AND kind IN ('rune', 'spell') ORDER BY id").all(ownerKey) as { id: number; tileId: number }[];
   for (const r of rows) {
+    // The kind is read BEFORE the spring — the spring itself
+    // removes the felled row.
+    const wrow = sqlite.prepare("SELECT kind FROM homeland_wanderers WHERE owner_key = ? AND tile_id = ?").get(ownerKey, r.tileId) as any;
     const res = await springHomelandWorking(ownerKey, r.id, tiles);
-    // THE FELL DRIP: a wanderer the written light beat pays
-    // as any beaten creature pays (Nigel, 2026-10-20).
+    // A wanderer the written light beat pays its whole
+    // bounty as any beaten creature pays (Nigel, 2026-10-20
+    // the drip; 2026-10-23 the protection and the shadow):
+    // creditBattleKill carries all three, the drip inside it.
     if (res.felled) {
       const t = tiles.find((x: any) => x.id === r.tileId);
-      await payFellDrip(ownerKey, t?.element ?? null);
+      await creditBattleKill(ownerKey, String(wrow?.kind ?? "fray"), t?.element ?? null, null);
     }
   }
 }
+
+/* ══ THE REAL-TIME BATTLE ENGINE (Nigel, 2026-10-23) ═══════════
+ * The homeland battle is a LIVING simulation now, and this
+ * block is its whole machinery. The model, in Nigel's words as
+ * recorded (2026-10-23 10:28 + the 10:37 corrections):
+ * cadence is the world's real-time clock — no turns; enemies
+ * walk FREELY like the Proving Ground's shades, never locked
+ * to hexes, slower than Awoken, and they BITE: Awoken first,
+ * then the tiles themselves, spreading the curse. Awoken
+ * answer by their orders — attack engages what comes in
+ * range, defence holds ground and raises its works, binding
+ * heals, and NO ORDERS DEFAULTS TO ATTACK. Crowding taxes
+ * the pace of movement and battle alike (x n/4 beyond four,
+ * the gate's own math). Kills bank PROTECTION (the enemy's
+ * AC bonus above 10, in minutes — a Fray buys one minute)
+ * and may pay Shadow Matter by the same number; the
+ * LIGHTHOUSE — lit by the Tender's own hand, never by
+ * default — spends the banked minutes, drinks Shadow Matter
+ * for its upkeep while it burns, holds all spawning shut,
+ * pushes the standing waves back and resets the wave
+ * intensity to 1; unlit, every weather change steps the
+ * intensity up. Everything settles lazily from timestamps on
+ * the map read, as the marches and the wanderers taught the
+ * homeland to reckon — there is no daemon.
+ *
+ * Numbers and their ground, stated once here:
+ *  · Enemy AC and the bounty number: enemyACFor /
+ *    enemyArmorBonus (enemyAC.ts) — the workshop record's law.
+ *  · Enemy HP: the Fray's 3 is HOMELAND_FRAY_HP (the Table's
+ *    body); the other kinds stand at 2 + their AC bonus
+ *    (Hollow 4, Unraveler 5, Tangle 7) — DERIVED from the
+ *    Fray anchor, flagged for Nigel.
+ *  · Enemy power (d6 rolled per blow): Fray 1, Hollow 1,
+ *    Unraveler 2, Tangle 2 — DERIVED, flagged. A Hollow's
+ *    landed blow drains the Tender's energy instead of
+ *    blood (the Table roster's own note for the kind).
+ *  · Enemy speed: the Table's DARK_SPEED scale, made time —
+ *    pace seconds per hex = twice the neutral march (6s; the
+ *    "slower than Awoken" law against MARCH_SECONDS_PER_HEX
+ *    neutral 3.0) shaped by 5/(speed+4), the darkIntervalMs
+ *    form; strike interval = 2800ms x 5/(speed+4), the
+ *    Table's own cadence made homeland law.
+ *  · Awoken strike cadence by dominant element — the Proving
+ *    Ground's attack-speed table (Stone 1750 · Root 1500 ·
+ *    Tide 1250 · Sky 1000; Fire unranked there and stands at
+ *    the Root anchor 1500, FLAGGED), taxed by crowding.
+ *  · Awoken reach: HOMELAND_ELEMENT_REACH (the grimoire's own
+ *    "elemental reaches for the company": stone 1, root 2,
+ *    fire 2, tide 3, sky 4). Enemy bite reach: 1.35 axial —
+ *    DERIVED (adjacent centres stand 1.0 apart; a figure at a
+ *    tile's edge must still reach its neighbour's heart).
+ *  · Combat math is the standing law mirrored both ways:
+ *    d20 + bonus vs AC (an Awokin's AC is its TOUGHNESS, as
+ *    the Table reckons a victim's, plus the Sage's company
+ *    +2 where she leads), damage by the AC-ratio equation
+ *    with the full AC (homelandFateMitigate), shields burn
+ *    before HP, a natural 20 always lands (and doubles the
+ *    dice), a natural 1 always misses. No 4+ faces anywhere.
+ *  · Elemental flavours are the Proving Ground's rulings
+ *    (Nigel, 2026-10-22): Sky strikes SHOVE the struck dark
+ *    floor(sky/3) tiles; Tide strikes leave it WET (10s, the
+ *    PG's pencil): its speed drops 2 on the Table's scale
+ *    and Sky strikes land +2 on it; Stone strikes CRACK:
+ *    -1 AC a hit to -3; a Root Awokin answers a landed blow
+ *    with THORNS, 1 + her Root aspects, no roll on the answer.
+ *  · Defence works are the PG's stance bonuses seated: a
+ *    Root defender grows BRAMBLE ahead of her (nodes = her
+ *    parts — "the spread is her body"; a node carries her
+ *    toughness in HP, FLAGGED), a Stone defender raises a
+ *    ROCK WALL on a line ahead (count 3 + floor(level/3),
+ *    cap 6; each rock's HP by level 5,6,6,7,8,8,9,9,10 —
+ *    Nigel's table). Rocks BLOCK a walk outright and are
+ *    hacked at 1 a strike (the PG's WALL_HACK_DMG pencil);
+ *    bramble slows the dark that pushes through it by half
+ *    and answers with 1 thorn a beat.
+ *  · The DEFENCE BONUS on strikes: no standing number exists
+ *    in code or law for a defender's blows on this ground —
+ *    defenders strike with the unmodified math and raise
+ *    their works. FLAGGED, uninvented.
+ *  · Spreading the curse: a bite worries a pure tile; when
+ *    the worried harm meets the curse's own HP for that
+ *    ground (curseHpFor, 4 + 6 x ring under the standing
+ *    mood law) the tile turns. Seed-calm is not netted out
+ *    of the threshold here (the grind's own reckoning uses
+ *    the plain ring likewise) — FLAGGED as the reading.
+ *  · The light takes its own: dark standing on purified
+ *    ground withers at the curse attrition's own mirrored
+ *    rate (0.01 x (ring+1) of its greatest health per 2.8s),
+ *    and a withering death pays nothing — no blow beat it.
+ * ════════════════════════════════════════════════════════════ */
+export const HOMELAND_DARK_HP: Record<string, number> = { fray: 3, hollow: 4, unraveler: 5, tangle: 7 };
+export const HOMELAND_DARK_POWER: Record<string, number> = { fray: 1, hollow: 1, unraveler: 2, tangle: 2 };
+export const HOMELAND_DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
+export const AWOKEN_STRIKE_MS: Record<string, number> = { sky: 1000, tide: 1250, root: 1500, stone: 1750, fire: 1500, neutral: 1500 };
+const BATTLE_BEAT_MS = 2800;
+const ENEMY_BITE_REACH = 1.35;
+const ENEMY_BASE_SEC_PER_HEX = 6; // twice the neutral march — the "slower than Awoken" law
+const WET_MS = 10000; // the Proving Ground's pencil for Wet's length
+const WALL_HACK_DMG = 1; // the Proving Ground's pencil: a shade's blow hacked into stone
+const ROCK_WALL_HP_BY_LEVEL = [5, 6, 6, 7, 8, 8, 9, 9, 10];
+const DEFENCE_WORK_ENGAGE = 2.5; // a work is raised when the dark comes within her reach + this
+/** THE LIGHTHOUSE'S SHADOW UPKEEP — UNRULED (Nigel to set):
+ *  while the light burns it drinks this much Shadow Matter
+ *  per minute lit, on top of the banked minutes it spends.
+ *  When the hoard cannot pay, the light gutters out at the
+ *  hour the fuel runs dry — protection is never silently
+ *  free. */
+export const LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE = 1;
+/** Presence, for the protection pause: the lighthouse's burn
+ *  is settled only across map-read gaps no longer than this —
+ *  a longer silence is the Tender away (home screen, or
+ *  gone), and away hours burn nothing. DERIVED, flagged. */
+const PROTECTION_ONLINE_GAP_MS = 5 * 60 * 1000;
+
+function axialDist(a: { q: number; r: number }, b: { q: number; r: number }): number {
+  return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+}
+/** The tile a free point stands in: axial (cube) rounding. */
+function axialRound(q: number, r: number): { q: number; r: number } {
+  const x = q, z = r, y = -x - z;
+  let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+  const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+  if (dx > dy && dx > dz) rx = -ry - rz;
+  else if (dy > dz) ry = -rx - rz;
+  else rz = -rx - ry;
+  return { q: rx, r: rz };
+}
+/** An enemy kind's walking pace, seconds per hex: the base
+ *  slowness shaped by its speed on the Table's scale, and
+ *  Wet's -2 read on the same scale. */
+function enemySecPerHex(kind: string, wet: boolean): number {
+  const speed = HOMELAND_DARK_SPEED[kind] ?? 1;
+  const s = wet ? speed - 2 : speed;
+  return ENEMY_BASE_SEC_PER_HEX * 5 / (s + 4);
+}
+function enemyStrikeMs(kind: string, wet: boolean): number {
+  const speed = HOMELAND_DARK_SPEED[kind] ?? 1;
+  const s = wet ? speed - 2 : speed;
+  return Math.round(BATTLE_BEAT_MS * 5 / (s + 4));
+}
+function crowdTax(n: number): number { return n > 4 ? n / 4 : 1; }
+function fateStep(level: number): number { return Math.floor(Math.max(1, level) / 3); }
+
+/** The weather's escalation clock: how many reigns have
+ *  turned since the world began counting (settings, written
+ *  by getWorldMood's roll — the ONE weather clock; no second
+ *  is built here). */
+function weatherReignCount(): number {
+  try {
+    const row = sqlite.prepare("SELECT value FROM settings WHERE key = 'weather_reign_count'").get() as { value: string } | undefined;
+    return row ? Number(JSON.parse(row.value)) || 0 : 0;
+  } catch { return 0; }
+}
+
+type BattleStateView = { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number };
+
+/** The battle ledgers as the map serves them (read-only). */
+async function battleStateView(ownerKey: string): Promise<BattleStateView> {
+  const row = sqlite.prepare("SELECT shadow_matter AS shadow, protection_bank_ms AS bank, lighthouse_lit AS lit, wave_intensity AS intensity FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  if (!row) return { shadowMatter: 0, protectionBankMs: 0, lighthouseLit: false, waveIntensity: 1 };
+  return {
+    shadowMatter: Math.max(0, Number(row.shadow) || 0),
+    protectionBankMs: Math.max(0, Number(row.bank) || 0),
+    lighthouseLit: Number(row.lit) === 1,
+    waveIntensity: Math.max(1, Number(row.intensity) || 1),
+  };
+}
+
+/** A kill on the Tender's land pays its bounty, whoever's
+ *  hand struck it (Nigel, 2026-10-23): PROTECTION minutes
+ *  equal to the kind's AC bonus above 10 bank at once; the
+ *  SHADOW roll (20%) pays the same number into the hoard;
+ *  the energy drip pays as it always has (payFellDrip, the
+ *  live 20% — one roll, the ground's element or chance's).
+ *  A kill struck by an Awokin's own blow also grants that
+ *  Awokin its attack event XP; the written light's kills
+ *  grant none, as before. Withering deaths never reach here:
+ *  the light takes its own and pays nothing. */
+async function creditBattleKill(ownerKey: string, kind: string, groundElement: string | null, killerAwakenedId: number | null): Promise<void> {
+  const bonus = enemyArmorBonus(kind);
+  if (bonus > 0) {
+    sqlite.prepare("UPDATE tender_progress SET protection_bank_ms = protection_bank_ms + ? WHERE owner_key = ?")
+      .run(Math.round(bonus * 60000), ownerKey);
+    if (Math.random() < 0.2) {
+      sqlite.prepare("UPDATE tender_progress SET shadow_matter = shadow_matter + ? WHERE owner_key = ?")
+        .run(bonus, ownerKey);
+    }
+  }
+  await payFellDrip(ownerKey, groundElement);
+  if (killerAwakenedId != null) {
+    const scratch = new Map<number, XpGainReport>();
+    await grantEventXp(scratch, killerAwakenedId, XP_PER_ATTACK);
+  }
+}
+
+/** PROTECTION + THE LIGHTHOUSE, settled (Nigel, 2026-10-23,
+ *  as amended 10:48): the light is OFF by default and lit
+ *  only by the Tender's hand (setLighthouse). While lit, the
+ *  banked minutes burn — but only across the hours he is
+ *  present: the burn is reckoned between homeland reads, and
+ *  a silence longer than the presence gap burns nothing
+ *  (returning to the home screen pauses the timer; the
+ *  banked remainder persists untouched). The light also
+ *  drinks its shadow upkeep (LIGHTHOUSE_SHADOW_UPKEEP_PER_
+ *  MINUTE, UNRULED); when the hoard runs dry mid-burn the
+ *  light gutters out at the hour the fuel ends — the minutes
+ *  it never burned stay banked. While lit: no spawning (the
+ *  spawn pass reads the same flag), the standing dark is
+ *  PUSHED BACK (driven off the land, no bounty — peace, not
+ *  victory), and the wave intensity stands reset at 1 under
+ *  the current reign. Unlit: the intensity steps up once per
+ *  weather change since the reset mark. */
+async function settleProtection(ownerKey: string): Promise<void> {
+  const row = sqlite.prepare("SELECT shadow_matter AS shadow, protection_bank_ms AS bank, lighthouse_lit AS lit, lighthouse_settled_at AS settledAt, wave_intensity AS intensity, intensity_reign_mark AS mark FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  if (!row) return;
+  const now = Date.now();
+  const reigns = weatherReignCount();
+  let shadow = Math.max(0, Number(row.shadow) || 0);
+  let bank = Math.max(0, Number(row.bank) || 0);
+  let lit = Number(row.lit) === 1;
+  let intensity = Math.max(1, Number(row.intensity) || 1);
+  let mark = row.mark == null ? null : Number(row.mark);
+  if (mark === null) { mark = reigns; intensity = 1; }
+  if (lit) {
+    const settledAt = row.settledAt == null ? now : Number(row.settledAt);
+    const gap = Math.max(0, now - settledAt);
+    let burnMs = gap <= PROTECTION_ONLINE_GAP_MS ? gap : 0;
+    if (burnMs > 0) {
+      // The upkeep drinks first in the reckoning: the light
+      // burns only while BOTH the bank and the fuel last.
+      const fuelMs = LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE > 0
+        ? Math.floor((shadow / LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE) * 60000)
+        : Number.POSITIVE_INFINITY;
+      const litMs = Math.min(burnMs, bank, fuelMs);
+      shadow -= (litMs / 60000) * LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE;
+      bank -= litMs;
+      if (litMs < burnMs) lit = false; // the bank or the fuel ran dry mid-burn
+      if (bank <= 0) { bank = 0; lit = false; }
+    }
+    if (lit) {
+      // THE PUSHBACK: while the light burns, the standing
+      // waves are driven off the land — they flee; nothing
+      // is killed and nothing is paid.
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(ownerKey);
+      intensity = 1; mark = reigns;
+    }
+  } else {
+    intensity = 1 + Math.max(0, reigns - mark);
+  }
+  sqlite.prepare("UPDATE tender_progress SET shadow_matter = ?, protection_bank_ms = ?, lighthouse_lit = ?, lighthouse_settled_at = ?, wave_intensity = ?, intensity_reign_mark = ? WHERE owner_key = ?")
+    .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), lit ? 1 : 0, now, intensity, mark, ownerKey);
+}
+
+/** THE LIVING BATTLE, settled on the map read. One settle
+ *  never reckons more than a minute of world (the wanderer
+ *  watermark's own cap), walked in half-second sub-steps so
+ *  movement, strikes and deaths interleave as they would
+ *  lived: a figure felled mid-window strikes no more. */
+async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId: number | null, woundTender: (ownerKey: string, damage: number) => Promise<void>): Promise<void> {
+  const prow = sqlite.prepare("SELECT battle_watermark AS wm, lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  if (!prow) return;
+  const now = Date.now();
+  if (prow.wm == null) {
+    sqlite.prepare("UPDATE tender_progress SET battle_watermark = ? WHERE owner_key = ?").run(now, ownerKey);
+    return;
+  }
+  const elapsed = Math.min(Math.max(0, now - Number(prow.wm)), 60000);
+  sqlite.prepare("UPDATE tender_progress SET battle_watermark = ? WHERE owner_key = ?").run(now, ownerKey);
+  const lit = Number(prow.lit) === 1;
+  const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
+  const byKey = new Map<string, any>(tiles.map((t: any) => [`${t.q},${t.r}`, t]));
+  const mood = (await getWorldMood()).mood;
+  const progress = await getTenderProgress(ownerKey);
+  const sageCompany = progress.classKey === "sage";
+
+  // ── The field, loaded once and carried in memory ──────
+  type Dark = {
+    id: number; kind: string; tileId: number; q: number; r: number; hp: number; maxHp: number;
+    power: number; lvl: number; wetUntil: number; cracked: number; lastStrikeAt: number;
+    pinnedBeats: number; chewTileId: number | null; chewProgress: number; brambleCarry: number; dead: boolean; killer: number | null;
+  };
+  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
+    const t = byId.get(w.tileId);
+    const kind = String(w.kind ?? "fray");
+    const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
+    return {
+      id: Number(w.id), kind, tileId: Number(w.tileId),
+      q: w.posQ == null ? (t?.q ?? 0) : Number(w.posQ), r: w.posR == null ? (t?.r ?? 0) : Number(w.posR),
+      hp: w.hp == null ? maxHp : Number(w.hp), maxHp,
+      power: Math.max(1, Number(w.power) || (HOMELAND_DARK_POWER[kind] ?? 1)), lvl: Math.max(1, Number(w.lvl) || 1),
+      wetUntil: Number(w.wetUntil) || 0, cracked: Number(w.cracked) || 0,
+      lastStrikeAt: Number(w.lastStrikeAt) || 0, pinnedBeats: Number(w.pinnedBeats) || 0,
+      chewTileId: w.chewTileId == null ? null : Number(w.chewTileId), chewProgress: Number(w.chewProgress) || 0,
+      brambleCarry: 0, dead: false, killer: null,
+    };
+  });
+  type Fighter = {
+    row: any; id: number; awakenedId: number; tileId: number; q: number; r: number;
+    stance: string; power: number; toughness: number; level: number; dominant: string;
+    elSum: Record<string, number>; rootAspects: number; partCount: number; hp: number; maxHp: number; shield: number | null; shieldMax: number | null;
+    nextAt: number; marching: boolean; dead: boolean;
+  };
+  const placementRows = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+  const fighters: Fighter[] = [];
+  const xpDefensePaid = new Set<number>();
+  for (const p of placementRows) {
+    const payload = await awakenedPayloadById(p.awakenedId);
+    if (!payload) continue;
+    const layers = (payload.layers ?? []) as { element?: string | null; power?: number }[];
+    const elSum: Record<string, number> = {};
+    for (const l of layers) { const el = l.element ?? "neutral"; elSum[el] = (elSum[el] ?? 0) + (l.power ?? 0); }
+    let rootAspects = 0;
+    const awRow = sqlite.prepare("SELECT composition_json AS comp, experience FROM awakened WHERE id = ?").get(p.awakenedId) as any;
+    if (awRow?.comp) {
+      try {
+        const comp = JSON.parse(awRow.comp);
+        const els = await compositionElements(comp);
+        comp.forEach((layer: any, i: number) => {
+          if (layer?.category === "aspect" && els[i] === "root") rootAspects += Number((layer as any).aspectLevel ?? 1) || 1;
+        });
+      } catch { /* a garbled composition counts no aspects */ }
+    }
+    const t = byId.get(p.tileId);
+    fighters.push({
+      row: p, id: Number(p.id), awakenedId: Number(p.awakenedId), tileId: Number(p.tileId),
+      q: p.posQ == null ? (t?.q ?? 0) : Number(p.posQ), r: p.posR == null ? (t?.r ?? 0) : Number(p.posR),
+      stance: p.stanceOrdered ? String(p.stance ?? "defense") : "attack", // NO ORDERS DEFAULTS TO ATTACK (Nigel, 2026-10-23)
+      power: payload.power ?? 0, toughness: payload.toughness ?? 1,
+      level: Math.max(1, awokenLevelOf(Number(awRow?.experience ?? 0))),
+      dominant: homelandPlacementElement(layers as any[]), elSum, rootAspects, partCount: Math.max(1, layers.length),
+      hp: p.hp == null ? Math.max(1, payload.toughness ?? 1) : Number(p.hp), maxHp: Math.max(1, payload.toughness ?? 1),
+      shield: p.shield == null ? null : Number(p.shield), shieldMax: p.shieldMax == null ? null : Number(p.shieldMax),
+      nextAt: p.battleNextAt == null ? 0 : Number(p.battleNextAt),
+      marching: !!(p.marchPath && p.marchEnds != null && Number(p.marchEnds) > now) || !!p.patrolPath,
+      dead: false,
+    });
+  }
+  const crowdOf = (tileId: number): number => {
+    let n = 0;
+    for (const f of fighters) if (!f.dead && f.tileId === tileId) n++;
+    for (const d of darks) if (!d.dead && d.tileId === tileId) n++;
+    return n;
+  };
+  // The border wards (the Seal, the Trees) still turn a blow
+  // aimed across their edge — loaded once, written back at
+  // the end, as the old walk carried them.
+  const wardByEdge = new Map<string, any>();
+  let mapBright = false;
+  for (const w of sqlite.prepare("SELECT id, engine, edge_key AS edgeKey, nums, hp, max_hp AS maxHp, stops FROM territory_workings WHERE owner_key = ? AND kind = 'ward'").all(ownerKey) as any[]) {
+    if (w.engine === "engine") mapBright = true;
+    if ((w.engine === "seal" || w.engine === "trees") && w.edgeKey && (w.hp ?? 0) > 0) {
+      try { w.nums = JSON.parse(w.nums ?? "{}"); } catch { w.nums = {}; }
+      wardByEdge.set(w.edgeKey, w);
+    }
+  }
+  // Defence works: raised by Root and Stone defenders.
+  type WorkNode = { q: number; r: number; hp: number; maxHp: number };
+  type DWork = { id: number; placementId: number; kind: string; nodes: WorkNode[]; dirty: boolean; gone: boolean };
+  const works: DWork[] = (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => {
+    let nodes: WorkNode[] = [];
+    try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; }
+    return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes, dirty: false, gone: false };
+  });
+  const raiseWork = (f: Fighter): void => {
+    // The nearest dark sets her facing; the work stands a
+    // hex ahead of her, turned with her (the PG's law).
+    let near: Dark | null = null; let nearD = Infinity;
+    for (const d of darks) { if (d.dead) continue; const dd = axialDist(f, d); if (dd < nearD) { nearD = dd; near = d; } }
+    if (!near || nearD > (HOMELAND_ELEMENT_REACH[f.dominant] ?? 1) + DEFENCE_WORK_ENGAGE) return;
+    const len = Math.hypot(near.q - f.q, near.r - f.r) || 1;
+    const fx = (near.q - f.q) / len, fr = (near.r - f.r) / len;
+    const px = -fr, pr = fx; // the line runs along her facing's perpendicular
+    const nodes: WorkNode[] = [];
+    if (f.dominant === "stone") {
+      const count = Math.min(6, 3 + Math.floor(f.level / 3));
+      const rockHp = ROCK_WALL_HP_BY_LEVEL[Math.min(9, Math.max(1, f.level)) - 1];
+      for (let i = 0; i < count; i++) {
+        const off = (i - (count - 1) / 2) * 0.55;
+        nodes.push({ q: f.q + fx * 1.0 + px * off, r: f.r + fr * 1.0 + pr * off, hp: rockHp, maxHp: rockHp });
+      }
+      const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, ?, 'rockwall', ?, ?, ?, ?)").run(ownerKey, f.id, f.q, f.r, JSON.stringify(nodes), now);
+      works.push({ id: Number(info.lastInsertRowid), placementId: f.id, kind: "rockwall", nodes, dirty: false, gone: false });
+    } else if (f.dominant === "root") {
+      // The thicket's spread is her body: one node per part.
+      const nodeHp = f.maxHp;
+      for (let i = 0; i < f.partCount; i++) {
+        const off = (i - (f.partCount - 1) / 2) * 0.55;
+        nodes.push({ q: f.q + fx * 0.8 + px * off, r: f.r + fr * 0.8 + pr * off, hp: nodeHp, maxHp: nodeHp });
+      }
+      const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, ?, 'bramble', ?, ?, ?, ?)").run(ownerKey, f.id, f.q, f.r, JSON.stringify(nodes), now);
+      works.push({ id: Number(info.lastInsertRowid), placementId: f.id, kind: "bramble", nodes, dirty: false, gone: false });
+    }
+  };
+  // Works stand while she defends; a changed stance or a
+  // fallen figure takes hers down. Defenders without a work
+  // and with the dark near raise theirs.
+  for (const w of works) {
+    const f = fighters.find(x => x.id === w.placementId);
+    if (!f || f.dead || f.stance !== "defense") w.gone = true;
+  }
+  for (const f of fighters) {
+    if (f.dead || f.marching || f.stance !== "defense") continue;
+    if (!works.some(w => w.placementId === f.id && !w.gone)) raiseWork(f);
+  }
+
+  const fellDark = async (d: Dark): Promise<void> => {
+    if (d.dead) return;
+    d.dead = true;
+    const t = byId.get(d.tileId);
+    await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer);
+  };
+  const hurtDark = async (d: Dark, dmg: number, byAwakenedId: number | null): Promise<void> => {
+    if (d.dead || dmg <= 0) return;
+    d.hp -= dmg;
+    if (byAwakenedId != null) d.killer = byAwakenedId;
+    if (d.hp <= 0) await fellDark(d);
+  };
+
+  const STEP_MS = 500;
+  const steps = Math.max(0, Math.ceil(elapsed / STEP_MS));
+  const windowStart = now - elapsed;
+  for (let s = 0; s < steps; s++) {
+    const tNow = windowStart + (s + 1) * STEP_MS;
+    const dt = Math.min(STEP_MS, elapsed - s * STEP_MS) / 1000;
+    if (dt <= 0) break;
+    // ── THE WALK ────────────────────────────────────────
+    for (const d of darks) {
+      if (d.dead || lit) continue;
+      if (d.pinnedBeats > 0) continue; // a Lattice's hold: it neither wanders nor chews
+      const wet = tNow < d.wetUntil;
+      let pace = 1 / enemySecPerHex(d.kind, wet); // axial units per second
+      pace /= crowdTax(crowdOf(d.tileId));
+      // Bramble underfoot halves the pace that pushes through it.
+      let inBramble = false;
+      for (const w of works) {
+        if (w.gone || w.kind !== "bramble") continue;
+        if (w.nodes.some(n => n.hp > 0 && axialDist(d, n) <= 0.6)) { inBramble = true; break; }
+      }
+      if (inBramble) {
+        pace *= 0.5;
+        d.brambleCarry += dt;
+        if (d.brambleCarry >= BATTLE_BEAT_MS / 1000) { d.brambleCarry -= BATTLE_BEAT_MS / 1000; await hurtDark(d, 1, null); if (d.dead) continue; }
+      }
+      // The goal: the nearest standing Awokin; failing any,
+      // the nearest pure tile to worry; failing both, a blind
+      // drift on its own dark, as the Fray has always wandered.
+      let goal: { q: number; r: number } | null = null; let holdAt = 0;
+      let nearF: Fighter | null = null; let nearFD = Infinity;
+      for (const f of fighters) { if (f.dead) continue; const dd = axialDist(d, f); if (dd < nearFD) { nearFD = dd; nearF = f; } }
+      if (nearF) { goal = { q: nearF.q, r: nearF.r }; holdAt = ENEMY_BITE_REACH; }
+      else {
+        let nearT: any = null; let nearTD = Infinity;
+        for (const t of tiles as any[]) { if (t.cursed) continue; const dd = axialDist(d, t); if (dd < nearTD) { nearTD = dd; nearT = t; } }
+        if (nearT) { goal = { q: nearT.q, r: nearT.r }; holdAt = ENEMY_BITE_REACH; }
+      }
+      if (!goal) {
+        const here = byId.get(d.tileId);
+        if (here?.cursed) {
+          const nbrs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+            .map(([dq, dr]) => byKey.get(`${here.q + dq},${here.r + dr}`)).filter((n: any) => n?.cursed);
+          if (nbrs.length) { const dest: any = nbrs[Math.floor(Math.random() * nbrs.length)]; goal = { q: dest.q, r: dest.r }; holdAt = 0; }
+        }
+      }
+      if (!goal) continue;
+      const dist = axialDist(d, goal);
+      const travel = Math.min(pace * dt, Math.max(0, dist - holdAt));
+      if (travel <= 0) continue;
+      const ux = (goal.q - d.q) / (dist || 1), ur = (goal.r - d.r) / (dist || 1);
+      const nq = d.q + ux * travel, nr = d.r + ur * travel;
+      // A standing rock blocks the step outright (the PG's
+      // law): the dark halts at the line and hacks instead.
+      let blocked = false;
+      for (const w of works) {
+        if (w.gone || w.kind !== "rockwall") continue;
+        if (w.nodes.some(n => n.hp > 0 && axialDist({ q: nq, r: nr }, n) <= 0.55)) { blocked = true; break; }
+      }
+      if (blocked) continue;
+      const cell = axialRound(nq, nr);
+      if (!byKey.has(`${cell.q},${cell.r}`)) continue; // no ground there: the step is not taken
+      d.q = nq; d.r = nr;
+      const nt = byKey.get(`${cell.q},${cell.r}`);
+      if (nt && nt.id !== d.tileId) { d.tileId = nt.id; d.chewTileId = null; d.chewProgress = 0; }
+    }
+    // ── THE DARK STRIKES ────────────────────────────────
+    for (const d of darks) {
+      if (d.dead || lit) continue;
+      if (d.pinnedBeats > 0) continue;
+      const wet = tNow < d.wetUntil;
+      const interval = enemyStrikeMs(d.kind, wet) * crowdTax(crowdOf(d.tileId));
+      if (d.lastStrikeAt === 0) { d.lastStrikeAt = tNow; continue; }
+      if (tNow < d.lastStrikeAt + interval) continue;
+      d.lastStrikeAt += interval * Math.max(1, Math.floor((tNow - d.lastStrikeAt) / interval));
+      // A rock in its face is hacked (WALL_HACK_DMG, the PG's pencil).
+      let hacked = false;
+      for (const w of works) {
+        if (w.gone || w.kind !== "rockwall") continue;
+        const node = w.nodes.find(n => n.hp > 0 && axialDist(d, n) <= 0.75);
+        if (node) { node.hp -= WALL_HACK_DMG; w.dirty = true; hacked = true; break; }
+      }
+      if (hacked) continue;
+      // Victims in bite reach, chosen by its kind's hunger
+      // (the Table's own: the Fray worries the weakest, the
+      // Unraveler hunts the strongest).
+      const inReach = fighters.filter(f => !f.dead && axialDist(d, f) <= ENEMY_BITE_REACH);
+      if (inReach.length) {
+        let victim = inReach[0];
+        if (d.kind === "fray") victim = inReach.reduce((a, b) => (b.hp < a.hp ? b : a));
+        else if (d.kind === "unraveler") victim = inReach.reduce((a, b) => (b.power > a.power ? b : a));
+        else victim = inReach.reduce((a, b) => (axialDist(d, b) < axialDist(d, a) ? b : a));
+        const roll = homelandDN(20);
+        const victimAC = victim.toughness + (sageCompany ? 2 : 0);
+        let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
+        for (let i = 0; i < dice; i++) raw += homelandDN(6);
+        const dmg = homelandFateMitigate(raw, victimAC, d.lvl);
+        // THE WARD AT THE BORDER turns the blow as it turned
+        // the chew — BEFORE the victim's own hide is reckoned:
+        // the ward is the edge's guard, and whether the blow
+        // would have beaten her AC is what the ward exists to
+        // make irrelevant. A Seal answers, the Trees take it.
+        const fromTile = byId.get(d.tileId); const victimTile = byId.get(victim.tileId);
+        let turned = false;
+        if (fromTile && victimTile) {
+          const key = homelandEdgeKeyBetween(fromTile, victimTile);
+          const ward = key ? wardByEdge.get(key) : undefined;
+          if (ward && !ward.spent) {
+            if (ward.engine === "seal") {
+              ward.stops = (ward.stops ?? 0) + 1; ward.hp = (ward.hp ?? 0) - dmg; ward.touched = true;
+              const riposte = (ward.nums.riposte ?? 3) + (mapBright ? (ward.nums.brightBonus ?? 1) : 0);
+              await hurtDark(d, riposte, null);
+              if (ward.stops >= (ward.nums.stops ?? 3) || ward.hp <= 0) ward.spent = true;
+              turned = true;
+            } else if (ward.engine === "trees") {
+              ward.hp = (ward.hp ?? 0) - dmg; ward.touched = true;
+              if (ward.hp <= 0) ward.spent = true;
+              turned = true;
+            }
+          }
+        }
+        const hit = roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= victimAC);
+        if (!turned && hit && !d.dead) {
+            if (d.kind === "hollow") {
+              // The Hollow drains instead of blood: the
+              // Tender's purse pays the blow's measure.
+              const cur = await getEnergyFor(ownerKey);
+              if (cur > 0) await spendEnergy(ownerKey, Math.min(cur, dmg));
+            } else {
+              victim.row.hp = victim.hp; victim.row.shield = victim.shield; victim.row.shieldMax = victim.shieldMax;
+              const res = await damagePlacementShielded(victim.row as any, dmg);
+              victim.hp = res.hp; victim.shield = res.shield; victim.shieldMax = victim.row.shieldMax == null ? victim.shieldMax : Number(victim.row.shieldMax);
+              if (!xpDefensePaid.has(victim.id)) { xpDefensePaid.add(victim.id); const scratch = new Map<number, XpGainReport>(); await grantEventXp(scratch, victim.awakenedId, XP_PER_DEFENSE); }
+              if (res.dissipated) { victim.dead = true; const wk = works.find(w => w.placementId === victim.id); if (wk) wk.gone = true; }
+              // THORNS: a Root Awokin answers a landed blow —
+              // 1 + her Root aspects, no roll on the answer.
+              if (!d.dead && victim.dominant === "root") await hurtDark(d, 1 + victim.rootAspects, victim.awakenedId);
+              if (d.kind === "tangle" && !victim.dead) {
+                victim.row.pinnedUntil = tNow + BATTLE_BEAT_MS;
+                sqlite.prepare("UPDATE field_placements SET pinned_until = ? WHERE id = ?").run(tNow + BATTLE_BEAT_MS, victim.id);
+              }
+            }
+        }
+        continue;
+      }
+      // Nothing of his in reach: the Tender himself, when he
+      // stands within the bite and nothing of his stands —
+      // the old border law's own priority.
+      if (standTileId != null) {
+        const stand = byId.get(standTileId);
+        if (stand && axialDist(d, stand) <= ENEMY_BITE_REACH) {
+          const roll = homelandDN(20);
+          const tAC = 10; // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard
+          if (roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= tAC)) {
+            let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
+            for (let i = 0; i < dice; i++) raw += homelandDN(6);
+            const dmg = homelandFateMitigate(raw, tAC, d.lvl);
+            await woundTender(ownerKey, Math.max(1, dmg));
+          }
+          continue;
+        }
+      }
+      // Failing both, it worries the pure ground it stands
+      // beside: harm gathers in the tile until the curse's
+      // own HP for that ground is met and the tile turns.
+      const here = byId.get(d.tileId);
+      if (here) {
+        const nbrs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+          .map(([dq, dr]) => byKey.get(`${here.q + dq},${here.r + dr}`)).filter((n: any) => n && !n.cursed) as any[];
+        const target = (!here.cursed ? here : undefined) ?? nbrs.find(n => axialDist(d, n) <= ENEMY_BITE_REACH + 0.5);
+        if (target) {
+          if (d.chewTileId !== target.id) { d.chewTileId = target.id; d.chewProgress = 0; }
+          let raw = 0; for (let i = 0; i < d.power; i++) raw += homelandDN(6);
+          d.chewProgress += raw;
+          const ring = Math.max(Math.abs(target.q), Math.abs(target.r), Math.abs(target.q + target.r));
+          if (d.chewProgress >= curseHpFor(ring, mood)) {
+            const maxHp = curseHpFor(ring, mood);
+            await db.update(schema.territoryTiles).set({ cursed: 1, curseHp: maxHp, curseMaxHp: maxHp, spark: 0 }).where(eq(schema.territoryTiles.id, target.id));
+            target.cursed = 1; target.curseHp = maxHp; target.curseMaxHp = maxHp; target.spark = 0;
+            d.chewTileId = null; d.chewProgress = 0;
+          }
+        }
+      }
+    }
+    // ── THE AWOKEN ANSWER ───────────────────────────────
+    for (const f of fighters) {
+      if (f.dead || f.marching) continue;
+      if ((f.row.pinnedUntil ?? 0) > tNow) continue;
+      const baseMs = AWOKEN_STRIKE_MS[f.dominant] ?? 1500;
+      const interval = baseMs * crowdTax(crowdOf(f.tileId));
+      if (f.nextAt === 0) { f.nextAt = tNow + interval; f.row.battleNextAt = f.nextAt; continue; }
+      if (tNow < f.nextAt) continue;
+      f.nextAt += interval * Math.max(1, Math.floor((tNow - f.nextAt) / interval) + 1);
+      f.row.battleNextAt = f.nextAt;
+      const reach = (HOMELAND_ELEMENT_REACH[f.dominant] ?? 1) + 0.35;
+      if (f.stance === "binding") {
+        // Binders do their heal: the most-wounded ally in
+        // her reach mends by her own element's die (the
+        // grove's dice law, read for the binder's hand).
+        const wounded = fighters.filter(o => !o.dead && o.id !== f.id && o.hp < o.maxHp && axialDist(f, o) <= reach)
+          .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+        if (wounded) {
+          const healed = await mendPlacement(wounded.id, homelandDN(HOMELAND_FATE_DIE[f.dominant] ?? 6));
+          if (healed > 0) { wounded.hp += healed; wounded.row.hp = wounded.hp; }
+        }
+        continue;
+      }
+      // Attack, and Defence striking in place (the defence
+      // bonus's number is unruled — the math stands plain).
+      const target = darks.filter(d => !d.dead && axialDist(f, d) <= reach)
+        .sort((a, b) => axialDist(f, a) - axialDist(f, b))[0];
+      if (!target) continue;
+      const roll = homelandDN(20);
+      const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + (sageCompany ? 2 : 0);
+      const targetAC = Math.max(1, enemyACFor(target.kind) - target.cracked);
+      const hit = roll === 20 || (roll !== 1 && roll + bonus >= targetAC);
+      if (!hit) continue;
+      const payload = await awakenedPayloadById(f.awakenedId);
+      const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
+      let raw = 0;
+      for (const l of layers) {
+        raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6) + (l.power ?? 0);
+        if (roll === 20) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
+      }
+      if (f.dominant === "sky" && tNow < target.wetUntil) raw += 2; // Sky strikes land +2 on the wet
+      const dmg = homelandFateMitigate(raw, targetAC, f.level);
+      await hurtDark(target, dmg, f.awakenedId);
+      if (!target.dead) {
+        if (f.dominant === "tide") target.wetUntil = tNow + WET_MS;
+        if (f.dominant === "stone") target.cracked = Math.min(3, target.cracked + 1);
+        if (f.dominant === "sky") {
+          const tilesPush = Math.floor((f.elSum.sky ?? 0) / 3);
+          if (tilesPush >= 1) {
+            const len = Math.hypot(target.q - f.q, target.r - f.r) || 1;
+            const ux = (target.q - f.q) / len, ur = (target.r - f.r) / len;
+            let nq = target.q + ux * tilesPush, nr = target.r + ur * tilesPush;
+            let cell = axialRound(nq, nr);
+            if (!byKey.has(`${cell.q},${cell.r}`)) { nq = target.q + ux * tilesPush * 0.5; nr = target.r + ur * tilesPush * 0.5; cell = axialRound(nq, nr); }
+            if (byKey.has(`${cell.q},${cell.r}`)) {
+              target.q = nq; target.r = nr;
+              const nt = byKey.get(`${cell.q},${cell.r}`);
+              if (nt && nt.id !== target.tileId) { target.tileId = nt.id; target.chewTileId = null; target.chewProgress = 0; }
+            }
+          }
+        }
+      }
+    }
+    // ── THE LIGHT TAKES ITS OWN ─────────────────────────
+    for (const d of darks) {
+      if (d.dead) continue;
+      const t = byId.get(d.tileId);
+      if (t && !t.cursed) {
+        const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+        d.hp -= d.maxHp * 0.01 * (ring + 1) * (dt / (BATTLE_BEAT_MS / 1000));
+        if (d.hp <= 0) d.dead = true; // unmade by the light: no blow beat it, nothing is paid
+      }
+    }
+  }
+  // Lattice pins wear by the beats that passed.
+  const beatsPassed = Math.floor(elapsed / BATTLE_BEAT_MS);
+  if (beatsPassed > 0) for (const d of darks) if (!d.dead && d.pinnedBeats > 0) d.pinnedBeats = Math.max(0, d.pinnedBeats - beatsPassed);
+  // The Trees regrow as the beats pass (their standing law).
+  for (const ward of wardByEdge.values()) {
+    if (ward.engine === "trees" && !ward.spent && beatsPassed > 0) {
+      const grown = Math.min(ward.maxHp ?? ward.hp ?? 0, (ward.hp ?? 0) + (ward.nums.regrow ?? 2) * beatsPassed);
+      if (grown !== ward.hp) { ward.hp = grown; ward.touched = true; }
+    }
+    if (ward.spent) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(ward.id);
+    else if (ward.touched) sqlite.prepare("UPDATE territory_workings SET hp = ?, stops = ? WHERE id = ?").run(Math.max(0, Math.floor(ward.hp ?? 0)), ward.stops ?? 0, ward.id);
+  }
+  // ── Write the dark back ───────────────────────────────
+  for (const d of darks) {
+    if (d.dead) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(d.id); continue; }
+    sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ?, pos_q = ?, pos_r = ?, hp = ?, wet_until = ?, cracked = ?, last_strike_at = ?, pinned_beats = ?, chew_tile_id = ?, chew_progress = ? WHERE id = ?")
+      .run(d.tileId, d.q, d.r, d.hp, d.wetUntil, d.cracked, d.lastStrikeAt, d.pinnedBeats, d.chewTileId, d.chewProgress, d.id);
+  }
+  for (const f of fighters) {
+    if (f.row.battleNextAt != null) sqlite.prepare("UPDATE field_placements SET battle_next_at = ? WHERE id = ?").run(f.row.battleNextAt, f.id);
+  }
+  for (const w of works) {
+    if (w.gone || w.nodes.every(n => n.hp <= 0)) { sqlite.prepare("DELETE FROM defence_works WHERE id = ?").run(w.id); continue; }
+    if (w.dirty) sqlite.prepare("UPDATE defence_works SET nodes = ? WHERE id = ?").run(JSON.stringify(w.nodes), w.id);
+  }
+}
+/** The Table's element hit bonus, mirrored for the homeland's
+ *  strike roll (table.ts ELEMENT_HIT_BONUS — test61's mirror
+ *  discipline: the two grounds read one law). */
+const ELEMENT_HIT_BONUS_MIRROR: Record<string, number> = { stone: 1, root: 2, tide: 3, sky: 4, fire: 5 };
 
 /** THE WRITTEN LIGHT WITHERS AT HOME (Nigel, 2026-10-20):
  *  wards and runes may be cast anywhere on the homeland —
@@ -6041,67 +6817,75 @@ export const handlers = {
     };
   },
 
-  /** PHASE D — THE BLIND FRAY LAW (Nigel, 2026-10-19): while the
-   *  Tender is online (his map read is the world's pulse), cursed
-   *  hexes in the OUTER view of his stand — rings 3–6 — roll on
-   *  each spawn beat (~45s) to birth a Fray (THE TUNING, Nigel,
-   *  2026-10-20: 20% a beat, at most 8 alive, and nothing is born
-   *  at rings 0–2 beside him — at 35% with the curse three tiles
-   *  out he was set upon from all sides the moment he looked).
-   *  The Fray has no eyes:
-   *  on cursed ground it only wanders, blind; it turns hostile
-   *  ONLY at the purified border, chewing what stands on the
-   *  clean hexes beside it — his fielded Awokin first (the
-   *  shield law), the Tender himself only when nothing stands.
-   *  Purified ground is death to it: the light takes its own.
-   *  Settles lazily on read, like the marches and the columns. */
-  async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number; hp: number; maxHp: number }[] }> {
-    // The chew's targets, read fresh inside the settle — the
-    // response's own placement read happens AFTER this pass, so
-    // what the map serves is the walking's true aftermath.
-    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
-    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.20, VIEW_RING = 6, BIRTH_RING = 3, CAP = 8, CATCHUP_BEATS = 4, CHEW = 0.05;
-    const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  /** THE SPAWNING (Phase D's Blind Fray tuning, kept and
+   *  re-housed by the battle engine, Nigel 2026-10-23): while
+   *  the Tender is online (his map read is the world's pulse),
+   *  cursed hexes in the OUTER view of his stand — rings 3–6 —
+   *  roll on each spawn beat (~45s) to birth the dark (THE
+   *  TUNING, Nigel, 2026-10-20: 20% a beat, and nothing is
+   *  born at rings 0–2 beside him). What is born now answers
+   *  to the WAVE INTENSITY: its cap grows by 2 a step, its
+   *  kinds deepen (Hollow steps in at 2, the Unraveler at 3,
+   *  the Tangle at 4), and each stands at its wave's level —
+   *  its body deepened a point a level past the first. While
+   *  the LIGHTHOUSE BURNS, nothing is born at all (the
+   *  protection settle has already driven the standing dark
+   *  off). The walking, the biting and the answering live in
+   *  settleHomelandBattle; this pass only keeps the cradle
+   *  and the roll of the standing dark. */
+  async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[] }> {
+    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.20, VIEW_RING = 6, BIRTH_RING = 3, CATCHUP_BEATS = 4;
     const now = Date.now();
     const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
-    const byKey = new Map<string, any>(tiles.map((t: any) => [`${t.q},${t.r}`, t]));
     const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-    // The light takes its own: a wanderer standing on ground that
-    // has been purified is unmade with the curse that bore it.
-    let rows = sqlite.prepare("SELECT id, tile_id AS tileId, hp, pinned_beats AS pinnedBeats FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null; pinnedBeats?: number; pinTouched?: boolean }[];
-    rows = rows.filter(w => {
+    const prow = sqlite.prepare("SELECT lighthouse_lit AS lit, wave_intensity AS intensity FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    const lit = Number(prow?.lit) === 1;
+    const intensity = Math.max(1, Number(prow?.intensity) || 1);
+    const viewOf = (w: { id: number; tileId: number; kind: string; posQ: number | null; posR: number | null; hp: number | null; lvl: number }) => {
       const t = byId.get(w.tileId);
-      if (t && t.cursed) return true;
+      const maxHp = (HOMELAND_DARK_HP[w.kind] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
+      return { id: w.id, tileId: w.tileId, kind: w.kind, posQ: w.posQ == null ? (t?.q ?? 0) : Number(w.posQ), posR: w.posR == null ? (t?.r ?? 0) : Number(w.posR), hp: w.hp == null ? maxHp : Number(w.hp), maxHp };
+    };
+    let rows = sqlite.prepare("SELECT id, tile_id AS tileId, kind, pos_q AS posQ, pos_r AS posR, hp, lvl FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
+    // A wanderer whose tile is gone from the world is gone
+    // with it; every other standing figure keeps its point.
+    rows = rows.filter(w => {
+      if (byId.has(w.tileId)) return true;
       sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(w.id);
       return false;
     });
-    // SPAWN BEATS — rolled per beat due, a capped catch-up so an
-    // absence is weather, not a flood; beats skipped past the cap
-    // are settled as spent, never banked.
-    if (standTileId != null) {
+    // SPAWN BEATS — rolled per beat due, a capped catch-up so
+    // an absence is weather, not a flood; beats skipped past
+    // the cap are settled as spent, never banked. The lit
+    // lighthouse shuts the cradle whole.
+    if (standTileId != null && !lit) {
       const stand = byId.get(standTileId);
-      const prow = sqlite.prepare("SELECT wanderer_anchor_at AS anchor, wanderer_settled_beats AS settled FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
-      if (stand && prow) {
-        if (prow.anchor == null) {
+      const arow = sqlite.prepare("SELECT wanderer_anchor_at AS anchor, wanderer_settled_beats AS settled FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+      if (stand && arow) {
+        if (arow.anchor == null) {
           sqlite.prepare("UPDATE tender_progress SET wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?").run(now, ownerKey);
         } else {
-          const due = Math.floor((now - Number(prow.anchor)) / SPAWN_BEAT_MS);
-          const fresh = due - Number(prow.settled ?? 0);
+          const due = Math.floor((now - Number(arow.anchor)) / SPAWN_BEAT_MS);
+          const fresh = due - Number(arow.settled ?? 0);
           if (fresh > 0) {
             const beats = Math.min(fresh, CATCHUP_BEATS);
-            // THE OUTER VIEW ONLY (the Tuning, Nigel 2026-10-20):
-            // a cursed hex rolls for a birth only at rings
-            // BIRTH_RING..VIEW_RING of his stand — nothing is
-            // born on the dark beside him, at rings 0–2.
+            const cap = 8 + 2 * (intensity - 1);
             const view = tiles.filter((t: any) => { if (!t.cursed) return false; const d = hexDist(t, stand); return d >= BIRTH_RING && d <= VIEW_RING; });
-            for (let b = 0; b < beats && rows.length < CAP; b++) {
+            const kindPool = ["fray", "fray", "fray"];
+            if (intensity >= 2) kindPool.push("hollow", "hollow");
+            if (intensity >= 3) kindPool.push("unraveler", "unraveler");
+            if (intensity >= 4) kindPool.push("tangle");
+            for (let b = 0; b < beats && rows.length < cap; b++) {
               const occupied = new Set(rows.map(w => w.tileId));
               for (const t of view) {
-                if (rows.length >= CAP) break;
+                if (rows.length >= cap) break;
                 if (occupied.has(t.id)) continue;
                 if (Math.random() < SPAWN_CHANCE) {
-                  const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp) VALUES (?, ?, 'fray', ?, ?)").run(ownerKey, t.id, now, HOMELAND_FRAY_HP);
-                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, hp: HOMELAND_FRAY_HP, pinnedBeats: 0 });
+                  const kind = kindPool[Math.floor(Math.random() * kindPool.length)];
+                  const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + (intensity - 1);
+                  const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    .run(ownerKey, t.id, kind, now, maxHp, t.q, t.r, HOMELAND_DARK_POWER[kind] ?? 1, intensity);
+                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, kind, posQ: t.q, posR: t.r, hp: maxHp, lvl: intensity });
                   occupied.add(t.id);
                 }
               }
@@ -6111,168 +6895,7 @@ export const handlers = {
         }
       }
     }
-    // THE WARDS AT THE BORDER (Homeland Casting, Nigel
-    // 2026-10-20): the Tender's cast wards of the holding kinds
-    // — the Seal, the Trees — stand in the chew's road. Loaded
-    // once per settle; their stops, wounds and breaking are
-    // carried in memory across the walk's steps and written
-    // back at its end, like the victims' hpCarry below. An
-    // Engine standing anywhere on his land burns his workings
-    // a degree brighter, as at the Table.
-    const wardByEdge = new Map<string, any>();
-    let mapBright = false;
-    for (const w of sqlite.prepare("SELECT id, engine, edge_key AS edgeKey, nums, hp, max_hp AS maxHp, stops FROM territory_workings WHERE owner_key = ? AND kind = 'ward'").all(ownerKey) as any[]) {
-      if (w.engine === "engine") mapBright = true;
-      if ((w.engine === "seal" || w.engine === "trees") && w.edgeKey && (w.hp ?? 0) > 0) {
-        try { w.nums = JSON.parse(w.nums ?? "{}"); } catch { w.nums = {}; }
-        wardByEdge.set(w.edgeKey, w);
-      }
-    }
-    const deadWanderers = new Set<number>();
-    /** Turn one bite aside at a warded edge: the ward takes the
-     *  blow that was aimed at what it guards. Returns true when
-     *  a ward stood in the bite's road (the guarded is then
-     *  untouched — the defense Nigel asked casting for). */
-    const turnChewAtWard = (w: { id: number; hp: number | null }, fromTile: any, victimTile: any, bite: number): boolean => {
-      const key = homelandEdgeKeyBetween(fromTile, victimTile);
-      if (!key) return false;
-      const ward = wardByEdge.get(key);
-      if (!ward || ward.spent) return false;
-      if (ward.engine === "seal") {
-        ward.stops = (ward.stops ?? 0) + 1;
-        ward.hp = (ward.hp ?? 0) - bite;
-        ward.touched = true;
-        // The Seal ANSWERS the striker (the book's riposte),
-        // a degree brighter while an Engine burns.
-        const riposte = (ward.nums.riposte ?? 3) + (mapBright ? (ward.nums.brightBonus ?? 1) : 0);
-        const cur = w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp);
-        const next = cur - riposte;
-        w.hp = next;
-        if (next <= 0) {
-          sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(w.id);
-          deadWanderers.add(w.id);
-        } else {
-          sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, w.id);
-        }
-        // The Seal goes out when its stops are spent or its
-        // health is — the Table's two fuses, both honored.
-        if (ward.stops >= (ward.nums.stops ?? 3) || ward.hp <= 0) ward.spent = true;
-        return true;
-      }
-      if (ward.engine === "trees") {
-        ward.hp = (ward.hp ?? 0) - bite;
-        ward.touched = true;
-        if (ward.hp <= 0) ward.spent = true;
-        return true;
-      }
-      return false;
-    };
-    // THE WALK — steps of the curse's own beat from the watermark;
-    // one settle never walks more than a minute of them.
-    const dissipated = new Set<number>();
-    const wrow = sqlite.prepare("SELECT wanderer_watermark AS wm FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
-    if (wrow) {
-      if (wrow.wm == null) {
-        sqlite.prepare("UPDATE tender_progress SET wanderer_watermark = ? WHERE owner_key = ?").run(now, ownerKey);
-      } else {
-        const elapsed = Math.min(now - Number(wrow.wm), 60000);
-        if (elapsed >= 1000) {
-          sqlite.prepare("UPDATE tender_progress SET wanderer_watermark = ? WHERE owner_key = ?").run(now, ownerKey);
-          const steps = Math.floor(elapsed / 2800);
-          const standTile = standTileId != null ? byId.get(standTileId) : null;
-          // damagePlacement reckons from the row it is handed —
-          // carry each victim's running wounds across this
-          // settle's steps, or no bite would ever deepen.
-          const hpCarry = new Map<number, number>();
-          for (let s = 0; s < steps; s++) {
-            // The Trees mend themselves as the curse's beats
-            // pass — their regrow, toward the measure they
-            // were raised with, never past it.
-            for (const ward of wardByEdge.values()) {
-              if (ward.engine === "trees" && !ward.spent) {
-                const grown = Math.min(ward.maxHp ?? ward.hp ?? 0, (ward.hp ?? 0) + (ward.nums.regrow ?? 2));
-                if (grown !== ward.hp) { ward.hp = grown; ward.touched = true; }
-              }
-            }
-            for (const w of rows) {
-              if (deadWanderers.has(w.id)) continue;
-              const t = byId.get(w.tileId);
-              if (!t || !t.cursed) continue;
-              // PINNED (Homeland Casting): a Lattice's hold
-              // stands over this dark — it neither wanders nor
-              // chews while its beats run out.
-              if ((w.pinnedBeats ?? 0) > 0) { w.pinnedBeats = (w.pinnedBeats ?? 0) - 1; w.pinTouched = true; continue; }
-              const nbrs = DIRS.map(([dq, dr]) => byKey.get(`${t.q + dq},${t.r + dr}`)).filter(Boolean) as any[];
-              const pureNbrs = nbrs.filter(n => !n.cursed);
-              if (pureNbrs.length) {
-                // HOSTILE AT THE BORDER: his Awokin standing on
-                // the clean hexes beside it are chewed first;
-                // the Tender only when nothing of his stands.
-                let chewed = false;
-                for (const n of pureNbrs) {
-                  const cand = placements.find(p => p.tileId === n.id && !dissipated.has(p.id));
-                  if (cand) {
-                    const cMax = await placementMaxHp(cand.awakenedId);
-                    const bite = Math.max(1, Math.round(cMax * CHEW));
-                    // THE WARD AT THE BORDER (Homeland
-                    // Casting): a holding ward on the edge
-                    // between the dark and what it guards
-                    // takes the bite itself — the guarded
-                    // stands untouched while it holds.
-                    if (turnChewAtWard(w, t, n, bite)) { chewed = true; break; }
-                    const res = await damagePlacement({ ...cand, hp: hpCarry.get(cand.id) ?? cand.hp } as any, bite);
-                    hpCarry.set(cand.id, res.hp);
-                    if (res.dissipated) dissipated.add(cand.id);
-                    chewed = true;
-                    break;
-                  }
-                }
-                if (!chewed && standTile && pureNbrs.some(n => n.id === standTile.id)) {
-                  const progress = await getTenderProgress(ownerKey);
-                  const bite = Math.max(1, Math.round(progress.maxTenderHp * CHEW));
-                  if (!turnChewAtWard(w, t, standTile, bite)) {
-                    await this.woundTender(ownerKey, bite);
-                  }
-                }
-              } else {
-                // BLIND: it wanders its own dark, one hex a step,
-                // never two of its kind to a hex.
-                const open = nbrs.filter(n => n.cursed && !rows.some(o => o !== w && o.tileId === n.id));
-                if (open.length) {
-                  const dest = open[Math.floor(Math.random() * open.length)];
-                  sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ? WHERE id = ?").run(dest.id, w.id);
-                  w.tileId = dest.id;
-                }
-              }
-            }
-          }
-          // The wards' and pins' new truth is written back
-          // (Homeland Casting): a spent Seal and a broken
-          // Trees leave the land; the standing carry their
-          // wounds and their counted stops; a Lattice's hold
-          // wears by the beats it has held.
-          for (const ward of wardByEdge.values()) {
-            if (ward.spent) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(ward.id);
-            else if (ward.touched) sqlite.prepare("UPDATE territory_workings SET hp = ?, stops = ? WHERE id = ?").run(Math.max(0, Math.floor(ward.hp ?? 0)), ward.stops ?? 0, ward.id);
-          }
-          for (const w of rows) {
-            if (w.pinTouched) sqlite.prepare("UPDATE homeland_wanderers SET pinned_beats = ? WHERE id = ?").run(Math.max(0, w.pinnedBeats ?? 0), w.id);
-          }
-        }
-      }
-    }
-    // THE FELL DRIP: a wanderer the border Seal's answer
-    // felled in the walk pays as any beaten creature pays
-    // (Nigel, 2026-10-20) — the element of the ground it fell
-    // on, or chance's choice. (The wanderers the turned ground
-    // unmade above pay nothing: no blow beat them; the curse
-    // simply lost its hold on the land beneath them.)
-    for (const id of deadWanderers) {
-      const w = rows.find(r => r.id === id);
-      const t = w ? byId.get(w.tileId) : null;
-      await payFellDrip(ownerKey, t?.element ?? null);
-    }
-    return { views: rows.filter(w => !deadWanderers.has(w.id)).map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP })) };
+    return { views: rows.map(viewOf) };
   },
 
   /** THE HOMELAND WEAPON REFEREE (Nigel, 2026-10-20): while
@@ -6430,14 +7053,23 @@ export const handlers = {
     // Both passes run BEFORE the field is read for the response,
     // so a wake's new stand and a chew's wounds are what the map
     // serves — never their ghosts.
-    let wandererViews: { id: number; tileId: number; hp: number; maxHp: number }[] = [];
+    let wandererViews: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[] = [];
     let weaponStrikeView: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null = null;
     let tenderView: any = tenderStand;
     if (tenderStand) {
       const stoodTileId = await this.settleTenderBody(ownerKey, tiles as any[], tenderStand.tileId);
       tenderStand.tileId = stoodTileId;
+      // THE REAL-TIME BATTLE settles on this same read
+      // (Nigel, 2026-10-23): first the lighthouse and its
+      // bank (a lit light has already driven the standing
+      // dark off and shut the cradle), then what spawning
+      // the unlit world still does, then the living battle
+      // itself — walk, bites, answers — before the written
+      // ground and the weapon reckon what survived.
+      await settleProtection(ownerKey);
       const wres = await this.settleWanderers(ownerKey, tiles as any[], tenderStand.tileId);
       wandererViews = wres.views;
+      await settleHomelandBattle(ownerKey, tiles as any[], tenderStand.tileId, this.woundTender.bind(this));
       // HOMELAND CASTING (Nigel, 2026-10-20): the written
       // ground answers the dark now standing on it — blades
       // spring, lattices pin, coils throw back — before the
@@ -6461,8 +7093,12 @@ export const handlers = {
       // The Springleaf's groves mend on this same read, after
       // the fighting has had its say (Homeland Casting).
       await settleHomelandGroves(ownerKey, tiles as any[]);
-      wandererViews = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
-        .map(w => ({ id: w.id, tileId: w.tileId, hp: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp), maxHp: HOMELAND_FRAY_HP }));
+      wandererViews = (sqlite.prepare("SELECT id, tile_id AS tileId, kind, pos_q AS posQ, pos_r AS posR, hp, lvl FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+        .map(w => {
+          const t = (tiles as any[]).find((x: any) => x.id === w.tileId);
+          const maxHp = (HOMELAND_DARK_HP[String(w.kind ?? "fray")] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
+          return { id: Number(w.id), tileId: Number(w.tileId), kind: String(w.kind ?? "fray"), posQ: w.posQ == null ? (t?.q ?? 0) : Number(w.posQ), posR: w.posR == null ? (t?.r ?? 0) : Number(w.posR), hp: w.hp == null ? maxHp : Number(w.hp), maxHp };
+        });
       const body = await this.tenderBodyView(ownerKey);
       if (body) tenderView = { ...tenderStand, ...body };
     }
@@ -7044,7 +7680,7 @@ export const handlers = {
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -7441,6 +8077,7 @@ export const handlers = {
     if (!landed) {
       return { ok: true as const, summoned: false as const, faltered: true as const, name: payload.name, roll, gift, summonersPower: sp, curse, dc, cost };
     }
+    const bornShield = await rollShieldFor(awakenedId);
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId, tileId: landing.id,
       // A SUMMONED AWOKEN FOLLOWS ITS TENDER (the party's
@@ -7459,6 +8096,9 @@ export const handlers = {
       // fixed offset borrowed from the tile.
       posQ: landing.q, posR: landing.r,
       hp: await placementMaxHp(awakenedId),
+      // Born shielded (the shield law): the per-part dice
+      // pool is rolled at the summoning itself.
+      shield: bornShield, shieldMax: bornShield,
     });
     return { ok: true as const, summoned: true as const, faltered: false as const, name: payload.name, tileId: landing.id, roll, gift, summonersPower: sp, curse, dc, cost };
   },
@@ -7551,92 +8191,31 @@ export const handlers = {
     }
     if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
     for (const f of fighters) {
+      const shield = await rollShieldFor(f.id);
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
         posQ: tile[0].q, posR: tile[0].r,
         hp: await placementMaxHp(f.id),
+        stance: "attack", stanceOrdered: 1,
+        shield, shieldMax: shield,
       });
     }
-    // ACTIVE ASSAULT resolution (Corruption Toughness Protocol, and fix
-    // list #2, Nigel 2026-10-13: "make the purify real"). The promise in
-    // this action's doc comment and the client's `purified` field is now
-    // kept by code: assaulting a cursed tile is an ATTACK EVENT for each
-    // fighter sent (+10 XP, the unified model), and if the combined true
-    // power of ALL Awoken standing on the tile meets the corruption
-    // toughness, the dark breaks on the spot.
-    const xpShape = z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() });
-    const xpById = new Map<number, XpGainReport>();
-    let purified = false;
-    if (tile[0].cursed) {
-      for (const f of fighters) {
-        await grantEventXp(xpById, f.id, XP_PER_ATTACK);
-      }
-      // Every Awoken standing on the tile — the fighters just sent plus
-      // any already holding it — lends their power to the break.
-      const standing = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
-        .from(schema.fieldPlacements)
-        .where(eq(schema.fieldPlacements.tileId, tile[0].id));
-      let combinedPower = 0;
-      for (const s of standing) {
-        const payload = await awakenedPayloadById(s.awakenedId);
-        combinedPower += payload?.power ?? 0;
-      }
-      if (combinedPower >= corruptionToughness(tile[0].q, tile[0].r)) {
-        // The tile becomes what its liberators are: the dominant element
-        // of all standing Awoken's layers (fire never claims conquered
-        // land). A tie stays neutral.
-        const standingRows = owned.filter(a => standing.some(s => s.awakenedId === a.id));
-        const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-        for (const a of standingRows) {
-          for (const layer of parseLayers(a.compositionJson, assetStats)) {
-            const el = storedElement((layer as any).element);
-            if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
-          }
-        }
-        let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
-        let maxCount = 0; let tie = false;
-        for (const [el, count] of Object.entries(elementCounts)) {
-          if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
-          else if (count === maxCount && count > 0) { tie = true; }
-        }
-        if (tie) element = "neutral";
-        await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
-          .where(eq(schema.territoryTiles.id, tile[0].id));
-        // The neighboring cursed land feels the shift — their 48h
-        // passive timers start now.
-        const now = new Date();
-        const neighborCoords = [
-          [tile[0].q + 1, tile[0].r], [tile[0].q - 1, tile[0].r],
-          [tile[0].q, tile[0].r + 1], [tile[0].q, tile[0].r - 1],
-          [tile[0].q + 1, tile[0].r - 1], [tile[0].q - 1, tile[0].r + 1],
-        ];
-        for (const [nq, nr] of neighborCoords) {
-          await db.update(schema.territoryTiles)
-            .set({ lastPassiveAt: now })
-            .where(and(
-              eq(schema.territoryTiles.ownerKey, ownerKey),
-              eq(schema.territoryTiles.q, nq),
-              eq(schema.territoryTiles.r, nr),
-              eq(schema.territoryTiles.cursed, 1),
-            ));
-        }
-        // Reveal new cursed land at the frontier, as every other
-        // purification does.
-        await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-        // HEX TAKEN: the hex was taken by all who stood in the break —
-        // the curse_broken deed and +50 XP go to every liberator.
-        for (const s of standing) {
-          await recordDeed(ownerKey, s.awakenedId, "curse_broken");
-          await grantEventXp(xpById, s.awakenedId, XP_PER_HEX_TAKEN);
-        }
-        purified = true;
-        // No newborn follows a purification any more (Nigel,
-        // 2026-10-14): only boss fights free new Awoken.
-      }
-    }
-    return z.object({ ok: z.literal(true), purified: z.boolean(), xpGains: z.array(xpShape) })
-      .parse({ ok: true, purified, xpGains: [...xpById.values()] });
+    // THE INSTANT ASSAULT IS RETIRED (Nigel, 2026-10-23):
+    // this door's only duty now is the FIELDING — the readied
+    // company takes the cursed ground under attack orders,
+    // shields rolled, and the LIVING BATTLE decides what
+    // happens there: the dark walks, bites, and is answered
+    // in real time (settleHomelandBattle). No fight is
+    // resolved in this breath, no combined-power break is
+    // struck here, and no XP bursts from the sending — blows
+    // earn their events as they land. The curse still breaks
+    // the standing ways: strike workings grind it
+    // (grindHomelandCurse) and an attack-ordered Awokin's
+    // attackTile worries the tile beside her. The response
+    // keeps its shape — purified stands false, honestly:
+    // nothing was purified by the sending.
+    return z.object({ ok: z.literal(true), purified: z.boolean(), xpGains: z.array(z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() })) })
+      .parse({ ok: true, purified: false, xpGains: [] });
   },
 
 
@@ -11115,6 +11694,36 @@ export const handlers = {
     return { ok: true, bonusEligible, xpGains: [...xpById.values()], committedPower, wavePower };
   },
 
+  /** THE LIGHTHOUSE (Nigel, 2026-10-23, as amended 10:48):
+   *  protection is OFF by default and lit only by the
+   *  Tender's own hand on this switch. Lighting it takes
+   *  hold at once: the standing dark is pushed back off the
+   *  land (no bounty — peace, not victory), the wave
+   *  intensity resets to 1 under the current reign, and the
+   *  banked minutes begin to burn across the hours he is
+   *  present (settleProtection reckons the burn; away hours
+   *  burn nothing). Darkening it is always his to do. A
+   *  light with no banked minutes behind it cannot be lit —
+   *  kills buy the light. */
+  async setLighthouse(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ lit: z.boolean() }).safeParse(args);
+    if (!parsed.success) badRequest("Invalid lighthouse switch.");
+    const row = sqlite.prepare("SELECT protection_bank_ms AS bank FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    const now = Date.now();
+    if (parsed.data.lit) {
+      if (!row || Math.max(0, Number(row.bank) || 0) <= 0) {
+        badRequest("The lighthouse stands dark for want of banked protection — kills buy the light. Fell the dark, and their minutes are yours to burn.");
+      }
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(ownerKey);
+      sqlite.prepare("UPDATE tender_progress SET lighthouse_lit = 1, lighthouse_settled_at = ?, wave_intensity = 1, intensity_reign_mark = ? WHERE owner_key = ?")
+        .run(now, weatherReignCount(), ownerKey);
+    } else {
+      sqlite.prepare("UPDATE tender_progress SET lighthouse_lit = 0, lighthouse_settled_at = ? WHERE owner_key = ?").run(now, ownerKey);
+    }
+    return z.object({ ok: z.literal(true), battle: z.object({ shadowMatter: z.number(), protectionBankMs: z.number(), lighthouseLit: z.boolean(), waveIntensity: z.number() }) }).parse({ ok: true, battle: await battleStateView(ownerKey) });
+  },
+
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
@@ -11137,6 +11746,7 @@ export const handlers = {
     await db.update(schema.fieldPlacements)
       .set({
         stance: parsed.data.stance,
+        stanceOrdered: 1, // an ORDERED stance (Nigel, 2026-10-23): unordered Awokin default to attack in the living battle
         lastBindingChargeAt: parsed.data.stance === "binding" ? new Date() : null,
       })
       .where(eq(schema.fieldPlacements.id, placement[0].id));

@@ -771,6 +771,49 @@ try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN hp REAL`); } catch 
 // land pins the dark that stands on it — the pin is counted in
 // the curse's own beats, decremented as the walk settles.
 try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN pinned_beats INTEGER NOT NULL DEFAULT 0`); } catch {}
+// THE REAL-TIME BATTLE ENGINE (Nigel, 2026-10-23): the dark
+// walks free now — each wanderer holds its own free standing
+// point (fractional axial, the placement law come to the
+// enemy), its kind's power and wave level, the Wet a Tide
+// strike laid on it, the Crack a Stone strike opened in it,
+// its own strike clock, and the chew it has worried into the
+// pure tile it is trying to turn.
+for (const col of ["pos_q REAL", "pos_r REAL", "power INTEGER NOT NULL DEFAULT 1", "lvl INTEGER NOT NULL DEFAULT 1", "wet_until INTEGER NOT NULL DEFAULT 0", "cracked INTEGER NOT NULL DEFAULT 0", "last_strike_at INTEGER NOT NULL DEFAULT 0", "chew_tile_id INTEGER", "chew_progress REAL NOT NULL DEFAULT 0"]) {
+  try { sqlite.exec(`ALTER TABLE homeland_wanderers ADD COLUMN ${col}`); } catch { /* exists */ }
+}
+// The battle's own ledgers on the progress row: the Shadow
+// Matter hoard, the banked protection and the lighthouse that
+// spends it, the standing wave intensity and the weather
+// reign it was last reset under, and the battle clock's
+// watermark (the lazy settle reckons from timestamps, as the
+// marches taught it).
+for (const col of ["shadow_matter REAL NOT NULL DEFAULT 0", "protection_bank_ms INTEGER NOT NULL DEFAULT 0", "lighthouse_lit INTEGER NOT NULL DEFAULT 0", "lighthouse_settled_at INTEGER", "wave_intensity INTEGER NOT NULL DEFAULT 1", "intensity_reign_mark INTEGER", "battle_watermark INTEGER"]) {
+  try { sqlite.exec(`ALTER TABLE tender_progress ADD COLUMN ${col}`); } catch { /* exists */ }
+}
+// A placement's shield (the per-part dice pool, rolled at its
+// taking the field), whether its stance was ever ORDERED (an
+// unordered Awokin defaults to attack, Nigel 2026-10-23), its
+// battle strike clock, and a Tangle's pin upon it.
+for (const col of ["shield REAL", "shield_max REAL", "stance_ordered INTEGER NOT NULL DEFAULT 0", "battle_next_at INTEGER", "pinned_until INTEGER NOT NULL DEFAULT 0"]) {
+  try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN ${col}`); } catch { /* exists */ }
+}
+// DEFENCE WORKS (Nigel, 2026-10-22, proven in the Proving
+// Ground; seated on the homeland by the battle engine,
+// 2026-10-23): a defending Awokin's raised work — a Root
+// hand's bramble, a Stone hand's rock wall — its nodes kept
+// as data (free points with their own wounds), standing
+// while she defends.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS defence_works (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  placement_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  anchor_q REAL NOT NULL,
+  anchor_r REAL NOT NULL,
+  nodes TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_defence_works_owner ON defence_works (owner_key);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   owner_key TEXT NOT NULL,
   weapon_key TEXT NOT NULL,

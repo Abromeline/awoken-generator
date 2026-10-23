@@ -526,7 +526,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // served by getTerritory beside the Tender's own body — and,
   // since the homeland weapon referee (Nigel, 2026-10-20), with
   // the wound track his weapon writes on them.
-  const [wanderers, setWanderers] = useState<{ id: number; tileId: number; hp?: number; maxHp?: number }[]>([]);
+  const [wanderers, setWanderers] = useState<{ id: number; tileId: number; kind: string; posQ: number; posR: number; hp?: number; maxHp?: number }[]>([]);
+  // THE REAL-TIME BATTLE's face (Nigel, 2026-10-23): the
+  // lighthouse and its ledgers, and the defence works the
+  // defenders raise — all served by the territory read.
+  const [battle, setBattle] = useState<{ shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }>({ shadowMatter: 0, protectionBankMs: 0, lighthouseLit: false, waveIntensity: 1 });
+  const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]>([]);
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
   // strike arrives, the weapon lunges at that foe's hex on the
@@ -1397,6 +1402,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setTenderStand(t.tender ?? null);
         setSummoning(t.summoning ?? { company: [], summonersPower: 0, standCursed: false });
         setWanderers(t.wanderers ?? []);
+        if (t.battle) setBattle(t.battle);
+        setDefenceWorks(t.defenceWorks ?? []);
         noteWeaponStrike(t.weaponStrike);
       } catch (e) {
         console.error("[Territory] getTerritory failed:", e);
@@ -1439,6 +1446,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTenderStand(refreshed.tender ?? null);
     setSummoning(refreshed.summoning ?? { company: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
+    if (refreshed.battle) setBattle(refreshed.battle);
+    setDefenceWorks(refreshed.defenceWorks ?? []);
     noteWeaponStrike(refreshed.weaponStrike);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
   };
@@ -5388,6 +5397,36 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
       );
     })();
+    // DEFENCE WORKS on the face (Nigel, 2026-10-23): a Stone
+    // defender's rock wall and a Root defender's bramble,
+    // drawn at their nodes' own free points — rocks as
+    // standing stones, the thicket as dark green knots —
+    // each paling as its wounds deepen.
+    const defenceWorksLayer = (
+      <g key="defence-works" pointerEvents="none">
+        {defenceWorks.map(wk => (
+          <g key={wk.id}>
+            {wk.nodes.filter(n => n.hp > 0).map((n, i) => {
+              const dp = isoOffset(n.q, n.r, size);
+              const cx = originX + dp.px;
+              const cy = originY + dp.py;
+              const frac = Math.max(0, Math.min(1, n.hp / Math.max(1, n.maxHp)));
+              return wk.kind === "rockwall" ? (
+                <g key={i} opacity={0.35 + 0.65 * frac}>
+                  <ellipse cx={cx} cy={cy + size * 0.1} rx={size * 0.17} ry={size * 0.06} fill="rgba(0,0,0,0.4)" />
+                  <polygon points={`${cx},${cy - size * 0.3} ${cx + size * 0.16},${cy + size * 0.08} ${cx - size * 0.16},${cy + size * 0.08}`} fill="#8d8578" stroke="#4c463c" strokeWidth={1 / zoom} strokeLinejoin="round" />
+                </g>
+              ) : (
+                <g key={i} opacity={0.35 + 0.65 * frac}>
+                  <circle cx={cx} cy={cy} r={size * 0.21} fill="rgba(38,64,30,0.55)" stroke="#69a84f" strokeWidth={1.2 / zoom} strokeDasharray="3 2" />
+                  <path d={`M ${cx - size * 0.14} ${cy + size * 0.08} Q ${cx} ${cy - size * 0.16} ${cx + size * 0.14} ${cy + size * 0.08}`} fill="none" stroke="#69a84f" strokeWidth={1.2 / zoom} />
+                </g>
+              );
+            })}
+          </g>
+        ))}
+      </g>
+    );
     // PHASE D — THE BLIND FRAY on the face: each wanderer wears
     // the Fray's own art (Nigel's drawn face, the workshop's live
     // choice respected), standing in its hex on the map's clock —
@@ -5399,7 +5438,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {wanderers.map(w => {
           const t = tiles.find(t => t.id === w.tileId);
           if (!t) return null;
-          const { cx, cy } = tilePos(t);
+          const base = tilePos(t);
+          // THE FREE POINT (Nigel, 2026-10-23): the dark
+          // stands where it walks — its own stored point on
+          // the land, read through the same iso delta as
+          // every figure's standing point.
+          const dp = isoOffset(w.posQ, w.posR, size);
+          const dc = isoOffset(t.q, t.r, size);
+          const cx = base.cx + (dp.px - dc.px);
+          const cy = base.cy + (dp.py - dc.py);
           const wh = size * 0.95;
           const sway = Math.sin(marchNow / 620 + w.id * 1.7) * 1.6 / zoom;
           // THE WOUND TRACK (Nigel, 2026-10-20): a Fray his
@@ -5445,6 +5492,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {columnsLayer}
           {seedLayer}
           {wanderersLayer}
+          {defenceWorksLayer}
           {patrolGuideLayer}
           {lineLayer}
           {bandLayer}
@@ -5940,6 +5988,44 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
         </div>
       )}
+      {/* THE LIGHTHOUSE (Nigel, 2026-10-23): a small golden
+          timer on the right-hand side of the screen. The bank
+          is protection bought with kills (a minute per point
+          of the felled dark's bonus above AC 10); the light
+          is lit by hand, never by default, and while it burns
+          the bank drains, Shadow Matter feeds its upkeep,
+          nothing spawns, and the waves stand pushed back at
+          intensity 1. Unlit, every weather change raises the
+          waves. */}
+      <div className={`lighthouse-panel${battle.lighthouseLit ? " lit" : ""}`}>
+        <div className="lighthouse-head">{battle.lighthouseLit ? "🔆" : "🗼"} The Lighthouse</div>
+        <div className="lighthouse-bank">
+          {battle.lighthouseLit ? "Burning" : "Banked"}: {Math.floor(battle.protectionBankMs / 60000)} min of protection
+        </div>
+        <div className="lighthouse-shadow" title="Shadow Matter — feeds upkeep, never casting">
+          ◈ {Math.floor(battle.shadowMatter)} Shadow Matter
+        </div>
+        <div className="lighthouse-waves">
+          {battle.lighthouseLit ? "The waves are pushed back" : `Wave intensity ${battle.waveIntensity}`}
+        </div>
+        {battle.lighthouseLit && battle.shadowMatter < 1 && (
+          <div className="lighthouse-warn">The hoard is empty — when the fuel is spent, the light gutters out.</div>
+        )}
+        <button
+          className="abtn small"
+          onClick={async () => {
+            try {
+              const r = await api.setLighthouse({ lit: !battle.lighthouseLit });
+              setBattle(r.battle);
+              await refreshTerritory();
+            } catch (e) {
+              showHexNotice(refusalText(e, "The lighthouse refused."));
+            }
+          }}
+        >
+          {battle.lighthouseLit ? "Douse the light" : "Light the lighthouse"}
+        </button>
+      </div>
       {showFriends && <Friends onClose={() => setShowFriends(false)} hand={hand} />}
       {!legends.champion && (
         <button className="champion-fab" onClick={() => setShowChampionPicker(true)} title="Choose your champion">

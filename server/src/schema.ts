@@ -526,6 +526,24 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // reckoned at settle time. Null while it stands on pure
   // ground (or has not yet been seen standing in the curse).
   curseSince: integer("curse_since"),
+  // THE REAL-TIME BATTLE (Nigel, 2026-10-23): the shield —
+  // the sum of the Awokin's per-part element dice, rolled as
+  // it takes the field — burns before its HP under every
+  // enemy blow. Null until first reckoned (legacy standings
+  // roll theirs at the first battle settle that touches them).
+  shield: real("shield"),
+  shieldMax: real("shield_max"),
+  // Whether this stance was ever ORDERED. An Awokin with no
+  // orders defaults to ATTACK (Nigel, 2026-10-23) whatever
+  // the stored default says; setStance stamps this as it
+  // writes, so an ordered Defence is honoured as Defence.
+  stanceOrdered: integer("stance_ordered").notNull().default(0),
+  // The figure's own strike clock in the living battle (raw
+  // ms): the next hour its cadence lets it strike or heal.
+  battleNextAt: integer("battle_next_at"),
+  // A Tangle's pin: the figure neither strikes nor is struck
+  // out of turn until this hour passes (raw ms).
+  pinnedUntil: integer("pinned_until").notNull().default(0),
 });
 
 // Wave defense: the Unraveling attacks in waves. The center is the last bastion.
@@ -598,6 +616,21 @@ export const tenderProgress = sqliteTable("tender_progress", {
    *  client lunges only where the server struck. */
   weaponNextAt: integer("weapon_next_at"),
   weaponStrike: text("weapon_strike"),
+  /** THE REAL-TIME BATTLE'S LEDGERS (Nigel, 2026-10-23): the
+   *  Shadow Matter hoard the dark pays into; the banked
+   *  protection (raw ms of light) and the lighthouse that
+   *  spends it — lit only by the Tender's own hand on the
+   *  button, its burn settled from its own watermark, and
+   *  only across the hours he is present to read the map;
+   *  the standing wave intensity and the weather reign it
+   *  was last reset under; and the battle clock's watermark. */
+  shadowMatter: real("shadow_matter").notNull().default(0),
+  protectionBankMs: integer("protection_bank_ms").notNull().default(0),
+  lighthouseLit: integer("lighthouse_lit").notNull().default(0),
+  lighthouseSettledAt: integer("lighthouse_settled_at"),
+  waveIntensity: integer("wave_intensity").notNull().default(1),
+  intensityReignMark: integer("intensity_reign_mark"),
+  battleWatermark: integer("battle_watermark"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

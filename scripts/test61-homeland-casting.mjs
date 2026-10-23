@@ -82,7 +82,12 @@ const setEnergy = (me, n) => db.prepare("INSERT INTO tender_resources (owner_key
  *  the count survives this box's jitter, the body topped and
  *  standing (the border's teeth are the proof's subject, not
  *  the Tender's attrition). */
-const armSteps = (me, steps, maxHp) => db.prepare("UPDATE tender_progress SET hp = ?, down_until = NULL, wanderer_watermark = ? WHERE owner_key = ?").run(maxHp, Date.now() - (2800 * steps + 1400), me);
+// The battle engine (Nigel, 2026-10-23) keeps its own clock:
+// the same armed span is written to the battle watermark, so
+// the beats this helper names are battle time now, settled
+// continuously — the old wanderer watermark is written too,
+// for the settles that still read it.
+const armSteps = (me, steps, maxHp) => { const span = 2800 * steps + 1400; db.prepare("UPDATE tender_progress SET hp = ?, down_until = NULL, wanderer_watermark = ?, battle_watermark = ? WHERE owner_key = ?").run(maxHp, Date.now() - span, Date.now() - span, me); };
 const workingOn = (me, tileId, engine) => db.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND tile_id = ?" + (engine ? " AND engine = ?" : "")).get(...(engine ? [me, tileId, engine] : [me, tileId]));
 const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id = ?").get(id)?.hp;
 
@@ -150,14 +155,16 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   ok("a standing cast placed its Blade and paid the same price", !!stood);
 }
 
-/* ── §2 THE WARDED BORDER (the defense Nigel asked for): a
-      Blind Fray chews a border placement at 5% of its health
-      per beat when nothing guards the edge — the control
-      loses exactly five bites. Behind a cast Seal, the same
-      Fray's bite never reaches the guarded: the Seal counts
-      the stop, takes the bite on its own health, and its
-      riposte (3, the book's measure) fells the Fray (hp 3)
-      with the first turned blow. */
+/* ── §2 THE WARDED BORDER (the defense Nigel asked for):
+      under the living battle engine (2026-10-23) the Fray's
+      bites are fate dice on its strike cadence, not the old
+      flat 5% chew — the control guard (a binder on orders,
+      soft hide) ends bloodied by them. Behind a cast Seal,
+      the same Fray's bite never reaches the guarded: the
+      ward turns the blow at its edge before her hide is
+      reckoned — the Seal counts the stop, takes the bite on
+      its own health, and its riposte (3, the book's measure)
+      fells the Fray (hp 3) with the first turned blow. */
 {
   // THE CONTROL — no ward on the edge.
   const c = await claimTender("Unwatched Tender", 200);
@@ -166,13 +173,18 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   const cVictim = ct(2, 0, 0);
   const cDark = ct(3, 0, 1);
   await call("chooseClass", { classKey: "warden" }, c.token);
-  const cAw = seedAwakened(c.me, "Unwatched Guard", 40);
+  const cAw = seedAwakened(c.me, "Unwatched Guard", 1);
   const cPl = seedPlacement(c.me, cAw, cVictim, 40);
+  // A binder on orders: she holds the border and never
+  // strikes back (placements struck nothing at all under the
+  // old bite law this scenario was written for; the binder is
+  // its faithful shape under the living engine).
+  db.prepare("UPDATE field_placements SET stance = 'binding', stance_ordered = 1 WHERE id = ?").run(cPl);
   seedWanderer(c.me, cDark, 3);
   armSteps(c.me, 5, 35);
   await terr(c.token);
-  ok("control: five unguarded beats cost the border guard exactly five bites (40 → 30)",
-    placementHp(cPl) === 30, `hp=${placementHp(cPl)}`);
+  ok("control: unguarded, the Fray's bites land on the border guard — she ends bloodied, still standing (fate dice now, not the old flat five bites of 2)",
+    placementHp(cPl) < 40 && placementHp(cPl) > 0, `hp=${placementHp(cPl)}`);
 
   // THE WARDED BORDER — the Seal on the edge between them.
   const w = await claimTender("Warded Tender", 200);
@@ -184,6 +196,7 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   setEnergy(w.me, 100);
   const wAw = seedAwakened(w.me, "Warded Guard", 40);
   const wPl = seedPlacement(w.me, wAw, wVictim, 40);
+  db.prepare("UPDATE field_placements SET stance = 'binding', stance_ordered = 1 WHERE id = ?").run(wPl);
   const wWid = seedWanderer(w.me, wDark, 3);
   // WALL_DIRS: the edge from (2,0) toward (3,0) is dir 2.
   const sealCast = await castUntilStands(w.token, { spellKey: "seal", hue: "unaligned", tileId: wVictim, dir: 2 });
@@ -194,8 +207,8 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   await terr(w.token);
   const sealAfter = sealRow();
   ok("warded: the guarded placement stands UNTOUCHED behind the Seal (40 of 40)", placementHp(wPl) === 40, `hp=${placementHp(wPl)}`);
-  ok("warded: the Seal counted the stop and took the bite itself (stops 1, health bitten by the 5% bite of 2)",
-    !!sealAfter && sealAfter.stops === 1 && sealAfter.hp === sealMax - 2, JSON.stringify(sealAfter));
+  ok("warded: the Seal counted the stop and took the bite itself (stops 1, its health bitten by the blow's fate measure — a d6 softened by the guard's AC 40, never the whole 9)",
+    !!sealAfter && sealAfter.stops === 1 && sealAfter.hp < sealMax && sealAfter.hp >= sealMax - 4, JSON.stringify(sealAfter));
   ok("warded: the Seal's riposte felled the Fray — the border's attacker is GONE",
     !db.prepare("SELECT id FROM homeland_wanderers WHERE id = ?").get(wWid));
 }
