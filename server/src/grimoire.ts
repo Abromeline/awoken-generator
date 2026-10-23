@@ -279,7 +279,8 @@ export function defaultGrimoire(): GrimoireState {
     builtin: true,
   });
   // SHARD RAIN (Nigel, 2026-10-17): its OWN spell, not the Crown
-  // Shard's greater form — a rune written over up to three hexes
+  // Shard's greater form — filed as the SPELL it is (Nigel,
+  // 2026-10-23), written over up to three hexes
   // of ground. When the dark stands on its covered ground, the
   // sky opens ONCE: 2d6, plus 1d6 per attunement LEVEL in the
   // spell's element (the caster's level, snapshotted at the
@@ -289,7 +290,7 @@ export function defaultGrimoire(): GrimoireState {
   spells.push({
     key: "shardrain",
     name: "Shard Rain",
-    kind: "rune",
+    kind: "spell",
     engine: "shardrain",
     glyphId: null,
     cost: 5,
