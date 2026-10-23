@@ -88,6 +88,15 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
     { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
     { key: "charges", label: "Times it springs before it is spent", def: 2 },
   ],
+  // THE SPRINGING BLADE (Nigel, 2026-10-23 — Recovery R4): the
+  // Single Blade's old proximity spring, moved whole onto its
+  // own page when the Blade became click-to-loose — the same
+  // numbers the Blade's spring always carried, unchanged.
+  springblade: [
+    { key: "power", label: "Harm to everything on its ground", def: 6 },
+    { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
+    { key: "charges", label: "Times it springs before it is spent", def: 2 },
+  ],
   blades: [
     { key: "power", label: "Harm on each planted hex", def: 3 },
     { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },

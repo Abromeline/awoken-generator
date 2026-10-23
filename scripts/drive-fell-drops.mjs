@@ -204,28 +204,49 @@ async function summonOnto(c, cardId, nearId) {
   }
   throw new Error("no summonable pure neighbour of " + nearId + " | errors: " + JSON.stringify(c.errors.slice(-4)) + " | energy: " + c.you?.energy + " | company: " + JSON.stringify((c.you?.company ?? []).map((x) => x.name)));
 }
-/** Write the Single Blade under a named dark until it stands
- *  or springs (the cast roll fizzles sometimes — retry, as
- *  test63's castUnderDark does). */
+/** Write the Single Blade under a named dark, then LOOSE
+ *  it with the click-order (Recovery R4, Nigel 2026-10-23:
+ *  written, the Blade WAITS armed — the fell comes from
+ *  the looseBlade order, never a spring). The cast roll
+ *  fizzles sometimes — retry, as test63's castUnderDark
+ *  does. */
 async function castUnderDark(c, darkId, tries = 8) {
   for (let i = 0; i < tries; i++) {
     const d = c.state.dark.find((x) => x.id === darkId);
     if (!d) return true; // already felled
     const hex = d.hex;
-    const taleLen = (c.state.tale ?? []).length;
-    c.send({ type: "castRune", root: "blade", hue: "unaligned", hexes: [hex], pour: 0 });
-    try {
-      await c.waitFor((cc) =>
-        !cc.state.dark.some((x) => x.id === darkId)
-        || cc.state.workings.some((w) => w.kind === "rune" && w.hex === hex)
-        || (cc.state.tale ?? []).slice(taleLen).some((t) => /unravels|springs/.test(t.text)),
-        "the blade stands, springs, or the dark falls", 4000);
+    // A player's real cadence: an armed Blade already
+    // within reach of this dark looses at once — no new
+    // writing, no waiting on the cast. Blades written for
+    // earlier dark stand armed along the march road, and
+    // the stream walks into their reach.
+    const armed = c.state.workings.some((w) => w.kind === "rune" && w.root === "blade" && (w.charges ?? 0) > 0 && axialDist(w.hex, hex) <= 2);
+    if (!armed) {
+      c.send({ type: "castRune", root: "blade", hue: "unaligned", hexes: [hex], pour: 0 });
+      try {
+        await c.waitFor((cc) =>
+          !cc.state.dark.some((x) => x.id === darkId)
+          || cc.state.workings.some((w) => w.kind === "rune" && w.root === "blade" && w.hex === hex),
+          "the blade stands under the dark", 4000);
+      } catch { /* cast again */ }
       if (!c.state.dark.some((x) => x.id === darkId)) return true;
-      if (c.state.workings.some((w) => w.kind === "rune" && w.hex === hex)) return true;
-    } catch { /* cast again */ }
-    await sleep(250);
+      if (!c.state.workings.some((w) => w.kind === "rune" && w.root === "blade" && w.hex === hex)) { await sleep(150); continue; }
+    }
+    // The click looses it — each loose is the book's
+    // flat 6. Read the landing briefly, then move on:
+    // the next cycle reads the field fresh, as a player
+    // clicking down the stream does.
+    const hp0 = c.state.dark.find((x) => x.id === darkId)?.hp ?? 0;
+    c.send({ type: "looseBlade", enemyId: darkId });
+    try {
+      await c.waitFor((cc) => {
+        const dd = cc.state.dark.find((x) => x.id === darkId);
+        return !dd || dd.hp < hp0;
+      }, "the loose lands", 1500);
+    } catch { /* loose again next cycle */ }
+    if (!c.state.dark.some((x) => x.id === darkId)) return true;
   }
-  return false;
+  return !c.state.dark.some((x) => x.id === darkId);
 }
 const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 function pathTo(from, to) {

@@ -92,6 +92,11 @@ interface BattlegroundProps {
   grimBcnTiles?: Record<number, number>;
   grimCoilTiles?: number[];
   grimNames?: Record<number, string>;
+  // Every tile's axial ground, for the Single Blade's reach
+  // (Recovery R4): a loosed Blade answers a dark thing
+  // within two hexes of its writing — the mirror measures
+  // that reach in the land's own coordinates.
+  grimTileAxial?: Record<number, { q: number; r: number }>;
   // The server's rolled aspect grant for a boss victory (resolved at
   // detection, before this screen opens) — null when no grant waits.
   aspectGrant?: string[] | null;
@@ -279,7 +284,7 @@ function VictoryAspects({ grant }: { grant: string[] | null }) {
   );
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [], grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {} }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [], grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {}, grimTileAxial = {} }: BattlegroundProps) {
   // The creator's live enemy art (UI Workspace uploads/selection).
   const { data: enemyArtData } = useEnemyArt();
   const [fighters, setFighters] = useState<Fighter[]>([]);
@@ -379,6 +384,54 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setProjectiles(prev => prev.filter(x => x.id !== id));
       p.onImpact?.();
     });
+  };
+
+  // LOOSE THE SINGLE BLADE (Nigel, 2026-10-20; re-ruled
+  // 2026-10-23 — Recovery R4): a click on an enemy with no
+  // Awokin chosen is the order to the written Blade — the
+  // NEAREST armed Blade within two hexes of the enemy's
+  // ground answers, at the book's flat power, a charge
+  // spent in this mirror (reported at the resolution).
+  // Out of reach, the answer is plain and the Blade stays
+  // armed. (With an Awokin chosen, the click keeps its old
+  // meaning — their attack — untouched.)
+  const looseBladeBg = (enemy: Fighter) => {
+    const eAx = enemy.tileId != null ? grimTileAxial[enemy.tileId] : undefined;
+    let best: { w: import("./api").MapWorking; st: { charges: number; spent: boolean }; dist: number } | null = null;
+    let anyArmed = false;
+    for (const w of grimWorkings) {
+      if (w.engine !== "blade") continue;
+      const st = grimRef.current.get(w.id);
+      if (!st || st.spent || st.charges <= 0) continue;
+      anyArmed = true;
+      let dist = Infinity;
+      if (enemy.tileId != null && w.tileId === enemy.tileId) dist = 0;
+      else if (eAx && w.q != null && w.r != null) {
+        const dq = w.q - eAx.q, dr = w.r - eAx.r;
+        dist = (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+      }
+      if (dist <= 2 && (!best || dist < best.dist)) best = { w, st, dist };
+    }
+    if (!best) {
+      addLog(anyArmed
+        ? "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed."
+        : "No Single Blade stands armed in this battle — write one, and it will wait for your click.");
+      return;
+    }
+    const chosen: NonNullable<typeof best> = best;
+    const power = (chosen.w.nums.power ?? 6) + (grimBrightBg() ? (chosen.w.nums.brightBonus ?? 1) : 0);
+    chosen.st.charges--;
+    if (chosen.st.charges <= 0) chosen.st.spent = true;
+    const c = fighterCenter(enemy.id);
+    if (c) {
+      // The flight: from the dark's own ground the blades
+      // rise and spear down into it from above (this
+      // overlay draws no rune floor to rise from — the
+      // rise is read at the mark's ground).
+      spawnProjectile({ fx: c.x, fy: c.y + 42, tx: c.x, ty: c.y, glyph: "🗡", color: "#ffd977", arc: true, duration: 620 });
+    }
+    setEnemies(prev => prev.map(e => e.id === enemy.id ? { ...e, hp: Math.max(0, e.hp - power) } : e));
+    addLog(`${grimName(chosen.w)} is loosed — its blades rise and spear down into ${enemy.name} from above (${power} harm)!`);
   };
 
   // The towers' searing light: a beam strikes at (x, y) and fades.
@@ -713,8 +766,14 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           }
           addLog(`${grimName(grune)} strains to hold ${attacker.name} — its light is too worn (❤${Math.max(0, gst.hp)}).`);
         }
-        if (grune.engine === "blade" || grune.engine === "blades") {
-          const power = (grune.nums.power ?? (grune.engine === "blade" ? 6 : 3)) + bright * (grune.nums.brightBonus ?? 1);
+        if (grune.engine === "blades" || grune.engine === "springblade") {
+          // The Single Blade (engine "blade") does NOT
+          // spring here (Nigel, 2026-10-20; re-ruled
+          // 2026-10-23 — Recovery R4): it waits armed, and
+          // the click on an enemy looses it (looseBladeBg).
+          // Its old spring lives on in the Springing Blade
+          // at the Blade spring's own power (6).
+          const power = (grune.nums.power ?? (grune.engine === "springblade" ? 6 : 3)) + bright * (grune.nums.brightBonus ?? 1);
           setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - power) } : e));
           gst.charges--;
           if (gst.charges <= 0) gst.spent = true;
@@ -1104,7 +1163,12 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
             ref={(el) => { if (el) fighterRefs.current.set(e.id, el); else fighterRefs.current.delete(e.id); }}
             className={`battle-fighter enemy ${e.hp < e.maxHp * 0.25 ? "critical" : ""} ${e.hp < e.maxHp * 0.5 && e.hp >= e.maxHp * 0.25 ? "wounded" : ""} ${e.hp < e.maxHp * 0.25 ? "bloodied" : ""} ${attacking === e.id ? "attacking" : ""} ${hitFlash === e.id ? "hit-flash" : ""} ${windUp === e.id ? "wind-up" : ""}`}
             onClick={() => {
-              if (busy || !selected) return;
+              if (busy) return;
+              // No Awokin chosen: the click is the order
+              // that looses the written Single Blade
+              // (Recovery R4). With one chosen, the click
+              // is their attack, as it always was.
+              if (!selected) { looseBladeBg(e); return; }
               const atk = fighters.find(f => f.id === selected);
               if (atk) doAttack(atk, e);
             }}

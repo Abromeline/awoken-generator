@@ -313,8 +313,9 @@ async function beginWave(c) {
 }
 /** The dealt field, read once it stops changing: the deal
  *  springs whatever workings the dark land on (a §B1 blade
- *  may take one at the deal), and state pushes land on
- *  their own cadence — a single snapshot races both. */
+ *  takes none at the deal now — Recovery R4: it waits
+ *  armed for the click), and state pushes land on their
+ *  own cadence — a single snapshot races both. */
 async function settledDeal(c) {
   let last = -1, stable = 0;
   const t0 = Date.now();
@@ -373,40 +374,46 @@ async function castUnderDark(c, root, darkId, { tries = 8, sprungRe = null } = {
 }
 
 /* §B2 PART 4 — THE TABLE AUDIT, WAVE 1: the single blade
-      and the lattice, sprung by the writing itself. (The
-      shard has its own wave — §B3 — and the multi-runes
-      theirs — §B4: one slow proof per wave, the field's own
-      blows do not wait for the audit.) */
+      (written, it WAITS — the click looses it; Recovery R4,
+      Nigel 2026-10-23) and the lattice, sprung by the
+      writing itself. (The shard has its own wave — §B3 —
+      and the multi-runes theirs — §B4: one slow proof per
+      wave, the field's own blows do not wait for the
+      audit.) */
 {
   await beginWave(B);
   const dealt = await settledDeal(B);
-  ok("wave 1 deals its dark (3 dealt; the standing blade may already have taken one)", dealt.length >= 2, JSON.stringify(dealt));
+  ok("wave 1 deals its dark (3 dealt; the standing blade takes none at the deal — it waits for the click)", dealt.length >= 2, JSON.stringify(dealt));
   // The casts go in the order of the dark's fragility: the
-  // blade's dark is the frailest and its spring is instant,
-  // so it is written in the wave's first breath; the lattice
-  // takes the sturdiest, whose proof runs longest.
+  // blade's dark is the frailest, so it is written in the
+  // wave's first breath; the lattice takes the sturdiest,
+  // whose proof runs longest.
   const byHp = [...dealt].sort((a, b) => b.hp - a.hp);
   const dLattice = byHp[0], dBlade = byHp[byHp.length - 1];
-  // THE SINGLE BLADE, sprung by the writing itself: its
-  // spring speaks in the tale ("springs — N harm to
-  // everything standing on its ground") and spends a charge.
-  const bladeSprings0 = (B.state.tale ?? []).filter((t) => /springs — \d+ harm to everything standing/.test(t.text)).length;
+  // THE SINGLE BLADE waits for the click (Recovery R4):
+  // written under a standing dark, no spring fires — its
+  // charges stand whole in the ledger (a spring would
+  // have spent one in the writing) — and the looseBlade
+  // order then speaks in the tale ("is LOOSED") and
+  // spends the charge for the book's flat harm.
   let bladeHexUsed = null;
   for (let attempt = 0; attempt < 3 && darkById(B, dBlade.id); attempt++) {
     bladeHexUsed = await castUnderDark(B, "blade", dBlade.id, { tries: 2 });
-    await sleep(900);
-    const dNow = darkById(B, dBlade.id);
-    const wNow = B.state.workings.find((w) => w.kind === "rune" && w.hex === bladeHexUsed);
-    if (!dNow || dNow.hp < dBlade.hp || (wNow && (wNow.charges ?? 0) < 2)) break;
-    bladeHexUsed = null;
+    if (bladeHexUsed) break;
   }
-  await sleep(800);
+  const bladeW0 = B.state.workings.find((w) => w.kind === "rune" && w.hex === bladeHexUsed);
+  ok("AUDIT blade @Table: cast under a standing dark, it WAITS armed — no spring in the writing, its charges whole",
+    !!bladeHexUsed && !!bladeW0 && (bladeW0.charges ?? 0) === 2,
+    `working=${JSON.stringify(bladeW0)}`);
+  const hpAtLoose = darkById(B, dBlade.id)?.hp ?? dBlade.hp;
+  B.send({ type: "looseBlade", enemyId: dBlade.id });
+  await sleep(900);
   const bladeW = B.state.workings.find((w) => w.kind === "rune" && w.hex === bladeHexUsed);
   const dB2 = darkById(B, dBlade.id);
-  const bladeSprang = (B.state.tale ?? []).filter((t) => /springs — \d+ harm to everything standing/.test(t.text)).length > bladeSprings0;
-  ok("AUDIT blade @Table: cast under a standing dark, it SPRINGS — the tale speaks the harm, the dark is wounded or felled, a charge is spent",
-    !!bladeHexUsed && bladeSprang && (!dB2 || dB2.hp < dBlade.hp) && (!bladeW || (bladeW.charges ?? 0) < 2),
-    `dark ${dBlade.hp} -> ${dB2?.hp ?? "dead"}; sprang=${bladeSprang}; working=${JSON.stringify(bladeW)}`);
+  const bladeLoosed = (B.state.tale ?? []).some((t) => /is LOOSED/.test(t.text));
+  ok("AUDIT blade @Table: the click LOOSES it — the tale speaks the loose, the dark is wounded or felled, a charge is spent",
+    !!bladeHexUsed && bladeLoosed && (!dB2 || dB2.hp < hpAtLoose) && (!bladeW || (bladeW.charges ?? 0) < 2),
+    `dark ${hpAtLoose} -> ${dB2?.hp ?? "dead"}; loosed=${bladeLoosed}; working=${JSON.stringify(bladeW)}`);
   // THE LATTICE, sprung by the writing itself. The pin is
   // read off the dark's own state (pinnedUntil, served
   // whole): no other hand sets it but the lattice's — and
@@ -740,18 +747,28 @@ await terrH(); // the first read settles the stand and the watermarks
     !!stood && !!w && w.hp === 3 && !!row && row.charges === 1,
     `wanderer hp=${w?.hp}; shard=${JSON.stringify(row && { charges: row.charges })}`);
 }
-/* §H6 the Single Blade springs at home. */
+/* §H6 the Single Blade at home: it WAITS, and the click
+      looses it (Recovery R4, Nigel 2026-10-23). The spring
+      it used to fire at its writing — curse-grind and all
+      — is the Springing Blade's now, proven in test61 §4
+      and drive-blade-loose. */
 {
   setEnergyH(100);
   const wid = seedWandererH(tileIds["3,-1"]);
   const stood = await castUntilStandsH({ spellKey: "blade", hue: "unaligned", tileId: tileIds["3,-1"] });
   await terrH();
+  const w0 = wandererRow(wid);
+  const row0 = workingOnH(tileIds["3,-1"], "blade");
+  ok("AUDIT blade @home: cast under a wanderer, it WAITS armed — he is untouched, its charges whole",
+    !!stood && !!w0 && w0.hp === 3 && !!row0 && row0.charges === 2,
+    `wanderer hp=${w0?.hp}; blade=${JSON.stringify(row0 && { charges: row0.charges })}`);
+  const looseRes = await call("looseBlade", { wandererId: wid }, runeSeed.token);
+  const loose = looseRes.data?.data ?? looseRes.data;
   const w = wandererRow(wid);
-  const curse = db.prepare("SELECT curse_hp FROM territory_tiles WHERE id = ?").get(tileIds["3,-1"]).curse_hp;
   const row = workingOnH(tileIds["3,-1"], "blade");
-  ok("AUDIT blade @home: cast under a wanderer, it SPRINGS — he is wounded, the curse is ground by the same harm, a charge is spent",
-    !!stood && (!w || w.hp < 3) && curse < 20 && (!row || row.charges < 2),
-    `wanderer hp=${w?.hp ?? "gone"}; curse_hp 20 -> ${curse}; blade=${JSON.stringify(row && { charges: row.charges })}`);
+  ok("AUDIT blade @home: the click LOOSES it — the book's flat 6 fells the Fray (hp 3), a charge is spent",
+    loose?.loosed === true && loose?.harm === 6 && !w && !!row && row.charges === 1,
+    `loose=${JSON.stringify(loose)}; wanderer=${w ? "standing" : "felled"}; blade=${JSON.stringify(row && { charges: row.charges })}`);
 }
 /* §H7 PART 3 — a ward on a far cursed edge, anchored by
       NOTHING: no Awokin holds its hexes, the Tender does not
@@ -792,11 +809,14 @@ await terrH(); // the first read settles the stand and the watermarks
 }
 /* §H9 PART 3 — a rune's charges are its body at home too:
       the fractional wither accrues, then eats whole charges.
-      The subject is the COIL: the blade and the rain spring
-      on cursed ground itself at home (they bite the curse —
-      §H1/§H6's law), so they spend themselves long before
-      withering could be read; the coil springs only on a
-      wanderer, and none is suffered near this stage. */
+      The subject is the COIL: the rain springs on cursed
+      ground itself at home (it bites the curse — §H4's
+      law), so it spends itself long before withering could
+      be read; the coil springs only on a wanderer, and
+      none is suffered near this stage. (The Blade is no
+      subject either way: since Recovery R4 it never
+      springs at home at all — it waits for the click,
+      §H6.) */
 {
   // Freeze the border: no wanderer may wander onto the
   // proof's ground and spring it, and no new teeth may bite.

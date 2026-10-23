@@ -33,7 +33,7 @@ import grimGlyphBlades from "./assets/glyphs/blades.png";
 import grimGlyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 import { batsFrameAt, holdRuneFrameAt } from "./workingFx";
-const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
+const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, springblade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
 /** The hues of the Written Light — the grimoire's filter recipes,
  *  the same as the Table's (Table.tsx). */
 const GRIM_HUE_FILTERS: Record<string, string> = {
@@ -1144,6 +1144,81 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     grimState: [...grimBattleRef.current.entries()].map(([id, st]) => ({ id, hp: st.hp, stops: st.stops, charges: st.charges, spent: st.spent })),
     grimEnergy: grimYieldRef.current,
   });
+  // THE SINGLE BLADE'S FLIGHTS (Nigel, 2026-10-20; re-ruled
+  // 2026-10-23 — Recovery R4): a loosed Blade drawn on this
+  // ground — the blades rise from the rune's hex and spear
+  // down into the mark from above. The harm is refereed
+  // where the loose is ordered (the server for the
+  // wandering dark; this battle's mirror for its own
+  // units); only the flight is drawn here.
+  const [bladeFlights, setBladeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number }[]>([]);
+  const pushBladeFlight = (fx: number, fy: number, tx: number, ty: number) => {
+    const id = `bladeflight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setBladeFlights((prev) => [...prev.slice(-6), { id, fx, fy, tx, ty }]);
+    setTimeout(() => setBladeFlights((prev) => prev.filter((f) => f.id !== id)), 1200);
+  };
+  const axialDistTiles = (a: { q: number; r: number }, b: { q: number; r: number }) =>
+    (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+  /** The click on one of the wandering dark (the homeland
+   *  ground): an ORDER to the written Blade, refereed by
+   *  the server (api.looseBlade) — a plain answer rides the
+   *  refusal's own words into the notice. */
+  const looseBladeAtWanderer = async (w: { id: number; tileId: number; posQ: number; posR: number }) => {
+    try {
+      const res = await api.looseBlade({ wandererId: w.id });
+      const fromTile = tiles.find((t) => t.id === res.fromTileId);
+      const wTile = tiles.find((t) => t.id === w.tileId);
+      if (fromTile && wTile) {
+        const fc = tileCenterScreen(fromTile, pan, zoom);
+        const base = tileCenterScreen(wTile, pan, zoom);
+        const size = HEX_BASE_SIZE * zoom;
+        const dp = isoOffset(w.posQ, w.posR, size);
+        const dc = isoOffset(wTile.q, wTile.r, size);
+        pushBladeFlight(fc.cx, fc.cy, base.cx + (dp.px - dc.px), base.cy + (dp.py - dc.py));
+      }
+      showHexNotice(res.felled
+        ? `The Single Blade is loosed — its blades rise and spear down from above, and the dark falls (${res.harm} harm).`
+        : `The Single Blade is loosed — its blades rise and spear down from above (${res.harm} harm).`);
+      void refreshTerritory();
+    } catch (e) {
+      showHexNotice(refusalText(e, "The blade could not answer."));
+    }
+  };
+  /** The click on a dark unit of the in-map battle: this
+   *  mirror's own loose — the NEAREST armed Blade in the
+   *  battle answers, at the book's flat power, a charge
+   *  spent in the mirror (reported at the resolution, as
+   *  every grim standing is reported). */
+  const looseSimBlade = (unit: { id: number; tileId: number; x: number; y: number }) => {
+    const uTile = tiles.find((t) => t.id === unit.tileId);
+    if (!uTile) return;
+    let best: { w: MapWorking; st: { charges: number; spent: boolean }; tile: any; dist: number } | null = null;
+    let anyArmed = false;
+    for (const w of workings) {
+      if (w.engine !== "blade") continue;
+      const st = grimBattleRef.current.get(w.id);
+      if (!st || st.spent || st.charges <= 0) continue;
+      anyArmed = true;
+      const wt = w.tileId != null ? tiles.find((t) => t.id === w.tileId) : null;
+      if (!wt) continue;
+      const dist = axialDistTiles(wt, uTile);
+      if (dist <= 2 && (!best || dist < best.dist)) best = { w, st, tile: wt, dist };
+    }
+    if (!best) {
+      showHexNotice(anyArmed
+        ? "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed."
+        : "No Single Blade stands armed in this battle — write one, and it will wait for your click.");
+      return;
+    }
+    const chosen: NonNullable<typeof best> = best;
+    const power = (chosen.w.nums.power ?? 6) + (grimBright() ? (chosen.w.nums.brightBonus ?? 1) : 0);
+    chosen.st.charges--;
+    if (chosen.st.charges <= 0) chosen.st.spent = true;
+    const from = simTilePos(chosen.tile);
+    pushBladeFlight(from.cx, from.cy, unit.x, unit.y);
+    setBattleUnits((prev) => prev.map((u) => u.id === unit.id ? { ...u, hp: u.hp - power } : u).filter((u) => u.hp > 0));
+    showHexNotice(`${grimFormName(chosen.w)} is loosed — its blades rise and spear down from above (${power} harm).`);
+  };
   /** A floor-rune springs as the dark enters its hex. Returns
    *  the units after the spring, and whether the entering unit
    *  was relocated (the Coil) — its own move then does not run. */
@@ -1166,8 +1241,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       } else {
         showHexNotice(`${grimFormName(rune)} strains to hold — its light is too worn (❤${Math.max(0, st.hp)}).`);
       }
-    } else if (rune.engine === "blade" || rune.engine === "blades") {
-      const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
+    } else if (rune.engine === "blades" || rune.engine === "springblade") {
+      // The Single Blade (engine "blade") does NOT spring
+      // here (Nigel, 2026-10-20; re-ruled 2026-10-23 —
+      // Recovery R4): in this mirror it waits armed, and
+      // the click on a battle unit looses it (looseSimBlade
+      // below). Its old spring lives on in the Springing
+      // Blade at the Blade spring's own power (6); the
+      // Three Blades spring as ever at 3.
+      const power = (rune.nums.power ?? (rune.engine === "springblade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
       updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - power } : u).filter((u) => u.hp > 0);
       st.charges--;
       if (st.charges <= 0) st.spent = true;
@@ -2557,7 +2639,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             ? `${formName} forms above its quarry — when the crash falls, the hold begins.`
             : castSpell.engine === "shatter"
               ? `${formName} shatters over the dark — ${res.hits ?? 0} of its pieces strike home${res.felled ? ", and it falls" : ""}.`
-        : castSpell.engine === "springleaf"
+        : castSpell.engine === "blade"
+          ? `${formName} is written into the ground — it waits ARMED. Click a dark thing within two hexes of its ground and its blades will rise and spear down into it from above.`
+          : castSpell.engine === "springleaf"
           ? `${formName} takes root — a grove of ${res.radiusHexes ?? 1} hexes' glow; its burst mends ${res.burst ?? 0} HP, and ${res.saplings ?? 0} saplings follow.`
           : castSpell.kind === "ward"
             ? `${formName} rises on the edge — the Written Light stands on your land, and the border is guarded.`
@@ -4743,7 +4827,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const img = grimGlyphImg(w.spellKey);
           const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 ${5 / zoom}px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
           const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
-          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · ${w.pour} attunement slot${w.pour === 1 ? "" : "s"} carried` : ""}`;
+          const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} looses left` : ""}${w.engine === "springblade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · ${w.pour} attunement slot${w.pour === 1 ? "" : "s"} carried` : ""}`;
           if (w.kind === "ward" && w.q != null && w.r != null && w.dir != null) {
             const wt = tiles.find((tt) => tt.q === w.q && tt.r === w.r);
             const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
@@ -5521,6 +5605,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               <ellipse cx={cx} cy={cy + size * 0.17} rx={size * 0.3} ry={size * 0.11} fill="rgba(0,0,0,0.42)" />
               <FrayFaceSvgImage art={enemyArtData?.art} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
                 opacity={0.95} />
+              {/* THE CLICK THAT LOOSES (Nigel, 2026-10-20;
+                  re-ruled 2026-10-23 — Recovery R4): a tap
+                  on the dark itself is the order to the
+                  written Blade — the server referees it and
+                  answers plainly when no blade can reach. */}
+              <circle cx={cx} cy={cy} r={size * 0.36} fill="transparent" pointerEvents="all"
+                style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); void looseBladeAtWanderer(w); }}>
+                <title>Loose the Single Blade on this dark thing</title>
+              </circle>
               {wounded && (
                 <g>
                   <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52} height={2.6 / zoom} fill="rgba(6,4,10,0.82)" stroke="rgba(160,60,50,0.6)" strokeWidth={0.4 / zoom} />
@@ -6566,9 +6660,29 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               )}
               <rect x="-10" y="-14" width="20" height="3" fill="#333" />
               <rect x="-10" y="-14" width={20 * (u.hp / u.maxHp)} height="3" fill="#ff4444" />
+              {/* THE CLICK THAT LOOSES, in this battle's
+                  mirror (Recovery R4): a tap on the dark is
+                  the order to the written Blade. */}
+              <circle r="13" fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); looseSimBlade(u); }}>
+                <title>Loose the Single Blade on this dark thing</title>
+              </circle>
             </g>
             );
           })}
+          {/* THE BLADE FLIGHTS (Recovery R4): the loosed
+              blades rise from the rune's ground and spear
+              down into the mark from above. */}
+          {bladeFlights.map((f) => (
+            <g key={f.id} pointerEvents="none">
+              <image href={grimGlyphBlade} x={-15} y={-15} width={30} height={30} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.8))" }}>
+                <animateMotion dur="0.7s" fill="freeze" rotate="auto" path={`M ${f.fx} ${f.fy} L ${f.fx} ${f.fy - 92} L ${f.tx} ${f.ty}`} />
+              </image>
+              <image href={grimGlyphBlade} x={-11} y={-11} width={22} height={22} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.8))" }}>
+                <animateMotion dur="0.7s" begin="0.12s" fill="freeze" rotate="auto" path={`M ${f.fx + 10} ${f.fy} L ${f.fx + 10} ${f.fy - 80} L ${f.tx} ${f.ty}`} />
+              </image>
+            </g>
+          ))}
           {simUnits.map(u => (
             <g key={`sim-${u.id}`} transform={`translate(${u.x},${u.y})`}>
               <circle r={8} fill={u.type === "unraveler" ? "#1a0a2a" : "#2a1a0a"} stroke="#ff4444" strokeWidth={1.5} opacity={0.9} />
@@ -7041,6 +7155,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             grimBcnTiles={grimBattleProps().bcnTiles}
             grimCoilTiles={tiles.filter(t => !t.cursed).map(t => t.id)}
             grimNames={grimBattleProps().names}
+            grimTileAxial={Object.fromEntries(tiles.map(t => [t.id, { q: t.q, r: t.r }]))}
           />
         );
       })()}

@@ -413,6 +413,11 @@ export const GRIMOIRE_ENGINE_FIELDS: Record<string, { key: string; label: string
     { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
     { key: "charges", label: "Times it springs before it is spent", def: 2 },
   ],
+  springblade: [
+    { key: "power", label: "Harm to everything on its ground", def: 6 },
+    { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
+    { key: "charges", label: "Times it springs before it is spent", def: 2 },
+  ],
   blades: [
     { key: "power", label: "Harm on each planted hex", def: 3 },
     { key: "brightBonus", label: "Extra harm while an Engine burns", def: 1 },
@@ -715,6 +720,8 @@ export const api = {
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
   getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean } }>("getTerritory", {}),
+  looseBlade: (args: { wandererId: number }) =>
+    post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number }>("looseBlade", args),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; heldMs?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number; hits?: number; targetId?: number }>("castMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>

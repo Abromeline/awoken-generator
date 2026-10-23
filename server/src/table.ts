@@ -763,6 +763,12 @@ interface Room {
    *  not a standing working — the moment the sky opens over
    *  covered hexes, so clients can show the drawn rain there. */
   rainFalls?: { id: string; at: number; hexes: string[] }[];
+  /** THE SINGLE BLADE'S FLIGHTS (Nigel, 2026-10-20; re-ruled
+   *  2026-10-23 — Recovery R4): a loosed Blade is an event,
+   *  like the rain's fall — the rune's hex and the mark's
+   *  standing point at the loose, so clients can fly the
+   *  blades up from the writing and spear them down. */
+  bladeFlights?: { id: string; at: number; fromHex: string; to: Pt }[];
   /** PASSIVE WALLS (Phase C): when a passive ward on an edge
    *  is broken, the moment it may re-raise (edge|owner → at). */
   passiveRearm?: Map<string, number>;
@@ -1507,6 +1513,7 @@ function sharedState(room: Room) {
     enemies: room.enemies,
     strikes: room.strikes,
     rainFalls: (room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
+    bladeFlights: (room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
     manifests: (room.manifests ?? []).filter(m => m.expiresAt > Date.now()).map(m => ({ ownerKey: m.ownerKey, weaponKey: m.weaponKey, count: m.count, expiresAt: m.expiresAt })),
     bastion: room.bastion ? {
       callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
@@ -2783,6 +2790,13 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
   if (!darkHere.length) return;
   const rune = room.workings.find(w => w.kind === "rune" && w.hex === hex && !fired.has(w.id));
   if (!rune) return;
+  // THE SINGLE BLADE NEVER SPRINGS HERE (Nigel, 2026-10-20;
+  // re-ruled 2026-10-23 — Recovery R4): engine "blade"
+  // waits armed for the click (the looseBlade door), so a
+  // dark thing standing on its ground springs nothing —
+  // and collects none of the spring's rewards below. One
+  // writing stands per hex, so no other rune is masked.
+  if (rune.engine === "blade") return;
   fired.add(rune.id);
   const caster = seatByKey(room, rune.ownerKey) ?? null;
   const seff = workingEffects(caster?.expKey);
@@ -2822,9 +2836,17 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     } else if (heldCount) {
       tell(room, `${rune.name} holds on — ❤${rune.hp} of its light remains.`);
     }
-  } else if (rune.engine === "blade" || rune.engine === "blades") {
+  } else if (rune.engine === "blades" || rune.engine === "springblade") {
+    // THE SINGLE BLADE IS NOT HERE (Nigel, 2026-10-20;
+    // re-ruled 2026-10-23 — Recovery R4): engine "blade"
+    // has no proximity spring at the Table — written, it
+    // waits armed for the player's click on a dark thing
+    // (the looseBlade door). Its old spring lives on in
+    // the Springing Blade below, reckoning unchanged: the
+    // Three Blades at power 3, the Springing Blade at the
+    // Single Blade spring's own power 6.
     const eff = workingEffects(caster?.expKey);
-    const power = (rune.nums.power ?? (rune.engine === "blade" ? 6 : 3)) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
+    const power = (rune.nums.power ?? (rune.engine === "springblade" ? 6 : 3)) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
       // War Runewright (tranche one): sprung on dark that has
       // not yet struck, the writing deals +2.
       + (eff.warRunewright && darkHere.some(e => !e.struck) ? 2 : 0);
@@ -4995,7 +5017,7 @@ function handleConnection(ws: WebSocket): void {
           thisNums = { ...rainNums, power: Math.floor((rainNums.power ?? 3) / 2) };
         }
         castIndex++;
-        const chargesNow = (def.engine === "blade" || def.engine === "blades") ? (def.numbers.charges ?? 2) + eff.bladeSprings : def.engine === "coil" ? 1 + eff.coilTurns : 1;
+        const chargesNow = (def.engine === "blade" || def.engine === "blades" || def.engine === "springblade") ? (def.numbers.charges ?? 2) + eff.bladeSprings : def.engine === "coil" ? 1 + eff.coilTurns : 1;
         const wNew: Working = {
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
@@ -5016,6 +5038,58 @@ function handleConnection(ws: WebSocket): void {
 
       for (const hx of hexes) springHex(room, hx, new Set());
       caster.castAt = Date.now();
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "looseBlade") {
+      // LOOSE THE SINGLE BLADE (Nigel, 2026-10-20, spec
+      // single-blade-click-spring; re-ruled 2026-10-23 —
+      // Recovery R4): the click on a dark thing is an ORDER
+      // to the written Blade, not a cast — no roll, no
+      // energy. The mark must stand within TWO HEXES of the
+      // rune's hex (the book's own spring measure); the
+      // NEAREST of the clicker's armed Blades answers; the
+      // harm is the book's — flat power (6 on the page),
+      // no die, no AC — and the loose spends a charge, as
+      // a spring spent it. Out of reach, the answer is
+      // plain and the Blade stays armed.
+      if (!player) return;
+      const caster = player;
+      if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers loose no blades — bind in the game to write and loose." })); return; }
+      const enemy = room.dark.get(String((msg as any).enemyId ?? ""));
+      if (!enemy) { ws.send(JSON.stringify({ type: "error", message: "That dark thing is gone — no blade answers, and every armed blade stays armed." })); return; }
+      const armed = room.workings.filter(w => w.kind === "rune" && w.engine === "blade" && w.ownerKey === caster.key && !!w.hex && (w.charges ?? 0) > 0);
+      if (!armed.length) { ws.send(JSON.stringify({ type: "error", message: "No Single Blade of yours stands armed — write one, and it will wait for your click." })); return; }
+      let best: { w: Working; dist: number } | null = null;
+      for (const w of armed) {
+        const dist = axialDist(w.hex!, enemy.hex);
+        if (dist <= 2 && (!best || dist < best.dist)) best = { w, dist };
+      }
+      if (!best) { ws.send(JSON.stringify({ type: "error", message: "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed." })); return; }
+      const rune = best.w;
+      const eff = workingEffects(caster.expKey);
+      // The spring's own honours ride the loose, as they
+      // rode the spring (springHex's preamble): Lore keeps
+      // the tale, and a first loose pays as a first spring.
+      if (caster.expKey && eff.rememberingRay) void awardTenderExp(caster.expKey, 1).catch(() => {});
+      if (eff.loreRunewright && !rune.firstPaid) {
+        rune.firstPaid = true;
+        caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + 1);
+      }
+      const bright = engineBright(room, caster.key) ? 1 : 0;
+      const power = (rune.nums.power ?? 6) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
+        + (eff.warRunewright && !enemy.struck ? 2 : 0);
+      room.bladeFlights = [...(room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
+        { id: randomUUID(), at: Date.now(), fromHex: rune.hex!, to: { ...enemy.pos } }];
+      tell(room, `${rune.name} is LOOSED at ${caster.name}'s word — its blades rise from the written ground and spear down into the ${enemy.label} from above: ${power} harm.`);
+      enemy.hp -= power;
+      let felledByBlade = 0;
+      if (enemy.hp <= 0) { felledByBlade = 1; fellDark(room, enemy, caster); }
+      if (eff.hungryInk && felledByBlade > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByBlade);
+      rune.charges--;
+      if (rune.charges <= 0) retireSprungRune(room, rune);
+      else tell(room, `${rune.name} hums on, waiting for one more word.`);
       sendState(room);
       return;
     }

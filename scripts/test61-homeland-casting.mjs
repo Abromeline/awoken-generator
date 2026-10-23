@@ -265,12 +265,19 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   ok("the rooting breath healed at half the die (20 → 21–23)", rootedHp >= 21 && rootedHp <= 23, `hp=${rootedHp}`);
 }
 
-/* ── §4 THE STRIKE WORKINGS: a Blade written under a standing
-      Fray springs at the cast — its harm (6, the book's
-      power) fells the Fray (hp 3) AND grinds the curse of
-      the ground it stands on by the same harm; written on
-      cursed ground with no dark present, it springs on the
-      curse itself, and curse HP ground to 0 turns the hex. */
+/* ── §4 THE STRIKE WORKINGS: a springing Blade written
+      under a standing Fray springs at the cast — its harm
+      (6, the book's power) fells the Fray (hp 3) AND
+      grinds the curse of the ground it stands on by the
+      same harm; written on cursed ground with no dark
+      present, it springs on the curse itself, and curse
+      HP ground to 0 turns the hex. (Recovery R4, Nigel
+      2026-10-23: this spring is the SPRINGING BLADE's
+      now — the Single Blade's proximity spring moved
+      whole onto its own page when the Blade became
+      click-to-loose; the click itself is proven by
+      drive-blade-loose. This section follows the spring,
+      as the spring's own proof should.) */
 {
   const { token, me } = await claimTender("Strike Tender", 200); // Lv 3 Runewright
   const tile = seedTile(me);
@@ -280,15 +287,15 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   await call("chooseClass", { classKey: "runewright" }, token);
   setEnergy(me, 100);
   const wid = seedWanderer(me, darkHex, 3);
-  const r1 = await castUntilStands(token, { spellKey: "blade", hue: "unaligned", tileId: darkHex });
-  ok("the Blade sprang at its own cast (sprung, and the Fray felled by it)", r1?.sprung === true && r1?.felled === true, JSON.stringify(r1));
+  const r1 = await castUntilStands(token, { spellKey: "springblade", hue: "unaligned", tileId: darkHex });
+  ok("the Springing Blade sprang at its own cast (sprung, and the Fray felled by it)", r1?.sprung === true && r1?.felled === true, JSON.stringify(r1));
   ok("the Fray is gone from the ledger", !db.prepare("SELECT id FROM homeland_wanderers WHERE id = ?").get(wid));
   ok("the same harm ground the hex's curse (20 → 14 by the Blade's power of 6)",
     db.prepare("SELECT curse_hp AS ch FROM territory_tiles WHERE id = ?").get(darkHex).ch === 14 && r1?.ground === 6,
     `curse=${JSON.stringify(db.prepare("SELECT curse_hp AS ch FROM territory_tiles WHERE id = ?").get(darkHex))} ground=${r1?.ground}`);
-  ok("the Blade stands with one spring spent of its two", (workingOn(me, darkHex, "blade")?.charges ?? -1) === 1,
-    `charges=${workingOn(me, darkHex, "blade")?.charges}`);
-  const r2 = await castUntilStands(token, { spellKey: "blade", hue: "unaligned", tileId: curseHex });
+  ok("the Springing Blade stands with one spring spent of its two", (workingOn(me, darkHex, "springblade")?.charges ?? -1) === 1,
+    `charges=${workingOn(me, darkHex, "springblade")?.charges}`);
+  const r2 = await castUntilStands(token, { spellKey: "springblade", hue: "unaligned", tileId: curseHex });
   const t2 = db.prepare("SELECT cursed FROM territory_tiles WHERE id = ?").get(curseHex);
   ok("on cursed ground alone the Blade springs on the curse itself — and 6 harm against 5 curse HP TURNS the hex",
     r2?.purified === true && t2.cursed === 0, `purified=${r2?.purified} cursed=${t2.cursed}`);

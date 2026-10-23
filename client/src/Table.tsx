@@ -41,7 +41,7 @@ import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
 import { elementPalette } from "./palette";
 
-const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain };
+const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, springblade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain };
 
 /** A spell as the Table reads it — from the Grimoire (Nigel,
  *  2026-10-17): the workshop's book is the data of record now;
@@ -179,6 +179,9 @@ interface SharedState {
   /** SHARD RAIN FALLS (Phase C): the moment the sky opened,
    *  and over which hexes — the drawn rain shows there. */
   rainFalls?: { id: string; at: number; hexes: string[] }[];
+  /** THE SINGLE BLADE'S FLIGHTS (Recovery R4): a Blade was
+   *  loosed — from its rune's hex, at the mark's point. */
+  bladeFlights?: { id: string; at: number; fromHex: string; to: { x: number; y: number } }[];
   battle: { active: boolean; wave: number };
   strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean }[];
   /** MANIFEST (Phase C): live copies of a Tender's weapon,
@@ -1957,6 +1960,24 @@ export default function Table() {
     if (pt) setTableOrders({ ids: [u.cardId], x: pt.x, y: pt.y });
   };
 
+  // A tap on one of the DARK (Nigel, 2026-10-20; re-ruled
+  // 2026-10-23 — Recovery R4): the click is the ORDER that
+  // looses the written Single Blade — the referee answers
+  // (the nearest armed Blade within two hexes of its
+  // writing, or a plain answer in the room's notices).
+  // While a placing or a tile-order stands armed, the tap
+  // belongs to the ground beneath the dark, as a tap on
+  // one of my own figures always did.
+  const onDarkTap = (e: SharedState["dark"][number]) => {
+    if (suppressTapRef.current) return;
+    if (placing || marchArmed?.length || strikeArmed) {
+      const t = tileById.get(e.hex);
+      if (t) onTileTap(t);
+      return;
+    }
+    send({ type: "looseBlade", enemyId: e.id });
+  };
+
   // A tap on MY OWN figure (the Fix Pass, 2026-10-20). With
   // a card readied — or the Written Light being placed — the
   // tap belongs to the ground I stand on, exactly as a tap
@@ -2048,6 +2069,14 @@ export default function Table() {
         <text className="ts-name dark" x={ax} y={ay + 10}>{e.label}{e.pinnedUntil > nowMs ? ` ⛓${Math.max(1, Math.ceil((e.pinnedUntil - nowMs) / 1000))}` : ""}</text>
         <rect x={ax - 13} y={ay + 13} width={26} height={3} fill="#000000" opacity={0.65} />
         <rect x={ax - 13} y={ay + 13} width={26 * clamp01(e.hp / Math.max(1, e.maxHp))} height={3} fill="#b8412f" />
+        {/* THE CLICK THAT LOOSES (Recovery R4): the dark
+            figure itself takes the tap that orders the
+            written Blade — see onDarkTap. */}
+        <circle
+          cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
+          style={{ cursor: "pointer" }}
+          onClick={(ev) => { ev.stopPropagation(); onDarkTap(e); }}
+        />
       </g>
     );
   };
@@ -2686,7 +2715,7 @@ export default function Table() {
                       {img
                         ? <image href={img} x={c.cx - 14} y={c.cy - 14} width={27} height={27} style={{ filter }} />
                         : <text className="ts-glyph-fallback" x={c.cx} y={c.cy + 7} style={{ filter }}>✦</text>}
-                      {defs[w.root]?.engine === "blade" && <text className="ts-tag" x={c.cx} y={c.cy + 23}>{w.charges}✦</text>}
+                      {(defs[w.root]?.engine === "blade" || defs[w.root]?.engine === "springblade") && <text className="ts-tag" x={c.cx} y={c.cy + 23}>{w.charges}✦</text>}
                       {defs[w.root]?.engine === "lattice" && <text className="ts-tag" x={c.cx} y={c.cy + 23}>❤{w.hp}</text>}
                     </g>
                   );
@@ -2733,6 +2762,24 @@ export default function Table() {
                   on a timer keyed to its id, then unmounts —
                   state pushes can no longer strand one at its
                   endpoint (the Fix Pass, 2026-10-20). */}
+              {/* THE SINGLE BLADE'S FLIGHTS (Recovery R4):
+                  a Blade loosed by the click — its blades
+                  rise from the rune's hex and spear down
+                  into the mark from above. */}
+              {(shared.bladeFlights ?? []).filter(f => nowMs - f.at < 1000).map(f => {
+                const c = centerOf(f.fromHex);
+                if (!c) return null;
+                return (
+                  <g key={`bladeflight-${f.id}`} pointerEvents="none">
+                    <image href={glyphBlade} x={-14} y={-14} width={28} height={28} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }}>
+                      <animateMotion dur="0.65s" fill="freeze" rotate="auto" path={`M ${c.cx} ${c.cy} L ${c.cx} ${c.cy - 74} L ${f.to.x} ${f.to.y}`} />
+                    </image>
+                    <image href={glyphBlade} x={-10} y={-10} width={20} height={20} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }}>
+                      <animateMotion dur="0.65s" begin="0.12s" fill="freeze" rotate="auto" path={`M ${c.cx + 9} ${c.cy} L ${c.cx + 9} ${c.cy - 64} L ${f.to.x} ${f.to.y}`} />
+                    </image>
+                  </g>
+                );
+              })}
               <g className="shots-layer">
                 {shots.map((shot) => {
                   const a = shot.from;
@@ -2860,7 +2907,8 @@ export default function Table() {
                 <span className="placing-text">
                   {placing.kind === "attune" && <>Attuning with <strong>{placing.root}</strong> — tap ground {you?.storytender ? <>anywhere on the field</> : <>within your reach — your hex and its ring{(you?.attuneReach ?? 0) > 0 ? <> and {you?.attuneReach} ring{(you?.attuneReach ?? 0) > 1 ? "s" : ""} more by your skill</> : null}</>} to lay a {placing.root} point on it — 1 point of {placing.root} from your pool ({Math.floor(you?.pools?.[placing.root] ?? 0)} held). The point rests in the ground's own ledger; ground a rune or ward stands on takes the point the same way. Attune on until you set it down or the pool runs dry.</>}
                   {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine === "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. Written, it waits ARMED: click a dark thing within two hexes of its ground and its blades rise and spear down into it from above. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && defs[placing.root]?.engine !== "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}

@@ -306,7 +306,7 @@ function CardBorderSection() {
   );
 }
 
-const GRIMOIRE_BUNDLED: Record<string, string> = { seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg, trees: glyphTreesImg, beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg, coil: glyphCoilImg };
+const GRIMOIRE_BUNDLED: Record<string, string> = { seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg, trees: glyphTreesImg, beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg, springblade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg, coil: glyphCoilImg };
 const grimoireGlyphImg = (g: GrimoireGlyph): string | null => g.imageUrl ?? (g.assetKey ? GRIMOIRE_BUNDLED[g.assetKey] ?? null : null);
 const ENGINE_LABELS: Record<string, string> = {
   seal: "Seal engine — an edge-wall that stops strikes and answers them",
@@ -315,7 +315,8 @@ const ENGINE_LABELS: Record<string, string> = {
   trees: "Trees engine — a living edge-wall that takes blows and regrows",
   beacon: "Beacon engine — an edge-light that strengthens strikes against the dark near it",
   lattice: "Lattice engine — a floor-rune that pins everything on its hex",
-  blade: "Blade engine — a floor-rune that harms everything on its hex, more than once",
+  blade: "Blade engine — a floor-rune that waits armed; a click on a dark thing within two hexes looses it from above, more than once",
+  springblade: "Springing Blade engine — a floor-rune that springs on everything on its hex, more than once",
   blades: "Blades engine — floor-runes planted on several hexes at once",
   shard: "Shard engine — a floor-rune that waits for great power, then falls on the whole hex",
   coil: "Coil engine — a floor-rune that throws the dark back and returns energy",

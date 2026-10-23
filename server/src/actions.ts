@@ -3225,9 +3225,34 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
     if (charges <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
     else sqlite.prepare("UPDATE territory_workings SET charges = ? WHERE id = ?").run(charges, w.id);
   };
-  if (w.engine === "blade" || w.engine === "blades") {
+  if (w.engine === "blade") {
+    // THE SINGLE BLADE WAITS (Nigel, 2026-10-20, spec
+    // single-blade-click-spring; re-ruled 2026-10-23 —
+    // Recovery R4): the Blade has NO proximity spring on
+    // this ground. Written, it stands armed until the
+    // player's click on a dark thing within two hexes
+    // looses it — that order is the looseBlade door below,
+    // and it alone spends the Blade's charges here.
+    return none;
+  }
+  if (w.engine === "blades") {
     if (!wanderer && !tile.cursed) return none;
-    const power = (nums.power ?? (w.engine === "blade" ? 6 : 3)) + (bright ? (nums.brightBonus ?? 1) : 0);
+    const power = (nums.power ?? 3) + (bright ? (nums.brightBonus ?? 1) : 0);
+    spendCharge();
+    const felled = wanderer ? harmWanderer(power) : false;
+    const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, power, w.hue) : { ground: 0, purified: false };
+    return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
+  }
+  if (w.engine === "springblade") {
+    // THE SPRINGING BLADE (Nigel, 2026-10-23 — Recovery R4,
+    // Half B): the Single Blade's old proximity spring,
+    // moved whole onto its own page — a pure-effect rune
+    // with no solid body, springing as the Blade sprang,
+    // with the Blade spring's own reckoning unchanged:
+    // power 6 (the book's page), a charge a spring, and
+    // the curse on its ground ground as the Blade ground it.
+    if (!wanderer && !tile.cursed) return none;
+    const power = (nums.power ?? 6) + (bright ? (nums.brightBonus ?? 1) : 0);
     spendCharge();
     const felled = wanderer ? harmWanderer(power) : false;
     const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, power, w.hue) : { ground: 0, purified: false };
@@ -9147,7 +9172,7 @@ export const handlers = {
       // the book (pageSlotsCastFor).
       const slots = await pageSlotsCastFor(ownerKey, spell, hue);
       const effR = workingEffects(ownerKey);
-      const charges = (spell.engine === "blade" || spell.engine === "blades") ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
+      const charges = (spell.engine === "blade" || spell.engine === "blades" || spell.engine === "springblade") ? (spell.numbers.charges ?? 2) + effR.bladeSprings : spell.engine === "coil" ? 1 + effR.coilTurns : 1;
       // SHARD RAIN (Nigel, 2026-10-17): the caster's attunement
       // level in the spell's element rides inside the stored
       // numbers, snapshotted at the cast as HP is — on the map
@@ -9186,7 +9211,9 @@ export const handlers = {
       // The writing springs the moment it lands, if the dark
       // already stands on its ground or the curse holds that
       // ground (Homeland Casting — the Table's cast-time
-      // spring, honored on this ground too).
+      // spring, honored on this ground too). The Single
+      // Blade alone does not: it waits armed for the click
+      // (springHomelandWorking holds its law).
       const sprungNow = await springHomelandWorking(ownerKey, newId, castTiles as any[]);
       // THE FELL DRIP: if the writing's spring beat the dark
       // standing on it, the fell pays as any beaten creature
@@ -9196,6 +9223,65 @@ export const handlers = {
     }
 
     badRequest("That page of the book cannot be cast on the land.");
+  },
+
+  /** LOOSE THE SINGLE BLADE (Nigel, 2026-10-20, spec
+   *  single-blade-click-spring; re-ruled 2026-10-23 —
+   *  Recovery R4): the player's click on a dark thing is an
+   *  ORDER to the written Blade, not a cast — no roll, no
+   *  energy, seamless casting untouched. The clicked dark
+   *  must stand within TWO HEXES of the rune's hex (the
+   *  book's own spring measure); the NEAREST armed Blade
+   *  answers; the harm is the book's — flat power (6 on the
+   *  page), no die, no AC — and the loose spends one of the
+   *  working's charges, as a spring spent it. Out of reach,
+   *  the click is answered in plain words and every armed
+   *  Blade stays armed. The flight itself is the client's
+   *  to draw (fromTileId is the rune's ground); the harm is
+   *  refereed here, whole. */
+  async looseBlade(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ wandererId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The order needs a dark thing to name.");
+    const { wandererId } = parsed.data;
+    const wanderer = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ? AND id = ?").get(ownerKey, wandererId) as any;
+    if (!wanderer) badRequest("That dark thing is gone — no blade answers, and every armed blade stays armed.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tileById = new Map((tiles as any[]).map((t: any) => [t.id, t]));
+    // The dark stands where it walks: its free point's cell
+    // when it carries one, else the tile it is filed under.
+    let markTile: any = tileById.get(Number(wanderer.tile_id)) ?? null;
+    if (wanderer.pos_q != null && wanderer.pos_r != null) {
+      const cell = axialRound(Number(wanderer.pos_q), Number(wanderer.pos_r));
+      markTile = (tiles as any[]).find((t: any) => t.q === cell.q && t.r === cell.r) ?? markTile;
+    }
+    if (!markTile) badRequest("That dark thing stands on no ground of yours — the blade stays armed.");
+    const blades = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine = 'blade' AND kind = 'rune' AND charges > 0 ORDER BY id").all(ownerKey) as any[];
+    if (!blades.length) badRequest("No Single Blade stands armed on your land — write one first, and it will wait for your click.");
+    let best: { w: any; tile: any; dist: number } | null = null;
+    for (const w of blades) {
+      const rt = tileById.get(Number(w.tile_id));
+      if (!rt) continue;
+      const dist = hexDistTiles(rt, markTile);
+      if (dist <= 2 && (!best || dist < best.dist)) best = { w, tile: rt, dist };
+    }
+    if (!best) badRequest("Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed.");
+    const chosen = best.w;
+    let nums: Record<string, number> = {};
+    try { nums = JSON.parse(chosen.nums ?? "{}"); } catch { nums = {}; }
+    const bright = !!sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey);
+    const power = (nums.power ?? 6) + (bright ? (nums.brightBonus ?? 1) : 0);
+    const maxHp = (HOMELAND_DARK_HP[String(wanderer.kind ?? "fray")] ?? 3) + Math.max(0, (Number(wanderer.lvl) || 1) - 1);
+    const cur = wanderer.hp == null ? maxHp : Number(wanderer.hp);
+    const next = cur - power;
+    const felled = next <= 0;
+    if (felled) sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(wanderer.id);
+    else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, wanderer.id);
+    const chargesLeft = (chosen.charges ?? 1) - 1;
+    if (chargesLeft <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(chosen.id);
+    else sqlite.prepare("UPDATE territory_workings SET charges = ? WHERE id = ?").run(chargesLeft, chosen.id);
+    if (felled) await creditBattleKill(ownerKey, String(wanderer.kind ?? "fray"), markTile.element ?? null, null);
+    return { ok: true as const, loosed: true as const, workingId: Number(chosen.id), fromTileId: Number(chosen.tile_id), targetId: wandererId, harm: power, felled, chargesLeft: Math.max(0, chargesLeft) };
   },
 
   /** Teach an Awoken a skill (WARDING or RUNEING). Until the

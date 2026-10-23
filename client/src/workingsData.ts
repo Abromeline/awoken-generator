@@ -104,7 +104,7 @@ export const WORKING_DEFS = {
   "kind": "rune",
   "glyph": "glyph-02.png",
   "cost": 2,
-  "blurb": "Ground-writing: springs on every dark thing standing on the hex (power-6) — and stays humming for one more springing.",
+  "blurb": "Ground-writing: written, it waits armed — click a dark thing within two hexes of its ground and its blades rise and spear down into it from above (power-6). It holds two looses before it is spent.",
   "forms": {
    "unaligned": "The Plain Blade",
    "tide": "Blade of the Ford",
@@ -112,6 +112,22 @@ export const WORKING_DEFS = {
    "stone": "Blade of the Quarry",
    "root": "Blade of the Thorn Bush",
    "fire": "Blade of the Brand"
+  }
+ },
+ "springblade": {
+  "key": "springblade",
+  "root": "The Springing Blade",
+  "kind": "rune",
+  "glyph": "glyph-02.png",
+  "cost": 2,
+  "blurb": "Ground-writing: springs on every dark thing standing on the hex (power-6) — and stays humming for one more springing.",
+  "forms": {
+   "unaligned": "The Plain Springing Blade",
+   "tide": "Springing Blade of the Ford",
+   "sky": "Springing Blade of the Downstroke",
+   "stone": "Springing Blade of the Quarry",
+   "root": "Springing Blade of the Thorn Bush",
+   "fire": "Springing Blade of the Brand"
   }
  },
  "blades": {
