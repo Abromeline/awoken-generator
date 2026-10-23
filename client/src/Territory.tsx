@@ -4908,6 +4908,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               </g>
             );
           }
+          if (w.engine === "shard") {
+            // THE CROWN SHARD (Nigel, 2026-10-23 — Recovery
+            // R5): at the Table its animated glyph hangs over
+            // the hex it dooms; here it HOVERS the same way —
+            // raised above its hex's floor, bobbing over the
+            // shadow it casts, while it waits. When the
+            // server's spring falls it, the working is spent
+            // whole and gone from this layer, and the dark
+            // beneath it shows the fall's harm — the
+            // collapse is the glyph's absence and the wound,
+            // as the Table tells it.
+            return (
+              <g key={w.id} opacity={0.95}>
+                <title>{`${title} — it hovers over this hex, waiting for a dark thing of power ${w.nums.minPower ?? 5}+ to stand beneath it; then it falls on the whole hex.`}</title>
+                <ellipse cx={cx} cy={cy + size * 0.20} rx={size * 0.30} ry={size * 0.10} fill="rgba(0,0,0,0.35)" pointerEvents="none" />
+                <g>
+                  <animateTransform attributeName="transform" type="translate" values={`0 ${(-size * 0.05).toFixed(2)}; 0 ${(size * 0.05).toFixed(2)}; 0 ${(-size * 0.05).toFixed(2)}`} dur="2.6s" repeatCount="indefinite" />
+                  {img && <image href={img} x={cx - size * 0.34} y={cy - size * 0.98} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />}
+                </g>
+              </g>
+            );
+          }
           return (
             <g key={w.id} opacity={0.92}>
               <title>{title}</title>

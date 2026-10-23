@@ -3198,9 +3198,10 @@ async function grindHomelandCurse(ownerKey: string, tile: any, harm: number, hue
  *  the cast (the Table springs a rune the moment it is
  *  written, if the dark already stands there) and on the
  *  homeland settle, for the dark that wanders onto written
- *  ground later. The Crown Shard keeps its own hunger: it
- *  springs only for dark of power 5+, and no such dark walks
- *  the homeland — it stands unsprung, as it would at a Table
+ *  ground later. The Crown Shard keeps its own hunger (its
+ *  branch below, Recovery R5): it springs only for dark of
+ *  power 5+ standing on its ground — under lesser dark it
+ *  hovers on, unfed and unspent, as it would at a Table
  *  where only Fray tread. */
 async function springHomelandWorking(ownerKey: string, workingId: number, tiles: any[]): Promise<{ sprung: boolean; felled: boolean; ground: number; purified: boolean; pinned: boolean; thrown: boolean }> {
   const none = { sprung: false, felled: false, ground: 0, purified: false, pinned: false, thrown: false };
@@ -3269,6 +3270,66 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
     sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
     const felled = wanderer ? harmWanderer(pool) : false;
     const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, pool, w.hue) : { ground: 0, purified: false };
+    return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
+  }
+  if (w.engine === "shard") {
+    // THE CROWN SHARD (Nigel, 2026-10-23 — Recovery R5): the
+    // Table's reckoning (table.ts, springHex's shard branch
+    // and the cast that measures it), ported WHOLE under
+    // the porting law — nothing changed in measure or
+    // behaviour, nothing dropped:
+    //  · THE WAIT: the Shard hovers over its hex and springs
+    //    only when a dark thing STANDING ON ITS GROUND
+    //    measures power minPower or more (5 on the page;
+    //    the Lowered Crown's lesser hunger rides in the
+    //    cast's stored numbers, laid there by the cast
+    //    snapshot on this ground as at the Table). Lesser
+    //    dark leaves it standing, unfed and unspent.
+    //  · THE MEASURE: the page's filled slots in the cast's
+    //    element stand in the working's pour (laid at the
+    //    cast by pageSlotsCastFor, as at the Table) and feed
+    //    the fall at face value — +1 harm per slot.
+    //  · THE FALL: it falls on the WHOLE hex — every foe
+    //    standing there takes the GREATEST standing power
+    //    × the book's multiplier (2 on the page) + the
+    //    slots. Falling Light, the same zodiac honour the
+    //    Table reads for this working, widens the measure
+    //    — and the fall — one ring wider.
+    //  · THE SPEND: the fall spends the working whole, as
+    //    the Table retires it — no charge is kept.
+    //  · CURSED GROUND: the fall grinds the curse holding
+    //    its hex with the same harm, as every strike
+    //    working sown in the curse does on this ground —
+    //    but the curse alone never wakes it: it waits for
+    //    a TARGET, as Nigel ruled it.
+    // A foe stands on the ground by its filed tile or by
+    // its free point's cell (the living battle's tongue),
+    // and its measure is its power as the battle engine
+    // reads it (the wanderer's own power, the kind's canon
+    // power behind it).
+    const reach = workingEffects(ownerKey).fallingLight ? 1 : 0;
+    const foes = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+      .filter((x: any) => {
+        let cell: { q: number; r: number } | null = null;
+        if (x.pos_q != null && x.pos_r != null) cell = axialRound(Number(x.pos_q), Number(x.pos_r));
+        else { const t = tiles.find((tt: any) => tt.id === x.tile_id); if (t) cell = { q: t.q, r: t.r }; }
+        return cell != null && hexDistTiles(tile, { q: cell.q, r: cell.r } as any) <= reach;
+      });
+    if (!foes.length) return none;
+    const powerOf = (x: any): number => Math.max(1, Number(x.power) || (HOMELAND_DARK_POWER[String(x.kind ?? "fray")] ?? 1));
+    const greatest = Math.max(...foes.map(powerOf));
+    if (greatest < (nums.minPower ?? 5)) return none;
+    const dmg = greatest * (nums.multiplier ?? 2) + (w.pour ?? 0);
+    sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
+    let felled = false;
+    for (const x of foes) {
+      const maxHp = (HOMELAND_DARK_HP[String(x.kind ?? "fray")] ?? 3) + Math.max(0, (Number(x.lvl) || 1) - 1);
+      const cur = x.hp == null ? maxHp : Number(x.hp);
+      const next = cur - dmg;
+      if (next <= 0) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(x.id); felled = true; }
+      else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, x.id);
+    }
+    const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, dmg, w.hue) : { ground: 0, purified: false };
     return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
   }
   if (w.engine === "lattice") {
@@ -3894,6 +3955,51 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     const t = byId.get(d.tileId);
     await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer);
   };
+  // THE CROWN SHARD IN THE LIVING BATTLE (Nigel, 2026-10-23
+  // — Recovery R5): the same reckoning springHomelandWorking
+  // keeps for the written ground, read against the battle's
+  // own dark as they walk — a dark that crosses a Shard's
+  // hex mid-window falls under it in the step it stands
+  // there, not only at the window's end. The measure is
+  // the Table's, whole: it waits for a foe standing on its
+  // ground (its free point's cell) of power minPower or
+  // more (5 on the page, the Lowered Crown's 4 in the
+  // cast's stored numbers), then falls on the whole hex —
+  // every such foe takes the greatest standing power ×
+  // the book's multiplier (2) + the cast's attunement
+  // slots (the working's pour, at face value). Falling
+  // Light widens the measure and the fall one ring, as at
+  // the Table. The fall spends the working whole (its row
+  // is lifted at once, so the written-ground settle that
+  // follows this pass cannot fall it twice), every fell
+  // pays through fellDark as any battle fell pays, and on
+  // cursed ground the fall grinds the curse with the same
+  // harm, as the written ground's own spring grinds it.
+  type ShardWork = { id: number; tileId: number; q: number; r: number; minPower: number; multiplier: number; pour: number; hue: string; spent: boolean };
+  const shardWorks: ShardWork[] = (sqlite.prepare("SELECT id, tile_id AS tileId, nums, pour, hue FROM territory_workings WHERE owner_key = ? AND engine = 'shard' AND kind IN ('rune', 'spell')").all(ownerKey) as any[])
+    .flatMap((w: any) => {
+      const t = byId.get(Number(w.tileId));
+      if (!t) return [];
+      let n: Record<string, number> = {};
+      try { n = JSON.parse(w.nums ?? "{}"); } catch { n = {}; }
+      return [{ id: Number(w.id), tileId: Number(w.tileId), q: t.q, r: t.r, minPower: n.minPower ?? 5, multiplier: n.multiplier ?? 2, pour: Number(w.pour ?? 0), hue: String(w.hue ?? "unaligned"), spent: false }];
+    });
+  const shardReach = workingEffects(ownerKey).fallingLight ? 1 : 0;
+  const springShardsInBattle = async (): Promise<void> => {
+    for (const s of shardWorks) {
+      if (s.spent) continue;
+      const foes = darks.filter(d => !d.dead && axialDist(axialRound(d.q, d.r), s) <= shardReach);
+      if (!foes.length) continue;
+      const greatest = Math.max(...foes.map(d => d.power));
+      if (greatest < s.minPower) continue;
+      const dmg = greatest * s.multiplier + s.pour;
+      s.spent = true;
+      sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(s.id);
+      for (const d of foes) await hurtDark(d, dmg, null);
+      const t = byId.get(s.tileId);
+      if (t?.cursed) await grindHomelandCurse(ownerKey, t, dmg, s.hue);
+    }
+  };
   const hurtDark = async (d: Dark, dmg: number, byAwakenedId: number | null): Promise<void> => {
     if (d.dead || dmg <= 0) return;
     d.hp -= dmg;
@@ -3966,6 +4072,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       const nt = byKey.get(`${cell.q},${cell.r}`);
       if (nt && nt.id !== d.tileId) { d.tileId = nt.id; d.chewTileId = null; d.chewProgress = 0; }
     }
+    // ── THE CROWN SHARD FALLS ───────────────────────────
+    // The written Shards reckon the ground the walk has
+    // just dealt, before the dark strike back (Recovery
+    // R5): a Shard whose measure is met falls in this
+    // step, and what it fells strikes no more.
+    await springShardsInBattle();
     // ── THE DARK STRIKES ────────────────────────────────
     for (const d of darks) {
       if (d.dead || lit) continue;
@@ -9199,9 +9311,9 @@ export const handlers = {
       // The Lattice holds its ground with a health rating, like
       // the holding wards; harm and snare runes carry none.
       // (A Crown Shard written on this ground stands holding
-      // its slots in the row below, but no spring on this
-      // ground reads them — the homeland has no Shard spring;
-      // standing flag, see the build report of 2026-10-21.)
+      // its slots in the row below — its pour — and its spring
+      // reads them at face value when it falls:
+      // springHomelandWorking's shard branch, Recovery R5.)
       const hp = spell.engine === "lattice" ? hpForCast(spell, progress.level, slots, false) : 0;
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
