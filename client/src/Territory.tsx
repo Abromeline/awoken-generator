@@ -15,6 +15,7 @@ import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./w
 import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
+import { deckWindow, nextDeckPage } from "./deckWindow";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, JPHYS, type JumpEngine } from "./jump";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
@@ -623,6 +624,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // standing open on the Ground's two-tier radial — the tab
   // keeps its place between openings, as the Ground's does.
   const [wheelTab, setWheelTab] = useState<WheelTabId>("spell");
+  // THE DECK WINDOW'S PAGE (Nigel, 2026-10-23 — the R6
+  // in-wheel fix): which window of six deck entries the
+  // Awoken branch is showing; the "More" entry inside the
+  // wheel advances it (deckWindow.ts clamps and wraps it).
+  const [deckPage, setDeckPage] = useState(0);
   const TERRITORY_HOTBAR_KEY = "awokin-hotbar-territory";
   const [hotbarKeys, setHotbarKeys] = useState<string[]>(() => loadHotbar(TERRITORY_HOTBAR_KEY));
   const toggleHotbar = (key: string) => {
@@ -2013,23 +2019,43 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         dragKey: `sum-${c.awakenedId}`,
         act: () => { void castSummon(c); },
       } as WheelEntry));
-      // THE REINFORCEMENT CALL (Nigel, 2026-10-23 —
-      // Recovery R6): under the company, the branch lists
-      // the deck the wheel can call in — Awoken outside the
-      // party. On the homeland the call is INSTANT: the pick
-      // joins it to the party at once, and it stands in the
-      // company above from the next reading, ready for the
-      // summon cast.
-      const reinfEntries = (summoning.reinforcements ?? []).map(c => ({
+      // THE REINFORCEMENT WINDOW (Nigel, 2026-10-23 —
+      // Recovery R6, presentation re-ruled 19:45: summoning
+      // stays in the wheel, no pop-up, never the full deck
+      // visible): under the company, the branch shows ONE
+      // WINDOW of the deck it can call in — six entries,
+      // paged by the "More" entry below. On the homeland
+      // the call is INSTANT: the tap joins it to the party
+      // at once, and it stands in the company above from the
+      // next reading, ready for the summon cast. A deck
+      // entry's face is its portrait and its name, nothing
+      // more — the outcome words belong to the tap's answer,
+      // spoken by callHomelandReinforcement in plain words.
+      // THE TAP IS THE CALL, and it is tap-only: no drag
+      // key and no pin key are set on it, no drag
+      // reclassification and no pin badge
+      // can eat it — the drag-to-hotbar for deck entries is
+      // gone, by the ruling that the tap wins.
+      const deckWin = deckWindow(summoning.reinforcements ?? [], deckPage);
+      const reinfEntries = deckWin.entries.map(c => ({
         key: `reinf-${c.awakenedId}`,
         img: c.imageUrl,
         emoji: "🚶",
-        label: `Reinforcement — ${c.name} · joins your party at once`,
-        pinKey: `reinf-${c.awakenedId}`,
-        dragKey: `reinf-${c.awakenedId}`,
+        label: c.name,
+        tapOnly: true,
         act: () => { void callHomelandReinforcement(c); },
       } as WheelEntry));
-      return [...companyEntries, ...reinfEntries];
+      // THE MORE STEP: inside the wheel, under the window —
+      // it advances the window through the deck (wrapping at
+      // the end) and keeps the wheel open.
+      const moreEntries: WheelEntry[] = deckWin.hasMore ? [{
+        key: "deck-more",
+        emoji: "›",
+        label: `More · ${deckWin.page + 1}/${deckWin.pageCount}`,
+        stayOpen: true,
+        act: () => { setDeckPage(p => nextDeckPage(p, deckWin.total)); },
+      } as WheelEntry] : [];
+      return [...companyEntries, ...reinfEntries, ...moreEntries];
     }
     if (wheelTab === "attune") {
       // ATTUNE IS AN ABILITY (Nigel, 2026-10-21): the five
@@ -2145,7 +2171,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         ? `Ability — the tender's own deeds, beyond spellcraft${drag}`
         : "Ability — the tender's own deeds, beyond spellcraft · no Awokin stands on your land yet";
       case "awoken": return summoning.company.length || (summoning.reinforcements ?? []).length
-        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, your deck can be called in as reinforcements — on the homeland a call joins them to your party at once${drag}`
+        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, one window of your deck at a time: tap a deck Awokin to call it in — on the homeland a call joins it to your party at once — and tap More to page through the rest${drag}`
         : "Awoken — no one can be called: your party stands fielded, staged, or re-coalescing, and no deck Awoken waits to be called in";
       default: {
         const label = wheelTab === "spell" ? "Spell" : wheelTab === "ward" ? "Ward" : wheelTab === "rune" ? "Rune" : "Binding";
@@ -6795,7 +6821,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <GroundWheel cx={pt.x} cy={pt.y} tab={wheelTab} onTab={setWheelTab}
               entries={buildWheelEntries()} caption={wheelCaption()}
               pinnedKeys={hotbarKeys} onTogglePin={toggleHotbar} onDropKey={dropToHotbar}
-              onClose={() => setTenderRadial(null)} />
+              onClose={() => setTenderRadial(null)} evenFan={wheelTab === "awoken"} />
           );
         })()}
         {/* THE ORDERS WHEEL (Nigel, 2026-10-22): one Awokin's

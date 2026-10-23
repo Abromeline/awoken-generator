@@ -82,6 +82,16 @@ export interface WheelEntry {
   /** The hotbar key a drag onto the belt keys (the Ground
    *  drags castings, abilities and Awokin — never weapons). */
   dragKey?: string | null;
+  /** TAP-ONLY (Nigel, 2026-10-23 — the R6 in-wheel fix):
+   *  this entry's press is a tap and nothing else. The drag
+   *  reclassification can NEVER arm for it (pointer drift,
+   *  however far, does not convert the press into a drag
+   *  whose release would close the wheel without acting),
+   *  and no pin badge is drawn for it, so nothing on or
+   *  around the disc can eat its tap. Deck (reinforcement)
+   *  entries carry this: for them the tap wins and the drag
+   *  to the hotbar is gone, by Nigel's ruling. */
+  tapOnly?: boolean;
   /** The act keeps the wheel open (a toggle worked through
    *  several entries, like Follow). */
   stayOpen?: boolean;
@@ -125,7 +135,8 @@ function EntryDisc({ entry, radius, angDeg, size, pinnedKeys, onTogglePin, onDro
     const sx = e.clientX, sy = e.clientY;
     let dragging = false;
     const move = (ev: PointerEvent) => {
-      if (!dragging && entry.dragKey && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 9) dragging = true;
+      // A tapOnly entry never reclassifies: drift is still a tap.
+      if (!entry.tapOnly && !dragging && entry.dragKey && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 9) dragging = true;
       if (dragging) onDragState({ entry, x: ev.clientX, y: ev.clientY });
     };
     const up = (ev: PointerEvent) => {
@@ -162,7 +173,7 @@ function EntryDisc({ entry, radius, angDeg, size, pinnedKeys, onTogglePin, onDro
       onPointerDown={onPointerDown}>
       {entryFace(entry)}
       <small>{(entry.label + (entry.locked ? " · locked" : "")).split("✦").map((part, i) => i === 0 ? part : <span key={i}><span className="spark-glow">✦</span>{part}</span>)}</small>
-      {entry.pinKey && (
+      {entry.pinKey && !entry.tapOnly && (
         <span className={"gw-pin" + (pinnedKeys.includes(entry.pinKey) ? " on" : "")}
           role="button" aria-label={pinnedKeys.includes(entry.pinKey) ? "Loose from the hotbar" : "Key to the hotbar"}
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
@@ -174,7 +185,7 @@ function EntryDisc({ entry, radius, angDeg, size, pinnedKeys, onTogglePin, onDro
   );
 }
 
-export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinnedKeys, onTogglePin, onDropKey, onClose, ordersMode }: {
+export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinnedKeys, onTogglePin, onDropKey, onClose, ordersMode, evenFan }: {
   cx: number;
   cy: number;
   tab: WheelTabId;
@@ -191,6 +202,14 @@ export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinn
    *  ring, spread evenly around the hub, one wheel for one
    *  Awokin or for a whole drag-chosen company. */
   ordersMode?: boolean;
+  /** EVEN FAN (the R6 in-wheel fix): spread the entries
+   *  evenly around the whole inner ring instead of the 52°
+   *  fan, so a full window (company + six deck entries +
+   *  the More step) never stacks one entry on another —
+   *  the 52° fan repeats its spots every ~7 entries. The
+   *  Awoken branch passes this; every other branch keeps
+   *  the Ground's fan, untouched. */
+  evenFan?: boolean;
 }) {
   const [drag, setDrag] = useState<DiscDrag | null>(null);
   return (
@@ -226,7 +245,9 @@ export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinn
         {entries.map((e, i) => {
           const ang = ordersMode
             ? -90 + i * (360 / Math.max(1, entries.length))
-            : entries.length === 1 ? -90 : -90 + (i - (entries.length - 1) / 2) * 52;
+            : evenFan && entries.length > 1
+              ? -90 + (i + 0.5) * (360 / entries.length)
+              : entries.length === 1 ? -90 : -90 + (i - (entries.length - 1) / 2) * 52;
           return (
             <EntryDisc key={e.key} entry={e} radius={ordersMode ? 100 : 58} angDeg={ang} size={ordersMode ? 48 : 42}
               pinnedKeys={pinnedKeys} onTogglePin={onTogglePin} onDropKey={onDropKey}

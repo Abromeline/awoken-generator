@@ -29,6 +29,7 @@ import battlegroundBg from "./assets/battleground-bg.jpg";
 import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
+import { deckWindow, nextDeckPage } from "./deckWindow";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, type JumpEngine } from "./jump";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
@@ -207,8 +208,9 @@ interface YouState {
    *  R6): the deck Awoken this seat's wheel can CALL IN —
    *  owned, outside the party, not on a road, not fielded
    *  here, not kept at a post — each with the road's price
-   *  (its summon price). The wheel's Awoken branch lists
-   *  them under the company; the pick is the call. */
+   *  (its summon price). The wheel's Awoken branch shows
+   *  them under the company a window of six at a time (the
+   *  in-wheel fix, 2026-10-23 19:45); the tap is the call. */
   reinforcements?: { awakenedId: number; name: string; art: string | null; power: number; cost: number }[];
   /** SUMMONER'S POWER (Nigel, 2026-10-21): the term the
    *  summon cast rolls with beside the gift — the zodiac
@@ -689,6 +691,12 @@ export default function Table() {
   // is the branch standing open; it keeps its place between
   // openings, as the Ground's wheel keeps its own.
   const [wheelTab, setWheelTab] = useState<WheelTabId>("spell");
+  // THE DECK WINDOW'S PAGE (Nigel, 2026-10-23 — the R6
+  // in-wheel fix): which window of six deck entries the
+  // Awoken branch is showing. The "More" entry inside the
+  // wheel advances it; deckWindow.ts clamps it when the
+  // deck shrinks under a landed call.
+  const [deckPage, setDeckPage] = useState(0);
   // THE TENDER CONTROLLER + HOTBAR (Nigel, 2026-10-19): on a
   // touch hand, tapping your own figure pops a dedicated
   // controller — a hold-to-glide pad on the left and the
@@ -2249,6 +2257,27 @@ export default function Table() {
   // working's price, a summon's price and its summoner's
   // power, and — while the caster stands in the curse — the
   // −3 the curse presses on the cast.
+  /** CALL A REINFORCEMENT FROM THE WHEEL (Nigel, 2026-10-23
+   *  — Recovery R6, the tap law of the in-wheel fix): the
+   *  deck entry's tap IS this call, through R6's unchanged
+   *  server path — the road when no bastion plays, the air
+   *  drop when one does. The outcome speaks in plain words:
+   *  a landed call is told in the room's tale by the server,
+   *  a refusal comes back as an error and stands in the
+   *  notice line, and a call that cannot even be SENT (the
+   *  socket is not open) says so here instead of dropping
+   *  silently — the diagnosis named that silent drop as one
+   *  of the ways Nigel's taps died. */
+  const callTableReinforcement = (r: { awakenedId: number; name: string }) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setNotice(`The call for ${r.name} could not be sent — the Table's connection is not open. Rejoin the Table, then tap again.`);
+      return;
+    }
+    setSelUnitId(null);
+    send({ type: "callReinforcement", awakenedId: r.awakenedId });
+  };
+
   const buildWheelEntries = (): WheelEntry[] => {
     const offByKey = new Map(buildOfferings().map(o => [o.key, o]));
     const defEntry = (d: TableDef, hotKey: string): WheelEntry => {
@@ -2311,29 +2340,42 @@ export default function Table() {
           dragKey: `card-${card.id}`,
           act: () => { setSelUnitId(null); castSummonCard(card); },
         } as WheelEntry));
-        // THE REINFORCEMENT CALL (Nigel, 2026-10-23 —
-        // Recovery R6): under the company, the branch lists
-        // the deck the wheel can call in — Awoken outside the
-        // party. The pick IS the call: with a bastion in
-        // play it air-drops into the party at once, free;
-        // with none, it walks the road — its summon price
-        // paid now, its membership landing when the road
-        // completes, while the battle stands. The label
-        // names which of the two the room will do, from the
-        // room's own bastion standing.
-        const bastionPlays = !!shared?.bastion && !shared.bastion.resolved;
-        const reinfEntries = (you?.reinforcements ?? []).map(r => ({
+        // THE REINFORCEMENT WINDOW (Nigel, 2026-10-23 —
+        // Recovery R6, presentation re-ruled 19:45: summoning
+        // stays in the wheel, no pop-up, never the full deck
+        // visible): under the company, the branch shows ONE
+        // WINDOW of the deck it can call in — six entries,
+        // paged by the "More" entry below — never the whole
+        // deck fanned at once. A deck entry's face is its
+        // portrait and its name, nothing more: the road and
+        // price words belong to the tap's outcome, spoken by
+        // the server in plain words (the tale for a landed
+        // call, the notice line for a refusal). THE TAP IS
+        // THE CALL, and it is tap-only: no drag key and no
+        // pin key are set on it, no drag reclassification and no pin badge can eat
+        // it — the drag-to-hotbar for deck entries is gone,
+        // by the ruling that the tap wins.
+        const deckWin = deckWindow(you?.reinforcements ?? [], deckPage);
+        const reinfEntries = deckWin.entries.map(r => ({
           key: `reinf-${r.awakenedId}`,
           img: r.art,
           emoji: "🚶",
-          label: bastionPlays
-            ? `Reinforcement — ${r.name} · air drop: joins your party at once`
-            : `Reinforcement — ${r.name} · ✦${r.cost} for the road · walks 4 minutes to your party`,
-          pinKey: `reinf-${r.awakenedId}`,
-          dragKey: `reinf-${r.awakenedId}`,
-          act: () => { setSelUnitId(null); send({ type: "callReinforcement", awakenedId: r.awakenedId }); },
+          label: r.name,
+          tapOnly: true,
+          act: () => { callTableReinforcement(r); },
         } as WheelEntry));
-        return [...companyEntries, ...reinfEntries];
+        // THE MORE STEP: inside the wheel, under the window —
+        // it advances the window through the deck (wrapping
+        // at the end) and keeps the wheel open, so every deck
+        // Awoken is reachable by paging, six at a time.
+        const moreEntries: WheelEntry[] = deckWin.hasMore ? [{
+          key: "deck-more",
+          emoji: "›",
+          label: `More · ${deckWin.page + 1}/${deckWin.pageCount}`,
+          stayOpen: true,
+          act: () => { setDeckPage(p => nextDeckPage(p, deckWin.total)); },
+        } as WheelEntry] : [];
+        return [...companyEntries, ...reinfEntries, ...moreEntries];
       }
       case "ability":
         return [
@@ -2388,7 +2430,7 @@ export default function Table() {
       case "rune": return `Rune — writings in the ground — they wait, and spring${drag}`;
       case "binding": return `Binding — threads that mend and hold — the Springleaf's grove among them${drag}`;
       case "awoken": return (you?.company.length ?? 0) || (you?.reinforcements?.length ?? 0)
-        ? `Awoken — your company, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, your deck can be called in as reinforcements${shared?.bastion && !shared.bastion.resolved ? " — a bastion plays, so a call air-drops them into your party at once" : " — with no bastion playing, a call walks the road: four minutes to your party, its summon price paid for the road"}${drag}`
+        ? `Awoken — your company, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, one window of your deck at a time: tap a deck Awokin to call it in as a reinforcement, and tap More to page through the rest${drag}`
         : "Awoken — your company stands empty; your party is on the field, or no party is composed";
       case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
       case "attune": return you?.storytender
@@ -2447,8 +2489,10 @@ export default function Table() {
   const actHotbar = (key: string) => {
     if (key === "ability") { openRadialAtMe(true); return; }
     if (key.startsWith("reinf-")) {
+      // A slot keyed before the in-wheel fix: its tap runs
+      // the same guarded call the wheel's deck entries run.
       const r = you?.reinforcements?.find(x => x.awakenedId === Number(key.slice(6))) ?? null;
-      if (r) { setSelUnitId(null); send({ type: "callReinforcement", awakenedId: r.awakenedId }); }
+      if (r) callTableReinforcement(r);
       else toggleHotbar(key); // no longer callable — the slot looses itself
       return;
     }
@@ -2884,7 +2928,7 @@ export default function Table() {
                 <GroundWheel cx={pt.x} cy={pt.y} tab={wheelTab} onTab={setWheelTab}
                   entries={buildWheelEntries()} caption={wheelCaption()}
                   pinnedKeys={hotbarKeys} onTogglePin={toggleHotbar} onDropKey={dropToHotbar}
-                  onClose={() => setRadial(null)} />
+                  onClose={() => setRadial(null)} evenFan={wheelTab === "awoken"} />
               );
             })()}
             {/* THE ORDERS WHEEL (Nigel, 2026-10-22): one
