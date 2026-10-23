@@ -497,6 +497,30 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // the walker leaves the field and joins the bastion's staged
   // reinforcements. Null for every ordinary march.
   marchGoal: text("march_goal"),
+  // FREE STANDING POINTS (Nigel, 2026-10-23 — the placement
+  // build): nothing locks into position on a hex, so a
+  // placement may hold the exact spot it stands on, in
+  // fractional axial coordinates. Null = it stands on its
+  // tile's keystone, as every figure did before this law.
+  posQ: real("pos_q"),
+  posR: real("pos_r"),
+  // The free point a march will stand on when it lands, kept
+  // apart from posQ/posR while the road is walked (a march is
+  // answered where it began until it ends); settlement copies
+  // it onto the standing point and clears it. Null = the
+  // march lands on its destination's keystone.
+  marchPosQ: real("march_pos_q"),
+  marchPosR: real("march_pos_r"),
+  // The patrol's stored destination point (Nigel, 2026-10-23):
+  // the free point the patrol stands on at the far end of its
+  // road, written when the patrol is laid — today the
+  // destination hex's centre point, since patrols are still
+  // ordered by hex taps, but the record's own point, read by
+  // the render like every other standing point. Null = no
+  // patrol, or a patrol laid before this law (its far end
+  // reads as the destination's centre, as it always has).
+  patrolPosQ: real("patrol_pos_q"),
+  patrolPosR: real("patrol_pos_r"),
   // Curse attrition (Nigel, 2026-10-19): the watermark from
   // which this placement's withering on cursed ground is
   // reckoned at settle time. Null while it stands on pure

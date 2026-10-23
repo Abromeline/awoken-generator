@@ -172,6 +172,21 @@ export interface FieldPlacement {
   /** Follow the Tender (2026-10-19): 1 when this Awokin musters
    *  to the Tender's ring whenever the field is read. */
   follow?: number;
+  /** FREE STANDING POINT (Nigel, 2026-10-23): the exact spot
+   *  this figure stands on, in fractional axial coordinates —
+   *  THE position, not an override: the render stands the
+   *  figure here, never on a fixed offset of its tile. */
+  posQ?: number | null;
+  posR?: number | null;
+  /** The free point the march in flight will stand on when
+   *  it lands (fractional axial); null = it lands on its
+   *  destination's centre point. */
+  marchPosQ?: number | null;
+  marchPosR?: number | null;
+  /** The patrol's stored destination point (fractional
+   *  axial): where the patrol stands at its road's far end. */
+  patrolPosQ?: number | null;
+  patrolPosR?: number | null;
 }
 
 export interface CreditInfo {
@@ -803,7 +818,7 @@ export const api = {
     post<{ ok: true; awakenedId: number; skill: string; cost: number }>("teachSkill", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
-  setMarch: (args: { awakenedId: number; tileId: number }) =>
+  setMarch: (args: { awakenedId: number; tileId: number; posQ?: number; posR?: number }) =>
     post<{ ok: true; awakenedId: number; tileId: number; steps: number; seconds: number; energy: number }>("setMarch", args),
   /** The Tender's body on the homeland (2026-10-19): the client
    *  reports the hex his figure has entered; followers are ordered

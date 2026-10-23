@@ -21,12 +21,14 @@
 //      drag draws the line and its BLIPS (one per targeted
 //      Awokin, one at each end) live in the page; on
 //      release both march (their targets the tiles nearest
-//      the blips — the placement model holds tiles, not
-//      free points). And the road BENDS: a lone Awokin
-//      lined across a cursed tile marches AROUND it — the
-//      server's road never touches the cursed hex and
-//      still arrives (shortest-path over the ground the
-//      game holds impassable: the curse).
+//      the blips — since the placement build of 2026-10-23
+//      the blips themselves are the standing points, proven
+//      whole by drive-free-stand). And the road DARES: a
+//      lone Awokin lined across a cursed tile marches
+//      THROUGH it — the short way, at the curse's prices
+//      (Nigel, 2026-10-23: no curse refusal stands in a
+//      march; before that ruling this section proved the
+//      road bent around the curse, and the bend is dead).
 //   §D THE HOMELAND CAST ROAD: right-click (unarmed) opens
 //      the wheel; a LEFT tap looses the readied Blade; a
 //      RIGHT click while the run stands armed CANCELS it —
@@ -416,8 +418,8 @@ console.log("§B the mixed box — an Awoken, a building and the Tender walk int
   await sleep(400);
 }
 
-/* ══ §C THE LINE, ITS BLIPS, AND THE BENT ROAD ════════════ */
-console.log("§C the line and the road — blips on the drag, and a march that bends around the curse");
+/* ══ §C THE LINE, ITS BLIPS, AND THE DARING ROAD ═══════════ */
+console.log("§C the line and the road — blips on the drag, and a march that dares the curse");
 {
   // The pair again: band them, arm March, right-drag the
   // line — the blips must stand on it while the hand is
@@ -511,9 +513,10 @@ console.log("§C the line and the road — blips on the drag, and a march that b
   // Let them arrive before the lone run (roads clear).
   await waitFor(async () => { const a = await placementOf(bandA), b = await placementOf(bandB); return a && b && !a.marchPath && !b.marchPath; }, "the pair arrive", 90000);
 
-  // THE BENT ROAD: Path One alone, lined across the cursed
-  // (0,2). Its road must bend around the curse and arrive
-  // at (1,2) all the same. First bring the row on screen:
+  // THE DARING ROAD: Path One alone, lined across the
+  // cursed (0,2). Its road runs straight through the
+  // curse — the short way, at the curse's prices — and
+  // arrives at (1,2) all the same. First bring the row on screen:
   // the §A pans have carried the land south-east until
   // (1,2)'s centre sits off the viewport's edge, and a
   // line dragged to a clamped corner proves nothing.
@@ -560,10 +563,10 @@ console.log("§C the line and the road — blips on the drag, and a march that b
   const cursedId = tileId.get("0,2"), destId = tileId.get("1,2");
   ok("the lone line-march is on the road to the far side of the curse", road.length > 0 && road[road.length - 1] === destId,
     JSON.stringify(road));
-  ok("its road BENDS around the cursed hex — never touches it, and takes the long way (4 hexes, not 3)",
-    road.length === 4 && !road.includes(cursedId), JSON.stringify(road));
+  ok("its road DARES the cursed hex — straight through it, the short way (3 hexes, not 4)",
+    road.length === 3 && road[1] === cursedId, JSON.stringify(road));
   await waitFor(async () => { const p = await placementOf(pathOne); return p && !p.marchPath && p.tileId === destId; }, "Path One arrives across the bend", 90000);
-  ok("Path One ARRIVED at its blip's hex, around the curse", true);
+  ok("Path One ARRIVED at its blip's hex, through the curse", true);
   await page.screenshot({ path: `${OUT}/homeland-bent-road.png` });
 }
 /* ══ §D THE CAST ROAD — left looses, right cancels ════════ */

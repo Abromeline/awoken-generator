@@ -228,10 +228,40 @@ function marchSecondsPerHexFor(layers: { element?: string | null }[], experience
  *  quote, the hour, and the road home all agree. The
  *  client's projections weight their segments the same
  *  way, by the destination tile. */
-function marchWeightedSeconds(road: number[], secPerHex: number, cursedOf: (tileId: number) => boolean): number {
+function marchWeightedSeconds(road: number[], secPerHex: number, cursedOf: (tileId: number) => boolean, crowdOf?: (tileId: number) => number): number {
   let total = 0;
-  for (let i = 1; i < road.length; i++) total += secPerHex * (cursedOf(road[i]) ? 2 : 1);
+  for (let i = 1; i < road.length; i++) {
+    // THE CROWDING GATE rides the same weighting (Nigel,
+    // 2026-10-18; purpose restated 2026-10-23): a step onto
+    // ground holding more than four Awoken takes its share
+    // again by n/4 — crowding never refuses a step, it
+    // only ever costs speed. crowdOf, where a reckoning
+    // supplies it, counts every Awoken the destination
+    // tile will hold, the walker among them.
+    const n = crowdOf ? crowdOf(road[i]) : 0;
+    total += secPerHex * (cursedOf(road[i]) ? 2 : 1) * (n > 4 ? n / 4 : 1);
+  }
   return total;
+}
+/** The crowding count for a march reckoning: how many
+ *  Awoken each tile holds, read off the field's placements
+ *  the way the room reckonings have always read them — a
+ *  figure crowds the tile it stands on, or the tile its
+ *  march will land it on; the travellers themselves are
+ *  counted on every tile their road enters, so the walker
+ *  is inside the n its own pace is weighed by. */
+function marchCrowdOf(placements: { awakenedId: number; tileId: number; marchPath?: string | null }[], travellerIds: Set<number>): (tileId: number) => number {
+  const count = new Map<number, number>();
+  for (const p of placements) {
+    if (travellerIds.has(p.awakenedId)) continue;
+    let tileId = p.tileId;
+    if (p.marchPath) {
+      try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r.length) tileId = r[r.length - 1]; } catch { /* a broken road crowds where it stands */ }
+    }
+    count.set(tileId, (count.get(tileId) ?? 0) + 1);
+  }
+  const party = travellerIds.size;
+  return (tileId) => (count.get(tileId) ?? 0) + party;
 }
 /** The road between two of the Tender's hexes, over their own
  *  uncursed ground only (breadth-first; the grid makes every step
@@ -240,7 +270,10 @@ function marchWeightedSeconds(road: number[], secPerHex: number, cursedOf: (tile
 /** A road that dares cursed ground (the seed missions, 2026-10-17):
     patrols may enter cursed tiles by ruling — a fetch party rides
     where the march of settlement may not. Same breadth-first walk
-    as findRoad, with the curse filter lifted. */
+    as findRoad, with the curse filter lifted. SINCE 2026-10-23
+    (Nigel) the march of settlement rides it too: no curse refusal
+    stands in setMarch or the muster — cursed ground is priced
+    (twice the step, the standing attrition), never barred. */
 function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number): number[] | null {
   const byId = new Map(tiles.map(t => [t.id, t]));
   // Roads run on the ground (z 0) over gathered land: a floating
@@ -5826,9 +5859,11 @@ export const handlers = {
 
   /** THE MUSTER (the Table's follow law, come home): followers
    *  standing beyond the Tender's ring are given a free march to
-   *  the nearest open ring hex, at their own gait — the homeland
-   *  twin of the Table's musterFollowers, settled lazily on read
-   *  exactly where marches already settle. */
+   *  a free standing point near the Tender (2026-10-23: points,
+   *  not ring-tile offsets; clean ring ground preferred, cursed
+   *  ring ground dealt at its prices), at their own gait — the
+   *  homeland twin of the Table's musterFollowers, settled
+   *  lazily on read exactly where marches already settle. */
   async settleTenderMuster(ownerKey: string, tiles: any[], anchorTileId: number): Promise<void> {
     const anchor = tiles.find((t: any) => t.id === anchorTileId);
     if (!anchor) return;
@@ -5836,8 +5871,17 @@ export const handlers = {
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     const followers = (placements as any[]).filter(p => p.follow === 1 && !p.marchPath);
     if (!followers.length) return;
-    const slots = tiles.filter((t: any) => !t.cursed && (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1 && dist(t, anchor) <= 1)
-      .sort((a: any, b: any) => dist(a, anchor) - dist(b, anchor) || a.id - b.id);
+    // THE RING DARES THE CURSE (Nigel, 2026-10-23): the
+    // ring's slots are every passable hex around the
+    // Tender — clean ground dealt FIRST by preference,
+    // cursed ground dealt at its prices when the ring
+    // offers nothing cleaner (the road's reckoning below
+    // already charges cursed steps at twice the time,
+    // and the curse's attrition settles as ever). Only
+    // the collision exclusions bar a slot: floating
+    // isles and stone still gathering hold no one.
+    const slots = tiles.filter((t: any) => (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1 && dist(t, anchor) <= 1)
+      .sort((a: any, b: any) => (a.cursed ? 1 : 0) - (b.cursed ? 1 : 0) || dist(a, anchor) - dist(b, anchor) || a.id - b.id);
     if (!slots.length) return;
     const loadOf = (tileId: number) => (placements as any[]).reduce((n, p) => {
       if (p.tileId === tileId && !p.marchPath) return n + 1;
@@ -5845,24 +5889,51 @@ export const handlers = {
       return n;
     }, 0);
     const now = Date.now();
+    let mustered = 0;
     for (const p of followers) {
       const home = tiles.find((t: any) => t.id === p.tileId);
       if (!home || dist(home, anchor) <= 1) continue;
-      for (const slot of slots) {
-        if (loadOf(slot.id) >= 4) continue;
-        const road = findRoad(tiles as any, p.tileId, slot.id);
-        if (!road || road.length < 2) continue;
+      // The ring's room is a PREFERENCE, never a gate (the
+      // Crowding Gate, Nigel 2026-10-18): the nearest open
+      // slot with a road takes the follower, as ever — and
+      // when every ring slot stands crowded, the nearest
+      // roaded slot takes it all the same. The crowd slows
+      // the muster's pace (the gate rides the reckoning
+      // below); it does not strand a follower beyond the
+      // ring the Tender has walked away from.
+      let slot: any = null, road: number[] | null = null;
+      for (const s of slots) {
+        const r = findAnyRoad(tiles as any, p.tileId, s.id);
+        if (!r || r.length < 2) continue;
+        if (loadOf(s.id) < 4) { slot = s; road = r; break; }
+        if (!slot) { slot = s; road = r; }
+      }
+      if (!slot || !road) continue;
+      {
         const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, p.awakenedId)).limit(1);
         const aw = awRows[0] as any;
         let layers: { element?: string | null }[] = [];
         try { layers = JSON.parse(aw?.compositionJson ?? "[]"); } catch { layers = []; }
         const secPerHex = marchSecondsPerHexFor(layers, aw?.experience ?? 0);
         const cursedById = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
+        // THE MUSTER'S STANDING POINT (Nigel, 2026-10-23):
+        // a follower does not land on a ring tile's fixed
+        // offsets — it is given a free point NEAR THE
+        // TENDER: partway from his ground toward the ring
+        // slot the road runs to, spread follower by
+        // follower (depth by thirds, then a lateral step
+        // along the ring's own arc) so a company gathers
+        // around him instead of stacking on one spot.
+        const dq = slot.q - anchor.q, dr2 = slot.r - anchor.r;
+        const depth = 0.45 + 0.15 * (mustered % 3);
+        const lat = ((Math.floor(mustered / 3) % 3) - 1) * 0.18;
+        const pointQ = anchor.q + dq * depth + (-dr2) * lat;
+        const pointR = anchor.r + dr2 * depth + (dq + dr2) * lat;
+        mustered++;
         await db.update(schema.fieldPlacements)
-          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(road, secPerHex, (id) => !!cursedById.get(id)) * 1000), marchGoal: null })
+          .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(road, secPerHex, (id) => !!cursedById.get(id), marchCrowdOf(placements as any[], new Set([p.awakenedId]))) * 1000), marchGoal: null, marchPosQ: pointQ, marchPosR: pointR })
           .where(eq(schema.fieldPlacements.id, p.id));
         p.marchPath = JSON.stringify(road);
-        break;
       }
     }
   },
@@ -7335,7 +7406,8 @@ export const handlers = {
     // checks its ground before its purse): the Tender's own
     // tile first, then the tiles beside it — open ground that
     // can hold a standing figure (no floating isle, no stone
-    // still gathering), four to a tile, cursed or held alike
+    // still gathering), the least crowded ground first,
+    // cursed or held alike
     // (the Table's landing law, 2026-10-21: the curse's price
     // is in the cast, not in the ground).
     const allPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
@@ -7348,8 +7420,15 @@ export const handlers = {
       .filter(t => hexDistTiles(t, standTile) <= 1 && (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1)
       .sort((a, b) => (a.id === standTile.id ? 0 : 1) - (b.id === standTile.id ? 0 : 1)
         || hexDistTiles(a, standTile) - hexDistTiles(b, standTile) || a.id - b.id);
-    const landing = candidates.find(t => loadOf(t.id) < 4);
-    if (!landing) badRequest("No ground at your side can hold them — every tile around you stands full.");
+    // THE CROWDING GATE (Nigel, 2026-10-18): no tile refuses
+    // a landing for numbers — the least crowded ground is
+    // still chosen first, and when every tile at the
+    // Tender's side stands crowded the call lands on his
+    // own tile all the same, and the crowd costs the
+    // company speed, never the summon. Only ground that
+    // does not exist at all can refuse the call.
+    const landing = candidates.find(t => loadOf(t.id) < 4) ?? candidates[0];
+    if (!landing) badRequest("No ground at your side can hold them — there is no land at your side to stand on.");
     // THE PURSE, BEFORE THE ROLL — a faltering call spends it.
     if (!(await spendEnergy(ownerKey, cost))) badRequest(`Not enough energy — ${payload.name} costs ✦${cost}.`);
     // THE CAST, the Table referee's arithmetic whole.
@@ -7364,6 +7443,21 @@ export const handlers = {
     }
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId, tileId: landing.id,
+      // A SUMMONED AWOKEN FOLLOWS ITS TENDER (the party's
+      // own definition, party.ts: a member follows when it
+      // stands on a ground; the Table raises the same flag
+      // at its join). Only party members can be summoned at
+      // all, so the summon is the homeland's follow-raising
+      // moment: with the flag up, the muster enrols the
+      // figure and it trails the Tender's ring. (The other
+      // placement births — deploy, assault, bastion return —
+      // deliberately stay follow 0: fighters under orders.)
+      follow: 1,
+      // Born standing on a real free point (Nigel,
+      // 2026-10-23): the landing tile's centre — its own
+      // spot on the record from its first breath, never a
+      // fixed offset borrowed from the tile.
+      posQ: landing.q, posR: landing.r,
       hp: await placementMaxHp(awakenedId),
     });
     return { ok: true as const, summoned: true as const, faltered: false as const, name: payload.name, tileId: landing.id, roll, gift, summonersPower: sp, curse, dc, cost };
@@ -7436,9 +7530,9 @@ export const handlers = {
       // spent and before anything takes the field.
       if (!isPartyMember(ownerKey, f.id)) badRequest(`${f.name} is not in your party — the party is who you can field. Add it from the Party tab of your Zodiac — at home the fill lands at once.`);
     }
-    const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-    if (occupied.length + fighters.length > 4) badRequest("Tile holds at most 4 Awokin.");
+    // No count refuses a deployment (THE CROWDING GATE,
+    // Nigel 2026-10-18): a tile may hold a whole company;
+    // the crowd costs speed, never the standing spot.
     // Server-authoritative deploy cost: 2 + floor((power - 1) / 3) per fighter
     const assetRows = await db.select().from(schema.layerAssets);
     const assetStats = new Map<number, AssetStats>();
@@ -7459,6 +7553,7 @@ export const handlers = {
     for (const f of fighters) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
+        posQ: tile[0].q, posR: tile[0].r,
         hp: await placementMaxHp(f.id),
       });
     }
@@ -7568,7 +7663,10 @@ export const handlers = {
         eq(schema.territoryTiles.ownerKey, ownerKey)
       )).limit(1);
     if (!tile.length) badRequest("That tile is not yours.");
-    if (tile[0].cursed) badRequest("Cannot move onto cursed land — attack it first.");
+    // No curse refusal on the step (Nigel, 2026-10-23):
+    // an Awokin may step onto cursed ground at its prices
+    // — the curse's attrition for standing in it settles
+    // as ever; the ground is priced, never barred.
     // Must be adjacent.
     const fromTile = await db.select().from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.id, placement[0].tileId)).limit(1);
@@ -7577,11 +7675,8 @@ export const handlers = {
     const dr = Math.abs(tile[0].r - fromTile[0].r);
     const dist = Math.max(dq, dr, Math.abs((tile[0].q + tile[0].r) - (fromTile[0].q + fromTile[0].r)));
     if (dist !== 1) badRequest("Can only move to adjacent tiles.");
-    // Tile capacity: max 4.
-    const occupied = await db.select({ id: schema.fieldPlacements.id })
-      .from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");
+    // No tile capacity refuses a step (THE CROWDING GATE,
+    // Nigel 2026-10-18): numbers cost speed, never ground.
     // Server-authoritative move cost: 1 + floor((power - 1) / 3)
     const awokenRows = await db.select().from(schema.awakened)
       .where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
@@ -7599,7 +7694,7 @@ export const handlers = {
       if (!(await spendEnergy(ownerKey, cost))) badRequest("Not enough energy.");
     }
     await db.update(schema.fieldPlacements)
-      .set({ tileId: tile[0].id, lastMovedAt: new Date() })
+      .set({ tileId: tile[0].id, lastMovedAt: new Date(), posQ: tile[0].q, posR: tile[0].r, marchPosQ: null, marchPosR: null })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
@@ -8325,10 +8420,19 @@ export const handlers = {
         }
       }
       if (dest !== null) {
-        sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
-          .run(dest, row.march_ends, row.id);
+        // The landing: the placement takes the destination
+        // tile, and its standing point becomes the free
+        // point the march carried — or, for a march that
+        // carried none, the destination tile's CENTRE
+        // point (SQLite reads every SET expression off the
+        // row as it stood, so the copy lands before the
+        // clearing in the same breath). A landed figure
+        // always holds a real free position: the fixed
+        // standing offsets are gone from the law.
+        sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, pos_q = COALESCE(march_pos_q, (SELECT q FROM territory_tiles WHERE id = ?)), pos_r = COALESCE(march_pos_r, (SELECT r FROM territory_tiles WHERE id = ?)), march_pos_q = NULL, march_pos_r = NULL, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
+          .run(dest, row.march_ends, dest, dest, row.id);
       } else {
-        sqlite.prepare("UPDATE field_placements SET march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
+        sqlite.prepare("UPDATE field_placements SET march_pos_q = NULL, march_pos_r = NULL, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
           .run(row.id);
       }
     }
@@ -8612,7 +8716,7 @@ export const handlers = {
           const roadHome = findAnyRoad(tilesAll as any, seed.tile_id, home.id);
           if (roadHome && roadHome.length > 1) {
             for (const awId of party) {
-              sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = NULL WHERE owner_key = ? AND awakened_id = ?")
+              sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = NULL, march_pos_q = NULL, march_pos_r = NULL WHERE owner_key = ? AND awakened_id = ?")
                 .run(JSON.stringify(roadHome), now, returnAt, ownerKey, awId);
             }
           }
@@ -8774,18 +8878,20 @@ export const handlers = {
       if (placedIds.has(f.id)) badRequest("Already on the field.");
       if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awokin and the champion stay in hand.`);
     }
-    const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.tileId, seed.tile_id));
-    if (occupied.length + fighters.length > 4) badRequest("The seed's hex holds at most 4 Awokin.");
+    // No count refuses the seed's guard either (THE
+    // CROWDING GATE, Nigel 2026-10-18): the hex holds who
+    // is sent; the crowd costs speed, never the spot.
     let totalCost = 0;
     for (const f of fighters) {
       const payload = await awakenedPayloadById(f.id);
       totalCost += deployCostForPower(payload?.power ?? 0);
     }
     if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
+    const seedTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seed.tile_id) as { q: number; r: number } | undefined;
     for (const f of fighters) {
       await db.insert(schema.fieldPlacements).values({
         ownerKey, awakenedId: f.id, tileId: seed.tile_id,
+        posQ: seedTile?.q ?? 0, posR: seedTile?.r ?? 0,
         hp: await placementMaxHp(f.id),
       });
     }
@@ -8869,12 +8975,13 @@ export const handlers = {
     }
     const now = Date.now();
     const fetchCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
-    const travelMs = Math.max(5000, Math.round(marchWeightedSeconds(road, slowest, (id) => !!fetchCursed.get(id)) * 1000));
+    const fetchPlacements = sqlite.prepare("SELECT awakened_id AS awakenedId, tile_id AS tileId, march_path AS marchPath FROM field_placements WHERE owner_key = ?").all(ownerKey) as any[];
+    const travelMs = Math.max(5000, Math.round(marchWeightedSeconds(road, slowest, (id) => !!fetchCursed.get(id), marchCrowdOf(fetchPlacements, new Set(awakenedIds))) * 1000));
     const arriveAt = now + travelMs;
     const ins = sqlite.prepare(`INSERT INTO seed_missions (owner_key, seed_id, kind, party, phase, depart_at, arrive_at)
       VALUES (?, ?, 'fetch', ?, 'out', ?, ?)`).run(ownerKey, seedId, JSON.stringify(awakenedIds), now, arriveAt) as any;
     for (const p of partyRows) {
-      sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = NULL WHERE id = ?")
+      sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = NULL, march_pos_q = NULL, march_pos_r = NULL WHERE id = ?")
         .run(JSON.stringify(road), now, arriveAt, p.id);
     }
     return { ok: true, missionId: Number(ins.lastInsertRowid), arriveAt, travelMs };
@@ -9037,10 +9144,12 @@ export const handlers = {
       if (!bastion) badRequest("No bastion stands to muster from.");
       const placed = sqlite.prepare("SELECT id FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
       if (placed) badRequest("That Awokin already stands on the field.");
-      const occupied = sqlite.prepare("SELECT COUNT(*) AS n FROM field_placements WHERE tile_id = ?").get(bastion.tileId) as any;
-      if (Number(occupied?.n ?? 0) >= 4) badRequest("The bastion's hex stands full — four is the field's law, even at home.");
+      // No count refuses the muster home either (THE
+      // CROWDING GATE, Nigel 2026-10-18): the bastion's
+      // hex holds who returns; the crowd costs speed.
       sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
-      await db.insert(schema.fieldPlacements).values({ ownerKey, awakenedId, tileId: bastion.tileId, hp: await placementMaxHp(awakenedId) });
+      const bastionTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(bastion.tileId) as { q: number; r: number } | undefined;
+      await db.insert(schema.fieldPlacements).values({ ownerKey, awakenedId, tileId: bastion.tileId, posQ: bastionTile?.q ?? 0, posR: bastionTile?.r ?? 0, hp: await placementMaxHp(awakenedId) });
       return { ok: true, mustered: true };
     }
     sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
@@ -9092,9 +9201,10 @@ export const handlers = {
     // The lone road is the slow road (the spec's own words):
     // half again the company's pace.
     const bastionCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
-    const seconds = marchWeightedSeconds(road!, pace, (id) => !!bastionCursed.get(id)) * (following ? 1 : 1.5);
+    const bastionPlacements = sqlite.prepare("SELECT awakened_id AS awakenedId, tile_id AS tileId, march_path AS marchPath FROM field_placements WHERE owner_key = ?").all(ownerKey) as any[];
+    const seconds = marchWeightedSeconds(road!, pace, (id) => !!bastionCursed.get(id), marchCrowdOf(bastionPlacements, new Set([awakenedId]))) * (following ? 1 : 1.5);
     const now = Date.now();
-    sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = 'bastion', patrol_path = NULL, patrol_since = NULL WHERE id = ?")
+    sqlite.prepare("UPDATE field_placements SET march_path = ?, march_since = ?, march_ends = ?, march_goal = 'bastion', patrol_path = NULL, patrol_since = NULL, patrol_pos_q = NULL, patrol_pos_r = NULL, march_pos_q = NULL, march_pos_r = NULL WHERE id = ?")
       .run(JSON.stringify(road), now, now + Math.round(seconds * 1000), placement.id);
     return { ok: true, road: road!.length - 1, arrivesAt: now + Math.round(seconds * 1000), following };
   },
@@ -9270,16 +9380,22 @@ export const handlers = {
     if (!placement) badRequest("That Awokin does not stand on the field — only the stationed can patrol.");
     if (placement.marchPath) badRequest("That Awokin is on the march — recall it, or let it arrive, before laying a patrol.");
     if (tileIds.length === 0) {
-      await db.update(schema.fieldPlacements).set({ patrolPath: null, patrolSince: null } as any)
+      await db.update(schema.fieldPlacements).set({ patrolPath: null, patrolSince: null, patrolPosQ: null, patrolPosR: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
       return { ok: true as const, awakenedId, patrolling: false };
     }
     if (new Set(tileIds).size !== tileIds.length) badRequest("A patrol road does not name the same hex twice.");
     if (tileIds.includes(placement.tileId)) badRequest("The home hex is the road's beginning and end — it is not named among the waypoints.");
-    const mine = new Set((await db.select().from(schema.territoryTiles)
-      .where(eq(schema.territoryTiles.ownerKey, ownerKey))).map(t => t.id));
+    const myTiles = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const mine = new Set((myTiles as any[]).map(t => t.id));
     if (tileIds.some(id => !mine.has(id))) badRequest("A patrol road runs over your own ground only.");
-    await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now(), follow: 0 } as any)
+    // The patrol's stored destination point (Nigel,
+    // 2026-10-23): the far end of the road stands on a
+    // point of the record's own — today the destination
+    // hex's centre, the point a hex-tap order can name.
+    const destTile = (myTiles as any[]).find(t => t.id === tileIds[tileIds.length - 1]);
+    await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now(), follow: 0, patrolPosQ: destTile?.q ?? null, patrolPosR: destTile?.r ?? null } as any)
       .where(eq(schema.fieldPlacements.id, placement.id));
     // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20): a
     // patrol road is an order like a march — the Awokin
@@ -9293,7 +9409,8 @@ export const handlers = {
 
   // SET MARCH (War-Ground, Nigel 2026-10-16): the plain move of the
   // marching system — point A to point B, for real. The road is found
-  // over the Tender's own uncursed ground; the price and the duration
+  // over the Tender's own ground, cursed ground dared at its prices
+  // (Nigel, 2026-10-23 — no curse refusal stands); the price and the duration
   // are CALCULATED and spoken before the order is given: energy =
   // hexes × the standing per-hex move cost (1 + ⌊(power−1)/3⌋, the
   // moveAwoken law), time = hexes × the walker's own pace under the
@@ -9304,9 +9421,22 @@ export const handlers = {
   async setMarch(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     await this.settleMarches(ownerKey);
-    const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(), tileId: z.number().int().positive(),
+      // THE FREE STANDING POINT (Nigel, 2026-10-23): a march
+      // may name the exact spot the walker will stand on —
+      // fractional axial coordinates, the click law's blips
+      // made law. Both axes or neither: a point is a point.
+      posQ: z.number().finite().optional(), posR: z.number().finite().optional(),
+    }).safeParse(args);
     if (!parsed.success) badRequest("A march is an Awokin and the hex it marches to.");
     const { awakenedId, tileId } = parsed.data;
+    const freePoint = parsed.data.posQ !== undefined && parsed.data.posR !== undefined
+      ? { q: parsed.data.posQ, r: parsed.data.posR }
+      : null;
+    if ((parsed.data.posQ === undefined) !== (parsed.data.posR === undefined)) {
+      badRequest("A free standing point names both its axes, or neither.");
+    }
     const rows = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     const placement = rows[0] as any;
@@ -9316,20 +9446,30 @@ export const handlers = {
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const dest = tiles.find(t => t.id === tileId) as any;
     if (!dest) badRequest("That hex is not yours to march to.");
-    if (dest.cursed) badRequest("No marching onto cursed land — that ground is taken by fighting, not by walking.");
-    const road = findRoad(tiles as any, placement.tileId, tileId);
-    if (!road) badRequest("No road of your own ground runs there — the way is broken by cursed land.");
+    // THE ROAD DARES THE CURSE (Nigel, 2026-10-23): no
+    // curse refusal stands in the march — a march may run
+    // onto and through cursed ground, at the prices the
+    // land already charges: cursed steps at twice the
+    // time in the reckoning below, and the curse's
+    // attrition for standing in it, settled as ever. The
+    // only road-refusal left is the ground itself: no
+    // path at all over passable land — and the road
+    // graph's own exclusions (floating isles, stone
+    // still gathering) are collision, not curse.
+    const road = findAnyRoad(tiles as any, placement.tileId, tileId);
+    if (!road) badRequest("No road runs there — the ground itself bars the way.");
     const steps = road.length - 1;
-    // Destination room: what stands there + what is already marching in.
-    const allPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
-    let inbound = 0;
-    for (const p of allPlacements as any[]) {
-      if (p.tileId === tileId && !p.marchPath) inbound++;
-      else if (p.marchPath) {
-        try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r[r.length - 1] === tileId) inbound++; } catch { /* broken roads hold no room */ }
-      }
+    // A free point must belong to the ground it names:
+    // within the destination hex or hard beside it, never
+    // a spot across the map wearing this hex's name.
+    if (freePoint && hexDistTiles({ q: freePoint.q, r: freePoint.r } as any, dest) > 1) {
+      badRequest("That standing point does not lie on the hex it marches to.");
     }
-    if (inbound >= 4) badRequest("That hex will hold no more — four Awokin to a hex, standing or marching in.");
+    // No destination count refuses a march (THE CROWDING
+    // GATE, Nigel 2026-10-18): the field's placements are
+    // read for the crowd the road will wade through —
+    // the gate taxes the pace below, it bars nothing.
+    const allPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     // The walker's true power and pace, from its own record.
     const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)).limit(1);
     const aw = awRows[0] as any;
@@ -9345,12 +9485,18 @@ export const handlers = {
     const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
     const energy = steps * (1 + Math.floor((power - 1) / 3));
     const marchCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
-    const seconds = marchWeightedSeconds(road, marchSecondsPerHexFor(layers, aw.experience ?? 0), (id) => !!marchCursed.get(id));
+    const seconds = marchWeightedSeconds(road, marchSecondsPerHexFor(layers, aw.experience ?? 0), (id) => !!marchCursed.get(id), marchCrowdOf(allPlacements as any[], new Set([awakenedId])));
     if (!(await spendEnergy(ownerKey, energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
     const now = Date.now();
     await db.update(schema.fieldPlacements).set({
       marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000), marchGoal: null,
-      patrolPath: null, patrolSince: null,
+      // The point this march will stand on (or none — the
+      // destination's centre waits at settlement). The
+      // standing point it leaves is not touched: a march is
+      // answered where it began until it ends, and the
+      // landing writes the new point whole.
+      marchPosQ: freePoint ? freePoint.q : null, marchPosR: freePoint ? freePoint.r : null,
+      patrolPath: null, patrolSince: null, patrolPosQ: null, patrolPosR: null,
       // AN ORDER ENDS THE FOLLOW (the marching-orders spec,
       // Nigel 2026-10-22 — the Table's march referee has
       // always read "a direct order ends the follow"; the
@@ -9384,7 +9530,7 @@ export const handlers = {
     let road: number[] = [];
     try { const r = JSON.parse(placement.marchPath); if (Array.isArray(r)) road = r.filter((x: any) => typeof x === "number"); } catch { /* broken below */ }
     if (road.length < 2) {
-      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null, marchGoal: null } as any)
+      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null, marchGoal: null, marchPosQ: null, marchPosR: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
       return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
     }
@@ -9392,7 +9538,7 @@ export const handlers = {
     const frac = Math.min(1, Math.max(0, (Date.now() - placement.marchSince) / Math.max(1, placement.marchEnds - placement.marchSince)));
     const reached = Math.floor(frac * steps); // whole hexes gained
     if (reached <= 0) {
-      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null, marchGoal: null } as any)
+      await db.update(schema.fieldPlacements).set({ marchPath: null, marchSince: null, marchEnds: null, marchGoal: null, marchPosQ: null, marchPosR: null } as any)
         .where(eq(schema.fieldPlacements.id, placement.id));
       return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
     }
@@ -9409,9 +9555,14 @@ export const handlers = {
     const homeRoad = road.slice(0, reached + 1).reverse();
     const recallTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const recallCursed = new Map((recallTiles as any[]).map((t: any) => [t.id, !!t.cursed]));
+    const recallPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     const now = Date.now();
     await db.update(schema.fieldPlacements).set({
-      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(homeRoad, pace, (id) => !!recallCursed.get(id)) * 1000), marchGoal: null,
+      marchPath: JSON.stringify(homeRoad), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(homeRoad, pace, (id) => !!recallCursed.get(id), marchCrowdOf(recallPlacements as any[], new Set([awakenedId]))) * 1000), marchGoal: null,
+      // The road home carries no free point of its own:
+      // the walker lands on its home hex's centre, as
+      // recalls always have.
+      marchPosQ: null, marchPosR: null,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
     return { ok: true as const, awakenedId, recalled: true, stepsHome: reached };
   },

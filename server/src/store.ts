@@ -221,6 +221,19 @@ try {
 } catch {
   // Column already exists
 }
+// Migration: free standing points (Nigel, 2026-10-23) — the
+// placement's exact standing spot (fractional axial) and the
+// free point a march in flight will land on. Nullable: a
+// figure with no point stands on its tile's keystone.
+for (const col of ["pos_q REAL", "pos_r REAL", "march_pos_q REAL", "march_pos_r REAL", "patrol_pos_q REAL", "patrol_pos_r REAL"]) {
+  try { sqlite.exec(`ALTER TABLE field_placements ADD COLUMN ${col}`); } catch { /* exists */ }
+}
+// The migration of the standing point itself: every figure
+// already on a field takes its tile's CENTRE as its first
+// free standing point — the only honest start, the ground
+// the old fixed offsets clustered around. From here every
+// writer of a placement leaves a real point of its own.
+sqlite.exec(`UPDATE field_placements SET pos_q = (SELECT q FROM territory_tiles WHERE territory_tiles.id = field_placements.tile_id), pos_r = (SELECT r FROM territory_tiles WHERE territory_tiles.id = field_placements.tile_id) WHERE pos_q IS NULL OR pos_r IS NULL`);
 // Migration: optional email on tenders — must run AFTER the DDL so a
 // fresh database (where tenders does not exist yet) gets the column
 // too; running it before swallowed the "no such table" error and the

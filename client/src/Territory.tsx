@@ -168,6 +168,21 @@ function tileCenterScreen(t: { q: number; r: number; height?: number; z?: number
   return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0) };
 }
 
+/** The inverse of tileCenterScreen for ground points: a
+ *  screen point read back into FRACTIONAL axial
+ *  coordinates. The click law's blips become standing
+ *  points through this door (Nigel, 2026-10-23): a dragged
+ *  point is a place on the land, not a pixel, and it is
+ *  sent to the march verb whole — never rounded to the
+ *  centre of the hex it happens to fall in. */
+function screenToAxial(x: number, y: number, pan: { x: number; y: number }, zoom: number): { q: number; r: number } {
+  const size = HEX_BASE_SIZE * zoom;
+  const { u, v } = isoBasis(size);
+  const px = x - 250 - pan.x, py = y - 170 - pan.y;
+  const det = u[0] * v[1] - v[0] * u[1];
+  return { q: (px * v[1] - py * v[0]) / det, r: (u[0] * py - u[1] * px) / det };
+}
+
 /** The painted face, measured from the tile art (source px, relative
  *  to face center, in angular order: TL, TR, R, BR, BL, L). */
 const FACE_HEX: [number, number][] = [
@@ -283,16 +298,12 @@ function dominantElement(a: Awakened): Element {
   return best;
 }
 
-// The four keystone points a hex's company stands on, in the field
-// render's order (middle-front first). One table, two readers: the
-// field render draws by it, and the orders anchor below hangs the
-// stance picker under the very figure it commands.
-const FIELD_KEYSTONES = [
-  { dx: 0, dy: 0.28 },      // middle-front (default)
-  { dx: -0.30, dy: 0.14 }, // front-left
-  { dx: 0.30, dy: 0.14 },  // front-right
-  { dx: 0, dy: -0.24 },    // back-center
-];
+// The hex's four fixed keystone points stood here until
+// 2026-10-23, when the standing-point system came out whole
+// (Nigel): a figure now stands on its own stored free point
+// (FieldPlacement.posQ/posR), and both readers this table
+// served — the field render and the orders anchor — read
+// the point instead. Nothing stands on a keystone any more.
 
 // ORDERS BELOW THE FIGURE (Nigel, 2026-10-18): the stance picker and
 // the march / company / patrol bars hang BELOW the Awoken (or the
@@ -794,14 +805,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       return Array.isArray(v) ? v.filter((x: any) => typeof x === "number") : [];
     } catch { return []; }
   };
-  // The road over the Tender's own uncursed ground — the client's
-  // mirror of the server's findRoad, for quoting a march before it is
-  // given. The server's road is the one the walker walks.
+  // The road over the Tender's own ground — the client's mirror
+  // of the server's curse-daring road (findAnyRoad), for quoting
+  // a march before it is given. Cursed ground is priced, never
+  // barred (Nigel, 2026-10-23): the mirror dares it as the
+  // server does. The server's road is the one the walker walks.
   const findRoadClient = (fromId: number, toId: number): number[] | null => {
     const byId = new Map(tiles.map(t => [t.id, t]));
     const byCoord = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
     const from = byId.get(fromId), to = byId.get(toId);
-    if (!from || !to || to.cursed) return null;
+    if (!from || !to) return null;
     if (fromId === toId) return [fromId];
     const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
     const prev = new Map<number, number>([[fromId, fromId]]);
@@ -810,7 +823,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const cur = queue.shift()!;
       for (const [dq, dr] of DIRS) {
         const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
-        if (!n || n.cursed || prev.has(n.id)) continue;
+        if (!n || prev.has(n.id)) continue;
         prev.set(n.id, cur.id);
         if (n.id === toId) {
           const road = [toId];
@@ -2576,11 +2589,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // No quote, no confirm: the server's march verb is fired
   // at once and speaks any refusal itself. The company
   // muster keeps the quote era's assignment arithmetic
-  // (nearest first, four to a hex, each by its own road)
-  // but fires it instead of showing it.
-  const fireMarchOne = async (awakenedId: number, tileId: number): Promise<boolean> => {
+  // (nearest first, open ground preferred, each by its
+  // own road) but fires it instead of showing it.
+  const fireMarchOne = async (awakenedId: number, tileId: number, point?: { q: number; r: number }): Promise<boolean> => {
     try {
-      await api.setMarch({ awakenedId, tileId });
+      await api.setMarch({ awakenedId, tileId, ...(point ? { posQ: point.q, posR: point.r } : {}) });
       return true;
     } catch (err) {
       showHexNotice(err instanceof Error ? err.message : "The march was refused.");
@@ -2603,15 +2616,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     for (const id of ids) {
       const p = placements.find(p => p.awakenedId === id);
       if (!p || p.marchPath) continue;
+      // Open ground is a PREFERENCE, never a gate (THE
+      // CROWDING GATE, Nigel 2026-10-18): the company still
+      // spreads over the nearest open hexes while open
+      // hexes last — and when every hex around the muster
+      // point stands crowded, the nearest roaded hex takes
+      // the figure all the same. Numbers tax the pace on
+      // the server's reckoning; they refuse no one a place.
+      const crowdOf = (tileId: number) => (occupants.get(tileId) ?? 0) - (leaving.get(tileId) ?? 0) + (assigned.get(tileId) ?? 0);
+      let fallback: number | null = null;
+      let settled = false;
       for (const cand of candidates) {
-        const room = 4 - ((occupants.get(cand.id) ?? 0) - (leaving.get(cand.id) ?? 0) + (assigned.get(cand.id) ?? 0));
-        if (room <= 0) continue;
-        if (cand.id === p.tileId) { leaving.set(cand.id, (leaving.get(cand.id) ?? 0) + 1); break; }
-        if (!findRoadClient(p.tileId, cand.id)) continue;
-        assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
-        leaving.set(p.tileId, (leaving.get(p.tileId) ?? 0) + 1);
-        out.push({ awakenedId: id, tileId: cand.id });
+        if (cand.id !== p.tileId && !findRoadClient(p.tileId, cand.id)) continue;
+        if (crowdOf(cand.id) >= 4) { if (fallback === null) fallback = cand.id; continue; }
+        if (cand.id === p.tileId) { leaving.set(cand.id, (leaving.get(cand.id) ?? 0) + 1); }
+        else {
+          assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
+          leaving.set(p.tileId, (leaving.get(p.tileId) ?? 0) + 1);
+          out.push({ awakenedId: id, tileId: cand.id });
+        }
+        settled = true;
         break;
+      }
+      if (!settled && fallback !== null) {
+        if (fallback === p.tileId) { leaving.set(fallback, (leaving.get(fallback) ?? 0) + 1); }
+        else {
+          assigned.set(fallback, (assigned.get(fallback) ?? 0) + 1);
+          leaving.set(p.tileId, (leaving.get(p.tileId) ?? 0) + 1);
+          out.push({ awakenedId: id, tileId: fallback });
+        }
       }
     }
     return out;
@@ -2619,17 +2652,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   const fireGroupMarch = async (ids: number[], destTile: TerritoryTile) => {
     const orders = musterAssignments(ids, destTile);
-    if (!orders.length) { showHexNotice("None of the company can march there — no road, or no room."); return; }
+    if (!orders.length) { showHexNotice("None of the company can march there — no road runs to it."); return; }
     let marched = 0;
     for (const o of orders) { if (await fireMarchOne(o.awakenedId, o.tileId)) marched++; }
     await refreshMarching();
     if (marched) showHexNotice(`The company marches — ${marched} on the road, each at their own pace.`);
   };
 
-  // The line spread (spec): the selection stands EVENLY
-  // along the dragged line — figure i takes the tile
-  // nearest the i-th even point of the segment, by its own
-  // road, four to a hex.
+  // The line spread (Nigel, 2026-10-23): the selection
+  // stands EVENLY along the dragged line — figure i takes
+  // the i-th even point of the segment AS ITS OWN STANDING
+  // POINT, sent whole to the march verb. The road is found
+  // to the hex the point falls in; the point itself is
+  // never rounded to that hex's centre — when the road
+  // ends, the figure stands where the blip stood. No
+  // count refuses a place on the line (the Crowding Gate
+  // taxes a crowd with pace, not with refusal).
   const fireLineMarch = async (ids: number[], a: { x: number; y: number }, b: { x: number; y: number }) => {
     const members = ids
       .map(id => placements.find(p => p.awakenedId === id))
@@ -2639,29 +2677,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const pts = members.map((_, i) => n === 1
       ? { x: b.x, y: b.y } // a lone Awokin takes the line's FAR end (Nigel, 2026-10-23)
       : { x: a.x + (b.x - a.x) * (i / (n - 1)), y: a.y + (b.y - a.y) * (i / (n - 1)) });
-    const occupants = new Map<number, number>();
-    for (const p of placements) {
-      if (!p.marchPath) occupants.set(p.tileId, (occupants.get(p.tileId) ?? 0) + 1);
-      else { const r = marchRoadOf(p); if (r.length) occupants.set(r[r.length - 1], (occupants.get(r[r.length - 1]) ?? 0) + 1); }
-    }
-    const claimed = new Map<number, number>();
     let marched = 0;
     for (let i = 0; i < n; i++) {
       const p = members[i];
       const pt = pts[i];
-      const cands = tiles
-        .filter(t => !t.cursed)
+      const point = screenToAxial(pt.x, pt.y, pan, zoom);
+      // The blip's hex is the nearest ground there is —
+      // cursed ground included (Nigel, 2026-10-23): a
+      // line may fall on or across the curse at its
+      // prices; nothing snaps the point to cleaner land.
+      const dest = tiles
         .map(t => { const c = tileCenterScreen(t, pan, zoom); return { t, d: Math.hypot(c.cx - pt.x, c.cy - pt.y) }; })
-        .sort((x, y) => x.d - y.d);
-      for (const { t } of cands) {
-        const room = 4 - ((occupants.get(t.id) ?? 0) - (p.tileId === t.id ? 1 : 0) + (claimed.get(t.id) ?? 0));
-        if (room <= 0) continue;
-        if (t.id === p.tileId) break; // already stands on its point of the line
-        if (!findRoadClient(p.tileId, t.id)) continue;
-        claimed.set(t.id, (claimed.get(t.id) ?? 0) + 1);
-        if (await fireMarchOne(p.awakenedId, t.id)) marched++;
-        break;
-      }
+        .sort((x, y) => x.d - y.d)[0]?.t;
+      if (!dest) continue;
+      if (dest.id === p.tileId) continue; // already stands on its point's hex
+      if (!findRoadClient(p.tileId, dest.id)) continue;
+      if (await fireMarchOne(p.awakenedId, dest.id, point)) marched++;
     }
     await refreshMarching();
     if (marched) showHexNotice(`The line is taken — ${marched} on the road, spread evenly along it.`);
@@ -2678,11 +2709,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // stays armed for another tap.
       const ids = pendingMarch.ids;
       const destTile = tiles.find(t => t.id === tile.id);
-      if (!destTile || destTile.cursed) { showHexNotice("No marching onto cursed land — that ground is taken by fighting, not by walking."); return; }
+      if (!destTile) { showHexNotice("That ground is not on the field."); return; }
       if (ids.length === 1) {
         const p = placements.find(x => x.awakenedId === ids[0]);
         if (p && p.tileId === tile.id) { showHexNotice(`${p.name} already stands there.`); setPendingMarch(null); return; }
-        if (!p || !findRoadClient(p.tileId, tile.id)) { showHexNotice("No road of your own ground runs there — cursed land breaks the way."); return; }
+        if (!p || !findRoadClient(p.tileId, tile.id)) { showHexNotice("No road runs there — the ground itself bars the way."); return; }
         void (async () => {
           if (await fireMarchOne(ids[0], tile.id)) {
             setPendingMarch(null);
@@ -3707,7 +3738,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the fixed strip behind the deck hand. The anchor re-derives the
   // field render's own geometry (tilePos lives inside renderGrid, so
   // the iso math is walked again here, step for step): the figure's
-  // keystone on its hex, the ground line its feet stand on (growth
+  // standing point on its hex, the ground line its feet stand on (growth
   // rises UP from that line, so the feet do not move with level),
   // the tray lift, and the field layer's cursed/purified lift. A
   // warden out on a road is anchored at its post, as the picker has
@@ -3721,17 +3752,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const { px, py } = isoOffset(tile.q, tile.r, size);
     const cx = 250 + px + pan.x;
     const cy = 170 + py + pan.y - (Math.max(1, tile.height || 1) - 1) * TRAY_LIFT;
-    // The figure's own keystone: its place among the hex's drawn
-    // company, in the render's order (first four drawn).
-    const drawn = placements
-      .filter(pp => pp.tileId === tile.id)
-      .map(pp => tenderItems.find(a => a.id === pp.awakenedId))
-      .filter(Boolean) as Awakened[];
-    const idx = drawn.findIndex(a => a.id === p.awakenedId);
-    const ks = FIELD_KEYSTONES[idx >= 0 && idx < FIELD_KEYSTONES.length ? idx : 0];
+    // The figure's own standing point (Nigel, 2026-10-23):
+    // the bar hangs below the feet the figure actually
+    // stands on — its stored free point, read through the
+    // same iso delta as the render reads it.
+    const dp = p.posQ != null && p.posR != null ? isoOffset(p.posQ, p.posR, size) : null;
+    const dc = isoOffset(tile.q, tile.r, size);
+    const fx = dp ? cx + (dp.px - dc.px) : cx;
+    const fy = dp ? cy + (dp.py - dc.py) : cy;
     const awScale = 0.8 + zoom * 0.5;
-    const feetY = cy + ks.dy * size + (20 * awScale) / 2 + (tile.cursed ? 0 : -5);
-    return { x: cx + ks.dx * size, y: feetY + ORDER_GAP };
+    const feetY = fy + (20 * awScale) / 2 + (tile.cursed ? 0 : -5);
+    return { x: fx, y: feetY + ORDER_GAP };
   };
   const anchorPct = (pt: { x: number; y: number } | null) =>
     pt ? { xPct: (pt.x / 500) * 100, yPct: (pt.y / 340) * 100 } : null;
@@ -3804,6 +3835,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const mRoad = marchRoadOf(p).map(id => tiles.find(t => t.id === id)).filter(Boolean) as TerritoryTile[];
       if (mRoad.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
         const centers = mRoad.map(t => tilePos(t));
+        // THE FINAL APPROACH (Nigel, 2026-10-23): a march
+        // carrying a free point ends AT the point — the
+        // last segment is re-aimed from the destination's
+        // centre to the standing point the figure will
+        // hold when the road ends, so the walk and the
+        // rest it arrives at are one unbroken motion.
+        if (p.marchPosQ != null && p.marchPosR != null) {
+          const destT = mRoad[mRoad.length - 1];
+          const dp = isoOffset(p.marchPosQ, p.marchPosR, size);
+          const dc = isoOffset(destT.q, destT.r, size);
+          const lastC = centers[centers.length - 1];
+          centers[centers.length - 1] = { cx: lastC.cx + (dp.px - dc.px), cy: lastC.cy + (dp.py - dc.py) };
+        }
         // CURSED GROUND SLOWS THE MARCH (Nigel, 2026-10-20):
         // a segment whose destination tile is cursed takes
         // twice its share of the march's hour — the same
@@ -3830,6 +3874,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const home = tiles.find(t => t.id === p.tileId);
       if (!home || !roadTiles.length || !p.patrolSince) return null;
       const centers = [home, ...roadTiles].map(t => tilePos(t));
+      // THE PATROL'S REST POINTS ARE ITS OWN (Nigel,
+      // 2026-10-23): the road's home end stands on the
+      // figure's own standing point, and its far end on
+      // the patrol's stored destination point — the
+      // interpolation may run tile to tile between the
+      // waypoints, but at each end the figure rests on a
+      // point of its record, never on a centre borrowed
+      // from the tile or a fixed offset of the hex.
+      if (p.posQ != null && p.posR != null) {
+        const dp = isoOffset(p.posQ, p.posR, size);
+        const dc = isoOffset(home.q, home.r, size);
+        centers[0] = { cx: centers[0].cx + (dp.px - dc.px), cy: centers[0].cy + (dp.py - dc.py) };
+      }
+      if (p.patrolPosQ != null && p.patrolPosR != null) {
+        const destT = roadTiles[roadTiles.length - 1];
+        const dp = isoOffset(p.patrolPosQ, p.patrolPosR, size);
+        const dc = isoOffset(destT.q, destT.r, size);
+        const lastC = centers[centers.length - 1];
+        centers[centers.length - 1] = { cx: lastC.cx + (dp.px - dc.px), cy: lastC.cy + (dp.py - dc.py) };
+      }
       const route = [...centers, ...centers.slice(1, -1).reverse()];
       const routeTiles = [...[home, ...roadTiles], ...[home, ...roadTiles].slice(1, -1).reverse()];
       // CURSED GROUND SLOWS THE WALKER (Nigel, 2026-10-20):
@@ -4083,52 +4147,63 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
     });
 
-    // Awoken layer: renders ABOVE all buildings
-    const awokenElements = sortedTiles.map((t) => {
-      const { cx, cy } = tilePos(t);
+    // Awoken layer: renders ABOVE all buildings.
+    // FREE STANDING (Nigel, 2026-10-23 — the standing-point
+    // system is out): every figure is drawn at its OWN stored
+    // standing point — never gathered under its tile, never
+    // slotted into one of the hex's fixed offsets, and never
+    // hidden for numbers: a tile may hold a whole company
+    // and every one of them renders, the Crowding Gate
+    // taxing the crowd with slowness, never invisibility.
+    // A figure on a road is drawn at its derived place on
+    // the road; a figure at rest stands on its point, read
+    // through the same iso geometry as its tile so height
+    // and lift agree with the ground beneath it. The
+    // figures are ordered by the depth of the ground under
+    // their feet, as a painter orders them.
+    const standingPointOf = (p: FieldPlacement, t: TerritoryTile): { x: number; y: number } => {
+      const c = tilePos(t);
+      if (p.posQ == null || p.posR == null) return { x: c.cx, y: c.cy };
+      const dp = isoOffset(p.posQ, p.posR, size);
+      const dc = isoOffset(t.q, t.r, size);
+      return { x: c.cx + (dp.px - dc.px), y: c.cy + (dp.py - dc.py) };
+    };
+    const figureRows = placements
+      .map((placement) => {
+        const a = tenderItems.find(x => x.id === placement.awakenedId);
+        const t = tiles.find(x => x.id === placement.tileId);
+        if (!a || !t) return null;
+        const pPos = patrolPositionOf(placement);
+        const sp = pPos ?? standingPointOf(placement, t);
+        return { placement, a, t, pPos, fx: sp.x, fy: sp.y };
+      })
+      .filter(Boolean) as { placement: FieldPlacement; a: Awakened; t: TerritoryTile; pPos: { x: number; y: number } | null; fx: number; fy: number }[];
+    figureRows.sort((x, y) => x.fy - y.fy || x.a.id - y.a.id);
+    const awokenElements = figureRows.map(({ placement, a, t, pPos, fx, fy }) => {
       const s = size;
-      const tilePlacements = placements.filter(p => p.tileId === t.id);
-      const awokens = tilePlacements.map(p => tenderItems.find(a => a.id === p.awakenedId)).filter(Boolean) as Awakened[];
-      const awoken = awokens[0] ?? null;
       const lift = t.cursed ? 0 : -5;
-      if (!awokens.length) return null;
+      const ws = 15, hs = 20;
+      const kx = fx;
+      const ky = pPos ? fy + 0.28 * s : fy;
+      const awScale = 0.8 + zoom * 0.5; // Grows with zoom for visibility
+      // LEVEL PRESENCE (Nigel, 2026-10-16): a field Awoken's
+      // map size compounds ×1.25 for every level above 1 —
+      // Lv5 stands ~2.4× a Lv1, Lv10 ~7.5×: veterans tower
+      // over the field, exactly as ruled. The level is the
+      // card's own number (the experience fallback mirrors
+      // the card's math). Growth is grounded: the feet stay
+      // on today's ground line (baseAhs) and the size rises.
+      const awLevel = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
+      const lvlScale = Math.pow(1.25, awLevel - 1);
+      const baseAhs = hs * awScale;
+      const aws = ws * awScale * lvlScale, ahs = hs * awScale * lvlScale;
+      const isWhispering = whisper?.awakenedId === a.id;
+      // Each Awoken drifts on its own rhythm — subtle, never leaves its ground.
+      const driftDur = (6 + (a.id % 5)).toFixed(1);
+      const driftDelay = (-(a.id % 7)).toFixed(1);
+      const isSelected = selectedAwoken === a.id;
       return (
-        <g key={`awoken-${t.id}`} transform={`translate(0,${lift})`}>
-            <g>
-              {awokens.slice(0, 4).map((a, idx) => {
-                // 4 keystone points, REELED IN (Nigel, 2026-10-16): the
-                // old spread (offsets up to 0.7 of the hex size) set the
-                // company on the hex's outer perimeter — even a lone
-                // Awoken anchored below its hex's middle. They now
-                // cluster in the hex's heart, a slight front bias kept
-                // for the iso view.
-                const ks = FIELD_KEYSTONES[idx];
-                const ws = 15, hs = 20;
-                const placement = tilePlacements.find(p => p.awakenedId === a.id);
-                // The marching layer: a patrolling Awoken is drawn at
-                // its DERIVED position on the road, not at its keystone
-                // — presentation only; its placement never moves.
-                const pPos = placement ? patrolPositionOf(placement) : null;
-                const kx = pPos ? pPos.x : cx + ks.dx * s;
-                const ky = pPos ? pPos.y + 0.28 * s : cy + ks.dy * s;
-                const awScale = 0.8 + zoom * 0.5; // Grows with zoom for visibility
-                // LEVEL PRESENCE (Nigel, 2026-10-16): a field Awoken's
-                // map size compounds ×1.25 for every level above 1 —
-                // Lv5 stands ~2.4× a Lv1, Lv10 ~7.5×: veterans tower
-                // over the field, exactly as ruled. The level is the
-                // card's own number (the experience fallback mirrors
-                // the card's math). Growth is grounded: the feet stay
-                // on today's ground line (baseAhs) and the size rises.
-                const awLevel = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
-                const lvlScale = Math.pow(1.25, awLevel - 1);
-                const baseAhs = hs * awScale;
-                const aws = ws * awScale * lvlScale, ahs = hs * awScale * lvlScale;
-                const isWhispering = whisper?.awakenedId === a.id;
-                // Each Awoken drifts on its own rhythm — subtle, never leaves its hex.
-                const driftDur = (6 + (a.id % 5)).toFixed(1);
-                const driftDelay = (-(a.id % 7)).toFixed(1);
-                const isSelected = selectedAwoken === a.id;
-                return (
+        <g key={`awoken-${a.id}`} transform={`translate(0,${lift})`}><g>
                   <g key={a.id} className={(pPos ? "field-patroller" : "field-drifter") + (selectedGroup.includes(a.id) ? " field-chosen" : "")}
                     style={{
                       ...(pPos
@@ -4236,10 +4311,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       );
                     })()}
                   </g>
-                );
-              })}
-              {/* The tile attunement pill stood here until 2026-10-15 —
-                  retired with the ghost countdown it rendered. */}
+                  {/* The tile attunement pill stood here until 2026-10-15 —
+                      retired with the ghost countdown it rendered. */}
             </g>
         </g>
       );
@@ -6108,8 +6181,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           bandClosedAt.current = Date.now();
           // The wardens inside the band are chosen. A MARCHER is
           // caught by where it stands on its road (the same road +
-          // clock derivation the map draws); everyone else — the
-          // standing and the patrolling — by their post.
+          // clock derivation the map draws); a STANDING figure by
+          // its own standing point (Nigel, 2026-10-23 — the band
+          // gathers Awoken where they stand, never by a centre
+          // borrowed from their tile); the patrolling by their
+          // post, as ever.
           const chosen: number[] = [];
           const bandSize = HEX_BASE_SIZE * zoom; // the render block's own measure
           const centerOf = (t: TerritoryTile) => {
@@ -6120,6 +6196,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             const t = tiles.find(tt => tt.id === p.tileId);
             if (!t) continue;
             let anchor = centerOf(t);
+            let onRoad = false;
             const road = marchRoadOf(p).map(id => tiles.find(tt => tt.id === id)).filter(Boolean) as TerritoryTile[];
             if (road.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
               const centers = road.map(centerOf);
@@ -6128,6 +6205,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               // twice its share of the hour).
               const total = centers.reduce((s, c, i) => i === 0 ? 0 : s + Math.hypot(c.cx - centers[i - 1].cx, c.cy - centers[i - 1].cy) * (road[i].cursed ? 2 : 1), 0);
               if (total > 0) {
+                onRoad = true;
                 let d = Math.min(1, Math.max(0, (Date.now() - p.marchSince) / (p.marchEnds - p.marchSince))) * total;
                 for (let i = 0; i < centers.length - 1; i++) {
                   const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy) * (road[i + 1].cursed ? 2 : 1);
@@ -6136,6 +6214,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   anchor = centers[centers.length - 1];
                 }
               }
+            }
+            if (!onRoad && p.posQ != null && p.posR != null) {
+              const dp = isoOffset(p.posQ, p.posR, bandSize);
+              const dc = isoOffset(t.q, t.r, bandSize);
+              anchor = { cx: anchor.cx + (dp.px - dc.px), cy: anchor.cy + (dp.py - dc.py) };
             }
             if (anchor.cx >= x0 && anchor.cx <= x1 && anchor.cy >= y0 && anchor.cy <= y1) chosen.push(p.awakenedId);
           }
