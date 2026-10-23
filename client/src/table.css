@@ -402,7 +402,6 @@ button { font-family: inherit; }
 .bind-code-shown { font-size: 16px; letter-spacing: 1px; }
 .bind-code-shown strong { color: var(--gold-bright); letter-spacing: 3px; }
 
-.arts-list { max-width: 640px; }
 .art-row {
   display: flex;
   gap: 12px;
@@ -530,16 +529,10 @@ button { font-family: inherit; }
    dress — .pour-row, .pour-label, .hue-chip, .hue-dot — is
    removed with it, so nothing of the window remains in the
    shipped CSS for any screen to resurrect. */
-.working-card { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 10px; background: #14100a; border: 1px solid #4a3a1e; border-radius: 10px; cursor: pointer; color: #e8dfc8; }
-.working-card:hover { border-color: #8a6f3a; }
-.working-card.selected { border-color: var(--gold-bright); box-shadow: 0 0 12px rgba(255, 210, 110, .30); }
-.working-card:disabled { opacity: .55; cursor: default; }
-.working-card img { width: 56px; height: 56px; object-fit: contain; flex: 0 0 56px; }
-.heal-medal { flex: 0 0 56px; width: 56px; height: 56px; border: 1px solid var(--gold); border-radius: 50%; color: #ffd98a; font-size: 26px; display: flex; align-items: center; justify-content: center; text-shadow: 0 0 10px rgba(255, 210, 110, .6); }
-.working-text { display: grid; gap: 2px; }
-.working-text strong { color: #ffd98a; font-size: 15.5px; }
-.working-text em { color: var(--bone-dim); font-style: normal; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
-.working-text span { font-size: 13px; line-height: 1.45; color: #d9cfb2; }
+/* The satchel's workings cards stood here until 2026-10-22,
+   when Nigel struck the workings menu everywhere: the Table
+   casts wholly from the wheel — right-click, branch, pick,
+   click-cast, click-cast. */
 .placing-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--gold); border-radius: 10px; background: rgba(23, 18, 8, .92); }
 /* The curse's warning, in the curse's own red (Nigel, 2026-10-21):
    shown beside a cast's preview while the caster stands in it. */

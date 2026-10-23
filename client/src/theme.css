@@ -2890,14 +2890,10 @@ body.defeat-flash {
 .curse-eye-bar.mini{display:inline-block;width:64px;flex:none;vertical-align:middle}
 .curse-eye-bar.mini .curse-eye-fill{display:block}
 
-/* The hand's tabs (Nigel, 2026-10-18): Awoken | Spells
-   & Glyphs, above the hand in the dock, in the family
-   of the Table's satchel tabs. The Spells face holds
-   the grimoire panel, scrollable, the map still near. */
-.hand-tabs{display:flex;gap:6px;justify-content:center;margin-bottom:6px}
-.hand-tab{padding:6px 14px;border-radius:999px;border:1px solid rgba(184,155,94,.45);background:rgba(16,12,8,.85);color:#cdbd93;font-size:12.5px;letter-spacing:.04em;cursor:pointer}
-.hand-tab.active{color:#ffd98a;border-color:#ffd700;background:rgba(60,44,14,.9);box-shadow:0 0 10px rgba(255,215,0,.25)}
-.dock-spells{flex:1;min-width:0;max-height:44vh;overflow-y:auto}
+/* The hand's tabs and the Spells & Glyphs tray stood here
+   until 2026-10-22, when Nigel struck the menu for good:
+   the hand keeps one face (the Awoken cards), and casting
+   lives wholly in the wheel. Nothing sits in their place. */
 
 /* ════════════════════════════════════════════════════════════════
    THE WAX SEALS REMAIN (Nigel’s re-ruling, 2026-10-18): the

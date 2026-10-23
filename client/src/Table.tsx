@@ -431,7 +431,13 @@ export default function Table() {
   const [devName, setDevName] = useState("");
   const [shared, setShared] = useState<SharedState | null>(null);
   const [you, setYou] = useState<YouState | null>(null);
-  const [tab, setTab] = useState<"I" | "II" | "III" | "IV">("I");
+  // The satchel's faces (Nigel, 2026-10-22): I · Awokin
+  // (your standing) and IV · Potions & Items only — the
+  // workings faces that once stood between them (II ·
+  // Abilities, III · Spells) were the workings menu, and
+  // the menu is struck everywhere. Casting lives wholly
+  // in the wheel: right-click, branch, pick, click-cast.
+  const [tab, setTab] = useState<"I" | "IV">("I");
   // The satchel drawer (Phase A room, Nigel 2026-10-18; the
   // hand it once held was retired by the wheel law,
   // 2026-10-21): the satchel rests half off-screen and rises
@@ -2701,9 +2707,9 @@ export default function Table() {
             </button>
             <div className="satchel-head">
               <div className="satchel-tabs" role="tablist" aria-label="Your satchel">
-                {(["I", "II", "III", "IV"] as const).map((t) => (
+                {(["I", "IV"] as const).map((t) => (
                   <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                    {t}{t === "I" ? " · Awokin" : t === "II" ? " · Abilities" : t === "III" ? " · Spells" : " · Potions & Items"}
+                    {t}{t === "I" ? " · Awokin" : " · Potions & Items"}
                   </button>
                 ))}
               </div>
@@ -2793,76 +2799,6 @@ export default function Table() {
                   </div>
                 )}
               </>
-            )}
-            {tab === "II" && (
-              <div className="arts-list">
-                {myCursed && <p className="curse-note">{curseNote} on every cast while you stand on cursed ground.</p>}
-                {Object.values(defs).filter(d => d.kind === "ward").map(d => {
-                  const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
-                  const locked = !you.wardRuneUnlocked;
-                  return (
-                    <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
-                      onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, choose the hex your Awokin holds, then its neighbour.`}>
-                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[hue]} drop-shadow(0 0 6px ${HUE_GLOWS[hue]})` }} /> : <span className="heal-medal">✦</span>}
-                      <span className="working-text">
-                        <strong>{locked ? "🔒 " : ""}{formName}</strong>
-                        <em>{d.root} · Ward · <span className="spark-glow">✦</span>{d.cost}</em>
-                        <span>{d.blurb}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-                <p className="quiet small">Wards are walls: they stand on a hex's edge and answer what crosses it. A ward is written for one battle — when the wave breaks, the light fades. A working wears the colour its page is attuned to in the Grimoire — the form named on each card is the form its cast will take; a page with no attunement casts plain.</p>
-              </div>
-            )}
-            {tab === "III" && (
-              <div className="arts-list">
-                {myCursed && <p className="curse-note">{curseNote} on every cast while you stand on cursed ground.</p>}
-                <button className={`working-card${placing?.kind === "heal" ? " selected" : ""}`}
-                  onClick={() => { setPlacing(placing?.kind === "heal" ? null : { kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); }}
-                  title={`Heal — restore ${you.healAmount ?? 5} HP to one of your standing Awokin · ✦${healDef?.cost ?? 2}`}>
-                  {healDef?.glyph ? <img src={healDef.glyph} alt="" style={{ filter: `${HUE_FILTERS["unaligned"]} drop-shadow(0 0 6px ${HUE_GLOWS["unaligned"]})` }} /> : <span className="heal-medal">✚</span>}
-                  <span className="working-text">
-                    <strong>Heal · Tier {you.healTier ?? 1}</strong>
-                    <em>The mending art · <span className="spark-glow">✦</span>{healDef?.cost ?? 2} · yours from Tender Lv 1</em>
-                    <span>Restore {you.healAmount ?? 5} HP to one of your standing Awokin. In our lore, the healers are the Binders.</span>
-                  </span>
-                </button>
-                {Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf").map(d => {
-                  const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
-                  const locked = !you.wardRuneUnlocked;
-                  return (
-                    <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
-                      onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, choose the hex your Awokin holds, then the hex the grove roots on.`}>
-                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[hue]} drop-shadow(0 0 6px ${HUE_GLOWS[hue]})` }} /> : <span className="heal-medal">🌿</span>}
-                      <span className="working-text">
-                        <strong>{locked ? "🔒 " : ""}{formName}</strong>
-                        <em>{d.root} · Binding · <span className="spark-glow">✦</span>{d.cost}</em>
-                        <span>{d.blurb}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-                {Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell").map(d => {
-                  const hue = castHueFor(d.key); const formName = d.forms[hue] ?? d.root;
-                  const locked = !you.wardRuneUnlocked;
-                  return (
-                    <button key={d.key} className={`working-card${placing?.root === d.key ? " selected" : ""}`} disabled={locked}
-                      onClick={() => { setPlacing(placing?.root === d.key ? null : { kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); }}
-                      title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${you.tenderLevel ?? 1}` : `${formName} — ✦${d.cost}. Tap, then write it on a hex's ground.`}>
-                      {d.glyph ? <img src={d.glyph} alt="" style={{ filter: `${HUE_FILTERS[hue]} drop-shadow(0 0 6px ${HUE_GLOWS[hue]})` }} /> : <span className="heal-medal">✦</span>}
-                      <span className="working-text">
-                        <strong>{locked ? "🔒 " : ""}{formName}</strong>
-                        <em>{d.root} · {d.kind === "spell" ? "Spell" : "Rune"} · <span className="spark-glow">✦</span>{d.cost}</em>
-                        <span>{d.blurb}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-                <p className="quiet small">Runes are ground-writing: they wait in a hex's floor and spring when the dark stands on them — binding everything on the hex at once. One writing per hex; a rune is spent when it springs (the Blade hums on for one more).</p>
-              </div>
             )}
             {tab === "IV" && (
               <div className="arts-list">

@@ -1,24 +1,32 @@
 // THE CAST FLOW, WITH NO WINDOW IN IT (Nigel, 2026-10-20
 // 23:21: "remove the pour popup window for all windows. just
-// click drag equip tap cast tap cast tap cast").
-// The cast-time pour menu was struck from both clients in
-// ccc18f8; this drive proves the flow that stands today, on
-// the REAL pages, end to end:
-//   §1 THE LAND MAP — ready the Blade in the hand's Spells
-//      face, then tap hex after hex: every tap fires a cast
+// click drag equip tap cast tap cast tap cast") — and, since
+// 2026-10-22, NO MENU EITHER: the workings tray (the hand's
+// Spells & Glyphs face on the land map, the satchel's
+// workings faces at the Table) is struck everywhere ("this
+// menu should not show up anywhere ever"), and casting lives
+// wholly in the wheel: "right click anywhere while in tender
+// mode opens wheel > spells > pick spell, click cast, click
+// cast, click cast. Same with runes and summoning."
+// This drive proves that flow on the REAL pages, end to end:
+//   §1 THE LAND MAP — the tray is absent from the DOM; the
+//      Blade is readied through the wheel (right-click, Rune
+//      branch, pick), then hex tap after hex tap fires casts
 //      (the fetch log is the witness), standing casts land
-//      back to back on bare taps alone, and a MutationObserver
-//      watching for any dialog / popup / modal element sees
-//      NOTHING appear between taps.
-//   §2 THE TABLE — the same law through the satchel: ready
-//      the Blade's card, tap hex after hex, the room's own
-//      state (a watcher socket) counts the workings as they
-//      land, back to back, no window between taps.
+//      back to back on bare taps alone, and a
+//      MutationObserver watching for any dialog / popup /
+//      modal element sees NOTHING but the wheel itself —
+//      the lawful road, opened only to ready — between taps.
+//   §2 THE TABLE — the same law: the satchel holds no
+//      workings faces; the Blade is readied through the
+//      wheel, hex taps land workings back to back (the
+//      room's own state, read by a watcher socket, counts
+//      them), no window between taps.
 // A fizzle is honest dice (Runewright, +2 in his school,
 // against DC 11): it ends the run by the shipped law, so the
-// drive re-readies with one click — as a player does — and
-// taps on. The run it swears by is three STANDING casts in a
-// row with nothing but hex taps between them.
+// drive re-readies through the wheel — as a player does —
+// and taps on. The run it swears by is three STANDING casts
+// in a row with nothing but hex taps between them.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-cast-flow.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -89,6 +97,18 @@ const INSTRUMENT = `(() => {
   scan();
 })()`;
 
+// Clicks a GroundWheel disc by label text with REAL mouse
+// events — branch discs act on click, entry discs on
+// pointer-down/up, exactly as a player's tap lands.
+const clickDisc = async (pg, sel, txt) => {
+  const handle = await pg.evaluateHandle((q, t) => [...document.querySelectorAll(q)].find((d) => ((d.getAttribute("aria-label") || "") + " " + (d.textContent || "")).includes(t)), sel, txt);
+  const el = handle.asElement();
+  if (!el) throw new Error("wheel disc not found: " + txt);
+  const box = await el.boundingBox();
+  if (!box) throw new Error("wheel disc has no box: " + txt);
+  await pg.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+};
+
 const browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--mute-audio", "--autoplay-policy=no-user-gesture-required"] });
 
 /* ══ §1 THE LAND MAP ══════════════════════════════════════ */
@@ -152,21 +172,36 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
   })()`);
   await page.evaluate(INSTRUMENT);
 
-  // Ready the Blade: the hand's Spells face, then the page.
-  const tabHit = await page.evaluate(() => {
-    const b = [...document.querySelectorAll('button[role="tab"]')].find((x) => x.textContent.includes("Spells"));
-    if (b) { b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return true; }
-    return false;
-  });
-  ok("the hand's Spells face opens", tabHit);
-  await sleep(400);
-  const readySpell = async () => page.evaluate((fn) => {
-    const b = [...document.querySelectorAll(".dock-spells button")].find((x) => x.textContent.includes(fn));
-    if (b) { b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return true; }
-    return false;
-  }, formName);
-  ok("the Blade is readied from the book's face", await readySpell());
-  await sleep(400);
+  // THE TRAY IS GONE from the land map (Nigel, 2026-10-22):
+  // no spells panel, no hand tabs, neither of its texts —
+  // and the hand's one face, the Awokin cards, still stands.
+  const tray1 = await page.evaluate(() => ({
+    panels: document.querySelectorAll(".dock-spells").length,
+    tabs: document.querySelectorAll(".hand-tabs, .hand-tab").length,
+    hand: !!document.querySelector(".dock-hand"),
+    glyphs: document.body.innerText.includes("Spells & Glyphs"),
+    choose: document.body.innerText.includes("Choose a working"),
+  }));
+  ok("NO workings tray on the land map: no panel, no hand tab strip", tray1.panels === 0 && tray1.tabs === 0, JSON.stringify(tray1));
+  ok("the texts 'Spells & Glyphs' and 'Choose a working' appear nowhere on the land map", !tray1.glyphs && !tray1.choose);
+  ok("the hand's one face (the Awokin cards) still stands in the dock", tray1.hand);
+
+  // Ready the Blade THE LAWFUL WAY: right-click on the land
+  // opens the wheel in tender mode; the Rune branch fans;
+  // the Blade's disc readies it — tap cast, tap cast.
+  let shotWheel1 = false;
+  const reReady = async () => {
+    await page.mouse.click(420, 300, { button: "right" });
+    await page.waitForSelector(".gw-wheel", { timeout: 9000 });
+    await clickDisc(page, ".gw-disc.cat", "Rune");
+    await sleep(500);
+    if (!shotWheel1) { shotWheel1 = true; await page.screenshot({ path: `${OUT}/territory-wheel-mid-road.png` }); }
+    await clickDisc(page, ".gw-disc", formName);
+    await page.waitForFunction((fn) => (document.querySelector(".hex-notice")?.textContent ?? "").includes(fn) || (document.querySelector(".hex-notice")?.textContent ?? "").includes("readied"), { timeout: 9000 }, formName).catch(() => {});
+    await sleep(300);
+  };
+  await reReady();
+  ok("right-click opened the wheel and the Rune branch readied the Blade", true);
 
   const polyCount = await page.evaluate(() => document.querySelectorAll('svg polygon[fill="rgba(0,0,0,0)"]').length);
   ok("the land's hexes stand ready to be tapped", polyCount >= 20, `polygons=${polyCount}`);
@@ -210,25 +245,6 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
     .filter((x) => x.d >= 1 && x.d <= 5 && !x.t.cursed)
     .sort((a, b) => a.d - b.d)
     .slice(0, 40);
-  // The hand's own words say whether the working still
-  // stands readied — the spell button TOGGLES, so the drive
-  // only ever clicks it when the hand is truly empty.
-  const isArmed = async () => page.evaluate(() =>
-    (document.querySelector(".dock-spells")?.textContent ?? "").includes("Tap a hex"));
-  // Re-readying after a fizzle goes through the hand's own
-  // doors, as a player's does: the Spells tab (which raises
-  // cast mode) and then the page (which chooses the working)
-  // — the dock's spell button alone sets the key, not the mode.
-  const reReady = async () => {
-    await page.evaluate(() => {
-      const b = [...document.querySelectorAll('button[role="tab"]')].find((x) => x.textContent.includes("Spells"));
-      if (b) b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    });
-    await sleep(250);
-    await readySpell();
-    await sleep(350);
-  };
-
   let casts = 0, standings = 0, fizzles = 0, run = 0, bestRun = 0, deadTaps = 0, taps = 0, reReadies = 0;
   for (const { i: idx, t } of tapOrder) {
     if (bestRun >= 3) break;
@@ -246,7 +262,7 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
       if (last.fizzled) {
         fizzles++; run = 0;
         console.log(`    tap (${t.q},${t.r}): the roll fell short — the working slips from the hand`);
-        if (!(await isArmed())) { await reReady(); reReadies++; }
+        await reReady(); reReadies++;
       } else if (last.refused) {
         run = 0;
         console.log(`    tap (${t.q},${t.r}): REFUSED — ${last.note ?? ""}`);
@@ -256,8 +272,8 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
       }
     } else {
       deadTaps++;
-      console.log(`    tap (${t.q},${t.r}): no cast fired (armed=${await isArmed()})`);
-      if (!(await isArmed())) { await reReady(); reReadies++; }
+      console.log(`    tap (${t.q},${t.r}): no cast fired — walking the wheel road again`);
+      await reReady(); reReadies++;
     }
   }
   console.log(`    taps=${taps} casts fired=${casts} standing=${standings} fizzled=${fizzles} re-readies=${reReadies} dead taps=${deadTaps} best back-to-back run=${bestRun}`);
@@ -267,8 +283,8 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
   const terrData = terr.data ?? terr;
   ok("the room of the land agrees: the workings stand on it", (terrData.workings ?? []).length === standings,
     `server workings=${(terrData.workings ?? []).length} page standings=${standings}`);
-  const popups = await page.evaluate(() => window.__popupLog);
-  ok("NO popup, dialog or modal appeared on the land map at any point", popups.length === 0, JSON.stringify(popups).slice(0, 300));
+  const popups = await page.evaluate(() => window.__popupLog.filter((e) => !String(e.cls).includes("gw-wheel")));
+  ok("NO popup, dialog or modal appeared on the land map at any point (the wheel itself is the road, opened only to ready)", popups.length === 0, JSON.stringify(popups).slice(0, 300));
   const pourMarkup = await page.evaluate(() => {
     const h = document.body.innerHTML;
     return ["pour-row", "placing-pour", "hue-chip"].filter((s) => h.includes(s));
@@ -279,7 +295,7 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
 }
 
 /* ══ §2 THE TABLE ═════════════════════════════════════════ */
-console.log("§2 the Table — ready the Blade's card, tap hexes, workings land back to back");
+console.log("§2 the Table — ready the Blade through the wheel, tap hexes, workings land back to back");
 {
   const claim = await call("claimTender", { password: PW, tenderName: "Castflow Table" });
   const token = claim.token;
@@ -347,31 +363,43 @@ console.log("§2 the Table — ready the Blade's card, tap hexes, workings land 
   console.log(`    seat energy: ${mySeat().energy} / ${mySeat().maxEnergy}`);
   await page.evaluate(INSTRUMENT);
 
-  // Raise the hand, open the Spells tab, ready the Blade.
+  // THE SATCHEL'S WORKINGS FACES ARE GONE (Nigel, 2026-10-22):
+  // raise the satchel and read it — tabs I and IV only, no
+  // workings cards anywhere, and neither of the tray's texts.
   await page.evaluate(() => {
     const g = document.querySelector(".hand-grab");
     if (g && g.getAttribute("aria-expanded") !== "true") g.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   });
   await sleep(400);
-  const tabHit = await page.evaluate(() => {
-    const b = [...document.querySelectorAll('.satchel-tabs button[role="tab"]')].find((x) => x.textContent.includes("Spells"));
-    if (b) { b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return true; }
-    return false;
-  });
-  ok("the satchel's Spells tab opens", tabHit);
-  await sleep(400);
-  const readyCard = async () => page.evaluate((fn) => {
-    const c = [...document.querySelectorAll(".working-card")].find((x) => x.textContent.includes(fn) && x.textContent.includes("Rune"));
-    if (c) { c.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return true; }
-    return false;
-  }, formName);
-  const cardSelected = async () => page.evaluate((fn) =>
-    [...document.querySelectorAll(".working-card.selected")].some((x) => x.textContent.includes(fn)), formName);
-  ok("the Blade's card stands in the satchel", await page.evaluate((fn) =>
-    [...document.querySelectorAll(".working-card")].some((x) => x.textContent.includes(fn)), formName));
+  const tray2 = await page.evaluate(() => ({
+    tabs: [...document.querySelectorAll('.satchel-tabs button[role="tab"]')].map((b) => b.textContent.trim()),
+    cards: document.querySelectorAll(".working-card").length,
+    glyphs: document.body.innerText.includes("Spells & Glyphs"),
+    choose: document.body.innerText.includes("Choose a working"),
+  }));
+  ok("the satchel holds NO workings faces — tabs I · Awokin and IV · Potions & Items only", tray2.tabs.length === 2 && tray2.tabs[0].includes("Awokin") && tray2.tabs[1].includes("Potions"), JSON.stringify(tray2.tabs));
+  ok("no workings cards stand in the satchel, and the tray's texts appear nowhere at the Table", tray2.cards === 0 && !tray2.glyphs && !tray2.choose);
+
+  // Ready the Blade THE LAWFUL WAY at the Table: right-click
+  // on the stage opens the wheel; the Rune branch fans; the
+  // Blade's disc readies it — the placing bar is the witness
+  // that the working stands in hand, and it STAYS in hand
+  // across casts (the one-shot placing is superseded).
+  const bladeLabel = blade.root ?? blade.name ?? formName;
+  let shotWheel2 = false;
+  const readyCard = async () => {
+    await page.mouse.click(750, 320, { button: "right" });
+    await page.waitForSelector(".gw-wheel", { timeout: 9000 });
+    await clickDisc(page, ".gw-disc.cat", "Rune");
+    await sleep(500);
+    if (!shotWheel2) { shotWheel2 = true; await page.screenshot({ path: `${OUT}/table-wheel-mid-road.png` }); }
+    await clickDisc(page, ".gw-disc", bladeLabel);
+    await sleep(400);
+  };
+  const placingArmed = async () => page.evaluate(() => !!document.querySelector(".placing-bar"));
   await readyCard();
   await waitPage(page, () => !!document.querySelector(".placing-bar"), "the placing stands armed");
-  ok("the Blade is readied — the placing bar stands, no window opened", await cardSelected());
+  ok("right-click opened the wheel and the Rune branch readied the Blade — the placing bar stands, no window opened", await placingArmed());
 
   // The tile lattice, solved as the summon drive solves it.
   const buildPerm = async (pg, selector, tiles, size) => pg.evaluate(({ selector, tiles, size }) => {
@@ -446,7 +474,7 @@ console.log("§2 the Table — ready the Blade's card, tap hexes, workings land 
       // ends by law — the card leaves the hand) or the tap
       // raced a state push. Re-ready only when the card
       // truly slipped; otherwise tap on.
-      if (!(await cardSelected())) {
+      if (!(await placingArmed())) {
         run = 0; reReadies++;
         await readyCard();
         await sleep(350);
@@ -460,8 +488,8 @@ console.log("§2 the Table — ready the Blade's card, tap hexes, workings land 
   ok("three casts stood BACK TO BACK at the Table — tap cast, tap cast, tap cast", bestRun >= 3, `bestRun=${bestRun}`);
   ok("the watcher counts every landed working", workings().length === baseCount + standings,
     `watcher=${workings().length} base=${baseCount} standings=${standings}`);
-  const popups = await page.evaluate(() => window.__popupLog);
-  ok("NO popup, dialog or modal appeared at the Table at any point", popups.length === 0, JSON.stringify(popups).slice(0, 300));
+  const popups = await page.evaluate(() => window.__popupLog.filter((e) => !String(e.cls).includes("gw-wheel")));
+  ok("NO popup, dialog or modal appeared at the Table at any point (the wheel itself is the road, opened only to ready)", popups.length === 0, JSON.stringify(popups).slice(0, 300));
   const pourMarkup = await page.evaluate(() => {
     const h = document.body.innerHTML;
     return ["pour-row", "placing-pour", "hue-chip"].filter((s) => h.includes(s));

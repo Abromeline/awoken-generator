@@ -769,12 +769,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the zodiac's attunement-reach bonus — is the server's
   // reckoning, refused in its own plain words.
   const [attuneElement, setAttuneElement] = useState<string | null>(null);
-  // The hand's two faces (Nigel, 2026-10-18): a tab above
-  // the hand switches it between the Awoken cards and
-  // Spells & Glyphs, as the Table's satchel does. The
-  // Spells face IS the Written Light — castMode follows
-  // the tab, and the old Written Light button is gone.
-  const [handTab, setHandTab] = useState<"awoken" | "spells">("awoken");
+  // THE HAND HAS ONE FACE (Nigel, 2026-10-22): the hand
+  // holds the Awoken cards, and nothing else — the Spells
+  // & Glyphs tray that once stood as its second face is
+  // gone everywhere, forever ("this menu should not show
+  // up anywhere ever"). Casting lives wholly in the
+  // wheel: right-click opens it, its branches ready the
+  // book's workings into castMode, and taps on the land
+  // cast them, click after click.
   const [castSpellKey, setCastSpellKey] = useState<string | null>(null);
   // THE POUR MENU IS GONE (Nigel, 2026-10-20): no hue/points
   // choice stands between readying and casting, and powering
@@ -814,13 +816,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // wears the same frame as the arena and the Table.
   const cardBorder = useCardBorder();
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
-  const [fadePick, setFadePick] = useState<number | null>(null);
 
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
   // An aspect looking for a card brings the Awoken face forward.
-  useEffect(() => { if (applyingAspect) { setHandTab("awoken"); setCastMode(false); } }, [applyingAspect]);
+  useEffect(() => { if (applyingAspect) { setCastMode(false); } }, [applyingAspect]);
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
   const [celebration, setCelebration] = useState<any | null>(null);
   const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
@@ -1782,7 +1783,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         pinKey: `cast-${sp.key}`,
         dragKey: `cast-${sp.key}`,
         act: () => {
-          setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
+          setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
           showHexNotice(locked
             ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
             : `${sp.name} readied — tap the land to cast it.`);
@@ -1851,7 +1852,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const sp = grim?.spells.find(x => x.key === key.slice(5)) ?? null;
       if (!sp) { toggleHotbar(key); return; }
       if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
-      setHandTab("spells"); setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
+      setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
       showHexNotice(`${sp.name} readied — tap the land to cast it.`);
       return;
     }
@@ -2306,7 +2307,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
   const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
-    if (!castSpell) { showHexNotice("Choose a working from the book first."); return; }
+    if (!castSpell) { showHexNotice("No working is readied — right-click and pick one from the wheel."); return; }
     // The Springleaf is a binding by the book's filing, but
     // she is planted on GROUND, not cast on a body — the tap
     // casts her on her hex (Homeland Casting).
@@ -6181,10 +6182,22 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               // A right CLICK — pressed and released unmoved —
               // calls the wheel (Nigel, 2026-10-19), even
               // mid-glide; a right DRAG still pans, as ever.
-              // Armed flows keep their right hand.
+              // CASTING'S LAW (Nigel, 2026-10-22): right-click
+              // opens the wheel in tender mode — and a readied
+              // working must not bar it, for the wheel is how
+              // a caster picks ANOTHER working mid-road ("pick
+              // spell, click cast, click cast" — then pick
+              // again). So a cast-armed hand (castMode alone)
+              // no longer counts as blocked for this gate;
+              // every other armed flow keeps its right hand.
               const rp = rightPressRef.current;
               rightPressRef.current = null;
-              if (rp && !rp.moved && tenderStandRef.current && !tenderInputBlockedRef.current) {
+              const castArmedOnly = castMode && !(
+                moveTargeting || groupMarchUi || attackTargeting ||
+                patrolSettingFor !== null || marchUiFor !== null || battlePool.length > 0 ||
+                showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
+              );
+              if (rp && !rp.moved && tenderStandRef.current && (!tenderInputBlockedRef.current || castArmedOnly)) {
                 const p = svgPoint(e.clientX, e.clientY);
                 if (p) { setTenderRadial(p); }
               }
@@ -6399,55 +6412,9 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         )}
       </div>
       <div className="bottom-dock">
-        <div className="hand-tabs" role="tablist" aria-label="Your hand">
-          <button type="button" role="tab" aria-selected={handTab === "awoken"} className={`hand-tab${handTab === "awoken" ? " active" : ""}`} onClick={() => { setHandTab("awoken"); setCastMode(false); setCastSpellKey(null); setCastAnchor(null); }}>I · Awokin</button>
-          <button type="button" role="tab" aria-selected={handTab === "spells"} className={`hand-tab${handTab === "spells" ? " active" : ""}`} onClick={() => { setHandTab("spells"); setCastMode(true); }}>II · Spells &amp; Glyphs</button>
-        </div>
-        {handTab === "awoken" && (<div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>)}
+        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
         <div className="dock-row">
-        {handTab === "spells" && (<div className="dock-spells"><div style={{ margin: 0, padding: "10px 12px", border: "1px solid rgba(183,166,255,.5)", borderRadius: 10, background: "rgba(24,18,44,.88)" }}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ marginLeft: "auto", color: "#cfc4f5" }}><span className="spark-glow">✦</span>{energy} · Tender Lv {grimGate.level}</span>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              {(grim?.spells ?? []).map((sp) => {
-                const locked = sp.kind !== "binding" && sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
-                const img = grimGlyphImg(sp.key);
-                const sel = castSpellKey === sp.key;
-                return (
-                  <button key={sp.key} disabled={locked} onClick={() => { setCastSpellKey(sel ? null : sp.key); setCastAnchor(null); }}
-                    className="abtn" style={{ borderColor: sel ? "#ffd98a" : "#555", display: "inline-flex", alignItems: "center", gap: 6, opacity: locked ? 0.55 : 1 }}
-                    title={locked ? `Wakes at Tender Lv 3 — you stand at Lv ${grimGate.level}` : `${sp.name} — ${sp.kind} · ✦${sp.cost}. ${sp.blurb}`}>
-                    {img ? <img src={img} alt="" style={{ width: 18, height: 18, objectFit: "contain", filter: `${GRIM_HUE_FILTERS[castHueFor(sp)]} drop-shadow(0 0 3px ${GRIM_HUE_GLOWS[castHueFor(sp)]})` }} /> : <span>✦</span>}
-                    {locked ? "🔒 " : ""}{(sp.forms[castHueFor(sp)] ?? sp.name)} · <span className="spark-glow">✦</span>{sp.cost}
-                  </button>
-                );
-              })}
-              {!grim && <span style={{ color: "#cfc4f5" }}>The book is opening…</span>}
-            </div>
-            <div style={{ marginTop: 8, color: "#e6ddff", fontSize: 13 }}>
-              {!castSpell && <>Choose a working. <strong>Wards</strong> stand on a hex's edge, <strong>runes</strong> are written on a hex's floor, and <strong>Heal</strong> mends your standing — by the book's numbers, snapshotted at the cast. Workings stand until spent, broken, or faded.</>}
-              {castSpell?.engine === "heal" && <>Tap a hex your <strong>wounded</strong> stand on — Heal mends the most wounded there by {grimGate.healAmount} HP (your tier).</>}
-              {castSpell?.kind === "ward" && castAnchor === null && <>Tap any hex of <strong>your land</strong> — then tap one of its glowing edges.</>}
-              {castSpell?.kind === "ward" && castAnchor !== null && <>Tap a <strong>glowing edge</strong> of the anchor hex — or the hex again to choose another.</>}
-              {castSpell && (castSpell.kind === "rune" || castSpell.kind === "spell") && <>Tap a hex's <strong>ground</strong> to write it there — cursed ground takes the light too, ahead of the march. One writing per hex.</>}
-            </div>
-            {workings.length > 0 && (
-              <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ color: "#cfc4f5" }}>{workings.length} working{workings.length === 1 ? "" : "s"} standing:</span>
-                <select value={fadePick ?? ""} onChange={(e) => setFadePick(e.target.value ? Number(e.target.value) : null)} style={{ maxWidth: 260 }}>
-                  <option value="">— choose one to fade —</option>
-                  {workings.map((w) => <option key={w.id} value={w.id}>{grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey} ({w.kind})</option>)}
-                </select>
-                <button className="abtn" disabled={fadePick === null} onClick={async () => {
-                  if (fadePick === null) return;
-                  try { await api.fadeMapWorking({ id: fadePick }); setFadePick(null); await refreshWorkings(); showHexNotice("The light fades from the land — the page rests."); }
-                  catch (e) { showHexNotice(e instanceof Error ? e.message : "It would not fade."); }
-                }}>Fade it</button>
-              </div>
-            )}
-          </div></div>)}
-        {handTab === "awoken" && battlePool.length > 0 && (
+                {battlePool.length > 0 && (
           <div className="battle-pool">
             <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
             <div className="battle-pool-cards">
@@ -6467,7 +6434,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </div>
           </div>
         )}
-        <div className="dock-hand" style={handTab === "awoken" ? undefined : { display: "none" }}>
+        <div className="dock-hand">
           {hand.map((a, i) => {
             const el = dominantElement(a);
             const level = a.level ?? 0;
@@ -6527,7 +6494,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           {hand.length === 0 && <div className="dock-empty">All Awokin stand on the field.</div>}
         </div>
         </div>
-        {handTab === "awoken" && elsewhere.length > 0 && (
+        {elsewhere.length > 0 && (
           <div className="hand-elsewhere">
             <p className="quiet small">Not in hand — one body stands in one place, so these keep their posts:</p>
             <div className="elsewhere-row">
