@@ -78,8 +78,8 @@ export const BESPOKE_IDS: string[] = [];
  *  w_b10, w_b16; r_b4, r_b8, r_b16; b_b3, b_b6, b_b12;
  *  wi_b7, wi_b11 — thirteen stars, no others. (A graph
  *  already persisted at this wheel's version serves as
- *  it stands, so a world seeded before this wiring keeps
- *  its empty clauses until its graph is re-seeded.) */
+ *  it stands, so the clauses reach such a saved wheel
+ *  only through THE PARTY-FX PASS below.) */
 const SEED_FX: Record<string, FxClause[]> = {
   h5: [{ verb: "company", amount: 1 }],
   w_b2: [{ verb: "company", amount: 2 }],
@@ -107,6 +107,64 @@ function seedGraph(): ZodiacGraph {
 const CONFIG_KEY = "zodiac.graph";
 let cache: ZodiacGraph | null = null;
 
+/** ── THE PARTY-FX PASS (Nigel's choice, 2026-10-22 20:51:
+ *  "Build the surgical refresh, then push both together") ──
+ *  A world whose wheel was already saved before the party
+ *  wiring (bb107a0) serves its persisted graph as it stands,
+ *  so the thirteen party stars stand there with empty
+ *  clauses and every party in that world reads the bare 3.
+ *  This pass carries the clauses into such a saved wheel —
+ *  ONCE per world, keyed by its stamp in ui_config. When
+ *  the stamp is absent, the seed's own fx are written onto
+ *  the party stars standing in the persisted graph — the
+ *  stars SEED_FX itself names, read from the seed, never a
+ *  second copy of the grants — and the stamp is written.
+ *  When the stamp stands, the pass does nothing, ever
+ *  again, so a Starwright's later hand on those stars is
+ *  safe from it.
+ *
+ *  The surgery is exactly this wide and no wider: only the
+ *  thirteen party stars' fx arrays may change. No node's
+ *  name, cost, roads or place; no other node's clauses; no
+ *  Tender's held skills, points or party; no wheel-version
+ *  bump and no refund. A party star absent from a saved
+ *  graph is skipped — the pass adds no stars. It runs
+ *  inside zodiacGraph(), the one door every graph read
+ *  passes through, before the graph is first served. */
+const PARTY_FX_STAMP_KEY = "zodiac.partyFxPass";
+const PARTY_FX_STAMP = "party-fx-2026-10-22";
+
+function partyFxStamped(): boolean {
+  try {
+    const row = sqlite.prepare("SELECT value FROM ui_config WHERE key = ?").get(PARTY_FX_STAMP_KEY) as { value: string } | undefined;
+    return row?.value === PARTY_FX_STAMP;
+  } catch { return false; }
+}
+
+function stampPartyFxPass(): void {
+  const existing = sqlite.prepare("SELECT key FROM ui_config WHERE key = ?").get(PARTY_FX_STAMP_KEY);
+  if (existing) sqlite.prepare("UPDATE ui_config SET value = ?, updated_at = ? WHERE key = ?").run(PARTY_FX_STAMP, Date.now(), PARTY_FX_STAMP_KEY);
+  else sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?)").run(PARTY_FX_STAMP_KEY, PARTY_FX_STAMP, Date.now());
+}
+
+/** Write the seed's clauses onto the party stars standing
+ *  in a saved graph. Returns true when any star's clauses
+ *  moved. */
+function carryPartyFx(g: ZodiacGraph): boolean {
+  const seedById = new Map(seedGraph().nodes.map(n => [n.id, n]));
+  let moved = false;
+  for (const n of g.nodes) {
+    if (!(n.id in SEED_FX)) continue;
+    const s = seedById.get(n.id);
+    if (!s) continue;
+    if (JSON.stringify(n.fx) !== JSON.stringify(s.fx)) {
+      n.fx = s.fx.map(c => ({ ...c }));
+      moved = true;
+    }
+  }
+  return moved;
+}
+
 function persist(g: ZodiacGraph): void {
   const value = JSON.stringify(g);
   const existing = sqlite.prepare("SELECT key FROM ui_config WHERE key = ?").get(CONFIG_KEY);
@@ -127,12 +185,27 @@ export function zodiacGraph(): ZodiacGraph {
       // old tree is gone whole, not folded forward.
       if (parsed.v === ZODIAC_WHEEL_VERSION && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) && parsed.nodes.length > 0) {
         cache = parsed;
+        // THE PARTY-FX PASS: a saved wheel from before the
+        // party wiring gains the thirteen party stars'
+        // clauses here — once, under its stamp, before the
+        // graph is served. A wounded pass leaves the graph
+        // exactly as it stands.
+        try {
+          if (!partyFxStamped()) {
+            if (carryPartyFx(cache)) persist(cache);
+            stampPartyFxPass();
+          }
+        } catch { /* the graph serves as it stands */ }
         return cache;
       }
     }
   } catch { /* a wounded doc falls back to the first writing */ }
   cache = seedGraph();
   try { persist(cache); } catch { /* the seed still serves from memory */ }
+  // A fresh world is born already carrying the clauses; the
+  // stamp still stands, so its saved wheel is never mistaken
+  // for a stale one on a later boot.
+  try { stampPartyFxPass(); } catch { /* the seed still serves from memory */ }
   return cache;
 }
 
