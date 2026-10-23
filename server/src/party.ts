@@ -91,13 +91,32 @@ export function partyCapFor(ownerKey: string | null | undefined, _tenderLevel?: 
   return partyCountFor(ownerKey).cap;
 }
 
-export type PartyAddResult = { ok: true } | { ok: false; reason: string };
+export type PartyAddResult = { ok: true; cameOffField: boolean } | { ok: false; reason: string };
 
 /**
  * Add a creature of the Tender's own roster to the party.
  * The refusal is whole and spoken plainly: not theirs,
  * already standing in the party, or the party full at the
  * reckoned width. Nothing is written on a refusal.
+ *
+ * JOINING TAKES A FIELDED MEMBER OFF THE FIELD (Nigel,
+ * 2026-10-23: "if a member is on the field when they join
+ * party take them off of the field"): a successful join
+ * deletes the creature's homeland field placement in the
+ * same act — it comes home to the party and stands
+ * callable for summoning again. A join is not a fall: no
+ * dispersed_until is written, no re-coalescing timer, no
+ * cost — the placement row's deletion is the whole of it,
+ * the same end-state a recall reaches, and the stance,
+ * follow and patrol written on the row die with it, as
+ * they do there. This lives in the join itself so every
+ * door that joins through here — the Party tab and the
+ * profile (actions.ts addToParty), the field wheel's
+ * Join party (addFieldToParty), the Table's unit wheel
+ * and its reinforcement arrivals (table.ts) — takes the
+ * member off the field in the same way. Bastion-staged,
+ * court-housed and dispersed creatures are untouched:
+ * the ruling names the field only.
  */
 export function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLevel?: number | null): PartyAddResult {
   const aw = sqlite.prepare("SELECT name, owner_key FROM awakened WHERE id = ?")
@@ -117,7 +136,9 @@ export function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLe
   }
   sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")
     .run(ownerKey, awakenedId, Date.now());
-  return { ok: true };
+  const lifted = sqlite.prepare("DELETE FROM field_placements WHERE owner_key = ? AND awakened_id = ?")
+    .run(ownerKey, awakenedId);
+  return { ok: true, cameOffField: lifted.changes > 0 };
 }
 
 /**

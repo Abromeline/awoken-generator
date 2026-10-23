@@ -6,8 +6,9 @@
 //      a Lv 1 Tender's party stands at three and the fourth
 //      fill is refused whole; benching returns the creature
 //      to the deck and frees the spot.
-//   §H the homeland: adding from the field sets the
-//      creature's follow on that ground; a march order and
+//   §H the homeland: adding from the field takes the
+//      creature off the field into the party (Nigel,
+//      2026-10-23 — the join law); a march order and
 //      a laid patrol road each end the membership.
 //   §G the homeland gate (the fix, 2026-10-21): both
 //      deploy doors refuse a non-member in plain words,
@@ -127,17 +128,26 @@ const partyRows = (ownerKey) => db.prepare("SELECT awakened_id FROM tender_party
   insPlace.run(T.ownerKey, D, t00, now, now);
   insPlace.run(T.ownerKey, B, t00, now, now);
 
+  const placedCount = (id) => db.prepare("SELECT COUNT(*) AS n FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(T.ownerKey, id).n;
+
   const vField = await call("addFieldToParty", { awakenedId: D }, T.token);
   ok("adding from the field writes the membership", vField.members.some(m => m.awakenedId === D) && vField.size === 3, JSON.stringify(vField.members));
-  const dFollow = db.prepare("SELECT follow FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(T.ownerKey, D);
-  ok("adding from the field sets its follow on this ground", dFollow && dFollow.follow === 1, JSON.stringify(dFollow));
+  ok("adding from the field takes it off the field — it comes home to the party (Nigel, 2026-10-23)",
+    placedCount(D) === 0 && vField.cameOffField === true, `placed ${placedCount(D)}, cameOffField ${vField.cameOffField}`);
+  ok("the fielded creature that did not join stands untouched", placedCount(B) === 1);
 
+  // D is fielded again by hand (this section seeds the
+  // field directly), so the march order has a standing
+  // creature to take.
+  insPlace.run(T.ownerKey, D, t00, now, now);
   await call("setMarch", { awakenedId: D, tileId: t10 }, T.token);
   ok("a march order ends the membership (homeland)",
     !partyRows(T.ownerKey).includes(D) && !(await call("getParty", {}, T.token)).members.some(m => m.awakenedId === D));
 
   await call("addToParty", { awakenedId: B }, T.token);
   ok("a fielded creature joins by the deck road too", partyRows(T.ownerKey).includes(B));
+  ok("the deck-road join takes it off the field too", placedCount(B) === 0);
+  insPlace.run(T.ownerKey, B, t00, now, now);
   await call("setPatrol", { awakenedId: B, tileIds: [t10] }, T.token);
   ok("a laid patrol road ends the membership (homeland)",
     !partyRows(T.ownerKey).includes(B));

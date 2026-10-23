@@ -1982,7 +1982,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
     entries.push({ key: "ord-patrol", sigil: "arrow", label: p.patrolPath ? "Re-lay patrol" : "Patrol", lit: !!p.patrolPath, act: () => { setPatrolDraft(patrolRoadOf(p)); setPatrolSettingFor(id); } } as WheelEntry);
     const inParty = !!partyQ.data?.members.some(m => m.awakenedId === id);
-    if (!inParty) entries.push({ key: "ord-join", sigil: "ability", label: "Join party", act: () => { void (async () => { try { await api.addFieldToParty({ awakenedId: id }); await partyQ.refetch(); showHexNotice(`${p.name} joins your party.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The party would not take them."); } })(); } } as WheelEntry);
+    if (!inParty) entries.push({ key: "ord-join", sigil: "ability", label: "Join party", act: () => { void (async () => { try { await api.addFieldToParty({ awakenedId: id }); await partyQ.refetch(); showHexNotice(`${p.name} comes off the field into your party.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The party would not take them."); } })(); } } as WheelEntry);
     return entries;
   };
 

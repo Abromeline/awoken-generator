@@ -712,7 +712,7 @@ export const api = {
   getParty: () => post<PartyView>("getParty", {}),
   addToParty: (args: { awakenedId: number }) => post<PartyView>("addToParty", args),
   removeFromParty: (args: { awakenedId: number }) => post<PartyView>("removeFromParty", args),
-  addFieldToParty: (args: { awakenedId: number }) => post<PartyView & { follow: true }>("addFieldToParty", args),
+  addFieldToParty: (args: { awakenedId: number }) => post<PartyView & { cameOffField: boolean }>("addFieldToParty", args),
   // THE HOMELAND SUMMON CAST (Nigel, 2026-10-22): the pick
   // IS the cast — no tile is named; the server chooses the
   // landing at the Tender's side and answers with the whole

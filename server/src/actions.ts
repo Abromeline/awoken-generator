@@ -10133,13 +10133,17 @@ export const handlers = {
     return partyViewFor(ownerKey);
   },
 
-  /** ADD FROM THE FIELD — THE HOMELAND ROAD (the ruling:
-   *  "In Tender mode, selecting a fielded Awokin may ADD IT
-   *  TO THE PARTY — it then follows the Tender"): the Awokin
-   *  must stand on the Tender's own field; adding writes the
-   *  membership and sets its follow on this ground through
-   *  the placement's own follow flag — the muster then keeps
-   *  it at the Tender's ring, as following Awokin do. */
+  /** ADD FROM THE FIELD — THE HOMELAND ROAD: the Awokin
+   *  must stand on the Tender's own field to be named here
+   *  at all; the joining itself is the party module's, and
+   *  under the join law (Nigel, 2026-10-23 — "if a member
+   *  is on the field when they join party take them off of
+   *  the field") the join takes it OFF the field: the
+   *  placement is deleted as part of the join, it comes
+   *  home to the party, and it stands callable for
+   *  summoning. This supersedes the older follow ruling
+   *  (the placement's follow flag is no longer set — there
+   *  is no placement left to set it on). */
   async addFieldToParty(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
@@ -10152,8 +10156,7 @@ export const handlers = {
     const progress = await getTenderProgress(ownerKey);
     const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
-    await db.update(schema.fieldPlacements).set({ follow: 1 }).where(eq(schema.fieldPlacements.id, placement.id));
-    return { ...(await partyViewFor(ownerKey)), follow: true as const };
+    return { ...(await partyViewFor(ownerKey)), cameOffField: r.cameOffField };
   },
 
   async uploadGrimoireGlyph(args: unknown) {
