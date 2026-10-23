@@ -7884,7 +7884,7 @@ export const handlers = {
   // a rune is written on a hex's floor (cursed ground included —
   // the light is sown ahead of the march); Heal mends a standing
   // Awoken by the tier law. Numbers snapshot from the book at
-  // the cast. Workings stand until spent, broken, or faded here.
+  // the cast. Workings stand until spent or broken here.
   async castMapWorking(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
@@ -8210,17 +8210,6 @@ export const handlers = {
     }
 
     badRequest("That page of the book cannot be cast on the land.");
-  },
-
-  /** Fade one of your own workings from the land — free, instant,
-   *  the Tender's own hand (mirrors removeEdgeWork). */
-  async fadeMapWorking(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
-    if (!parsed.success) badRequest("Name the working to fade.");
-    const gone = sqlite.prepare("DELETE FROM territory_workings WHERE owner_key = ? AND id = ?").run(ownerKey, parsed.data.id);
-    if (!gone.changes) badRequest("No such working stands on your land.");
-    return { ok: true as const };
   },
 
   /** Teach an Awoken a skill (WARDING or RUNEING). Until the

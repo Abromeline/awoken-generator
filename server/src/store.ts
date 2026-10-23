@@ -533,7 +533,7 @@ if (!hexWallCols.some((col) => col.name === "style")) {
 // The Written Light on the land (the Grimoire, Nigel 2026-10-17):
 // workings the Tender casts personally from the book — WARDS on
 // hex edges, RUNES on hex floors — standing on the map until
-// spent, broken, or faded by their Tender's hand. Their numbers
+// spent or broken. Their numbers
 // are snapshotted from the book at the cast (nums JSON), exactly
 // as at the Table. Beside the edge works, never confused with
 // them: edge works are laid by skilled Awoken hands; these are
