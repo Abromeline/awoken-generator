@@ -2202,6 +2202,21 @@ function FirstSeedRewardPop({ element }: { element: string }) {
 
 export function App() {
   const queryClient = useQueryClient();
+  // THE BROWSER MENU NEVER APPEARS IN THE GAME (Nigel,
+  // 2026-10-22): one suppression at the app's root — the
+  // right hand belongs to the wheel and the pan everywhere
+  // in the game. Typing keeps its menu: where a field takes
+  // text (input, textarea, select, contentEditable), paste
+  // and its kin keep working.
+  useEffect(() => {
+    const onMenu = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onMenu);
+    return () => document.removeEventListener("contextmenu", onMenu);
+  }, []);
   // Re-render the tree when the element palette changes (theme load below,
   // or live tweaks from the UI Workspace's Elements section).
   useElementPalette();

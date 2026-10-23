@@ -153,7 +153,11 @@ const terr = async (token) => (await call("getTerritory", {}, token)).data;
   await call("chooseClass", { classKey: "sage" }, token);
   db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 100, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = excluded.energy").run(me, Date.now());
   const guard = seedAwokin(me, "Border Guard", 60);
-  await call("deployAwoken", { awakenedId: guard, tileId: ids["1,0"] }, token);
+  // Seeded straight onto the field: this section's subject is
+  // the border law, not the fielding road (the hand's deploy
+  // road was retired 2026-10-22 — summoning rides the wheel's
+  // cast, which lands at the Tender's side).
+  db.prepare("INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, hp) VALUES (?, ?, ?, ?, ?, 60)").run(me, guard, ids["1,0"], Date.now(), Date.now());
   seedWanderer(me, ids["2,0"]);
   let t = await terr(token); // watermarks are set on this read
   ok("border: the guard stands whole before the walking", t.placements.find(p => p.awakenedId === guard)?.hp === 60);

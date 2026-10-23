@@ -3954,15 +3954,27 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: "The Storytender holds no company — she deals the dark, not the light." }));
         return;
       }
-      const hex = String(msg.hex ?? "");
-      const tile = room.map.get(hex);
-      if (!tile) {
-        ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." }));
-        return;
-      }
-      if (hex === SEED_TILE) {
-        ws.send(JSON.stringify({ type: "error", message: "An Awokin stands on the land — the center tile is the star-seed's." }));
-        return;
+      // THE LANDING (Nigel, 2026-10-22 — the summoning fix:
+      // "awoken just summon near the tender when summoned
+      // they dont need a target"): the cast no longer DEMANDS
+      // a named hex. The game's doors name none — the pick is
+      // the cast, and the server chooses the landing below:
+      // the Tender's own hex, or a free one beside it. A hex
+      // still named by an older road is judged by the
+      // at-your-side law, as ever — it is never an aim across
+      // the map.
+      const namedHex = typeof msg.hex === "string" && msg.hex ? msg.hex : null;
+      let hex: string | null = namedHex;
+      if (namedHex !== null) {
+        const tile = room.map.get(namedHex);
+        if (!tile) {
+          ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." }));
+          return;
+        }
+        if (namedHex === SEED_TILE) {
+          ws.send(JSON.stringify({ type: "error", message: "An Awokin stands on the land — the center tile is the star-seed's." }));
+          return;
+        }
       }
       // Resolve the called member from the wheel's company —
       // a bound seat's party member by its ledger id, an
@@ -4008,10 +4020,29 @@ function handleConnection(ws: WebSocket): void {
       }
       // SUMMON AT YOUR SIDE (Nigel, 2026-10-19): the light
       // answers where the Tender stands — their own hex, or
-      // one beside it. No more calling across the map.
-      if (!player.hex || axialDist(player.hex, hex) > 1) {
-        ws.send(JSON.stringify({ type: "error", message: "Your Awokin answers at your side — summon onto your own hex, or one beside it." }));
-        return;
+      // one beside it. No more calling across the map. Since
+      // the summoning fix (Nigel, 2026-10-22) the distance is
+      // the SERVER'S placement rule, not the player's aim:
+      // a named hex is still refused beyond it; an unnamed
+      // cast lands on the Tender's own hex, or the first
+      // beside-hex with room to stand.
+      if (hex !== null) {
+        if (!player.hex || axialDist(player.hex, hex) > 1) {
+          ws.send(JSON.stringify({ type: "error", message: "Your Awokin answers at your side — summon onto your own hex, or one beside it." }));
+          return;
+        }
+      } else {
+        if (!player.hex) {
+          ws.send(JSON.stringify({ type: "error", message: "You stand nowhere — there is no side to summon at." }));
+          return;
+        }
+        const rm: Room = room;
+        const cands = [player.hex, ...neighborsOf(player.hex)];
+        hex = cands.find(h => h !== SEED_TILE && rm.map.has(h) && unitsAt(rm, h).length < STACK_CAP) ?? null;
+        if (!hex) {
+          ws.send(JSON.stringify({ type: "error", message: "No ground at your side can hold them — every tile around you stands full." }));
+          return;
+        }
       }
       // THE LANDING MAY BE CURSED OR HELD (Nigel, 2026-10-21
       // 16:26): "tenders can summon in the cursed lands" —

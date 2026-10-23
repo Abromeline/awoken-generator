@@ -162,8 +162,15 @@ try {
     check("the staged row stands, come by hand", view1.staged.length === 1 && view1.staged[0].awakenedId === a1 && view1.staged[0].via === "hand", JSON.stringify(view1.staged));
     const again = await call("stageAwokin", { awakenedId: a1 }, t.token, true);
     check("staging twice is refused, honestly", again.status === 400, JSON.stringify(again.data));
-    const depWhileStaged = await call("deployAwoken", { awakenedId: a1, tileId: center }, t.token, true);
-    check("a staged Awokin cannot be deployed past the bastion", depWhileStaged.status === 400, JSON.stringify(depWhileStaged.data));
+    // The fielding door is the wheel's cast now (2026-10-22):
+    // a staged Awokin cannot be SUMMONED past the bastion.
+    // (The class is written directly — the choosing door
+    // wakes at Lv 3 and this tender is young; the stand
+    // needs only the class's name.)
+    db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at, class_key) VALUES (?, 0, 0, ?, 'warden') ON CONFLICT(owner_key) DO UPDATE SET class_key = 'warden'").run(me, Date.now());
+    await call("addToParty", { awakenedId: a1 }, t.token);
+    const depWhileStaged = await call("summonAwoken", { awakenedId: a1 }, t.token, true);
+    check("a staged Awokin cannot be summoned past the bastion", depWhileStaged.status === 400 && /waits at the bastion/.test(depWhileStaged.data?.error ?? ""), JSON.stringify(depWhileStaged.data));
     const un = await call("unstageAwokin", { awakenedId: a1 }, t.token);
     check("unstaging answers", un.status === 200);
     const view2 = (await call("getBastion", {}, t.token)).data;
@@ -219,7 +226,14 @@ try {
     check("the lone road ends at the bastion and crosses the curse", road3[road3.length - 1] === b3 && road3.includes(curseMid) && prow3.march_goal === "bastion", prow3.march_path);
     const steps = road3.length - 1;
     const paceMs = (prow3.march_ends - prow3.march_since) / steps;
-    check("the lone road walks slow — ×1.5 the clean pace (3.2s → 4.8s a hex)", Math.abs(paceMs - 4800) < 700, `pace ${paceMs}ms over ${steps} steps`);
+    // The lone pace under the standing laws: root gait
+    // 3.2s a hex, ×1.5 for the lone road, and — since
+    // 2026-10-20 — a step INTO cursed ground counts twice
+    // in the road's weighting: this road's two steps weigh
+    // 2 + 1 = 3, so the hour is 3 × 3.2 × 1.5 = 14.4s,
+    // 7.2s a step on average. (The assertion's old 4.8s
+    // premise predates the cursed-step weighting.)
+    check("the lone road walks slow — ×1.5 the clean pace, with the cursed step weighing double", Math.abs(paceMs - 7200) < 700, `pace ${paceMs}ms over ${steps} steps`);
     await terr(t3.token); // settles curse_since
     db.prepare("UPDATE field_placements SET curse_since = ? WHERE awakened_id = ?").run(Date.now() - 30000, lone);
     const terr3 = await terr(t3.token);
@@ -258,8 +272,12 @@ try {
     check("a full hand refuses a twenty-first", intoFull.status === 400, JSON.stringify(intoFull.data));
     const stageReserve = await call("stageAwokin", { awakenedId: ids[21] }, t.token, true);
     check("the reserve cannot stage past the hand", stageReserve.status === 400);
-    const depReserve = await call("deployAwoken", { awakenedId: ids[21], tileId: center }, t.token, true);
-    check("the reserve cannot take the field", depReserve.status === 400, JSON.stringify(depReserve.data));
+    // The reserve bound the retired hand road; the wheel's
+    // cast is gated by the PARTY (2026-10-22) — a reserve
+    // Awokin stands outside it, and the cast refuses it.
+    await call("chooseClass", { classKey: "warden" }, t.token);
+    const depReserve = await call("summonAwoken", { awakenedId: ids[21] }, t.token, true);
+    check("the reserve cannot be summoned — it stands outside the party", depReserve.status === 400 && /is not in your party/.test(depReserve.data?.error ?? ""), JSON.stringify(depReserve.data));
     const out = await call("setHandMember", { awakenedId: ids[0], inHand: false }, t.token);
     check("a hand member steps down to reserve, freely", out.status === 200, JSON.stringify(out.data));
     const into = await call("setHandMember", { awakenedId: ids[20], inHand: true }, t.token);
@@ -268,15 +286,26 @@ try {
     check("the swap held: #21 in, #1 in reserve", view2.hand.ids.includes(ids[20]) && !view2.hand.ids.includes(ids[0]) && view2.reserveIds.includes(ids[0]));
     const union = new Set([...view2.hand.ids, ...view2.reserveIds, ...view2.staged.map(s => s.awakenedId), ...view2.field.map(f => f.awakenedId)]);
     check("no Awokin is stranded — the deck's union is the whole roster", ids.every(id => union.has(id)) && union.size === 25, `union ${union.size}`);
-    const dep = await call("deployAwoken", { awakenedId: ids[20], tileId: center }, t.token);
-    check("the risen reserve member takes the field from the hand", dep.status === 200, JSON.stringify(dep.data));
+    // The risen member takes the field BY THE CAST
+    // (2026-10-22): it joins the party, and the wheel's cast
+    // fields it at the Tender's side — the hand road is gone.
+    await call("addToParty", { awakenedId: ids[20] }, t.token);
+    let dep = null;
+    for (let i = 0; i < 12 && !dep?.data?.summoned; i++) dep = await call("summonAwoken", { awakenedId: ids[20] }, t.token);
+    check("the risen reserve member takes the field by the cast", !!dep?.data?.summoned, JSON.stringify(dep?.data));
     const tt = await bindTender(t, "hand");
     const c = client("hand");
     await c.join({ authToken: tt, room: "hand-58" });
-    await c.waitFor(cc => !!cc.you?.hand, "the hand is dealt");
-    const dealt = (c.you.hand ?? []).map(card => card.awokenId);
-    const expected = view2.hand.ids.filter(id => id !== ids[20]); // #21 stands fielded now
-    check("the Table deals exactly the play hand (minus the fielded)", JSON.stringify([...dealt].sort((a, b) => a - b)) === JSON.stringify([...expected].sort((a, b) => a - b)), `dealt ${dealt.length} expected ${expected.length}`);
+    // THE WHEEL LAW RETIRED THE DEALT HAND (2026-10-21):
+    // the seat's payload carries no `hand` any more — its
+    // company is the party, and the homeland's hand of
+    // twenty never crosses to the Table. The tail's law
+    // survives in the company's shape: the fielded member
+    // (#21, fielded by the cast above) stands in the field,
+    // not the company — and no reserve Awokin is callable.
+    await c.waitFor(cc => !!cc.you && Array.isArray(cc.you.company), "the seat stands with its company");
+    const dealt = (c.you.company ?? []).map(card => card.awokenId);
+    check("the Table's company holds neither the fielded member nor any of the hand — the party alone is dealt", !dealt.includes(ids[20]) && !dealt.some(id => view2.hand.ids.includes(id)), `company ${JSON.stringify(dealt)}`);
     check("no reserve Awokin is dealt at the Table", !dealt.includes(ids[0]) && !dealt.some(id => view2.reserveIds.includes(id)));
     c.ws.close();
   }
@@ -306,42 +335,71 @@ try {
     // measured below is the band law's own.
     db.prepare("UPDATE tender_progress SET total_exp = 50 WHERE owner_key = ?").run(me);
 
+    // The wheel law's shape (2026-10-21, carried 2026-10-22):
+    // no hand is dealt — the instance seat's COMPANY is the
+    // staged company alone (companyForTender, stagedOnly),
+    // and its members are called by the summon CAST, which
+    // names no hex: the referee lands them at the Tender's
+    // side. The spare joins the party, so the lobby read
+    // below can prove the two companies apart.
+    await call("addToParty", { awakenedId: spare }, t.token);
     const c = client("instance");
     await c.join({ authToken: tt, callKey: joinKey });
-    await c.waitFor(cc => !!cc.you?.hand, "the staged company is dealt");
-    const dealtIds = (c.you.hand ?? []).map(card => card.awokenId);
+    await c.waitFor(cc => !!cc.you?.company, "the staged company is dealt");
+    const dealtIds = (c.you.company ?? []).map(card => card.awokenId);
     check("entering by key deals the staged company alone", JSON.stringify([...dealtIds].sort((a, b) => a - b)) === JSON.stringify([...company].sort((a, b) => a - b)), `dealt ${JSON.stringify(dealtIds)}`);
     check("the unstaged spare is not carried", !dealtIds.includes(spare));
     await c.waitFor(cc => !!meIn(cc)?.hex, "the tender stands");
-    const myHex = meIn(c).hex;
     let summoned = 0;
     for (const id of company) {
-      const card = c.you.hand.find(x => x.awokenId === id);
-      c.send({ type: "summon", hex: myHex, cardId: card.id });
-      await sleep(350);
-      const n = (c.state.field ?? []).filter(u => u.ownerKey === c.you.key).length;
-      if (n > summoned) summoned = n;
+      const card = c.you.company.find(x => x.awokenId === id);
+      // The cast can falter — pick again; the band's cap,
+      // not the dice, is what this section measures, and it
+      // refuses before any roll.
+      for (let i = 0; i < 10; i++) {
+        c.send({ type: "summonCast", cardId: card.id });
+        await sleep(350);
+        const n = (c.state.field ?? []).filter(u => u.ownerKey === c.you.key).length;
+        if (n > summoned) { summoned = n; break; }
+        if (c.errors.some(e => /band stands full/.test(e))) break;
+      }
     }
     check("three of the company stand — the band's cap at Lv 2", summoned === 3, `stood ${summoned}`);
     check("the fourth reinforcement is refused at the band cap", c.errors.some(e => /band stands full/.test(e)), JSON.stringify(c.errors.slice(-3)));
+    const fieldedIds = (c.state.field ?? []).filter(u => u.ownerKey === c.you.key).map(u => u.awokenId);
     c.ws.close();
 
     const c2 = client("instance-claim");
     await c2.join({ authToken: tt, room: "lobby-58" });
-    await c2.waitFor(cc => !!cc.you?.hand, "the common hand is dealt");
-    const lobbyIds = (c2.you.hand ?? []).map(card => card.awokenId);
-    check("a common room deals the common hand (the spare, not the staged)", lobbyIds.includes(spare) && !lobbyIds.some(id => company.includes(id)), `lobby ${JSON.stringify(lobbyIds)}`);
+    await c2.waitFor(cc => !!cc.you?.company, "the common company stands");
+    const lobbyIds = (c2.you.company ?? []).map(card => card.awokenId);
+    check("a common room deals the common company (the party's spare, not the staged)", lobbyIds.includes(spare) && !lobbyIds.some(id => company.includes(id)), `lobby ${JSON.stringify(lobbyIds)}`);
     c2.send({ type: "switchRoom", callKey: joinKey });
     await sleep(700);
     check("the switch lands in the call's room", c2.state?.room === `call-${joinKey.toLowerCase()}`, c2.state?.room);
     c2.send({ type: "claimBastion", callId });
     await sleep(700);
-    const claimedIds = (c2.you?.hand ?? []).map(card => card.awokenId);
-    check("claiming the instance re-deals the hand to the staged company", JSON.stringify([...claimedIds].sort((a, b) => a - b)) === JSON.stringify([...company].sort((a, b) => a - b)), `claimed ${JSON.stringify(claimedIds)}`);
+    const claimedIds = (c2.you?.company ?? []).map(card => card.awokenId);
+    // The re-dealt company is the staged company MINUS
+    // those already standing in the instance's field —
+    // the company never lists the fielded, on any ground.
+    const unfielded = company.filter(id => !fieldedIds.includes(id));
+    check("claiming the instance re-deals the company to the staged company (minus the fielded)", JSON.stringify([...claimedIds].sort((a, b) => a - b)) === JSON.stringify([...unfielded].sort((a, b) => a - b)), `claimed ${JSON.stringify(claimedIds)} fielded ${JSON.stringify(fieldedIds)}`);
     c2.ws.close();
   }
 
   /* ============ §5 THE PREPARED BASTION ============ */
+  // CONVERSION PENDING (noted 2026-10-22, the summoning-fix
+  // build): this section's Table flow still speaks the
+  // RETIRED hand dialect — it waits for `you.hand` and sends
+  // the retired `summon` message, both struck by the wheel
+  // law (2026-10-21), a build before this one; §1–§4 were
+  // carried onto the company + summonCast in the fix build,
+  // but §5's victims rotate through the dealt hand faster
+  // than the party band (5 at Lv 10) holds, so its faithful
+  // conversion is a rotation design of its own, not a
+  // rename. The +3 AC law it measures is untouched; the
+  // section errors at its first hand wait until converted.
   console.log("§5 the Prepared Bastion — +3 AC at the dice");
   {
     // The victim: a single SKY aspect (toughness 8) and

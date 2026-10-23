@@ -466,6 +466,21 @@ export default function Table() {
   // from the workshop's book. The referee refreshes its own
   // copy on every message, so a tuning lands within a cast.
   const [grimoire, setGrimoire] = useState<any | null>(null);
+  // THE BROWSER MENU NEVER APPEARS IN THE GAME (Nigel,
+  // 2026-10-22): one suppression at the app's root — the
+  // right hand belongs to the wheel and the pan everywhere
+  // on this ground. Typing keeps its menu: where a field
+  // takes text (input, textarea, select, contentEditable),
+  // paste and its kin keep working.
+  useEffect(() => {
+    const onMenu = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onMenu);
+    return () => document.removeEventListener("contextmenu", onMenu);
+  }, []);
   useEffect(() => {
     let live = true;
     fetch("/api/getGrimoire", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
@@ -868,7 +883,19 @@ export default function Table() {
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; moved: boolean; t: number } | null>(null);
   const suppressTapRef = useRef(false);
   const [diceOpen, setDiceOpen] = useState(false);
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // THE ORDERS WHEEL (Nigel, 2026-10-22 — the marching-
+  // orders spec): a chosen Awokin's orders ride ITS wheel,
+  // opened on its tap, where the unit bar stood; a
+  // drag-chosen company's wheel speaks for the selection.
+  // March picked there ARMS the march — the next tile tap,
+  // or a right-dragged line, obeys at once. No confirm.
+  const [tableOrders, setTableOrders] = useState<{ ids: string[]; x: number; y: number } | null>(null);
+  const [marchArmed, setMarchArmed] = useState<string[] | null>(null);
+  const [bandSel, setBandSel] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [lineSel, setLineSel] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const bandDragRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
+  const lineDragRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
+  const lineJustDrawnRef = useRef(0);
   const [notesDraft, setNotesDraft] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
   const [packDraft, setPackDraft] = useState("");
@@ -1275,7 +1302,6 @@ export default function Table() {
   }
 
   const sky = shared.sky;
-  const selectedCard = you && selectedCardId ? (you.company ?? []).find(c => c.id === selectedCardId) ?? null : null;
   // CAMPAIGN: the star-seed swells with the bank — the bulb is
   // the pool's body, read at a glance (TABLE-DESIGN §4.5).
   const bankFrac = shared.campaign?.seeded && shared.campaign.bankStart > 0
@@ -1287,6 +1313,15 @@ export default function Table() {
   const castCostOf = (card: TableCard): number => {
     const n = shared.mode === "campaign" && you?.recasts ? (you.recasts[card.id] ?? 0) : 0;
     return Math.max(1, card.power) * (n > 0 ? 2 ** Math.min(n, 5) : 1);
+  };
+
+  // THE SUMMON CAST (Nigel, 2026-10-22): the pick is the
+  // cast — no hex is named; the referee lands the Awokin at
+  // the Tender's side. A roster member is called by its
+  // ledger id; a stand-in by its card id.
+  const castSummonCard = (card: TableCard) => {
+    if (typeof card.awokenId === "number") send({ type: "summonCast", awakenedId: card.awokenId });
+    else send({ type: "summonCast", cardId: card.id });
   };
 
   // ── THE INSTANCE MAP, derived (2026-10-18) ─────────────────
@@ -1362,7 +1397,62 @@ export default function Table() {
       return { zoom, pan: { x: stageBox.cx - (stageBox.cx - v.pan.x) * k, y: stageBox.cy - (stageBox.cy - v.pan.y) * k } };
     });
   };
+  const fireTableLine = (ids: string[], a: { x: number; y: number }, b: { x: number; y: number }) => {
+    if (!you) return;
+    const units = ids
+      .map(id => shared.field.find(u => u.cardId === id && u.ownerKey === you.key))
+      .filter((u): u is FieldUnitView => !!u && !u.moving);
+    if (!units.length) return;
+    const n = units.length;
+    const load = new Map<string, number>();
+    for (const u of shared.field) load.set(u.hex, (load.get(u.hex) ?? 0) + 1);
+    for (const u of units) load.set(u.hex, (load.get(u.hex) ?? 1) - 1);
+    units.forEach((u, i) => {
+      const pt = n === 1
+        ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        : { x: a.x + (b.x - a.x) * (i / (n - 1)), y: a.y + (b.y - a.y) * (i / (n - 1)) };
+      const cands = tiles
+        .filter(t => !t.cursed)
+        .map(t => { const c = tileCenter(t); return { t, d: Math.hypot(c.cx - pt.x, c.cy - pt.y) }; })
+        .sort((x, y) => x.d - y.d);
+      for (const { t } of cands) {
+        if ((load.get(t.id) ?? 0) >= 4) continue;
+        load.set(t.id, (load.get(t.id) ?? 0) + 1);
+        if (t.id !== u.hex) send({ type: "march", cardId: u.cardId, from: u.hex, to: t.id });
+        break;
+      }
+    });
+  };
+
   const onStageDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    // THE LINE (Nigel, 2026-10-22 — the marching-orders
+    // spec): with a March order armed, a right-drag draws
+    // the line the selection stands along — it does not pan.
+    if (e.button === 2 && marchArmed && marchArmed.length) {
+      const pt = stagePointOf(e.clientX, e.clientY);
+      if (pt) {
+        lineDragRef.current = { sx: pt.x, sy: pt.y, moved: false };
+        setLineSel({ x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y });
+        dragRef.current = null;
+        return;
+      }
+    }
+    // DRAG-SELECT (the proof page's gesture, gated so the
+    // Table's pan keeps its ground): a left-drag that BEGINS
+    // on one of my own standing Awokin draws the choosing
+    // band; a drag from empty ground pans, as ever.
+    if (e.button === 0 && you && !placing) {
+      const pt = stagePointOf(e.clientX, e.clientY);
+      if (pt) {
+        const t = tiles.find(tt => { const c = tileCenter(tt); return Math.hypot(c.cx - pt.x, c.cy - pt.y) < TILE_SIZE * 0.9; });
+        if (t && shared.field.some(u => u.hex === t.id && u.ownerKey === you.key)) {
+          bandDragRef.current = { sx: pt.x, sy: pt.y, moved: false };
+          setBandSel({ x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y });
+          dragRef.current = null;
+          return;
+        }
+      }
+    }
     dragRef.current = { x: e.clientX, y: e.clientY, panX: view.pan.x, panY: view.pan.y, moved: false, t: Date.now() };
     // No pointer capture yet (2026-10-19): capturing at the
     // press retargets the release — and with it the click —
@@ -1372,6 +1462,25 @@ export default function Table() {
     // taken in the move, once a drag is truly a drag.
   };
   const onStageMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (lineDragRef.current) {
+      const pt = stagePointOf(e.clientX, e.clientY);
+      if (pt) {
+        if (Math.hypot(pt.x - lineDragRef.current.sx, pt.y - lineDragRef.current.sy) > 4) lineDragRef.current.moved = true;
+        setLineSel(l => l ? { ...l, x1: pt.x, y1: pt.y } : l);
+      }
+      return;
+    }
+    if (bandDragRef.current) {
+      const pt = stagePointOf(e.clientX, e.clientY);
+      if (pt) {
+        if (Math.hypot(pt.x - bandDragRef.current.sx, pt.y - bandDragRef.current.sy) > 4) {
+          bandDragRef.current.moved = true;
+          suppressTapRef.current = true;
+        }
+        setBandSel(b => b ? { ...b, x1: pt.x, y1: pt.y } : b);
+      }
+      return;
+    }
     const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
@@ -1390,6 +1499,49 @@ export default function Table() {
     // handler once a drag proved itself) so no held capture
     // can carry into the next press.
     if (e) { try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ } }
+    // A drawn line with a March order armed IS the order:
+    // the selection spreads EVENLY along it, at once.
+    if (lineDragRef.current) {
+      const ld = lineDragRef.current;
+      lineDragRef.current = null;
+      const ls = lineSel;
+      setLineSel(null);
+      if (ld.moved && ls && marchArmed && marchArmed.length) {
+        fireTableLine(marchArmed, { x: ls.x0, y: ls.y0 }, { x: ls.x1, y: ls.y1 });
+        setMarchArmed(null);
+        setSelUnitId(null);
+        lineJustDrawnRef.current = Date.now();
+      }
+      return;
+    }
+    // The band's release chooses: one caught opens ITS
+    // wheel; a company opens the company's wheel.
+    if (bandDragRef.current) {
+      const bd = bandDragRef.current;
+      bandDragRef.current = null;
+      const bs = bandSel;
+      setBandSel(null);
+      if (bd.moved && bs && e && you) {
+        const x0 = Math.min(bs.x0, bs.x1), x1 = Math.max(bs.x0, bs.x1);
+        const y0 = Math.min(bs.y0, bs.y1), y1 = Math.max(bs.y0, bs.y1);
+        const chosen = shared.field.filter(u => {
+          if (u.ownerKey !== you.key || u.moving) return false;
+          const t = tileById.get(u.hex);
+          if (!t) return false;
+          const c = tileCenter(t);
+          return c.cx >= x0 && c.cx <= x1 && c.cy >= y0 && c.cy <= y1;
+        });
+        if (chosen.length === 1) {
+          setSelUnitId(chosen[0].cardId);
+          setTableOrders({ ids: [chosen[0].cardId], x: e.clientX, y: e.clientY });
+        } else if (chosen.length > 1) {
+          setSelUnitId(null);
+          setTableOrders({ ids: chosen.map(u => u.cardId), x: e.clientX, y: e.clientY });
+        }
+        setTimeout(() => { suppressTapRef.current = false; }, 80);
+      }
+      return;
+    }
     const d = dragRef.current;
     dragRef.current = null;
     if (d?.moved) setTimeout(() => { suppressTapRef.current = false; }, 80);
@@ -1450,6 +1602,47 @@ export default function Table() {
   const strikeReachOf = (u: FieldUnitView): number => STRIKE_REACH[u.element ?? ""] ?? 2;
   const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) : [];
   const strikeArmed = strikeArm && !!selUnit && !selUnitMoving;
+
+  // ── THE ORDERS WHEELS' ENTRIES (Nigel, 2026-10-22 — the
+  // marching-orders spec): one Awokin's wheel carries the
+  // Table's own orders — March (armed here, obeyed by the
+  // next tile tap or a right-dragged line), Strike the
+  // curse while cursed ground stands in its reach, Heal,
+  // Follow as an ORDER (the pick sets it following; it
+  // never toggles off from here), its party door, Recall.
+  // The company's wheel carries March · Follow — the
+  // Table's field holds no stance verbs; Attack/Defend
+  // ride the homeland's stance law alone.
+  const buildTableOrdersEntries = (ids: string[]): WheelEntry[] => {
+    if (!you) return [];
+    const units = ids
+      .map(id => shared.field.find(u => u.cardId === id && u.ownerKey === you.key))
+      .filter((u): u is FieldUnitView => !!u);
+    if (!units.length) return [];
+    if (units.length > 1) {
+      return [
+        { key: "ord-march", sigil: "manifest", label: "March", act: () => { setMarchArmed(units.map(u => u.cardId)); setNotice("March — tap the ground the company should muster on, or right-drag a line for them to stand along."); } },
+        { key: "ord-follow", sigil: "awo", label: "Follow", act: () => { for (const u of units) send({ type: "setFollow", cardId: u.cardId, follow: true }); } },
+      ] as WheelEntry[];
+    }
+    const u = units[0];
+    const entries: WheelEntry[] = [];
+    if (isMovingNow(u)) {
+      entries.push({ key: "ord-moving", sigil: "manifest", label: "On the move", locked: true } as WheelEntry);
+    } else {
+      entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setMarchArmed([u.cardId]); setSelUnitId(u.cardId); setNotice(`March — tap the ground ${u.name} should march to, or right-drag a line for it to stand on.`); } } as WheelEntry);
+      const ut = tileById.get(u.hex);
+      const reach = ut ? shared.map.filter(t => t.cursed && axialDist(ut, t) <= strikeReachOf(u)) : [];
+      if (reach.length) entries.push({ key: "ord-strike", sigil: "sword", label: strikeArmed ? "Stay the hand" : "Strike the curse", lit: strikeArmed, act: () => { setStrikeArm(!strikeArmed); } } as WheelEntry);
+      entries.push({ key: "ord-heal", sigil: "heal", label: `Heal · ✦${healDef?.cost ?? 2}`, act: () => { send({ type: "castHeal", hex: u.hex }); beginCast(u.hex); } } as WheelEntry);
+    }
+    entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!u.follow, act: () => { send({ type: "setFollow", cardId: u.cardId, follow: true }); } } as WheelEntry);
+    if (you.bound && u.awokenId != null && !(you.party ?? []).includes(u.awokenId)) {
+      entries.push({ key: "ord-join", sigil: "ability", label: "Add to party", act: () => { send({ type: "addToParty", cardId: u.cardId }); } } as WheelEntry);
+    }
+    entries.push({ key: "ord-recall", emoji: "↩", label: "Recall", act: () => { send({ type: "recall", hex: u.hex, cardId: u.cardId }); setSelUnitId(null); } } as WheelEntry);
+    return entries;
+  };
 
   // Which tiles the Written Light's placing flows may touch —
   // the same law the old hex field enforced, in axial terms.
@@ -1520,15 +1713,51 @@ export default function Table() {
       } else if (t.id === wardAnchor) setWardAnchor(null);
       return;
     }
-    if (selectedCard) {
-      // THE SUMMON CAST (the wheel law): a roster member is
-      // called by its ledger id; a stand-in by its card id.
-      // The cast rolls server-side — a falter spends the
-      // price and the member stays readied for another tap.
-      if (typeof selectedCard.awokenId === "number") send({ type: "summonCast", awakenedId: selectedCard.awokenId, hex: t.id });
-      else send({ type: "summonCast", cardId: selectedCard.id, hex: t.id });
-      return;
+    if (marchArmed && marchArmed.length) {
+      // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
+      // this march; the tap is the order — fired at once,
+      // no confirm. (An unarmed chosen one's tile taps do
+      // NOT march it any more: choosing and ordering are
+      // two gestures now, as the Proving Ground proved.)
+      const armed = marchArmed
+        .map(id => shared.field.find(u => u.cardId === id && u.ownerKey === you.key))
+        .filter((u): u is FieldUnitView => !!u && !u.moving);
+      if (armed.length === 1) {
+        const unit = armed[0];
+        if (t.id !== unit.hex) {
+          send({ type: "march", cardId: unit.cardId, from: unit.hex, to: t.id });
+          setMarchArmed(null);
+          setSelUnitId(null);
+          return;
+        }
+      } else if (armed.length > 1) {
+        // The company musters on and around the tapped hex:
+        // nearest first, each to its own ground — the
+        // standing may not be cursed, four to a hex.
+        const load = new Map<string, number>();
+        for (const u of shared.field) load.set(u.hex, (load.get(u.hex) ?? 0) + 1);
+        for (const u of armed) load.set(u.hex, (load.get(u.hex) ?? 1) - 1);
+        const cands = tiles
+          .filter(x => !x.cursed)
+          .sort((a, b) => axialDist(a, t) - axialDist(b, t) || (a.id < b.id ? -1 : 1));
+        let marched = 0;
+        for (const u of armed) {
+          const dest = cands.find(x => (load.get(x.id) ?? 0) < 4);
+          if (!dest) break;
+          if (dest.id === u.hex) { load.set(dest.id, (load.get(dest.id) ?? 0) + 1); continue; }
+          load.set(dest.id, (load.get(dest.id) ?? 0) + 1);
+          send({ type: "march", cardId: u.cardId, from: u.hex, to: dest.id });
+          marched++;
+        }
+        if (marched) { setMarchArmed(null); setSelUnitId(null); }
+        return;
+      }
     }
+    // (This armed-order branch stands ABOVE the marked-
+    // curse shortcut below on purpose: a March expressly
+    // armed in the orders wheel is the player's stated
+    // order, and the tap obeys IT — the ambient strike
+    // belongs to a chosen-but-unordered Awokin's taps.)
     // THE MARKED CURSE (Nigel, 2026-10-20): with one of my
     // Awokin chosen, the cursed ground inside its strike
     // reach stands MARKED — its corruption numbered on the
@@ -1562,19 +1791,14 @@ export default function Table() {
       setSelTender(false);
       return;
     }
-    if (selUnitId) {
-      const unit = shared.field.find(u => u.cardId === selUnitId && u.ownerKey === you.key);
-      if (unit && t.id !== unit.hex && !unit.moving) {
-        send({ type: "march", cardId: unit.cardId, from: unit.hex, to: t.id });
-        setSelUnitId(null);
-        return;
-      }
-    }
     const mineHere = shared.field.filter(u => u.hex === t.id && u.ownerKey === you.key && !u.moving);
     if (mineHere.length) {
       const idx = mineHere.findIndex(u => u.cardId === selUnitId);
-      setSelUnitId(mineHere[(idx + 1) % mineHere.length].cardId);
-      setSelectedCardId(null);
+      const next = mineHere[(idx + 1) % mineHere.length];
+      setSelUnitId(next.cardId);
+      const c = tileCenter(t);
+      const cl = stageToClient({ x: c.cx, y: c.cy });
+      if (cl) setTableOrders({ ids: [next.cardId], x: cl.x, y: cl.y });
     } else {
       setSelUnitId(null);
     }
@@ -1583,16 +1807,25 @@ export default function Table() {
   // A tap on one of my own figures chooses it for orders —
   // unless the Written Light is being placed, when the tap
   // belongs to the tile beneath it, as it always did.
-  const onUnitTap = (u: FieldUnitView) => {
+  const onUnitTap = (u: FieldUnitView, clientX?: number, clientY?: number) => {
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
     if (placing) {
       const t = tileById.get(u.hex);
       if (t) onTileTap(t);
       return;
     }
+    // ITS ORDERS WHEEL (Nigel, 2026-10-22): the tap chooses
+    // the Awokin AND opens its wheel where the tap fell —
+    // the unit bar is retired behind this door.
     setSelUnitId(u.cardId);
-    setSelectedCardId(null);
     setSelTender(false);
+    let pt: { x: number; y: number } | null = null;
+    if (typeof clientX === "number" && typeof clientY === "number") pt = { x: clientX, y: clientY };
+    else {
+      const t = tileById.get(u.hex);
+      if (t) { const c = tileCenter(t); pt = stageToClient({ x: c.cx, y: c.cy }); }
+    }
+    if (pt) setTableOrders({ ids: [u.cardId], x: pt.x, y: pt.y });
   };
 
   // A tap on MY OWN figure (the Fix Pass, 2026-10-20). With
@@ -1611,7 +1844,7 @@ export default function Table() {
   // but it never clears a readied card again.
   const onTenderTap = () => {
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
-    if (selectedCard || placing) {
+    if (placing) {
       const me = shared?.players.find(p => you && p.key === you.key);
       const t = me?.hex ? tileById.get(me.hex) : undefined;
       if (t) { onTileTap(t); return; }
@@ -1666,7 +1899,7 @@ export default function Table() {
           <circle
             cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
             style={{ cursor: "pointer" }}
-            onClick={(e) => { e.stopPropagation(); onUnitTap(u); }}
+            onClick={(e) => { e.stopPropagation(); onUnitTap(u, e.clientX, e.clientY); }}
           />
         )}
       </g>
@@ -1888,22 +2121,25 @@ export default function Table() {
         return out.length ? out : noneYet("binding", "The book holds no binding pages yet.");
       }
       case "awoken":
-        // THE SUMMON FLOW (Nigel, 2026-10-21 — the wheel law):
-        // the branch lists the wheel's company — name, figure,
-        // and the summon price in ✦, in plain words, with the
-        // cast's shape beside it (the summoner's power when
-        // it stands above nothing; the curse's −3 while the
-        // caster stands in it). Choosing one readies the
-        // summon; the landing tile's tap casts it.
+        // THE SUMMON FLOW (Nigel, 2026-10-21 — the wheel law;
+        // the target struck 2026-10-22): the branch lists the
+        // wheel's company — name, figure, and the summon
+        // price in ✦, in plain words, with the cast's shape
+        // beside it (the summoner's power when it stands
+        // above nothing; the curse's −3 while the caster
+        // stands in it). The pick IS the cast: no ground is
+        // named — the referee lands the Awokin on the
+        // Tender's own hex or a free one beside it. A falter
+        // spends the price and stands nothing; the branch is
+        // read fresh with the room, ready to pick again.
         return (you?.company ?? []).map(card => ({
           key: `card-${card.id}`,
           img: card.art ?? null,
           emoji: "✦",
           label: `${card.name} · ✦${castCostOf(card)}${(you?.summonersPower ?? 0) > 0 ? ` · +${you?.summonersPower} summoner's power` : ""}${myCursed ? ` · ${curseNote}` : ""}`,
-          lit: selectedCardId === card.id,
           pinKey: `card-${card.id}`,
           dragKey: `card-${card.id}`,
-          act: () => { setSelUnitId(null); setSelectedCardId(card.id); },
+          act: () => { setSelUnitId(null); castSummonCard(card); },
         }));
       case "ability":
         return [
@@ -2018,7 +2254,8 @@ export default function Table() {
     if (key === "ability") { openRadialAtMe(true); return; }
     if (key.startsWith("card-")) {
       const id = key.slice(5);
-      if (you?.company.some(c => c.id === id)) { setSelUnitId(null); setSelectedCardId(id); }
+      const card = you?.company.find(c => c.id === id) ?? null;
+      if (card) { setSelUnitId(null); castSummonCard(card); }
       else toggleHotbar(key); // the member has left the company — the slot looses itself
       return;
     }
@@ -2036,7 +2273,7 @@ export default function Table() {
     if (key === "ability") return { img: null, emoji: "⚔", label: "ABILITY", dim: false, lit: false, title: "Ability — the wheel's weapon ring, opened over your Tender" };
     if (key.startsWith("card-")) {
       const card = you?.company.find(c => c.id === key.slice(5)) ?? null;
-      return { img: card?.art ?? null, emoji: "✦", label: card ? card.name.split(" ")[0] : "gone", dim: !card, lit: !!card && selectedCardId === card.id, title: card ? `${card.name} — tap to ready the summon cast, then tap the ground at your side` : "This Awokin is not in your company now — tap to loose the slot" };
+      return { img: card?.art ?? null, emoji: "✦", label: card ? card.name.split(" ")[0] : "gone", dim: !card, lit: false, title: card ? `${card.name} — tap to cast the summon: it stands at your side, no target` : "This Awokin is not in your company now — tap to loose the slot" };
     }
     const off = buildOfferings().find(o => o.key === key);
     if (off) {
@@ -2144,7 +2381,7 @@ export default function Table() {
               onPointerMove={onStageMove}
               onPointerUp={onStageUp}
               onPointerCancel={onStageUp}
-              onContextMenu={(e) => { e.preventDefault(); openRadialAt(e.clientX, e.clientY); }}
+              onContextMenu={(e) => { e.preventDefault(); if (Date.now() - lineJustDrawnRef.current < 500) return; openRadialAt(e.clientX, e.clientY); }}
             >
             <g transform={`translate(${view.pan.x} ${view.pan.y}) scale(${view.zoom})`}>
               {/* The land itself, back tiles first: every tile
@@ -2165,16 +2402,6 @@ export default function Table() {
                   if (tilePickable(t)) overlay = { fill: "#ffd977", opacity: 0.22 };
                   if (wardAnchor === t.id) overlay = { fill: "#ffd977", opacity: 0.35 };
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
-                } else if (selectedCard) {
-                  // Summoning answers at the Tender's side:
-                  // ground within a hex of their figure lights
-                  // up as lawful — CURSED GROUND INCLUDED
-                  // (Nigel, 2026-10-21: tenders can summon in
-                  // the cursed lands; the curse's price is the
-                  // −3 on the cast, not a barred door).
-                  const meP = you ? shared.players.find(p => p.key === you.key) : null;
-                  const meT = meP?.hex ? tileById.get(meP.hex) : null;
-                  if (meT && axialDist(meT, t) <= 1) overlay = { fill: "#ffd977", opacity: 0.14 };
                 } else if (selUnit && selTile) {
                   // The marked curse: cursed ground inside the
                   // chosen one's reach burns dark red, armed
@@ -2217,11 +2444,28 @@ export default function Table() {
                       fill="transparent"
                       pointerEvents="all"
                       onClick={() => onTileTap(t)}
-                      style={{ cursor: overlay || selectedCard || myUnitOn(t.id) ? "pointer" : "default" }}
+                      style={{ cursor: overlay || myUnitOn(t.id) ? "pointer" : "default" }}
                     />
                   </g>
                 );
               })}
+              {/* The choosing band and the drawn line, while
+                  the hand is down (the orders law, 2026-10-22):
+                  the band chooses the company; the line is
+                  where an armed march will spread them. */}
+              {bandSel && (
+                <rect x={Math.min(bandSel.x0, bandSel.x1)} y={Math.min(bandSel.y0, bandSel.y1)}
+                  width={Math.abs(bandSel.x1 - bandSel.x0)} height={Math.abs(bandSel.y1 - bandSel.y0)}
+                  fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={1.2} strokeDasharray="5 4" pointerEvents="none" />
+              )}
+              {lineSel && (
+                <g pointerEvents="none">
+                  <line x1={lineSel.x0} y1={lineSel.y0} x2={lineSel.x1} y2={lineSel.y1}
+                    stroke="rgba(255,215,0,0.9)" strokeWidth={2} strokeDasharray="6 4" strokeLinecap="round" />
+                  <circle cx={lineSel.x0} cy={lineSel.y0} r={4} fill="#ffd700" />
+                  <circle cx={lineSel.x1} cy={lineSel.y1} r={4} fill="#ffd700" />
+                </g>
+              )}
               {/* The Written Light, laid on the land: runes wait
                   in a tile's floor; wards stand on the edge
                   between two, a glowing line and its glyph. */}
@@ -2365,6 +2609,26 @@ export default function Table() {
                   onClose={() => setRadial(null)} />
               );
             })()}
+            {/* THE ORDERS WHEEL (Nigel, 2026-10-22): one
+                Awokin's own wheel on its tap, the company's
+                wheel on a drag-chosen band's release — the
+                unit bar is retired behind it. */}
+            {tableOrders && you && (() => {
+              const entries = buildTableOrdersEntries(tableOrders.ids);
+              if (!entries.length) return null;
+              const single = tableOrders.ids.length === 1
+                ? shared.field.find(u => u.cardId === tableOrders.ids[0])
+                : null;
+              return (
+                <GroundWheel cx={tableOrders.x} cy={tableOrders.y} tab="awoken" onTab={() => {}}
+                  entries={entries}
+                  caption={single
+                    ? `${single.name} — its orders: pick one and it is obeyed; March arms the tap on the land`
+                    : `The company — ${tableOrders.ids.length} chosen: March · Follow, obeyed at once`}
+                  pinnedKeys={[]} onTogglePin={() => {}} onDropKey={() => {}}
+                  onClose={() => setTableOrders(null)} ordersMode />
+              );
+            })()}
             {/* THE HOTBAR: what the wheel and the hand locked
                 onto the belt. A tap runs the locked thing's own
                 act; a right-click looses the slot. While the
@@ -2427,52 +2691,11 @@ export default function Table() {
                 <button className="table-btn" onClick={unloadCast}>{placing.kind === "attune" ? "Set the attuning down" : "Set the light down"}</button>
               </div>
             )}
-            {selectedCard && !placing && (
-              <div className="placing-bar">
-                <span className="placing-text">
-                  Calling <strong>{selectedCard.name}</strong> — tap ground on your own hex or one beside it, cursed or held, to cast the summon (✦{castCostOf(selectedCard)}){(you?.summonersPower ?? 0) > 0 ? <> · <strong>+{you?.summonersPower} summoner's power</strong> rides the cast</> : null}{myCursed ? <> · <strong>{curseNote}</strong> on this cast — you stand on cursed ground</> : null}. A faltering call spends its price and stands nothing — tap again to call once more.
-                </span>
-                <button className="table-btn" onClick={() => setSelectedCardId(null)}>Set the call down</button>
-              </div>
-            )}
-            {selUnit && !placing && (
-              <div className="placing-bar unit-bar">
-                <span className="placing-text">
-                  {strikeArmed ? "⚔️" : "🚶"} <strong>{selUnit.name}</strong> — {selUnitMoving
-                    ? "on the move — it answers when it arrives."
-                    : strikeArmed
-                      ? <>armed against the curse — tap cursed ground within reach: one blow (✦1) wears its curse by {selUnit.power}. The curse does not answer; the withering is for those who stand in it.</>
-                      : <>tap a tile to march (✦{marchRateOf(selUnit)} per hex). The road may cross the curse; the standing may not.{curseInReach.length > 0 && <> The cursed ground in its reach stands <strong>marked with its corruption</strong> — tap the mark and {selUnit.name} strikes it (✦1 a blow).</>}</>}
-                </span>
-                {!selUnitMoving && (
-                  <>
-                    <button className="table-btn" onClick={() => {
-                      send({ type: "castHeal", hex: selUnit.hex }); beginCast(selUnit.hex);
-                    }}>Heal · <span className="spark-glow">✦</span>{healDef?.cost ?? 2}</button>
-                    {strikeArmed ? (
-                      <button className="table-btn" onClick={() => setStrikeArm(false)}>Stay the hand</button>
-                    ) : curseInReach.length > 0 ? (
-                      <button className="table-btn" onClick={() => setStrikeArm(true)}>Strike the curse · <span className="spark-glow">✦</span>1</button>
-                    ) : null}
-                    <button className="table-btn" onClick={() => send({ type: "setFollow", cardId: selUnit.cardId, follow: !selUnit.follow })}>{selUnit.follow ? "👣 Following you — hold ground" : "👣 Follow me"}</button>
-                    {/* THE PARTY (Nigel, 2026-10-20; built
-                        2026-10-21): adding from the field, on
-                        the unit's own orders bar — the server
-                        writes the membership and sets its
-                        follow here; a member shows its standing
-                        instead. Orders (the march above) end
-                        the membership again, by the same law. */}
-                    {you?.bound && selUnit.awokenId != null && (
-                      (you.party ?? []).includes(selUnit.awokenId)
-                        ? <span className="party-mark" title="This Awokin stands in your party — it is listed on the Party tab of your Zodiac.">👣 In your party</span>
-                        : <button className="table-btn" onClick={() => send({ type: "addToParty", cardId: selUnit.cardId })}>👣 Add to party</button>
-                    )}
-                    <button className="table-btn" onClick={() => { send({ type: "recall", hex: selUnit.hex, cardId: selUnit.cardId }); setSelUnitId(null); }}>Recall</button>
-                  </>
-                )}
-                <button className="table-btn" onClick={() => setSelUnitId(null)}>Done</button>
-              </div>
-            )}
+            {/* The readied-summon bar and the unit bar stood
+                here until 2026-10-22: the pick IS the cast
+                now (no ground tap), and a chosen Awokin's
+                orders ride its own wheel, opened on its tap.
+                The tender bar below keeps its place. */}
             {selTender && you && !placing && (
               <div className="placing-bar unit-bar">
                 <span className="placing-text">
@@ -2774,9 +2997,7 @@ export default function Table() {
                     )}
                   </div>
                 )}
-                {selectedCard ? (
-                  <p className="cast-hint">Calling <strong>{selectedCard.name}</strong> — it answers at your side: tap ground on your own hex or one beside it, cursed or held, to cast the summon (✦{castCostOf(selectedCard)}). Once it stands, tap the Awokin itself to give it orders: march, follow, heal, strike the curse, recall.</p>
-                ) : you.bound ? (
+                {you.bound ? (
                   <p className="quiet small">The company of <strong>{you.bound}</strong> — your party, callable from the action wheel's Awoken branch, sent to you alone.</p>
                 ) : (
                   <div className="bind-strip">

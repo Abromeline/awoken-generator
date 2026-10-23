@@ -699,7 +699,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean } }>("getTerritory", {}),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number }>("castMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>
@@ -713,7 +713,11 @@ export const api = {
   addToParty: (args: { awakenedId: number }) => post<PartyView>("addToParty", args),
   removeFromParty: (args: { awakenedId: number }) => post<PartyView>("removeFromParty", args),
   addFieldToParty: (args: { awakenedId: number }) => post<PartyView & { follow: true }>("addFieldToParty", args),
-  deployAwoken: (args: { awakenedId: number; tileId: number }) => post<{ ok: true }>("deployAwoken", args),
+  // THE HOMELAND SUMMON CAST (Nigel, 2026-10-22): the pick
+  // IS the cast — no tile is named; the server chooses the
+  // landing at the Tender's side and answers with the whole
+  // reckoning (a falter spends the price and stands nothing).
+  summonAwoken: (args: { awakenedId: number }) => post<{ ok: true; summoned: boolean; faltered: boolean; name: string; tileId?: number; roll: number; gift: number; summonersPower: number; curse: number; dc: number; cost: number }>("summonAwoken", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
   setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),

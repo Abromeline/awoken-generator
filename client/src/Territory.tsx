@@ -410,6 +410,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   }, [tiles, buildings, tutorialDone, objectivesMet]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
+  // THE WHEEL'S SUMMON COMPANY (the summoning fix, Nigel
+  // 2026-10-22): who the wheel's Awoken branch can call —
+  // served by getTerritory with the field (summonCompanyFor
+  // on the server), with the summoner's power the cast rolls
+  // with and whether the Tender's stand is cursed.
+  const [summoning, setSummoning] = useState<{ company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }>({ company: [], summonersPower: 0, standCursed: false });
   // The company the hand does NOT hold — fielded on this
   // ground, or staged at the bastion — named with where each
   // stands, served by getTerritory beside the placements (the
@@ -645,16 +651,27 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // are data; positions are derived. Setting state + the march clock.
   const [patrolSettingFor, setPatrolSettingFor] = useState<number | null>(null);
   const [patrolDraft, setPatrolDraft] = useState<number[]>([]);
-  const [marchUiFor, setMarchUiFor] = useState<number | null>(null);
-  const [marchQuote, setMarchQuote] = useState<{ tileId: number; road: number[]; steps: number; seconds: number; energy: number } | null>(null);
-  // The radial's second menu (Nigel, 2026-10-18): the Binding seal
-  // opens the chosen Awoken's taught works (runes / wards) fanned
-  // from the radial itself. Choosing one arms the work and opens
-  // the War-Grounds panel on the warden's hex, where the edge is
-  // chosen by the panel's own flow — one casting path, never two.
-  const [bindingMenuOpen, setBindingMenuOpen] = useState(false);
+  // THE ORDERS WHEEL (Nigel, 2026-10-22 — the marching-orders
+  // spec, ported from the Proving Ground's proof): clicking a
+  // fielded Awokin opens ITS wheel; a drag-chosen company's
+  // wheel speaks for the whole selection. The wheel carries
+  // March · Attack · Defend · Follow (and the rest of the
+  // Awokin's doors); picking March arms the order — the next
+  // tap on the land, or a right-dragged line under the Drag
+  // Law, is obeyed AT ONCE. The quote→confirm march bars and
+  // the under-figure stance picker are retired by this law:
+  // click the action, tap the target, obey — no confirm.
+  const [ordersWheel, setOrdersWheel] = useState<{ ids: number[]; x: number; y: number } | null>(null);
+  const [pendingMarch, setPendingMarch] = useState<{ ids: number[] } | null>(null);
+  const [lineDrag, setLineDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const lineDragRef = useRef<{ sx: number; sy: number } | null>(null);
+  // The taught works' arming (Nigel, 2026-10-18): a work
+  // chosen from the Awokin's wheel (its Binding constellation,
+  // carried into the wheel by the orders law) arms the work
+  // and opens the War-Grounds panel on the warden's hex,
+  // where the edge is chosen by the panel's own flow — one
+  // casting path, never two.
   const [wgArmedWork, setWgArmedWork] = useState<{ kind: "ward" | "rune"; runeKind?: "snare" | "harm" | "meld" } | null>(null);
-  useEffect(() => { setBindingMenuOpen(false); }, [selectedAwoken]);
   // Feeding lives in the energy globe now (Nigel, 2026-10-18): the
   // bump re-reads the orb's own energy after a feed lands.
   const [orbBump, setOrbBump] = useState(0);
@@ -668,8 +685,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const bandClosedAt = useRef(0);
   const panDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const [groupMarchUi, setGroupMarchUi] = useState(false);
-  const [groupQuote, setGroupQuote] = useState<{ destId: number; orders: { awakenedId: number; tileId: number; steps: number; road: number[]; alreadyThere: boolean }[]; totalEnergy: number; slowest: number; excluded: number } | null>(null);
   const svgPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -683,10 +698,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const anyPatrol = placements.some(p => !!p.patrolPath);
   const anyMarch = placements.some(p => !!p.marchPath);
   useEffect(() => {
-    if (!anyPatrol && !anyMarch && patrolSettingFor === null && marchUiFor === null) return;
+    if (!anyPatrol && !anyMarch && patrolSettingFor === null) return;
     const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
     return () => window.clearInterval(iv);
-  }, [anyPatrol, anyMarch, patrolSettingFor, marchUiFor]);
+  }, [anyPatrol, anyMarch, patrolSettingFor]);
   const patrolRoadOf = (p: { patrolPath?: string | null }): number[] => {
     try {
       const v = JSON.parse(p.patrolPath ?? "[]");
@@ -875,7 +890,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     else if (pending.kind === "move") handleMove(pending.tileId);
     else handleDeploy(pending.tileId);
   };
-  const [stanceMinimized, setStanceMinimized] = useState(false); // bubble collapses after stance pick
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [spendOpenId, setSpendOpenId] = useState<number | null>(null);
   // The Eye opens at a tap (Nigel, 2026-10-18): the
@@ -1288,6 +1302,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []); setElsewhere(t.elsewhere ?? []);
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
+        setSummoning(t.summoning ?? { company: [], summonersPower: 0, standCursed: false });
         setWanderers(t.wanderers ?? []);
         noteWeaponStrike(t.weaponStrike);
       } catch (e) {
@@ -1329,6 +1344,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
+    setSummoning(refreshed.summoning ?? { company: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
     noteWeaponStrike(refreshed.weaponStrike);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
@@ -1416,8 +1432,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     tenderZoomRef.current = zoom;
     tenderStandRef.current = tenderStand;
     tenderInputBlockedRef.current = !!(
-      castMode || moveTargeting || groupMarchUi || attackTargeting ||
-      patrolSettingFor !== null || marchUiFor !== null || battlePool.length > 0 ||
+      castMode || moveTargeting || attackTargeting ||
+      patrolSettingFor !== null || pendingMarch !== null || battlePool.length > 0 ||
       showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
     );
   });
@@ -1620,7 +1636,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the standing unloads, as at the Table).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setTenderRadial(null); setTenderCtl(false); endMapCastRunRef.current(); }
+      if (e.key === "Escape") { setTenderRadial(null); setTenderCtl(false); setOrdersWheel(null); setPendingMarch(null); endMapCastRunRef.current(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1686,6 +1702,27 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
+  /** THE SUMMON CAST (Nigel, 2026-10-22 — the summoning
+   *  fix): the wheel's pick IS the cast. No tile is named —
+   *  the server chooses the landing at the Tender's side and
+   *  answers with the whole reckoning; a falter spends the
+   *  price and stands nothing, and the branch — read fresh
+   *  with the field — is ready to pick again at once. */
+  const castSummon = async (entry: { awakenedId: number; name: string }) => {
+    try {
+      const r = await api.summonAwoken({ awakenedId: entry.awakenedId });
+      await refreshEnergy();
+      await refreshTerritory();
+      if (r.summoned) {
+        showHexNotice(`${r.name} answers — the call lands (rolled ${r.roll} against DC ${r.dc}, ✦${r.cost} spent) and stands at your side.`);
+      } else {
+        showHexNotice(`${r.name} — the call falters (rolled ${r.roll} against DC ${r.dc}): the price (✦${r.cost}) is spent, and nothing stands. Pick again to call once more.`);
+      }
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The summoning was refused.");
+    }
+  };
+
   /** Follow, toggled from the wheel or the belt: the one
    *  server order, then the marching read refreshes. */
   const toggleFollow = async (placementId: number, follow: boolean) => {
@@ -1728,14 +1765,33 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       return out;
     }
     if (wheelTab === "awoken") {
-      // The company read: this branch only reads, as it always
-      // has — their orders ride the Ability branch.
-      return placements.slice(0, 6).map(p => {
-        return {
-          key: `aw-${p.id}`, sigil: "awo", label: p.name,
-          summoned: !!p.follow,
-        } as WheelEntry;
-      });
+      // THE SUMMON BRANCH (Nigel, 2026-10-22 — the summoning
+      // fix): the branch lists the PARTY the server can call
+      // (summonCompanyFor's reckoning, served with the field)
+      // — name, the summon price in ✦, the summoner's power
+      // when it stands above nothing, and the curse's −3 while
+      // the Tender stands in it, every cast's shape shown
+      // before the tap, as the Table's branch shows it. The
+      // pick IS the cast: no target, no ground tap — the
+      // Awokin stands at the Tender's side, or the call
+      // falters and the price is spent. (This branch READ the
+      // company until tonight; the reading is the Zodiac's
+      // party tab's office now.)
+      if (!summoning.company.length) {
+        return [{
+          key: "sum-none", sigil: "awo", label: "None callable", locked: true,
+          act: () => showHexNotice("No one can be called — your party stands fielded, staged at the bastion, or still re-coalescing. Fill a spot from the Party tab of your Zodiac; the wheel's cast is the only gate."),
+        } as WheelEntry];
+      }
+      return summoning.company.map(c => ({
+        key: `sum-${c.awakenedId}`,
+        img: c.imageUrl,
+        emoji: "✦",
+        label: `${c.name} · ✦${c.cost}${summoning.summonersPower > 0 ? ` · +${summoning.summonersPower} summoner's power` : ""}${summoning.standCursed ? " · −3 the curse presses" : ""}`,
+        pinKey: `sum-${c.awakenedId}`,
+        dragKey: `sum-${c.awakenedId}`,
+        act: () => { void castSummon(c); },
+      } as WheelEntry));
     }
     if (wheelTab === "attune") {
       // ATTUNE IS AN ABILITY (Nigel, 2026-10-21): the five
@@ -1791,6 +1847,57 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       } as WheelEntry;
     });
   };
+  // ── THE ORDERS WHEELS' ENTRIES (Nigel, 2026-10-22 — the
+  // marching-orders spec): one Awokin's wheel carries its
+  // whole office — March (or Halt, while it marches), its
+  // stances on the standing stance verbs, its taught works
+  // while it stands in Binding (the arming door the star
+  // chart's constellation carried, kept whole), Follow as
+  // an ORDER (the pick sets it following; it never toggles
+  // off from here), its patrol road, and its party door.
+  // The company's wheel carries March · Attack · Defend ·
+  // Follow for the whole selection. Picking March arms the
+  // order; the next tap on the land — or a right-dragged
+  // line under the Drag Law — obeys at once.
+  const buildOrdersEntries = (ids: number[]): WheelEntry[] => {
+    if (ids.length > 1) {
+      return [
+        { key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [...ids] }); showHexNotice("March — tap the ground the company should muster on, or right-drag a line for them to stand along."); } },
+        { key: "ord-attack", sigil: "sword", label: "Attack", act: () => { void (async () => { for (const id of ids) await handleSetStance(id, "attack"); showHexNotice("The company takes the Attack stance."); })(); } },
+        { key: "ord-defend", sigil: "swordshield", label: "Defend", act: () => { void (async () => { for (const id of ids) await handleSetStance(id, "defense"); showHexNotice("The company takes the Defend stance."); })(); } },
+        { key: "ord-follow", sigil: "awo", label: "Follow", act: () => { void (async () => { for (const id of ids) { const p = placements.find(x => x.awakenedId === id); if (p) await toggleFollow(p.id, true); } showHexNotice("The company follows you."); })(); } },
+      ] as WheelEntry[];
+    }
+    const id = ids[0];
+    const p = placements.find(x => x.awakenedId === id);
+    if (!p) return [];
+    const entries: WheelEntry[] = [];
+    if (p.marchPath) {
+      entries.push({ key: "ord-recall", emoji: "✋", label: "Halt march", act: () => { void (async () => { try { await api.recallMarch({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name} halts where it stands.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The halt was refused."); } })(); } } as WheelEntry);
+    } else {
+      entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [id] }); setSelectedAwoken(id); showHexNotice(`March — tap the ground ${p.name} should march to, or right-drag a line for it to stand on.`); } } as WheelEntry);
+    }
+    entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
+    entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
+    entries.push({ key: "ord-binding", sigil: "binding", label: "Binding", lit: p.stance === "binding", act: () => { void handleSetStance(id, "binding"); } } as WheelEntry);
+    if (p.stance === "binding") {
+      const taught = skills.filter(s => s.awakenedId === id).map(s => s.skill);
+      const arm = (kind: "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
+        setWgArmedWork({ kind, runeKind });
+        setAttackTargeting(false);
+        setMoveTargeting(false);
+        setWgTileId(p.tileId);
+      };
+      if (taught.includes("warding")) entries.push({ key: "ord-ward", emoji: "🔷", label: "Ward · 3✦", act: () => arm("ward") } as WheelEntry);
+      if (taught.includes("runeing")) for (const rk of ["snare", "harm", "meld"] as const) entries.push({ key: `ord-rune-${rk}`, emoji: "🔶", label: `${rk.charAt(0).toUpperCase() + rk.slice(1)} · 3✦`, act: () => arm("rune", rk) } as WheelEntry);
+    }
+    entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
+    entries.push({ key: "ord-patrol", sigil: "arrow", label: p.patrolPath ? "Re-lay patrol" : "Patrol", lit: !!p.patrolPath, act: () => { setPatrolDraft(patrolRoadOf(p)); setPatrolSettingFor(id); } } as WheelEntry);
+    const inParty = !!partyQ.data?.members.some(m => m.awakenedId === id);
+    if (!inParty) entries.push({ key: "ord-join", sigil: "ability", label: "Join party", act: () => { void (async () => { try { await api.addFieldToParty({ awakenedId: id }); await partyQ.refetch(); showHexNotice(`${p.name} joins your party.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The party would not take them."); } })(); } } as WheelEntry);
+    return entries;
+  };
+
   const wheelCaption = (): string => {
     const drag = " · drag an entry onto the hotbar to key it";
     switch (wheelTab) {
@@ -1799,9 +1906,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       case "ability": return placements.length
         ? `Ability — the tender's own deeds, beyond spellcraft${drag}`
         : "Ability — the tender's own deeds, beyond spellcraft · no Awokin stands on your land yet";
-      case "awoken": return placements.length
-        ? "Awoken — your company standing on this land — their orders ride the Ability branch"
-        : "Awoken — no Awokin stands on your land yet";
+      case "awoken": return summoning.company.length
+        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price${drag}`
+        : "Awoken — no one can be called: your party stands fielded, staged, or re-coalescing";
       default: {
         const label = wheelTab === "spell" ? "Spell" : wheelTab === "ward" ? "Ward" : wheelTab === "rune" ? "Rune" : "Binding";
         const sub = wheelTab === "spell" ? "castings from the hand and the sky"
@@ -1846,6 +1953,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const pid = Number(key.slice(7));
       const p = placements.find(x => x.id === pid) ?? null;
       if (p) void toggleFollow(p.id, !p.follow); else toggleHotbar(key);
+      return;
+    }
+    if (key.startsWith("sum-")) {
+      const c = summoning.company.find(x => x.awakenedId === Number(key.slice(4))) ?? null;
+      if (!c) { toggleHotbar(key); return; }
+      void castSummon(c);
       return;
     }
     if (key.startsWith("cast-")) {
@@ -1972,6 +2085,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const refreshed = await api.getTerritory();
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
+    setSummoning(refreshed.summoning ?? { company: [], summonersPower: 0, standCursed: false });
     onUpdate();
   };
 
@@ -2056,6 +2170,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (battlePool.length === 0) return;
     const tile = tiles.find(t => t.id === tileId);
     if (!tile) return;
+    // The hand road's summoning door is RETIRED (Nigel,
+    // 2026-10-22): the readied company assaults cursed
+    // ground only. Fielding Awokin belongs to the wheel's
+    // cast, which stands them at the Tender's side.
+    if (!tile.cursed) {
+      showHexNotice("Quiet ground takes no assault — summoning rides the wheel now: right-click to open it, pick your Awokin under its branch, and they stand at your side. A readied company is for cursed ground.");
+      return;
+    }
     const fighters = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
     if (fighters.length === 0) {
       showHexNotice("The readied company has scattered — ready them again.");
@@ -2149,9 +2271,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the Tender's home face (claimFirstSeedReward).
 
   const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding", opts?: { keepOpen?: boolean }) => {
-    // Collapse bubble so tiles behind are clickable — except when
-    // the seal's second menu must fan from the open radial (Binding).
-    if (!opts?.keepOpen) setStanceMinimized(true);
+    void opts;
     try {
       await api.setStance({ awakenedId, stance, maxEnergy });
       await refreshEnergy();
@@ -2338,77 +2458,129 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     void doCastMap({ tileId: tile.id });
   };
 
+  // ── MARCH ORDERS OBEYED (Nigel, 2026-10-22 — the
+  // marching-orders spec): the wheel arms the order; the tap
+  // on the land — or the right-dragged line — IS the order.
+  // No quote, no confirm: the server's march verb is fired
+  // at once and speaks any refusal itself. The company
+  // muster keeps the quote era's assignment arithmetic
+  // (nearest first, four to a hex, each by its own road)
+  // but fires it instead of showing it.
+  const fireMarchOne = async (awakenedId: number, tileId: number): Promise<boolean> => {
+    try {
+      await api.setMarch({ awakenedId, tileId });
+      return true;
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The march was refused.");
+      return false;
+    }
+  };
+
+  const musterAssignments = (ids: number[], destTile: TerritoryTile): { awakenedId: number; tileId: number }[] => {
+    const openTiles = tiles.filter(t => !t.cursed);
+    const candidates = [...openTiles].sort((a, b) =>
+      hexDistanceAxial(a.q, a.r, destTile.q, destTile.r) - hexDistanceAxial(b.q, b.r, destTile.q, destTile.r) || a.id - b.id);
+    const occupants = new Map<number, number>();
+    for (const p of placements) {
+      if (!p.marchPath) occupants.set(p.tileId, (occupants.get(p.tileId) ?? 0) + 1);
+      else { const r = marchRoadOf(p); if (r.length) occupants.set(r[r.length - 1], (occupants.get(r[r.length - 1]) ?? 0) + 1); }
+    }
+    const assigned = new Map<number, number>();
+    const leaving = new Map<number, number>();
+    const out: { awakenedId: number; tileId: number }[] = [];
+    for (const id of ids) {
+      const p = placements.find(p => p.awakenedId === id);
+      if (!p || p.marchPath) continue;
+      for (const cand of candidates) {
+        const room = 4 - ((occupants.get(cand.id) ?? 0) - (leaving.get(cand.id) ?? 0) + (assigned.get(cand.id) ?? 0));
+        if (room <= 0) continue;
+        if (cand.id === p.tileId) { leaving.set(cand.id, (leaving.get(cand.id) ?? 0) + 1); break; }
+        if (!findRoadClient(p.tileId, cand.id)) continue;
+        assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
+        leaving.set(p.tileId, (leaving.get(p.tileId) ?? 0) + 1);
+        out.push({ awakenedId: id, tileId: cand.id });
+        break;
+      }
+    }
+    return out;
+  };
+
+  const fireGroupMarch = async (ids: number[], destTile: TerritoryTile) => {
+    const orders = musterAssignments(ids, destTile);
+    if (!orders.length) { showHexNotice("None of the company can march there — no road, or no room."); return; }
+    let marched = 0;
+    for (const o of orders) { if (await fireMarchOne(o.awakenedId, o.tileId)) marched++; }
+    await refreshMarching();
+    if (marched) showHexNotice(`The company marches — ${marched} on the road, each at their own pace.`);
+  };
+
+  // The line spread (spec): the selection stands EVENLY
+  // along the right-dragged line — figure i takes the tile
+  // nearest the i-th even point of the segment, by its own
+  // road, four to a hex.
+  const fireLineMarch = async (ids: number[], a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const members = ids
+      .map(id => placements.find(p => p.awakenedId === id))
+      .filter((p): p is FieldPlacement => !!p && !p.marchPath);
+    if (!members.length) { showHexNotice("None of the company can take the line — they are already on the road."); return; }
+    const n = members.length;
+    const pts = members.map((_, i) => n === 1
+      ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      : { x: a.x + (b.x - a.x) * (i / (n - 1)), y: a.y + (b.y - a.y) * (i / (n - 1)) });
+    const occupants = new Map<number, number>();
+    for (const p of placements) {
+      if (!p.marchPath) occupants.set(p.tileId, (occupants.get(p.tileId) ?? 0) + 1);
+      else { const r = marchRoadOf(p); if (r.length) occupants.set(r[r.length - 1], (occupants.get(r[r.length - 1]) ?? 0) + 1); }
+    }
+    const claimed = new Map<number, number>();
+    let marched = 0;
+    for (let i = 0; i < n; i++) {
+      const p = members[i];
+      const pt = pts[i];
+      const cands = tiles
+        .filter(t => !t.cursed)
+        .map(t => { const c = tileCenterScreen(t, pan, zoom); return { t, d: Math.hypot(c.cx - pt.x, c.cy - pt.y) }; })
+        .sort((x, y) => x.d - y.d);
+      for (const { t } of cands) {
+        const room = 4 - ((occupants.get(t.id) ?? 0) - (p.tileId === t.id ? 1 : 0) + (claimed.get(t.id) ?? 0));
+        if (room <= 0) continue;
+        if (t.id === p.tileId) break; // already stands on its point of the line
+        if (!findRoadClient(p.tileId, t.id)) continue;
+        claimed.set(t.id, (claimed.get(t.id) ?? 0) + 1);
+        if (await fireMarchOne(p.awakenedId, t.id)) marched++;
+        break;
+      }
+    }
+    await refreshMarching();
+    if (marched) showHexNotice(`The line is taken — ${marched} on the road, spread evenly along it.`);
+  };
+
   const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
     if (attuneElement) { void handleAttuneTap(tile); return; }
     if (castMode && castSpellKey) { handleCastTap(tile); return; }
-    if (groupMarchUi) {
-      // Company march quoting: the tapped hex is the muster point;
-      // the company forms up on it and the open hexes around it,
-      // nearest first, four to a hex, each by its own road.
+    if (pendingMarch) {
+      // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
+      // the march; this tap IS the order — fired at once, no
+      // quote, no confirm. A refusal speaks and the order
+      // stays armed for another tap.
+      const ids = pendingMarch.ids;
       const destTile = tiles.find(t => t.id === tile.id);
-      if (!destTile || destTile.cursed) { showHexNotice("The company cannot muster on cursed land."); return; }
-      const openTiles = tiles.filter(t => !t.cursed);
-      const candidates = [...openTiles].sort((a, b) =>
-        hexDistanceAxial(a.q, a.r, destTile.q, destTile.r) - hexDistanceAxial(b.q, b.r, destTile.q, destTile.r) || a.id - b.id);
-      const occupants = new Map<number, number>();
-      for (const p of placements) {
-        if (!p.marchPath) occupants.set(p.tileId, (occupants.get(p.tileId) ?? 0) + 1);
-        else { const r = marchRoadOf(p); if (r.length) occupants.set(r[r.length - 1], (occupants.get(r[r.length - 1]) ?? 0) + 1); }
-      }
-      const assigned = new Map<number, number>();
-      const leaving = new Map<number, number>();
-      const orders: NonNullable<typeof groupQuote>["orders"] = [];
-      let excluded = 0, totalEnergy = 0, slowest = 0;
-      for (const id of selectedGroup) {
-        const p = placements.find(p => p.awakenedId === id);
-        const aw = tenderItems.find(a => a.id === id);
-        if (!p || !aw || p.marchPath) { excluded++; continue; }
-        let done = false;
-        for (const cand of candidates) {
-          const room = 4 - ((occupants.get(cand.id) ?? 0) - (leaving.get(cand.id) ?? 0) + (assigned.get(cand.id) ?? 0));
-          if (room <= 0) continue;
-          if (cand.id === p.tileId) {
-            orders.push({ awakenedId: id, tileId: cand.id, steps: 0, road: [cand.id], alreadyThere: true });
-            assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
-            done = true; break;
+      if (!destTile || destTile.cursed) { showHexNotice("No marching onto cursed land — that ground is taken by fighting, not by walking."); return; }
+      if (ids.length === 1) {
+        const p = placements.find(x => x.awakenedId === ids[0]);
+        if (p && p.tileId === tile.id) { showHexNotice(`${p.name} already stands there.`); setPendingMarch(null); return; }
+        if (!p || !findRoadClient(p.tileId, tile.id)) { showHexNotice("No road of your own ground runs there — cursed land breaks the way."); return; }
+        void (async () => {
+          if (await fireMarchOne(ids[0], tile.id)) {
+            setPendingMarch(null);
+            await refreshMarching();
+            showHexNotice("On the road — each figure at its own pace.");
           }
-          const road = findRoadClient(p.tileId, cand.id);
-          if (!road) continue;
-          const steps = road.length - 1;
-          orders.push({ awakenedId: id, tileId: cand.id, steps, road, alreadyThere: false });
-          assigned.set(cand.id, (assigned.get(cand.id) ?? 0) + 1);
-          leaving.set(p.tileId, (leaving.get(p.tileId) ?? 0) + 1);
-          totalEnergy += steps * moveCost(aw.power);
-          slowest = Math.max(slowest, steps * marchSecondsPerHex(aw));
-          done = true; break;
-        }
-        if (!done) excluded++;
-      }
-      if (!orders.some(o => !o.alreadyThere)) {
-        showHexNotice(excluded ? "None of the company can march there — no road, or no room." : "The company already stands there.");
+        })();
         return;
       }
-      setGroupQuote({ destId: destTile.id, orders, totalEnergy, slowest, excluded });
-      return;
-    }
-    if (marchUiFor !== null) {
-      // March orders are open: a tap QUOTES the march — road, time and
-      // energy calculated and shown for the Tender's confirm.
-      const homeP = placements.find(p => p.awakenedId === marchUiFor);
-      const aw = tenderItems.find(a => a.id === marchUiFor);
-      if (!homeP || !aw) { setMarchUiFor(null); setMarchQuote(null); return; }
-      if (tile.id === homeP.tileId) { showHexNotice("It stands there already — tap the hex it should march to."); return; }
-      const dest = tiles.find(t => t.id === tile.id);
-      if (!dest || dest.cursed) { showHexNotice("No marching onto cursed land — that ground is taken by fighting, not by walking."); return; }
-      const road = findRoadClient(homeP.tileId, tile.id);
-      if (!road) { showHexNotice("No road of your own ground runs there — cursed land breaks the way."); return; }
-      const steps = road.length - 1;
-      setMarchQuote({
-        tileId: tile.id, road, steps,
-        seconds: steps * marchSecondsPerHex(aw),
-        energy: steps * moveCost(aw.power),
-      });
+      void (async () => { await fireGroupMarch(ids, destTile); setPendingMarch(null); })();
       return;
     }
     // THE BUILDING SYSTEM: a tap on a work under construction
@@ -2417,7 +2589,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     {
       const bt = tiles.find(t => t.id === tile.id);
       const bs = (bt as any)?.buildStage ?? 0;
-      if (bt && bs >= 1 && bs <= 4 && marchUiFor === null && !selectedBuilding && !attackTargeting && !moveTargeting && battlePool.length === 0) {
+      if (bt && bs >= 1 && bs <= 4 && !selectedBuilding && !attackTargeting && !moveTargeting && battlePool.length === 0) {
         openBuildTile(bt.id);
         return;
       }
@@ -2443,6 +2615,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (touchMode) raiseHexConfirm("move", tile.id);
       else { setTargetHexId(tile.id); handleMove(tile.id); }
     } else if (battlePool.length > 0) {
+      // The readied company is for the ASSAULT only (the
+      // summoning fix): quiet ground takes no deploy — the
+      // wheel's cast fields Awokin now, at the Tender's side.
+      const bt = tiles.find(t => t.id === tile.id);
+      if (bt && !bt.cursed) {
+        showHexNotice("Quiet ground takes no assault — summoning rides the wheel now: right-click to open it, pick your Awokin under its branch, and they stand at your side. A readied company is for cursed ground.");
+        return;
+      }
       if (touchMode) raiseHexConfirm("deploy", tile.id);
       else { setTargetHexId(tile.id); handleDeploy(tile.id); }
     }
@@ -3446,60 +3626,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const placementOf = (id: number | null) =>
     id !== null ? placements.find(p => p.awakenedId === id) ?? null : null;
 
-  const selPlacementForAnchor = placementOf(selectedAwoken);
-  const pickerAnchor = useClampedAnchor(
-    !stanceMinimized && selPlacementForAnchor
-      ? anchorPct(ordersAnchorBelow(selPlacementForAnchor))
-      : null,
-  );
-
-  // The company's orders anchor: below the group's extent — the
-  // centroid's x, the LOWEST chosen warden's feet.
-  const groupPts = selectedGroup
-    .map(id => placementOf(id))
-    .filter(Boolean)
-    .map(p => ordersAnchorBelow(p!))
-    .filter(Boolean) as { x: number; y: number }[];
-  const groupAnchorPt = groupPts.length
-    ? {
-        x: groupPts.reduce((s, p) => s + p.x, 0) / groupPts.length,
-        y: Math.max(...groupPts.map(p => p.y)),
-      }
-    : null;
-  const companyAnchor = useClampedAnchor(anchorPct(groupAnchorPt));
-
-  const marchPlacementForAnchor = placementOf(marchUiFor);
-  const marchAnchor = useClampedAnchor(
-    marchPlacementForAnchor ? anchorPct(ordersAnchorBelow(marchPlacementForAnchor)) : null,
-  );
   const patrolPlacementForAnchor = placementOf(patrolSettingFor);
   const patrolAnchor = useClampedAnchor(
     patrolPlacementForAnchor ? anchorPct(ordersAnchorBelow(patrolPlacementForAnchor)) : null,
   );
-
-  // The War-Grounds selection bar (Nigel, 2026-10-18): marching is a
-  // War-Grounds function now — while the War-Grounds stand open and
-  // exactly one warden is chosen, its march orders hang BELOW THE
-  // RADIAL, stacked on the radial's own laid-out foot (measured from
-  // the picker element itself, open or minimized, so the stack can
-  // never drift apart), then clamped into view like every order.
-  const [wgStackPct, setWgStackPct] = useState<{ xPct: number; yPct: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = pickerAnchor.ref.current;
-    if (!el || wgTileId === null || selectedAwoken === null) {
-      if (wgStackPct) setWgStackPct(null);
-      return;
-    }
-    const parent = el.offsetParent as HTMLElement | null;
-    if (!parent || !parent.clientWidth || !parent.clientHeight) return;
-    const xPx = el.offsetLeft; // the picker's anchor centre (it is translate(-50%, …))
-    const footPx = stanceMinimized ? el.offsetTop + el.offsetHeight / 2 : el.offsetTop + el.offsetHeight;
-    const next = { xPct: (xPx / parent.clientWidth) * 100, yPct: ((footPx + 6) / parent.clientHeight) * 100 };
-    if (!wgStackPct || Math.abs(next.xPct - wgStackPct.xPct) > 0.01 || Math.abs(next.yPct - wgStackPct.yPct) > 0.01) {
-      setWgStackPct(next);
-    }
-  });
-  const wgBarAnchor = useClampedAnchor(wgStackPct);
 
   // The globe feeds the chosen warden (Nigel, 2026-10-18): feeding
   // left the individual Awoken screens; the energy globe houses it,
@@ -3902,7 +4032,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       if (bandJustClosed()) return; // the band's release is not a tap
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null || marchUiFor !== null || groupMarchUi) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null || pendingMarch) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -3927,13 +4057,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                         }
                         return;
                       }
-                      setSelectedAwoken(isSelected ? null : a.id);
+                      // THE ORDERS WHEEL (Nigel, 2026-10-22):
+                      // a click on a fielded Awokin opens ITS
+                      // wheel — March, its stances, Follow, its
+                      // taught works and doors — where the
+                      // orders bar and the under-figure picker
+                      // used to stand.
+                      setSelectedAwoken(a.id);
                       setSelectedGroup([]); // a single choosing ends the company's
-                      setGroupMarchUi(false);
-                      setGroupQuote(null);
                       setAttackTargeting(false);
                       setMoveTargeting(false);
-                      setStanceMinimized(false);
+                      setOrdersWheel({ ids: [a.id], x: e.clientX, y: e.clientY });
                     }}>
                     {/* Light aura glow behind Awoken */}
                     <ellipse cx={kx} cy={ky} rx={aws * 0.48} ry={ahs * 0.44}
@@ -4704,32 +4838,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
       );
     })() : null;
-    // March trace: a quoted march draws its road dotted to the
-    // destination flag, so the Tender sees the way before confirming.
-    // A quoted company march draws every warden's road the same way.
-    const marchGuideLayer = (marchQuote || groupQuote) ? (() => {
-      const roads: number[][] = marchQuote
-        ? [marchQuote.road]
-        : (groupQuote?.orders.filter(o => !o.alreadyThere).map(o => o.road) ?? []);
-      if (!roads.length) return null;
-      return (
-        <g key="march-guide">
-          {roads.map((road, i) => {
-            const pts = road.map(id => tiles.find(t => t.id === id)).filter(Boolean).map(t => tilePos(t as TerritoryTile));
-            if (pts.length < 2) return null;
-            const dest = pts[pts.length - 1];
-            return (
-              <g key={i}>
-                <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
-                  stroke="rgba(255,215,0,0.85)" strokeWidth={2} strokeDasharray="1 6" strokeLinecap="round" />
-                <circle cx={dest.cx} cy={dest.cy} r={15} fill="rgba(255,215,0,0.08)" stroke="#ffd700" strokeWidth={2} strokeDasharray="3 4" />
-                <text x={dest.cx} y={dest.cy + 5} textAnchor="middle" fontSize={14} fill="#ffd700">⚑</text>
-              </g>
-            );
-          })}
-        </g>
-      );
-    })() : null;
+    // The line, while the right hand draws it (the orders
+    // law): the selection will stand spread evenly along it.
+    const lineLayer = lineDrag ? (
+      <g key="march-line" pointerEvents="none">
+        <line x1={lineDrag.x0} y1={lineDrag.y0} x2={lineDrag.x1} y2={lineDrag.y1}
+          stroke="rgba(255,215,0,0.9)" strokeWidth={2} strokeDasharray="6 4" strokeLinecap="round" />
+        <circle cx={lineDrag.x0} cy={lineDrag.y0} r={4} fill="#ffd700" />
+        <circle cx={lineDrag.x1} cy={lineDrag.y1} r={4} fill="#ffd700" />
+      </g>
+    ) : null;
     // The drag band itself, while the hand is down.
     const bandLayer = band ? (
       <rect key="drag-band"
@@ -5054,7 +5172,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {seedLayer}
         {wanderersLayer}
         {patrolGuideLayer}
-        {marchGuideLayer}
+        {lineLayer}
         {bandLayer}
         {hoverLayer}
         {mistLayer}
@@ -5572,279 +5690,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           )}
         </div>
       )}
-      {selectedAwoken !== null && (() => {
-        const placement = placements.find(p => p.awakenedId === selectedAwoken);
-        const awoken = tenderItems.find(a => a.id === selectedAwoken);
-        if (!placement || !awoken) return null;
-        // Position the picker over the Awoken in the field
-        const tile = tiles.find(t => t.id === placement.tileId);
-        if (!tile) return null;
-        const size = HEX_BASE_SIZE * zoom;
-        const TRAY_LIFT = Math.round(size * 0.2);
-        const { px, py } = isoOffset(tile.q, tile.r, size);
-        const cx = 250 + px + pan.x;
-        const cy = 170 + py + pan.y - (Math.max(1, tile.height || 1) - 1) * TRAY_LIFT;
-        // Render as HTML overlay: the minimized badge stays on the
-        // Awoken's post (cx, cy); the OPEN picker hangs BELOW the
-        // figure — ordersAnchorBelow's ground-line anchor, clamped
-        // into view by pickerAnchor (Nigel, 2026-10-18).
-        return (
-          <div
-            ref={pickerAnchor.ref}
-            className={`stance-picker-field ${stanceMinimized ? "minimized" : ""}`}
-            style={{
-              left: `${(!stanceMinimized && pickerAnchor.xPct !== null ? pickerAnchor.xPct : (cx / 500) * 100)}%`,
-              top: `${(!stanceMinimized && pickerAnchor.yPct !== null ? pickerAnchor.yPct : (cy / 340) * 100)}%`,
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setSelectedAwoken(null);
-              setAttackTargeting(false);
-              setMoveTargeting(false);
-              setStanceMinimized(false);
-            }}
-          >
-            {stanceMinimized && (
-              <button 
-                className="stance-minimized-badge"
-                onClick={() => setStanceMinimized(false)}
-                title="Expand stance options"
-              >
-                {placement.stance === "attack" ? "⚔" : placement.stance === "defense" ? "🛡" : placement.stance === "binding" ? "✦" : "○"}
-              </button>
-            )}
-            {!stanceMinimized && (<>
-            {/* THE STAR CHART (Nigel's dress ruling, 2026-10-18 —
-                Panel IV of the radial dreams): astrolabe rings and
-                hairline spokes behind; the three stances as star-
-                seals in their wax colours, bound by spokes to a
-                heart that is the Smile Arc's torn-paper card — the
-                warden's name and its element levels (glyph, word,
-                numeral) written on the map-scrap. Binding's second
-                menu is a small constellation sprouting off the
-                Binding star: its taught works as dark little stars,
-                each a door into the one placeEdgeWork flow through
-                the War-Grounds panel. The bones do not change:
-                below-figure anchor, clamping, z-90, thumbs ≥40px,
-                the chosen stance lit gold. */}
-            {(() => {
-              // Elemental points: pieces = 1 pt; aspects = 1 pt per
-              // level (I/II/III). Feeds the stronger-element calc for
-              // terraforming — and the heart card's element levels.
-              const elPts: Record<string, number> = {};
-              for (const l of (awoken.layers || [])) {
-                const el = elementForPiece(l.name || "", (l as any).element);
-                if (el === "neutral") continue;
-                const w = l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
-                elPts[el] = (elPts[el] ?? 0) + w;
-              }
-              const elGlyph = (el: string) => el === "tide" ? "🌊" : el === "sky" ? "🌪️" : el === "stone" ? "🪨" : el === "root" ? "🌱" : "🔥";
-              const elWord = (el: string) => el.charAt(0).toUpperCase() + el.slice(1);
-              const roman = (n: number): string => {
-                if (n < 1) return "0";
-                const table: [number, string][] = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
-                let out = ""; let rest = n;
-                for (const [v, s] of table) { while (rest >= v) { out += s; rest -= v; } }
-                return out;
-              };
-              // Fire III is judged by the aspect's own record alone —
-              // its filed element and its level — never by its name
-              // (Nigel, 2026-10-16). Ignite keeps its conditional
-              // seal, raised to the chart's top star.
-              const aspect = (awoken.layers || []).find((l: any) => l.category === "aspect");
-              const isFireIII = !!aspect &&
-                ((aspect as any).aspectElement === "fire" || (aspect as any).element === "fire") &&
-                (aspect as any).aspectLevel === 3;
-              const sealDefs: { key: string; glyph: string; label: string; title: string; active: boolean; x: string; y: string; onPick: () => void }[] = [
-                {
-                  key: "attack", glyph: "⚔", label: "Attack", x: "23.9%", y: "28.1%",
-                  title: "Focus all power on one tile. Attack an adjacent cursed tile to purify it.",
-                  active: placement.stance === "attack",
-                  onPick: () => { setBindingMenuOpen(false); void handleSetStance(selectedAwoken, "attack"); },
-                },
-                {
-                  key: "defense", glyph: "🛡", label: "Defense", x: "76.7%", y: "28.7%",
-                  title: "Hold ground. Generates 1 energy. Protects your purified land.",
-                  active: placement.stance === "defense",
-                  onPick: () => { setBindingMenuOpen(false); void handleSetStance(selectedAwoken, "defense"); },
-                },
-                {
-                  key: "binding", glyph: "✦", label: "Binding", x: "51.7%", y: "78.7%",
-                  title: "Channel power into the land: feeds attunement and mends the wounded. Costs 2 energy. Opens this Awokin's taught runes and wards.",
-                  active: placement.stance === "binding",
-                  onPick: () => { void handleSetStance(selectedAwoken, "binding", { keepOpen: true }); setBindingMenuOpen(true); },
-                },
-              ];
-              // The Binding constellation: the chosen Awokin's
-              // taught works from the skills ledger (steering, Nigel
-              // 2026-10-18). A work chosen here ARMS it and opens the
-              // War-Grounds panel on the warden's hex — the edge is
-              // chosen there, by the panel's own flow, through the
-              // one placeEdgeWork law. Nothing parallel is built.
-              // Costs are display mirrors; the server is the law.
-              const taught = skills.filter(s => s.awakenedId === selectedAwoken).map(s => s.skill);
-              const arm = (kind: "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
-                setWgArmedWork({ kind, runeKind });
-                setBindingMenuOpen(false);
-                setAttackTargeting(false);
-                setMoveTargeting(false);
-                setWgTileId(placement.tileId);
-              };
-              const runeBlurbs: Record<string, string> = {
-                snare: "Stops the crossing whole — held fast, no damage.",
-                harm: "Heavy damage, no stop — 6 wounds, doubling with each strengthening.",
-                meld: "Some of both — 3 wounds and the strike never comes.",
-              };
-              const works: { key: string; glyph: string; label: string; title: string; onPick: () => void }[] = [];
-              if (taught.includes("warding")) {
-                works.push({ key: "ward", glyph: "🔷", label: "Ward · 3✦", title: "A wall of the other kind — blocks or traps every reach, fliers included. Needs the Warding skill. HP 15.", onPick: () => arm("ward") });
-              }
-              if (taught.includes("runeing")) {
-                for (const rk of ["snare", "harm", "meld"] as const) {
-                  works.push({ key: rk, glyph: "🔶", label: `${rk.charAt(0).toUpperCase() + rk.slice(1)} · 3✦`, title: runeBlurbs[rk], onPick: () => arm("rune", rk) });
-                }
-              }
-              // Where each taught work hangs in the constellation,
-              // sprouting off the Binding star (Panel IV's places,
-              // the nodes enlarged to the 40px tap law; a fourth
-              // work — the meld rune beside a taught ward — hangs
-              // lowest, chained off the second star).
-              const nodeSpots = [
-                { x: "66.7%", y: "68.0%" }, { x: "77.6%", y: "72.5%" },
-                { x: "65.0%", y: "84.3%" }, { x: "84.0%", y: "88.5%" },
-              ];
-              return (
-                <div className="stance-chart-wrap">
-                  <svg className="stance-chart" viewBox="0 0 360 356" aria-hidden="true">
-                    <circle cx="180" cy="172" r="150" fill="none" stroke="#2c3350" strokeWidth="1" />
-                    <circle cx="180" cy="172" r="120" fill="none" stroke="#232839" strokeWidth="1" />
-                    <circle cx="180" cy="172" r="86" fill="none" stroke="#1d2233" strokeWidth="1" />
-                    <g stroke="#3a4160" strokeWidth="1">
-                      <line x1="180" y1="22" x2="180" y2="36" /><line x1="180" y1="308" x2="180" y2="322" />
-                      <line x1="30" y1="172" x2="44" y2="172" /><line x1="316" y1="172" x2="330" y2="172" />
-                      <line x1="74" y1="66" x2="84" y2="76" /><line x1="276" y1="268" x2="286" y2="278" />
-                      <line x1="286" y1="66" x2="276" y2="76" /><line x1="84" y1="268" x2="74" y2="278" />
-                    </g>
-                    <g fill="#7a6530">
-                      <circle cx="302" cy="84" r="1.4" /><circle cx="324" cy="216" r="1.6" />
-                      <circle cx="50" cy="242" r="1.3" /><circle cx="240" cy="40" r="1.3" /><circle cx="116" cy="320" r="1.5" />
-                    </g>
-                    {/* Spokes bind the stars to the heart. They start
-                        beneath the card, so the card's own height can
-                        never unbind them. */}
-                    <g stroke="#c9a44a" strokeWidth="1" opacity="0.8">
-                      <line x1="180" y1="185" x2="102" y2="118" />
-                      <line x1="180" y1="185" x2="256" y2="120" />
-                      <line x1="180" y1="185" x2="184" y2="252" />
-                      {isFireIII && <line x1="180" y1="185" x2="180" y2="72" />}
-                    </g>
-                    {bindingMenuOpen && works.length > 0 && (
-                      <g stroke="#c9a44a" strokeWidth="0.8" opacity="0.75">
-                        <polyline points="204,266 240,242 279,258" fill="none" />
-                        <line x1="204" y1="270" x2="234" y2="300" />
-                        {works.length > 3 && <line x1="279" y1="258" x2="302" y2="315" />}
-                      </g>
-                    )}
-                  </svg>
-                  <div className="stance-heart">
-                    <div className="stance-heart-card">
-                      <div className="stance-heart-name">{awoken.name}</div>
-                      <div className="stance-heart-elements">
-                        {Object.entries(elPts).map(([el, n]) => (
-                          <span key={el} className="stance-element" title={`${n} ${el} point${n === 1 ? "" : "s"}`}>
-                            {elGlyph(el)} {elWord(el)} {roman(n)}
-                          </span>
-                        ))}
-                        {Object.keys(elPts).length === 0 && (
-                          <span className="stance-element">No element yet</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {sealDefs.map(s => (
-                    <button key={s.key} type="button"
-                      className={`star-seal ${s.key}${s.active ? " active" : ""}`}
-                      style={{ left: s.x, top: s.y }}
-                      onClick={s.onPick} title={s.title}>
-                      <svg className="star-seal-rays" viewBox="0 0 72 72" aria-hidden="true">
-                        <g stroke="#c9a44a" strokeWidth="1.6">
-                          <line x1="36" y1="1" x2="36" y2="9" /><line x1="36" y1="63" x2="36" y2="71" />
-                          <line x1="1" y1="36" x2="9" y2="36" /><line x1="63" y1="36" x2="71" y2="36" />
-                        </g>
-                      </svg>
-                      <span className="star-seal-glyph">{s.glyph}</span>
-                      <span className="star-seal-label">{s.label}</span>
-                    </button>
-                  ))}
-                  {isFireIII && (
-                    <button type="button" className="star-seal ignite"
-                      style={{ left: "50%", top: "12.4%" }}
-                      onClick={() => {
-                        setBindingMenuOpen(false);
-                        void (async () => {
-                          try {
-                            const result = await api.igniteWildfire({ awakenedId: selectedAwoken, tileId: placement.tileId });
-                            alert(`Wildfire ignited! ${result.ignitedTileIds.length} tiles burning.`);
-                            const refreshed = await api.getTerritory();
-                            setTiles(refreshed.tiles);
-                            onUpdate();
-                          } catch (e) {
-                            alert((e as Error).message || "Ignition failed");
-                          }
-                        })();
-                      }}
-                      title="Ignite wildfire (13 energy). Requires Fire III aspect.">
-                      <svg className="star-seal-rays" viewBox="0 0 72 72" aria-hidden="true">
-                        <g stroke="#c9a44a" strokeWidth="1.6">
-                          <line x1="36" y1="1" x2="36" y2="9" /><line x1="36" y1="63" x2="36" y2="71" />
-                          <line x1="1" y1="36" x2="9" y2="36" /><line x1="63" y1="36" x2="71" y2="36" />
-                        </g>
-                      </svg>
-                      <span className="star-seal-glyph">🔥</span>
-                      <span className="star-seal-label">Ignite</span>
-                    </button>
-                  )}
-                  {bindingMenuOpen && works.map((w, i) => (
-                    <button key={w.key} type="button" className="stance-node"
-                      style={{ left: nodeSpots[i].x, top: nodeSpots[i].y }}
-                      onClick={w.onPick} title={`${w.title} Choose it, then choose its edge in the War-Grounds.`}>
-                      <span className="stance-node-glyph">{w.glyph}</span>
-                      <span className="stance-node-label">{w.label}</span>
-                    </button>
-                  ))}
-                  {bindingMenuOpen && works.length === 0 && (
-                    <div className="stance-binding-none">No runes or wards taught.</div>
-                  )}
-                </div>
-              );
-            })()}
-            <div className="stance-picker-stats">
-              <span title="Power">⚔ {awoken.power}</span>
-              <span title="Toughness">🛡 {awoken.toughness}</span>
-              <span title="Health">❤ {awokenHp.get(awoken.id) ?? awoken.toughness}/{awoken.toughness}</span>
-              <span title="Level">Lv {awoken.level ?? Math.floor(Math.sqrt((awoken.experience ?? 0) / 100))}</span>
-              <span title="Experience">✦ {awoken.experience ?? 0} XP{typeof awoken.xp_into_level === "number" && typeof awoken.xp_for_next_level === "number" ? ` (${awoken.xp_into_level}/${awoken.xp_for_next_level} to Lv ${(awoken.level ?? 0) + 1})` : ""}</span>
-            </div>
-            {/* Feeding lives in the energy globe now (Nigel,
-                2026-10-18) — the globe feeds the chosen warden,
-                10✦ at a time. The Hall keeps its own feeding: a
-                dwelling screen, at the Hall's ×2 rate. */}
-            {attackTargeting && placement.stance === "attack" && (
-              <div className="attack-hint">Tap an adjacent cursed tile to attack (1 energy)</div>
-            )}
-            {/* Marching is a War-Grounds function now (Nigel,
-                2026-10-18): the march status, the recall and the
-                march orders hang in the War-Grounds selection bar
-                below this radial — see the bar beside the company
-                bar. The march / patrol / company bars themselves
-                never moved. */}
-            <button className="stance-close" onClick={() => { setSelectedAwoken(null); setAttackTargeting(false); setMoveTargeting(false); setTargetHexId(null); clearHexConfirm(); setStanceMinimized(false); }}>
-              ✕
-            </button>
-            </>)}
-          </div>
-        );
-      })()}
       {incursionsQ.data && eyeOpen && (() => {
         const inc = incursionsQ.data;
         const nowMs = Date.now();
@@ -6140,21 +5985,24 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             if (anchor.cx >= x0 && anchor.cx <= x1 && anchor.cy >= y0 && anchor.cy <= y1) chosen.push(p.awakenedId);
           }
           if (chosen.length === 1) {
+            // One caught: ITS orders wheel, where the band's
+            // release falls (Nigel, 2026-10-22).
             setSelectedGroup([]);
             setSelectedAwoken(chosen[0]);
-            setStanceMinimized(false);
+            setOrdersWheel({ ids: [chosen[0]], x: e.clientX, y: e.clientY });
           } else if (chosen.length > 1) {
+            // The company's wheel: ONE wheel for the whole
+            // selection — March · Attack · Defend · Follow.
             setSelectedAwoken(null);
             setSelectedGroup(chosen);
+            setOrdersWheel({ ids: chosen, x: e.clientX, y: e.clientY });
           }
         }}
         onClick={() => {
         if (bandJustClosed()) return; // the band's own click is not a dismissal
-        // Clicking empty map dismisses the stance box
+        // Clicking empty map dismisses the choosing
         setSelectedAwoken(null);
         setSelectedGroup([]);
-        setGroupMarchUi(false);
-        setGroupQuote(null);
         setAttackTargeting(false);
         setMoveTargeting(false);
         setTargetHexId(null);
@@ -6164,11 +6012,32 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => {
             if (e.button === 2) { // Right click
+              // THE LINE (Nigel, 2026-10-22 — the marching-
+              // orders spec, under the Drag Law): while the
+              // War-Grounds stand open and a March order is
+              // armed, a right-drag draws the line the
+              // selection will stand along — it does not pan.
+              if (wgTileId !== null && pendingMarch) {
+                const p = svgPoint(e.clientX, e.clientY);
+                if (p) {
+                  lineDragRef.current = { sx: p.x, sy: p.y };
+                  setLineDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+                  dragRef.current = null;
+                  rightPressRef.current = { x: e.clientX, y: e.clientY, moved: false };
+                  return;
+                }
+              }
               dragRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
               rightPressRef.current = { x: e.clientX, y: e.clientY, moved: false };
             }
           }}
           onMouseMove={(e) => {
+            if (lineDragRef.current) {
+              if (rightPressRef.current && Math.hypot(e.clientX - rightPressRef.current.x, e.clientY - rightPressRef.current.y) > 6) rightPressRef.current.moved = true;
+              const p = svgPoint(e.clientX, e.clientY);
+              if (p) setLineDrag(ld => ld ? { ...ld, x1: p.x, y1: p.y } : ld);
+              return;
+            }
             if (dragRef.current) {
               const dx = e.clientX - dragRef.current.x;
               const dy = e.clientY - dragRef.current.y;
@@ -6178,6 +6047,23 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           }}
           onMouseUp={(e) => {
             if (e.button === 2) {
+              // A drawn line with a March order armed is the
+              // order itself: the selection spreads EVENLY
+              // along it, at once, no confirm.
+              if (lineDragRef.current) {
+                const ld = lineDrag;
+                const wasMoved = !!rightPressRef.current?.moved;
+                lineDragRef.current = null;
+                setLineDrag(null);
+                if (wasMoved && ld && pendingMarch) {
+                  const ids = pendingMarch.ids;
+                  setPendingMarch(null);
+                  setSelectedGroup([]);
+                  void fireLineMarch(ids, { x: ld.x0, y: ld.y0 }, { x: ld.x1, y: ld.y1 });
+                  rightPressRef.current = null;
+                  return;
+                }
+              }
               dragRef.current = null;
               // A right CLICK — pressed and released unmoved —
               // calls the wheel (Nigel, 2026-10-19), even
@@ -6193,8 +6079,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               const rp = rightPressRef.current;
               rightPressRef.current = null;
               const castArmedOnly = castMode && !(
-                moveTargeting || groupMarchUi || attackTargeting ||
-                patrolSettingFor !== null || marchUiFor !== null || battlePool.length > 0 ||
+                moveTargeting || attackTargeting ||
+                patrolSettingFor !== null || pendingMarch !== null || battlePool.length > 0 ||
                 showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
               );
               if (rp && !rp.moved && tenderStandRef.current && (!tenderInputBlockedRef.current || castArmedOnly)) {
@@ -6203,7 +6089,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               }
             }
           }}
-          onMouseLeave={() => { dragRef.current = null; }}>
+          onMouseLeave={() => { dragRef.current = null; lineDragRef.current = null; setLineDrag(null); }}>
           <defs>
             <radialGradient id="corruptionHalo" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="rgba(96,4,18,0)" />
@@ -6281,6 +6167,26 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               onClose={() => setTenderRadial(null)} />
           );
         })()}
+        {/* THE ORDERS WHEEL (Nigel, 2026-10-22): one Awokin's
+            own wheel on its click, the company's wheel on a
+            drag-chosen band's release — the orders bar and
+            the under-figure picker are retired behind it. */}
+        {ordersWheel && (() => {
+          const entries = buildOrdersEntries(ordersWheel.ids);
+          if (!entries.length) return null;
+          const single = ordersWheel.ids.length === 1
+            ? placements.find(p => p.awakenedId === ordersWheel.ids[0])
+            : null;
+          return (
+            <GroundWheel cx={ordersWheel.x} cy={ordersWheel.y} tab="awoken" onTab={() => {}}
+              entries={entries}
+              caption={single
+                ? `${single.name} — its orders: pick one and it is obeyed; March arms the tap on the land`
+                : `The company — ${ordersWheel.ids.length} chosen: March · Attack · Defend · Follow, obeyed at once`}
+              pinnedKeys={[]} onTogglePin={() => {}} onDropKey={() => {}}
+              onClose={() => setOrdersWheel(null)} ordersMode />
+          );
+        })()}
         {/* THE HOTBAR: the wheel's live entries, locked. A tap
             runs the entry's own act (the wield, the toggle,
             the locator); a right-click looses the slot. While
@@ -6324,6 +6230,22 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     <span className="tender-slot-emoji">👣</span>
                     <span className="tender-slot-label">{p ? p.name.split(" ")[0] : "gone"}</span>
+                  </button>
+                );
+              }
+              if (key.startsWith("sum-")) {
+                // A keyed summon (the summoning fix): the tap
+                // IS the cast — the Awokin stands at the
+                // Tender's side, or the call falters and the
+                // price is spent.
+                const c = summoning.company.find(x => x.awakenedId === Number(key.slice(4))) ?? null;
+                return (
+                  <button type="button" key={key} className={`tender-slot${!c ? " dim" : ""}`}
+                    title={c ? `${c.name} — ✦${c.cost}; tap to cast the summon: it stands at your side (right-click to loose the slot)` : "That Awokin cannot be called now — tap to loose the slot"}
+                    onClick={() => actTerritorySlot(key)}
+                    onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                    {c?.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="tender-slot-emoji">✦</span>}
+                    <span className="tender-slot-label">{c ? c.name.split(" ")[0] : "gone"}</span>
                   </button>
                 );
               }
@@ -6383,9 +6305,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           const pooled = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
           const names = pooled.map(a => a.name).join(", ");
           const cost = pooled.reduce((sum, a) => sum + deployCost(a.power), 0);
-          text = tile?.cursed
-            ? `${names || "The readied company"} will assault this hex — if their combined power breaks the corruption, the land becomes yours. ${cost}✦.`
-            : `${names || "The readied company"} will take position on this hex. ${cost}✦.`;
+          text = `${names || "The readied company"} will assault this cursed hex — if their combined power breaks the corruption, the land becomes yours. ${cost}✦.`;
           confirmLabel = "Send them";
         }
         return (
@@ -6412,7 +6332,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         )}
       </div>
       <div className="bottom-dock">
-        <div className="hand-label">Tap cards to ready them for battle — then tap a purified hex to deploy</div>
+        <div className="hand-label">Your Awokin. Summoning rides the wheel now — right-click anywhere, pick a party member under the Awoken branch, and they stand at your side. Tap cards here to ready a company for the assault on cursed ground.</div>
         <div className="dock-row">
                 {battlePool.length > 0 && (
           <div className="battle-pool">
@@ -7007,204 +6927,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             }}
             onClaimSpark={tile.spark ? () => { setWgTileId(null); setWgArmedWork(null); void handleSparkClick(tile.id); } : undefined}
           />
-        );
-      })()}
-      {/* The War-Grounds selection bar (Nigel, 2026-10-18): marching
-          is a War-Grounds function — while the War-Grounds stand
-          open and exactly one placed warden is chosen (no company,
-          no march/patrol flow already open), its orders hang below
-          the radial: a marching warden shows its road's state and
-          the recall, a patrolling one its patrol note, a standing
-          one the door into the march bar (which still leads to the
-          patrol road). The bars it opens never moved. */}
-      {wgTileId !== null && selectedAwoken !== null && selectedGroup.length === 0 && !groupMarchUi && marchUiFor === null && patrolSettingFor === null && (() => {
-        const placement = placements.find(p => p.awakenedId === selectedAwoken);
-        const awoken = tenderItems.find(a => a.id === selectedAwoken);
-        if (!placement || !awoken) return null;
-        return (
-          <div className="patrol-bar wg-orders-bar" ref={wgBarAnchor.ref}
-            style={{ left: `${wgBarAnchor.xPct ?? 50}%`, top: `${wgBarAnchor.yPct ?? 92}%` }}>
-            {placement.marchPath ? (
-              <>
-                <span className="patrol-bar-label">
-                  🚶 {awoken.name} is on the march — arrives in {fmtMarchTime(((placement.marchEnds ?? marchNow) - marchNow) / 1000)}
-                </span>
-                <button
-                  className="stance-btn"
-                  onClick={async () => {
-                    try {
-                      const r = await api.recallMarch({ awakenedId: selectedAwoken });
-                      await refreshMarching();
-                      showHexNotice(r.stepsHome > 0 ? "Recalled — the warden turns for home." : "Recalled — it had barely left its post.");
-                    } catch (e) {
-                      showHexNotice(e instanceof Error ? e.message : "The recall failed.");
-                    }
-                  }}
-                  title="Call the marcher home: it turns where it stands and walks back. The march's energy is spent either way.">
-                  ↩ Recall
-                </button>
-              </>
-            ) : placement.patrolPath ? (
-              <>
-                <span className="patrol-bar-label">
-                  🚶 {awoken.name} walks a patrol — {patrolRoadOf(placement).length} waypoint{patrolRoadOf(placement).length === 1 ? "" : "s"}
-                </span>
-                <button
-                  className="stance-btn"
-                  onClick={() => { setPatrolDraft(patrolRoadOf(placement)); setPatrolSettingFor(selectedAwoken); }}
-                  title="Re-lay or end this warden's patrol road.">
-                  🚶 Patrol road
-                </button>
-              </>
-            ) : (
-              <>
-                <span className="patrol-bar-label">⚔ War-Grounds — {awoken.name}</span>
-                <button
-                  className="stance-btn"
-                  onClick={() => { setMarchUiFor(selectedAwoken); setMarchQuote(null); setStanceMinimized(true); }}
-                  title="March orders: tap a hex and the march is quoted — the road traced, the time and energy calculated — then confirm and it walks. Or lay a patrol road instead.">
-                  ➤ March orders
-                </button>
-              </>
-            )}
-            {/* Follow the Tender (2026-10-19): the Table's order,
-                come home — a following Awokin musters to the
-                Tender's ring whenever the field is read, and keeps
-                to him as he walks his land. */}
-            <button
-              className="stance-btn"
-              onClick={async () => {
-                try {
-                  await api.setPlacementFollow({ placementId: placement.id, follow: !placement.follow });
-                  await refreshTerritory();
-                } catch { /* the order failed; the next read tells the truth */ }
-              }}
-              title="A following Awokin musters to the Tender's ring whenever the field is read — it keeps to him as he walks his land.">
-              {placement.follow ? "🧭 Following you ✓" : "🧭 Follow me"}
-            </button>
-            {/* THE PARTY (Nigel, 2026-10-20; built 2026-10-21):
-                adding from the field, on the same orders bar —
-                the chosen Awokin joins the party, and the
-                server sets its follow on this ground as it
-                writes the membership, so it follows from the
-                moment it joins. A member shows its standing
-                instead of the offer. */}
-            {partyQ.data && (partyQ.data.members.some(m => m.awakenedId === selectedAwoken) ? (
-              <span className="patrol-bar-label">👣 In your party</span>
-            ) : (
-              <button
-                className="stance-btn"
-                onClick={async () => {
-                  try {
-                    await api.addFieldToParty({ awakenedId: selectedAwoken });
-                    await queryClient.invalidateQueries({ queryKey: ["party"] });
-                    await refreshTerritory();
-                    showHexNotice(`${awoken.name} joins your party — and follows you.`);
-                  } catch (e) {
-                    showHexNotice(e instanceof Error ? e.message : "The party refused.");
-                  }
-                }}
-                title="Add this Awokin to your party: it stands in the party on your Zodiac tab, and follows you on this ground. An Awokin given orders — a march, a patrol — leaves the party.">
-                👣 Add to party
-              </button>
-            ))}
-          </div>
-        );
-      })()}
-      {/* The company bar — a drag-chosen company's orders (Nigel,
-          2026-10-16): one march for the whole band, quoted whole —
-          total energy, the slowest warden's arrival — then confirmed. */}
-      {selectedGroup.length > 0 && marchUiFor === null && patrolSettingFor === null && (
-        <div className="patrol-bar" ref={companyAnchor.ref}
-          style={{ left: `${companyAnchor.xPct ?? 50}%`, top: `${companyAnchor.yPct ?? 92}%` }}>
-          {!groupMarchUi ? (
-            <>
-              <span className="patrol-bar-label">⚔ {selectedGroup.length} wardens chosen</span>
-              <button className="stance-btn" onClick={() => { setGroupMarchUi(true); setGroupQuote(null); }}>➤ Company march</button>
-              <button className="stance-btn" onClick={() => setSelectedGroup([])}>✕ Clear</button>
-            </>
-          ) : !groupQuote ? (
-            <>
-              <span className="patrol-bar-label">➤ Company march — tap the hex the company musters on; it forms up around it</span>
-              <button className="stance-btn" onClick={() => setGroupMarchUi(false)}>✕ Done</button>
-            </>
-          ) : (
-            <>
-              <span className="patrol-bar-label">
-                ⚑ Company march — {groupQuote.orders.filter(o => !o.alreadyThere).length} on the road · {groupQuote.totalEnergy}✦ · last in ~{fmtMarchTime(groupQuote.slowest)}
-                {groupQuote.excluded ? ` · ${groupQuote.excluded} cannot march` : ""}
-                {groupQuote.orders.some(o => o.alreadyThere) ? " · some already stand there" : ""}
-              </span>
-              <button className="stance-btn" disabled={energy < groupQuote.totalEnergy}
-                onClick={async () => {
-                  const q = groupQuote;
-                  let marched = 0, failed = 0;
-                  for (const o of q.orders) {
-                    if (o.alreadyThere) { marched++; continue; }
-                    try { await api.setMarch({ awakenedId: o.awakenedId, tileId: o.tileId }); marched++; }
-                    catch { failed++; }
-                  }
-                  setGroupMarchUi(false);
-                  setGroupQuote(null);
-                  setSelectedGroup([]);
-                  await refreshMarching();
-                  showHexNotice(failed
-                    ? `${marched} of the company march — ${failed} were refused by the ground as the orders landed.`
-                    : `The company marches — ${marched} wardens on the road. Boom.`);
-                }}>
-                ✓ March
-              </button>
-              <button className="stance-btn" onClick={() => setGroupQuote(null)}>↩ Pick again</button>
-              <button className="stance-btn" onClick={() => { setGroupMarchUi(false); setGroupQuote(null); }}>✕ Cancel</button>
-            </>
-          )}
-        </div>
-      )}
-      {/* The march bar — march orders from the Move button (Nigel,
-          2026-10-16): tap a hex and the march is QUOTED (road traced
-          on the map, time and energy calculated); hit confirm and —
-          boom — it moves. Patrol is reached from here too. */}
-      {marchUiFor !== null && (() => {
-        const who = tenderItems.find(a => a.id === marchUiFor);
-        const dest = marchQuote ? tiles.find(t => t.id === marchQuote.tileId) : null;
-        return (
-          <div className="patrol-bar" ref={marchAnchor.ref}
-            style={{ left: `${marchAnchor.xPct ?? 50}%`, top: `${marchAnchor.yPct ?? 92}%` }}>
-            {!marchQuote ? (
-              <>
-                <span className="patrol-bar-label">➤ March orders — {who?.name ?? "the warden"}: tap a hex to quote the march</span>
-                <button className="stance-btn" onClick={() => {
-                  const p = placements.find(p => p.awakenedId === marchUiFor);
-                  setPatrolDraft(p ? patrolRoadOf(p) : []);
-                  setPatrolSettingFor(marchUiFor);
-                  setMarchUiFor(null);
-                }}>🚶 Patrol road instead</button>
-                <button className="stance-btn" onClick={() => setMarchUiFor(null)}>✕ Close</button>
-              </>
-            ) : (
-              <>
-                <span className="patrol-bar-label">
-                  ⚑ March to {dest ? `(${dest.q}, ${dest.r})` : "the marked hex"} — {marchQuote.steps} hex{marchQuote.steps === 1 ? "" : "es"} · ~{fmtMarchTime(marchQuote.seconds)} · {marchQuote.energy}✦
-                </span>
-                <button className="stance-btn" disabled={energy < marchQuote.energy}
-                  onClick={async () => {
-                    try {
-                      const r = await api.setMarch({ awakenedId: marchUiFor, tileId: marchQuote.tileId });
-                      setMarchUiFor(null);
-                      setMarchQuote(null);
-                      await refreshMarching();
-                      showHexNotice(`The order is given — the march will take ~${fmtMarchTime(r.seconds)} and cost ${r.energy}✦. Boom: it moves.`);
-                    } catch (e) {
-                      showHexNotice(e instanceof Error ? e.message : "The march could not be given.");
-                    }
-                  }}>
-                  ✓ March
-                </button>
-                <button className="stance-btn" onClick={() => setMarchQuote(null)}>↩ Pick again</button>
-                <button className="stance-btn" onClick={() => { setMarchUiFor(null); setMarchQuote(null); }}>✕ Cancel</button>
-              </>
-            )}
-          </div>
         );
       })()}
       {/* The patrol bar — while a road is being laid (War-Ground,

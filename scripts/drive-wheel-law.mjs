@@ -13,13 +13,14 @@
 //      branch readies a ward, and the ward is cast TWICE
 //      from the one readying (anchor tap + edge tap, twice),
 //      two wards standing, the purse lighter by real costs.
-//   §2 THE TABLE — summoning by the same law: right-click,
-//      the Awoken branch, pick the card ONCE; a click on
-//      cursed ground is refused and the card STAYS readied
-//      (the road does not close on a falter); the next click,
-//      on lit ground, stands the creature. A second member
-//      is picked and stands the same way — two summons, two
-//      standings, each paid for.
+//   §2 THE TABLE — summoning by the same law (the target
+//      struck, 2026-10-22): right-click, the Awoken branch,
+//      and the PICK IS THE CAST — no card is readied, no
+//      ground is tapped; the referee lands the creature at
+//      the Tender's side. A falter spends the price and the
+//      member stays callable — pick again. A second member
+//      is picked and stands the same way — two standings,
+//      each cast paid for before its roll.
 //   §3 THE BUNDLE — the shipped client contains no tray
 //      markup strings at all.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-wheel-law.mjs
@@ -276,7 +277,7 @@ console.log("§1 the land map — the Spell branch's honest face, and a ward cas
 }
 
 /* ══ §2 THE TABLE — summoning by the same law ══════════════ */
-console.log("§2 the Table — pick the card once; a falter keeps it readied; the landing click stands the creature");
+console.log("§2 the Table — the pick IS the cast: no ground tap; a falter spends and the member stays callable");
 {
   const claim = await call("claimTender", { password: PW, tenderName: "Wheellaw Table" });
   const token = claim.token;
@@ -409,42 +410,48 @@ console.log("§2 the Table — pick the card once; a falter keeps it readied; th
     await clickDisc(page, ".gw-disc", name);
     await sleep(400);
   };
-  const summonReadied = async (name) => page.evaluate((n) =>
-    [...document.querySelectorAll(".placing-bar")].some((b) => (b.textContent ?? "").includes("Calling") && (b.textContent ?? "").includes(n)), name);
+  const callingBarStands = async () => page.evaluate(() =>
+    [...document.querySelectorAll(".placing-bar")].some((b) => (b.textContent ?? "").includes("Calling")));
 
-  // Pick Wheelkin A ONCE. A click on cursed ground is
-  // refused — and under the law the road stays open: the
-  // card is still readied, nothing was spent.
+  // THE PICK IS THE CAST (Nigel, 2026-10-22): no card is
+  // readied, no ground is tapped — choosing Wheelkin A in
+  // the branch casts the summon at once, and the referee
+  // lands it at the seat's side. A falter spends the price
+  // (power 8 -> \u27268) and stands nothing; the member stays
+  // in the company, so the drive picks again — each pick
+  // one cast, each cast charged before its roll.
   const purse0 = mySeat().energy;
-  await pickFromWheel("Wheelkin A");
-  ok("the Awoken branch readied Wheelkin A — its bar stands ('Calling Wheelkin A')", await summonReadied("Wheelkin A"));
+  let picksA = 0;
+  for (let i = 0; i < 12 && fieldOf("Wheelkin A").length === 0; i++) {
+    await pickFromWheel("Wheelkin A");
+    picksA++;
+    await sleep(1100);
+  }
+  ok("picking Wheelkin A cast the summon at once — it stands with NO ground tap anywhere", fieldOf("Wheelkin A").length === 1, `picks=${picksA}`);
+  ok("no 'Calling' bar ever stood — nothing was readied", !(await callingBarStands()));
   await page.screenshot({ path: `${OUT}/wheel-law-table-summon.png` });
+  const aHexNow = fieldOf("Wheelkin A")[0]?.hex;
+  const aTileNow = tileById.get(aHexNow);
+  ok("the landing stands at the Tender's side — his own hex or one beside it",
+    !!aTileNow && distToSeat(aTileNow) <= 1, `hex=${aHexNow} seat=${seatHex}`);
+  const purse1 = mySeat().energy;
+  ok("every pick charged exactly the price before its roll — falters included",
+    purse0 - purse1 === 8 * picksA, `${purse0} -> ${purse1} over ${picksA} pick(s)`);
+  // A click on cursed ground now summons nothing and spends
+  // nothing — there is no readied card for it to feed.
   await tapTile(cursedFar.id);
   await sleep(900);
-  ok("the cursed-ground click summoned nothing", fieldOf("Wheelkin A").length === 0);
-  ok("the falter kept the card readied — the road did not close", await summonReadied("Wheelkin A"));
-  ok("the refusal spent nothing", mySeat().energy === purse0, `${purse0} -> ${mySeat().energy}`);
-  // The following clicks, on the seat's own lit hex, land
-  // it — still the same single pick. The summon is a rolled
-  // cast: a falter spends the price, stands nothing, and
-  // leaves the card readied ("tap again to call once
-  // more"), so the drive taps on, exactly as the law reads.
-  for (let i = 0; i < 8 && fieldOf("Wheelkin A").length === 0; i++) {
-    await tapTile(seatHex);
-    await sleep(1100);
-  }
-  ok("repeated clicks from the ONE pick stood Wheelkin A — the summon resolved", fieldOf("Wheelkin A").length === 1);
-  const purse1 = mySeat().energy;
-  ok("the summon was paid for", purse1 < purse0, `${purse0} -> ${purse1}`);
+  ok("a cursed-ground click after the cast summoned nothing more", fieldOf("Wheelkin A").length === 1);
+  ok("the ground click spent nothing", mySeat().energy === purse1, `${purse1} -> ${mySeat().energy}`);
 
-  // A second member, the same road: pick once, click, stands.
-  await pickFromWheel("Wheelkin B");
-  ok("the Awoken branch readied Wheelkin B", await summonReadied("Wheelkin B"));
-  for (let i = 0; i < 8 && fieldOf("Wheelkin B").length === 0; i++) {
-    await tapTile(ringHexes[0].id);
+  // A second member, the same road: pick, cast, stands.
+  let picksB = 0;
+  for (let i = 0; i < 12 && fieldOf("Wheelkin B").length === 0; i++) {
+    await pickFromWheel("Wheelkin B");
+    picksB++;
     await sleep(1100);
   }
-  ok("repeated clicks from B's one pick stood Wheelkin B — two picks, two summons, two standings", fieldOf("Wheelkin B").length === 1);
+  ok("picking Wheelkin B cast its summon too — two picks' worth of casts, two standings", fieldOf("Wheelkin B").length === 1, `picks=${picksB}`);
   ok("the second summon was paid for too", mySeat().energy < purse1, `${purse1} -> ${mySeat().energy}`);
   await page.screenshot({ path: `${OUT}/wheel-law-two-standing.png` });
   await page.close();

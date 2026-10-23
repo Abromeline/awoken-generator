@@ -24,7 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
-import { workingEffects, skillAttunementGrants, attuneReachFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
@@ -3461,6 +3461,51 @@ async function partyViewFor(ownerKey: string) {
   // every party star held, at its deepened grant.
   const count = partyCountFor(ownerKey);
   return { members, deck, cap, size: members.length, level: progress.level, incoming, partyLevel: count.partyLevel, levelBonus: count.levelBonus, musterBonus: count.musterBonus };
+}
+
+/** THE HOMELAND WHEEL'S SUMMON COMPANY (Nigel, 2026-10-22 —
+ *  the summoning fix: "summoning still needs fixed to be the
+ *  way it was set in proving grounds on all tables"; "awoken
+ *  just summon near the tender when summoned they dont need
+ *  a target"): the party the homeland wheel's Awoken branch
+ *  lists, in the party's own order — the Table's company
+ *  (companyForTender) carried home. The exclusions mirror
+ *  the Table's: a member standing on the field cannot be
+ *  called again; a member staged at the bastion is kept back
+ *  for the instance that carries it; a creature still
+ *  re-coalescing from a fall is callable nowhere. The
+ *  homeland field adds its own standing law (Nigel,
+ *  2026-10-12): the court — housed Awokin and the marked
+ *  champion — stays in hand and cannot be stationed on the
+ *  field, so it is not listed here either. The price each
+ *  entry carries is the Table's summon price: the Awokin's
+ *  power, one at least (castCost's base, off campaign). */
+export type SummonCompanyEntry = { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number };
+async function summonCompanyFor(ownerKey: string): Promise<SummonCompanyEntry[]> {
+  const placedRows = await db.select({ awakenedId: schema.fieldPlacements.awakenedId }).from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const placedIds = new Set(placedRows.map(r => r.awakenedId));
+  const stagedSet = new Set(stagedIdsFor(ownerKey));
+  const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
+    .where(eq(schema.hallResidents.ownerKey, ownerKey));
+  const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
+    .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+  const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
+  const nowMs = Date.now();
+  const out: SummonCompanyEntry[] = [];
+  for (const id of partyIdsFor(ownerKey)) {
+    if (placedIds.has(id) || stagedSet.has(id) || courtIds.has(id)) continue;
+    const row = sqlite.prepare("SELECT dispersed_until FROM awakened WHERE id = ?").get(id) as { dispersed_until: number | null } | undefined;
+    if (row?.dispersed_until && row.dispersed_until > nowMs) continue;
+    const payload = await awakenedPayloadById(id).catch(() => null);
+    if (!payload) continue;
+    out.push({
+      awakenedId: payload.id, name: payload.name, imageUrl: payload.image_url,
+      power: payload.power, toughness: payload.toughness, level: payload.level ?? null,
+      cost: Math.max(1, payload.power),
+    });
+  }
+  return out;
 }
 
 export const handlers = {
@@ -6916,7 +6961,19 @@ export const handlers = {
       } catch { /* a malformed composition wears neutral */ }
       elsewhere.push({ name: row.name, element, where: fielded ? "fielded" : "staged" });
     }
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey), elsewhere };
+    // THE WHEEL'S SUMMON COMPANY, served with the field (the
+    // summoning fix, Nigel 2026-10-22): who the Awoken branch
+    // can call, the summoner's power the cast will roll with,
+    // and whether the Tender's own stand is cursed — the −3
+    // the branch names beside each price, as the Table's does.
+    const summonProgress = await getTenderProgress(ownerKey);
+    const standTileRow = tenderStand ? (tiles as any[]).find(t => t.id === tenderStand.tileId) : null;
+    const summoning = {
+      company: tenderStand ? await summonCompanyFor(ownerKey) : [],
+      summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
+      standCursed: !!standTileRow?.cursed,
+    };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -7211,80 +7268,117 @@ export const handlers = {
     return { ok: true, follow: parsed.data.follow };
   },
 
-  async deployAwoken(args: unknown, ctx?: ActionContext) {
+  /** THE HOMELAND SUMMON CAST (Nigel, 2026-10-22 — the
+   *  summoning fix: "awoken just summon near the tender when
+   *  summoned they dont need a target"): the wheel's Awoken
+   *  branch is the door, the pick IS the cast, and the server
+   *  chooses the landing — the Tender's own tile or a free
+   *  tile beside it (the Table's at-your-side distance, become
+   *  the server's placement rule instead of the player's aim).
+   *  The reckoning mirrors the Table's summon referee exactly:
+   *  the purse is charged BEFORE the roll; the roll is d20 +
+   *  the gift (the Sage's −2, the class truth that is no
+   *  school term) + SUMMONER'S POWER − 3 when the caster
+   *  stands in cursed land, against DC 10 + the Awokin's
+   *  power; a natural 20 always lands, a natural 1 always
+   *  falters; a falter spends the price and stands nothing.
+   *  Party membership is re-checked here, at the cast itself —
+   *  the party is who you can summon, on both grounds. The
+   *  price is the Table's: the Awokin's power, one at least.
+   *  This road replaces deployAwoken whole: the hand-card →
+   *  tile-tap fielding is retired (the hand stays the
+   *  collection; battle entry keeps deployBattle, below). */
+  async summonAwoken(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid deploy request.");
-    // Verify the Tender owns this Awoken and it is not already placed.
-    const owned = await db.select({ id: schema.awakened.id }).from(schema.awakened)
-      .where(and(eq(schema.awakened.id, parsed.data.awakenedId), eq(schema.awakened.ownerKey, ownerKey))).limit(1);
-    if (!owned.length) badRequest("That Awokin is not yours.");
-    const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
-      .where(and(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
-    if (already.length) badRequest("Already on the field.");
-    // THE PARTY IS WHO YOU CAN FIELD (Nigel, 2026-10-21 —
-    // the party law on both grounds, the homeland gate ruled
-    // the same day as the Table's strict reading): a creature
-    // outside the Tender's party does not take the homeland
-    // field, by either deploy door. The refusal is plain,
-    // spends nothing, and fields nothing. Filling the party
-    // at home stays INSTANT — the Party tab's fill lands at
-    // once, no road, no timer; the gate stands on the
-    // FIELDING, and the quick-select hand keeps its width.
-    if (!isPartyMember(ownerKey, parsed.data.awakenedId)) {
-      const named = await awakenedPayloadById(parsed.data.awakenedId).catch(() => null);
-      badRequest(`${named?.name ?? "That Awokin"} is not in your party — the party is who you can field. Add it from the Party tab of your Zodiac — at home the fill lands at once.`);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("A summon names the Awokin to call.");
+    const awakenedId = parsed.data.awakenedId;
+    const progress = await getTenderProgress(ownerKey);
+    // The fallen silence, as at every homeland cast (Phase D).
+    const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { down_until: number | null } | undefined;
+    if (progressRow?.down_until != null && Number(progressRow.down_until) > Date.now()) {
+      badRequest("Your Tender has fallen — no summoning until he wakes at the bastion.");
     }
-    // Court-bound (Nigel, 2026-10-12): housed Awoken and the marked champion
-    // stay in hand for battles — they cannot be stationed on field tiles.
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const stand = await this.tenderStand(ownerKey, tiles as any[]);
+    if (!stand) badRequest("You have no stand on this land to summon from — choose your class first, and the calling wakes.");
+    const tileById = new Map((tiles as any[]).map(t => [t.id, t]));
+    const standTile = tileById.get(stand.tileId);
+    if (!standTile) badRequest("You have no stand on this land to summon from.");
+    // THE PARTY IS WHO YOU CAN SUMMON — re-checked at the cast.
+    if (!isPartyMember(ownerKey, awakenedId)) {
+      const named = await awakenedPayloadById(awakenedId).catch(() => null);
+      badRequest(`${named?.name ?? "That Awokin"} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; the fill lands at once, and the wheel's cast is the only gate.`);
+    }
+    // Already standing: one body stands in one place.
+    const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    if (already.length) badRequest("That Awokin already stands on your field.");
+    // The court stays in hand (Nigel, 2026-10-12): housed
+    // Awokin and the marked champion cannot be stationed.
     const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
       .where(eq(schema.hallResidents.ownerKey, ownerKey));
     const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
       .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
     const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
-    if (courtIds.has(parsed.data.awakenedId)) badRequest("The court stays in hand — housed Awokin and the champion cannot be stationed on the field.");
-    // STAGED AT THE BASTION (Station 4, Nigel 2026-10-20): a
-    // waiting reinforcement is at the bastion, not in the
-    // hand's play — it takes the field by mustering from the
-    // bastion's own hex, or not at all.
-    const stagedRow = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, parsed.data.awakenedId) as any;
-    if (stagedRow) badRequest("That Awokin waits at the bastion — muster it from the bastion's hex, or unstage it first.");
-    // THE HAND OF TWENTY (Station 4): only the play hand takes
-    // the field. The reserve waits in the deck — a free swap
-    // away, never stranded, but not fielded from reserve.
-    if (!handIdsFor(ownerKey).includes(parsed.data.awakenedId)) badRequest("That Awokin waits in your reserve — bring it into your hand of twenty before it takes the field.");
-    // Verify the tile belongs to the Tender and is not cursed.
-    const tile = await db.select().from(schema.territoryTiles)
-      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
-    if (!tile.length) badRequest("That tile is not yours.");
-    if (tile[0].cursed) badRequest("Cursed tiles must be broken by attacks first.");
-    if (tile[0].cursed) badRequest("Cannot deploy on cursed land.");
-    // THE BUILDING SYSTEM (2026-10-19): no Awokin stands where
-    // stone is still gathering, and no road climbs to a floating
-    // isle — the isle waits for wings the company does not have.
-    if (((tile[0] as any).buildStage ?? 0) === 1) badRequest("The stone has not finished gathering — that ground cannot hold them yet.");
-    if (((tile[0] as any).z ?? 0) > 0) badRequest("No road climbs to the floating isle — it waits for wings.");
-    const occupied = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.tileId, parsed.data.tileId));
-    if (occupied.length >= 4) badRequest("Tile holds at most 4 Awokin.");
-    // Entering the field costs the power-scaled deploy energy — the same
-    // price deployBattle charges (deployCostForPower). This is also the
-    // recast price for an Awoken that dissipated back to hand at 0 HP.
-    const payload = await awakenedPayloadById(parsed.data.awakenedId);
-    const cost = deployCostForPower(payload?.power ?? 1);
-    if (!(await spendEnergy(ownerKey, cost))) badRequest("Not enough energy.");
+    if (courtIds.has(awakenedId)) badRequest("The court stays in hand — housed Awokin and the champion cannot be stationed on the field.");
+    // Staged at the bastion: kept back for its instance.
+    if (stagedIdsFor(ownerKey).includes(awakenedId)) badRequest("That Awokin waits at the bastion — it is kept back for the instance that carries it.");
+    // Still re-coalescing from a fall: callable nowhere.
+    const dispRow = sqlite.prepare("SELECT dispersed_until FROM awakened WHERE id = ?").get(awakenedId) as { dispersed_until: number | null } | undefined;
+    if (dispRow?.dispersed_until && dispRow.dispersed_until > Date.now()) badRequest("That Awokin is still re-coalescing from its fall — it can be called nowhere yet.");
+    const payload = await awakenedPayloadById(awakenedId).catch(() => null);
+    if (!payload) badRequest("That Awokin is not yours to call.");
+    const power = payload.power;
+    const cost = Math.max(1, power);
+    // THE LANDING, chosen before the charge (as the Table
+    // checks its ground before its purse): the Tender's own
+    // tile first, then the tiles beside it — open ground that
+    // can hold a standing figure (no floating isle, no stone
+    // still gathering), four to a tile, cursed or held alike
+    // (the Table's landing law, 2026-10-21: the curse's price
+    // is in the cast, not in the ground).
+    const allPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const loadOf = (tileId: number) => (allPlacements as any[]).reduce((n, p) => {
+      if (p.tileId === tileId && !p.marchPath) return n + 1;
+      if (p.marchPath) { try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r[r.length - 1] === tileId) return n + 1; } catch { /* broken roads hold no room */ } }
+      return n;
+    }, 0);
+    const candidates = (tiles as any[])
+      .filter(t => hexDistTiles(t, standTile) <= 1 && (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1)
+      .sort((a, b) => (a.id === standTile.id ? 0 : 1) - (b.id === standTile.id ? 0 : 1)
+        || hexDistTiles(a, standTile) - hexDistTiles(b, standTile) || a.id - b.id);
+    const landing = candidates.find(t => loadOf(t.id) < 4);
+    if (!landing) badRequest("No ground at your side can hold them — every tile around you stands full.");
+    // THE PURSE, BEFORE THE ROLL — a faltering call spends it.
+    if (!(await spendEnergy(ownerKey, cost))) badRequest(`Not enough energy — ${payload.name} costs ✦${cost}.`);
+    // THE CAST, the Table referee's arithmetic whole.
+    const gift = progress.classKey === "sage" ? -2 : 0;
+    const sp = summonersPowerFor(ownerKey, progress.level, progress.classKey);
+    const curse = standTile.cursed ? -3 : 0;
+    const roll = homelandDN(20);
+    const dc = 10 + power;
+    const landed = roll === 20 || (roll !== 1 && roll + gift + sp + curse >= dc);
+    if (!landed) {
+      return { ok: true as const, summoned: false as const, faltered: true as const, name: payload.name, roll, gift, summonersPower: sp, curse, dc, cost };
+    }
     await db.insert(schema.fieldPlacements).values({
-      ownerKey, awakenedId: parsed.data.awakenedId, tileId: parsed.data.tileId,
-      hp: await placementMaxHp(parsed.data.awakenedId),
+      ownerKey, awakenedId, tileId: landing.id,
+      hp: await placementMaxHp(awakenedId),
     });
-    return okResponse.parse({ ok: true });
+    return { ok: true as const, summoned: true as const, faltered: false as const, name: payload.name, tileId: landing.id, roll, gift, summonersPower: sp, curse, dc, cost };
   },
 
   /**
-   * Battle deployment: send 1-4 Awoken from the battle pool to a tile.
-   * If the tile is cursed and the combined power on it meets the curse weight,
-   * the dark breaks — the tile purifies, takes the attackers' dominant element,
-   * and neighboring cursed tiles start their 48h passive timers.
+   * Battle deployment — the ACTIVE ASSAULT, this door's only
+   * duty since the summoning fix (Nigel, 2026-10-22): send
+   * 1-4 Awoken from the battle pool onto a CURSED tile. If
+   * the combined power on it meets the curse weight, the
+   * dark breaks — the tile purifies, takes the attackers'
+   * dominant element, and neighboring cursed tiles start
+   * their 48h passive timers. (Quiet-ground fielding through
+   * the hand is retired — summonAwoken, above, is the only
+   * summoning door on this ground now.)
    */
   async deployBattle(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
@@ -7299,6 +7393,14 @@ export const handlers = {
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
     if (!tile.length) badRequest("That tile is not yours.");
+    // BATTLE ENTRY IS THIS DOOR'S ONLY DUTY NOW (Nigel,
+    // 2026-10-22 — the summoning fix): a readied company is
+    // sent against CURSED ground — the assault, its XP and
+    // the break. Quiet ground fields no one through the hand
+    // any more: summoning rides the wheel (summonAwoken —
+    // pick the Awokin, and it stands at your side by the
+    // cast). The refusal spends nothing and fields nothing.
+    if (!tile[0].cursed) badRequest("Quiet ground takes no assault — summoning rides the wheel now: right-click, the Awoken branch, pick your Awokin, and it stands at your side by the cast. A readied company is for cursed ground.");
     const owned = await db.select().from(schema.awakened)
       .where(
         and(
@@ -9177,12 +9279,14 @@ export const handlers = {
     const mine = new Set((await db.select().from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.ownerKey, ownerKey))).map(t => t.id));
     if (tileIds.some(id => !mine.has(id))) badRequest("A patrol road runs over your own ground only.");
-    await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now() } as any)
+    await db.update(schema.fieldPlacements).set({ patrolPath: JSON.stringify(tileIds), patrolSince: Date.now(), follow: 0 } as any)
       .where(eq(schema.fieldPlacements.id, placement.id));
     // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20): a
     // patrol road is an order like a march — the Awokin
-    // given it leaves the party. (Clearing a patrol above
-    // gives no order, and ends nothing.)
+    // given it leaves the party, and leaves following to
+    // carry the order out (2026-10-22, as the march does).
+    // (Clearing a patrol above gives no order, and ends
+    // nothing.)
     removePartyMember(ownerKey, awakenedId);
     return { ok: true as const, awakenedId, patrolling: true, waypoints: tileIds.length };
   },
@@ -9247,6 +9351,13 @@ export const handlers = {
     await db.update(schema.fieldPlacements).set({
       marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000), marchGoal: null,
       patrolPath: null, patrolSince: null,
+      // AN ORDER ENDS THE FOLLOW (the marching-orders spec,
+      // Nigel 2026-10-22 — the Table's march referee has
+      // always read "a direct order ends the follow"; the
+      // homeland's verb now reads the same, or the muster
+      // would march the ordered Awokin home on its arrival
+      // and the order would never be carried out).
+      follow: 0,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
     // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20): a
     // marched Awokin leaves the party — it stands under

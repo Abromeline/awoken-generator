@@ -68,7 +68,11 @@ ok("a piece stands in the pool for the waking", pieceId > 0);
 const composition = JSON.stringify([{ source_id: `db:${pieceId}`, name: "Muster Shell", category: "body", rarity: "common", power: 1, toughness: 2, element: "root" }]);
 const awId = Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES ('Muster One', 'Muster One', 'test/one.png', ?, 'tender', 'Stand Tender', ?, ?)").run(composition, me, nowMs).lastInsertRowid);
 db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 100, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = excluded.energy").run(me, nowMs);
-await call("deployAwoken", { awakenedId: awId, tileId: Number(p01) }, token);
+// Seeded straight onto the field: this section's subject is
+// the muster, not the fielding road (the hand's deploy road
+// was retired 2026-10-22 — summoning rides the wheel's cast,
+// which lands at the Tender's side, never far west).
+db.prepare("INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, hp) VALUES (?, ?, ?, ?, ?, 30)").run(me, awId, Number(p01), nowMs, nowMs);
 t = (await call("getTerritory", {}, token)).data;
 const placement = t.placements.find(p => p.awakenedId === awId);
 ok("the creature stands far from the Tender", !!placement && placement.tileId === Number(p01));

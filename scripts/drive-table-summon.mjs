@@ -454,13 +454,14 @@ const memberLabel = await page.evaluate(() => [...document.querySelectorAll(".gw
 ok("the wheel's listing names the price in ✦", memberLabel.includes("✦2"), memberLabel);
 ok("the wheel's listing shows the cast's shape: +4 summoner's power", memberLabel.includes("+4 summoner's power"), memberLabel);
 await pressDisc(() => { const d = [...document.querySelectorAll(".gw-disc")].find((x) => (x.getAttribute("aria-label") ?? "").includes("Pagekin")); if (!d) return null; const r = d.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-await waitPage(() => (document.body.textContent ?? "").includes("Calling") && (document.body.textContent ?? "").includes("Pagekin"), "the call stands readied in the bar");
-// Tap ground at D's side (the tile lattice, solved as the
-// older drives solve it) until Pagekin stands — a faltering
-// call keeps the member readied, so the tap simply repeats.
-const dSeatHex = () => (wstate.state?.players.find((p) => p.name === D.name)?.hex) ?? null;
-// D sits in her own room; read her landing from her own page
-// state through the watcher of that room instead:
+await sleep(600);
+// THE PICK IS THE CAST (2026-10-22): no call stands readied
+// — there is no bar, no ground tap. If the cast faltered,
+// Pagekin simply stays in the company and is picked again.
+const readiedBar = await page.evaluate(() => [...document.querySelectorAll(".placing-bar")].some((b) => (b.textContent ?? "").includes("Calling")));
+ok("no call stands readied after the pick — the pick WAS the cast", !readiedBar);
+// D sits in her own room; read her landing and her field
+// from a watcher of that room:
 const w2 = { state: null };
 const wws2 = new WebSocket("ws://127.0.0.1:3941/table/ws");
 await new Promise((res, rej) => { wws2.onopen = res; wws2.onerror = rej; });
@@ -468,46 +469,20 @@ wws2.onmessage = (ev) => { try { const m = JSON.parse(String(ev.data)); if (m.ty
 wws2.send(JSON.stringify({ type: "join", room: ROOM + "-page", watch: true, name: "Page Watcher" }));
 await waitFor(() => !!w2.state?.players.find((p) => p.name === D.name)?.hex, "the page watcher reads D's landing");
 const dHex = w2.state.players.find((p) => p.name === D.name).hex;
-// The tap identifies the tile's own hit polygon by
-// geometry: the polygons' points live in the stage's local
-// iso coordinates (the server's isoOffset at size 40), so
-// the polygon whose centroid sits on the tile's centre IS
-// the tile — no lattice to solve and no screen mapping to
-// drift (the stage pans and zooms above these coords).
-// The tap is D's own hex: whether it lands on the tile or
-// is routed from D's figure standing on it, the Table
-// attempts the readied summon on that ground.
-const tapTile = async (id) => page.evaluate((hexId) => {
-  const [q, r] = hexId.split(",").map(Number);
-  const k = 40 / 796;
-  const tx = q * 1292 * k + r * 0, ty = q * 470 * k + r * 948 * k;
-  let best = null, bd = 1e9;
-  for (const p of document.querySelectorAll('.table-room svg polygon[fill="transparent"]')) {
-    const pts = (p.getAttribute("points") ?? "").trim().split(/\s+/).map((s) => s.split(",").map(Number));
-    if (!pts.length) continue;
-    const cx = pts.reduce((a2, pt) => a2 + pt[0], 0) / pts.length, cy = pts.reduce((a2, pt) => a2 + pt[1], 0) / pts.length;
-    const d = Math.hypot(cx - tx, cy - ty);
-    if (d < bd) { bd = d; best = p; }
-  }
-  if (best && bd < 8) { best.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return bd; }
-  return -1;
-}, id);
-let pageLanded = false;
-for (let i = 0; i < 6 && !pageLanded; i++) {
-  const bd = await tapTile(dHex);
-  await sleep(900);
+let pageLanded = (w2.state?.field ?? []).some((u) => u.name === "Pagekin");
+for (let i = 0; i < 10 && !pageLanded; i++) {
+  await page.mouse.click(stageBox.x, stageBox.y, { button: "right" });
+  await waitPage(() => !!document.querySelector('.gw-disc[aria-label="Awoken"]'), "the wheel reopens");
+  await pressDisc(() => { const d = document.querySelector('.gw-disc[aria-label="Awoken"]'); if (!d) return null; const r = d.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await waitPage(() => [...document.querySelectorAll(".gw-disc")].some((d) => (d.getAttribute("aria-label") ?? "").includes("Pagekin")), "the company lists Pagekin again");
+  await pressDisc(() => { const d = [...document.querySelectorAll(".gw-disc")].find((x) => (x.getAttribute("aria-label") ?? "").includes("Pagekin")); if (!d) return null; const r = d.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await sleep(1000);
   pageLanded = (w2.state?.field ?? []).some((u) => u.name === "Pagekin");
-  if (process.env.WHEEL_DEBUG) {
-    const diag = await page.evaluate(() => ({
-      caption: document.querySelector(".gw-caption")?.textContent ?? null,
-      wheelOpen: !!document.querySelector(".gw-wheel"),
-      notice: document.querySelector(".notice-line")?.textContent ?? document.querySelector(".error-line")?.textContent ?? null,
-      placing: document.querySelector(".placing-bar")?.textContent?.slice(0, 120) ?? null,
-    }));
-    console.log(`    [tap ${i}] bd=${bd} landed=${pageLanded} diag=${JSON.stringify(diag)} tales=${JSON.stringify((w2.state?.tale ?? []).slice(-3).map((t) => t.text))}`);
-  }
 }
-ok("the wheel flow lands Pagekin on the tapped ground", pageLanded);
+ok("the wheel flow lands Pagekin — pick by pick, no ground tap anywhere", pageLanded);
+const pageUnit = (w2.state?.field ?? []).find((u) => u.name === "Pagekin");
+ok("Pagekin stands at D's side — her own hex or one beside it",
+  !!pageUnit && axDist(pageUnit.hex, dHex) <= 1, `unit=${pageUnit?.hex} seat=${dHex}`);
 await page.screenshot({ path: `${OUT}/wheel-summon.png` });
 await browser.close();
 

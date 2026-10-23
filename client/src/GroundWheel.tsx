@@ -174,7 +174,7 @@ function EntryDisc({ entry, radius, angDeg, size, pinnedKeys, onTogglePin, onDro
   );
 }
 
-export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinnedKeys, onTogglePin, onDropKey, onClose }: {
+export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinnedKeys, onTogglePin, onDropKey, onClose, ordersMode }: {
   cx: number;
   cy: number;
   tab: WheelTabId;
@@ -185,6 +185,12 @@ export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinn
   onTogglePin: (key: string) => void;
   onDropKey: (key: string) => void;
   onClose: () => void;
+  /** THE ORDERS WHEEL (Nigel, 2026-10-22 — the marching-
+   *  orders spec, from the Proving Ground's proof): no
+   *  branches — the entries themselves stand on the outer
+   *  ring, spread evenly around the hub, one wheel for one
+   *  Awokin or for a whole drag-chosen company. */
+  ordersMode?: boolean;
 }) {
   const [drag, setDrag] = useState<DiscDrag | null>(null);
   return (
@@ -205,7 +211,7 @@ export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinn
             <circle key={`d${k}`} cx={0} cy={-100} r={1.6} fill="rgba(216,178,92,.5)" transform={`rotate(${k})`} />
           ))}
         </svg>
-        {WHEEL_CATS.map((c, i) => {
+        {!ordersMode && WHEEL_CATS.map((c, i) => {
           const on = tab === c.id || ((tab === "weapon" || tab === "attune") && c.id === "ability");
           const a = ((-90 + i * 60) * Math.PI) / 180;
           return (
@@ -218,9 +224,11 @@ export default function GroundWheel({ cx, cy, tab, onTab, entries, caption, pinn
           );
         })}
         {entries.map((e, i) => {
-          const ang = entries.length === 1 ? -90 : -90 + (i - (entries.length - 1) / 2) * 52;
+          const ang = ordersMode
+            ? -90 + i * (360 / Math.max(1, entries.length))
+            : entries.length === 1 ? -90 : -90 + (i - (entries.length - 1) / 2) * 52;
           return (
-            <EntryDisc key={e.key} entry={e} radius={58} angDeg={ang} size={42}
+            <EntryDisc key={e.key} entry={e} radius={ordersMode ? 100 : 58} angDeg={ang} size={ordersMode ? 48 : 42}
               pinnedKeys={pinnedKeys} onTogglePin={onTogglePin} onDropKey={onDropKey}
               onTab={onTab} onClose={onClose} onDragState={setDrag} />
           );

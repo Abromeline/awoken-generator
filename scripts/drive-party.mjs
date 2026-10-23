@@ -146,41 +146,76 @@ const partyRows = (ownerKey) => db.prepare("SELECT awakened_id FROM tender_party
 
 /* ── §G THE HOMELAND GATE ───────────────────────────────── */
 {
-  console.log("§G the homeland gate — the party is who you can field, on both deploy doors");
+  console.log("§G the homeland gate — the party is who you can summon; the hand road fields nothing on quiet ground");
   const G = await claimWithExp("Gate Tender", 0);
+  // The class is written directly — classes wake at Lv 3
+  // by the choosing door, and the gate's tender is Lv 1;
+  // the stand needs only the class's name.
+  db.prepare("UPDATE tender_progress SET class_key = 'warden' WHERE owner_key = ?").run(G.ownerKey);
   const M = seedAwokin(G.ownerKey, "Gate Tender", "Gate Member", 2);    // power 6
   const N = seedAwokin(G.ownerKey, "Gate Tender", "Gate Outsider", 2);  // power 6
   await call("addToParty", { awakenedId: M }, G.token);
   const now = Date.now();
-  const insTile = db.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, created_at) VALUES (?, ?, ?, 'root', 0, ?)");
-  const g00 = Number(insTile.run(G.ownerKey, 0, 0, now).lastInsertRowid);
-  const g10 = Number(insTile.run(G.ownerKey, 1, 0, now).lastInsertRowid);
+  const insTile = db.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, created_at) VALUES (?, ?, ?, 'root', ?, ?)");
+  const g00 = Number(insTile.run(G.ownerKey, 0, 0, 0, now).lastInsertRowid);
+  const g10 = Number(insTile.run(G.ownerKey, 1, 0, 0, now).lastInsertRowid);
+  const g11 = Number(insTile.run(G.ownerKey, 1, 1, 1, now).lastInsertRowid);
   db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 100, ?)").run(G.ownerKey, now);
   const energyOf = () => db.prepare("SELECT energy FROM tender_resources WHERE owner_key = ?").get(G.ownerKey).energy;
   const placedOf = (id) => db.prepare("SELECT COUNT(*) AS n FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(G.ownerKey, id).n;
 
+  // THE WHEEL'S CAST is the summoning door now (Nigel,
+  // 2026-10-22): the retired deployAwoken is gone whole —
+  // the action itself no longer answers.
   let refused = null;
-  try { await call("deployAwoken", { awakenedId: N, tileId: g00 }, G.token); } catch (e) { refused = e; }
-  ok("deployAwoken refuses a non-member in the party's plain voice",
+  try { await call("deployAwoken", { awakenedId: M, tileId: g10 }, G.token); } catch (e) { refused = e; }
+  ok("the retired hand road no longer answers — deployAwoken is gone",
+    !!refused, refused ? refused.message : "no refusal");
+
+  refused = null;
+  try { await call("summonAwoken", { awakenedId: N }, G.token); } catch (e) { refused = e; }
+  ok("summonAwoken refuses a non-member in the party's plain voice",
     !!refused && /is not in your party/.test(refused.message), refused ? refused.message : "no refusal");
   ok("the refusal spent nothing and fielded nothing",
     energyOf() === 100 && placedOf(N) === 0, `energy ${energyOf()}, placed ${placedOf(N)}`);
 
   refused = null;
-  try { await call("deployBattle", { awakenedIds: [M, N], tileId: g00 }, G.token); } catch (e) { refused = e; }
+  try { await call("deployBattle", { awakenedIds: [M, N], tileId: g11 }, G.token); } catch (e) { refused = e; }
   ok("deployBattle refuses a company carrying a non-member",
     !!refused && /is not in your party/.test(refused.message), refused ? refused.message : "no refusal");
   ok("the battle refusal spent nothing and fielded nothing — the member in the company stands undeployed too",
     energyOf() === 100 && placedOf(M) === 0 && placedOf(N) === 0, `energy ${energyOf()}`);
 
-  await call("deployAwoken", { awakenedId: M, tileId: g10 }, G.token);
-  ok("the member deploys exactly as before — its price spent, its place taken",
-    placedOf(M) === 1 && energyOf() === 97, `energy ${energyOf()}, placed ${placedOf(M)}`);
+  refused = null;
+  try { await call("deployBattle", { awakenedIds: [M], tileId: g00 }, G.token); } catch (e) { refused = e; }
+  ok("the readied company fields nothing on quiet ground — summoning rides the wheel",
+    !!refused && /Quiet ground takes no assault/.test(refused.message), refused ? refused.message : "no refusal");
+  ok("the quiet-ground refusal spent nothing and fielded nothing",
+    energyOf() === 100 && placedOf(M) === 0, `energy ${energyOf()}`);
+
+  // The member is summoned BY THE CAST: no tile is named —
+  // the server lands it at the Tender's side (his stand is
+  // the heart tile). The cast can falter — each attempt
+  // spends the price (power 6 → ✦6) BEFORE the roll, so the
+  // purse tells the whole tale: energy = 100 − 6 × attempts.
+  let attempts = 0, landed = null;
+  while (attempts < 14 && !landed) {
+    attempts++;
+    const r = await call("summonAwoken", { awakenedId: M }, G.token);
+    if (r.summoned) landed = r;
+  }
+  ok("the member is summoned by the cast — it stands fielded",
+    !!landed && placedOf(M) === 1, `attempts ${attempts}, placed ${placedOf(M)}`);
+  ok("every attempt spent its price before the roll — falters included",
+    energyOf() === 100 - 6 * attempts, `energy ${energyOf()}, attempts ${attempts}`);
+  const standTileOf = db.prepare("SELECT tile_id AS t FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(G.ownerKey, M);
+  ok("the landing stands at the Tender's side — his own tile or one beside it",
+    !!standTileOf && [g00, g10, g11].includes(standTileOf.t), `tile ${standTileOf && standTileOf.t}`);
 
   const vFill = await call("addToParty", { awakenedId: N }, G.token);
   ok("a party fill at home lands at once — the membership stands in the reply, and no road is started",
     vFill.members.some((m) => m.awakenedId === N) && !vFill.reinforcement, JSON.stringify(vFill.reinforcement ?? null));
-  void g00;
+  void g00; void g10; void g11;
 }
 
 /* ── §T THE TABLE ───────────────────────────────────────── */
