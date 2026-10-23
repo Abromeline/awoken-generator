@@ -203,6 +203,13 @@ interface YouState {
    *  stand-in pool likewise. The deck hand is retired; this
    *  list is what the wheel's Awoken branch reads. */
   company: TableCard[];
+  /** THE REINFORCEMENT DECK (Nigel, 2026-10-23 — Recovery
+   *  R6): the deck Awoken this seat's wheel can CALL IN —
+   *  owned, outside the party, not on a road, not fielded
+   *  here, not kept at a post — each with the road's price
+   *  (its summon price). The wheel's Awoken branch lists
+   *  them under the company; the pick is the call. */
+  reinforcements?: { awakenedId: number; name: string; art: string | null; power: number; cost: number }[];
   /** SUMMONER'S POWER (Nigel, 2026-10-21): the term the
    *  summon cast rolls with beside the gift — the zodiac
    *  "summoner" clauses, +2 per 3 tender levels, +3 for the
@@ -248,10 +255,11 @@ interface YouState {
   /** THE PARTY'S SEAT DISPLAY (build 2): the members with
    *  their standings for this Table ("field", "ready" at the
    *  wheel, or keeping a "post"), the open spots, and any
-   *  reinforcements still in flight from before the wheel
-   *  law with their time left — served with your own
-   *  payload. The display only shows the party; a member is
-   *  CHOSEN on the Zodiac's deck screen, never here. */
+   *  reinforcements still on the road with their time left —
+   *  served with your own payload. The display only shows
+   *  the party; a member is CHOSEN on the Zodiac's deck
+   *  screen, and a reinforcement is CALLED at the wheel —
+   *  never here. */
   partyView?: {
     cap: number;
     members: { awakenedId: number; name: string; standing: "field" | "ready" | "post" }[];
@@ -2282,7 +2290,7 @@ export default function Table() {
         if (healDef) out.push(defEntry(healDef, "heal"));
         return out.length ? out : noneYet("binding", "The book holds no binding pages yet.");
       }
-      case "awoken":
+      case "awoken": {
         // THE SUMMON FLOW (Nigel, 2026-10-21 — the wheel law;
         // the target struck 2026-10-22): the branch lists the
         // wheel's company — name, figure, and the summon
@@ -2294,7 +2302,7 @@ export default function Table() {
         // Tender's own hex or a free one beside it. A falter
         // spends the price and stands nothing; the branch is
         // read fresh with the room, ready to pick again.
-        return (you?.company ?? []).map(card => ({
+        const companyEntries = (you?.company ?? []).map(card => ({
           key: `card-${card.id}`,
           img: card.art ?? null,
           emoji: "✦",
@@ -2302,7 +2310,31 @@ export default function Table() {
           pinKey: `card-${card.id}`,
           dragKey: `card-${card.id}`,
           act: () => { setSelUnitId(null); castSummonCard(card); },
-        }));
+        } as WheelEntry));
+        // THE REINFORCEMENT CALL (Nigel, 2026-10-23 —
+        // Recovery R6): under the company, the branch lists
+        // the deck the wheel can call in — Awoken outside the
+        // party. The pick IS the call: with a bastion in
+        // play it air-drops into the party at once, free;
+        // with none, it walks the road — its summon price
+        // paid now, its membership landing when the road
+        // completes, while the battle stands. The label
+        // names which of the two the room will do, from the
+        // room's own bastion standing.
+        const bastionPlays = !!shared?.bastion && !shared.bastion.resolved;
+        const reinfEntries = (you?.reinforcements ?? []).map(r => ({
+          key: `reinf-${r.awakenedId}`,
+          img: r.art,
+          emoji: "🚶",
+          label: bastionPlays
+            ? `Reinforcement — ${r.name} · air drop: joins your party at once`
+            : `Reinforcement — ${r.name} · ✦${r.cost} for the road · walks 4 minutes to your party`,
+          pinKey: `reinf-${r.awakenedId}`,
+          dragKey: `reinf-${r.awakenedId}`,
+          act: () => { setSelUnitId(null); send({ type: "callReinforcement", awakenedId: r.awakenedId }); },
+        } as WheelEntry));
+        return [...companyEntries, ...reinfEntries];
+      }
       case "ability":
         return [
           { key: "nav-weapon", sigil: "weapon", label: "Weapon", nav: "weapon" as WheelTabId },
@@ -2355,8 +2387,8 @@ export default function Table() {
       case "ward": return `Ward — the Written Light, raised on edges you hold${drag}`;
       case "rune": return `Rune — writings in the ground — they wait, and spring${drag}`;
       case "binding": return `Binding — threads that mend and hold — the Springleaf's grove among them${drag}`;
-      case "awoken": return (you?.company.length ?? 0)
-        ? `Awoken — your company — tap one to ready its summon cast, then tap the ground at your side${drag}`
+      case "awoken": return (you?.company.length ?? 0) || (you?.reinforcements?.length ?? 0)
+        ? `Awoken — your company, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, your deck can be called in as reinforcements${shared?.bastion && !shared.bastion.resolved ? " — a bastion plays, so a call air-drops them into your party at once" : " — with no bastion playing, a call walks the road: four minutes to your party, its summon price paid for the road"}${drag}`
         : "Awoken — your company stands empty; your party is on the field, or no party is composed";
       case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
       case "attune": return you?.storytender
@@ -2414,6 +2446,12 @@ export default function Table() {
   // from the wheel (or the company) — no second language.
   const actHotbar = (key: string) => {
     if (key === "ability") { openRadialAtMe(true); return; }
+    if (key.startsWith("reinf-")) {
+      const r = you?.reinforcements?.find(x => x.awakenedId === Number(key.slice(6))) ?? null;
+      if (r) { setSelUnitId(null); send({ type: "callReinforcement", awakenedId: r.awakenedId }); }
+      else toggleHotbar(key); // no longer callable — the slot looses itself
+      return;
+    }
     if (key.startsWith("card-")) {
       const id = key.slice(5);
       const card = you?.company.find(c => c.id === id) ?? null;
@@ -2436,6 +2474,10 @@ export default function Table() {
     if (key.startsWith("card-")) {
       const card = you?.company.find(c => c.id === key.slice(5)) ?? null;
       return { img: card?.art ?? null, emoji: "✦", label: card ? card.name.split(" ")[0] : "gone", dim: !card, lit: false, title: card ? `${card.name} — tap to cast the summon: it stands at your side, no target` : "This Awokin is not in your company now — tap to loose the slot" };
+    }
+    if (key.startsWith("reinf-")) {
+      const r = you?.reinforcements?.find(x => x.awakenedId === Number(key.slice(6))) ?? null;
+      return { img: r?.art ?? null, emoji: "🚶", label: r ? r.name.split(" ")[0] : "gone", dim: !r, lit: false, title: r ? `${r.name} — tap to call it in as a reinforcement: a bastion playing air-drops it into your party at once; otherwise it walks the road, ✦${r.cost} paid, four minutes to your party` : "This Awokin cannot be called now — tap to loose the slot" };
     }
     const off = buildOfferings().find(o => o.key === key);
     if (off) {
@@ -3217,14 +3259,14 @@ export default function Table() {
                         const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
                         return (
                           <span key={i.awakenedId} className="elsewhere-chip party-chip incoming"
-                            title={`${i.name} is on its way to your party — a road begun before the wheel law; it joins when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
+                            title={`${i.name} is on its way to your party — called in as a reinforcement; it joins when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
                             🚶 {i.name} · on its way — {mm}:{ss} left
                           </span>
                         );
                       })}
                     </div>
                     {shared.battle.active && you.partyView.openSpots > 0 && (
-                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. Fill one from the Party tab of your Zodiac — the fill lands at once now, even mid-battle, and costs nothing; the wheel's summon cast is the only gate between the party and the field.</p>
+                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. Fill one from the Party tab of your Zodiac — the fill lands at once now, even mid-battle, and costs nothing — or call a reinforcement from the wheel's Awoken branch: with no bastion playing it walks the road to your party, and the wheel's summon cast is then the gate between the party and the field.</p>
                     )}
                     {shared.battle.active && you.partyView.openSpots === 0 && (
                       <p className="quiet small">Your party stands full — no spot stands open for a fill.</p>

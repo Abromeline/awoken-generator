@@ -428,7 +428,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // served by getTerritory with the field (summonCompanyFor
   // on the server), with the summoner's power the cast rolls
   // with and whether the Tender's stand is cursed.
-  const [summoning, setSummoning] = useState<{ company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }>({ company: [], summonersPower: 0, standCursed: false });
+  const [summoning, setSummoning] = useState<{ company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }>({ company: [], reinforcements: [], summonersPower: 0, standCursed: false });
   // The company the hand does NOT hold — fielded on this
   // ground, or staged at the bastion — named with where each
   // stands, served by getTerritory beside the placements (the
@@ -1493,7 +1493,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []); setElsewhere(t.elsewhere ?? []);
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
-        setSummoning(t.summoning ?? { company: [], summonersPower: 0, standCursed: false });
+        setSummoning(t.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
         setWanderers(t.wanderers ?? []);
         if (t.battle) setBattle(t.battle);
         setDefenceWorks(t.defenceWorks ?? []);
@@ -1537,7 +1537,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
-    setSummoning(refreshed.summoning ?? { company: [], summonersPower: 0, standCursed: false });
+    setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
     if (refreshed.battle) setBattle(refreshed.battle);
     setDefenceWorks(refreshed.defenceWorks ?? []);
@@ -1927,6 +1927,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
+  /** CALL A REINFORCEMENT (Nigel, 2026-10-23 — Recovery
+   *  R6): the wheel's pick names a deck Awoken outside the
+   *  party; on the homeland the call lands AT ONCE — the
+   *  Awoken joins the party in this breath, and the branch,
+   *  read fresh, lists it in the company, ready for the
+   *  summon cast. No road, no price. */
+  const callHomelandReinforcement = async (entry: { awakenedId: number; name: string }) => {
+    try {
+      const r = await api.callReinforcement({ awakenedId: entry.awakenedId });
+      await refreshTerritory();
+      await partyQ.refetch();
+      showHexNotice(`${r.reinforcement?.name ?? entry.name} answers the call — it joins your party at once, and the wheel's summon cast can stand it at your side.`);
+    } catch (err) {
+      showHexNotice(err instanceof Error ? err.message : "The call was refused.");
+    }
+  };
+
   /** Follow, toggled from the wheel or the belt: the one
    *  server order, then the marching read refreshes. */
   const toggleFollow = async (placementId: number, follow: boolean) => {
@@ -1981,13 +1998,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // falters and the price is spent. (This branch READ the
       // company until tonight; the reading is the Zodiac's
       // party tab's office now.)
-      if (!summoning.company.length) {
+      if (!summoning.company.length && !(summoning.reinforcements ?? []).length) {
         return [{
           key: "sum-none", sigil: "awo", label: "None callable", locked: true,
-          act: () => showHexNotice("No one can be called — your party stands fielded, staged at the bastion, or still re-coalescing. Fill a spot from the Party tab of your Zodiac; the wheel's cast is the only gate."),
+          act: () => showHexNotice("No one can be called — your party stands fielded, staged at the bastion, or still re-coalescing, and no deck Awoken waits to be called in. Fill a spot from the Party tab of your Zodiac; the wheel's cast is the only gate."),
         } as WheelEntry];
       }
-      return summoning.company.map(c => ({
+      const companyEntries = summoning.company.map(c => ({
         key: `sum-${c.awakenedId}`,
         img: c.imageUrl,
         emoji: "✦",
@@ -1996,6 +2013,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         dragKey: `sum-${c.awakenedId}`,
         act: () => { void castSummon(c); },
       } as WheelEntry));
+      // THE REINFORCEMENT CALL (Nigel, 2026-10-23 —
+      // Recovery R6): under the company, the branch lists
+      // the deck the wheel can call in — Awoken outside the
+      // party. On the homeland the call is INSTANT: the pick
+      // joins it to the party at once, and it stands in the
+      // company above from the next reading, ready for the
+      // summon cast.
+      const reinfEntries = (summoning.reinforcements ?? []).map(c => ({
+        key: `reinf-${c.awakenedId}`,
+        img: c.imageUrl,
+        emoji: "🚶",
+        label: `Reinforcement — ${c.name} · joins your party at once`,
+        pinKey: `reinf-${c.awakenedId}`,
+        dragKey: `reinf-${c.awakenedId}`,
+        act: () => { void callHomelandReinforcement(c); },
+      } as WheelEntry));
+      return [...companyEntries, ...reinfEntries];
     }
     if (wheelTab === "attune") {
       // ATTUNE IS AN ABILITY (Nigel, 2026-10-21): the five
@@ -2110,9 +2144,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       case "ability": return placements.length
         ? `Ability — the tender's own deeds, beyond spellcraft${drag}`
         : "Ability — the tender's own deeds, beyond spellcraft · no Awokin stands on your land yet";
-      case "awoken": return summoning.company.length
-        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price${drag}`
-        : "Awoken — no one can be called: your party stands fielded, staged, or re-coalescing";
+      case "awoken": return summoning.company.length || (summoning.reinforcements ?? []).length
+        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, your deck can be called in as reinforcements — on the homeland a call joins them to your party at once${drag}`
+        : "Awoken — no one can be called: your party stands fielded, staged, or re-coalescing, and no deck Awoken waits to be called in";
       default: {
         const label = wheelTab === "spell" ? "Spell" : wheelTab === "ward" ? "Ward" : wheelTab === "rune" ? "Rune" : "Binding";
         const sub = wheelTab === "spell" ? "castings from the hand and the sky"
@@ -2163,6 +2197,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const c = summoning.company.find(x => x.awakenedId === Number(key.slice(4))) ?? null;
       if (!c) { toggleHotbar(key); return; }
       void castSummon(c);
+      return;
+    }
+    if (key.startsWith("reinf-")) {
+      const c = (summoning.reinforcements ?? []).find(x => x.awakenedId === Number(key.slice(6))) ?? null;
+      if (!c) { toggleHotbar(key); return; }
+      void callHomelandReinforcement(c);
       return;
     }
     if (key.startsWith("cast-")) {
@@ -2289,7 +2329,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const refreshed = await api.getTerritory();
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
-    setSummoning(refreshed.summoning ?? { company: [], summonersPower: 0, standCursed: false });
+    setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     onUpdate();
   };
 
@@ -6836,6 +6876,22 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     {c?.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="tender-slot-emoji">✦</span>}
+                    <span className="tender-slot-label">{c ? c.name.split(" ")[0] : "gone"}</span>
+                  </button>
+                );
+              }
+              if (key.startsWith("reinf-")) {
+                // A keyed reinforcement call (Recovery R6):
+                // the tap calls the deck Awoken into the party
+                // at once — on the homeland, reinforcements
+                // are instant.
+                const c = (summoning.reinforcements ?? []).find(x => x.awakenedId === Number(key.slice(6))) ?? null;
+                return (
+                  <button type="button" key={key} className={`tender-slot${!c ? " dim" : ""}`}
+                    title={c ? `${c.name} — tap to call it in as a reinforcement: it joins your party at once (right-click to loose the slot)` : "That Awokin cannot be called in now — tap to loose the slot"}
+                    onClick={() => actTerritorySlot(key)}
+                    onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
+                    {c?.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="tender-slot-emoji">🚶</span>}
                     <span className="tender-slot-label">{c ? c.name.split(" ")[0] : "gone"}</span>
                   </button>
                 );

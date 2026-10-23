@@ -305,9 +305,11 @@ export interface PartyView {
    *  but do not stand in the ledger yet. `cost` is the ✦ the
    *  road charged, returned whole if the battle ends first. */
   incoming?: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
-  /** Set on an addToParty answer that started a road
-   *  instead of landing a membership (mid-battle). */
-  reinforcement?: { awakenedId: number; name: string; arrivesAt: number; cost: number };
+  /** Set on a callReinforcement answer (Recovery R6): the
+   *  homeland call lands at once (`instant`), while a Table
+   *  road — read through this same view's `incoming` —
+   *  carries its arrival and price. */
+  reinforcement?: { awakenedId: number; name: string; arrivesAt?: number; cost?: number; instant?: boolean };
 }
 
 export type GrimoireSpellKind = "ward" | "rune" | "binding" | "spell";
@@ -719,7 +721,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean } }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean } }>("getTerritory", {}),
   looseBlade: (args: { wandererId: number }) =>
     post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number }>("looseBlade", args),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; heldMs?: number }) =>
@@ -735,6 +737,10 @@ export const api = {
   addToParty: (args: { awakenedId: number }) => post<PartyView>("addToParty", args),
   removeFromParty: (args: { awakenedId: number }) => post<PartyView>("removeFromParty", args),
   addFieldToParty: (args: { awakenedId: number }) => post<PartyView & { cameOffField: boolean }>("addFieldToParty", args),
+  // CALL A REINFORCEMENT (Nigel, 2026-10-23 — Recovery R6):
+  // the homeland wheel names a deck Awoken outside the party
+  // and calls it in; on the homeland the call lands at once.
+  callReinforcement: (args: { awakenedId: number }) => post<PartyView & { reinforcement: { awakenedId: number; name: string; instant: boolean } }>("callReinforcement", args),
   // THE HOMELAND SUMMON CAST (Nigel, 2026-10-22): the pick
   // IS the cast — no tile is named; the server chooses the
   // landing at the Tender's side and answers with the whole

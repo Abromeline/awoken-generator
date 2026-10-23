@@ -45,6 +45,17 @@ const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 b
  *  long before it lapses into a true leaving. Env-tunable for
  *  the test harness. */
 const AWAY_GRACE_MS = Number(process.env.TABLE_AWAY_GRACE_MS || 600_000);
+/** REINFORCEMENTS' ROAD (Nigel, 2026-10-20: four minutes;
+ *  RE-RULED Nigel, 2026-10-23 07:21–07:25 — Recovery R6):
+ *  how long a reinforcement walks to the Table when NO
+ *  bastion plays. With a bastion in play the air drop is
+ *  instant, and on the homeland reinforcements are instant —
+ *  this road is walked at the Table alone, and only while no
+ *  bastion plays. Env-tunable for the test harness, as
+ *  AWAY_GRACE_MS is. The duration itself never moved: it is
+ *  the road's own four minutes, restored with the door. */
+const REINFORCEMENT_MS = Number(process.env.TABLE_REINFORCEMENT_MS || 240_000);
+const REINFORCEMENT_MINUTES = Math.max(1, Math.round(REINFORCEMENT_MS / 60_000));
 /** The fall measure: a truly dissipated Awoken re-coalesces
  *  in four hours — the homeland's dispersal writes the same
  *  span on awakened.dispersed_until (actions.ts). */
@@ -231,16 +242,27 @@ interface Player {
    *  play their casting gesture from it. */
   castAt?: number;
   /** REINFORCEMENTS STILL IN FLIGHT (the Party, build 2;
-   *  the road itself RETIRED by the wheel law, 2026-10-21):
-   *  no new road can start — a deck fill lands its membership
-   *  at once now, and the wheel's cast is the only gate — but
-   *  a road started under the old law in a room still standing
-   *  settles honestly: membership lands when its timer
-   *  completes if the battle still stands, and a battle's end
-   *  closes it with its price returned whole. `cost` is what
-   *  the road charged and `fromBank` which purse it was
-   *  charged from, so a refund returns to the same purse. */
+   *  the road RETIRED by the wheel law, 2026-10-21, then
+   *  RE-RULED Nigel, 2026-10-23 07:21–07:25 — Recovery R6):
+   *  the wheel calls reinforcements again — a deck Awoken
+   *  named at the wheel walks this road when no bastion
+   *  plays, and its membership lands when the timer completes
+   *  if the battle still stands (settleReinforcements); a
+   *  battle's end closes the road with its price returned
+   *  whole. `cost` is what the road charged and `fromBank`
+   *  which purse it was charged from, so a refund returns to
+   *  the same purse. */
   incoming?: { awakenedId: number; name: string; arrivesAt: number; cost: number; fromBank: boolean }[];
+  /** THE DECK THE WHEEL CAN CALL REINFORCEMENTS FROM
+   *  (Recovery R6): this seat's Tender's owned Awoken that
+   *  could be called in — not in the party, not already on
+   *  the road, not fielded here, not kept at a post —
+   *  rebuilt beside the company (same freshness watch), each
+   *  with the road's price (its summon price). Bound seats
+   *  only; this seat's eyes only, as the company is. */
+  reinforcements?: { awakenedId: number; name: string; art: string | null; power: number; cost: number }[];
+  reinforcementsSig?: string;
+  reinforcementsAt?: number;
   /** This seat was dealt the instance host's staged company
    *  alone (Station 4) — the one standing exception to the
    *  law that a bound seat summons only its party. */
@@ -1205,22 +1227,89 @@ async function refreshCompany(room: Room, player: Player): Promise<void> {
   player.companyAt = Date.now();
 }
 
+/** What a seat's reinforcement deck was built from, in
+ *  one string: the Tender's whole roster (ids), the party,
+ *  the roads in flight, and this seat's fielded — the deck
+ *  is what falls out of that reckoning, so when any of it
+ *  turns, the deck is stale. (Recovery R6.) */
+function reinforcementsSignature(room: Room, player: Player): string {
+  if (!player.expKey) return "none";
+  const roster = (sqlite.prepare("SELECT id FROM awakened WHERE owner_key = ? ORDER BY id").all(player.expKey) as { id: number }[]).map(r => r.id).join(",");
+  const party = partyIdsFor(player.expKey).join(",");
+  const incoming = (player.incoming ?? []).map(i => i.awakenedId).join(",");
+  const fielded = [...room.field.values()].filter(u => u.ownerKey === player.key).map(u => u.card.awokenId ?? "").join(",");
+  return `${roster}|party:${party}|in:${incoming}|fielded:${fielded}`;
+}
+
+/** Rebuild a seat's reinforcement deck (Recovery R6): the
+ *  Tender's owned Awoken the wheel can call in — the whole
+ *  roster, minus the party (they ride the summon cast),
+ *  minus the roads already in flight, minus what stands on
+ *  this field, minus what a post keeps (the homeland field,
+ *  the bastion's staging, a fall's re-coalescence — the
+ *  company's own exclusions, mirrored from
+ *  companyForTender). Each entry carries the road's
+ *  price: its summon price, as the road always charged. */
+async function refreshReinforcements(room: Room, player: Player): Promise<void> {
+  const sig = reinforcementsSignature(room, player);
+  player.reinforcementsSig = sig;
+  player.reinforcementsAt = Date.now();
+  if (!player.expKey) { player.reinforcements = []; return; }
+  const expKey = player.expKey;
+  const party = new Set(partyIdsFor(expKey));
+  const incoming = new Set((player.incoming ?? []).map(i => i.awakenedId));
+  const fielded = new Set([...room.field.values()].filter(u => u.ownerKey === player.key).map(u => u.card.awokenId).filter((x): x is number => typeof x === "number"));
+  const placed = new Set((sqlite.prepare("SELECT awakened_id AS id FROM field_placements WHERE owner_key = ?").all(expKey) as { id: number }[]).map(r => r.id));
+  const staged = new Set(stagedIdsFor(expKey));
+  const rows = sqlite.prepare("SELECT id, dispersed_until FROM awakened WHERE owner_key = ? ORDER BY id").all(expKey) as { id: number; dispersed_until: number | null }[];
+  const now = Date.now();
+  const out: NonNullable<Player["reinforcements"]> = [];
+  for (const row of rows) {
+    if (party.has(row.id) || incoming.has(row.id) || fielded.has(row.id)) continue;
+    if (placed.has(row.id) || staged.has(row.id)) continue;
+    if (row.dispersed_until && row.dispersed_until > now) continue;
+    const payload = await awakenedPayloadById(row.id).catch(() => null);
+    if (!payload) continue;
+    out.push({
+      awakenedId: row.id,
+      name: payload.name ?? "An Awokin",
+      art: payload.image_url ?? null,
+      power: payload.power ?? 1,
+      cost: Math.max(1, payload.power ?? 1),
+    });
+  }
+  player.reinforcements = out;
+}
+
 /** sendState's freshness watch: a company whose signature
  *  turned, or whose build is a few seconds old (a member's
  *  re-coalescence can end without any signature moving), is
  *  rebuilt in the background; the completed build pushes a
- *  fresh state of its own, so no caller waits on the ledger. */
+ *  fresh state of its own, so no caller waits on the ledger.
+ *  The reinforcement deck rides the same watch (Recovery
+ *  R6): its signature is the whole roster against the party,
+ *  the roads and the field. */
 function maybeRefreshCompany(room: Room, player: Player): void {
   if (player.watcher) return;
   const stale = player.companySig !== companySignature(room, player)
     || (player.companyAt ?? 0) < Date.now() - 10_000;
-  if (!stale) return;
+  const reinfStale = !!player.expKey
+    && (player.reinforcementsSig !== reinforcementsSignature(room, player)
+      || (player.reinforcementsAt ?? 0) < Date.now() - 10_000);
+  if (!stale && !reinfStale) return;
   // Stamp the attempt now so a slow build is not started
   // again by the very next push; refreshCompany re-stamps
   // both marks when it lands.
-  player.companySig = companySignature(room, player);
-  player.companyAt = Date.now();
-  void refreshCompany(room, player).then(() => sendState(room)).catch(() => {});
+  if (stale) {
+    player.companySig = companySignature(room, player);
+    player.companyAt = Date.now();
+    void refreshCompany(room, player).then(() => sendState(room)).catch(() => {});
+  }
+  if (reinfStale) {
+    player.reinforcementsSig = reinforcementsSignature(room, player);
+    player.reinforcementsAt = Date.now();
+    void refreshReinforcements(room, player).then(() => sendState(room)).catch(() => {});
+  }
 }
 
 /** The company this Tender can NOT call, with where each
@@ -1264,11 +1353,11 @@ export async function elsewhereForTender(tenderId: number, opts?: { stagedOnly?:
  *  wheel build, 2026-10-21) ───────────────────────────────
  *  The company above reads the membership ledger; what
  *  follows is the rest of the party's meeting with the
- *  Table: the seat's own party display, the settling of
- *  reinforcements still in flight from before the wheel law
- *  (no new road can start — the starter roads are retired
- *  below), and the battle-end law. Membership itself lives
- *  in server/src/party.ts; these are its Table roads only. */
+ *  Table: the seat's own party display, the calling of
+ *  reinforcements (the road re-ruled by Nigel, 2026-10-23 —
+ *  Recovery R6, below) and their settling, and the
+ *  battle-end law. Membership itself lives in
+ *  server/src/party.ts; these are its Table roads only. */
 
 /** Every seat a room holds, live and held (away) alike. */
 function allSeats(room: Room): Player[] {
@@ -1284,14 +1373,13 @@ export interface PartySeatView {
    *  not currently fielded); "post" — keeping a post the
    *  company could not bring. */
   members: { awakenedId: number; name: string; standing: "field" | "ready" | "post" }[];
-  /** Open spots after the members and any roads still in
-   *  flight from before the wheel law. */
+  /** Open spots after the members and any reinforcements
+   *  still on the road. */
   openSpots: number;
-  /** Who is still on a road started before the wheel law,
-   *  and when each arrives. No new road can start: a fill is
-   *  CHOSEN on the deck screen — an empty Awokin spot on the
-   *  Zodiac, filled from the deck list there — and lands at
-   *  once; this display only shows what is still in flight. */
+  /** Who is on the road to this party, and when each
+   *  arrives (Recovery R6: roads start again at the wheel
+   *  when no bastion plays; with a bastion, and between
+   *  battles, a fill lands at once and no road stands). */
   incoming: { awakenedId: number; name: string; arrivesAt: number; cost: number }[];
 }
 
@@ -1300,9 +1388,9 @@ export interface PartySeatView {
  *  (on the field, ready at the wheel, or keeping a post the
  *  company could not bring — the homeland field, the
  *  bastion, a re-coalescence), what spots stand open, and
- *  who is still in flight from before the wheel law.
- *  Choosing a member is the Zodiac deck screen's work, not
- *  this display's. */
+ *  who is still on the road to the party. Choosing a
+ *  member is the Zodiac deck screen's work, and calling a
+ *  reinforcement is the wheel's — not this display's. */
 function partySeatView(room: Room, player: Player): PartySeatView | null {
   const expKey = player.expKey;
   if (!expKey) return null;
@@ -1333,21 +1421,96 @@ function refundReinforcement(room: Room, player: Player, inc: { cost: number; fr
   else player.energy += inc.cost;
 }
 
-/** THE REINFORCEMENTS ROAD IS RETIRED (Nigel, 2026-10-21
- *  16:26 — the wheel law; the Keeper's reading, flagged at
- *  the build's release): the four-minute road and its price
- *  were the deck hand's choosing machinery — a fill travelled
- *  because the hand had to be dealt. Under wheel law there is
- *  no hand to deal and no road to travel: a deck fill lands
- *  its membership AT ONCE (actions.ts addToParty), and the
- *  wheel's summon cast is the only gate between the party
- *  and the field. The starter roads (startReinforcement /
- *  startPartyReinforcement) are therefore DELETED — no new
- *  road can start. What survives, because a live room may
- *  still hold one: settleReinforcements lands a road already
- *  in flight, refundReinforcement returns a closed road's
- *  price whole, and endBattle still closes in-flight roads
- *  at a battle's end. */
+/** DOES A BASTION PLAY AT THIS TABLE? (Recovery R6): the
+ *  room carries a claimed bastion battle — begun or still
+ *  gathering — or this seat itself was dealt the bastion's
+ *  staged company. Either way the flying bastion is in play
+ *  for this seat, and the companies law answers: the air
+ *  drop is INSTANT, with no reinforcement time, and the
+ *  dropped company does not count against party size beyond
+ *  the membership itself — the join below is the plain
+ *  at-once fill, charged nothing. */
+function bastionPlays(room: Room, player: Player): boolean {
+  return (!!room.bastion && !room.bastion.resolved) || !!player.stagedDeal;
+}
+
+/** CALL A REINFORCEMENT (Nigel, 2026-10-23 07:21–07:25 —
+ *  the re-ruling; Recovery R6). HISTORY: the road was built
+ *  2026-10-20 (build 2), retired by the wheel law of
+ *  2026-10-21 16:26 — the Keeper's reading, flagged at that
+ *  build's release — and Nigel re-ruled it on 2026-10-23:
+ *  "the action wheel was meant to be able to set party
+ *  members and call reinforcements" — on the homeland too;
+ *  reinforcement travel time applies ONLY at the Table when
+ *  NO bastion plays; with a bastion the air drop is instant;
+ *  on the homeland reinforcements are instant. From play the
+ *  same morning (2026-10-23 11:12): "i have 60 awoken in my
+ *  deck that could be reinforcements but i see no way to
+ *  access them." This is the door.
+ *  THE DOOR: the wheel names a deck Awoken that is NOT in
+ *  the party (party members ride the summon cast already)
+ *  and calls it in. Where a bastion plays, it AIR-DROPS:
+ *  membership lands at once, free, exactly as a fill lands.
+ *  Where no bastion plays, it walks THE ROAD: its summon
+ *  price is charged from the seat's purse at the choosing
+ *  (the campaign bank in a seeded campaign), it rides
+ *  `incoming[]` for REINFORCEMENT_MS, and settleReinforce-
+ *  ments lands its membership when the road completes —
+ *  the wheel's summon cast is then the gate to the field,
+ *  and the price is paid twice over, as the road always
+ *  said: once to call it, and its summon price again to
+ *  summon it when it arrives. A battle's end closes the
+ *  road and returns the price whole (endBattle). The party
+ *  cap counts members and roads together, as it always did. */
+async function startReinforcement(room: Room, player: Player, awakenedId: number): Promise<{ ok: boolean; reason?: string }> {
+  const expKey = player.expKey;
+  if (!expKey) return { ok: false, reason: "Only a bound Tender can call reinforcements — an unbound seat brings its stand-in company whole." };
+  const row = sqlite.prepare("SELECT name, dispersed_until FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, expKey) as { name: string; dispersed_until: number | null } | undefined;
+  if (!row) return { ok: false, reason: "That Awoken is not in your deck." };
+  const name = row.name ?? "An Awokin";
+  if (row.dispersed_until && row.dispersed_until > Date.now()) {
+    return { ok: false, reason: `${name} is still re-coalescing from a fall — it cannot answer a call yet.` };
+  }
+  if (isPartyMember(expKey, awakenedId)) {
+    return { ok: false, reason: `${name} already stands in your party — the wheel's summon cast calls it to the field.` };
+  }
+  if ((player.incoming ?? []).some(i => i.awakenedId === awakenedId)) {
+    return { ok: false, reason: `${name} is already on the road to your party.` };
+  }
+  if ([...room.field.values()].some(u => u.ownerKey === player.key && u.card.awokenId === awakenedId)) {
+    return { ok: false, reason: `${name} already stands on this field.` };
+  }
+  if (partyIdsFor(expKey).length + (player.incoming ?? []).length >= partyCapFor(expKey, player.tenderLevel)) {
+    return { ok: false, reason: "Your party is full — a reinforcement takes a party spot, as a member does." };
+  }
+  // THE AIR DROP: a bastion plays — the reinforcement lands
+  // at once, no road, no road price (the companies law,
+  // Nigel 2026-10-22: a company assigned to a flying bastion
+  // air-drops anywhere with NO reinforcement time).
+  if (bastionPlays(room, player)) {
+    const r = tryAddPartyMember(expKey, awakenedId, player.tenderLevel);
+    if (!r.ok) return { ok: false, reason: r.reason };
+    tell(room, `🪂 ${name} air-drops to ${player.name}'s party — the bastion carries it, and it stands in the party at once, callable by the wheel's summon cast.`);
+    return { ok: true };
+  }
+  // THE ROAD: no bastion plays, so the reinforcement walks —
+  // and a road is walked only while a battle stands to
+  // receive it (between battles, the Party tab's fill lands
+  // at once and costs nothing, as it always has).
+  if (!room.battle.active) {
+    return { ok: false, reason: "Reinforcements are called while a battle stands — between battles, fill your party from the Party tab of your Zodiac, and it lands at once." };
+  }
+  const payload = await awakenedPayloadById(awakenedId).catch(() => null);
+  if (!payload) return { ok: false, reason: `${name}'s face could not be read — the call cannot be made.` };
+  const cost = Math.max(1, payload.power ?? 1);
+  const fromBank = !!(room.campaign && !room.campaign.over && room.campaign.seeded);
+  if (!chargePurse(room, player, cost)) {
+    return { ok: false, reason: `Not enough energy — the road to ${name} costs ✦${cost}.` };
+  }
+  (player.incoming ??= []).push({ awakenedId, name, arrivesAt: Date.now() + REINFORCEMENT_MS, cost, fromBank });
+  tell(room, `🚶 ${name} is called to ${player.name}'s party — ✦${cost} paid for the road. The road takes ${REINFORCEMENT_MINUTES} minute${REINFORCEMENT_MINUTES === 1 ? "" : "s"}, and it lands only while the battle stands. The price is paid twice over, as the road has always charged: ✦${cost} to call it, and its summon price again to summon it when it arrives.`);
+  return { ok: true };
+}
 
 /** The seat of a Tender standing in a RUNNING battle at any
  *  Table, live or held — the Zodiac's bench door asks this
@@ -1368,10 +1531,7 @@ export function partyBattleSeatFor(ownerKey: string): { room: Room; player: Play
 }
 
 /** Land the roads whose time has come — called on the room's
- *  standing pulse. Only roads started BEFORE the wheel law
- *  retired the starter can be in flight (a live room's saved
- *  state is the only place one can still exist); they settle
- *  honestly, exactly as they were promised. A road lands
+ *  standing pulse. A road lands
  *  only while its battle still stands (endBattle closes the
  *  roads of a finished battle before this ever sees them).
  *  Membership lands; NO card is dealt — under wheel law the
@@ -1592,10 +1752,14 @@ function sendState(room: Room): void {
         party: player.expKey ? partyIdsFor(player.expKey) : [],
         // THE PARTY'S SEAT DISPLAY (build 2): the members
         // with their standings for this Table, the open
-        // spots, and any reinforcements still in flight from
-        // before the wheel law — this seat's eyes only, as
-        // the company itself is.
+        // spots, and any reinforcements still on the road —
+        // this seat's eyes only, as the company itself is.
         partyView: player.expKey && !player.storytender ? partySeatView(room, player) : null,
+        // THE REINFORCEMENT DECK (Recovery R6): the deck
+        // Awoken this seat's wheel can call in — served with
+        // the seat, refreshed beside the company, this seat's
+        // eyes only.
+        reinforcements: player.expKey && !player.storytender ? (player.reinforcements ?? []) : [],
         tenderLevel: player.tenderLevel,
         healTier: player.healTier,
         healAmount: player.healAmount,
@@ -4501,14 +4665,35 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
+    // CALL A REINFORCEMENT (Nigel, 2026-10-23 07:21–07:25 —
+    // Recovery R6): the wheel's Awoken branch names a deck
+    // Awoken outside the party and calls it in. Where a
+    // bastion plays, the air drop lands its membership at
+    // once; where none plays, it walks the road while a
+    // battle stands (startReinforcement carries the whole
+    // law). The pick IS the call — no target, no confirm.
+    if (msg.type === "callReinforcement") {
+      if (!player) return;
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender calls reinforcements." })); return; }
+      if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "This seat is not bound to a Tender — there is no deck to call from." })); return; }
+      const awakenedId = Math.floor(Number(msg.awakenedId ?? 0));
+      if (!awakenedId) { ws.send(JSON.stringify({ type: "error", message: "Name the Awokin to call in." })); return; }
+      const r = await startReinforcement(room, player, awakenedId);
+      if (!r.ok) { ws.send(JSON.stringify({ type: "error", message: r.reason })); return; }
+      sendState(room);
+      return;
+    }
+
     // (No fillPartySpot door stands here: a member is CHOSEN
     // on the deck screen — an empty Awokin spot on the
     // Zodiac, filled from the deck list there (Nigel,
     // 2026-10-21). That door is build 1's addToParty, which
     // since the wheel law lands the membership AT ONCE, even
-    // mid-battle — the four-minute road it used to start is
-    // retired, and the wheel's summon cast is the only gate
-    // between the party and the field.)
+    // mid-battle. The wheel's reinforcement call (above) is
+    // the Table's own door for the same naming: it walks the
+    // road when no bastion plays, and air-drops when one
+    // does — Recovery R6.)
 
     // STRIKE THE CURSE (Nigel, 2026-10-18 — the land's
     // blow-per-order, carried to the Table): the mechanic for

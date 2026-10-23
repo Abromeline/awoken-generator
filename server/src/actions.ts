@@ -4599,6 +4599,51 @@ async function summonCompanyFor(ownerKey: string): Promise<SummonCompanyEntry[]>
   return out;
 }
 
+/** THE HOMELAND WHEEL'S REINFORCEMENT DECK (Nigel,
+ *  2026-10-23 07:21–07:25 — Recovery R6): the deck Awoken
+ *  the homeland wheel can CALL IN as reinforcements — the
+ *  whole roster outside the party, in roster order. Party
+ *  members are not here: they ride the summon cast
+ *  (summonCompanyFor). The exclusions mirror the summon
+ *  company's, for the same one-body-one-place law: standing
+ *  on the field, staged at the bastion, housed in the court
+ *  or its champion, or still re-coalescing from a fall —
+ *  none of those can be called, because each already stands
+ *  somewhere the call cannot reach past. On the homeland a
+ *  reinforcement lands INSTANTLY (the re-ruling): the call
+ *  below is a plain at-once fill of the party, free — the
+ *  homeland's fill has always landed at once, and the call
+ *  changes only WHO may be named: any deck Awoken, from the
+ *  wheel, mid-battle or no. */
+export type ReinforcementDeckEntry = { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number };
+async function reinforcementDeckFor(ownerKey: string): Promise<ReinforcementDeckEntry[]> {
+  const party = new Set(partyIdsFor(ownerKey));
+  const placedRows = await db.select({ awakenedId: schema.fieldPlacements.awakenedId }).from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const placedIds = new Set(placedRows.map(r => r.awakenedId));
+  const stagedSet = new Set(stagedIdsFor(ownerKey));
+  const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
+    .where(eq(schema.hallResidents.ownerKey, ownerKey));
+  const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
+    .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+  const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
+  const rows = sqlite.prepare("SELECT id, dispersed_until FROM awakened WHERE owner_key = ? ORDER BY id").all(ownerKey) as { id: number; dispersed_until: number | null }[];
+  const nowMs = Date.now();
+  const out: ReinforcementDeckEntry[] = [];
+  for (const row of rows) {
+    if (party.has(row.id) || placedIds.has(row.id) || stagedSet.has(row.id) || courtIds.has(row.id)) continue;
+    if (row.dispersed_until && row.dispersed_until > nowMs) continue;
+    const payload = await awakenedPayloadById(row.id).catch(() => null);
+    if (!payload) continue;
+    out.push({
+      awakenedId: payload.id, name: payload.name, imageUrl: payload.image_url,
+      power: payload.power, toughness: payload.toughness, level: payload.level ?? null,
+      cost: Math.max(1, payload.power),
+    });
+  }
+  return out;
+}
+
 export const handlers = {
   async getStudio(_args: unknown, ctx?: ActionContext) {
     // The Tender ritual's data: pool pieces, the Tender deck, credits.
@@ -7964,6 +8009,11 @@ export const handlers = {
     const standTileRow = tenderStand ? (tiles as any[]).find(t => t.id === tenderStand.tileId) : null;
     const summoning = {
       company: tenderStand ? await summonCompanyFor(ownerKey) : [],
+      // THE REINFORCEMENT DECK, served with the company
+      // (Recovery R6): the wheel's Awoken branch lists these
+      // under the company — a pick calls the Awoken into
+      // the party at once, and it joins the company above.
+      reinforcements: tenderStand ? await reinforcementDeckFor(ownerKey) : [],
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
@@ -11297,6 +11347,42 @@ export const handlers = {
     const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
     return partyViewFor(ownerKey);
+  },
+
+  /** CALL A REINFORCEMENT ON THE HOMELAND (Nigel, 2026-10-23
+   *  07:21–07:25 — Recovery R6): the homeland wheel names a
+   *  deck Awoken outside the party and calls it in. ON THE
+   *  HOMELAND REINFORCEMENTS ARE INSTANT — no road, no road
+   *  price: the membership lands at once, exactly as the
+   *  homeland's fill has always landed, and the called
+   *  Awoken stands in the party (and so in the wheel's
+   *  summon company) from this moment; the summon cast is
+   *  then the only gate to the field. What this door adds
+   *  over addToParty is the NAMING, not the landing: the
+   *  wheel's deck (reinforcementDeckFor) is what may be
+   *  named — an Awoken kept at a post (fielded, staged,
+   *  court-housed, re-coalescing) is refused plainly, as the
+   *  Table's door refuses it. The party cap is the party
+   *  module's own, unchanged. */
+  async callReinforcement(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the Awokin to call in.");
+    const ownerKey = ownerKeyFor(ctx);
+    const awakenedId = parsed.data.awakenedId;
+    const row = sqlite.prepare("SELECT name FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as { name: string } | undefined;
+    if (!row) badRequest("That Awokin is not in your deck.");
+    if (isPartyMember(ownerKey, awakenedId)) {
+      badRequest(`${row.name} already stands in your party — the wheel's summon cast calls it to the field.`);
+    }
+    const deck = await reinforcementDeckFor(ownerKey);
+    if (!deck.some(d => d.awakenedId === awakenedId)) {
+      badRequest(`${row.name} cannot be called in — it already stands somewhere the call cannot reach past (on your field, staged at the bastion, housed in your court, or still re-coalescing).`);
+    }
+    const progress = await getTenderProgress(ownerKey);
+    const r = tryAddPartyMember(ownerKey, awakenedId, progress.level);
+    if (!r.ok) badRequest(r.reason);
+    return { ...(await partyViewFor(ownerKey)), reinforcement: { awakenedId, name: row.name, instant: true as const } };
   },
 
   /** RETURN A MEMBER TO THE DECK (the Keeper's pencil,
