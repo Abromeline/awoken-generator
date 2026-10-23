@@ -577,7 +577,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                         </div>
                         {w.depth >= 4 ? <p className="zodiac-held">Attunement at its deepest (IV).</p> : w.element ? (
                           <div className="weapon-actions">
-                            <button type="button" className="zodiac-btn take" disabled={charBusy || (exp.pools[w.element] ?? 0) < nextCost} onClick={() => attuneM.mutate({ weaponKey: key, element: w.element as ElementKey })}>Pour {w.element} — node {ROMAN[w.depth + 1]} for {nextCost} pt{nextCost === 1 ? "" : "s"} (pool {exp.pools[w.element] ?? 0})</button>
+                            <button type="button" className="zodiac-btn take" disabled={charBusy || (exp.pools[w.element] ?? 0) < nextCost} onClick={() => attuneM.mutate({ weaponKey: key, element: w.element as ElementKey })}>Attune {w.element} — node {ROMAN[w.depth + 1]} for {nextCost} pt{nextCost === 1 ? "" : "s"} (pool {exp.pools[w.element] ?? 0})</button>
                             <details className="weapon-switch"><summary>Start a different element over (resets depth, 1 pt)</summary>
                               <div className="weapon-actions">{ELEMENTS.filter(el => el !== w.element).map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} {el} — 1 pt</button>)}</div>
                             </details>

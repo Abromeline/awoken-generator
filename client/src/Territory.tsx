@@ -6814,16 +6814,16 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 </p>
                 {stage === 3 && !(t as any).buildBranch ? (
                   <>
-                    {pourBtn("🌊 Pour 10 tide — a lake", "tide", () => void handlePourBuild(t.id, { branch: "tide" }))}
-                    {pourBtn("☁ Pour 10 sky — an isle", "sky", () => void handlePourBuild(t.id, { branch: "sky" }))}
+                    {pourBtn("🌊 Attune 10 tide — a lake", "tide", () => void handlePourBuild(t.id, { branch: "tide" }))}
+                    {pourBtn("☁ Attune 10 sky — an isle", "sky", () => void handlePourBuild(t.id, { branch: "sky" }))}
                   </>
                 ) : stage === 4 && !(t as any).buildFinish ? (
                   <>
-                    {pourBtn("🔥 Pour 10 fire — bake it sealed", "fire", () => void handlePourBuild(t.id, { finish: "bake" }))}
-                    {(t as any).buildBranch === "tide" && pourBtn("▽ Pour 10 fire — lower it deep", "fire", () => void handlePourBuild(t.id, { finish: "lower" }))}
+                    {pourBtn("🔥 Attune 10 fire — bake it sealed", "fire", () => void handlePourBuild(t.id, { finish: "bake" }))}
+                    {(t as any).buildBranch === "tide" && pourBtn("▽ Attune 10 fire — lower it deep", "fire", () => void handlePourBuild(t.id, { finish: "lower" }))}
                   </>
                 ) : wanted ? (
-                  pourBtn(`Pour 10 ${wanted}`, wanted, () => void handlePourBuild(t.id))
+                  pourBtn(`Attune 10 ${wanted}`, wanted, () => void handlePourBuild(t.id))
                 ) : null}
               </>
             )}
