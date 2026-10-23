@@ -3805,7 +3805,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
   const renderGrid = () => {
-    const size = HEX_BASE_SIZE * zoom;
+    // THE CAMERA (the flicker fix, Nigel 2026-10-23: "get the map
+    // to stop flickering when its being moved"). The land is drawn
+    // ONCE in stable land coordinates — hex size at the base 54,
+    // no pan inside any tile's geometry — and the whole picture
+    // rides on ONE transform carried by the two camera groups in
+    // the return below (tile art behind the hit layer, everything
+    // else in front of it). A pan or zoom therefore MOVES the
+    // finished picture instead of repainting every tile at a new
+    // place each frame: between state redraws the browser only
+    // re-composites the moved layer, and the seams never re-paint.
+    // Screen-constant marks inside the land (strokes, labels,
+    // badges) divide by zoom so the camera's scale restores them
+    // to exactly their old screen size; everything proportional
+    // to the hex size converts by itself. The transparent hit
+    // polygons stay OUTSIDE the camera, in screen coordinates
+    // computed exactly as before (tileCenterScreen), so every
+    // pointer conversion and every drive that solves the lattice
+    // from their points reads the same numbers it always did.
+    const size = HEX_BASE_SIZE;
     // XYZ grid (Nigel, 2026-10-15): one TRAY_LIFT of rise per tray
     // in a hex's stack. tilePos anchors the TOP tray; trays beneath
     // step down by TRAY_LIFT each, and everything standing on the
@@ -3813,17 +3831,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const TRAY_LIFT = Math.round(size * 0.2);
     // Center the (0,0) tile in the viewBox
     const originX = 250, originY = 170;
+    const camTransform = `translate(${originX + pan.x} ${originY + pan.y}) scale(${zoom}) translate(${-originX} ${-originY})`;
+    // Screen point -> land point (the camera's exact inverse);
+    // the order line and the band box are born in screen pixels
+    // and are painted in the land, so their ends convert here.
+    const landX = (sx: number) => originX + (sx - originX - pan.x) / zoom;
+    const landY = (sy: number) => originY + (sy - originY - pan.y) / zoom;
     // Isometric tiling vectors come from the ONE shared hex geometry
     // (ISO_E / ISO_SE / isoOffset at the top of this file) — the same
     // basis the overlay cells are solved from, so map, selection, and
     // hit-testing can never drift apart.
     const tilePos = (t: any) => {
       const { px, py } = isoOffset(t.q, t.r, size);
-      const cx = originX + px + pan.x;
+      const cx = originX + px;
       // A floating isle hovers above its own ground (the Building
       // System): the risen tile draws at its lift, its shadow
       // stays on the newborn beneath (drawn in the tile's face).
-      const cy = originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
+      const cy = originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
       return { cx, cy };
     };
     // The marching layer's derivation (lives here, beside tilePos —
@@ -3969,11 +3993,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const hp = tileHp.get(t.id);
       const showHp = hp !== undefined && hp < 10;
       return (
-        <g key={`entity-${t.id}`} transform={`translate(0,${lift})`}>
+        <g key={`entity-${t.id}`} transform={`translate(0,${lift / zoom})`}>
           {showHp && (
             <g transform={`translate(${cx},${cy - s * 0.7})`}>
-              <rect x="-18" y="-8" width="36" height="14" rx="3" fill="rgba(0,0,0,0.7)" stroke="#ff4444" strokeWidth="1" />
-              <text y="3" textAnchor="middle" fontSize="10" fill="#ff6666" fontWeight="bold">♥ {hp}/10</text>
+              <rect x={-18 / zoom} y={-8 / zoom} width={36 / zoom} height={14 / zoom} rx={3 / zoom} fill="rgba(0,0,0,0.7)" stroke="#ff4444" strokeWidth={1 / zoom} />
+              <text y={3 / zoom} textAnchor="middle" fontSize={10 / zoom} fill="#ff6666" fontWeight="bold">♥ {hp}/10</text>
             </g>
           )}
           {/* Buildings on this tile's seats (max 2) */}
@@ -4067,10 +4091,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   height={place ? pH : bs * (b.buildingType === "dream-tree" ? 2 : 1)}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={isBuilding ? 0.7 : isDormant ? 0.4 : 1}
-                  style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
+                  style={isBuilding ? { filter: `drop-shadow(0 0 ${12 / zoom}px #ffcc88)` } : undefined}
                 />
                 {isBuilding && (
-                  <text x={bpx.x} y={bpx.y + bs * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
+                  <text x={bpx.x} y={bpx.y + bs * 0.4} textAnchor="middle" fontSize={8 / zoom} fill="#ffcc88">
                     ⏱ {readyMin >= 60 ? `${Math.floor(readyMin/60)}h${readyMin%60}m` : `${readyMin}m`}
                   </text>
                 )}
@@ -4133,10 +4157,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   height={wSize}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={isBuilding ? 0.7 : 1}
-                  style={isBuilding ? { filter: "drop-shadow(0 0 12px #ffcc88)" } : undefined}
+                  style={isBuilding ? { filter: `drop-shadow(0 0 ${12 / zoom}px #ffcc88)` } : undefined}
                 />
                 {isBuilding && (
-                  <text x={bpx.x} y={bpx.y + wSize * 0.4} textAnchor="middle" fontSize={8} fill="#ffcc88">
+                  <text x={bpx.x} y={bpx.y + wSize * 0.4} textAnchor="middle" fontSize={8 / zoom} fill="#ffcc88">
                     ⏱ {readyMin >= 60 ? `${Math.floor(readyMin/60)}h${readyMin%60}m` : `${readyMin}m`}
                   </text>
                 )}
@@ -4195,15 +4219,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // on today's ground line (baseAhs) and the size rises.
       const awLevel = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
       const lvlScale = Math.pow(1.25, awLevel - 1);
-      const baseAhs = hs * awScale;
-      const aws = ws * awScale * lvlScale, ahs = hs * awScale * lvlScale;
+      // The figure's screen size is awScale's law (fieldFigure-
+      // HeightClient reckons it the same way) — in land space the
+      // dims divide by zoom and the camera restores them exactly.
+      const baseAhs = hs * awScale / zoom;
+      const aws = ws * awScale * lvlScale / zoom, ahs = hs * awScale * lvlScale / zoom;
       const isWhispering = whisper?.awakenedId === a.id;
       // Each Awoken drifts on its own rhythm — subtle, never leaves its ground.
       const driftDur = (6 + (a.id % 5)).toFixed(1);
       const driftDelay = (-(a.id % 7)).toFixed(1);
       const isSelected = selectedAwoken === a.id;
       return (
-        <g key={`awoken-${a.id}`} transform={`translate(0,${lift})`}><g>
+        <g key={`awoken-${a.id}`} transform={`translate(0,${lift / zoom})`}><g>
                   <g key={a.id} className={(pPos ? "field-patroller" : "field-drifter") + (selectedGroup.includes(a.id) ? " field-chosen" : "")}
                     style={{
                       ...(pPos
@@ -4259,25 +4286,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                     {/* Light aura glow behind Awoken */}
                     <ellipse cx={kx} cy={ky} rx={aws * 0.48} ry={ahs * 0.44}
                       fill="rgba(255,240,200,0.28)"
-                      style={{ filter: "blur(6px)" }} />
+                      style={{ filter: `blur(${6 / zoom}px)` }} />
                     <ellipse cx={kx} cy={ky} rx={aws * 0.38} ry={ahs * 0.34}
                       fill="rgba(255,250,230,0.22)"
-                      style={{ filter: "blur(4px)" }} />
+                      style={{ filter: `blur(${4 / zoom}px)` }} />
                     {isWhispering && (
                       <ellipse cx={kx} cy={ky} rx={aws * 0.6} ry={ahs * 0.55}
                         fill="rgba(255,235,180,0.35)"
-                        style={{ filter: "blur(8px)" }} />
+                        style={{ filter: `blur(${8 / zoom}px)` }} />
                     )}
                     {isSelected && (
-                      <circle cx={kx} cy={ky} r={14 * awScale * lvlScale} fill="none" stroke="#ffd700" strokeWidth="1.5" opacity="0.9" />
+                      <circle cx={kx} cy={ky} r={14 * awScale * lvlScale / zoom} fill="none" stroke="#ffd700" strokeWidth={1.5 / zoom} opacity="0.9" />
                     )}
-                    <g data-summon-fig={a.id} style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))" }}>
+                    <g data-summon-fig={a.id} style={{ filter: `drop-shadow(0 ${2 / zoom}px ${4 / zoom}px rgba(0,0,0,0.7))` }}>
                     <FieldAwoken awoken={a} assets={assets}
                       x={kx - aws / 2} y={ky + baseAhs / 2 - ahs}
                       width={aws} height={ahs} />
                     </g>
                     {placement && placement.stance !== "defense" && (
-                      <text x={kx} y={ky + baseAhs / 2 - ahs - 4} textAnchor="middle" fontSize={7}
+                      <text x={kx} y={ky + baseAhs / 2 - ahs - 4 / zoom} textAnchor="middle" fontSize={7 / zoom}
                         fill={placement.stance === "attack" ? "#ff6666" : "#66aaff"}>
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
@@ -4301,8 +4328,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       return (
                         <g className="whisper-bubble" opacity="0.9">
                           {lines.map((ln, i) => (
-                            <text key={i} x={kx} y={ky + baseAhs / 2 - ahs - 12 - (lines.length - 1 - i) * 9}
-                              textAnchor="middle" fontSize="7.5" fontStyle="italic"
+                            <text key={i} x={kx} y={ky + baseAhs / 2 - ahs - 12 / zoom - (lines.length - 1 - i) * 9 / zoom}
+                              textAnchor="middle" fontSize={7.5 / zoom} fontStyle="italic"
                               fill="#e8d5a8" className="whisper-text">
                               {ln}
                             </text>
@@ -4336,7 +4363,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const awoken = awokens[0] ?? null;
       const lift = t.cursed ? 0 : -5; // Purified land hovers above the cursed
       return (
-        <g key={t.id} transform={`translate(0,${lift})`}>
+        <g key={t.id} transform={`translate(0,${lift / zoom})`}>
           {/* A FLOATING ISLE's shadow (the Building System,
               2026-10-19): the risen tile's shade lies on the
               ground it left — the newborn beneath wears it. */}
@@ -4352,7 +4379,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <image href={TERRAIN[tileKey]}
               x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
               preserveAspectRatio="xMidYMid meet"
-              style={auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+              style={auraTiles.has(t.id) ? { filter: `drop-shadow(0 0 ${12 / zoom}px rgba(255,215,0,0.9)) brightness(1.15)` } : undefined} />
           ) : (
             /* The stack (Nigel, 2026-10-15): a purified hex is drawn
                as its trays — the growing tray at the bottom wearing
@@ -4375,7 +4402,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s + drop}
                   width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
                   preserveAspectRatio="xMidYMid meet"
-                  style={i === total - 1 && auraTiles.has(t.id) ? { filter: "drop-shadow(0 0 12px rgba(255,215,0,0.9)) brightness(1.15)" } : undefined} />
+                  style={i === total - 1 && auraTiles.has(t.id) ? { filter: `drop-shadow(0 0 ${12 / zoom}px rgba(255,215,0,0.9)) brightness(1.15)` } : undefined} />
               );
             })
           )}
@@ -4400,11 +4427,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const col = nextStage === "neutral" ? "#9a958c" : (elementPalette[nextStage as keyof typeof elementPalette] ?? "#d4af6a");
             return (
               <g pointerEvents="none">
-                <circle cx={cx + s * 0.48} cy={cy - s * 0.52} r={s * 0.30} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6} />
+                <circle cx={cx + s * 0.48} cy={cy - s * 0.52} r={s * 0.30} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6 / zoom} />
                 {nextStage === "neutral"
                   ? <text x={cx + s * 0.48} y={cy - s * 0.40} textAnchor="middle" fontSize={s * 0.34} fill={col}>◇</text>
                   : <g transform={`translate(${cx + s * 0.22}, ${cy - s * 0.624})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.52} height={s * 0.208} /></g>}
-                {eta && <text x={cx + s * 0.48} y={cy + s * 0.18} textAnchor="middle" fontSize={s * 0.42} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3.4} paintOrder="stroke">{eta}</text>}
+                {eta && <text x={cx + s * 0.48} y={cy + s * 0.18} textAnchor="middle" fontSize={s * 0.42} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3.4 / zoom} paintOrder="stroke">{eta}</text>}
               </g>
             );
           })()}
@@ -4441,18 +4468,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const word = stage === 1 ? "coalescing" : stage === 2 ? "weaving" : stage === 3 ? ((t as any).buildBranch === "sky" ? "rising" : (t as any).buildBranch === "tide" ? "flooding" : "the branch") : "the fire";
             return (
               <g pointerEvents="none">
-                <circle cx={cx} cy={cy - s * 0.18} r={s * 0.34} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6} />
+                <circle cx={cx} cy={cy - s * 0.18} r={s * 0.34} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6 / zoom} />
                 <text x={cx} y={cy - s * 0.06} textAnchor="middle" fontSize={s * 0.36}>{glyph}</text>
-                <rect x={cx - s * 0.62} y={cy + s * 0.34} width={s * 1.24} height={s * 0.17} rx={s * 0.08} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={0.8} />
+                <rect x={cx - s * 0.62} y={cy + s * 0.34} width={s * 1.24} height={s * 0.17} rx={s * 0.08} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={0.8 / zoom} />
                 <rect x={cx - s * 0.62} y={cy + s * 0.34} width={s * 1.24 * fill} height={s * 0.17} rx={s * 0.08} fill={col} />
-                <text x={cx} y={cy + s * 0.78} textAnchor="middle" fontSize={s * 0.24} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3} paintOrder="stroke">
+                <text x={cx} y={cy + s * 0.78} textAnchor="middle" fontSize={s * 0.24} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3 / zoom} paintOrder="stroke">
                   {`${word} · ${Math.floor((t as any).buildPoints ?? 0)}/30`}
                 </text>
               </g>
             );
           })()}
           {!t.cursed && ((t as any).buildStage ?? 0) === 5 && ((t as any).baked || (t as any).lowered) && (
-            <text pointerEvents="none" x={cx} y={cy + s * 1.34} textAnchor="middle" fontSize={s * 0.24} fill={(t as any).baked ? "#ffd977" : "#7db8e8"} stroke="rgba(0,0,0,0.9)" strokeWidth={3} paintOrder="stroke">
+            <text pointerEvents="none" x={cx} y={cy + s * 1.34} textAnchor="middle" fontSize={s * 0.24} fill={(t as any).baked ? "#ffd977" : "#7db8e8"} stroke="rgba(0,0,0,0.9)" strokeWidth={3 / zoom} paintOrder="stroke">
               {(t as any).baked ? `🔥 sealed · charge ${Math.round((t as any).buildCharge ?? 0)}` : "▽ lowered deep"}
             </text>
           )}
@@ -4491,12 +4518,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const thorns = Math.pow(2, Math.max(0, ring - 1));
             return (
               <g>
-              <text x={cx} y={cy + 8} textAnchor="middle" fontSize={8}
+              <text x={cx} y={cy + 8 / zoom} textAnchor="middle" fontSize={8 / zoom}
                 fill="#ff6666" opacity="0.95" fontWeight="bold">
                 ♥ {hp}
               </text>
               {thorns > 1 && (
-                <text x={cx} y={cy + 18} textAnchor="middle" fontSize={7}
+                <text x={cx} y={cy + 18 / zoom} textAnchor="middle" fontSize={7 / zoom}
                   fill="#ffaa00" opacity="0.9" fontWeight="bold">
                   🌵 {thorns}
                 </text>
@@ -4506,19 +4533,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           })()}
           {/* Burning tile: Fire III art */}
           {t.spark === 2 && fireAspectImg && (
-            <image href={fireAspectImg} x={cx - 40} y={cy - 50} width={80} height={80}
+            <image href={fireAspectImg} x={cx - 40 / zoom} y={cy - 50 / zoom} width={80 / zoom} height={80 / zoom}
               preserveAspectRatio="xMidYMid meet" opacity="0.7" pointerEvents="none" />
           )}
           {/* Spark: fire aspect waiting to be claimed */}
           {t.spark === 1 && (
             <g onClick={(e) => { e.stopPropagation(); if (bandJustClosed()) return; handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
               {fireAspectImg ? (
-                <image href={fireAspectImg} x={cx - 30} y={cy - 40} width={60} height={60}
+                <image href={fireAspectImg} x={cx - 30 / zoom} y={cy - 40 / zoom} width={60 / zoom} height={60 / zoom}
                   preserveAspectRatio="xMidYMid meet" opacity="0.95" />
               ) : (
-                <text x={cx} y={cy - 10} textAnchor="middle" fontSize={24} fill="#ff6600" opacity="0.95">🔥</text>
+                <text x={cx} y={cy - 10 / zoom} textAnchor="middle" fontSize={24 / zoom} fill="#ff6600" opacity="0.95">🔥</text>
               )}
-              <text x={cx} y={cy + 25} textAnchor="middle" fontSize={8}
+              <text x={cx} y={cy + 25 / zoom} textAnchor="middle" fontSize={8 / zoom}
                 fill="#ffaa00" opacity="0.9" fontWeight="bold">
                 SPARK — tap to claim
               </text>
@@ -4533,31 +4560,51 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               t.element === "fire" ? "rgba(255,68,68,0.15)" : "rgba(0,0,0,0)"
             } pointerEvents="none" />
           )}
-          {/* The hit target IS the visible hex (the fitted cell above) —
-              invisible itself; the corruption glow over the terrain face
-              is what marks cursed ground now. */}
-          <polygon points={pts}
-            fill="rgba(0,0,0,0)"
-            stroke="transparent"
-            style={{
-              cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
-              filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
-              pointerEvents: "all"
-            }}
-            onMouseEnter={() => setHoverHexId(t.id)}
-            onMouseLeave={() => setHoverHexId(h => (h === t.id ? null : h))}
-            onClick={(e) => {
-              // A tile tap is not an empty-map tap: stop the click here,
-              // or it bubbles into the map's dismiss handler and erases
-              // the confirm/targeting this very tap just raised.
-              e.stopPropagation();
-              handleHexTap(t);
-            }} />
-
-          {/* Awoken render in entity layer */}
+          {/* The hit target is NOT here — it lives in the hit layer
+              below, in screen coordinates between the two camera
+              groups, so its points attribute keeps the exact numbers
+              it always carried (see the camera note at the top of
+              renderGrid). Awoken render in the entity layer. */}
         </g>
       );
     });
+    // THE HIT LAYER (screen space, between the camera groups — the
+    // tile art beneath it, buildings and figures above it, exactly
+    // the stacking the hit polygons had inside the tile group):
+    // the fitted cell of each hex, invisible itself, carrying the
+    // tap. Its points are solved from tileCenterScreen with the
+    // screen hex size, byte-for-byte the geometry the pointer
+    // handlers and the drives have always read.
+    const hitLayer = (
+      <g key="tile-hits">
+        {sortedTiles.map((t) => {
+          const c = tileCenterScreen(t, pan, zoom);
+          const hitPts = hexCellPoints(c.cx, c.cy, HEX_BASE_SIZE * zoom);
+          const lift = t.cursed ? 0 : -5; // match the terrain layer's lift
+          return (
+            <g key={t.id} transform={`translate(0,${lift})`}>
+              <polygon points={hitPts}
+                fill="rgba(0,0,0,0)"
+                stroke="transparent"
+                style={{
+                  cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
+                  filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
+                  pointerEvents: "all"
+                }}
+                onMouseEnter={() => setHoverHexId(t.id)}
+                onMouseLeave={() => setHoverHexId(h => (h === t.id ? null : h))}
+                onClick={(e) => {
+                  // A tile tap is not an empty-map tap: stop the click here,
+                  // or it bubbles into the map's dismiss handler and erases
+                  // the confirm/targeting this very tap just raised.
+                  e.stopPropagation();
+                  handleHexTap(t);
+                }} />
+            </g>
+          );
+        })}
+      </g>
+    );
     // THE VOID AT THE EDGE (the Building System, 2026-10-19):
     // empty hexes beside the land are the founding ground — a
     // faint dashed cell on the nothing, and a tap opens the
@@ -4583,7 +4630,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const c = tilePos({ q: g.q, r: g.r, height: 1 } as any);
             return (
               <polygon key={`ghost-${g.q},${g.r}`} points={hexCellPoints(c.cx, c.cy, size, 0.94)}
-                fill="rgba(212,175,106,0.05)" stroke="rgba(212,175,106,0.4)" strokeWidth={1.1} strokeDasharray="4 4" strokeLinejoin="round"
+                fill="rgba(212,175,106,0.05)" stroke="rgba(212,175,106,0.4)" strokeWidth={1.1 / zoom} strokeDasharray={`${4 / zoom} ${4 / zoom}`} strokeLinejoin="round"
                 style={{ cursor: "pointer" }}
                 onClick={(e) => { e.stopPropagation(); openBuildGhost(g.q, g.r); }}>
                 <title>Unmade ground — found a new hex here</title>
@@ -4615,26 +4662,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const lift = tile.cursed ? 0 : -5; // match the terrain layer's lift
       if (kind === "hover") {
         return (
-          <g key="target-hex-hover" transform={`translate(0,${lift})`} pointerEvents="none">
-            <polygon points={hexCellPoints(cx, cy, s)} fill="rgba(255,215,0,0.07)" stroke="rgba(255,215,0,0.55)" strokeWidth={1.5} strokeLinejoin="round" />
+          <g key="target-hex-hover" transform={`translate(0,${lift / zoom})`} pointerEvents="none">
+            <polygon points={hexCellPoints(cx, cy, s)} fill="rgba(255,215,0,0.07)" stroke="rgba(255,215,0,0.55)" strokeWidth={1.5 / zoom} strokeLinejoin="round" />
           </g>
         );
       }
       if (kind === "mist") {
         return (
-          <g key="target-hex-mist" className="target-hex-mist" transform={`translate(0,${lift})`} pointerEvents="none">
-            <polygon points={hexCellPoints(cx, cy, s)} fill="rgba(255,244,214,0.20)" stroke="rgba(255,236,180,0.85)" strokeWidth={2} strokeDasharray="5 4" strokeLinejoin="round" />
+          <g key="target-hex-mist" className="target-hex-mist" transform={`translate(0,${lift / zoom})`} pointerEvents="none">
+            <polygon points={hexCellPoints(cx, cy, s)} fill="rgba(255,244,214,0.20)" stroke="rgba(255,236,180,0.85)" strokeWidth={2 / zoom} strokeDasharray={`${5 / zoom} ${4 / zoom}`} strokeLinejoin="round" />
             <polygon points={hexCellPoints(cx, cy, s, 0.82)} fill="rgba(255,248,228,0.12)" stroke="none" />
           </g>
         );
       }
       return (
-        <g key="target-hex-marker" className="target-hex-marker" transform={`translate(0,${lift})`} pointerEvents="none">
-          <polygon className="target-hex-pulse" points={hexCellPoints(cx, cy, s, 1.05)} fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={3} strokeLinejoin="round" />
-          <polygon points={hexCellPoints(cx, cy, s, 0.93)} fill="none" stroke="#ffedb0" strokeWidth={1.5} strokeLinejoin="round" />
+        <g key="target-hex-marker" className="target-hex-marker" transform={`translate(0,${lift / zoom})`} pointerEvents="none">
+          <polygon className="target-hex-pulse" points={hexCellPoints(cx, cy, s, 1.05)} fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={3 / zoom} strokeLinejoin="round" />
+          <polygon points={hexCellPoints(cx, cy, s, 0.93)} fill="none" stroke="#ffedb0" strokeWidth={1.5 / zoom} strokeLinejoin="round" />
           <g>
-            <animateTransform attributeName="transform" type="translate" values="0 0; 0 3; 0 0" dur="1.6s" repeatCount="indefinite" />
-            <polygon points={`${cx - 7},${cy - s * 1.14} ${cx + 7},${cy - s * 1.14} ${cx},${cy - s * 0.82}`} fill="#ffd700" stroke="#7a5c00" strokeWidth={0.75} strokeLinejoin="round" />
+            <animateTransform attributeName="transform" type="translate" values={`0 0; 0 ${3 / zoom}; 0 0`} dur="1.6s" repeatCount="indefinite" />
+            <polygon points={`${cx - 7 / zoom},${cy - s * 1.14} ${cx + 7 / zoom},${cy - s * 1.14} ${cx},${cy - s * 0.82}`} fill="#ffd700" stroke="#7a5c00" strokeWidth={0.75 / zoom} strokeLinejoin="round" />
           </g>
         </g>
       );
@@ -4658,12 +4705,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       <g key="workings">
         {workings.map((w) => {
           const img = grimGlyphImg(w.spellKey);
-          const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 5px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
+          const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 ${5 / zoom}px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
           const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
           const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · ${w.pour} attunement slot${w.pour === 1 ? "" : "s"} carried` : ""}`;
           if (w.kind === "ward" && w.q != null && w.r != null && w.dir != null) {
             const wt = tiles.find((tt) => tt.q === w.q && tt.r === w.r);
-            const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px + pan.x, cy: originY + py + pan.y }; })();
+            const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
             const verts = hexCellVertices(c.cx, c.cy, size);
             const [x1, y1] = verts[w.dir];
             const [x2, y2] = verts[(w.dir + 1) % 6];
@@ -4692,12 +4739,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             return (
               <g key={w.id} opacity={0.92}>
                 <title>{`${title} — a living grove; the company standing in her glow mends.`}</title>
-                <circle cx={cx} cy={cy} r={radiusPx} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1} pointerEvents="none" />
+                <circle cx={cx} cy={cy} r={radiusPx} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1 / zoom} pointerEvents="none" />
                 {saps.filter(s => s.rooted).map((s, i) => {
                   const st = tiles.find((tt) => tt.id === s.tileId);
                   if (!st) return null;
                   const sp2 = tilePos(st);
-                  return <circle key={i} cx={sp2.cx} cy={sp2.cy} r={radiusPx / 2} fill="rgba(125,208,105,0.08)" stroke="rgba(125,208,105,0.25)" strokeWidth={0.7} pointerEvents="none" />;
+                  return <circle key={i} cx={sp2.cx} cy={sp2.cy} r={radiusPx / 2} fill="rgba(125,208,105,0.08)" stroke="rgba(125,208,105,0.25)" strokeWidth={0.7 / zoom} pointerEvents="none" />;
                 })}
                 {img
                   ? <image href={img} x={cx - size * 0.34} y={cy - size * 0.34} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />
@@ -4727,9 +4774,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               || workings.some((w) => w.kind === "ward" && w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d));
             return (
               <g key={d}>
-                <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3} strokeDasharray="6 4" pointerEvents="none" />
+                <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none" />
                 {!taken && (
-                  <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26} strokeLinecap="round" style={{ cursor: "pointer" }}
+                  <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26 / zoom} strokeLinecap="round" style={{ cursor: "pointer" }}
                     onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d }); }} />
                 )}
               </g>
@@ -4742,7 +4789,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       <g key="walls">
         {walls.map(w => {
           const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
-          const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px + pan.x, cy: originY + py + pan.y }; })();
+          const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
           const verts = hexCellVertices(c.cx, c.cy, size);
           const [x1, y1] = verts[w.dir];
           const [x2, y2] = verts[(w.dir + 1) % 6];
@@ -4798,7 +4845,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const cxm = (x1 + x2) / 2, cym = (y1 + y2) / 2, dd = size * 0.07;
             return (
               <g key={w.edgeKey}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e8a13c" strokeWidth={size * 0.035} strokeDasharray="2 6" strokeLinecap="round" />
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e8a13c" strokeWidth={size * 0.035} strokeDasharray={`${2 / zoom} ${6 / zoom}`} strokeLinecap="round" />
                 <polygon points={`${cxm},${cym - dd} ${cxm + dd},${cym} ${cxm},${cym + dd} ${cxm - dd},${cym}`} fill="#e8a13c" opacity={0.9} />
               </g>
             );
@@ -4823,9 +4870,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 const taken = walls.some(w => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d));
                 return (
                   <g key={d}>
-                    <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(255,215,0,0.6)"} strokeWidth={3} strokeDasharray="6 4" pointerEvents="none" />
+                    <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(255,215,0,0.6)"} strokeWidth={3 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none" />
                     {!taken && (
-                      <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(255,215,0,0.02)" strokeWidth={24} strokeLinecap="round" style={{ cursor: "pointer" }}
+                      <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(255,215,0,0.02)" strokeWidth={24 / zoom} strokeLinecap="round" style={{ cursor: "pointer" }}
                         onClick={(e) => { e.stopPropagation(); handlePlaceWall(t.id, d); }} />
                     )}
                   </g>
@@ -4851,8 +4898,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <polygon key={t.id} points={pts}
               fill={isOpen ? "rgba(255,215,0,0.10)" : "rgba(255,215,0,0.03)"}
               stroke={isOpen ? "#ffd700" : "rgba(255,215,0,0.75)"}
-              strokeWidth={isOpen ? 2.5 : 2}
-              strokeDasharray={isOpen ? undefined : "1 6"}
+              strokeWidth={(isOpen ? 2.5 : 2) / zoom}
+              strokeDasharray={isOpen ? undefined : `${1 / zoom} ${6 / zoom}`}
               strokeLinecap="round"
               style={{ cursor: "pointer" }}
               onClick={(e) => { e.stopPropagation(); if (t.id !== wgTileId) setWgArmedWork(null); setWgTileId(t.id); }}
@@ -4875,7 +4922,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const col = elementPalette[el as keyof typeof elementPalette] ?? "#d4af6a";
           return (
             <g key={t.id}>
-              <rect x={cx - size * 0.62} y={cy - size * 1.36} width={size * 1.24} height={size * 0.46} rx={size * 0.23} fill="rgba(8,6,10,0.88)" stroke={col} strokeWidth={1.4} />
+              <rect x={cx - size * 0.62} y={cy - size * 1.36} width={size * 1.24} height={size * 0.46} rx={size * 0.23} fill="rgba(8,6,10,0.88)" stroke={col} strokeWidth={1.4 / zoom} />
               <g transform={`translate(${cx - size * 0.55}, ${cy - size * 1.215})`}><ElementGlyph element={el as GlyphElement} color={col} width={size * 0.42} height={size * 0.168} /></g>
               <text x={cx + size * 0.24} y={cy - size * 1.02} textAnchor="middle" fontSize={size * 0.30} fill="#f0e6cc">{pts}</text>
             </g>
@@ -4895,7 +4942,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const pts = hexCellPoints(cx, cy, size, 0.94);
           return (
             <g key={t.id}>
-              <polygon points={pts} fill="rgba(240,214,140,0.07)" stroke="#f0d68c" strokeWidth={1.6} strokeDasharray="5 4" opacity={0.9} />
+              <polygon points={pts} fill="rgba(240,214,140,0.07)" stroke="#f0d68c" strokeWidth={1.6 / zoom} strokeDasharray={`${5 / zoom} ${4 / zoom}`} opacity={0.9} />
               {t.cursed ? (
                 <text x={cx} y={cy + size * 1.28} textAnchor="middle" fontSize={size * 0.30} fill="#f0d68c">curse Lv {t.calmLevel}</text>
               ) : null}
@@ -4911,7 +4958,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // the target, lettered by kind.
     const axialPos = (q: number, r: number) => {
       const { px, py } = isoOffset(q, r, size);
-      return { cx: originX + px + pan.x, cy: originY + py + pan.y };
+      return { cx: originX + px, cy: originY + py };
     };
     const columnsLayer = (
       <g key="columns" pointerEvents="none">
@@ -4934,11 +4981,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const midX = (op.cx + tp.cx) / 2, midY = (op.cy + tp.cy) / 2;
             return (
               <g key={col.id}>
-                <line x1={op.cx} y1={op.cy} x2={tp.cx} y2={tp.cy} stroke="#b04df0" strokeWidth={2.5} strokeDasharray="1 8" strokeLinecap="round" opacity={0.85} />
-                <circle cx={tp.cx} cy={tp.cy} r={size * 0.95} fill="none" stroke="#ff5340" strokeWidth={2} opacity={0.8} />
+                <line x1={op.cx} y1={op.cy} x2={tp.cx} y2={tp.cy} stroke="#b04df0" strokeWidth={2.5 / zoom} strokeDasharray={`${1 / zoom} ${8 / zoom}`} strokeLinecap="round" opacity={0.85} />
+                <circle cx={tp.cx} cy={tp.cy} r={size * 0.95} fill="none" stroke="#ff5340" strokeWidth={2 / zoom} opacity={0.8} />
                 <text x={tp.cx} y={tp.cy - size * 1.12} textAnchor="middle" fontSize={size * 0.42}>⚠</text>
                 <text x={midX} y={midY - size * 0.16} textAnchor="middle" fontSize={size * 0.34} fontWeight={700} fill="#ffb4a6"
-                  style={{ paintOrder: "stroke", stroke: "rgba(12,4,18,0.9)", strokeWidth: 3.5, letterSpacing: "0.04em" }}>{eta}</text>
+                  style={{ paintOrder: "stroke", stroke: "rgba(12,4,18,0.9)", strokeWidth: 3.5 / zoom, letterSpacing: "0.04em" }}>{eta}</text>
               </g>
             );
           }
@@ -4954,10 +5001,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           });
           return (
             <g key={col.id}>
-              <circle cx={tp.cx} cy={tp.cy} r={size * 1.0} fill="rgba(176,77,240,0.10)" stroke="#ff5340" strokeWidth={2.5} />
+              <circle cx={tp.cx} cy={tp.cy} r={size * 1.0} fill="rgba(176,77,240,0.10)" stroke="#ff5340" strokeWidth={2.5 / zoom} />
               {marks.map((m, i) => (
                 <g key={i}>
-                  <circle cx={m.x} cy={m.y} r={size * 0.30} fill="#160b20" stroke="#b04df0" strokeWidth={1.6} />
+                  <circle cx={m.x} cy={m.y} r={size * 0.30} fill="#160b20" stroke="#b04df0" strokeWidth={1.6 / zoom} />
                   <text x={m.x} y={m.y + size * 0.13} textAnchor="middle" fontSize={size * 0.32} fill="#e8c8ff">{m.k === "fray" ? "F" : m.k === "unraveler" ? "U" : m.k === "tangle" ? "T" : "H"}</text>
                 </g>
               ))}
@@ -4983,7 +5030,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             // as the seed's face until the hold is done.
             return (
               <g key={sd.id}>
-                <circle cx={cx} cy={cy - size * 0.5} r={size * 0.55} fill="rgba(232,182,76,0.14)" stroke="#e8b64c" strokeWidth={1.2} strokeDasharray="3 4" />
+                <circle cx={cx} cy={cy - size * 0.5} r={size * 0.55} fill="rgba(232,182,76,0.14)" stroke="#e8b64c" strokeWidth={1.2 / zoom} strokeDasharray={`${3 / zoom} ${4 / zoom}`} />
                 <image href={meteorGif} x={cx - size * 0.45} y={cy - size * 1.1} width={size * 0.9} height={size * 0.9} />
                 {sd.level > 1 && <text x={cx} y={cy - size * 1.2} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Lv {sd.level}</text>}
               </g>
@@ -4994,7 +5041,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           }
           return (
             <g key={sd.id}>
-              <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(20,14,4,0.85)" stroke={sd.state === "held" ? "#ffd700" : "#e8b64c"} strokeWidth={sd.state === "held" ? 2.4 : 1.4} />
+              <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(20,14,4,0.85)" stroke={sd.state === "held" ? "#ffd700" : "#e8b64c"} strokeWidth={(sd.state === "held" ? 2.4 : 1.4) / zoom} />
               <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
               {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Lv {sd.level} · held {sd.defenses}/3</text>}
             </g>
@@ -5012,12 +5059,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         <g key="patrol-guide">
           {pts.length > 1 && (
             <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
-              stroke="rgba(255,215,0,0.85)" strokeWidth={2} strokeDasharray="1 6" strokeLinecap="round" />
+              stroke="rgba(255,215,0,0.85)" strokeWidth={2 / zoom} strokeDasharray={`${1 / zoom} ${6 / zoom}`} strokeLinecap="round" />
           )}
           {pts.slice(1).map((c, i) => (
             <g key={i}>
-              <circle cx={c.cx} cy={c.cy} r={11} fill="rgba(20,20,35,0.92)" stroke="#ffd700" strokeWidth={1.5} />
-              <text x={c.cx} y={c.cy + 4} textAnchor="middle" fontSize={11} fill="#ffd700" fontWeight={700}>{i + 1}</text>
+              <circle cx={c.cx} cy={c.cy} r={11 / zoom} fill="rgba(20,20,35,0.92)" stroke="#ffd700" strokeWidth={1.5 / zoom} />
+              <text x={c.cx} y={c.cy + 4 / zoom} textAnchor="middle" fontSize={11 / zoom} fill="#ffd700" fontWeight={700}>{i + 1}</text>
             </g>
           ))}
         </g>
@@ -5030,30 +5077,34 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // hand sees where every figure will stand before the
     // release speaks. A lone Awokin's blip sits at the far
     // end, the point dragged to.
+    // The drag state is screen pixels; the layer paints in the
+    // land, so both ends convert through the camera's inverse —
+    // an affine map, so the blips' even spread is untouched.
+    const lineLand = lineDrag ? { x0: landX(lineDrag.x0), y0: landY(lineDrag.y0), x1: landX(lineDrag.x1), y1: landY(lineDrag.y1) } : null;
     const lineBlips = (() => {
-      if (!lineDrag) return [] as { x: number; y: number }[];
+      if (!lineLand) return [] as { x: number; y: number }[];
       const n = pendingMarch?.ids.length ?? 1;
-      if (n <= 1) return [{ x: lineDrag.x1, y: lineDrag.y1 }];
+      if (n <= 1) return [{ x: lineLand.x1, y: lineLand.y1 }];
       return Array.from({ length: n }, (_, i) => ({
-        x: lineDrag.x0 + (lineDrag.x1 - lineDrag.x0) * (i / (n - 1)),
-        y: lineDrag.y0 + (lineDrag.y1 - lineDrag.y0) * (i / (n - 1)),
+        x: lineLand.x0 + (lineLand.x1 - lineLand.x0) * (i / (n - 1)),
+        y: lineLand.y0 + (lineLand.y1 - lineLand.y0) * (i / (n - 1)),
       }));
     })();
-    const lineLayer = lineDrag ? (
+    const lineLayer = lineLand ? (
       <g key="march-line" pointerEvents="none">
-        <line x1={lineDrag.x0} y1={lineDrag.y0} x2={lineDrag.x1} y2={lineDrag.y1}
-          stroke="rgba(255,215,0,0.9)" strokeWidth={2} strokeDasharray="6 4" strokeLinecap="round" />
+        <line x1={lineLand.x0} y1={lineLand.y0} x2={lineLand.x1} y2={lineLand.y1}
+          stroke="rgba(255,215,0,0.9)" strokeWidth={2 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} strokeLinecap="round" />
         {lineBlips.map((bl, i) => (
-          <circle key={`blip-${i}`} cx={bl.x} cy={bl.y} r={5} fill="#ffd700" stroke="rgba(20,16,4,0.85)" strokeWidth={1.2} />
+          <circle key={`blip-${i}`} cx={bl.x} cy={bl.y} r={5 / zoom} fill="#ffd700" stroke="rgba(20,16,4,0.85)" strokeWidth={1.2 / zoom} />
         ))}
       </g>
     ) : null;
     // The drag band itself, while the hand is down.
     const bandLayer = band ? (
       <rect key="drag-band"
-        x={Math.min(band.x0, band.x1)} y={Math.min(band.y0, band.y1)}
-        width={Math.abs(band.x1 - band.x0)} height={Math.abs(band.y1 - band.y0)}
-        fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={1.2} strokeDasharray="5 4" pointerEvents="none" />
+        x={landX(Math.min(band.x0, band.x1))} y={landY(Math.min(band.y0, band.y1))}
+        width={Math.abs(band.x1 - band.x0) / zoom} height={Math.abs(band.y1 - band.y0) / zoom}
+        fill="rgba(255,215,0,0.10)" stroke="#ffd700" strokeWidth={1.2 / zoom} strokeDasharray={`${5 / zoom} ${4 / zoom}`} pointerEvents="none" />
     ) : null;
     // THE TENDER HIMSELF (Nigel, 2026-10-19): drawn last, front-most
     // — his class figure at his gliding place, a soft shadow under
@@ -5063,6 +5114,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // centre), sized to stand a head above the company.
     const tenderLayer = (() => {
       if (!tenderStand || !tenderFig) return null;
+      // The Tender is NOT land: his figure rides the glide engine
+      // in SCREEN coordinates and is drawn outside the camera
+      // groups (see the return), so this layer keeps the screen
+      // measures — the screen hex size and the screen tile centre
+      // — under the names the rest of renderGrid now reads as
+      // land measures.
+      const size = HEX_BASE_SIZE * zoom;
+      const tilePos = (t: any) => tileCenterScreen(t, pan, zoom);
       const art = TENDER_CLASSES[tenderStand.classKey as TenderClassId];
       if (!art) return null;
       const anchorTile = tiles.find(t => t.id === (tenderAnchorRef.current ?? tenderStand.tileId));
@@ -5342,7 +5401,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           if (!t) return null;
           const { cx, cy } = tilePos(t);
           const wh = size * 0.95;
-          const sway = Math.sin(marchNow / 620 + w.id * 1.7) * 1.6;
+          const sway = Math.sin(marchNow / 620 + w.id * 1.7) * 1.6 / zoom;
           // THE WOUND TRACK (Nigel, 2026-10-20): a Fray his
           // weapon has bitten wears its wounds — a thin dark
           // bar above it, emptying as the blows deepen.
@@ -5354,8 +5413,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 opacity={0.95} />
               {wounded && (
                 <g>
-                  <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52} height={2.6} fill="rgba(6,4,10,0.82)" stroke="rgba(160,60,50,0.6)" strokeWidth={0.4} />
-                  <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52 * Math.max(0, (w.hp ?? 0) / (w.maxHp ?? 1))} height={2.6} fill="#b0402f" />
+                  <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52} height={2.6 / zoom} fill="rgba(6,4,10,0.82)" stroke="rgba(160,60,50,0.6)" strokeWidth={0.4 / zoom} />
+                  <rect x={cx - size * 0.26} y={cy - wh * 0.78 + sway} width={size * 0.52 * Math.max(0, (w.hp ?? 0) / (w.maxHp ?? 1))} height={2.6 / zoom} fill="#b0402f" />
                 </g>
               )}
             </g>
@@ -5363,27 +5422,37 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
+    // The land rides the camera: tile art in the back group, the
+    // screen-space hit layer at its old stacking place, every
+    // other land layer in the front group — both groups carrying
+    // the ONE camera transform — and the Tender last, in screen
+    // space, exactly where he always stood.
     return (
       <>
-        {elements}
-        {buildingElements}
-        {awokenElements}
-        {wallLayer}
-        {workingsLayer}
-        {castEdgeLayer}
-        {wgGuideLayer}
-        {wgAttuneLayer}
-        {calmLayer}
-        {columnsLayer}
-        {seedLayer}
-        {wanderersLayer}
-        {patrolGuideLayer}
-        {lineLayer}
-        {bandLayer}
-        {hoverLayer}
-        {mistLayer}
-        {targetMarker}
-        {ghostLayer}
+        <g key="land-back" className="land-cam" transform={camTransform}>
+          {elements}
+        </g>
+        {hitLayer}
+        <g key="land-front" className="land-cam" transform={camTransform}>
+          {buildingElements}
+          {awokenElements}
+          {wallLayer}
+          {workingsLayer}
+          {castEdgeLayer}
+          {wgGuideLayer}
+          {wgAttuneLayer}
+          {calmLayer}
+          {columnsLayer}
+          {seedLayer}
+          {wanderersLayer}
+          {patrolGuideLayer}
+          {lineLayer}
+          {bandLayer}
+          {hoverLayer}
+          {mistLayer}
+          {targetMarker}
+          {ghostLayer}
+        </g>
         {tenderLayer}
       </>
     );
