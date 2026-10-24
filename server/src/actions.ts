@@ -7431,22 +7431,38 @@ export const handlers = {
    *  first time — the bastion rule: his bastion's tile, else the
    *  heart (0,0) once it is pure, else his first purified hex. A
    *  defaulted anchor is written down so it never wanders. */
-  /** THE BASTION ANCHOR (Phase D, 2026-10-19): where a fallen
-   *  Tender wakes. The bastion rule's own chain — his bastion's
-   *  tile, else the pure heart, else his first purified hex —
-   *  walked with one guard tenderStand does not need: the wake
-   *  never lands mid-curse, so a cursed bastion tile is passed
-   *  over for clean ground. */
+  /** THE BASTION ANCHOR (Phase D, 2026-10-19), COMPLETED BY
+   *  THE SAFE HEX'S OFFICE (Nigel, 2026-10-23 23:26: "The
+   *  Tender respawns there if there is no bastion."): where a
+   *  fallen Tender wakes. The reading stands in the office's
+   *  own order — A STANDING BASTION FIRST; no bastion, THE
+   *  SAFE HEX. Below the bastion the chain is the safe hex
+   *  guarantee's own (the one ensureOneSafeSquare walks,
+   *  piece 7): the heart (0,0) — the first seed's hex — once
+   *  it stands pure, else the nearest other pure ground to
+   *  the heart by the land's ring law, lowest id breaking
+   *  the tie, so the hex the respawn reads is the very hex
+   *  the guarantee restores when all his ground is gone —
+   *  the backfill and this office are one reading, not two.
+   *  (Before this build the fallback below the heart was
+   *  reckoned by |q|+|r|, a measure the guarantee does not
+   *  use, so the two readings could name different hexes.)
+   *  One guard tenderStand does not need stands as Phase D
+   *  left it: the wake never lands mid-curse, so a cursed
+   *  bastion tile is passed over for the safe hex below it.
+   *  The rebuilding ground is a HEX (Nigel, 2026-10-23
+   *  23:25): the map is hexes. */
   async bastionAnchorTileId(ownerKey: string, tiles: any[]): Promise<number | null> {
     const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
     try {
       const b = sqlite.prepare("SELECT b.tile_id AS tileId FROM star_seeds s JOIN territory_buildings b ON b.id = s.bastion_building_id WHERE s.owner_key = ? AND s.bastion_building_id IS NOT NULL LIMIT 1").get(ownerKey) as { tileId: number } | undefined;
       if (b && byId.has(b.tileId) && !byId.get(b.tileId).cursed) return b.tileId;
-    } catch { /* no bastion yet — the chain walks on */ }
+    } catch { /* no bastion standing — the safe hex answers */ }
     const heart = tiles.find((t: any) => t.q === 0 && t.r === 0 && !t.cursed);
     if (heart) return heart.id;
+    const ring = (t: any) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
     const pure = tiles.filter((t: any) => !t.cursed)
-      .sort((a: any, b: any) => (Math.abs(a.q) + Math.abs(a.r)) - (Math.abs(b.q) + Math.abs(b.r)) || a.id - b.id);
+      .sort((a: any, b: any) => ring(a) - ring(b) || a.id - b.id);
     return pure[0]?.id ?? null;
   },
 
@@ -7570,7 +7586,10 @@ export const handlers = {
    *  clean ground the land mends him instead, at the heart's
    *  share (1% per beat). The fall, when it comes, fires ONCE:
    *  hp rests at 0 under a blackout, and when the blackout lifts
-   *  he WAKES AT THE BASTION, half-healed. */
+   *  he wakes half-healed at the respawn's reading of ground —
+   *  his standing bastion, or, with no bastion, his safe hex
+   *  (THE SAFE HEX'S OFFICE, Nigel, 2026-10-23 23:26; the
+   *  reading itself is bastionAnchorTileId's). */
   async settleTenderBody(ownerKey: string, tiles: any[], standTileId: number): Promise<number> {
     const TENDER_BLACKOUT_MS = 15000;
     const now = Date.now();
@@ -7586,7 +7605,23 @@ export const handlers = {
       .run(hp, wm, downUntil, ownerKey);
     // THE WAKE: the blackout has run out.
     if (downUntil != null && now >= downUntil) {
-      const anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+      let anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+      if (anchor == null) {
+        // THE SAFE HEX'S OFFICE, KEPT AT THE WAKE ITSELF
+        // (Nigel, 2026-10-23 23:26): no bastion stands and
+        // no safe hex stands either — the reading found no
+        // ground to wake on at all. On the homeland read
+        // (getTerritory) the guarantee has already fired,
+        // first, before the battle settles, so this branch
+        // is never reached there; but the office is kept
+        // here too, at the placing itself, so no respawn
+        // is ever read before the guarantee has had its
+        // say: ensure the safe hex (ensureOneSafeSquare,
+        // piece 7 — it mutates `tiles` in place), then read
+        // the anchor again off the ground it restored.
+        await ensureOneSafeSquare(ownerKey, tiles);
+        anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+      }
       downUntil = null;
       hp = maxHp / 2;
       wm = null;
