@@ -2340,7 +2340,7 @@ export function App() {
     // soft visitors (welcome still resolves) keep their ritual.
     const showGateUI = !tenderTokenState && (showGate || welcomeForbidden);
     if (showGateUI) {
-      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} guideId={welcomeQuery.data?.greeterId ?? null} /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><FrontTitle /><TenderGate onDone={handleTenderDone} note={gateNote} /><LoreSection /><LegalLinks /></main></div></>;
+      return <><CosmicBackground /><MarginGuide awoken={tenderItems} assets={assets} guideId={welcomeQuery.data?.greeterId ?? null} hideAd /><div className="app-shell tender-face"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main><FrontTitle /><TenderGate onDone={handleTenderDone} note={gateNote} /><LoreSection /><LegalLinks /></main></div></>;
     }
     const deckTitle = tender?.tenderName ? `${tender.tenderName}'s awakened` : "Your awakened";
     // The First Seed (Wake, Nigel 2026-10-17): the first three woken,

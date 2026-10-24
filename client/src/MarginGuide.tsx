@@ -14,6 +14,11 @@ interface Props {
   // unasked and is their personal guide. The teacher below is THIS
   // individual, chosen by its id wherever it sits in the deck.
   guideId?: number | null;
+  // The JOIN (gate) page only (Nigel, 2026-10-23 22:26): when set,
+  // the right-margin ad Awoken does not render — the whispering
+  // guide at the left margin stays, untouched. Everywhere else
+  // the caller passes nothing and the ad keeps its seat.
+  hideAd?: boolean;
 }
 
 const SHOP_URL = "https://nigelroper.printful.me/";
@@ -33,7 +38,7 @@ const MESSAGES = [
   "And if enough of us wake, Tender… forests might grow. That is the prophecy.",
 ];
 
-export default function MarginGuide({ awoken, assets, guideId }: Props) {
+export default function MarginGuide({ awoken, assets, guideId, hideAd }: Props) {
   const [visible, setVisible] = useState(false);
   const [messageIndex, setMessageIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -87,6 +92,7 @@ export default function MarginGuide({ awoken, assets, guideId }: Props) {
           </button>
         </div>
       </div>
+      {!hideAd && (
       <div className="margin-guide right" style={{ animationDelay: "0.5s" }}>
         {bearer && (
           <div className="margin-guide-sprite">
@@ -101,6 +107,7 @@ export default function MarginGuide({ awoken, assets, guideId }: Props) {
           <a href={SHOP_URL} target="_blank" rel="noreferrer">Visit the art shop →</a>
         </div>
       </div>
+      )}
     </>
   );
 }
