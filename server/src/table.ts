@@ -5126,6 +5126,23 @@ function handleConnection(ws: WebSocket): void {
       // engine only. Every other non-ward def is still refused.
       const isSpringleaf = def?.engine === "springleaf";
       if (!def || (def.kind !== "ward" && !isSpringleaf)) { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
+      // BLACK GATE — THE TABLE SEAM, FLAGGED (Nigel,
+      // 2026-10-23 — Recovery R13): the Gate is cast IN
+      // FRONT OF THE CASTER in the direction they face —
+      // eight facings, diagonals included. This door's
+      // cast machinery names an AIM by hexes (hexA/hexB,
+      // an edge — six directions, the diagonals have no
+      // neighbouring hex) and the Table stores no facing
+      // for a seat (its figure's facing is drawn from its
+      // glide at render, never kept), so a facing cast
+      // cannot be honestly expressed here. The door
+      // refuses the Gate in plain words BEFORE any charge
+      // rather than faking a facing from an aim or a
+      // default; the Gate stands whole on the homeland,
+      // where the figure's facing is real. (Its ward
+      // filing itself is an UNRULED derivation — see its
+      // page in grimoire.ts.)
+      if (def.engine === "blackgate") { ws.send(JSON.stringify({ type: "error", message: "The Black Gate is cast in the direction you face — the Table names a cast's aim by hexes, not a facing, so the Gate cannot be cast here. It stands on the homeland, in front of your figure where it faces." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
       // 2026-10-20 19:35): a hue riding in on this message

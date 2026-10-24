@@ -126,8 +126,29 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
   // stands in the book for it yet, as with the workings
   // above.
   bulwark: [],
+  // BLACK GATE (Nigel, 2026-10-23 — Recovery R13): its
+  // numbers are the ruling itself, carried in the cast's
+  // own law (the shared 5–10 rock-wall HP table read at
+  // the cast level, in actions.ts) — no tunable field
+  // stands in the book for it yet, as with Bulwark above.
+  blackgate: [],
   none: [],
 };
+
+/** BLACK GATE'S PRICE — UNRULED, FLAGGED FOR NIGEL
+ *  (Recovery R13): no energy cost for the Black Gate was
+ *  ever ruled, and no school/kind was named for it either
+ *  (Nigel called it only "a skill"). The cast machinery
+ *  requires both, so both are DERIVED here from the
+ *  nearest standing analogue among the book's wall/ward
+ *  workings — BULWARK (Recovery R12): the other ruled
+ *  wall-with-HP working, classed as a WARD at 8 energy.
+ *  The Black Gate therefore stands in the book as a ward
+ *  of BLACK_GATE_COST energy — this ONE named constant
+ *  is the whole of the derivation, and it stands awaiting
+ *  Nigel's word, exactly as the lighthouse's shadow
+ *  upkeep constant stood flagged before it. */
+export const BLACK_GATE_COST = 8;
 
 export const ENGINE_KEYS = Object.keys(ENGINE_NUMBER_FIELDS);
 
@@ -411,6 +432,71 @@ export function defaultGrimoire(): GrimoireState {
     blurb: "A line of shields raised across your aim, in the Rock Wall's working fashion: the count follows your cast level (a low cast only one or two, six at the cap), each shield's health read off the shared 5–10 table at that level. An enemy that hits a shield is knocked back a tile; a shield falls at 0 HP and the line opens there.",
     numbers: { level: 1 },
     forms: { unaligned: "Bulwark", tide: "Tide Bulwark", sky: "Sky Bulwark", stone: "Stone Bulwark", root: "Root Bulwark", fire: "Fire Bulwark" },
+    builtin: true,
+  });
+  // BLACK GATE REBORN (Nigel, 2026-10-23 12:04 — Recovery
+  // R13, recovery order 13): "THE OLD BLACK GATE IDEA IS
+  // DISCARDED" — the 2026-10-21 Proving Ground test piece
+  // (an ornate fence of hex-edge segments) is gone whole,
+  // and nothing of it is built here. "The new Black Gate:
+  // a skill that creates an IMPASSABLE WALL with 10 HP,
+  // cast IN FRONT OF THE CASTER in the direction they
+  // face — N, E, S, W AND THE DIAGONALS (8 facings)." And
+  // the shared law spoken the same minute (order 14):
+  // it comes into the game FOLLOWING THE 5-10 ROCK WALL
+  // LAW — so the ruling's "10 HP" is the shared table's
+  // top figure: the wall's HP reads the ONE shared table
+  // (ROCK_WALL_HP_BY_LEVEL, read through
+  // rockWallHpForLevel in actions.ts) AT THE CAST LEVEL —
+  // 5 at Lv 1 rising to 10 at Lv 9+, exactly as Bulwark
+  // and the Rock Wall read it; no second copy stands.
+  // The cast raises ONE wall at the caster's point
+  // stepped one axial unit along their facing, in the
+  // defence-works ledger beside the Rock Wall's nodes and
+  // Bulwark's shields (placement_id 0 — no figure raises
+  // or sustains it; it stands by its HP alone). While it
+  // stands, the dark cannot step onto or through its
+  // ground in the homeland battle's walk reckoning; the
+  // dark may strike it (the Rock Wall's own hack measure,
+  // no roll — no AC is invented for it), and at 0 HP it
+  // falls and the ground opens. IMPASSABLE TO WHOM, named
+  // plainly: the DARK — the homeland battle's walk is the
+  // reckoning this build touches; the light's own marches
+  // and the Tender's stride are not reckoned there and
+  // are not blocked by this wall in this build.
+  // KIND + PRICE — UNRULED, FLAGGED: neither was ever
+  // ruled (see BLACK_GATE_COST above): the page is
+  // classed a WARD at that constant's 8 energy, derived
+  // from Bulwark, the nearest standing wall/ward
+  // analogue — both awaiting Nigel's word. The Gate's
+  // ART is Nigel's own upload (the "Black Gate" piece,
+  // Untitled_Artwork.png of his rune/ward set, 2026-10-21
+  // — pure black carried in alpha, cropped to its drawn
+  // shape as R12/R3 wired his other uploaded workings; no
+  // substitute art). Its GLYPH FACE is separately owed
+  // by his hand, like Bulwark's and Shard Rain's:
+  // glyphId stands null and no glyph is invented for it.
+  // Its page takes no attunement slots (it stands
+  // outside POUR_ENGINES, as Bulwark does): its strength
+  // is the cast level law Nigel ruled for it.
+  // THE TABLE SEAM, FLAGGED: the Table's cast machinery
+  // names an AIM by hexes (an edge, six directions) — it
+  // cannot honestly express an 8-facing cast (the
+  // diagonals have no neighbouring hex, and no facing
+  // is stored at the Table), so the Gate is NOT castable
+  // at the Table in this build: table.ts's ward door
+  // refuses it in plain words rather than faking a
+  // facing. The homeland build stands whole.
+  spells.push({
+    key: "blackgate",
+    name: "Black Gate",
+    kind: "ward",
+    engine: "blackgate",
+    glyphId: null,
+    cost: BLACK_GATE_COST,
+    blurb: "An impassable black wall raised in front of you, in the direction you face — all eight facings, diagonals included. Its health reads the shared 5–10 table at your cast level (5 at Lv 1, rising to 10 at Lv 9+). The dark cannot cross its ground while it stands; it may strike the Gate down, and only when the Gate falls at 0 HP does the road open. (Its price and ward filing are unruled derivations from Bulwark, flagged for Nigel's word.)",
+    numbers: { level: 1 },
+    forms: { unaligned: "Black Gate", tide: "Tide Black Gate", sky: "Sky Black Gate", stone: "Stone Black Gate", root: "Root Black Gate", fire: "Fire Black Gate" },
     builtin: true,
   });
   return { glyphs, spells };

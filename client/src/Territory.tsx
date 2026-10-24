@@ -35,6 +35,7 @@ import grimGlyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 import { batsFrameAt, holdRuneFrameAt } from "./workingFx";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
+import blackGateImg from "./assets/effects/black-gate.png";
 const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, springblade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
 /** The hues of the Written Light — the grimoire's filter recipes,
  *  the same as the Table's (Table.tsx). */
@@ -2658,7 +2659,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // pointerdown below) and ends at the cast tap; the held
   // stream the server stands is bought by that measure.
   const castPressAtRef = useRef<number>(0);
-  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number; heldMs?: number }) => {
+  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number; heldMs?: number; facing?: string }) => {
     if (!castSpell) return;
     // THE CAST GESTURE FOR WORKINGS (Nigel, 2026-10-23 —
     // "I want casting animation on homeland too"): a working
@@ -2710,6 +2711,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           ? `${formName} is written into the ground — it waits ARMED. Click a dark thing within two hexes of its ground and its blades will rise and spear down into it from above.`
           : castSpell.engine === "springleaf"
           ? `${formName} takes root — a grove of ${res.radiusHexes ?? 1} hexes' glow; its burst mends ${res.burst ?? 0} HP, and ${res.saplings ?? 0} saplings follow.`
+          : castSpell.engine === "blackgate"
+            ? `${formName} rises before you, facing ${res.facing ?? "the way you face"} — an impassable black wall of ${res.wallHp ?? 0} HP. The dark cannot cross its ground while it stands; only when it falls does the road open.`
           : castSpell.engine === "bulwark"
             ? `${formName} rises — ${res.shields ?? 0} shield${(res.shields ?? 0) === 1 ? "" : "s"} stand in a line across your aim, each with ${res.shieldHp ?? 0} HP. What strikes them is shoved back a tile.`
             : castSpell.kind === "ward"
@@ -2737,6 +2740,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
   const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
     if (!castSpell) { showHexNotice("No working is readied — right-click and pick one from the wheel."); return; }
+    // BLACK GATE (Nigel, 2026-10-23 — Recovery R13): the
+    // Gate names no ground and no edge — it is cast IN
+    // FRONT OF THE CASTER in the direction they face, so
+    // the tap that fires it is only the firing: the cast
+    // carries the figure's OWN facing (tenderFacingRef,
+    // the 8-direction facing the figure strides and is
+    // drawn by) to the server whole, and the wall stands
+    // at his point stepped along it, wherever the tap
+    // happened to land.
+    if (castSpell.engine === "blackgate") { void doCastMap({ facing: tenderFacingRef.current }); return; }
     // The Springleaf is a binding by the book's filing, but
     // she is planted on GROUND, not cast on a body — the tap
     // casts her on her hex (Homeland Casting).
@@ -5672,6 +5685,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <g key={i} opacity={0.35 + 0.65 * frac}>
                   <ellipse cx={cx} cy={cy + size * 0.12} rx={size * 0.2} ry={size * 0.07} fill="rgba(0,0,0,0.4)" />
                   <image href={bulwarkShieldImg} x={cx - size * 0.31} y={cy - size * 0.34} width={size * 0.62} height={size * 0.64} preserveAspectRatio="xMidYMid meet" />
+                </g>
+              ) : wk.kind === "blackgate" ? (
+                // BLACK GATE REBORN (Nigel, 2026-10-23 —
+                // Recovery R13): the impassable wall itself,
+                // drawn with his own uploaded Black Gate
+                // piece (Untitled_Artwork.png of the
+                // rune/ward set, 2026-10-21 — pure black
+                // carried in alpha, cropped to its drawn
+                // shape; no substitute art) standing at the
+                // wall's own point, its base on the ground
+                // it bars, paling as its wounds deepen as
+                // the works beside it pale.
+                <g key={i} opacity={0.35 + 0.65 * frac}>
+                  <ellipse cx={cx} cy={cy + size * 0.12} rx={size * 0.3} ry={size * 0.09} fill="rgba(0,0,0,0.45)" />
+                  <image href={blackGateImg} x={cx - size * 0.42} y={cy - size * 1.3} width={size * 0.84} height={size * 1.43} preserveAspectRatio="xMidYMax meet" />
                 </g>
               ) : (
                 <g key={i} opacity={0.35 + 0.65 * frac}>

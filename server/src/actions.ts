@@ -3731,6 +3731,53 @@ export function rockWallHpForLevel(level: number): number {
 export function bulwarkShieldCountFor(castLevel: number): number {
   return Math.min(6, Math.max(1, Math.floor(Math.max(1, Math.floor(castLevel) || 1) / 2)));
 }
+/** BLACK GATE'S EIGHT FACINGS (Nigel, 2026-10-23 12:04 —
+ *  Recovery R13): "cast IN FRONT OF THE CASTER in the
+ *  direction they face — N, E, S, W AND THE DIAGONALS
+ *  (8 facings)." The steps below are the eight compass
+ *  directions read onto this land's axial lattice, each
+ *  exactly ONE axial unit from the caster's point (axial
+ *  distance 1, the measure the walk reckoning walks by).
+ *  The land's six hex steps are (0,−1), (1,−1), (1,0),
+ *  (0,1), (−1,1), (−1,0): north and south stand among
+ *  them whole (N = (0,−1), S = (0,1)). East and west
+ *  are the half-steps between their flanking hex steps
+ *  (E = the mean of (1,−1) and (1,0) = (1,−0.5);
+ *  W = (−1,0.5)), and the four diagonals are the
+ *  half-steps between a cardinal hex step and an
+ *  east/west half-step (NE = (0.5,−1), SE = (0.5,0.5),
+ *  SW = (−0.5,1), NW = (−0.5,−0.5)). Every step's
+ *  axial length is exactly 1, and read through the
+ *  land's iso basis each step points along its own
+ *  compass ray, within the lattice's own slant.
+ *  THE FACING'S SOURCE, named plainly: the Tender's
+ *  facing lives on the homeland figure itself — the
+ *  client's tenderFacingRef, the 8-direction facing the
+ *  figure is drawn and strides by (tenderArt's
+ *  TenderDir) — and the server keeps NO facing of its
+ *  own: no column, no record. So the cast carries the
+ *  figure's facing in on the cast message itself (the
+ *  `facing` field of castMapWorking), exactly as the
+ *  ward casts carry their aim (tileId/dir) in on theirs,
+ *  and the server REQUIRES it for this working: a cast
+ *  naming no facing, or a word outside the eight, is
+ *  refused — a default direction is never dressed up
+ *  as the caster's facing. The caster's POINT the step
+ *  is taken from is the server's own knowledge of where
+ *  the Tender stands: his stand tile's point (his free
+ *  pixel point lives client-side and is never sent; the
+ *  tile's point is the point the server can swear to). */
+export const BLACK_GATE_FACINGS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+export type BlackGateFacing = (typeof BLACK_GATE_FACINGS)[number];
+export const BLACK_GATE_STEP: Record<BlackGateFacing, readonly [number, number]> = {
+  N: [0, -1], NE: [0.5, -1], E: [1, -0.5], SE: [0.5, 0.5],
+  S: [0, 1], SW: [-0.5, 1], W: [-1, 0.5], NW: [-0.5, -0.5],
+};
+export function blackGateStepFor(facing: string): readonly [number, number] | null {
+  return (BLACK_GATE_FACINGS as readonly string[]).includes(facing)
+    ? BLACK_GATE_STEP[facing as BlackGateFacing]
+    : null;
+}
 const DEFENCE_WORK_ENGAGE = 2.5; // a work is raised when the dark comes within her reach + this
 /** THE LIGHTHOUSE'S SHADOW UPKEEP — UNRULED (Nigel to set):
  *  while the light burns it drinks this much Shadow Matter
@@ -4035,9 +4082,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // placement_id is 0 — no figure raises or sustains them),
   // and they stand by the working's own life — their HP
   // alone, reckoned in the strike pass below — never by a
-  // figure's Defence stance.
+  // figure's Defence stance. THE BLACK GATE (Recovery
+  // R13) stands apart the same way, for the same reason:
+  // its row's placement_id is 0 and its wall stands by
+  // its HP alone.
   for (const w of works) {
-    if (w.kind === "bulwark") continue;
+    if (w.kind === "bulwark" || w.kind === "blackgate") continue;
     const f = fighters.find(x => x.id === w.placementId);
     if (!f || f.dead || f.stance !== "defense") w.gone = true;
   }
@@ -4160,10 +4210,18 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // A Bulwark shield blocks the same way (Recovery R12:
       // the line is raised in the Rock Wall's working
       // fashion) — a fallen shield (hp 0) blocks nothing:
-      // the line opens where it fell.
+      // the line opens where it fell. THE BLACK GATE
+      // blocks ABSOLUTELY (Recovery R13: "IMPASSABLE
+      // WALL") — the same step is refused while any of
+      // the Gate stands (its one node at hp > 0), onto
+      // its ground or through it, and the ground opens
+      // only when the Gate falls at 0 HP. IMPASSABLE TO
+      // WHOM: the dark, in this walk reckoning — the
+      // light's marches and the Tender's stride are not
+      // reckoned here and are not blocked by the Gate.
       let blocked = false;
       for (const w of works) {
-        if (w.gone || (w.kind !== "rockwall" && w.kind !== "bulwark")) continue;
+        if (w.gone || (w.kind !== "rockwall" && w.kind !== "bulwark" && w.kind !== "blackgate")) continue;
         if (w.nodes.some(n => n.hp > 0 && axialDist({ q: nq, r: nr }, n) <= 0.55)) { blocked = true; break; }
       }
       if (blocked) continue;
@@ -4226,6 +4284,22 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         break;
       }
       if (shoved) continue;
+      // THE BLACK GATE (Recovery R13): a Gate in its face
+      // is struck the way a rock is hacked — WALL_HACK_DMG
+      // through this same fashion, no roll, no AC invented
+      // for it (the dropped enemy ACs stand untouched in
+      // every roll that reads them) — and it falls at
+      // 0 HP, where the walk above opens. Unlike Bulwark
+      // the Gate answers with NO shove: impassable is its
+      // whole office; knockback is Bulwark's own ruling,
+      // not the Gate's.
+      let gateHacked = false;
+      for (const w of works) {
+        if (w.gone || w.kind !== "blackgate") continue;
+        const node = w.nodes.find(n => n.hp > 0 && axialDist(d, n) <= 0.75);
+        if (node) { node.hp -= WALL_HACK_DMG; w.dirty = true; gateHacked = true; break; }
+      }
+      if (gateHacked) continue;
       // A rock in its face is hacked (WALL_HACK_DMG, the PG's pencil).
       let hacked = false;
       for (const w of works) {
@@ -9124,9 +9198,18 @@ export const handlers = {
       // the tap was held — the stream it buys is reckoned by
       // the settle, at 1✦ a second and three pieces a second.
       heldMs: z.number().int().min(0).max(60000).optional(),
+      // BLACK GATE'S FACING (Nigel, 2026-10-23 — Recovery
+      // R13): the caster's own 8-direction facing, carried
+      // in on the cast as the ward casts carry their aim —
+      // the server keeps no facing of its own (see
+      // BLACK_GATE_STEP). Any string is taken in here; the
+      // Black Gate branch itself judges it against the
+      // eight and refuses the rest, so no other working's
+      // cast is narrowed by this field's shape.
+      facing: z.string().max(4).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awokin to receive it.");
-    const { spellKey, tileId, dir, awakenedId, heldMs } = parsed.data;
+    const { spellKey, tileId, dir, awakenedId, heldMs, facing } = parsed.data;
     await refreshGrimoire();
     const spell = spellByKey(spellKey);
     if (!spell) badRequest("That spell is not in the book.");
@@ -9325,6 +9408,47 @@ export const handlers = {
     // requires energy only.
 
     if (spell.kind === "ward") {
+      // BLACK GATE REBORN (Nigel, 2026-10-23 12:04 —
+      // Recovery R13): the Gate is filed a ward (its kind
+      // is an UNRULED derivation from Bulwark — flagged
+      // at its page in grimoire.ts, beside its price), but
+      // it stands on NO edge and names NO hex: it is cast
+      // IN FRONT OF THE CASTER, at his own point stepped
+      // one axial unit along his FACING — so it branches
+      // here, before the ward door's edge law, under the
+      // door's own common law (the Lv 3 gate above, the
+      // purse charged before the roll, a fizzle spent,
+      // the Witch's mercy and company price riding it as
+      // at every door). THE FACING IS REQUIRED: it is the
+      // figure's own facing, carried in on the cast (see
+      // BLACK_GATE_STEP for its source) — a cast naming
+      // none, or a word outside the eight, is refused
+      // before any charge; no default is ever dressed up
+      // as his facing. Its HP reads the ONE shared table
+      // at the cast level (the caster's Tender level, the
+      // reading R12 named for the same table) through
+      // rockWallHpForLevel — the ruling's "10 HP" is that
+      // table's top figure, standing at Lv 9+. The wall
+      // lives in the defence-works ledger beside the Rock
+      // Wall's nodes and Bulwark's shields, with
+      // placement_id 0: no figure raises or sustains it,
+      // it stands by its HP alone, and the battle reckons
+      // it in its walk-blocking and its strike pass.
+      if (spell.engine === "blackgate") {
+        if (!standTile) badRequest("You have no stand on this land to cast from.");
+        const step = facing ? blackGateStepFor(facing) : null;
+        if (!step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
+        const gateCost = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
+        if (!(await spendEnergy(ownerKey, gateCost))) badRequest(`Not enough energy — ${spell.name} costs ${gateCost}.`);
+        const cast = homelandCastRoll(progress, spell);
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: gateCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, gateCost), spellKey: spell.key };
+        const wallHp = rockWallHpForLevel(progress.level);
+        const wallQ = standTile.q + step[0], wallR = standTile.r + step[1];
+        const nodes = [{ q: wallQ, r: wallR, hp: wallHp, maxHp: wallHp }];
+        const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, 0, 'blackgate', ?, ?, ?, ?)")
+          .run(ownerKey, wallQ, wallR, JSON.stringify(nodes), Date.now());
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile.id, cost: gateCost, wallHp, facing, wallQ, wallR, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+      }
       if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
       const tileRows = await db.select().from(schema.territoryTiles)
         .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
