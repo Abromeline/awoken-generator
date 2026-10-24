@@ -20,9 +20,12 @@
 //      20 only while the seed conditions stand.
 //   §B App.tsx — the banner markup stands behind that one
 //      reckoning, its faces and copy unchanged, its Send
-//      behaviour unchanged (setPatrolIds(patrolThree) +
-//      setShowDeck(true)), and the button carries exactly
-//      the pencil words, the old words gone.
+//      behaviour unchanged for a Tender (setPatrolIds(
+//      patrolThree) + setShowDeck(true) — carried since
+//      piece 2, 2026-10-23, by the patrolDoor handler, whose
+//      no-Tender branch routes to the claim: the map locked
+//      until a Tender), and the button carries exactly the
+//      pencil words, the old words gone.
 //   §C the built client bundle — the new button words ship,
 //      the old words do not, the banner markup ships, and a
 //      minified length>=20 reckoning stands in the shipped JS.
@@ -90,8 +93,10 @@ check("exactly one patrol-banner section stands, guarded by showPatrolBanner",
 check("the banner's faces still show the first three", app.includes('<div className="patrol-banner-faces">{patrolThree.map((a) => <img'));
 check("the banner's seed copy stands unchanged",
   app.includes("A starseed has landed</strong> on your land") && app.includes("stand ready as your first three.") && app.includes("The seed waits until your patrol claims it."));
-check("the Send behaviour stands unchanged (setPatrolIds(patrolThree) + setShowDeck(true))",
-  app.includes("onClick={() => { setPatrolIds(patrolThree.map((a) => a.id)); setShowDeck(true); }}"));
+check("the Send button opens through patrolDoor (piece 2, the map locked until a Tender)",
+  app.includes('className="patrol-banner-send" onClick={patrolDoor}'));
+check("the Send behaviour stands unchanged for a Tender — patrolDoor carries setPatrolIds(patrolThree) + setShowDeck(true), behind piece 2's no-Tender needClaim branch",
+  /function patrolDoor\(\) \{\s*if \(!tender\) \{ needClaim\(\); return; \}\s*setPatrolIds\(patrolThree\.map\(\(a\) => a\.id\)\);\s*setShowDeck\(true\);\s*\}/.test(app));
 check("the button reads exactly the pencil words, once",
   count(app, ">Send these three to claim the starseed</button>") === 1,
   `count=${count(app, ">Send these three to claim the starseed</button>")}`);
