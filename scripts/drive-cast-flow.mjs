@@ -23,10 +23,15 @@
 //      room's own state, read by a watcher socket, counts
 //      them), no window between taps.
 // A fizzle is honest dice (Runewright, +2 in his school,
-// against DC 11): it ends the run by the shipped law, so the
-// drive re-readies through the wheel — as a player does —
-// and taps on. The run it swears by is three STANDING casts
-// in a row with nothing but hex taps between them.
+// against DC 11): until 2026-10-23 it ended the run and the
+// drive re-readied through the wheel. That law is struck
+// (Nigel, 2026-10-23 23:39, corrected 23:40 — "if the roll
+// fails you can still re cast"): the readied working STAYS
+// readied through a fizzle, so the drive simply taps on —
+// the run it swears by is three STANDING casts under ONE
+// readying with nothing but hex taps between them, fizzle
+// taps included (drive-readied-stays.mjs proves the fizzle
+// and purse cases by name).
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-cast-flow.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -260,9 +265,13 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
       const last = log[log.length - 1];
       casts++;
       if (last.fizzled) {
-        fizzles++; run = 0;
-        console.log(`    tap (${t.q},${t.r}): the roll fell short — the working slips from the hand`);
-        await reReady(); reReadies++;
+        // THE READIED SPELL STAYS READIED (Nigel, 2026-10-23
+        // 23:39, corrected 23:40): a fizzle is still a cast
+        // of the run — the working stays in the hand, the
+        // run is NOT reset, and the next bare tap casts
+        // again. No re-readying stands here any more.
+        fizzles++;
+        console.log(`    tap (${t.q},${t.r}): the roll fell short — the working STAYS readied; tap on`);
       } else if (last.refused) {
         run = 0;
         console.log(`    tap (${t.q},${t.r}): REFUSED — ${last.note ?? ""}`);
@@ -272,8 +281,7 @@ console.log("§1 the land map — ready the Blade, tap hexes, casts land back to
       }
     } else {
       deadTaps++;
-      console.log(`    tap (${t.q},${t.r}): no cast fired — walking the wheel road again`);
-      await reReady(); reReadies++;
+      console.log(`    tap (${t.q},${t.r}): no cast fired — tapping on (the readying is not walked again)`);
     }
   }
   console.log(`    taps=${taps} casts fired=${casts} standing=${standings} fizzled=${fizzles} re-readies=${reReadies} dead taps=${deadTaps} best back-to-back run=${bestRun}`);
@@ -313,6 +321,16 @@ console.log("§2 the Table — ready the Blade through the wheel, tap hexes, wor
   ]);
   db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
     .run("Flowkin", "Flowkin", "flow/awokin.png", compJson, "Castflow Table", ownerKey, now);
+  // THE CHOOSING GATE (the claim-first-choose-at-three
+  // build, 2026-10-23): the choosing opens only once three
+  // Awoken are held — one Flowkin no longer opens it, so
+  // two more stand in the roster beside the first. (This
+  // drive's Table seed predates the gate; the gate's own
+  // terms are the fix, nothing in the gate is bent.)
+  for (let k = 1; k <= 2; k++) {
+    db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
+      .run(`Flowkin ${k}`, `Flowkin ${k}`, "flow/awokin.png", compJson, "Castflow Table", ownerKey, now);
+  }
   db.prepare("INSERT INTO tender_resources (owner_key, energy, terrain_bank, updated_at) VALUES (?, 500, 200, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 500, terrain_bank = 200").run(ownerKey, now);
   // His homeland disc + a first read, so his stand exists
   // before the Table seats him (the seat's hex is his stand).
@@ -449,11 +467,23 @@ console.log("§2 the Table — ready the Blade through the wheel, tap hexes, wor
   const permRes = await buildPerm(page, '.table-room svg polygon[fill="transparent"]', tiles, 40);
   const perm = permRes.perm;
   ok("the stage's tile lattice is solved", permRes.matched === tiles.length && permRes.worst < 20, JSON.stringify(permRes));
+  // A REAL mouse tap at the tile's centre: since the
+  // no-hex-lock build (2026-10-24) the tile's click aims by
+  // the tap's own POINT (stagePointOf(e.clientX,
+  // e.clientY)), so a synthetic event — whose point is
+  // (0,0), a far corner of the stage — is refused by range
+  // on every tile, however near the seat. (This drive's
+  // synthetic taps predate the point-aim; the real tap is
+  // the no-hex-lock drive's own technique.)
   const tapTile = async (id) => {
-    await page.evaluate((pi) => {
-      const polys = [...document.querySelectorAll('.table-room svg polygon[fill="transparent"]')];
-      polys[pi]?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const box = await page.evaluate((pi) => {
+      const p = [...document.querySelectorAll('.table-room svg polygon[fill="transparent"]')][pi];
+      if (!p) return null;
+      const r = p.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     }, perm[id]);
+    if (!box) throw new Error("tapTile: no polygon for " + id);
+    await page.mouse.click(box.x, box.y);
   };
 
   let standings = 0, run = 0, bestRun = 0, taps = 0, deadTaps = 0, reReadies = 0;
@@ -470,10 +500,12 @@ console.log("§2 the Table — ready the Blade through the wheel, tap hexes, wor
     if (after > before) {
       standings += after - before; run++; bestRun = Math.max(bestRun, run);
     } else {
-      // No working landed: either the dice fizzled (the run
-      // ends by law — the card leaves the hand) or the tap
-      // raced a state push. Re-ready only when the card
-      // truly slipped; otherwise tap on.
+      // No working landed: the dice may have fizzled — and
+      // since 2026-10-23 23:40 a fizzle leaves the working
+      // readied, so the placing still stands and the drive
+      // taps on — or the tap raced a state push. Re-ready
+      // only if the placing truly stands down (which no cast
+      // outcome does any more); otherwise tap on.
       if (!(await placingArmed())) {
         run = 0; reReadies++;
         await readyCard();

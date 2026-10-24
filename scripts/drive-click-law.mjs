@@ -609,8 +609,11 @@ console.log("§D the cast road — left looses, right cancels, the next right re
   ok("right-click (unarmed) opened the wheel and the Rune branch readied the Blade", true);
 
   // Loose it with LEFT taps on clean ground near the stand
-  // until one stands (a fizzle unarms — re-ready and walk
-  // on, the cast-flow drive's own road). The taps are
+  // until one stands (a fizzle once unarmed and the drive
+  // re-readied between taps; since 2026-10-23 23:40 the
+  // readied working STAYS readied through a fizzle, so the
+  // taps simply walk on, the cast-flow drive's new road).
+  // The taps are
   // ground()-checked and kept inside the viewport: §C's
   // recentring left the far-north tiles off the top edge,
   // where a blind centre click lands on the HUD, not land.
@@ -626,7 +629,8 @@ console.log("§D the cast road — left looses, right cancels, the next right re
     await page.mouse.click(pt.x, pt.y);
     await sleep(700);
     if ((await workingsCount()) > w0) { stoodAt = i; break; }
-    if (i < tapTiles.length - 1) await readyBlade();
+    // No re-readying between taps: the one readying rides
+    // every tap, fizzle and all (Nigel, 2026-10-23 23:40).
   }
   ok("a LEFT tap loosed the readied working — it stands on the land", stoodAt >= 0, `workings=${await workingsCount()} base=${w0}`);
 
@@ -667,6 +671,25 @@ console.log("§E the Table — the middle pans, the left from empty ground does 
   const tenderId2 = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
   const ownerKey2 = `tender:${tenderId2}`;
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 3800, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 3800").run(ownerKey2, Date.now());
+  // THE CHOOSING GATE (the claim-first-choose-at-three
+  // build, 2026-10-23): the choosing opens only once three
+  // Awoken are held (progress.awokenCount) — this section
+  // seeded none, so its choosing has been refused since
+  // the gate landed. Three stand in the roster now, on the
+  // gate's own terms; nothing in the gate is bent.
+  {
+    const nowE = Date.now();
+    const mkAsset = (name, cat, p) => Number(db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, 'sky', ?, 'image/png', ?)").run(name, cat, p, p, `clicklaw/${name}.png`, nowE).lastInsertRowid);
+    const compE = JSON.stringify([
+      { source_id: `db:${mkAsset("Click Body", "body", 2)}`, name: "Click Body", category: "body", rarity: "common", power: 2, toughness: 2, element: "sky" },
+      { source_id: `db:${mkAsset("Click Arms", "arms", 3)}`, name: "Click Arms", category: "arms", rarity: "common", power: 3, toughness: 3, element: "sky" },
+      { source_id: `db:${mkAsset("Click Head", "head", 3)}`, name: "Click Head", category: "head", rarity: "common", power: 3, toughness: 3, element: "sky" },
+    ]);
+    for (let k = 0; k < 3; k++) {
+      db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
+        .run(`Clickkin ${k}`, `Clickkin ${k}`, "clicklaw/awokin.png", compE, "Clicklaw Table", ownerKey2, nowE);
+    }
+  }
   const insTile2 = db.prepare("INSERT INTO territory_tiles (owner_key, q, r, cursed, created_at) VALUES (?, ?, ?, 0, ?)");
   for (let q = -2; q <= 2; q++) for (let r = -2; r <= 2; r++) {
     if (hexDist({ q, r }, { q: 0, r: 0 }) > 2) continue;

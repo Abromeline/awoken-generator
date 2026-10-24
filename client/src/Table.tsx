@@ -631,19 +631,23 @@ export default function Table() {
   // blow per tap, as the land's blow-per-order rules it.
   const [strikeArm, setStrikeArm] = useState(false);
   useEffect(() => { setStrikeArm(false); }, [selUnitId]);
-  // SEAMLESS STICKY CASTING (Nigel, 2026-10-20): a target
-  // tap fires the cast at once — no confirm stands in the
-  // flow, and the readied placing STAYS armed across taps
-  // until the run ends: the player unloads or readies
-  // another working, the purse refuses, or a roll fizzles
-  // and the working slips from the readying. placingRef mirrors
-  // the placing for the socket's own handlers and watchers,
+  // SEAMLESS STICKY CASTING (Nigel, 2026-10-20; the run's
+  // ends re-ruled 2026-10-23 23:39, corrected 23:40): a
+  // target tap fires the cast at once — no confirm stands
+  // in the flow, and the readied placing STAYS armed across
+  // taps until the run ends: the player unloads it or
+  // readies another working — changing workings is the
+  // run's one true end. A fizzle does NOT end it ("if the
+  // roll fails you can still re cast"), and neither does
+  // the purse: an empty purse refuses that one cast while
+  // the working stays readied. placingRef mirrors the
+  // placing for the socket's own handlers and watchers,
   // which were bound once and cannot see fresh state.
   const placingRef = useRef<typeof placing>(null);
   placingRef.current = placing;
-  // The run's end, reached from the mount-once key handler,
-  // the socket's error path, and the tale watcher — each
-  // bound outside this render's closures.
+  // The run's end, reached from the mount-once key handler
+  // and the player's own unload — each bound outside this
+  // render's closures. No cast outcome comes through here.
   const unloadCastRef = useRef<(() => void) | null>(null);
   // The stage clock: the stage ticks gently while anyone
   // watches, so smoothed figures lerp across server ticks.
@@ -870,12 +874,23 @@ export default function Table() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shared]);
-  // THE SLIP (Nigel, 2026-10-20): a fizzled roll ends the
-  // run — the working leaves the readying and must be readied
-  // again. The fizzle is read from the room's own tale,
-  // where the referee writes every unravelling by name
-  // ("<name>'s <working> unravels — the roll falls short.");
-  // my own line only counts while a run stands armed and a
+  // THE FIZZLE, SPOKEN (Nigel, 2026-10-20; the slip struck
+  // 2026-10-23 23:39, corrected 23:40): a fizzled roll was
+  // once read here as the run's end — the working slipped
+  // and had to be readied again. That law is struck: the
+  // fizzle is still read from the room's own tale, where
+  // the referee writes every unravelling by name, and
+  // spoken to the caster — but the placing is NOT
+  // unloaded: the working stays readied and the next tap
+  // casts it again, exactly as after a standing cast. (The
+  // old slip's pattern named only the reckoning-less form
+  // — "unravels — the roll falls short." — while every
+  // cast the referee unravels carries its reckoning:
+  // "unravels — rolled …: the roll falls short." The slip
+  // therefore never fired on a real fizzle; the pattern
+  // below reads both forms, so the fizzle is spoken at
+  // last — with the new law's words, and no unloading.)
+  // My own line only counts while a run stands armed and a
   // cast of mine is fresh (beginCast's mark) — the backlog
   // from before I sat down is primed past, never acted on.
   const taleSeenRef = useRef<Set<string> | null>(null);
@@ -891,10 +906,9 @@ export default function Table() {
     for (const t of tale) seen.add(`${t.at}|${t.text}`);
     if (!placingRef.current) return;
     if (Date.now() - ownCastMarkRef.current > 15000) return;
-    const mine = fresh.find(t => t.text.startsWith(`${you.name}'s `) && t.text.includes("unravels — the roll falls short."));
+    const mine = fresh.find(t => t.text.startsWith(`${you.name}'s `) && t.text.includes("unravels —") && t.text.includes("the roll falls short."));
     if (!mine) return;
-    unloadCastRef.current?.();
-    setNotice(`${mine.text} The working slips from your hand — ready it again to cast on.`);
+    setNotice(`${mine.text} The working stays readied in your hand — tap the ground to cast it again.`);
   }, [shared]);
   // WASD GLIDES THE TENDER (Phase B): the lattice's own
   // compass — Q/W/E across the top arc, A/S/D below it,
@@ -1154,17 +1168,15 @@ export default function Table() {
       } else if (msg.type === "error") {
         const m = String(msg.message || "");
         setNotice(m);
-        // THE PURSE ENDS THE RUN (Nigel, 2026-10-20): while a
-        // cast run stands armed, the ONLY refusal that can
-        // answer is the cast's own — placing owns the taps,
-        // so nothing else spends from this seat — and every
-        // cast refusal names its price ("…costs ✦…"). A
-        // refusal that answers a cast fired moments ago (the
-        // fire's own mark) ends the run: the working leaves
-        // the hand. The refusal itself shows above, as always.
-        if (placingRef.current && /costs ✦/.test(m) && Date.now() - ownCastMarkRef.current < 6000) {
-          unloadCastRef.current?.();
-        }
+        // THE PURSE REFUSES THE CAST, NEVER THE READYING
+        // (Nigel, 2026-10-23 23:39, corrected 23:40): a cast
+        // refusal that names its price ("…costs ✦…") once
+        // ended the run here — the working left the hand
+        // because the purse could not pay. That law is
+        // struck: poverty refuses that one cast alone; the
+        // readied placing stays armed, and a later tap casts
+        // again once the purse can pay. The refusal itself
+        // shows above, as always — and nothing unloads.
       }
     };
     ws.onclose = () => {
@@ -3094,9 +3106,9 @@ export default function Table() {
               <div className="placing-bar">
                 <span className="placing-text">
                   {placing.kind === "attune" && <>Attuning with <strong>{placing.root}</strong> — tap ground {you?.storytender ? <>anywhere on the field</> : <>within your reach — your hex and its ring{(you?.attuneReach ?? 0) > 0 ? <> and {you?.attuneReach} ring{(you?.attuneReach ?? 0) > 1 ? "s" : ""} more by your skill</> : null}</>} to lay a {placing.root} point on it — 1 point of {placing.root} from your pool ({Math.floor(you?.pools?.[placing.root] ?? 0)} held). The point rests in the ground's own ledger; ground a rune or ward stands on takes the point the same way. Attune on until you set it down or the pool runs dry.</>}
-                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap the ground to write it THERE, where you tap, within your reach — range alone gates the writing. Written, it waits ARMED: click a dark thing within two hexes of its ground and its blades rise and spear down into it from above. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && defs[placing.root]?.engine !== "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down: a roll that falls short and an empty purse refuse that cast alone; the light stays readied.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine === "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap the ground to write it THERE, where you tap, within your reach — range alone gates the writing. Written, it waits ARMED: click a dark thing within two hexes of its ground and its blades rise and spear down into it from above. The writing stays in your hand — write on until you set it down: a roll that falls short and an empty purse refuse that cast alone; the writing stays readied.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && defs[placing.root]?.engine !== "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down: a roll that falls short and an empty purse refuse that cast alone; the writing stays readied.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}

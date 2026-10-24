@@ -929,8 +929,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // a hex my wounded stand on. A tap CASTS — no confirm stands
   // between the tap and the cast (Nigel, 2026-10-20: a misscast
   // is a skill issue) — and the mode is sticky: it casts on
-  // until the player sets it down, the purse refuses, or a
-  // roll fizzles and the working slips from the hand.
+  // until the player sets it down or readies another working
+  // (Nigel, 2026-10-23 23:39, corrected 23:40: "click cast,
+  // cast, cast" — a fizzle keeps it readied too, and an empty
+  // purse refuses that cast alone, never the readying).
   const [workings, setWorkings] = useState<MapWorking[]>([]);
   // The new workings' frames ride the map's clock; while a
   // swarm or a hold rune stands, the clock ticks at the
@@ -2569,11 +2571,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const g = sp ? grim?.glyphs.find((x) => x.id === sp.glyphId) : null;
     return g?.imageUrl ?? (g?.assetKey ? GRIM_BUNDLED[g.assetKey] ?? null : null) ?? GRIM_BUNDLED[spellKey] ?? null;
   };
-  // A cast run's end (Nigel, 2026-10-20): the readied
+  // A cast run's end (Nigel, 2026-10-20; the run's ends
+  // re-ruled 2026-10-23 23:39, corrected 23:40): the readied
   // working leaves the hand — the mode unloads whole. Casts
-  // themselves never end it (the mode is sticky); only the
-  // player's own unload, the purse's refusal, or a fizzle's
-  // slip does.
+  // themselves NEVER end it (the mode is sticky): not a
+  // standing cast, not a fizzle ("if the roll fails you can
+  // still re cast"), and not the purse's refusal (an empty
+  // purse refuses that one cast; the working stays readied).
+  // Only the player's own unload — Esc, a right-click's
+  // cancel, tapping the readied working again, readying
+  // another working, or readying the Attune ability — ends
+  // the run: changing workings is its one true end.
   const endMapCastRun = () => { setCastMode(false); setCastSpellKey(null); setCastAnchor(null); setAttuneElement(null); };
   // The mount-once Escape handler reaches the run's end
   // through this ref, kept current every render.
@@ -2621,11 +2629,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // The fizzle (Homeland Casting): the purse was charged
       // and the roll fell short — the client only speaks what
       // the server's roll said, never invents the outcome.
-      // The slip ends the run (Nigel, 2026-10-20): the working
-      // leaves the hand and must be readied again to cast on.
+      // THE READIED SPELL STAYS READIED (Nigel, 2026-10-23
+      // 23:39, corrected 23:40): a fizzle is still a cast —
+      // the working STAYS in the hand and the next tap casts
+      // it again, exactly as after a standing cast. Only the
+      // cast's own transient (a ward's chosen anchor) is
+      // spent, as a standing cast spends it; the Witch's
+      // mercy refund rides unchanged.
       if (res.fizzled) {
-        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working slips from your hand.${res.refunded ? ` The Witch's mercy returns ✦${res.refunded} of the spent energy.` : ""} Ready it again to cast on.`);
-        endMapCastRun();
+        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working stays readied in your hand.${res.refunded ? ` The Witch's mercy returns ✦${res.refunded} of the spent energy.` : ""} Tap the land to cast it again.`);
+        setCastAnchor(null);
         await refreshWorkings();
         void refreshEnergy();
         return;
@@ -2659,14 +2672,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await refreshWorkings();
       void refreshEnergy();
     } catch (e) {
-      // The refusal shows; and when the purse itself refuses
-      // (the server's "Not enough energy" from castMapWorking),
-      // the run ends too — the working leaves the hand
-      // (Nigel, 2026-10-20). Other refusals (reach, the gate)
-      // keep the mode, as they always have.
+      // The refusal shows — and EVERY refusal keeps the
+      // readied working, the purse's included (Nigel,
+      // 2026-10-23 23:39, corrected 23:40): an empty purse
+      // cannot pay that cast, so the cast is refused, but
+      // poverty is not an un-readying — the working stays
+      // readied in the hand, and a later tap casts it again
+      // once the purse can pay. Other refusals (reach, the
+      // gate) keep the mode too, as they always have.
       const msg = e instanceof Error ? e.message : "The casting would not take.";
       showHexNotice(msg);
-      if (/^Not enough energy/.test(msg)) endMapCastRun();
     }
   };
   const handleCastTap = (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
