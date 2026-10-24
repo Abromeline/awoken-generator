@@ -52,6 +52,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { BRAMBLE_GROW_MS, BRAMBLE_ASPECT, brambleFrameAt } from "./brambleFx";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
@@ -822,6 +823,45 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
     return () => window.clearInterval(iv);
   }, [anyStrikeFlight]);
+  // ── THE BRAMBLE'S BIRTHDAYS (the Bramble 1 binding,
+  // 2026-10-24): a standing bramble node grows in from the
+  // moment the map first sees it raised — the served nodes
+  // carry no clock of their own, so the map remembers each
+  // node's first sighting by its work and its own free point,
+  // and forgets it when the node falls, so a work raised
+  // anew grows anew. The birthday is kept in wall time (the
+  // Hold Rune's bornAt keeps the same tongue): the map's own
+  // clock stands frozen at rest, and a birthday read off the
+  // frozen hand would let the first tick of the growth clock
+  // below leap the whole run at once. While any node is
+  // still inside its growth, the map's clock ticks at the
+  // stride's 50 ms, the cadence the flights keep, so the
+  // growth is walked render by render.
+  const brambleBornRef = useRef<Map<string, number>>(new Map());
+  const brambleKeyOf = (workId: number, n: { q: number; r: number }) => `${workId}:${n.q.toFixed(2)},${n.r.toFixed(2)}`;
+  let anyBrambleGrowing = false;
+  {
+    const liveKeys = new Set<string>();
+    for (const wk of defenceWorks) {
+      if (wk.kind !== "bramble") continue;
+      for (const n of wk.nodes) {
+        if (n.hp <= 0) continue;
+        const key = brambleKeyOf(wk.id, n);
+        liveKeys.add(key);
+        let born = brambleBornRef.current.get(key);
+        if (born === undefined) { born = Date.now(); brambleBornRef.current.set(key, born); }
+        if (marchNow - born < BRAMBLE_GROW_MS) anyBrambleGrowing = true;
+      }
+    }
+    for (const key of [...brambleBornRef.current.keys()]) {
+      if (!liveKeys.has(key)) brambleBornRef.current.delete(key);
+    }
+  }
+  useEffect(() => {
+    if (!anyBrambleGrowing) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
+    return () => window.clearInterval(iv);
+  }, [anyBrambleGrowing]);
   // ── THE SUMMON SEQUENCE (Nigel, 2026-10-23 — the Proving
   // Ground's theatre, ported whole; see summonFx.ts) ────────
   // A landed summon cast leaves its reckoning here; the
@@ -5095,8 +5135,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // DEFENCE WORKS on the face (Nigel, 2026-10-23): a Stone
     // defender's rock wall and a Root defender's bramble,
     // drawn at their nodes' own free points — rocks as
-    // standing stones, the thicket as dark green knots —
-    // each paling as its wounds deepen. BULWARK's cast line
+    // standing stones, the thicket as Nigel's Bramble 1
+    // flipbook growing in on its raise (ruled 2026-10-22,
+    // bound 2026-10-24; before the binding the thicket stood
+    // as drawn dark green knots) — each paling as its wounds
+    // deepen. BULWARK's cast line
     // of shields (Recovery R12) stands in this same layer,
     // in the same ledger: Nigel's own Shield piece at each
     // node, paling the same way.
@@ -5141,9 +5184,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   <image href={blackGateImg} x={cx - size * 0.42} y={cy - size * 1.3} width={size * 0.84} height={size * 1.43} preserveAspectRatio="xMidYMax meet" />
                 </g>
               ) : (
+                // BRAMBLE (Nigel's Bramble 1 flipbook — ruled
+                // for the field 2026-10-22, bound 2026-10-24):
+                // the Root defender's thicket wears the art
+                // itself, growing in frame by frame from the
+                // moment the map first saw the node raised,
+                // then holding its full-grown frame — the
+                // growth walked from the map's own clock by
+                // brambleFx, never SMIL. Its base stands on
+                // the node's own ground and it pales as its
+                // wounds deepen, as the works beside it pale.
                 <g key={i} opacity={0.35 + 0.65 * frac}>
-                  <circle cx={cx} cy={cy} r={size * 0.21} fill="rgba(38,64,30,0.55)" stroke="#69a84f" strokeWidth={1.2 / zoom} strokeDasharray="3 2" />
-                  <path d={`M ${cx - size * 0.14} ${cy + size * 0.08} Q ${cx} ${cy - size * 0.16} ${cx + size * 0.14} ${cy + size * 0.08}`} fill="none" stroke="#69a84f" strokeWidth={1.2 / zoom} />
+                  <ellipse cx={cx} cy={cy + size * 0.12} rx={size * 0.2} ry={size * 0.07} fill="rgba(0,0,0,0.4)" />
+                  <image href={brambleFrameAt(marchNow, brambleBornRef.current.get(brambleKeyOf(wk.id, n)) ?? Date.now())}
+                    x={cx - size * 0.475} y={cy + size * 0.1 - size * 0.95 * BRAMBLE_ASPECT} width={size * 0.95} height={size * 0.95 * BRAMBLE_ASPECT}
+                    preserveAspectRatio="xMidYMax meet" />
                 </g>
               );
             })}
