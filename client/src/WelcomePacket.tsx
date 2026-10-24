@@ -19,9 +19,9 @@ const PAGES: Page[] = [
     title: "Your Land",
     body: [
       "Your deck is not a pile of cards. It is a territory — hexes adrift in the void.",
-      "Your HAND holds Awokin not yet placed. Tap a card, then tap a purified tile to deploy them.",
-      "Awokin in hand grant energy: stronger ones grant more. Deploying costs energy based on their power.",
-      "Once placed, an Awokin cannot return to hand. They are committed to the land.",
+      "Your HAND holds Awokin not yet called. Summoning rides the wheel — right-click, pick an Awokin under the Awoken branch, and they land at your side, following you.",
+      "Your Awokin widen your energy store — stronger ones widen it more, in hand or on the land. Summoning costs energy based on their power.",
+      "Placed is not forever: a fallen Awokin returns to your hand at 0 HP, ready to be called again.",
     ],
   },
   {
@@ -29,7 +29,7 @@ const PAGES: Page[] = [
     body: [
       "The wilds around your land are cursed. Each cursed tile shows a ♥ number — its curse HP.",
       "Set an Awokin to attack stance (1 energy), then tap an adjacent cursed tile to strike (1 energy per attack).",
-      "Each attack dwindles the curse by the Awokin's power. At 0, the curse breaks and the tile turns neutral.",
+      "Each attack dwindles the curse by the Awokin's power. At 0, the curse breaks and the tile is purified, taking the element of the Awokin who broke it.",
       "Curses grow stronger farther from your center. You will need more Awokin — or stronger ones — to push outward.",
     ],
     diagram: "curse",
@@ -40,7 +40,7 @@ const PAGES: Page[] = [
       "Every stance costs 1 energy to enter. Choose well — energy is precious.",
       "⚔ Attack: strike adjacent cursed tiles. 🛡 Defense: hold ground and guard.",
       "✦ Binding: heals wounded defenders in battle and channels attunement into the land. Costs 3 energy per hour to maintain.",
-      "Buildings cost 2 energy to raise. Watchtowers volley at waves, thorn walls wound attackers, wheat harvests energy.",
+      "Buildings cost energy to raise — most cost 2, the greater ones more. Watchtowers volley when battle opens, thorn walls wound attackers, dream shrooms harvest energy.",
     ],
   },
   {
@@ -48,8 +48,8 @@ const PAGES: Page[] = [
     body: [
       "Unravelings assault your territory. Survive, and the Unraveling breaks.",
       "Victory brings a spinning golden hex — and a choice. Pick one new territory from the map as your reward.",
-      "Then decide: ✦ Rest to bank your progress and end the run, or Continue → for +6 energy, fresh cards, and a harder wave.",
-      "An Awokin's presence slowly attunes neutral land toward its element — 13 minutes to take root.",
+      "Then decide: ✦ Rest to bank your progress and end the run, or Continue → for +6 energy and a harder wave.",
+      "An Awokin's presence slowly attunes the land she stands on toward her element — a slow press, reckoned in hours of standing.",
     ],
     diagram: "attune",
   },
@@ -73,7 +73,7 @@ function AttuneDiagram() {
     <svg viewBox="0 0 300 100" width="300" height="100" style={{ display: "block", margin: "12px auto" }}>
       <rect x="20" y="25" width="70" height="50" fill="#2a2a2a" stroke="#666" rx="4" />
       <text x="55" y="48" textAnchor="middle" fill="#aaa" fontSize="11">Neutral</text>
-      <text x="55" y="63" textAnchor="middle" fill="#888" fontSize="10">13 min</text>
+      <text x="55" y="63" textAnchor="middle" fill="#888" fontSize="10">hours</text>
       <text x="110" y="55" textAnchor="middle" fill="#b89b5e" fontSize="18">→</text>
       <rect x="130" y="25" width="70" height="50" fill="#1e3a4a" stroke="#4a9acc" strokeWidth="2" rx="4" />
       <text x="165" y="48" textAnchor="middle" fill="#cce" fontSize="11">Tide</text>
