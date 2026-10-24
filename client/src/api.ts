@@ -161,6 +161,9 @@ export interface HomelandStrike {
   tileId: number; wandererId: number; awakenedId: number; fromTileId: number;
   fromQ: number; fromR: number; toQ: number; toR: number;
   at: number; hit: boolean; dmg: number; felled: boolean;
+  /** The striker's dominant element, as the referee reckoned
+   *  it (absent only from a server older than the tint). */
+  element?: string;
 }
 
 export interface FieldPlacement {

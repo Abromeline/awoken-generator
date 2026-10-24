@@ -52,6 +52,7 @@ import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
+import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
@@ -559,13 +560,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // The living battle's blows ride every territory read in
   // the weaponStrike record's shape, extended to the
   // placements (getTerritory's strikes). A NEW strike becomes
-  // a mote's flight from the striker's standing point to the
+  // a Matter shard's flight from the striker's standing point to the
   // point the dark stood on — this is how Awoken get
   // projectiles: drawn from the engine's strikes, never from
   // a second simulated fight. The first read only sets the
   // watermark — the witness log reaches two minutes back,
   // and the map does not replay a battle it did not watch.
-  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean }[]>([]);
+  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string }[]>([]);
   const strikeIdSeenRef = useRef(0);
   const strikeWitnessInitRef = useRef(false);
   const notePlacementStrikes = (strikes: import("./api").HomelandStrike[] | null | undefined, tilesList: TerritoryTile[]) => {
@@ -597,8 +598,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const to = pointOf(s.tileId, s.toQ, s.toR);
       if (!from || !to) continue;
       const id = `strike-${s.id}`;
-      setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit }]);
-      setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), 1100);
+      setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral" }]);
+      setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), SHARD_FLIGHT_MS + 60);
     }
   };
   // THE WEAPON'S FLIGHT (the Proving Ground's motion, ported
@@ -6282,19 +6283,58 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </g>
           ))}
           {/* THE PLACEMENT STRIKE FLIGHTS (the Token Strip,
-              2026-10-23): a mote flies from the striking
-              Awokin's standing point to the dark it struck —
-              drawn only from the server's strike witness
-              (getTerritory's strikes), never from a local
-              simulation. A grey mote is a witnessed miss. */}
-          {strikeFlights.map((f) => (
-            <g key={f.id} pointerEvents="none">
-              <line x1={f.fx} y1={f.fy} x2={f.tx} y2={f.ty} stroke="rgba(255,214,140,0.30)" strokeWidth={1.3} />
-              <circle r={3.4} fill={f.hit ? "#ffd98a" : "#9a94a8"} style={{ filter: "drop-shadow(0 0 5px rgba(255,214,140,0.9))" }}>
-                <animateMotion dur="0.45s" fill="freeze" path={`M ${f.fx} ${f.fy} L ${f.tx} ${f.ty}`} />
-              </circle>
-            </g>
-          ))}
+              2026-10-23; the shot itself ruled 2026-10-24):
+              what flies from the striking Awokin's standing
+              point to the dark it struck is the MATTER SHARD —
+              Nigel's uploaded art, its six frames playing in
+              order across the flight — drawn only from the
+              server's strike witness (getTerritory's strikes),
+              never from a local simulation. The strip's first
+              telling drew a full striker-to-target LINE for
+              the flight's whole life and parked its mote at
+              the mark; Nigel, playing it, named the fault
+              ("projectiles are drawing weird lines instead of
+              firing") — the line is gone, and the shard flies
+              and is gone: no persistent line, no park. The
+              shot wears the hue of the striker's dominant
+              element (the element the witness record carries —
+              the same element that set her reach and her
+              on-hit rider), through the tint filters defined
+              below: a luminance ramp through the LIVE palette
+              colour (matterShard.ts), so the white-hot core
+              stays white and a re-theme re-hues the shots.
+              A neutral striker flies the art in its own
+              colours; a witnessed miss flies faded. */}
+          <defs>
+            {SHARD_TINT_ELEMENTS.map(el => {
+              const ramp = shardTintRamp(elementPalette[el]);
+              return (
+                <filter key={el} id={`shard-tint-${el}`} colorInterpolationFilters="sRGB" x="-5%" y="-5%" width="110%" height="110%">
+                  <feColorMatrix type="saturate" values="0" />
+                  <feComponentTransfer>
+                    <feFuncR type="table" tableValues={ramp.r} />
+                    <feFuncG type="table" tableValues={ramp.g} />
+                    <feFuncB type="table" tableValues={ramp.b} />
+                  </feComponentTransfer>
+                </filter>
+              );
+            })}
+          </defs>
+          {strikeFlights.map((f) => {
+            const tint = shardTintFilterId(f.element);
+            return (
+              <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65}>
+                {MATTER_SHARD_FRAMES.map((src, i) => (
+                  <image key={i} href={src} x={-36} y={-19} width={72} height={38} opacity={0}
+                    filter={tint ? `url(#${tint})` : undefined}>
+                    <animateMotion dur={`${SHARD_FLIGHT_MS / 1000}s`} fill="freeze" rotate="auto" path={`M ${f.fx} ${f.fy} L ${f.tx} ${f.ty}`} />
+                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.3;0.7;1"
+                      dur={`${SHARD_SLICE_MS / 1000}s`} begin={`${(i * SHARD_SLICE_MS / 1000).toFixed(3)}s`} fill="freeze" />
+                  </image>
+                ))}
+              </g>
+            );
+          })}
         </svg>
         {/* THE TENDER CONTROLLER (Nigel, 2026-10-19): popped by
             tapping the Tender himself on a touch hand — the
