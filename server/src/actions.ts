@@ -7715,7 +7715,12 @@ export const handlers = {
    *  protection settle has already driven the standing dark
    *  off). The walking, the biting and the answering live in
    *  settleHomelandBattle; this pass only keeps the cradle
-   *  and the roll of the standing dark. */
+   *  and the roll of the standing dark. EARLY ENTRY
+   *  (Nigel, 2026-10-23 23:33): an under-prepared Tender
+   *  standing on cursed ground (level < 3, or fewer than
+   *  20 Awoken held — either mark unmet) births under an
+   *  intensity one step hotter than the standing wave; the
+   *  full reading stands at the raise itself, below. */
   async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[] }> {
     const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.20, VIEW_RING = 6, BIRTH_RING = 3, CATCHUP_BEATS = 4;
     const now = Date.now();
@@ -7723,7 +7728,13 @@ export const handlers = {
     const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
     const prow = sqlite.prepare("SELECT lighthouse_lit AS lit, wave_intensity AS intensity FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
     const lit = Number(prow?.lit) === 1;
-    const intensity = Math.max(1, Number(prow?.intensity) || 1);
+    // The STANDING wave intensity, as the protection settle
+    // left it. The early-entry raise below reads ONE STEP
+    // hotter than this into a local reckoning only — the
+    // stored intensity is never written by this pass, so a
+    // prepared Tender's reckoning, and the reign's own
+    // escalation, stand exactly as they stood.
+    let intensity = Math.max(1, Number(prow?.intensity) || 1);
     const viewOf = (w: { id: number; tileId: number; kind: string; posQ: number | null; posR: number | null; hp: number | null; lvl: number }) => {
       const t = byId.get(w.tileId);
       const maxHp = (HOMELAND_DARK_HP[w.kind] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
@@ -7743,6 +7754,43 @@ export const handlers = {
     // lighthouse shuts the cradle whole.
     if (standTileId != null && !lit) {
       const stand = byId.get(standTileId);
+      // EARLY ENTRY RAISES DIFFICULTY (Nigel, 2026-10-23
+      // 23:33): going into the cursed lands BEFORE LEVEL 3,
+      // or BEFORE HOLDING AT LEAST 20 AWOKEN, increases the
+      // difficulty. THE BUILD'S READING, NAMED FOR NIGEL'S
+      // STRIKE: while an under-prepared Tender STANDS ON A
+      // CURSED TILE — the cursed lands themselves — this
+      // cradle's pressure reckoning reads ONE STEP HOTTER:
+      // the effective intensity below is the standing wave
+      // intensity + 1, and that one step moves everything
+      // the cradle already reckons by intensity — the
+      // standing cap grows by 2, the kind pool deepens one
+      // threshold sooner (Hollow at standing 1, the
+      // Unraveler at standing 2, the Tangle at standing 3),
+      // and each newborn stands one level higher with its
+      // body deepened a point (its stored level then feeds
+      // the living battle's own reckoning, as any wave's
+      // level does). The step bites ONLY on births this
+      // pass makes onto cursed tiles at rings 3–6 of his
+      // stand: foes already standing keep the level they
+      // were born at, the spawn beat and its 20% chance are
+      // untouched, and a Tender standing on the safe hex or
+      // any purified ground draws the standing intensity
+      // exactly — the raise never punishes safe ground.
+      // The raise applies while EITHER mark is unmet
+      // (level < 3, or fewer than 20 held, by the progress
+      // ledger's own reckonings: progress.level and
+      // progress.awokenCount) and lifts the moment BOTH are
+      // met — nothing is stored, so the first cradle read
+      // after the second mark lands reckons at the standing
+      // intensity again. A prepared Tender's pass is the
+      // standing pass value for value. The Table runs its
+      // own battles and is not the cursed lands: nothing
+      // here touches it.
+      if (stand && stand.cursed) {
+        const progress = await getTenderProgress(ownerKey);
+        if (progress.level < 3 || progress.awokenCount < 20) intensity += 1;
+      }
       const arow = sqlite.prepare("SELECT wanderer_anchor_at AS anchor, wanderer_settled_beats AS settled FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
       if (stand && arow) {
         if (arow.anchor == null) {

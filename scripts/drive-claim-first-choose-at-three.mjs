@@ -253,7 +253,7 @@ check("CATCH-UP, LIVED: the new trigger's population chooses — no level demand
 
 // ── §D ENCOURAGEMENT + THE BUILT BUNDLE ───────────────────
 console.log("\n§D ClassChoosing.tsx — the encouragement stands on the completion panel; the bundle ships it");
-const ENCOURAGEMENT = "Wake all twenty of your welcome wakes when you can, and grow toward level 3 before you press deep into the cursed lands. No door is locked to you — the map and the field stand open — but twenty friends at your side and a Tender's strength behind them will hold far steadier when the curse tests you.";
+const ENCOURAGEMENT = "Wake all twenty of your welcome wakes when you can, and grow toward level 3 before you press deep into the cursed lands. No door is locked to you — the map and the field stand open — but go early and the dark presses harder: while you stand on cursed ground before level 3, or with fewer than twenty Awoken held, what the cursed lands birth against you stands a step stronger, deeper in kind and greater in number, until both marks are met. Twenty friends at your side and a Tender's strength behind them will hold far steadier when the curse tests you.";
 const doneAt = choosing.indexOf("You are the {TENDER_CLASSES[done.classKey].label}");
 const encAt = choosing.indexOf(ENCOURAGEMENT);
 const treeAt = choosing.indexOf("Open the skill tree");
@@ -263,6 +263,8 @@ check("they stand on the COMPLETION panel (after both gifts are taken: after 'Yo
   doneAt >= 0 && encAt > doneAt && treeAt > encAt);
 check("the words encourage, and lock nothing: they name all twenty, level 3, the cursed lands — and that no door is locked",
   ENCOURAGEMENT.includes("all twenty") && ENCOURAGEMENT.includes("level 3") && ENCOURAGEMENT.includes("cursed lands") && ENCOURAGEMENT.includes("No door is locked to you"));
+check("the words now carry the early-entry law's teeth in plain words (Nigel, 2026-10-23 23:33): go early and the dark presses harder, a step stronger until both marks are met",
+  ENCOURAGEMENT.includes("go early and the dark presses harder") && ENCOURAGEMENT.includes("before level 3, or with fewer than twenty Awoken held") && ENCOURAGEMENT.includes("a step stronger, deeper in kind and greater in number, until both marks are met"));
 check("the ceremony's eyebrows no longer speak the dead gate ('Level 3 — the choosing' gone; 'Three woken — the choosing' stands)",
   !choosing.includes("Level 3 — the choosing") && count(choosing, "Three woken — the choosing") === 2);
 const distAssets = join(root, "client/dist/assets");
