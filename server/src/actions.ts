@@ -13147,6 +13147,25 @@ export const handlers = {
 
   // Feed energy to an Awoken as experience: 1 energy = 2 XP (Nigel, 2026-10-12).
   // The peaceful path — battle remains far more efficient per hour.
+  /** THE WITCH'S HOVER TAKES ITS CHARGE (Nigel, 2026-10-22
+   *  12:16, the rate corrected 12:42; Recovery R14): while a
+   *  Witch holds her hover on the homeland, the jump engine's
+   *  hover clock (client/src/jump.ts, jumpHoverTick) asks for
+   *  1 energy as the hover begins and 1 more every 3 seconds
+   *  of hovering. This action is the purse it asks: one real
+   *  spend through the standing spendEnergy law, answering
+   *  whether the charge was paid and the purse's true count
+   *  after it — an unpaid charge is the engine's word to end
+   *  the hover and begin the sink. No other class's leap ever
+   *  asks, and nothing here judges the asking: the engine
+   *  keeps the hover's law, this door only keeps its money
+   *  honest. */
+  async hoverSpend(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const spent = await spendEnergy(ownerKey, 1);
+    return { spent, energy: await getEnergyFor(ownerKey) };
+  },
+
   async feedEnergy(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({

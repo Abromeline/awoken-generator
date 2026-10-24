@@ -295,7 +295,14 @@ const energy0 = (await call("getEnergy", {}, A.token)).data.maxEnergy;
       with its own arc on the Territory surface itself; the
       Witch hovers; the Runewright doubles off his rune; the
       Sage's third leap flips; and a wall that refuses the
-      Binder's walk yields to his leap — stride, server, law. */
+      Binder's walk yields to his leap — stride, server, law.
+      THE LADDER (Nigel, 2026-10-22; Recovery R14, 2026-10-23):
+      the arcs measured here are the class quickness ladder's
+      (peaks 26/38/50/62/74, airs 420/500/580/660/740 — the
+      doubled gaps), restated over Station 5's older ad-hoc
+      per-class heights, which the ladder ruling struck. The
+      Witch's hover is the sustained one: Space HELD, her peak
+      held, her purse charged (1 as the hover begins). */
 {
   const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--window-size=1280,860"] });
   const page = await browser.newPage();
@@ -327,48 +334,53 @@ const energy0 = (await call("getEnergy", {}, A.token)).data.maxEnergy;
     await call("chooseClass", { classKey: cls }, T.token);
     classTenders[cls] = T;
   }
-  // Per-class peaks (the Ground's bands, the Ground's numbers).
-  for (const [cls, watch, lo, hi] of [["warden", 1200, 12, 32], ["binder", 1800, 30, 50], ["witch", 2100, 30, 46], ["runewright", 1400, 30, 46], ["sage", 1200, 32, 52]]) {
+  // Per-class peaks — the LADDER's bands, the ladder's numbers
+  // (R14): Warden 26, Runewright 38, Binder 50, Witch 62, Sage 74.
+  for (const [cls, watch, lo, hi] of [["warden", 1200, 20, 31], ["runewright", 1400, 31, 44], ["binder", 1800, 42, 57], ["witch", 2100, 53, 69], ["sage", 1400, 64, 81]]) {
     await openTerritory(classTenders[cls].token, cls);
     await page.keyboard.press("Space");
     const s = await sampleJump(watch);
     const max = Math.max(...s.map(v => v.h), 0);
     ok(`jump/${cls}: she leaves the ground on her own arc`, s.some(v => v.h > 10 && v.air), `samples=${s.length}`);
-    ok(`jump/${cls}: peak in the Ground's band (${lo}..${hi})`, max >= lo && max <= hi, `max=${max.toFixed(1)}`);
+    ok(`jump/${cls}: peak in the ladder's band (${lo}..${hi})`, max >= lo && max <= hi, `max=${max.toFixed(1)}`);
     ok(`jump/${cls}: and lands again`, s[s.length - 1].h === 0, `last=${s[s.length - 1].h}`);
     classTenders[cls].maxH = max;
   }
-  ok("jump: the Warden's leap is the shortest of the five",
-    classTenders.warden.maxH < classTenders.binder.maxH && classTenders.warden.maxH < classTenders.sage.maxH,
-    `warden=${classTenders.warden.maxH?.toFixed(1)} binder=${classTenders.binder.maxH?.toFixed(1)} sage=${classTenders.sage.maxH?.toFixed(1)}`);
-  // The Witch hovers: pinned at her peak through the hover
-  // span (press+410ms to +760ms). The measure is the SPAN the
-  // peak is held across, not a sample count — this box samples
-  // coarsely under load, so a thin first reading is measured
-  // again rather than waved through.
+  ok("jump: the ladder's strict order on the real map (Warden < Runewright < Binder < Witch < Sage)",
+    classTenders.warden.maxH < classTenders.runewright.maxH && classTenders.runewright.maxH < classTenders.binder.maxH
+    && classTenders.binder.maxH < classTenders.witch.maxH && classTenders.witch.maxH < classTenders.sage.maxH,
+    `warden=${classTenders.warden.maxH?.toFixed(1)} runewright=${classTenders.runewright.maxH?.toFixed(1)} binder=${classTenders.binder.maxH?.toFixed(1)} witch=${classTenders.witch.maxH?.toFixed(1)} sage=${classTenders.sage.maxH?.toFixed(1)}`);
+  // The Witch hovers (R14 — the sustained hover): Space is
+  // HELD down, and she pins at her ladder peak of 62 while the
+  // purse pays the hover's first charge; release sets her down.
   {
     await openTerritory(classTenders.witch.token, "witch");
-    let held = null;
-    for (let attempt = 0; attempt < 2 && !held; attempt++) {
-      const t0 = Date.now();
-      await page.keyboard.press("Space");
-      const samples = [];
-      while (Date.now() - t0 < 1500) {
-        samples.push({ dt: Date.now() - t0, ...(await page.evaluate(() => ({ h: window.__tenderJump.height() }))) });
-        if (samples.length > 4 && samples[samples.length - 1].h === 0 && Date.now() - t0 > 1250) break;
-        await sleep(35);
-      }
-      const pinned = samples.filter(s => s.dt >= 520 && s.dt <= 800 && s.h >= 38.5);
-      if (pinned.length >= 2 && pinned[pinned.length - 1].dt - pinned[0].dt >= 150) held = pinned;
-      else if (attempt === 1) held = pinned; // report the best reading either way
-      await sleep(400);
+    await sleep(800);
+    const energyBefore = (await call("getEnergy", {}, classTenders.witch.token)).data.energy;
+    const t0 = Date.now();
+    await page.keyboard.down("Space");
+    const samples = [];
+    while (Date.now() - t0 < 2400) {
+      samples.push({ dt: Date.now() - t0, ...(await page.evaluate(() => ({ h: window.__tenderJump.height(), hov: window.__tenderJump.hovering() }))) });
+      await sleep(35);
     }
-    ok("jump/witch: through the hover span she holds her peak, neither rising nor falling",
-      !!held && held.length >= 2 && held[held.length - 1].dt - held[0].dt >= 150,
-      `span=${(held ?? []).map(s => `${s.dt}:${s.h.toFixed(1)}`).join(",")}`);
+    await page.keyboard.up("Space");
+    const pinned = samples.filter(v => v.dt >= 650 && v.dt <= 2350 && v.h >= 60);
+    ok("jump/witch: held aloft, she holds her ladder peak (62) across the hover",
+      pinned.length >= 3 && pinned[pinned.length - 1].dt - pinned[0].dt >= 1200,
+      `span=${pinned.map(v => `${v.dt}:${v.h.toFixed(1)}`).join(",")}`);
+    ok("jump/witch: hovering() reads true while she hangs at the peak",
+      samples.some(v => v.dt >= 650 && v.hov), "");
+    const energyAfter = (await call("getEnergy", {}, classTenders.witch.token)).data.energy;
+    ok("jump/witch: the hover charged her purse (1 as the hover began)",
+      typeof energyBefore === "number" && typeof energyAfter === "number" && energyAfter <= energyBefore - 1,
+      `before=${energyBefore} after=${energyAfter}`);
+    await sleep(1000);
+    const landedH = await page.evaluate(() => window.__tenderJump.height());
+    ok("jump/witch: release ends the hover — she lands", landedH === 0, `h=${landedH}`);
   }
   // The Runewright doubles: a second press mid-air strikes the
-  // rune and carries him past his single arc's ceiling (40).
+  // rune and carries him past his single arc's ladder ceiling (38).
   {
     await openTerritory(classTenders.runewright.token, "runewright");
     await page.keyboard.press("Space");
@@ -377,7 +389,7 @@ const energy0 = (await call("getEnergy", {}, A.token)).data.maxEnergy;
     const s = await sampleJump(1500);
     const max = Math.max(...s.map(v => v.h), 0);
     ok("jump/runewright: the mid-air second press strikes the rune", s.some(v => v.rn), "");
-    ok("jump/runewright: the double carries him past his single arc's peak", max > 42, `max=${max.toFixed(1)}`);
+    ok("jump/runewright: the double carries him past his single arc's peak", max > 44, `max=${max.toFixed(1)}`);
   }
   // The Sage chains: three quick leaps, the third a backflip.
   {

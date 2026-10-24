@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor, quicknessSpeedFor } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
@@ -2042,7 +2042,14 @@ function standingUnits(room: Room): FieldUnit[] {
  *  cursed ground halves the pace again — for the Tender and
  *  for every Awoken, on both grounds (the dark is NOT
  *  slowed; the ruling names the light). The homeland keeps
- *  its own stride law, halved the same day. */
+ *  its own stride law, halved the same day.
+ *  THE QUICKNESS LADDER ON THE GLIDE (Nigel, 2026-10-22;
+ *  Recovery R14): the 30 px/s above is the WARDEN rung's
+ *  pace — a Tender's glide is raised from it by her class's
+ *  ladder ratio (quicknessSpeedFor, server/src/skills.ts:
+ *  165/195/225/255/285 against the base 165), so a Sage
+ *  glides at 30 × 285/165 and a classless seat at the plain
+ *  30. The cursed halving rides on top, unchanged. */
 const TENDER_GLIDE_PX = 30;
 /** Step one entity toward its target at `speedPx` px/s over `dt`
  *  seconds; on arrival the position is the target's copy and the
@@ -2082,7 +2089,7 @@ function integrate(room: Room, now: number): void {
   room.integrateAt = now;
   for (const p of room.players.values()) {
     if (p.watcher || p.storytender || !p.pos) continue;
-    if (p.target) stepToward(p as { pos: Pt; target: Pt | null }, TENDER_GLIDE_PX * (p.hex && room.map.get(p.hex)?.cursed ? 0.5 : 1), dt);
+    if (p.target) stepToward(p as { pos: Pt; target: Pt | null }, TENDER_GLIDE_PX * (quicknessSpeedFor(p.classKey) / 165) * (p.hex && room.map.get(p.hex)?.cursed ? 0.5 : 1), dt);
   }
   for (const u of room.field.values()) {
     if (u.target) stepToward(u, (u.speedPx ?? 110) * (u.hex && room.map.get(u.hex)?.cursed ? 0.5 : 1), dt);

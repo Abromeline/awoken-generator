@@ -762,6 +762,7 @@ export const api = {
     mood: string;
   }>("getWave", {}),
   getEnergy: () => post<{ energy: number; maxEnergy: number }>("getEnergy", {}),
+  hoverSpend: () => post<{ spent: boolean; energy: number }>("hoverSpend", {}),
   assignStatPoint: (args: { awakenedId: number; stat: "power" | "toughness" }) => post<{ ok: boolean }>("assignStatPoint", args),
   setChampion: (args: { awakenedId: number }) => post<{ ok: boolean }>("setChampion", args),
   getLegends: () => post<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>("getLegends", {}),

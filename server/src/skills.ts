@@ -159,6 +159,37 @@ export function curseReliefFor(classKey: string | null | undefined, tenderLevel?
 export function bindingHealBonusFor(classKey: string | null | undefined): number {
   return classKey === "binder" ? 4 : 0;
 }
+/** THE CLASS QUICKNESS LADDER (Nigel, 2026-10-22 04:22; the
+ *  jump gap doubled 11:55 and the speed gap doubled 11:56 the
+ *  same day; coded in 2026-10-23, Recovery R14): WARDEN +0,
+ *  RUNEWRIGHT +1, BINDER +2, WITCH +3, SAGE +4 — one ordering
+ *  on movement speed, jump height and jump distance. THE
+ *  reckoning lives in the client's jump engine
+ *  (client/src/jump.ts: QUICK, ladderSpeedOf, JPHYS), which
+ *  every client surface that moves a Tender figure reads;
+ *  these two readers are its server mirror, read by the one
+ *  server path that moves a Tender figure — the Table's
+ *  glide (server/src/table.ts, integrate). The R14 drive
+ *  proves the mirror agrees with the reckoning number for
+ *  number, classless included: an unknown or unchosen class
+ *  stands on the base rung (+0), the Warden's figures. */
+export function quicknessStepFor(classKey: string | null | undefined): number {
+  switch (classKey) {
+    case "runewright": return 1;
+    case "binder": return 2;
+    case "witch": return 3;
+    case "sage": return 4;
+    default: return 0;
+  }
+}
+/** The ladder's run speed for a class, in the Proving
+ *  Ground's demo px/s: 165 + 30 a step (165/195/225/255/285).
+ *  A surface with its own standing Warden pace raises that
+ *  pace by this speed's ratio to the base 165 — the Table's
+ *  glide keeps its 30 px/s at the Warden rung. */
+export function quicknessSpeedFor(classKey: string | null | undefined): number {
+  return 165 + 30 * quicknessStepFor(classKey);
+}
 /** THE BINDER'S RANGE (Nigel, 2026-10-22 — entered in the
  *  class-cards spreadsheet beside the Attune ×3 ruling:
  *  "her Binding workings that heal have 2× range"; coded

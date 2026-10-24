@@ -16,7 +16,7 @@ import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { deckWindow, nextDeckPage } from "./deckWindow";
-import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, JPHYS, type JumpEngine } from "./jump";
+import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, jumpHoverTick, jumpHovering, jumpCurseExempt, jumpEndHover, ladderSpeedAt, ladderTable, JPHYS, type JumpEngine } from "./jump";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
@@ -595,7 +595,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // and the traversal law judges his crossings (walls, wards,
   // two-tray rises, floating isles) on the stride and the anchor
   // report, with the server's setTenderTile as the final word.
+  // THE QUICKNESS LADDER rides the same engine (Nigel,
+  // 2026-10-22; Recovery R14): the stride below runs at the
+  // class's ladder pace, and the Witch's hover — Space held,
+  // her purse charged by the engine's own clock through the
+  // hoverSpend door — is ticked on this same clock.
   const tenderJumpRef = useRef<JumpEngine>(createJumpEngine());
+  const spaceHeldRef = useRef(false);
+  const energyRef = useRef(10);
   const tenderWallsRef = useRef<EdgeWork[]>([]);
   // THE BUILDING SYSTEM's face (Nigel, 2026-10-19): the terrain
   // bank the land has paid, and the open build card — a ghost hex
@@ -671,6 +678,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setServerMaxEnergy(m);
     } catch {}
   };
+  // The purse's mirror for the stride clock: the Witch's hover
+  // charges are asked at stride cadence, faster than a render
+  // promise should be chased — the mirror answers, and every
+  // charge is settled against the server's word (hoverSpend).
+  useEffect(() => { energyRef.current = energy; }, [energy]);
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
   const [wgTileId, setWgTileId] = useState<number | null>(null); // War-Grounds fine-edit panel: the tile under the warden's hand
   // The marching layer (War-Ground, Nigel 2026-10-16): patrol roads
@@ -1811,6 +1823,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (e.key === " ") {
         if (isTextTarget(e) || tenderInputBlockedRef.current || !tenderStandRef.current) return;
         e.preventDefault();
+        // Held, not just pressed: the Witch's hover reads the
+        // holding of Space (the Ground's spaceDown), where the
+        // leap itself reads only the first touch.
+        spaceHeldRef.current = true;
         if (!e.repeat) pressTenderJump();
         return;
       }
@@ -1821,8 +1837,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       tenderKeysRef.current.add(k);
       tenderTargetRef.current = null; // the hand outranks the tap
     };
-    const up = (e: KeyboardEvent) => { tenderKeysRef.current.delete(e.key.toLowerCase()); };
-    const blur = () => tenderKeysRef.current.clear();
+    const up = (e: KeyboardEvent) => {
+      if (e.key === " ") spaceHeldRef.current = false;
+      tenderKeysRef.current.delete(e.key.toLowerCase());
+    };
+    const blur = () => { spaceHeldRef.current = false; tenderKeysRef.current.clear(); };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", blur);
@@ -2252,15 +2271,41 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // stands on it). Facing follows the stride; the last facing is
   // kept at rest. Anchors are reported as hexes are crossed
   // (~150 ms) and once more when the body comes to rest.
+  // THE LADDER ON THE STRIDE (Nigel, 2026-10-22; Recovery R14):
+  // the 57.5 above is the Warden rung's pace — the stride runs
+  // at ladderSpeedAt(57.5, the Tender's class), and while the
+  // Witch hovers her stride drifts at QUARTER of it, the
+  // Ground's own factor, so her jump distance stays under the
+  // Sage's. Nothing else about the stride changes: the cursed
+  // halving rides on top, exactly as it always has.
   useEffect(() => {
     const SPEED = 57.5;
     // The Ground's figure stands ~117 demo px tall; the map's
     // stands 62 — the arc scales to the body it raises.
     const JUMP_SCALE = 62 / 117;
+    // The Witch's hover charge, asked by the engine's clock:
+    // the mirror answers for 1 energy and the hoverSpend door
+    // settles it against the server's purse for real; a late
+    // refusal ends the hover where she hangs (jumpEndHover),
+    // as an empty purse does in the engine itself.
+    const tryHoverSpend = (): boolean => {
+      if (energyRef.current <= 0) return false;
+      energyRef.current -= 1;
+      setEnergy(energyRef.current);
+      void api.hoverSpend().then(r => {
+        energyRef.current = r.energy;
+        setEnergy(r.energy);
+        if (!r.spent) jumpEndHover(tenderJumpRef.current, Date.now());
+      }).catch(() => {
+        void api.getEnergy().then(g => { energyRef.current = g.energy; setEnergy(g.energy); }).catch(() => {});
+      });
+      return true;
+    };
     const iv = setInterval(() => {
       const pos = tenderPosRef.current;
       if (!pos || !tenderStandRef.current) return;
       const now = Date.now();
+      jumpHoverTick(tenderJumpRef.current, now, spaceHeldRef.current, tryHoverSpend);
       const jpose = jumpPoseInfo(tenderJumpRef.current, now);
       const jh = jpose.h * JUMP_SCALE * tenderZoomRef.current;
       let vx = 0, vy = 0;
@@ -2294,7 +2339,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         return;
       }
       const here = tileUnderPoint(pos.x, pos.y, now);
-      const stepLen = SPEED * 0.05 * (here?.cursed ? 0.5 : 1);
+      const stridePx = ladderSpeedAt(SPEED, tenderStandRef.current.classKey)
+        * (jumpHovering(tenderJumpRef.current, now) ? 0.25 : 1);
+      const stepLen = stridePx * 0.05 * (here?.cursed ? 0.5 : 1);
       const nx = pos.x + vx * stepLen;
       const ny = pos.y + vy * stepLen;
       // THE TRAVERSAL LAW on the stride: a closed crossing
@@ -2334,6 +2381,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       apex: () => jumpApex(tenderJumpRef.current, Date.now()),
       flipped: () => jumpFlipped(tenderJumpRef.current, Date.now()),
       runed: () => jumpRuned(tenderJumpRef.current, Date.now()),
+      hovering: () => jumpHovering(tenderJumpRef.current, Date.now()),
+      curseExempt: () => jumpCurseExempt(tenderJumpRef.current, Date.now()),
+      ladder: () => ladderTable(),
       classKey: () => tenderStandRef.current?.classKey ?? null,
       anchor: () => tenderAnchorRef.current,
       pos: () => tenderPosRef.current ? { ...tenderPosRef.current } : null,
@@ -5590,7 +5640,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const landedLive = !!landed && wnow - landed.at >= 0 && wnow - landed.at < 320;
       // The ground shadow stays home and shrinks with height —
       // the Ground's own telling of how high he is.
-      const hRatio = Math.min(1, jh / (46 * (62 / 117) * zoom));
+      const hRatio = Math.min(1, jh / (JPHYS.sage.peak * (62 / 117) * zoom));
       return (
         <g key="tender-figure" pointerEvents="none">
           {anchorC && (

@@ -1,26 +1,90 @@
-/* ── THE JUMP (Nigel's law, 2026-10-19) ─────────────────────────
- * The Proving Ground's jump engine, ported whole into the game:
+/* ── THE JUMP + THE QUICKNESS LADDER (Nigel's law, 2026-10-19;
+ * the ladder ruled 2026-10-22, ported whole from the Proving
+ * Ground in Recovery R14, 2026-10-23) ────────────────────────
  * Space leaps, and every class keeps its own arc — the Warden's
- * low hop, the Binder's long graceful bound, the Witch's hover,
- * the Runewright's rune-double, the Sage's wild speed and her
- * third-jump backflip. The physics numbers are the Ground's own
- * (JPHYS, demo pixels against its ~115 px figure); each surface
- * scales heights to its own figure. Frames are the Ground's
- * business — the game raises the figure on this arc, shrinks its
- * ground shadow with height, and reads airborne/apex from here
- * for the traversal law: a leap is the only road over a wall, up
- * a two-tray rise, or onto a floating isle. */
+ * low hop, the Binder's long flat bound, the Witch's hover, the
+ * Runewright's rune-double, the Sage's wild speed and her
+ * third-jump backflip. This module is the game's ONE reckoning
+ * of the ladder, read by every surface that moves a Tender
+ * figure (the homeland stride, the Table's leap); the server's
+ * Table glide reads the mirrored readers in server/src/skills.ts
+ * (quicknessStepFor / quicknessSpeedFor), and the R14 drive
+ * proves the two reckonings agree number for number.
+ *
+ * THE LADDER (Nigel, 2026-10-22 04:22; jump gap doubled 11:55,
+ * speed gap doubled 11:56, air time untouched by either):
+ * WARDEN +0 < RUNEWRIGHT +1 < BINDER +2 < WITCH +3 < SAGE +4,
+ * one ordering on all three measures —
+ *   run speed  165 / 195 / 225 / 255 / 285 px/s (base 165, +30)
+ *   jump peak   26 /  38 /  50 /  62 /  74 px   (base 26, +12)
+ *   air time   420 / 500 / 580 / 660 / 740 ms  (base 420, +80)
+ * The numbers are the Proving Ground's own, in its demo pixels
+ * (its figure stands ~117 px); each surface scales them to the
+ * body it raises and the pace its ground already keeps — the
+ * homeland's figure at 62/117 of the arc and its stride at its
+ * standing 57.5 px/s Warden pace, the Table's figure at 58/117
+ * and its glide at its standing 30 px/s Warden pace — so the
+ * Warden rung is exactly the pace each ground already had, and
+ * every step above it is the ladder's own ratio. A classless
+ * figure — an unbound Table seat, a class not yet chosen —
+ * takes the base rung: QUICK reads an unknown key as +0, the
+ * same Warden fallback the engine and the Table have always
+ * kept (JPHYS.warden, `?? "warden"`).
+ *
+ * Jump distance is the air measure lived: a figure running at
+ * its ladder speed for its ladder air travels the ladder's
+ * ordering — with one trait shaping it: the Witch's hover
+ * drifts at QUARTER speed, so her distance stays under the
+ * Sage's despite her longer air. */
 
-export const JPHYS: Record<string, { peak: number; air: number; flat?: number; hover?: number; rise?: number }> = {
-  warden:     { peak: 26, air: 410 },
-  binder:     { peak: 44, air: 910, flat: 0.65 },
-  witch:      { peak: 40, air: 710, hover: 350, rise: 320 },
-  runewright: { peak: 40, air: 660 },
-  sage:       { peak: 46, air: 460 },
+export const QUICK: Record<string, number> = {
+  warden: 0, runewright: 1, binder: 2, witch: 3, sage: 4,
 };
+
+/** The ladder step of a class key; a classless or unknown key
+ *  stands on the base rung (+0, the Warden's). */
+export function quicknessStep(classKey: string | null | undefined): number {
+  return classKey ? (QUICK[classKey] ?? 0) : 0;
+}
+
+/** The ladder's run speed for a class, in the Ground's demo
+ *  px/s: 165 + 30 a step. */
+export function ladderSpeedOf(classKey: string | null | undefined): number {
+  return 165 + 30 * quicknessStep(classKey);
+}
+
+/** A surface's own standing Warden pace, raised by the ladder:
+ *  the surface keeps its pace law at the base rung and gains
+ *  exactly the ladder's ratio above it. */
+export function ladderSpeedAt(basePxPerSec: number, classKey: string | null | undefined): number {
+  return basePxPerSec * (ladderSpeedOf(classKey) / 165);
+}
+
+export const JPHYS: Record<string, { peak: number; air: number; flat?: number; rise?: number }> = {
+  warden:     { peak: 26, air: 420 },
+  runewright: { peak: 38, air: 500 },
+  binder:     { peak: 50, air: 580, flat: 0.65 },
+  witch:      { peak: 62, air: 660, rise: 300 },
+  sage:       { peak: 74, air: 740 },
+};
+
+/** The whole ladder as one table — the proof hooks' reading. */
+export function ladderTable(): Record<string, { step: number; speed: number; peak: number; air: number }> {
+  const t: Record<string, { step: number; speed: number; peak: number; air: number }> = {};
+  for (const k of Object.keys(QUICK)) {
+    t[k] = { step: QUICK[k], speed: ladderSpeedOf(k), peak: JPHYS[k].peak, air: JPHYS[k].air };
+  }
+  return t;
+}
 
 export interface JumpState {
   t0: number; key: string; flip: boolean; dbl: boolean; t1: number; base: number; landT: number;
+  /** The Witch's hover: the air-time (ae) at which the plateau
+   *  ends and the sink begins; null while the hover still holds. */
+  hoverEnd: number | null;
+  /** The hover's purse clock: the first charge is taken as the
+   *  hover begins, the next every 3000 ms of hovering. */
+  hoverBegan: boolean; hoverMs: number; hoverLast: number;
 }
 
 export interface JumpEngine {
@@ -42,6 +106,14 @@ export function jumpAirborne(e: JumpEngine, now: number): boolean {
   return !!e.jump && !e.jump.landT && (now - e.jump.t0) >= 90;
 }
 
+/** AIRBORNE = NO CURSE (Nigel, 2026-10-22 12:16): off the
+ *  ground — in a jump, or in the Witch's hover — curse
+ *  attrition does not touch her. The Ground's curseExempt()
+ *  hook, the same state under the same name. */
+export function jumpCurseExempt(e: JumpEngine, now: number): boolean {
+  return jumpAirborne(e, now);
+}
+
 /** High in the arc: the window in which a leap may cross onto a
  *  floating isle — three-fifths of the class's peak or better. */
 export function jumpApex(e: JumpEngine, now: number): boolean {
@@ -57,22 +129,78 @@ export function jumpPress(e: JumpEngine, classKey: string, now: number): void {
     }
     return;
   }
+  // A press while the landing squash still holds starts the
+  // next leap at once — the Ground's own shape, and the Sage's
+  // instant re-jump: her chain (below) is counted from these
+  // starts, 1200 ms apart at most, every third a backflip.
   let flip = false;
   if (classKey === "sage") {
     if (now - e.sageLastStart > 1200) e.sageChain = 0;
     e.sageChain++; e.sageLastStart = now;
     if (e.sageChain === 3) { flip = true; e.sageChain = 0; e.lastFlipStart = now; }
   }
-  e.jump = { t0: now, key: classKey, flip, dbl: false, t1: 0, base: 0, landT: 0 };
+  e.jump = { t0: now, key: classKey, flip, dbl: false, t1: 0, base: 0, landT: 0, hoverEnd: null, hoverBegan: false, hoverMs: 0, hoverLast: 0 };
 }
 
-function arcOf(key: string, P: { peak: number; air: number; flat?: number; hover?: number; rise?: number }, ae: number): { h: number; u: number; done: boolean } {
+/** THE WITCH'S HOVER (Nigel, 2026-10-22 12:16; the rate
+ *  corrected the same day, 12:42): she rises 300 ms, then the
+ *  hover is SUSTAINED from the purse while Space is held — one
+ *  charge as the hover begins, the next every 3 SECONDS of
+ *  hovering; release, or an empty purse, ends it and the sink
+ *  begins. The Ground's tick, kept whole: `spaceHeld` is the
+ *  surface's held Space; `trySpend` is the surface's purse
+ *  answering for 1 energy (true = the charge was paid). */
+export function jumpHoverTick(e: JumpEngine, now: number, spaceHeld: boolean, trySpend: () => boolean): void {
+  const j = e.jump;
+  if (!j || j.key !== "witch" || j.landT || j.dbl || j.hoverEnd != null) return;
+  const P = JPHYS.witch;
+  const ae = now - j.t0 - 90;
+  if (ae < (P.rise ?? 300)) return;
+  if (!spaceHeld) { j.hoverEnd = ae; return; }
+  if (!j.hoverBegan) {
+    j.hoverBegan = true; j.hoverMs = 0; j.hoverLast = now;
+    if (!trySpend()) j.hoverEnd = ae;
+    return;
+  }
+  j.hoverMs += now - j.hoverLast;
+  j.hoverLast = now;
+  if (j.hoverMs >= 3000) {
+    j.hoverMs -= 3000;
+    if (!trySpend()) j.hoverEnd = ae;
+  }
+}
+
+/** End the Witch's hover from outside the tick — the purse's
+ *  late refusal (the server's word arriving after the local
+ *  mirror had already answered) sets her down the same way an
+ *  empty purse does: the sink begins where she hangs. */
+export function jumpEndHover(e: JumpEngine, now: number): void {
+  const j = e.jump;
+  if (!j || j.key !== "witch" || j.landT || j.dbl || j.hoverEnd != null) return;
+  const ae = now - j.t0 - 90;
+  if (ae >= (JPHYS.witch.rise ?? 300)) j.hoverEnd = ae;
+}
+
+/** The hover plateau itself: risen, not yet sinking — the
+ *  state in which her glide drifts at quarter speed (the
+ *  Ground's own SPEED factor reads this same condition). */
+export function jumpHovering(e: JumpEngine, now: number): boolean {
+  const j = e.jump;
+  return !!j && j.key === "witch" && !j.landT && !j.dbl && j.hoverEnd == null
+    && (now - j.t0 - 90) >= (JPHYS.witch.rise ?? 300);
+}
+
+function arcOf(key: string, P: { peak: number; air: number; flat?: number; rise?: number }, ae: number, hoverEnd: number | null): { h: number; u: number; done: boolean } {
   if (key === "witch") {
-    const rise = P.rise!, sink = P.air - P.rise!, tot = P.air + (P.hover ?? 0);
-    if (ae >= tot) return { h: 0, u: 1, done: true };
+    // The Ground's arc: rise over `rise`, hold the peak while
+    // the hover lasts (hoverEnd, set by the hover tick — an
+    // unended hover holds indefinitely), then sink over the
+    // air the rise did not spend (air − rise).
+    const rise = P.rise!, sink = P.air - P.rise!, end = hoverEnd != null ? hoverEnd : Infinity;
+    if (ae >= end + sink) return { h: 0, u: 1, done: true };
     if (ae < rise) { const q = ae / rise; return { h: P.peak * Math.sin(Math.PI / 2 * q), u: 0.5 * q, done: false }; }
-    if (ae < rise + (P.hover ?? 0)) return { h: P.peak, u: 0.5, done: false };
-    const q = (ae - rise - (P.hover ?? 0)) / sink;
+    if (ae < end) return { h: P.peak, u: 0.5, done: false };
+    const q = (ae - end) / sink;
     return { h: P.peak * Math.pow(Math.cos(Math.PI / 2 * q), 0.85), u: 0.5 + 0.5 * q, done: false };
   }
   const tau = ae / P.air;
@@ -115,7 +243,7 @@ export function jumpPoseInfo(e: JumpEngine, now: number): JumpPoseInfo {
     e.h = j.base * (1 - tau2) + P.peak * Math.sin(Math.PI * tau2);
     return { h: e.h, flipU: null, airborne: true, active: true };
   }
-  const A = arcOf(j.key, P, el - 90);
+  const A = arcOf(j.key, P, el - 90, j.hoverEnd);
   if (A.done) { j.landT = now; e.h = 0; return { h: 0, flipU: null, airborne: false, active: true }; }
   e.h = A.h;
   return { h: A.h, flipU: null, airborne: el >= 90, active: true };

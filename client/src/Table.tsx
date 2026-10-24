@@ -30,7 +30,7 @@ import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { deckWindow, nextDeckPage } from "./deckWindow";
-import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, type JumpEngine } from "./jump";
+import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, jumpRuned, jumpHoverTick, jumpHovering, jumpCurseExempt, ladderTable, JPHYS, type JumpEngine } from "./jump";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
 import glyphBeacon from "./assets/glyphs/beacon.png";
@@ -661,15 +661,36 @@ export default function Table() {
   // THE JUMP at the Table (Nigel, 2026-10-19): my own figure's
   // leap, kept in a ref like the walk — the Ground's engine, the
   // class's own arc. Motion only; the referee never hears of it.
+  // THE QUICKNESS LADDER rides the same engine (Nigel,
+  // 2026-10-22; Recovery R14): the arc is the ladder's, and the
+  // Witch's hover holds while Space is held — ticked here on
+  // the stage's own clock. The hover's PURSE is the homeland's
+  // (the engine's charges are settled there, through
+  // hoverSpend): at the Table the leap is motion only by the
+  // standing law above, so the tick's purse answers as an
+  // unpurse'd motion must — the hover holds while held and
+  // ends on release, its charge schedule running in the
+  // engine exactly as the Ground keeps it.
   const myJumpRef = useRef<JumpEngine>(createJumpEngine());
   const myClassRef = useRef<string | null>(null);
+  const tableSpaceHeldRef = useRef(false);
   useEffect(() => { myClassRef.current = myServerClass ?? myTenderClass; }, [myServerClass, myTenderClass]);
+  useEffect(() => {
+    const t = setInterval(() => {
+      jumpHoverTick(myJumpRef.current, Date.now(), tableSpaceHeldRef.current, () => true);
+    }, 150);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     (window as any).__tableJump = {
       press: () => jumpPress(myJumpRef.current, myClassRef.current ?? "warden", Date.now()),
       height: () => myJumpRef.current.h,
       airborne: () => jumpAirborne(myJumpRef.current, Date.now()),
       flipped: () => jumpFlipped(myJumpRef.current, Date.now()),
+      runed: () => jumpRuned(myJumpRef.current, Date.now()),
+      hovering: () => jumpHovering(myJumpRef.current, Date.now()),
+      curseExempt: () => jumpCurseExempt(myJumpRef.current, Date.now()),
+      ladder: () => ladderTable(),
     };
     return () => { delete (window as any).__tableJump; };
   }, []);
@@ -944,6 +965,9 @@ export default function Table() {
       // body is his own, carries the true traversal law.)
       if (e.code === "Space") {
         e.preventDefault();
+        // Held, not just pressed: the Witch's hover reads the
+        // holding of Space (the Ground's spaceDown).
+        tableSpaceHeldRef.current = true;
         if (!e.repeat && !glideGuardRef.current.placing && !glideGuardRef.current.fallen) {
           jumpPress(myJumpRef.current, myClassRef.current ?? "warden", Date.now());
         }
@@ -961,6 +985,7 @@ export default function Table() {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") { tableSpaceHeldRef.current = false; return; }
       const step = GLIDE_STEPS[e.code];
       if (!step) return;
       e.preventDefault();
@@ -973,6 +998,7 @@ export default function Table() {
       }
     };
     const onBlur = () => {
+      tableSpaceHeldRef.current = false;
       heldKeysRef.current.clear();
       clearGlideTimer();
       sendGlideStopRef.current?.();
@@ -2179,7 +2205,7 @@ export default function Table() {
       key: `tender-${p.key}`, gy,
       node: (
         <g key={`tender-${p.key}`} pointerEvents="none" opacity={p.fallen ? 0.45 : 1}>
-          <ellipse cx={gx} cy={gy + 1} rx={13 * (1 - 0.32 * Math.min(1, jh / (46 * (58 / 117))))} ry={3.5 * (1 - 0.32 * Math.min(1, jh / (46 * (58 / 117))))} fill="rgba(0,0,0,0.35)" fillOpacity={1 - 0.35 * Math.min(1, jh / (46 * (58 / 117)))} />
+          <ellipse cx={gx} cy={gy + 1} rx={13 * (1 - 0.32 * Math.min(1, jh / (JPHYS.sage.peak * (58 / 117))))} ry={3.5 * (1 - 0.32 * Math.min(1, jh / (JPHYS.sage.peak * (58 / 117))))} fill="rgba(0,0,0,0.35)" fillOpacity={1 - 0.35 * Math.min(1, jh / (JPHYS.sage.peak * (58 / 117)))} />
           {pose.flip ? <g transform={`translate(${2 * gx} 0) scale(-1 1)`}>{img}</g> : img}
           {weaponKey && WEAPONS[weaponKey] && (
             <image className="ts-weapon-bob" href={weaponImg(weaponKey)} x={gx + 17} y={gy - 47} width={30} height={30}
