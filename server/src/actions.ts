@@ -4020,13 +4020,18 @@ export function blackGateStepFor(facing: string): readonly [number, number] | nu
     : null;
 }
 const DEFENCE_WORK_ENGAGE = 2.5; // a work is raised when the dark comes within her reach + this
-/** THE LIGHTHOUSE'S SHADOW UPKEEP — UNRULED (Nigel to set):
- *  while the light burns it drinks this much Shadow Matter
- *  per minute lit, on top of the banked minutes it spends.
+/** THE LIGHTHOUSE'S SHADOW UPKEEP — RULED (Nigel, 2026-10-24:
+ *  "1 shadow matter 4 min"): while the light burns it drinks
+ *  ONE Shadow Matter per FOUR minutes lit, on top of the
+ *  banked minutes it spends. The hoard (shadow_matter) is a
+ *  REAL column, so the rate is carried per minute below as an
+ *  exact quarter (0.25) and fractions accrue lawfully across
+ *  settlements — nothing is rounded away, nothing invented.
  *  When the hoard cannot pay, the light gutters out at the
  *  hour the fuel runs dry — protection is never silently
  *  free. */
-export const LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE = 1;
+export const LIGHTHOUSE_SHADOW_UPKEEP_PER_FOUR_MINUTES = 1;
+export const LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE = LIGHTHOUSE_SHADOW_UPKEEP_PER_FOUR_MINUTES / 4;
 /** Presence, for the protection pause: the lighthouse's burn
  *  is settled only across map-read gaps no longer than this —
  *  a longer silence is the Tender away (home screen, or
@@ -4122,8 +4127,9 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
  *  a silence longer than the presence gap burns nothing
  *  (returning to the home screen pauses the timer; the
  *  banked remainder persists untouched). The light also
- *  drinks its shadow upkeep (LIGHTHOUSE_SHADOW_UPKEEP_PER_
- *  MINUTE, UNRULED); when the hoard runs dry mid-burn the
+ *  drinks its shadow upkeep — ONE Shadow Matter per FOUR
+ *  minutes lit (LIGHTHOUSE_SHADOW_UPKEEP_PER_FOUR_MINUTES,
+ *  ruled by Nigel 2026-10-24); when the hoard runs dry mid-burn the
  *  light gutters out at the hour the fuel ends — the minutes
  *  it never burned stay banked. While lit: no spawning (the
  *  spawn pass reads the same flag), the standing dark is

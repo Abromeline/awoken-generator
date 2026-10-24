@@ -147,7 +147,8 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
  *  of BLACK_GATE_COST energy — this ONE named constant
  *  is the whole of the derivation, and it stands awaiting
  *  Nigel's word, exactly as the lighthouse's shadow
- *  upkeep constant stood flagged before it. */
+ *  upkeep constant stood flagged before Nigel ruled it
+ *  (one Shadow Matter per four minutes lit, 2026-10-24). */
 export const BLACK_GATE_COST = 8;
 
 export const ENGINE_KEYS = Object.keys(ENGINE_NUMBER_FIELDS);

@@ -248,14 +248,14 @@ console.log("§C/§D the light is lit by hand; it gates spawning, burns in prese
   db.prepare("UPDATE tender_progress SET wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?").run(Date.now() - 45000 * 30, G.ownerKey);
   st = await call("getTerritory", {}, G.token);
   ok("while lit, no dark spawns under forced beats", darkOf(G.ownerKey).length === 0, `${darkOf(G.ownerKey).length}`);
-  // Burn in presence: 30 present seconds burn ~30s of bank and ~0.5 shadow of upkeep.
+  // Burn in presence: 30 present seconds burn ~30s of bank and ~0.125 shadow of upkeep (1 per 4 min, Nigel 2026-10-24).
   const bankA = progOf(G.ownerKey).protection_bank_ms, shadowA = progOf(G.ownerKey).shadow_matter;
   db.prepare("UPDATE tender_progress SET lighthouse_settled_at = ? WHERE owner_key = ?").run(Date.now() - 30000, G.ownerKey);
   st = await call("getTerritory", {}, G.token);
   const bankB = progOf(G.ownerKey).protection_bank_ms, shadowB = progOf(G.ownerKey).shadow_matter;
   console.log(`  burn: bank ${bankA} -> ${bankB}; shadow ${shadowA} -> ${shadowB}`);
   ok("30 present seconds burned ~30s of banked protection", bankA - bankB >= 28000 && bankA - bankB <= 32000, `${bankA - bankB}`);
-  ok("the shadow upkeep drained with the burn (30s at 1/min ≈ 0.5)", Math.abs((shadowA - shadowB) - 0.5) < 0.08, `${shadowA - shadowB}`);
+  ok("the shadow upkeep drained with the burn (30s at 1 per 4 min = 0.125)", Math.abs((shadowA - shadowB) - 0.125) < 0.08, `${shadowA - shadowB}`);
   // The pause: a 10-minute silence burns nothing and the light stays lit.
   db.prepare("UPDATE tender_progress SET lighthouse_settled_at = ? WHERE owner_key = ?").run(Date.now() - 600000, G.ownerKey);
   st = await call("getTerritory", {}, G.token);
