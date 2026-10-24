@@ -694,6 +694,15 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS first_seed_events (
 // stays in the table, unwritten, for the rows history made.
 try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN reward_element TEXT"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN reward_claimed_at INTEGER"); } catch { /* exists */ }
+// THE RISINGS RIDE THE ENGINE (Nigel, 2026-10-24): the
+// hold's ledger keeps whether the current rising has been
+// spawned onto the land (rising_live) and the company
+// that has stood on the seed's hex while it stands
+// (rising_stood, a JSON ledger of awakened ids) — the
+// rising's defense is paid to those who stood, as the old
+// referee paid its standing company at its resolutions.
+try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN rising_live INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN rising_stood TEXT"); } catch { /* exists */ }
 
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
@@ -798,6 +807,12 @@ try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN held_until INTEGER 
 // corrupted seed waits on. A seed's corruption lifts when
 // no wanderer of its guarding column still stands.
 try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN column_id INTEGER"); } catch { /* exists */ }
+// THE RISINGS RIDE THE ENGINE (Nigel, 2026-10-24): a
+// first-seed rising's Fray stand on the land as real
+// wanderers of the living battle, and each carries the
+// rising it rode in with — the hold's ledger reads the
+// land by this mark: a rising stands while its Fray stand.
+try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN seed_rising INTEGER"); } catch { /* exists */ }
 // The battle's own ledgers on the progress row: the Shadow
 // Matter hoard, the banked protection and the lighthouse that
 // spends it, the standing wave intensity and the weather

@@ -5524,9 +5524,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         // the hold's first touch (any touch of this section)
         // teaches the seed's GROUND TRUTH only — the claim at
         // twenty, the seed as rebuilding heart. The seed's
-        // BATTLE lesson is deliberately NOT taught: the hold's
-        // battle shape stands stopped on a fork awaiting
-        // Nigel's word, and this panel's own standing words
+        // BATTLE lesson is deliberately NOT taught here: the
+        // hold's battle shape was settled by Nigel's word
+        // (2026-10-24: the risings ride the engine — the
+        // panel's words now say "risings", as his ruling
+        // names them), and this panel's own standing words
         // about that shape are the hold's, not a lesson's.
         return (
           <section className="first-claim first-seed" aria-live="polite" onClick={() => homeland.touch("seed")}>
@@ -5534,15 +5536,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <h2>A starseed lies in the cursed heart of your land.</h2>
             {ev.state === "holding" ? (
               <>
-                <p>The hold is underway. <strong>{ev.wavesCleared} wave{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · seed level <strong>{ev.seedLevel}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Wave {ev.nextWave} comes in <strong>{waveInSec}s</strong> — {ev.nextWave} Fray ride with it.</> : ""}</p>
+                <p>The hold is underway. <strong>{ev.wavesCleared} rising{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · seed level <strong>{ev.seedLevel}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Rising {ev.nextWave} comes in <strong>{waveInSec}s</strong> — {ev.nextWave} Fray ride with it.</> : ""}</p>
                 <p>Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
               </>
             ) : ev.banked ? (
-              <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three waves, a rising. <strong>Hold the seed to its third rising — level 3 — and it lays up a shining point of attunement, yours to gather.</strong></p>
+              <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three risings, a new level. <strong>Hold the seed to level 3 and it lays up a shining point of attunement, yours to gather.</strong></p>
             ) : (
               <>
-                <p>Send your Awokin onto the seed's hex, then begin the hold. Waves of Fray will come, one upon the next — <strong>clear three waves and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
-                <p><strong>Hold the seed to its third rising — level 3 — and it lays up a shining point of attunement, yours to gather.</strong></p>
+                <p>Send your Awokin onto the seed's hex, then begin the hold. Risings of Fray will come, one upon the next — <strong>clear three risings and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
+                <p><strong>Hold the seed to level 3 and it lays up a shining point of attunement, yours to gather.</strong></p>
               </>
             )}
             {initialPatrolIds && initialPatrolIds.length > 0 && standing.length === 0 && seedTeam.length > 0 && ev.state !== "done" && (

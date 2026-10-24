@@ -1336,7 +1336,35 @@ async function ensureFrontierBuffer(ownerKey: string) {
    struck (Nigel, 2026-10-19): births handed out by an event
    drop the value of minted cards, and creation belongs to the
    Awoken Forge he plans. Boss victories still free newborns;
-   this event no longer pretends to be one. */
+   this event no longer pretends to be one.
+   THE RISINGS RIDE THE ENGINE (Nigel, 2026-10-24): the
+   hold's own wave referee (resolveFirstSeedWave — an
+   instant arithmetic struck on read) is RETIRED. The dark
+   still arrives in its numbered risings — wave N brings N
+   Fray, a minute apart, later sporadic; the seed banks at
+   the third rising; the ladder climbs to twelve — but
+   every rising now STANDS ON THE LAND as real wanderers
+   and is fought by the homeland's living cadence battle,
+   exactly as the columns' landed forces are fought. Only
+   the referee changed: the risings, their gaps, the bank,
+   the ladder, the reward and the fail terms stand
+   untouched, and the hold's fell pay (+3✦ capped a Fray,
+   +2 XP to the slayer, +10 defense XP to every Awoken who
+   stood on the seed's hex during the rising, the fell
+   drizzle) is paid on the battle's own fell path for the
+   rising's marked Fray (homeland_wanderers.seed_rising),
+   in place of the open land's bounty. A rising spawns
+   only on a territory read, at the read's end — never
+   off-read, never stacked on a rising still standing —
+   so no rising can ever fall on a company unseen (the
+   Uncle Run's failure shape). The ladder is judged on
+   read from the land as the last settle left it, as
+   every lazy reckoning in this house: a rising whose
+   Fray all fell is cleared; a rising whose Fray hold the
+   seed's ground with no defender standing on the seed's
+   hex or its ring has broken the defense — the run ends,
+   the rising's remaining Fray withdraw with it, and
+   banked ground is never clawed back. */
 const FIRST_SEED_MAX_WAVE = 12;
 const FIRST_SEED_MAX_LEVEL = 4;
 
@@ -1347,6 +1375,11 @@ type FirstSeedEventRow = {
   // 2026-10-19, never written again — kept so old rows read true.
   newborn_claimed_at: number | null; created_at: number; updated_at: number;
   reward_element: string | null; reward_claimed_at: number | null;
+  // THE RISINGS RIDE THE ENGINE (2026-10-24): whether the
+  // current rising stands spawned on the land, and the
+  // ledger (JSON awakened ids) of the company that has
+  // stood on the seed's hex while it stands.
+  rising_live: number; rising_stood: string | null;
 };
 
 function firstSeedEventRow(ownerKey: string): FirstSeedEventRow | null {
@@ -1356,9 +1389,9 @@ function firstSeedEventRow(ownerKey: string): FirstSeedEventRow | null {
 
 function saveFirstSeedEvent(ev: FirstSeedEventRow): void {
   sqlite.prepare(`UPDATE first_seed_events
-    SET state = ?, banked = ?, waves_cleared = ?, next_wave_at = ?, newborn_claimed_at = ?, reward_element = ?, reward_claimed_at = ?, updated_at = ?
+    SET state = ?, banked = ?, waves_cleared = ?, next_wave_at = ?, newborn_claimed_at = ?, reward_element = ?, reward_claimed_at = ?, rising_live = ?, rising_stood = ?, updated_at = ?
     WHERE owner_key = ?`)
-    .run(ev.state, ev.banked, ev.waves_cleared, ev.next_wave_at, ev.newborn_claimed_at, ev.reward_element, ev.reward_claimed_at, Date.now(), ev.owner_key);
+    .run(ev.state, ev.banked, ev.waves_cleared, ev.next_wave_at, ev.newborn_claimed_at, ev.reward_element, ev.reward_claimed_at, ev.rising_live, ev.rising_stood, Date.now(), ev.owner_key);
 }
 
 /** When the wave AFTER `cleared` waves lands: the first three
@@ -1532,13 +1565,23 @@ async function dominantClaimElement(standingRows: Array<{ compositionJson: strin
  *  knows a hue: both pages are colourless — they hold no slots
  *  and cast unaligned — and the hue a raising was stored under
  *  is never consulted. The reading is spent where the homeland
- *  reckons its own company striking: the first-seed hold's
- *  referee (resolveFirstSeedWave, below). It is deliberately
- *  NOT spent at the weapon referee (the Table's weapon strikes
- *  carry neither bonus — fireWeapon reads its die alone) nor
- *  on deployBattle's assault (a combined-power threshold
- *  against the ground's toughness: no per-strike reckoning,
- *  no dark creature standing anywhere for a Beacon to light). */
+ *  reckons its own company striking: THE LIVING BATTLE's
+ *  answer pass (settleHomelandBattle), strike by strike —
+ *  the Standard judged by the ground the striker stands on,
+ *  the Beacon by the ground the dark stands on, both lent
+ *  flat into the blow's raw harm before mitigation, exactly
+ *  as the Table's strikeOnce spends them. (Until the risings
+ *  rode the engine, 2026-10-24, the reading's only homeland
+ *  spender was the first-seed hold's referee, which judged
+ *  both halves at the seed's hex; that referee is retired
+ *  and the battle is the homeland's striking referee now —
+ *  the reading rides with it, or it would be read nowhere
+ *  at home.) It is deliberately NOT spent at the weapon
+ *  referee (the Table's weapon strikes carry neither bonus
+ *  — fireWeapon reads its die alone) nor on deployBattle's
+ *  assault (a combined-power threshold against the ground's
+ *  toughness: no per-strike reckoning, no dark creature
+ *  standing anywhere for a Beacon to light). */
 function homelandBannerBonus(ownerKey: string, striker: { q: number; r: number }, target: { q: number; r: number }): { std: number; bcn: number } {
   const rows = sqlite.prepare("SELECT engine, q, r, dir, nums FROM territory_workings WHERE owner_key = ? AND kind = 'ward' AND engine IN ('standard', 'beacon') ORDER BY id").all(ownerKey) as any[];
   if (!rows.length) return { std: 0, bcn: 0 };
@@ -1561,204 +1604,274 @@ function homelandBannerBonus(ownerKey: string, striker: { q: number; r: number }
   return { std, bcn };
 }
 
-/** Referee one arrived wave of the first-seed hold. The defenders
- *  strike first, each blow its filed power against the Fray line
- *  (canon: power 1, curse HP 3, from the game's own enemy config);
- *  surviving Fray answer against the weakest standing defender,
- *  through damagePlacement — the map's single damage path, so a
- *  defender at 0 HP dissipates back to hand. Pays the Table's
- *  fell numbers through the map's own seams (+3✦ capped to the
- *  slayer's Tender per Fray felled, +2 XP to the slayer, +10
- *  defense XP to every Awoken who stood), then settles the ladder:
- *  bank at wave 3, a rising every three, the reward laid up at
- *  the first reaching of level 3 (the newborn claim that once
- *  stood there is struck — Nigel, 2026-10-19), and the run's end
- *  whenever the defense falls. */
-async function resolveFirstSeedWave(ownerKey: string, ev: FirstSeedEventRow): Promise<void> {
-  const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
-  if (!seed) { ev.state = "done"; ev.next_wave_at = 0; saveFirstSeedEvent(ev); return; }
-  const wave = ev.waves_cleared + 1;
-  const cfg = await loadGameConfig();
-  const frayPower = Math.max(0, cfg.enemies.fray?.power ?? 1);
-  const frayHpEach = Math.max(1, cfg.enemies.fray?.hp ?? 3);
+/** The marked Fray of the rising now standing: the rising
+ *  numbered `wave` of this Tender's hold, spawned onto the
+ *  land by spawnFirstSeedRising and fought by the living
+ *  battle. Their rows are the rising's body: while any
+ *  stands, the rising stands. */
+function firstSeedRisingFray(ownerKey: string, wave: number): any[] {
+  return sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ? AND seed_rising = ?").all(ownerKey, wave) as any[];
+}
 
-  type Defender = { row: PlacementRow; power: number; hp: number };
-  const placementRows = await db.select().from(schema.fieldPlacements)
-    .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
-  const defenders: Defender[] = [];
-  for (const row of placementRows) {
-    const payload = await awakenedPayloadById(row.awakenedId);
-    defenders.push({ row, power: payload?.power ?? 0, hp: row.hp ?? (await placementMaxHp(row.awakenedId)) });
-  }
-  const stoodIds = defenders.map(d => d.row.awakenedId);
+/** The rising's stood ledger, read: the awakened ids of the
+ *  company that has stood on the seed's hex while the
+ *  rising stands, accumulated on reads by the judgement
+ *  below. A garbled ledger reads empty rather than false. */
+function firstSeedStoodIds(ev: FirstSeedEventRow): Set<number> {
+  const stood = new Set<number>();
+  try {
+    for (const id of JSON.parse(ev.rising_stood ?? "[]")) {
+      if (Number.isFinite(Number(id))) stood.add(Number(id));
+    }
+  } catch { /* a garbled ledger pays the defense nothing twice over */ }
+  return stood;
+}
 
+/** The defense's pay: every Awoken in the rising's stood
+ *  ledger takes the standing defense XP (+10) — the old
+ *  referee's pay to every Awoken who stood, made at the
+ *  rising's end, cleared or fallen, exactly as it was made
+ *  at its instant resolutions. (The living battle's own
+ *  struck-pay does not ride on the rising's Fray: their
+ *  blows are the hold's to reckon, and this is the whole
+ *  of the defense's pay for them — see the strike pass.) */
+async function payFirstSeedStood(ownerKey: string, ev: FirstSeedEventRow): Promise<void> {
+  const stood = firstSeedStoodIds(ev);
+  if (!stood.size) return;
   const xpById = new Map<number, XpGainReport>();
-  let totalFells = 0;
-  let waveCleared = false;
+  for (const id of stood) await grantEventXp(xpById, id, XP_PER_DEFENSE);
+}
 
-  if (defenders.length > 0) {
-    // THE STANDARD AND THE BEACON READ AT THE SEED (the
-    // homeland readers, 2026-10-21): the company strikes from
-    // the seed's hex and the wave stands on the seed's rise,
-    // so the one ground judges both halves of the reading —
-    // a Standard whose edge divides the hex lends its
-    // strikeBonus to every defender's blow, and a Beacon
-    // whose light covers the hex lends its darkBonus against
-    // the wave standing there (homelandBannerBonus — the
-    // Table's strikeOnce reading, this ground's tongue).
-    const seedTileRow = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seed.tile_id) as { q: number; r: number } | undefined;
-    const banner = seedTileRow ? homelandBannerBonus(ownerKey, seedTileRow, seedTileRow) : { std: 0, bcn: 0 };
-    const fray = Array.from({ length: wave }, () => frayHpEach);
-    const frayAlive = () => fray.some(h => h > 0);
-    const fellBy = new Map<number, number>();
-    let standing = [...defenders];
-    let rounds = 0;
-    while (frayAlive() && standing.length > 0 && rounds < 500) {
-      rounds++;
-      // The company strikes: filed power, blow by blow down the line.
-      for (const d of standing) {
-        let blow = d.power + banner.std + banner.bcn;
-        while (blow > 0 && frayAlive()) {
-          const i = fray.findIndex(h => h > 0);
-          const dealt = Math.min(blow, fray[i]);
-          fray[i] -= dealt; blow -= dealt;
-          if (fray[i] <= 0) fellBy.set(d.row.awakenedId, (fellBy.get(d.row.awakenedId) ?? 0) + 1);
-        }
-        if (!frayAlive()) break;
-      }
-      if (!frayAlive()) break;
-      // The surviving Fray answer: each strikes the weakest standing.
-      let strikes = fray.filter(h => h > 0).length * frayPower;
-      while (strikes-- > 0 && standing.length > 0) {
-        let weakest = standing[0];
-        for (const d of standing) if (d.hp < weakest.hp) weakest = d;
-        const res = await damagePlacement(weakest.row, frayPower);
-        weakest.hp = res.hp;
-        weakest.row = { ...weakest.row, hp: res.hp };
-        if (res.dissipated) standing = standing.filter(d => d !== weakest);
-      }
-    }
-    waveCleared = !frayAlive();
-    // Fell rewards, the Table's numbers through the map's seams.
-    for (const [id, fells] of fellBy) {
-      totalFells += fells;
-      await grantEventXp(xpById, id, 2 * fells);
-    }
-    if (totalFells > 0) {
-      const maxEnergy = await calculateMaxEnergy(ownerKey);
-      const current = await getEnergyFor(ownerKey);
-      const next = Math.min(current + 3 * totalFells, maxEnergy);
-      if (next !== current) {
-        await db.update(schema.tenderResources)
-          .set({ energy: next, updatedAt: new Date() })
-          .where(eq(schema.tenderResources.ownerKey, ownerKey));
+/** THE LADDER, SETTLED ON A RISING'S CLEARING — the old
+ *  referee's settle block, carried whole onto the new
+ *  referee's event: the defense paid first (above), then
+ *  bank at wave 3, a rising of the seed's level every
+ *  three waves, the reward laid up at the first reaching
+ *  of level 3, and the run complete at the twelfth. */
+async function settleFirstSeedLadder(ownerKey: string, ev: FirstSeedEventRow, seed: any, wave: number): Promise<void> {
+  await payFirstSeedStood(ownerKey, ev);
+  ev.waves_cleared = wave;
+  const newLevel = firstSeedLevelFor(wave);
+  if (wave === 3 && !ev.banked) {
+    // THE BANK: the center purifies under the company standing on
+    // it, wearing their dominant element; the pool fills to the
+    // cap (the margin's gift — the cap itself grows only by
+    // waking, as it always has).
+    const standingRows = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
+    const standingAw = standingRows.length
+      ? await db.select().from(schema.awakened).where(inArray(schema.awakened.id, standingRows.map(p => p.awakenedId)))
+      : [];
+    const element = await dominantClaimElement(standingAw);
+    await db.update(schema.territoryTiles)
+      .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+      .where(eq(schema.territoryTiles.id, seed.tile_id));
+    // The neighboring cursed land feels the shift — their passive
+    // timers start now, as on every purification.
+    const center = await db.select({ q: schema.territoryTiles.q, r: schema.territoryTiles.r })
+      .from(schema.territoryTiles).where(eq(schema.territoryTiles.id, seed.tile_id)).limit(1);
+    if (center.length) {
+      const nowD = new Date();
+      const neighborCoords = [
+        [center[0].q + 1, center[0].r], [center[0].q - 1, center[0].r],
+        [center[0].q, center[0].r + 1], [center[0].q, center[0].r - 1],
+        [center[0].q + 1, center[0].r - 1], [center[0].q - 1, center[0].r + 1],
+      ];
+      for (const [nq, nr] of neighborCoords) {
+        await db.update(schema.territoryTiles)
+          .set({ lastPassiveAt: nowD })
+          .where(and(
+            eq(schema.territoryTiles.ownerKey, ownerKey),
+            eq(schema.territoryTiles.q, nq),
+            eq(schema.territoryTiles.r, nr),
+            eq(schema.territoryTiles.cursed, 1),
+          ));
       }
     }
-    // THE DRIZZLE (Nigel, 2026-10-19): the felled also drop
-    // elemental energy — random, and only a fraction of a point,
-    // "enough to barely move the attunement bar: 50 Fray = 1
-    // point, that kind of math, but at least it's raising." Each
-    // Fray felled has a 20% chance to drip +0.1 into a random
-    // element's pool — an expectation of exactly that: 0.02 per
-    // fell, one point per fifty. Silent bookkeeping: the waves
-    // settle lazily on read, so no live enemy stands here to
-    // pop from. The drip itself now lives in one place
-    // (payFellDrip, above) — the hold's Fray name no ground
-    // element of their own, so theirs still lights at random.
-    for (let fell = 0; fell < totalFells; fell++) {
-      await payFellDrip(ownerKey);
-    }
-    // Every Awoken who stood in the wave stood in its defense.
-    for (const id of stoodIds) {
-      await grantEventXp(xpById, id, XP_PER_DEFENSE);
+    ev.banked = 1;
+    const maxEnergy = await calculateMaxEnergy(ownerKey);
+    await getEnergyFor(ownerKey); // the row exists before it is filled
+    await db.update(schema.tenderResources)
+      .set({ energy: maxEnergy, updatedAt: new Date() })
+      .where(eq(schema.tenderResources.ownerKey, ownerKey));
+  }
+  if (newLevel > Number(seed.level ?? 1)) {
+    sqlite.prepare("UPDATE star_seeds SET level = ? WHERE id = ?").run(newLevel, seed.id);
+    // THE THIRD RISING (Nigel, 2026-10-19): the newborn claim
+    // that stood here is STRUCK — births from an event drop the
+    // value of minted cards, and creation belongs to the Forge
+    // he plans. In its place, once ever, the event lays up its
+    // reward: a single attunement point of a random element,
+    // shining on the Tender's home until gathered by hand
+    // (claimFirstSeedReward). The guard is the reward itself:
+    // once laid up it is never laid up again, claimed or not.
+    if (newLevel === 3 && !ev.reward_element) {
+      ev.reward_element = ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
     }
   }
-
-  if (waveCleared) {
-    ev.waves_cleared = wave;
-    const newLevel = firstSeedLevelFor(wave);
-    if (wave === 3 && !ev.banked) {
-      // THE BANK: the center purifies under the company standing on
-      // it, wearing their dominant element; the pool fills to the
-      // cap (the margin's gift — the cap itself grows only by
-      // waking, as it always has).
-      const standingRows = await db.select().from(schema.fieldPlacements)
-        .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
-      const standingAw = standingRows.length
-        ? await db.select().from(schema.awakened).where(inArray(schema.awakened.id, standingRows.map(p => p.awakenedId)))
-        : [];
-      const element = await dominantClaimElement(standingAw);
-      await db.update(schema.territoryTiles)
-        .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
-        .where(eq(schema.territoryTiles.id, seed.tile_id));
-      // The neighboring cursed land feels the shift — their passive
-      // timers start now, as on every purification.
-      const center = await db.select({ q: schema.territoryTiles.q, r: schema.territoryTiles.r })
-        .from(schema.territoryTiles).where(eq(schema.territoryTiles.id, seed.tile_id)).limit(1);
-      if (center.length) {
-        const nowD = new Date();
-        const neighborCoords = [
-          [center[0].q + 1, center[0].r], [center[0].q - 1, center[0].r],
-          [center[0].q, center[0].r + 1], [center[0].q, center[0].r - 1],
-          [center[0].q + 1, center[0].r - 1], [center[0].q - 1, center[0].r + 1],
-        ];
-        for (const [nq, nr] of neighborCoords) {
-          await db.update(schema.territoryTiles)
-            .set({ lastPassiveAt: nowD })
-            .where(and(
-              eq(schema.territoryTiles.ownerKey, ownerKey),
-              eq(schema.territoryTiles.q, nq),
-              eq(schema.territoryTiles.r, nr),
-              eq(schema.territoryTiles.cursed, 1),
-            ));
-        }
-      }
-      ev.banked = 1;
-      const maxEnergy = await calculateMaxEnergy(ownerKey);
-      await getEnergyFor(ownerKey); // the row exists before it is filled
-      await db.update(schema.tenderResources)
-        .set({ energy: maxEnergy, updatedAt: new Date() })
-        .where(eq(schema.tenderResources.ownerKey, ownerKey));
-    }
-    if (newLevel > Number(seed.level ?? 1)) {
-      sqlite.prepare("UPDATE star_seeds SET level = ? WHERE id = ?").run(newLevel, seed.id);
-      // THE THIRD RISING (Nigel, 2026-10-19): the newborn claim
-      // that stood here is STRUCK — births from an event drop the
-      // value of minted cards, and creation belongs to the Forge
-      // he plans. In its place, once ever, the event lays up its
-      // reward: a single attunement point of a random element,
-      // shining on the Tender's home until gathered by hand
-      // (claimFirstSeedReward). The guard is the reward itself:
-      // once laid up it is never laid up again, claimed or not.
-      if (newLevel === 3 && !ev.reward_element) {
-        ev.reward_element = ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
-      }
-    }
-    if (wave >= FIRST_SEED_MAX_WAVE) {
-      ev.state = "done";
-      ev.next_wave_at = 0;
-    } else {
-      ev.next_wave_at = Date.now() + firstSeedWaveGapMs(wave);
-    }
-  } else {
-    // THE DEFENSE FALLS: the run ends. Banked ground is never
-    // clawed back — the ladder rolls back only to the banked
-    // level's rung; unbanked, the seed simply waits, whole.
-    ev.state = "waiting";
+  if (wave >= FIRST_SEED_MAX_WAVE) {
+    ev.state = "done";
     ev.next_wave_at = 0;
-    ev.waves_cleared = ev.banked ? Number(seed.level ?? 1) * 3 : 0;
+  } else {
+    ev.next_wave_at = Date.now() + firstSeedWaveGapMs(wave);
   }
+  ev.rising_live = 0;
+  ev.rising_stood = null;
   saveFirstSeedEvent(ev);
 }
 
-/** The hold's lazy settle: at most one wave lands per read, and
- *  the next is always scheduled from now — absence is never
- *  punished with a pile of unattended waves (Anti-Duolingo). */
+/** THE HOLD'S JUDGEMENT, on read (the risings ride the
+ *  engine, 2026-10-24): the living battle fights the
+ *  rising; this pass reads the land as the last settle
+ *  left it and settles the rising's fate:
+ *   · the company standing on the seed's hex is entered
+ *     into the rising's stood ledger, against the defense
+ *     pay at its end;
+ *   · if no Fray of the rising stands and the lighthouse
+ *     burns, the rising FLED — driven off with all the
+ *     standing dark, neither won nor lost: it comes again
+ *     after its gap, nothing paid, nothing lost (the
+ *     pushback lifts the mark itself in settleProtection;
+ *     this is the same reading for any road that emptied
+ *     the land under a lit light);
+ *   · if no Fray of the rising stands under an unlit sky,
+ *     the rising is CLEARED and the ladder settles;
+ *   · if Fray of the rising hold the seed's own ground
+ *     and no defender stands on the seed's hex or its
+ *     ring, the defense has FALLEN — the old referee's
+ *     verdict when its wave outlived its company: the run
+ *     ends, the rising's remaining Fray withdraw with it,
+ *     banked ground is never clawed back, and unbanked
+ *     the seed simply waits, whole.
+ *  A rising drawn away across the map by the company it
+ *  chases has broken nothing — the fight has only moved,
+ *  and the ladder waits on its end, as it waits on any
+ *  living battle. Spawning is NOT this pass's work: a
+ *  rising lands only at a territory read's end
+ *  (spawnFirstSeedRising), in the open. */
 async function settleFirstSeedEvent(ownerKey: string): Promise<void> {
   const ev = firstSeedEventRow(ownerKey);
-  if (!ev || ev.state !== "holding" || !ev.next_wave_at) return;
+  if (!ev || ev.state !== "holding") return;
+  const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
+  if (!seed) { ev.state = "done"; ev.next_wave_at = 0; ev.rising_live = 0; ev.rising_stood = null; saveFirstSeedEvent(ev); return; }
+  if (!ev.rising_live) return; // no rising stands: the spawn pass owns arrivals
+  const wave = ev.waves_cleared + 1;
+
+  // The stood ledger grows by whoever holds the hex now.
+  const stood = firstSeedStoodIds(ev);
+  const onTile = await db.select({ awakenedId: schema.fieldPlacements.awakenedId }).from(schema.fieldPlacements)
+    .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.tileId, seed.tile_id)));
+  let grew = false;
+  for (const r of onTile) if (!stood.has(r.awakenedId)) { stood.add(r.awakenedId); grew = true; }
+  if (grew) { ev.rising_stood = JSON.stringify([...stood]); saveFirstSeedEvent(ev); }
+
+  const fray = firstSeedRisingFray(ownerKey, wave);
+  if (!fray.length) {
+    const prow = sqlite.prepare("SELECT lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (prow && Number(prow.lit) === 1) {
+      ev.rising_live = 0;
+      ev.rising_stood = null;
+      ev.next_wave_at = Date.now() + firstSeedWaveGapMs(ev.waves_cleared);
+      saveFirstSeedEvent(ev);
+      return;
+    }
+    await settleFirstSeedLadder(ownerKey, ev, seed, wave);
+    return;
+  }
+
+  const seedTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seed.tile_id) as { q: number; r: number } | undefined;
+  if (!seedTile) return;
+  const ring = new Set<string>([`${seedTile.q},${seedTile.r}`]);
+  for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) ring.add(`${seedTile.q + dq},${seedTile.r + dr}`);
+  const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const tileById = new Map(tiles.map(t => [t.id, t]));
+  const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const defended = placements.some(p => { const t = tileById.get(p.tileId); return !!t && ring.has(`${t.q},${t.r}`); });
+  if (defended) return;
+  const frayHolds = fray.some(w => {
+    if (w.pos_q != null && w.pos_r != null) {
+      const cell = axialRound(Number(w.pos_q), Number(w.pos_r));
+      return ring.has(`${cell.q},${cell.r}`);
+    }
+    const t = tileById.get(w.tile_id);
+    return !!t && ring.has(`${t.q},${t.r}`);
+  });
+  if (!frayHolds) return;
+
+  // THE DEFENSE FALLS: the run ends. The defense is paid
+  // for standing, as the old referee paid it at a fallen
+  // wave's resolution; the rising's remaining Fray
+  // withdraw with the run — they were the event's own,
+  // and the seed waits whole, exactly as it waited when
+  // the old referee's wave ceased at its resolution.
+  // Banked ground is never clawed back — the ladder
+  // rolls back only to the banked level's rung.
+  await payFirstSeedStood(ownerKey, ev);
+  sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ? AND seed_rising = ?").run(ownerKey, wave);
+  ev.state = "waiting";
+  ev.next_wave_at = 0;
+  ev.rising_live = 0;
+  ev.rising_stood = null;
+  ev.waves_cleared = ev.banked ? Number(seed.level ?? 1) * 3 : 0;
+  saveFirstSeedEvent(ev);
+}
+
+/** THE RISING LANDS (the risings ride the engine,
+ *  2026-10-24): when a territory read finds the hold
+ *  underway, no rising standing, and the next rising's
+ *  hour come, the rising takes the land HERE — at the
+ *  read's end, after every settle has had its say — as
+ *  real wanderers on and around the seed's hex, in the
+ *  Fray's own canon body (HOMELAND_DARK_HP / _POWER, the
+ *  body the old referee read from the game's enemy
+ *  config), each carrying its rising's number. Three
+ *  guards keep the old lazy referee's promise in the
+ *  living world:
+ *   · ON PRESENCE ONLY: nothing spawns off a territory
+ *     read, and this read's own response serves the new
+ *     Fray standing whole at the seed — an arrival is
+ *     always witnessed by the read that births it, and
+ *     the fight begins with the NEXT read's window. No
+ *     rising ever falls on a company unseen.
+ *   · ONE AT A TIME: a rising still standing bars the
+ *     next, however late it runs — risings never stack,
+ *     and the ladder's clock is always set from a
+ *     clearing, as it was set from a resolution.
+ *   · THE LIGHT HOLDS SPAWNING SHUT: while the lighthouse
+ *     burns, all spawning is shut (settleProtection's
+ *     law), and the seed's risings wait with the dark. */
+async function spawnFirstSeedRising(ownerKey: string, tiles: any[]): Promise<void> {
+  const ev = firstSeedEventRow(ownerKey);
+  if (!ev || ev.state !== "holding" || ev.rising_live || !ev.next_wave_at) return;
   if (Date.now() < ev.next_wave_at) return;
-  await resolveFirstSeedWave(ownerKey, ev);
+  const prow = sqlite.prepare("SELECT lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  if (prow && Number(prow.lit) === 1) return;
+  const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
+  if (!seed) return;
+  const byId = new Map((tiles as any[]).map(t => [t.id, t]));
+  const byQR = new Map((tiles as any[]).map(t => [`${t.q},${t.r}`, t]));
+  const seedTile = byId.get(seed.tile_id);
+  if (!seedTile) return;
+  const wave = ev.waves_cleared + 1;
+  const hosts = [seedTile,
+    ...[[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].map(([dq, dr]) => byQR.get(`${seedTile.q + dq},${seedTile.r + dr}`)),
+  ].filter(Boolean) as any[];
+  if (!hosts.length) return;
+  // Standing points within a host hex, cycled so the
+  // rising spreads over the ground it holds instead of
+  // stacking on one point — the columns' landing spread.
+  const SPREAD: [number, number][] = [[0, 0], [0.32, 0], [0, 0.32], [-0.32, 0.16], [0.16, -0.32], [-0.32, -0.16], [0.32, 0.32], [-0.16, 0.32]];
+  const now = Date.now();
+  const ins = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, seed_rising) VALUES (?, ?, 'fray', ?, ?, ?, ?, ?, 1, ?)");
+  for (let i = 0; i < wave; i++) {
+    const host = hosts[i % hosts.length];
+    const [oq, orr] = SPREAD[Math.floor(i / hosts.length) % SPREAD.length];
+    ins.run(ownerKey, host.id, now, HOMELAND_DARK_HP.fray, host.q + oq, host.r + orr, HOMELAND_DARK_POWER.fray, wave);
+  }
+  ev.rising_live = 1;
+  ev.rising_stood = null;
+  ev.next_wave_at = 0;
+  saveFirstSeedEvent(ev);
 }
 
 // Energy helpers: server-authoritative energy per tender.
@@ -4019,6 +4132,20 @@ async function settleProtection(ownerKey: string): Promise<void> {
       // THE PUSHBACK: while the light burns, the standing
       // waves are driven off the land — they flee; nothing
       // is killed and nothing is paid.
+      // First the seed's rising, if one stands: its Fray
+      // are driven off with all the standing dark, and a
+      // driven-off rising is neither won nor lost (the
+      // risings ride the engine, 2026-10-24) — lift its
+      // standing mark here, before the pushback takes the
+      // rows, and set its return by its own gap, so the
+      // hold's judgement never reads the flight as a
+      // clearing. Nothing is paid; the seed simply waits
+      // for its rising to come again.
+      const fledEv = sqlite.prepare("SELECT waves_cleared FROM first_seed_events WHERE owner_key = ? AND state = 'holding' AND rising_live = 1").get(ownerKey) as any;
+      if (fledEv) {
+        sqlite.prepare("UPDATE first_seed_events SET rising_live = 0, rising_stood = NULL, next_wave_at = ? WHERE owner_key = ?")
+          .run(Date.now() + firstSeedWaveGapMs(Number(fledEv.waves_cleared ?? 0)), ownerKey);
+      }
       sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(ownerKey);
       intensity = 1; mark = reigns;
     }
@@ -4088,8 +4215,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     pinnedBeats: number; chewTileId: number | null; chewProgress: number; brambleCarry: number; dead: boolean; killer: number | null;
     /** The Hold Rune's grip: held until this moment (0 = free). */
     heldUntil: number;
+    /** The first-seed rising this Fray rode in with (0 =
+     *  the open land's own dark): its fells pay the hold's
+     *  numbers, not the land's bounty (fellDark, below). */
+    seedRising: number;
   };
-  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress, held_until AS heldUntil FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
+  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress, held_until AS heldUntil, seed_rising AS seedRising FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
     const t = byId.get(w.tileId);
     const kind = String(w.kind ?? "fray");
     const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
@@ -4103,6 +4234,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       chewTileId: w.chewTileId == null ? null : Number(w.chewTileId), chewProgress: Number(w.chewProgress) || 0,
       brambleCarry: 0, dead: false, killer: null,
       heldUntil: Number(w.heldUntil) || 0,
+      seedRising: Number(w.seedRising) || 0,
     };
   });
   type Fighter = {
@@ -4254,6 +4386,34 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   const fellDark = async (d: Dark): Promise<void> => {
     if (d.dead) return;
     d.dead = true;
+    // THE RISING'S FELL PAY (the risings ride the engine,
+    // 2026-10-24): a Fray of the first seed's rising pays
+    // the HOLD'S numbers, not the open land's bounty —
+    // +3✦ to its Tender, capped, for the fell (the old
+    // referee's arithmetic, made per fell here); +2 XP to
+    // the slayer whose blow felled it, where a slayer
+    // stands in the record; and the fell drizzle, lit at
+    // random as the hold's Fray always lit (payFellDrip
+    // with no ground named). No protection banks and no
+    // Shadow rolls on the seed's ground: the hold's
+    // skeleton of numbers stands untouched, and
+    // creditBattleKill below remains the open land's law.
+    if (d.seedRising > 0) {
+      const maxEnergy = await calculateMaxEnergy(ownerKey);
+      const current = await getEnergyFor(ownerKey);
+      const next = Math.min(current + 3, maxEnergy);
+      if (next !== current) {
+        await db.update(schema.tenderResources)
+          .set({ energy: next, updatedAt: new Date() })
+          .where(eq(schema.tenderResources.ownerKey, ownerKey));
+      }
+      await payFellDrip(ownerKey);
+      if (d.killer != null) {
+        const scratch = new Map<number, XpGainReport>();
+        await grantEventXp(scratch, d.killer, 2);
+      }
+      return;
+    }
     const t = byId.get(d.tileId);
     await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer);
   };
@@ -4528,7 +4688,13 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
               victim.row.hp = victim.hp; victim.row.shield = victim.shield; victim.row.shieldMax = victim.shieldMax;
               const res = await damagePlacementShielded(victim.row as any, dmg);
               victim.hp = res.hp; victim.shield = res.shield; victim.shieldMax = victim.row.shieldMax == null ? victim.shieldMax : Number(victim.row.shieldMax);
-              if (!xpDefensePaid.has(victim.id)) { xpDefensePaid.add(victim.id); const scratch = new Map<number, XpGainReport>(); await grantEventXp(scratch, victim.awakenedId, XP_PER_DEFENSE); }
+              // The rising's blows are the hold's to reckon
+              // (2026-10-24): a victim of a seed Fray is paid
+              // her defense by the hold's own stood ledger at
+              // the rising's end (payFirstSeedStood) — the +10
+              // lands once, as the old referee paid it — so the
+              // battle's struck-pay does not ride on them here.
+              if (!d.seedRising && !xpDefensePaid.has(victim.id)) { xpDefensePaid.add(victim.id); const scratch = new Map<number, XpGainReport>(); await grantEventXp(scratch, victim.awakenedId, XP_PER_DEFENSE); }
               if (res.dissipated) { victim.dead = true; const wk = works.find(w => w.placementId === victim.id); if (wk) wk.gone = true; }
               // THORNS: a Root Awokin answers a landed blow —
               // 1 + her Root aspects, no roll on the answer.
@@ -4637,6 +4803,21 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (roll === 20) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
       }
       if (f.dominant === "sky" && tNow < target.wetUntil) raw += 2; // Sky strikes land +2 on the wet
+      // THE STANDARD AND THE BEACON, SPENT IN THE LIVING
+      // BATTLE (the risings ride the engine, 2026-10-24):
+      // the homeland's reader (homelandBannerBonus — the
+      // Table's strikeOnce reading in this ground's tongue)
+      // lends both numbers flat into the blow's raw harm,
+      // judged strike by strike: the Standard by the ground
+      // the striker stands on, the Beacon by the ground the
+      // dark stands on. Until this build the reading's only
+      // homeland spender was the first-seed hold's retired
+      // referee; the living battle is where the homeland
+      // reckons its company striking now, and the reading
+      // rides with the referee — for the seed's risings and
+      // for every fight on the land, as at the Table.
+      const banner = homelandBannerBonus(ownerKey, axialRound(f.q, f.r), axialRound(target.q, target.r));
+      raw += banner.std + banner.bcn;
       const dmg = homelandFateMitigate(raw, targetAC, f.level);
       await hurtDark(target, dmg, f.awakenedId);
       // THE STRIKE WITNESS (the Token Strip, above): the blow
@@ -7881,8 +8062,13 @@ export const handlers = {
     // each fell pays the drip (payFellDrip) once the striking
     // is done, in the ground's own element where it holds one.
     const fellTiles: number[] = [];
+    // Fells of the first seed's rising, counted apart: they
+    // pay the hold's +3✦ below (the risings ride the engine,
+    // 2026-10-24), as the battle's fell path pays it for the
+    // company's blows.
+    let seedFells = 0;
     while (nextAt <= now && strikes < 40) {
-      const foes = (sqlite.prepare("SELECT id, tile_id AS tileId, hp FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null }[])
+      const foes = (sqlite.prepare("SELECT id, tile_id AS tileId, hp, seed_rising AS seedRising FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as { id: number; tileId: number; hp: number | null; seedRising: number | null }[])
         .map(w => ({ ...w, tile: tiles.find((t: any) => t.id === w.tileId), hpNow: w.hp == null ? HOMELAND_FRAY_HP : Number(w.hp) }))
         .filter(w => w.tile && hexDist(stand, w.tile) <= range)
         .sort((a, b) => hexDist(stand, a.tile) - hexDist(stand, b.tile) || a.id - b.id);
@@ -7898,6 +8084,7 @@ export const handlers = {
           foe.hpNow -= dmg;
         }
         const felled = hit && foe.hpNow <= 0;
+        if (felled && foe.seedRising) seedFells++;
         if (felled) sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(foe.id);
         else if (hit) sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(foe.hpNow, foe.id);
         return { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled };
@@ -7913,6 +8100,24 @@ export const handlers = {
       nextAt += cooldown;
       strikes++;
       dirty = true;
+    }
+    // THE RISING'S FELL PAY AT THE WEAPON (2026-10-24): a
+    // Fray of the first seed's rising felled by the Tender's
+    // own weapon pays the hold's +3✦, capped, as any of the
+    // rising's fells pays it on the battle's fell path. The
+    // weapon referee's standing bypass of the open land's
+    // bounty is NOT disturbed: no protection banks, no
+    // Shadow rolls, and no slayer's XP — the slayer here is
+    // the Tender himself.
+    if (seedFells > 0) {
+      const maxEnergy = await calculateMaxEnergy(ownerKey);
+      const current = await getEnergyFor(ownerKey);
+      const next = Math.min(current + 3 * seedFells, maxEnergy);
+      if (next !== current) {
+        await db.update(schema.tenderResources)
+          .set({ energy: next, updatedAt: new Date() })
+          .where(eq(schema.tenderResources.ownerKey, ownerKey));
+      }
     }
     // THE FELL DRIP: a wanderer the weapon beat pays as any
     // beaten creature pays (Nigel, 2026-10-20) — the element
@@ -8055,6 +8260,14 @@ export const handlers = {
       // The Springleaf's groves mend on this same read, after
       // the fighting has had its say (Homeland Casting).
       await settleHomelandGroves(ownerKey, tiles as any[]);
+      // THE RISING LANDS (the risings ride the engine,
+      // 2026-10-24): the first seed's next rising, if its
+      // hour has come, takes the land at the read's end —
+      // after the living battle above has settled, so the
+      // new Fray stand whole in this very response (the
+      // fresh views below are read after this pass) and
+      // their fight begins with the next read's window.
+      await spawnFirstSeedRising(ownerKey, tiles as any[]);
       wandererViews = (sqlite.prepare("SELECT id, tile_id AS tileId, kind, pos_q AS posQ, pos_r AS posR, hp, lvl FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
         .map(w => {
           const t = (tiles as any[]).find((x: any) => x.id === w.tileId);
@@ -11021,6 +11234,15 @@ export const handlers = {
     if (!ev) badRequest("No starseed waits on your land.");
     if (ev!.state !== "holding") badRequest("No hold is underway.");
     const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev!.seed_id, ownerKey) as any;
+    // A rising standing on the land withdraws with the
+    // run (the risings ride the engine, 2026-10-24): its
+    // Fray are the event's own, and they do not outstay
+    // the hold that called them.
+    if (ev!.rising_live) {
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ? AND seed_rising = ?").run(ownerKey, ev!.waves_cleared + 1);
+      ev!.rising_live = 0;
+      ev!.rising_stood = null;
+    }
     ev!.state = "waiting";
     ev!.next_wave_at = 0;
     ev!.waves_cleared = ev!.banked ? Number(seed?.level ?? 1) * 3 : 0;
