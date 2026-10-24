@@ -3883,6 +3883,33 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
                     )}
+                    {/* THE CLICKED AWOKEN'S HEALTH AND LEVEL (Nigel,
+                        2026-10-24, from his first play: "i cant
+                        actually see their health anywhere… just add
+                        their hp below when they are clicked lvl
+                        too"). While this Awoken stands chosen — the
+                        click that opens its orders wheel, or a
+                        band-chosen company's member — a small
+                        readout stands BELOW its feet: its level and
+                        its health. Health reads as the engine
+                        keeps it: the standing shield pool first
+                        (it burns before HP) when one stands, then
+                        HP against toughness; a placement never yet
+                        reckoned by the battle is whole at its
+                        toughness. Not a card, not a panel — the
+                        fuller profile card is its own queued build. */}
+                    {(isSelected || selectedGroup.includes(a.id)) && placement && (() => {
+                      const hpNow = placement.hp ?? a.toughness ?? 0;
+                      const hpMax = a.toughness ?? hpNow;
+                      const shieldNow = (placement as any).shield;
+                      const words = `${shieldNow != null && Number(shieldNow) > 0 ? `Shield ${Math.ceil(Number(shieldNow))} · ` : ""}HP ${Math.ceil(hpNow)}/${Math.ceil(hpMax)} · Lv ${awLevel}`;
+                      return (
+                        <text x={kx} y={ky + baseAhs / 2 + 11 / zoom} textAnchor="middle" fontSize={7.5 / zoom} fontWeight={700}
+                          fill="#ffe9b0" style={{ paintOrder: "stroke", stroke: "rgba(10,4,16,0.92)", strokeWidth: 3 / zoom, letterSpacing: "0.03em" }}>
+                          {words}
+                        </text>
+                      );
+                    })()}
                     {/* The per-Awoken attunement countdown stood here
                         until 2026-10-15 — retired with the ghost it
                         counted toward (see getAttuneRemaining's note). */}
