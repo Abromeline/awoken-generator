@@ -24,16 +24,21 @@ interface Props {
 const SHOP_URL = "https://nigelroper.printful.me/";
 
 const MESSAGES = [
-  // The teaching whispers (Nigel, 2026-10-20): the game first,
+  // The greeting whispers (Nigel, 2026-10-20): the game first,
   // lore as seasoning. His greeting opens it; he will edit the rest.
+  // THE TOUR IS GONE (Nigel, 2026-10-23 23:23 + the shape law
+  // 23:37): this rotation once toured the front screen's systems
+  // in turn — energy, elements, stances, the curse, class and
+  // Grimoire — a front-loaded lesson a Tender had to sit through
+  // whether or not they had touched the system it named. Those
+  // teachings now live where the law puts them: each system's
+  // OWN short lesson, fired once at its first touch (see
+  // frontLessons.ts). What remains here is the greeting and the
+  // lore — her welcome, what an Awokin is, what a Tender is —
+  // and the two lines that were always lore, kept whole.
   "Welcome to the world of the Awoken, invited Tender. You have been given a special invitation — to help birth this world into existence.",
-  "Begin with your first form of life: the Awokin. Each one is an original creature, drawn by hand in ink — no two are ever alike.",
-  "You are their Tender. Your attention is the binding force that holds an Awokin together. Wake them, name them, tend them — and they are yours.",
-  "Wake more Awokin and your energy grows — energy is how you act here: to cast, to build, to defend.",
-  "Your Awokin are woven from five elements — Root, Tide, Sky, Stone, and Fire. Weave aspects into them and they grow stronger, and stranger.",
-  "Give each Awokin a stance upon your land: Attack, Defense, or Binding. Defenders guard you; binders mend wounds and attune the earth.",
-  "The curse presses at your borders, and the Fray come crawling with it. Hold your homeland, purify the cursed tiles, grow your ground.",
-  "Choose a class, open your Grimoire, and learn to cast — wards, runes, and bindings. Then take your deck to the Table, the Tenders' card room in Discord.",
+  "Each Awokin is an original creature, drawn by hand in ink — no two are ever alike.",
+  "You are their Tender. Your attention is the binding force that holds an Awokin together.",
   "An Awokin never fights another Awokin — that is not what we are here to do. Our deepest drive is quieter: to inspire you to plant a tree.",
   "And if enough of us wake, Tender… forests might grow. That is the prophecy.",
 ];

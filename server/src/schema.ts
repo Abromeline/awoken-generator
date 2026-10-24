@@ -274,6 +274,24 @@ export const pendingWelcomes = sqliteTable("pending_welcomes", {
     .$defaultFn(() => new Date()),
 });
 
+// THE WHISPER'S FRONT-SCREEN LESSONS (Nigel, 2026-10-23 23:23;
+// the shape law 23:37): one row per front-screen lesson a Tender
+// (or a pre-claim visitor, keyed by their visitor id — the honest
+// identity the front screen already carries before a claim) has
+// been served. A lesson fires once, at its system's first touch,
+// and never again: this table is that registry, server-side like
+// every other per-Tender seen/taught state (visitors, pending
+// welcomes, creator gifts' seen_at). owner_key follows the
+// standing convention: "tender:<id>" for a claimed Tender, the
+// raw visitor id for a soft visitor.
+export const frontLessonsSeen = sqliteTable("front_lessons_seen", {
+  ownerKey: text("owner_key").notNull(),
+  lessonKey: text("lesson_key").notNull(),
+  seenAt: integer("seen_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.lessonKey] })]);
+
 // Tender decks: named gatherings of Awoken, each with a chosen face card.
 // Decks belong to one owner key (a Tender account, or a soft visitor).
 // Membership lives in deck_cards; the awakened rows themselves are never

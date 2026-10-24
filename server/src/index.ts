@@ -8,6 +8,7 @@ import {
   claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
 } from "./welcome.js";
 import { tenderFromToken, tenderOwnerKey, tenderTokenFromHeader } from "./tenders.js";
+import { getFrontLessonsSeen, markFrontLessonSeen } from "./frontLessons.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
 import { registerTableRoutes, registerTableSocket, tableDoorMode } from "./table.js";
@@ -152,6 +153,35 @@ app.post("/api/welcome/reconstitute", async (req, res) => {
 });
 app.post("/api/welcome/free-wake", async (req, res) => {
   try { const id = await needWelcomeIdentity(req); res.json(await claimFreeWake(id.ownerKey, id.ownerName, req.body ?? {})); }
+  catch (error) { sendError(res, error); }
+});
+
+// The whisper's front-screen lessons (Nigel, 2026-10-23 23:23;
+// shape law 23:37): the first-touch registry. Unlike the welcome
+// ritual, this door serves the UNCLAIMED too — the claim lesson
+// fires for them — so identity is the front screen's own: a
+// Tender token keys "tender:<id>" (the standing owner key); the
+// browser visitor id the client already sends keys a visitor.
+// Both keys ride every read (union), so a lesson served before
+// the claim stays served after it; a mark lands on the primary
+// key — the Tender's when claimed, the visitor's before.
+async function frontLessonKeys(req: express.Request): Promise<string[]> {
+  const keys: string[] = [];
+  const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+  if (tender) keys.push(tenderOwnerKey(tender.id));
+  const visitorId = visitorIdFromHeader(req.headers["x-visitor-id"]);
+  if (visitorId && !keys.includes(visitorId)) keys.push(visitorId);
+  if (!keys.length) {
+    throw Object.assign(new Error("No visitor mark and no Tender — the whisper has no one to remember."), { status: 403 });
+  }
+  return keys;
+}
+app.get("/api/front-lessons", async (req, res) => {
+  try { res.json(await getFrontLessonsSeen(await frontLessonKeys(req))); }
+  catch (error) { sendError(res, error); }
+});
+app.post("/api/front-lessons/seen", async (req, res) => {
+  try { res.json(await markFrontLessonSeen(await frontLessonKeys(req), req.body ?? {})); }
   catch (error) { sendError(res, error); }
 });
 

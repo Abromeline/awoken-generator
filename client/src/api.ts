@@ -957,6 +957,12 @@ export const api = {
   createCheckoutSession: () => postPath<{ url: string }>("/api/stripe/checkout", {}),
   createPortalSession: () => postPath<{ url: string }>("/api/stripe/portal", {}),
   getWelcome: () => postPath<WelcomeStatus>("/api/welcome"),
+  // The whisper's front-screen lesson registry (Nigel, 2026-10-23
+  // 23:23; shape law 23:37): which first-touch lessons this Tender
+  // (or pre-claim visitor) has already been served.
+  getFrontLessons: () => postPath<{ seen: string[] }>("/api/front-lessons"),
+  markFrontLesson: (args: { lessonKey: string }) =>
+    postPath<{ seen: string[] }>("/api/front-lessons/seen", args),
   seedWelcome: (args: { layers: LayerRef[]; imageBase64: string }) =>
     postPath<{ awakened: Awakened | null; respinsUsed: number; respinsRemaining: number }>("/api/welcome/seed", args),
   claimWelcome: (args: { slot: "welcome" | "free" }) =>

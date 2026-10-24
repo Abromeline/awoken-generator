@@ -943,6 +943,16 @@ body.defeat-flash {
   0% { opacity: 0; transform: translateY(40px); }
   100% { opacity: 1; transform: translateY(0); }
 }
+/* The whisper's front-screen lessons (Nigel, 2026-10-23 23:23;
+   shape law 23:37): her bubble again, seated below her standing
+   seat at the left margin — a guest with no guide yet meets the
+   bubble in the same column. It speaks alongside the touched
+   system; it covers no button the system needs. */
+.front-whisper { top: 356px; }
+.front-whisper-bubble { top: 0; }
+@media (max-width: 768px) {
+  .front-whisper { top: 300px; }
+}
 @keyframes bubble-pop {
   0% { opacity: 0; transform: scale(0.8); }
   100% { opacity: 1; transform: scale(1); }

@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS pending_welcomes (
   respins_used INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS front_lessons_seen (
+  owner_key TEXT NOT NULL,
+  lesson_key TEXT NOT NULL,
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_key, lesson_key)
+);
 CREATE TABLE IF NOT EXISTS tenders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,
