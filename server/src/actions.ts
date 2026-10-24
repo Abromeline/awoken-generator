@@ -3887,9 +3887,33 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
  *    form; strike interval = 2800ms x 5/(speed+4), the
  *    Table's own cadence made homeland law.
  *  · Awoken strike cadence by dominant element — the Proving
- *    Ground's attack-speed table (Stone 1750 · Root 1500 ·
- *    Tide 1250 · Sky 1000; Fire unranked there and stands at
- *    the Root anchor 1500, FLAGGED), taxed by crowding.
+ *    Ground's attack-speed table, RE-BASED by Nigel
+ *    (2026-10-24: "make base 3 seconds — for awoken"): the
+ *    table DOUBLES (Stone 3500 · Root 3000 · Tide 2500 ·
+ *    Sky 2000), the 4:5:6:7 spread preserved with its
+ *    middle on the ruled 3-second base; Fire unranked there
+ *    and stands at the Root anchor 3000, FLAGGED. Her SPEED
+ *    BONUS (Nigel, 2026-10-24): each level above 1 trims her
+ *    interval by 0.5% (x (1 - 0.005 x (level - 1)) — a
+ *    level-20 fighter strikes at 0.905 of her table); the
+ *    trim rides her cadence and the crowding tax multiplies
+ *    the trimmed interval, as it taxed the plain one.
+ *  · WATCHTOWERS IN THE FIGHT (Nigel, 2026-10-24: "towers
+ *    fire once every 8 seconds"): an ACTIVE watchtower (its
+ *    upkeep paid, not dormant) fights in this settlement —
+ *    its documented +2 power stands in the strike reckoning
+ *    of every Awoken on or beside its tile (the footprint
+ *    the heal paths already keep), and every 8 seconds of
+ *    settled battle time it looses its configured damage
+ *    (3) at the nearest dark standing on or beside its
+ *    tile. The 8-second beat is spent whether or not a foe
+ *    stands in its guard, as the weapon referee's cadence
+ *    is spent with no prey. Towers have no level and take
+ *    no trim. A volley fell pays through fellDark as any
+ *    unattributed engine fell pays (the thorn's, the
+ *    bramble's): protection banks, the drip and the Shadow
+ *    roll ride creditBattleKill; no slayer stands in the
+ *    record, so no attack XP is paid.
  *  · Awoken reach: HOMELAND_ELEMENT_REACH (the grimoire's own
  *    "elemental reaches for the company": stone 1, root 2,
  *    fire 2, tide 3, sky 4). Enemy bite reach: 1.35 axial —
@@ -3937,7 +3961,16 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
 export const HOMELAND_DARK_HP: Record<string, number> = { fray: 3, hollow: 4, unraveler: 5, tangle: 7 };
 export const HOMELAND_DARK_POWER: Record<string, number> = { fray: 1, hollow: 1, unraveler: 2, tangle: 2 };
 export const HOMELAND_DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
-export const AWOKEN_STRIKE_MS: Record<string, number> = { sky: 1000, tide: 1250, root: 1500, stone: 1750, fire: 1500, neutral: 1500 };
+export const AWOKEN_STRIKE_MS: Record<string, number> = { sky: 2000, tide: 2500, root: 3000, stone: 3500, fire: 3000, neutral: 3000 };
+/** THE WATCHTOWER'S VOLLEY BEAT (Nigel, 2026-10-24):
+ *  one volley every 8 seconds of settled battle time. */
+export const TOWER_VOLLEY_MS = 8000;
+/** The per-tower volley clocks, carried across settles in
+ *  memory as the strike witness is carried: milliseconds of
+ *  settled battle time each tower has banked toward its
+ *  next volley, keyed owner:building. A restart starts the
+ *  clocks empty, exactly as an unwitnessed blow is lost. */
+const towerVolleyCarry = new Map<string, number>();
 const BATTLE_BEAT_MS = 2800;
 const ENEMY_BITE_REACH = 1.35;
 const ENEMY_BASE_SEC_PER_HEX = 6; // twice the neutral march — the "slower than Awoken" law
@@ -4282,6 +4315,9 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   type Fighter = {
     row: any; id: number; awakenedId: number; tileId: number; q: number; r: number;
     stance: string; power: number; toughness: number; level: number; dominant: string;
+    /** Standing on or beside an ACTIVE watchtower's tile:
+     *  her strikes carry the tower's +2 power (below). */
+    towerGuard: boolean;
     elSum: Record<string, number>; rootAspects: number; partCount: number; hp: number; maxHp: number; shield: number | null; shieldMax: number | null;
     nextAt: number; marching: boolean; dead: boolean;
   };
@@ -4310,6 +4346,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       row: p, id: Number(p.id), awakenedId: Number(p.awakenedId), tileId: Number(p.tileId),
       q: p.posQ == null ? (t?.q ?? 0) : Number(p.posQ), r: p.posR == null ? (t?.r ?? 0) : Number(p.posR),
       stance: p.stanceOrdered ? String(p.stance ?? "defense") : "attack", // NO ORDERS DEFAULTS TO ATTACK (Nigel, 2026-10-23)
+      towerGuard: false, // stamped once the towers are loaded, below
       power: payload.power ?? 0, toughness: payload.toughness ?? 1,
       level: Math.max(1, awokenLevelOf(Number(awRow?.experience ?? 0))),
       dominant: homelandPlacementElement(layers as any[]), elSum, rootAspects, partCount: Math.max(1, layers.length),
@@ -4363,6 +4400,32 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     const bite = Number(cfg?.buildings?.["thorn-wall"]?.damage ?? 1) || 1;
     for (const b of sqlite.prepare("SELECT tile_id AS tileId FROM territory_buildings WHERE owner_key = ? AND building_type = 'thorn-wall' AND status = 'active'").all(ownerKey) as any[]) {
       thornWallBites.set(Number(b.tileId), bite);
+    }
+  }
+  // ── THE WATCHTOWERS TAKE THE FIELD (Nigel, 2026-10-24) ──
+  // An ACTIVE watchtower (its row stands 'active' — the
+  // upkeep paid, not dormant) fights in this battle: its
+  // +2 power in the strike reckoning of the Awoken standing
+  // on or beside its tile (the footprint the heal paths
+  // already keep — hexDist of tiles <= 1), and its 8-second
+  // volley in the step loop below. Its numbers are the
+  // configured ones (building.watchtower.damage / .powerBonus).
+  type Tower = { id: number; tileId: number; q: number; r: number };
+  const towers: Tower[] = [];
+  let towerDamage = 3, towerPowerBonus = 2;
+  {
+    const cfg = await loadGameConfig().catch(() => null) as any;
+    towerDamage = Number(cfg?.buildings?.["watchtower"]?.damage ?? 3) || 3;
+    towerPowerBonus = Number(cfg?.buildings?.["watchtower"]?.powerBonus ?? 2) || 2;
+    for (const b of sqlite.prepare("SELECT id, tile_id AS tileId FROM territory_buildings WHERE owner_key = ? AND building_type = 'watchtower' AND status = 'active'").all(ownerKey) as any[]) {
+      const t = byId.get(Number(b.tileId));
+      if (t) towers.push({ id: Number(b.id), tileId: Number(b.tileId), q: t.q, r: t.r });
+    }
+  }
+  if (towers.length) {
+    for (const f of fighters) {
+      const fTile = byId.get(f.tileId);
+      if (fTile) f.towerGuard = towers.some(t => hexDistTiles(fTile, t) <= 1);
     }
   }
   // Defence works: raised by Root and Stone defenders.
@@ -4605,6 +4668,34 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     // R5): a Shard whose measure is met falls in this
     // step, and what it fells strikes no more.
     await springShardsInBattle();
+    // ── THE WATCHTOWERS VOLLEY (Nigel, 2026-10-24) ──────
+    // Each tower banks this step's battle time toward its
+    // 8-second beat; a full beat looses the tower's damage
+    // at the NEAREST dark standing on or beside its tile
+    // (the dark's own standing cell within one hex of the
+    // tower's heart). The beat is spent whether or not a
+    // foe stands in the guard — an empty beat is not
+    // banked, as the weapon referee's cadence is spent
+    // with no prey. The fell, when it comes, pays through
+    // hurtDark/fellDark with no slayer in the record.
+    if (towers.length) {
+      for (const t of towers) {
+        const key = `${ownerKey}:${t.id}`;
+        let carry = (towerVolleyCarry.get(key) ?? 0) + dt * 1000;
+        while (carry >= TOWER_VOLLEY_MS) {
+          carry -= TOWER_VOLLEY_MS;
+          let prey: Dark | null = null; let preyD = Infinity;
+          for (const d of darks) {
+            if (d.dead) continue;
+            if (axialDist(axialRound(d.q, d.r), t) > 1) continue;
+            const dd = axialDist(d, t);
+            if (dd < preyD) { preyD = dd; prey = d; }
+          }
+          if (prey) await hurtDark(prey, towerDamage, null);
+        }
+        towerVolleyCarry.set(key, carry);
+      }
+    }
     // ── THE DARK STRIKES ────────────────────────────────
     for (const d of darks) {
       if (d.dead || lit) continue;
@@ -4802,7 +4893,11 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     for (const f of fighters) {
       if (f.dead) continue;
       if ((f.row.pinnedUntil ?? 0) > tNow) continue;
-      const baseMs = AWOKEN_STRIKE_MS[f.dominant] ?? 1500;
+      // Her cadence: the re-based table (Nigel, 2026-10-24),
+      // trimmed by her SPEED BONUS — 0.5% a level above 1 off
+      // the interval — with the crowding tax multiplying the
+      // trimmed measure, as it taxed the plain one before.
+      const baseMs = (AWOKEN_STRIKE_MS[f.dominant] ?? 3000) * (1 - 0.005 * Math.max(0, f.level - 1));
       const interval = baseMs * crowdTax(crowdOf(f.tileId));
       if (f.nextAt === 0) { f.nextAt = tNow + interval; f.row.battleNextAt = f.nextAt; continue; }
       if (tNow < f.nextAt) continue;
@@ -4860,6 +4955,13 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // for every fight on the land, as at the Table.
       const banner = homelandBannerBonus(ownerKey, axialRound(f.q, f.r), axialRound(target.q, target.r));
       raw += banner.std + banner.bcn;
+      // THE WATCHTOWER'S +2 POWER (Nigel, 2026-10-24): she
+      // stands on or beside an active tower, so the tower's
+      // documented bonus stands in her strike — power enters
+      // this reckoning additively (each part's die + its
+      // power, summed into raw), so the +2 stands here in
+      // the raw harm beside the banners' flat lendings.
+      if (f.towerGuard) raw += towerPowerBonus;
       const dmg = homelandFateMitigate(raw, targetAC, f.level);
       await hurtDark(target, dmg, f.awakenedId);
       // THE STRIKE WITNESS (the Token Strip, above): the blow
