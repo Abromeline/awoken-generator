@@ -217,7 +217,7 @@ function marchSecondsPerHexFor(layers: { element?: string | null }[], experience
     pace = layers.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[l.element ?? "neutral"] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / layers.length;
   }
   const level = Math.max(1, awokenLevelOf(experience));
-  return pace * Math.sqrt(Math.pow(1.25, level - 1));
+  return pace * Math.sqrt(Math.pow(1.1875, level - 1));
 }
 /** CURSED GROUND SLOWS THE MARCH (Nigel, 2026-10-20): a step
  *  whose destination tile is cursed takes TWICE as long —
@@ -2514,15 +2514,25 @@ async function getConceivedTwin(sessionId: number) {
   return rows[0] ?? null;
 }
 
-// Experience, exponential (re-curved 2026-10-13, Nigel): the base constant
-// dropped 100 → 20 so the Hall's peaceful path teaches itself — one 10✦
-// feed (20 XP) now takes a fresh Awoken to level 1, while battles (60 XP)
-// remain the faster road. Thresholds: L1=20, L2=50, L3=95, L5=264,
-// L10≈2267. Total XP for level L = 20 * (1.5^L - 1) / (1.5 - 1), rounded.
+// Experience, exponential (re-curved 2026-10-13, Nigel; pool raised and
+// curve steepened 2026-10-24, Nigel, from his first play of the cadence
+// engine: "make them gain experience much slower… increase the experience
+// pool and curve" — the living battle pays XP constantly, and under the
+// old measure his Awoken maxed out in minutes). The base constant rises
+// 20 → 60 and the ratio steepens 1.5 → 1.75. Thresholds: L1=60, L2=165,
+// L3=349, L5=1233, L10≈21471 (the old L10 stood at ≈2267 — the pool at
+// the tenth level is now some nine and a half times deeper). A fresh
+// Awoken now needs three 10✦ feeds (60 XP) to reach level 1 by the
+// peaceful road; battles remain the faster road. Levels are DERIVED
+// from stored XP, never stored: no one's XP is touched and no stat
+// points already granted are clawed back — an existing veteran simply
+// reads at the level the deeper curve gives their total (2267 XP read
+// L10 before; it reads L6 now), and grows on from there.
+// Total XP for level L = 60 * (1.75^L - 1) / (1.75 - 1), rounded.
 function xpForLevel(level: number): number {
   if (level <= 0) return 0;
-  // Geometric series: 20 * (1.5^level - 1) / (1.5 - 1)
-  return Math.round(20 * (Math.pow(1.5, level) - 1) / 0.5);
+  // Geometric series: 60 * (1.75^level - 1) / (1.75 - 1)
+  return Math.round(60 * (Math.pow(1.75, level) - 1) / 0.75);
 }
 function levelForXp(xp: number): number {
   let level = 0;

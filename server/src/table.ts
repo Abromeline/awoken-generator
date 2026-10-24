@@ -655,7 +655,7 @@ function marchSecondsPerHexFor(card: TableCard): number {
     pace = parts.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[l.element ?? "neutral"] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / parts.length;
   }
   const level = Math.max(1, card.level ?? 1);
-  return pace * Math.sqrt(Math.pow(1.25, level - 1));
+  return pace * Math.sqrt(Math.pow(1.1875, level - 1));
 }
 /** THE DARK's gaits (seconds per hex on its advance): the
  *  Fray skitters, the Hollow drifts, the Tangle creeps, the
