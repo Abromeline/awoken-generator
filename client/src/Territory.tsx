@@ -54,7 +54,7 @@ import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
-import Tutorial, { tutorialComplete } from "./Tutorial";
+import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
 import tideImg from "./assets/terrain-iso/tide-v3.png";
 import skyImg from "./assets/terrain-iso/sky-v3.png";
 import stoneImg from "./assets/terrain-iso/stone-v3.png";
@@ -365,10 +365,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [selectedBuilding, setSelectedBuilding] = useState<any>(null);
   const [showBuildingMenu, setShowBuildingMenu] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
-  const [tutorialStep, setTutorialStep] = useState(0);
-  const [tutorialDone, setTutorialDone] = useState(() => localStorage.getItem("awoken-tutorial-done") === "1");
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [objectivesMet, setObjectivesMet] = useState(false);
+  // THE HOMELAND'S LESSONS (the tutorial redo, Nigel
+  // 2026-10-23 23:23 + 23:33 + the shape law 23:37): the old
+  // twelve-step walkthrough card that stood here — auto-shown
+  // over a new Tender's first map, re-openable from a "?" —
+  // is GONE, whole, with its objectives banner: a walkthrough
+  // dump is exactly what the law kills. In its place, Acorn's
+  // line: nine short lessons (homelandLessons.ts), each fired
+  // ONCE at its system's first touch on this ground, from the
+  // front screen's own first-touch registry, extended. The
+  // hook is called here; the touches stand at their systems
+  // (below, beside the read loop), and the speaking bubble is
+  // seated in the render. A lesson never gates: it speaks
+  // alongside the touch, dismissible, and every system works
+  // read, unread or dismissed.
+  const homeland = useHomelandLessons();
+  const homelandTouchRef = useRef(homeland.touch);
+  homelandTouchRef.current = homeland.touch;
   const [buildings, setBuildings] = useState<any[]>([]);
 
   const [gameConfig, setGameConfig] = useState<any>(null);
@@ -417,14 +430,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
-  // Check tutorial objectives
-  useEffect(() => {
-    if (!tutorialDone && !objectivesMet && tiles.length > 0) {
-      if (tutorialComplete(tiles, buildings)) {
-        setObjectivesMet(true);
-      }
-    }
-  }, [tiles, buildings, tutorialDone, objectivesMet]);
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
   // THE WHEEL'S SUMMON COMPANY (the summoning fix, Nigel
   // 2026-10-22): who the wheel's Awoken branch can call —
@@ -573,6 +578,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const fresh = strikes.filter(s => s.id > strikeIdSeenRef.current);
     if (!fresh.length) return;
     strikeIdSeenRef.current = maxId;
+    // A witnessed blow is the battle's first touch, struck
+    // from the real fight (the tutorial redo, 2026-10-23):
+    // the battle lesson speaks at the first strike flown.
+    homelandTouchRef.current("battle");
     const size = HEX_BASE_SIZE * tenderZoomRef.current;
     const pointOf = (tileId: number, q: number, r: number) => {
       const t = tilesList.find(x => x.id === tileId);
@@ -1451,6 +1460,67 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // setters and refs are the component's own throughout.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── THE HOMELAND LESSONS' TOUCHES (the tutorial redo,
+  // Nigel 2026-10-23 23:23 + 23:33; shape law 23:37) ──────
+  // Each homeland system is touched at its FIRST touch, and
+  // the registry (the front screen's own, extended) keeps
+  // each touch to once per Tender, ever. The touches observe
+  // their systems; they never sit inside them.
+  //
+  // THE FIRST VISIT (23:33): the ground's first loading is
+  // the first visit's door. Three lessons queue in the
+  // visit's own order — the PARTY first (setting the party
+  // is the first thing done on this ground; the first three
+  // stand pre-set by piece 4, and the lesson teaches
+  // CHANGING it at the real controls: while it speaks, the
+  // 🌳 door it names wears the pointing ring in the render,
+  // and the book's Party tab it opens adds and returns
+  // Awokin in the one ledger), then the WAY BACK (the map's
+  // button, which now reads RETURN), then the SAFE HEX (the
+  // ground's first truth, taught at the ground's first
+  // touch).
+  useEffect(() => {
+    if (!territoryLoaded) return;
+    homeland.touch("party");
+    homeland.touch("return");
+    homeland.touch("safehex");
+    // The registry's once-only law makes this arrival queue
+    // fire exactly once per Tender, however often the ground
+    // loads after.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [territoryLoaded]);
+  // THE BATTLE YOU CAN WATCH: the first dark standing on
+  // this ground is the battle system's first touch — the
+  // fight is live from that moment, beat by beat (the strike
+  // witness touches it too, at the first blow flown).
+  useEffect(() => {
+    if (territoryLoaded && wanderers.length > 0) homeland.touch("battle");
+  }, [territoryLoaded, wanderers.length, homeland.touch]);
+  // CASTING BY RANGE: the first readying of a working —
+  // by the wheel, the hotbar or the book, every readying
+  // road lands in castMode + castSpellKey — is the cast's
+  // first touch.
+  useEffect(() => {
+    if (castMode && castSpellKey) homeland.touch("cast");
+  }, [castMode, castSpellKey, homeland.touch]);
+  // ORDERS: the orders wheel's first opening teaches the
+  // wheel that opened — one Awokin's wheel for a single
+  // choosing, the company's wheel for a band of many (the
+  // band's completion in completeBand is the only road that
+  // opens it with many).
+  useEffect(() => {
+    if (!ordersWheel) return;
+    homeland.touch(ordersWheel.ids.length > 1 ? "group" : "orders");
+  }, [ordersWheel, homeland.touch]);
+  // THE WARNING WITH TEETH (23:33): the first step toward
+  // the cursed lands. The server's own reckoning of the
+  // Tender's stand (getTerritory's standCursed, carried in
+  // the summoning view) standing cursed IS that step taken
+  // — the early-entry raise's own ground.
+  useEffect(() => {
+    if (summoning.standCursed) homeland.touch("warning");
+  }, [summoning.standCursed, homeland.touch]);
 
   // ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ──────────────────
   // The map is the UI: a dashed ghost on the void founds the
@@ -5425,6 +5495,10 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
 
   return (
     <div className="territory-view">
+      {/* ACORN'S LINE, SEATED (the tutorial redo, 2026-10-23):
+          the homeland's speaking lesson — one at a time from
+          the queue, dismissible, gating nothing. */}
+      <HomelandWhisper homeland={homeland} />
       {territoryLoaded && firstSeedEv && firstSeedEv.state !== "done" && (() => {
         // The First Seed's hold (Nigel via Wake, 2026-10-17): the
         // event surface that replaced the old "Face the Unraveler"
@@ -5446,8 +5520,16 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= room ? prev : [...prev, id]);
         const waveInSec = ev.state === "holding" && ev.nextWaveAt
           ? Math.max(0, Math.round((ev.nextWaveAt - Date.now()) / 1000)) : null;
+        // THE SEED'S LESSON (the tutorial redo, 2026-10-23):
+        // the hold's first touch (any touch of this section)
+        // teaches the seed's GROUND TRUTH only — the claim at
+        // twenty, the seed as rebuilding heart. The seed's
+        // BATTLE lesson is deliberately NOT taught: the hold's
+        // battle shape stands stopped on a fork awaiting
+        // Nigel's word, and this panel's own standing words
+        // about that shape are the hold's, not a lesson's.
         return (
-          <section className="first-claim first-seed" aria-live="polite">
+          <section className="first-claim first-seed" aria-live="polite" onClick={() => homeland.touch("seed")}>
             <p className="eyebrow">The Last Bastion · The First Seed</p>
             <h2>A starseed lies in the cursed heart of your land.</h2>
             {ev.state === "holding" ? (
@@ -5678,7 +5760,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       )}
       {onOpenZodiac && (
         <button
-          className="aspect-fab tree-fab"
+          className={`aspect-fab tree-fab${homeland.active?.key === "party" ? " lesson-point" : ""}`}
           onClick={onOpenZodiac}
           title="The Skill Zodiac — the tree of skills"
           aria-label="The Skill Zodiac"
@@ -6692,31 +6774,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <svg viewBox="0 0 32 32"><path d="M10 27 V5"/><path d="M10 6 C13.5 4.6 16.5 7 21.5 5.4 V12.4 C16.5 14 13.5 11.4 10 12.8"/><path d="M6 27 H14"/></svg>
       </button>
 
-      {/* Right-side building panel */}
-      {!tutorialDone && !objectivesMet && (
-        <Tutorial onComplete={() => setTutorialDone(true)} />
-      )}
-      {showTutorial && (
-        <Tutorial onComplete={() => setShowTutorial(false)} />
-      )}
-      {/* Question mark to reopen tutorial */}
-      <button
-        className="tutorial-help-btn"
-        onClick={() => setShowTutorial(true)}
-        title="Show tutorial"
-        aria-label="Show tutorial"
-      >
-        ?
-      </button>
-      {objectivesMet && !tutorialDone && (
-        <div className="tutorial-complete-banner">
-          <p>✦ Training complete — 7 tiles purified, shrine raised. The land is yours.</p>
-          <button className="abtn small" onClick={() => {
-            localStorage.setItem("awoken-tutorial-done", "1");
-            setTutorialDone(true);
-          }}>Begin →</button>
-        </div>
-      )}
+      {/* Right-side building panel. THE OLD TUTORIAL STOOD
+          HERE (the tutorial redo, 2026-10-23 23:23 + shape
+          law 23:37): the auto-shown twelve-step walkthrough
+          card, its "?" reopen button and its training-complete
+          banner are REMOVED, whole — the homeland's teaching
+          is the first-touch lessons now (homelandLessons.ts),
+          and no walkthrough dump stands over this ground
+          again. */}
       {showBuildingMenu && (
         <div className="building-side-panel">
           <button

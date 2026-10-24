@@ -122,9 +122,9 @@ if (doors) {
 
 // ── §B THE WIRING AND THE DOOR CENSUS ────────────────────
 console.log("\n§B App.tsx + client/src — both buttons wired to the handlers; every door onto the map accounted for");
-check("the header deck-button opens through deckDoor, its face unchanged (class, aria-labels, Return / Terrain Map)",
+check("the header deck-button opens through deckDoor (class, aria-labels unchanged; the open face now reads RETURN — the way-back ruling, Nigel 2026-10-23 23:33, landed by the homeland tutorial redo)",
   app.includes('<button onClick={deckDoor} className="deck-button" aria-label={showDeck ? "Return to the ritual" : "View your decks"}>')
-  && app.includes("<span>{showDeck ? \"Return\" : \"Terrain Map\"}</span>"));
+  && app.includes("<span>{showDeck ? \"RETURN\" : \"Terrain Map\"}</span>"));
 check("the old bare toggle is gone (no setShowDeck flip remains in App.tsx)",
   !app.includes("setShowDeck((value) => !value)") && !app.includes("setShowDeck(v => !v)") && !app.includes("setShowDeck((v) => !v)"));
 check("the patrol banner's Send opens through patrolDoor, its words unchanged",
@@ -169,8 +169,8 @@ if (existsSync(distAssets)) {
     if (f.endsWith(".js")) bundle += readFileSync(join(distAssets, f), "utf8") + "\n";
   }
 }
-check("the bundle carries the header door's faces (Terrain Map / Return)",
-  bundle.includes("Terrain Map") && bundle.includes("Return to the ritual"));
+check("the bundle carries the header door's faces (Terrain Map / RETURN, the aria-label unchanged)",
+  bundle.includes("Terrain Map") && bundle.includes("Return to the ritual") && bundle.includes("RETURN"));
 check("the bundle carries the claim note the no-Tender route lands on",
   bundle.includes("The Awokin are waiting — but the waking is for Tenders."));
 check("the bundle carries the patrol banner and its Send (the Tender's second door, intact)",

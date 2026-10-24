@@ -1,8 +1,18 @@
-// THE WHISPER'S FRONT-SCREEN LESSON REGISTRY (Nigel, 2026-10-23
+// THE FIRST-TOUCH LESSON REGISTRY (Nigel, 2026-10-23
 // 23:23 — "We need the whisper to give a tutorial of the front
 // screen, to tell people what the buttons mean"; the shape law
 // 23:37 — each system carries its OWN short lesson, fired ONCE
 // at that system's first touch, and never again).
+//
+// EXTENDED, NOT DUPLICATED (the homeland tutorial redo, Nigel
+// 2026-10-23 23:23 + 23:33 + 23:37): the homeland's lessons —
+// Acorn's line on the terrain map — are served by THIS SAME
+// registry: the same table (front_lessons_seen), the same
+// routes, the same owner keying, the same union read. There is
+// one first-touch registry per Tender, not one per screen; the
+// homeland keys simply join the served set below, in the
+// homeland block. The front screen's keys stand first and
+// unchanged, in their order.
 //
 // The registry is honest server state, in the codebase's own
 // convention for per-Tender seen/taught state: rows keyed by
@@ -32,7 +42,33 @@ export const FRONT_LESSON_KEYS = [
 ] as const;
 export type FrontLessonKey = (typeof FRONT_LESSON_KEYS)[number];
 
-const lessonKeySchema = z.enum(FRONT_LESSON_KEYS);
+/** The homeland's lessons (the terrain map's own systems),
+ *  in the order a Tender meets them on that ground: the
+ *  first-visit party lesson and the way back, the safe hex,
+ *  the watched battle, casting by range, the two orders
+ *  wheels, the warning with teeth, and the seed's ground
+ *  truth. Their words live client-side in homelandLessons.ts;
+ *  the seed's BATTLE lesson is deliberately absent — the
+ *  seed's battle shape stands stopped on a fork awaiting
+ *  Nigel's word, and no key here teaches it. */
+export const HOMELAND_LESSON_KEYS = [
+  "party",
+  "return",
+  "safehex",
+  "battle",
+  "cast",
+  "orders",
+  "group",
+  "warning",
+  "seed",
+] as const;
+export type HomelandLessonKey = (typeof HOMELAND_LESSON_KEYS)[number];
+
+/** Every lesson key this registry will remember: the front
+ *  screen's and the homeland's, one served set per Tender. */
+export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS] as const;
+
+const lessonKeySchema = z.enum(LESSON_KEYS);
 
 function badRequest(message: string): never {
   throw Object.assign(new Error(message), { status: 400 });
@@ -54,7 +90,7 @@ export async function getFrontLessonsSeen(ownerKeys: string[]): Promise<{ seen: 
  *  error and never a second firing. Returns the union after. */
 export async function markFrontLessonSeen(ownerKeys: string[], body: unknown): Promise<{ seen: string[] }> {
   const parsed = z.object({ lessonKey: lessonKeySchema }).safeParse(body);
-  if (!parsed.success) badRequest("That is not a front-screen lesson.");
+  if (!parsed.success) badRequest("That is not a first-touch lesson.");
   const primary = ownerKeys[0];
   if (!primary) badRequest("No identity to remember the lesson for.");
   await db

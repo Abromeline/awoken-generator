@@ -953,6 +953,27 @@ body.defeat-flash {
 @media (max-width: 768px) {
   .front-whisper { top: 300px; }
 }
+/* Acorn's line on the terrain map (the homeland tutorial redo,
+   Nigel 2026-10-23 23:23 + 23:33; shape law 23:37): the same
+   bubble dress, seated at the map's left edge above the hand
+   dock, speaking alongside the system first touched. It takes
+   no answer and covers no control the touched system needs. */
+.homeland-whisper { position: fixed; left: 12px; bottom: 148px; z-index: 60; animation: guide-rise 1.6s ease-out both; }
+.homeland-whisper-bubble { position: relative; left: 0; top: 0; }
+.homeland-whisper-bubble::before { display: none; }
+@media (max-width: 768px) {
+  .homeland-whisper { bottom: 128px; }
+}
+/* The party lesson's pointing ring: while Acorn's party lesson
+   speaks, the 🌳 door it names wears a slow gold pulse — the
+   lesson points at the real control, which works while she
+   speaks (the first-visit party lesson, Nigel 2026-10-23
+   23:33: inside the real party controls, not a picture). */
+.lesson-point { outline: 2px solid #ffd98a; outline-offset: 3px; border-radius: 50%; animation: lesson-point-pulse 1.4s ease-in-out infinite; }
+@keyframes lesson-point-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 217, 138, 0.55); }
+  50% { box-shadow: 0 0 0 10px rgba(255, 217, 138, 0); }
+}
 @keyframes bubble-pop {
   0% { opacity: 0; transform: scale(0.8); }
   100% { opacity: 1; transform: scale(1); }
