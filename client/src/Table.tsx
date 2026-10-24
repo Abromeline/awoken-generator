@@ -2466,10 +2466,13 @@ export default function Table() {
         // THE DECK WINDOW (Nigel, 2026-10-23 — Recovery
         // R6, presentation re-ruled 19:45: summoning stays
         // in the wheel, no pop-up, never the full deck
-        // visible): under the company, the branch shows ONE
-        // WINDOW of the rest of the deck — six entries, paged
-        // by the "More" entry below — never the whole deck
-        // fanned at once. THE TAP IS THE SUMMON CAST (Nigel,
+        // visible; the window re-ruled 2026-10-24: FIVE
+        // PAGES at most): under the company, the branch
+        // shows ONE WINDOW of the rest of the deck — five
+        // pages of six at most, walked by the "More" entry
+        // below, and refilling as casts slide the window
+        // over the deck — never the whole deck fanned at
+        // once. THE TAP IS THE SUMMON CAST (Nigel,
         // 2026-10-24), exactly as a company entry's tap is:
         // the server lands the Awoken at the Tender's side as
         // a follower and enrols it in the party in the same
@@ -2491,9 +2494,10 @@ export default function Table() {
           act: () => { castTableDeckSummon(r); },
         } as WheelEntry));
         // THE MORE STEP: inside the wheel, under the window —
-        // it advances the window through the deck (wrapping
-        // at the end) and keeps the wheel open, so every deck
-        // Awoken is reachable by paging, six at a time.
+        // it walks the window's five pages (wrapping at the
+        // window's end) and keeps the wheel open. Pages beyond
+        // the window are not paged to: they slide in by the
+        // refill as casts empty the window's pages.
         const moreEntries: WheelEntry[] = deckWin.hasMore ? [{
           key: "deck-more",
           emoji: "›",
@@ -2556,7 +2560,7 @@ export default function Table() {
       case "rune": return `Rune — writings in the ground — they wait, and spring${drag}`;
       case "binding": return `Binding — threads that mend and hold — the Springleaf's grove among them${drag}`;
       case "awoken": return (you?.company.length ?? 0) || (you?.reinforcements?.length ?? 0)
-        ? `Awoken — called by the cast: pick one and it stands at your side as a follower — no target; a falter spends the price. Below the company, one window of the rest of your deck at a time: tap a deck Awokin to cast its summon the same way, and tap More to page through the rest${drag}`
+        ? `Awoken — called by the cast: pick one and it stands at your side as a follower — no target; a falter spends the price. Below the company, one window of the rest of your deck — five pages at most: tap a deck Awokin to cast its summon the same way, tap More to walk the window's pages, and as you cast, the window refills from the deck beyond${drag}`
         : "Awoken — no one can be called: your whole deck already stands on the field, waits staged, or is still re-coalescing";
       case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
       case "attune": return you?.storytender

@@ -1,22 +1,31 @@
 // THE DECK WINDOW — THE R6 IN-WHEEL FIX DRIVE (2026-10-23;
 // Nigel, 19:45: "i would prefer a fix that keeps summoning
-// in the action wheel without a popup"). The deck panel is
-// dead; the wheel's Awoken branch shows the company plus
-// ONE window of six deck entries at a time, a "More" entry
-// inside the wheel pages through the deck, and a deck
-// entry's tap IS the call — tapOnly, no dragKey, no pinKey,
-// so the GroundWheel's >9px drag reclassification and its
-// pin badge can never eat it (the drag-to-hotbar for deck
-// entries is gone; the tap won).
+// in the action wheel without a popup"; the window re-ruled
+// 2026-10-24 16:19: "set a max in the action wheel to show
+// only 5 pages of awoken but as they are cast pages
+// refill"). The deck panel is dead; the wheel's Awoken
+// branch shows the company plus ONE window of the deck —
+// FIVE PAGES at most, thirty Awoken within reach — a
+// "More" entry inside the wheel walks the window's pages,
+// and a deck entry's tap IS the call — tapOnly, no
+// dragKey, no pinKey, so the GroundWheel's >9px drag
+// reclassification and its pin badge can never eat it
+// (the drag-to-hotbar for deck entries is gone; the tap
+// won). Pages beyond the window are never paged to: as
+// casts empty the window, the next waiting Awoken refills
+// its last page and the window slides over the deck.
 // Boots the real server in-process on a scratch DATA_DIR
 // with the road shortened by its own env dial, seeds a
 // SIXTY-Awoken deck, and proves:
 //   §0 THE WINDOW CODE THE WHEEL RENDERS (client/src/
 //      deckWindow.ts, bundled by esbuild and imported —
 //      the very functions Table.tsx and Territory.tsx call):
-//      a window is six, paging walks all 60 in order with
-//      no repeats and reaches the last deck Awoken, "More"
-//      wraps, and a page past a shrunken deck clamps.
+//      a page is six, the window is five pages (thirty
+//      presented at most), the More step walks those five
+//      pages and wraps inside them, a cast refills the
+//      window's last page from beyond it, cast by cast the
+//      window slides until the 60th stands presented, and
+//      a page past a shrunken deck clamps.
 //   §1 THE COMPONENT-LEVEL TAP PATH (no Chrome exists in
 //      this sandbox for a true browser click run — this is
 //      the component proof, stated plainly): both grounds
@@ -26,23 +35,29 @@
 //      refuses to arm the drag or draw the pin for tapOnly.
 //   §2 THE TABLE, 60 DECK — the full deck is served as
 //      DATA; the wheel's window (the §0 code over the served
-//      list) holds six of them and its last page holds the
-//      60th. The wheel entry's act body — the guarded
-//      castTableDeckSummon send (Nigel, 2026-10-24: the tap
-//      IS the summon cast; the R6 road this section proved
-//      until tonight was the gate Nigel struck) — is run
-//      for that entry: a name outside the deck is refused
-//      in plain words ("not in your deck"); the cast lands
-//      the 60th on the field FOLLOWING, and enrols it in
-//      the party in the same act.
+//      list) presents thirty of them at most; the refill
+//      slide over that list (presented entries removed one
+//      by one, as thirty casts would empty them — simulated
+//      on the list because thirty real casts would break
+//      the following gate, a different law) brings the 60th
+//      into the window's last page. The wheel entry's act
+//      body — the guarded castTableDeckSummon send (Nigel,
+//      2026-10-24: the tap IS the summon cast; the R6 road
+//      this section proved until tonight was the gate Nigel
+//      struck) — is run for that entry: a name outside the
+//      deck is refused in plain words ("not in your deck");
+//      the cast lands the 60th on the field FOLLOWING, and
+//      enrols it in the party in the same act.
 //   §3 THE HOMELAND, 60 DECK — the deck is served with the
-//      field; the window's last page holds the 60th; its
-//      entry's act body (api.summonAwoken, exactly what
-//      castSummon runs) casts its summon: it stands on the
-//      field following, enrolled in the party by the cast
-//      at once, it stands in the summon company and leaves
-//      the deck; calling it again is refused in plain words
-//      ("already stands in your party").
+//      field; the window presents thirty at most and the
+//      refill slide over the served list brings the 60th
+//      into its last page; its entry's act body
+//      (api.summonAwoken, exactly what castSummon runs)
+//      casts its summon: it stands on the field following,
+//      enrolled in the party by the cast at once, it stands
+//      in the summon company and leaves the deck; calling
+//      it again is refused in plain words ("already stands
+//      on your field").
 // Run: node scripts/drive-deck-window.mjs
 import { join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -73,31 +88,57 @@ const ok = (name, cond, extra = "") => {
 console.log("§0 the window code the wheel renders");
 const bundleOut = join(process.env.DATA_DIR, "deckWindow.mjs");
 await build({ entryPoints: ["client/src/deckWindow.ts"], bundle: true, format: "esm", outfile: bundleOut, logLevel: "silent" });
-const { DECK_WINDOW_SIZE, deckWindow, nextDeckPage, deckPageCount } = await import(bundleOut);
+const { DECK_PAGE_SIZE, DECK_WINDOW_PAGES, DECK_WINDOW_SIZE, deckWindow, nextDeckPage, deckWindowPageCount } = await import(bundleOut);
 const deck60 = Array.from({ length: 60 }, (_, i) => i + 1);
 {
-  ok("the window size is six — the page the ring can hold", DECK_WINDOW_SIZE === 6);
+  ok("the page size is six — the page the ring can hold", DECK_PAGE_SIZE === 6);
+  ok("the window is five pages — thirty Awoken within reach at most",
+    DECK_WINDOW_PAGES === 5 && DECK_WINDOW_SIZE === 30,
+    JSON.stringify({ pages: DECK_WINDOW_PAGES, size: DECK_WINDOW_SIZE }));
   const w0 = deckWindow(deck60, 0);
-  ok("the first window holds exactly six deck entries, never the whole deck",
-    w0.entries.length === 6 && w0.total === 60 && w0.pageCount === 10 && w0.hasMore,
-    JSON.stringify({ n: w0.entries.length, total: w0.total, pageCount: w0.pageCount }));
-  const seen = [];
+  ok("the first window fans six and presents thirty — five pages over a 60 deck, never the whole deck",
+    w0.entries.length === 6 && w0.spanCount === 30 && w0.total === 60 && w0.pageCount === 5 && w0.hasMore,
+    JSON.stringify({ n: w0.entries.length, span: w0.spanCount, total: w0.total, pageCount: w0.pageCount }));
+  const presented = [];
   let page = 0;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < DECK_WINDOW_PAGES; i++) {
     const w = deckWindow(deck60, page);
-    seen.push(...w.entries);
+    presented.push(...w.entries);
     page = nextDeckPage(page, w.total);
   }
-  ok("paging with the More step walks all 60 in order, no entry twice, none stacked or skipped",
-    seen.join(",") === deck60.join(","), seen.slice(0, 8).join(","));
-  ok("after the last page the More step wraps to the first", page === 0);
-  const last = deckWindow(deck60, deckPageCount(60) - 1);
-  ok("the last page reaches the last deck Awoken — the 60th stands in a window",
-    last.entries.includes(60) && last.entries.length === 6, JSON.stringify(last.entries));
+  ok("the More step walks the window's five pages in order — the first thirty, each once, none stacked or skipped",
+    presented.join(",") === deck60.slice(0, 30).join(","), presented.slice(0, 8).join(","));
+  ok("after the window's last page the More step wraps to the window's first — pages beyond the window are never paged to",
+    page === 0 && !presented.includes(31), JSON.stringify({ wrappedTo: page, saw31: presented.includes(31) }));
+  // THE REFILL (Nigel, 2026-10-24): a cast removes the cast
+  // entry from the live list; the window over the shrunken
+  // list refills its last page from beyond itself.
+  const live = [...deck60];
+  live.splice(live.indexOf(25), 1); // the head of the last page is cast
+  const refilled = deckWindow(live, DECK_WINDOW_PAGES - 1);
+  ok("a cast from the last page refills it — the 31st, waiting beyond the window, slides into the last page",
+    refilled.entries.join(",") === "26,27,28,29,30,31", refilled.entries.join(","));
+  // THE SLIDE: cast the presented head away one by one, as
+  // a Tender summoning through the window does; the window
+  // slides over the deck until the 60th stands presented.
+  const sliding = [...deck60];
+  let casts = 0;
+  while (casts < 60 && !deckWindow(sliding, deckWindowPageCount(sliding.length) - 1).entries.includes(60)) {
+    const head = deckWindow(sliding, 0).entries[0];
+    sliding.splice(sliding.indexOf(head), 1);
+    casts++;
+  }
+  ok("cast by cast the window slides over the whole deck — after thirty casts the 60th stands in its last page",
+    casts === 30 && deckWindow(sliding, DECK_WINDOW_PAGES - 1).entries.includes(60),
+    JSON.stringify({ casts, lastPage: deckWindow(sliding, DECK_WINDOW_PAGES - 1).entries }));
   const shrunk = deckWindow(deck60.slice(0, 59), 9);
-  ok("a page left past a shrunken deck clamps to the last standing page — the wheel never opens blank",
-    shrunk.page === 9 && shrunk.entries.length === 5 && shrunk.entries.includes(59),
+  ok("a page asked past the window clamps to the window's last standing page — the wheel never opens blank",
+    shrunk.page === DECK_WINDOW_PAGES - 1 && shrunk.entries.length === 6,
     JSON.stringify({ page: shrunk.page, n: shrunk.entries.length }));
+  const small = deckWindow(deck60.slice(0, 24), 4);
+  ok("a deck that fits the window is presented whole — its last page clamps onto the deck's own end",
+    small.pageCount === 4 && small.page === 3 && small.entries.includes(24) && small.spanCount === 24,
+    JSON.stringify({ page: small.page, pageCount: small.pageCount, entries: small.entries }));
 }
 
 /* ── §1 THE COMPONENT-LEVEL TAP PATH ────────────────────── */
@@ -227,13 +268,29 @@ function client(label) {
   ok("the Table serves the whole deck as data — all 60, in roster order (the wheel windows this list; it is not itself the fan)",
     served.join(",") === deckIds.join(","), served.slice(0, 5).join(","));
   const win0 = deckWindow(b.you.reinforcements, 0);
-  ok("the wheel's first window over the served deck holds six entries — never all 60 as entries at once",
-    win0.entries.length === 6 && win0.total === 60);
-  const lastPage = deckPageCount(60) - 1;
-  const winLast = deckWindow(b.you.reinforcements, lastPage);
+  ok("the wheel's first window over the served deck fans six and presents thirty — five pages at most, never all 60 at once",
+    win0.entries.length === 6 && win0.spanCount === 30 && win0.pageCount === 5 && win0.total === 60,
+    JSON.stringify({ n: win0.entries.length, span: win0.spanCount, pageCount: win0.pageCount }));
   const sixtieth = deckIds[59];
-  ok("paging reaches the last deck Awoken — the 60th stands in the last window",
-    winLast.entries.some(r => r.awakenedId === sixtieth), JSON.stringify(winLast.entries.map(r => r.awakenedId)));
+  // THE REFILL SLIDE over the served list — the very list
+  // the wheel windows: presented entries are removed one
+  // by one, exactly as thirty casts empty them (simulated
+  // on the list because thirty real casts would break the
+  // following gate — a different law, 3222984 — while the
+  // window's own reckoning over the shrinking list is the
+  // code the wheel renders). After thirty, the 60th stands
+  // in the window's last page, and its tap — below — is a
+  // real cast.
+  const slideList = [...(b.you.reinforcements ?? [])];
+  let slid = 0;
+  while (slid < 60 && !deckWindow(slideList, deckWindowPageCount(slideList.length) - 1).entries.some(r => r.awakenedId === sixtieth)) {
+    const head = deckWindow(slideList, 0).entries[0];
+    slideList.splice(slideList.findIndex(r => r.awakenedId === head.awakenedId), 1);
+    slid++;
+  }
+  ok("as casts empty the window it refills and slides — after thirty the 60th stands in the window's last page",
+    slid === 30 && deckWindow(slideList, DECK_WINDOW_PAGES - 1).entries.some(r => r.awakenedId === sixtieth),
+    JSON.stringify({ casts: slid }));
 
   // The tap IS the cast now (Nigel, 2026-10-24): the deck
   // entry's act body is the guarded send of summonCast by
@@ -287,10 +344,25 @@ function client(label) {
   ok("the homeland serves the whole deck with the field — all 60 as data for the wheel to window",
     (terr.summoning?.reinforcements ?? []).length === 60,
     JSON.stringify((terr.summoning?.reinforcements ?? []).length));
-  const winLast = deckWindow(terr.summoning.reinforcements, deckPageCount(60) - 1);
+  const win0 = deckWindow(terr.summoning.reinforcements, 0);
+  ok("the homeland wheel's window over the served deck fans six and presents thirty — five pages at most",
+    win0.entries.length === 6 && win0.spanCount === 30 && win0.pageCount === 5 && win0.total === 60,
+    JSON.stringify({ n: win0.entries.length, span: win0.spanCount, pageCount: win0.pageCount }));
   const sixtieth = deckIds[59];
-  ok("the homeland window's last page holds the 60th deck Awoken",
-    winLast.entries.some(r => r.awakenedId === sixtieth));
+  // THE REFILL SLIDE over the served list, as §2 frames it:
+  // presented entries removed one by one, as thirty casts
+  // empty them, until the 60th stands in the last page —
+  // then its entry's act body casts it for real, below.
+  const slideList = [...(terr.summoning.reinforcements ?? [])];
+  let slid = 0;
+  while (slid < 60 && !deckWindow(slideList, deckWindowPageCount(slideList.length) - 1).entries.some(r => r.awakenedId === sixtieth)) {
+    const head = deckWindow(slideList, 0).entries[0];
+    slideList.splice(slideList.findIndex(r => r.awakenedId === head.awakenedId), 1);
+    slid++;
+  }
+  ok("the homeland window refills and slides as casts empty it — after thirty the 60th stands in its last page",
+    slid === 30 && deckWindow(slideList, DECK_WINDOW_PAGES - 1).entries.some(r => r.awakenedId === sixtieth),
+    JSON.stringify({ casts: slid }));
   // The entry's act body IS the summon cast (Nigel,
   // 2026-10-24): api.summonAwoken — exactly what castSummon
   // runs on the tap. The cast can falter; the tap is made

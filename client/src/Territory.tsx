@@ -1987,10 +1987,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       } as WheelEntry));
       // THE DECK WINDOW (Nigel, 2026-10-23 — Recovery R6,
       // presentation re-ruled 19:45: summoning stays in the
-      // wheel, no pop-up, never the full deck visible):
+      // wheel, no pop-up, never the full deck visible;
+      // the window re-ruled 2026-10-24: FIVE PAGES at most):
       // under the company, the branch shows ONE WINDOW of
-      // the rest of the deck — six entries, paged by the
-      // "More" entry below. THE TAP IS THE SUMMON CAST
+      // the rest of the deck — five pages of six at most,
+      // walked by the "More" entry below, and refilling as
+      // casts slide the window over the deck (deckWindow.ts
+      // holds the whole reckoning). THE TAP IS THE SUMMON CAST
       // (Nigel, 2026-10-24): a window entry casts exactly as
       // a company entry does — the server lands the Awoken
       // at the Tender's side as a follower and enrols it in
@@ -2139,7 +2142,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         ? `Ability — the tender's own deeds, beyond spellcraft${drag}`
         : "Ability — the tender's own deeds, beyond spellcraft · no Awokin stands on your land yet";
       case "awoken": return summoning.company.length || (summoning.reinforcements ?? []).length
-        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, one window of your deck at a time: tap a deck Awokin to call it in — on the homeland a call joins it to your party at once — and tap More to page through the rest${drag}`
+        ? `Awoken — your party, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, one window of your deck — five pages at most: tap a deck Awokin to call it in — on the homeland a call joins it to your party at once — tap More to walk the window's pages, and as you cast, the window refills from the deck beyond${drag}`
         : "Awoken — no one can be called: your party stands fielded, staged, or re-coalescing, and no deck Awoken waits to be called in";
       default: {
         const label = wheelTab === "spell" ? "Spell" : wheelTab === "ward" ? "Ward" : wheelTab === "rune" ? "Rune" : "Binding";
