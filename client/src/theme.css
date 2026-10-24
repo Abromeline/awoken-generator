@@ -26,7 +26,7 @@
 @media(min-width:760px){.ritual{padding:52px 28px 64px}.ritual-grid{grid-template-columns:minmax(0,1.05fr) minmax(330px,.75fr);align-items:start}.ritual:not(.workshop-ritual) .ritual-grid{grid-template-columns:minmax(0,580px);justify-content:center}.manual-panel{position:sticky;top:72px;border-top:0;border-left:1px solid var(--border);padding:4px 0 0 28px}.creature-card{grid-template-columns:minmax(0,1.08fr) minmax(320px,.92fr)}.creature-image img{height:100%;min-height:580px;object-fit:cover}.collection-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.collection-grid .creature-card{grid-template-columns:1fr}.collection-grid .creature-image img{height:auto;min-height:0}.pool-header{grid-template-columns:1fr 1fr;align-items:end}.category-picks{grid-template-columns:repeat(5,1fr)}.trait-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(min-width:1100px){.newborn-reveal{padding-left:28px;padding-right:28px}.collection-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
-.credit-line{width:min(100%,540px);margin:10px auto 0;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--dim)}
+.credit-line{width:min(100%,540px);margin:10px auto 0;display:flex;justify-content:flex-end;align-items:center;font-size:11px;color:var(--dim)}
 .credit-more{border:0;background:none;padding:6px 0;color:var(--text);font-size:11px;letter-spacing:.04em;text-decoration:underline;text-underline-offset:3px}
 .deck-toolbar{display:flex;gap:14px;align-items:end;flex-wrap:wrap}
 .deck-toolbar label{display:grid;gap:4px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
@@ -1926,6 +1926,8 @@ body.defeat-flash {
 .wake-ready-overlay img{width:70%;height:auto;filter:drop-shadow(0 0 20px rgba(120,255,120,0.4));animation:gentle-pulse 3s ease-in-out infinite}
 .wake-ready-overlay span{font-family:var(--display);font-size:18px;color:var(--text);background:rgba(0,0,0,0.6);padding:8px 20px;border-radius:20px;color:#e8f5e8}
 .wake-ready-overlay small{font-size:12px;letter-spacing:.05em;color:#cfe8cf;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:14px}
+.wake-ready-overlay .wake-held-count{font-size:13px;color:#eaffea;background:rgba(10,40,16,0.72);border:1px solid rgba(140,255,170,.55)}
+.next-free-wake-line{width:min(100%,540px);margin:26px auto 0;text-align:center;font-size:11px;letter-spacing:.05em;color:var(--dim)}
 .wake-ready-overlay:disabled{cursor:wait;opacity:.75}
 .spark-claim{display:grid;gap:10px;margin-top:14px}
 .spark-claim-line{margin:0;font-family:var(--display);font-size:16px}
