@@ -725,7 +725,7 @@ export const api = {
   looseBlade: (args: { wandererId: number }) =>
     post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number }>("looseBlade", args),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; heldMs?: number }) =>
-    post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number; hits?: number; targetId?: number }>("castMapWorking", args),
+    post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; refunded?: number; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number; hits?: number; targetId?: number }>("castMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>
     post<{ ok: true; spellKey: string; element: string; spent: number; inElement: number; filled: number; slots: Record<string, number> }>("attuneGrimoirePage", args),
   // THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
@@ -745,7 +745,7 @@ export const api = {
   // IS the cast — no tile is named; the server chooses the
   // landing at the Tender's side and answers with the whole
   // reckoning (a falter spends the price and stands nothing).
-  summonAwoken: (args: { awakenedId: number }) => post<{ ok: true; summoned: boolean; faltered: boolean; name: string; tileId?: number; roll: number; gift: number; summonersPower: number; curse: number; dc: number; cost: number }>("summonAwoken", args),
+  summonAwoken: (args: { awakenedId: number }) => post<{ ok: true; summoned: boolean; faltered: boolean; name: string; tileId?: number; roll: number; gift: number; summonersPower: number; curse: number; dc: number; cost: number; refunded?: number }>("summonAwoken", args),
   deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
   setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),

@@ -1926,7 +1926,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (r.summoned) {
         showHexNotice(`${r.name} answers — the call lands (rolled ${r.roll} against DC ${r.dc}, ✦${r.cost} spent) and stands at your side.`);
       } else {
-        showHexNotice(`${r.name} — the call falters (rolled ${r.roll} against DC ${r.dc}): the price (✦${r.cost}) is spent, and nothing stands. Pick again to call once more.`);
+        showHexNotice(`${r.name} — the call falters (rolled ${r.roll} against DC ${r.dc}): the price (✦${r.cost}) is spent, and nothing stands.${r.refunded ? ` The Witch's mercy returns ✦${r.refunded} of the spent energy.` : ""} Pick again to call once more.`);
       }
     } catch (err) {
       showHexNotice(err instanceof Error ? err.message : "The summoning was refused.");
@@ -2691,7 +2691,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // The slip ends the run (Nigel, 2026-10-20): the working
       // leaves the hand and must be readied again to cast on.
       if (res.fizzled) {
-        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working slips from your hand. Ready it again to cast on.`);
+        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working slips from your hand.${res.refunded ? ` The Witch's mercy returns ✦${res.refunded} of the spent energy.` : ""} Ready it again to cast on.`);
         endMapCastRun();
         await refreshWorkings();
         void refreshEnergy();

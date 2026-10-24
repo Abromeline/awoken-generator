@@ -24,7 +24,7 @@ import {
 import { adoptVisitorState } from "./adopt.js";
 import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
-import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
@@ -3090,6 +3090,27 @@ async function witchCompanyStanding(ownerKey: string): Promise<boolean> {
 async function witchPriceFor(ownerKey: string, classKey: string | null | undefined, cost: number): Promise<number> {
   if (classKey !== "witch") return cost;
   return witchCastCostFor(classKey, cost, await witchCompanyStanding(ownerKey));
+}
+
+/** THE WITCH'S MISCAST MERCY ON THE HOMELAND (Nigel,
+ *  2026-10-22; Recovery R8): a Witch whose cast fizzles on
+ *  this ground is refunded the mercy's share of what the
+ *  cast actually charged — witchMiscastRefundFor (skills.ts)
+ *  is the one reckoning, read by the Table too. The refund
+ *  is credited straight back to her purse, uncapped by the
+ *  vessel's maximum for the plain reason that it can never
+ *  lift her above the balance she held before the cast: the
+ *  share is reckoned on, and bounded by, the charge that was
+ *  just taken from that same purse. Returns the amount
+ *  refunded (0 for every other class, and for a free cast). */
+async function refundHomelandFizzle(ownerKey: string, classKey: string | null | undefined, paid: number): Promise<number> {
+  const refunded = witchMiscastRefundFor(classKey, paid);
+  if (refunded <= 0) return 0;
+  const current = await getEnergyFor(ownerKey);
+  await db.update(schema.tenderResources)
+    .set({ energy: current + refunded, updatedAt: new Date() })
+    .where(eq(schema.tenderResources.ownerKey, ownerKey));
+  return refunded;
 }
 
 /** Fate's mitigation, the Table's own formula: armor shaves a
@@ -8468,7 +8489,12 @@ export const handlers = {
     const dc = 10 + power;
     const landed = roll === 20 || (roll !== 1 && roll + gift + sp + curse >= dc);
     if (!landed) {
-      return { ok: true as const, summoned: false as const, faltered: true as const, name: payload.name, roll, gift, summonersPower: sp, curse, dc, cost };
+      // THE WITCH'S MISCAST MERCY (Recovery R8): a faltering
+      // call is a fizzled cast — her share of the price she
+      // actually paid (the company-halved price included)
+      // returns; every other class's falter spends it whole.
+      const refunded = await refundHomelandFizzle(ownerKey, progress.classKey, cost);
+      return { ok: true as const, summoned: false as const, faltered: true as const, name: payload.name, roll, gift, summonersPower: sp, curse, dc, cost, refunded };
     }
     const bornShield = await rollShieldFor(awakenedId);
     await db.insert(schema.fieldPlacements).values({
@@ -9039,7 +9065,12 @@ export const handlers = {
     // D's own in-view ring — and a cast named beyond it is
     // refused before any charge. THE ROLL: one law with the
     // Table — the purse is charged BEFORE the roll, and a
-    // fizzle spends the charge and lands nothing.
+    // fizzle spends the charge and lands nothing. THE
+    // WITCH'S MISCAST MERCY (Recovery R8) rides every fizzle
+    // return below: her share of the charge comes back
+    // (refundHomelandFizzle); every other class's fizzle
+    // still spends the whole charge, and the unravelled cast
+    // still counts as cast for every other purpose.
     const castTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const castTileById = new Map(castTiles.map((t) => [t.id, t]));
     const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { down_until: number | null } | undefined;
@@ -9083,7 +9114,7 @@ export const handlers = {
       // The roll (Homeland Casting): the purse is already
       // charged — a fizzle spends it and mends nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: healPrice, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: healPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, healPrice), spellKey: spell.key };
       // THE BINDER'S COMPANY (Recovery R7): Heal is a Binding
       // working — a Binder's casting of it mends +4 more.
       const healed = Math.min(progress.healAmount + bindingHealBonusFor(progress.classKey), maxHp - curHp);
@@ -9123,7 +9154,7 @@ export const handlers = {
       const springleafPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
       if (!(await spendEnergy(ownerKey, springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: springleafPrice, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: springleafPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, springleafPrice), spellKey: spell.key };
       const radiusHexes = Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80));
       const now = Date.now();
       // The raising burst: every one of his standing in the
@@ -9225,7 +9256,7 @@ export const handlers = {
       // before it — a fizzle spends the charge alone and
       // raises nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, wardCost), spellKey: spell.key };
       // The cast carries the page's filled slots in its
       // element — nothing is spent here; the power was laid
       // into the book, in the Grimoire, beforehand.
@@ -9282,7 +9313,7 @@ export const handlers = {
         if (!standTile) badRequest("You have no stand on this land to cast from.");
         if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
         const cast = homelandCastRoll(progress, spell);
-        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, spellKey: spell.key };
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
         const info = sqlite.prepare(`INSERT INTO territory_workings
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
           VALUES (?, ?, 'bats', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
@@ -9308,7 +9339,7 @@ export const handlers = {
         if (!target) badRequest("Hold Rune needs a shade under the tap — no dark stands on that ground.");
         if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
         const cast = homelandCastRoll(progress, spell);
-        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, spellKey: spell.key };
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
         const info = sqlite.prepare(`INSERT INTO territory_workings
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
           VALUES (?, ?, 'holdrune', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
@@ -9327,7 +9358,7 @@ export const handlers = {
       }
       if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
       const bonus = castModFor(progress.classKey, progress.level, spell.kind);
       const foe = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
         .find((x: any) => {
@@ -9401,7 +9432,7 @@ export const handlers = {
       // The roll (Homeland Casting): charged before it — a
       // fizzle spends the charge alone and writes nothing.
       const cast = homelandCastRoll(progress, spell);
-      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, spellKey: spell.key };
+      if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, runeCost), spellKey: spell.key };
       // The cast carries the page's filled slots in its
       // element, as at the ward's raising on this ground
       // — nothing is spent at the cast; the power stands in

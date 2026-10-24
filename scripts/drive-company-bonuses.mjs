@@ -256,17 +256,21 @@ console.log("§E the Witch's half price lived — full, half while a cast member
   placeAwokin(W.ownerKey, C, home, 0, 0, { hp: 10 }); // standing, wounded — but never cast by her, and not her party
 
   // Her first summon: none of her cast party stands yet.
+  // (R8 note, 2026-10-23: if this first call FALTERS, the
+  // Witch's miscast mercy returns half the price at once, so
+  // the purse's fall is the price less the refund — the PRICE
+  // is what this section proves, and it is ✦6 either way.)
   let e0 = energyOf(W.ownerKey);
   let r = await call("summonAwoken", { awakenedId: A }, W.token);
   ok("the first summon pays full price (✦6 — no cast party member stands yet to grant the bonus)",
-    r.cost === 6 && e0 - energyOf(W.ownerKey) === 6, `cost ${r.cost}, energy ${e0} -> ${energyOf(W.ownerKey)}`);
+    r.cost === 6 && e0 - energyOf(W.ownerKey) === 6 - (r.refunded ?? 0), `cost ${r.cost}, energy ${e0} -> ${energyOf(W.ownerKey)}`);
   for (let i = 0; i < 12 && !r.summoned; i++) r = await call("summonAwoken", { awakenedId: A }, W.token);
 
   // While A stands: the second summon costs half.
   e0 = energyOf(W.ownerKey);
   r = await call("summonAwoken", { awakenedId: B }, W.token);
   ok("while a cast party member stands, the second summon costs half (✦3 of ✦6)",
-    r.cost === 3 && e0 - energyOf(W.ownerKey) === 3, `cost ${r.cost}, energy ${e0} -> ${energyOf(W.ownerKey)}`);
+    r.cost === 3 && e0 - energyOf(W.ownerKey) === 3 - (r.refunded ?? 0), `cost ${r.cost}, energy ${e0} -> ${energyOf(W.ownerKey)}`);
   for (let i = 0; i < 12 && !r.summoned; i++) r = await call("summonAwoken", { awakenedId: B }, W.token);
 
   // While they stand: a Heal costs half (✦1 of ✦2), charged
@@ -283,7 +287,7 @@ console.log("§E the Witch's half price lived — full, half while a cast member
   e0 = energyOf(W.ownerKey);
   r = await call("castMapWorking", { spellKey: "heal", awakenedId: C }, W.token);
   ok("once her cast party members have dissipated, the Heal costs full price again (✦2)",
-    r.cost === 2 && e0 - energyOf(W.ownerKey) === 2, `cost ${r.cost}, energy ${e0} -> ${energyOf(W.ownerKey)}`);
+    r.cost === 2 && e0 - energyOf(W.ownerKey) === 2 - (r.refunded ?? 0), `cost ${r.cost}, energy ${e0} -> ${energyOf(W.ownerKey)}`);
 }
 
 /* ── §F THE WITCH'S HALF PRICE, LIVED AT THE TABLE ────── */

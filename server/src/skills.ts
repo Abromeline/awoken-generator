@@ -164,6 +164,42 @@ export function witchCastCostFor(classKey: string | null | undefined, cost: numb
   return Math.ceil(cost / 2);
 }
 
+/** THE WITCH'S MISCAST MERCY (Nigel, 2026-10-22 — the class
+ *  cards and their spreadsheet: "Half the spent energy
+ *  returns on a miscast"; coded in 2026-10-23, Recovery R8):
+ *  when a Witch's cast FIZZLES — the roll falls short and
+ *  the working unravels, on either ground — this share of
+ *  the energy the cast ACTUALLY charged returns to her
+ *  purse. The share is reckoned on what was actually paid,
+ *  after every other price reckoning that already applied
+ *  (her half-energy company price above included), never on
+ *  the book's sticker price, and it can never exceed what
+ *  was paid. Every other class's fizzle still spends the
+ *  whole charge, exactly as before, and a cast that STANDS
+ *  refunds nothing to anyone.
+ *  THE PERCENTAGE AND ITS SLIDER: Nigel ruled (2026-10-23)
+ *  that the mercy "should work on the percentage slider it
+ *  should" — 50% is the standing value he ruled on
+ *  2026-10-22. NO SLIDER EXISTS in the game today: no
+ *  per-tender or per-Witch percentage is stored in any
+ *  setting, tender record or class data (searched in this
+ *  build). So the reckoning below reads the standing ruled
+ *  value, WITCH_MISCAST_MERCY_PERCENT; the day a slider is
+ *  built — its natural home would be a per-tender setting
+ *  beside the class record, or a workshop ui_config value —
+ *  this constant is the one place its value should be read
+ *  through. No slider UI is built in this build.
+ *  The share of an odd payment rounds DOWN (a 3✦ fizzle
+ *  returns 1✦): the mercy never rounds itself into more
+ *  than half, and energy is counted whole on both grounds. */
+export const WITCH_MISCAST_MERCY_PERCENT = 50;
+export function witchMiscastRefundFor(classKey: string | null | undefined, paid: number): number {
+  if (classKey !== "witch") return 0;
+  const p = Math.max(0, Math.floor(paid));
+  if (p <= 0) return 0;
+  return Math.min(p, Math.floor((p * WITCH_MISCAST_MERCY_PERCENT) / 100));
+}
+
 /** ATTUNEMENT REACH (Nigel, 2026-10-21 16:40 — struck the
  *  Keeper's first no-limit pencil): the Attune ability's
  *  reach is ONE TILE away from where the Tender stands —

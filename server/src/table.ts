@@ -33,7 +33,7 @@ import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handle
 import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
@@ -1085,15 +1085,41 @@ function rollCast(room: Room, player: Player, def: { kind: string; name: string;
   const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
   return { ok, roll, mod, dc, curse };
 }
+/** THE WITCH'S MISCAST MERCY AT THE TABLE (Nigel,
+ *  2026-10-22; Recovery R8): a Witch whose cast unravels
+ *  here is refunded the mercy's share of what the cast
+ *  actually charged — witchMiscastRefundFor (skills.ts) is
+ *  the one reckoning, read by the homeland too. The refund
+ *  returns to the purse the charge was taken from: the
+ *  campaign bank in a seeded campaign, the seat's own
+ *  energy otherwise, or the bastion's one pool when the
+ *  summon cast drew on it (fromBastionPool). Like every
+ *  refund here it is uncapped, for it can never lift a
+ *  purse above what it held before the cast. Returns the
+ *  amount refunded (0 for every other class). */
+function refundTableFizzle(room: Room, player: Player, paid: number, fromBastionPool = false): number {
+  const refunded = witchMiscastRefundFor(player.classKey, paid);
+  if (refunded <= 0) return 0;
+  if (fromBastionPool && room.bastion) room.bastion.pool += refunded;
+  else if (room.campaign && !room.campaign.over && room.campaign.seeded) room.campaign.bank += refunded;
+  else player.energy += refunded;
+  return refunded;
+}
+
 /** A fizzled cast (the Casting Law): the energy is already
  *  spent — the working simply does not happen. The tale names
  *  the unravel AND its reckoning, and the caster's gesture
- *  still plays. */
-function castUnravels(room: Room, player: Player, spellName: string, reck?: { roll: number; mod: number; dc: number; curse: number }): void {
+ *  still plays. `paid` is what the cast actually charged
+ *  (after every price reckoning that applied): a Witch's
+ *  unravel refunds her mercy's share of it at once, and the
+ *  tale names the return, so what she sees is what she got. */
+function castUnravels(room: Room, player: Player, spellName: string, reck?: { roll: number; mod: number; dc: number; curse: number }, paid?: number): void {
   player.castAt = Date.now();
-  tell(room, reck
+  const refunded = paid != null ? refundTableFizzle(room, player, paid) : 0;
+  const mercy = refunded > 0 ? ` The Witch's mercy returns ✦${refunded} of the spent energy.` : "";
+  tell(room, (reck
     ? `${player.name}'s ${spellName} unravels — rolled ${reck.roll} ${signedTerm(reck.mod)} against DC ${reck.dc}${reck.curse ? " (the curse presses −3)" : ""}: the roll falls short.`
-    : `${player.name}'s ${spellName} unravels — the roll falls short.`);
+    : `${player.name}'s ${spellName} unravels — the roll falls short.`) + mercy);
 }
 /** THE SUMMON CAST'S GIFT (Nigel, 2026-10-21 16:26; the
  *  Keeper's pencil, proceeding unstruck): summoning is not
@@ -4534,6 +4560,7 @@ function handleConnection(ws: WebSocket): void {
       // is a cast like any other — while a party member she
       // has cast stands, this one costs her half.
       const cost = witchCompanyPrice(room, player, castCost(room, player, card));
+      let fromBastionPool = false;
       if (room.bastion?.begun && !room.bastion.resolved) {
         // One pool binds the muster (Nigel, 2026-10-17): joining
         // Tenders' energy joins the pool, scaled by level.
@@ -4542,6 +4569,7 @@ function handleConnection(ws: WebSocket): void {
           return;
         }
         room.bastion.pool -= cost;
+        fromBastionPool = true;
       } else if (!chargePurse(room, player, cost)) {
         const n = recastCount(room, player.key, card.id);
         ws.send(JSON.stringify({ type: "error", message: room.campaign && !room.campaign.over && room.campaign.seeded
@@ -4568,7 +4596,12 @@ function handleConnection(ws: WebSocket): void {
       const reckoning = `rolled ${roll}, gift ${signedTerm(gift)}, summoner's power ${signedTerm(sp)}${curse ? ", −3 the curse presses" : ""} — against DC ${dc}`;
       player.castAt = Date.now();
       if (!(roll === 20 || (roll !== 1 && roll + gift + sp + curse >= dc))) {
-        tell(room, `${player.name} calls ${card.name} — ${reckoning}: the call falters. The price (✦${cost}) is spent, and nothing stands.`);
+        // THE WITCH'S MISCAST MERCY (Recovery R8): a Witch's
+        // faltering call refunds her mercy's share of the
+        // price actually charged, back to the purse it was
+        // taken from — and the tale names the return.
+        const refunded = refundTableFizzle(room, player, cost, fromBastionPool);
+        tell(room, `${player.name} calls ${card.name} — ${reckoning}: the call falters. The price (✦${cost}) is spent, and nothing stands.${refunded > 0 ? ` The Witch's mercy returns ✦${refunded} of the spent energy.` : ""}`);
         sendState(room);
         return;
       }
@@ -4945,7 +4978,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): Heal is a binding-school
       // cast and rolls for its standing, energy already spent.
       const healDef = healSpell();
-      if (healDef) { const reck = rollCast(room, player, healDef); if (!reck.ok) { castUnravels(room, player, healDef.name, reck); sendState(room); return; } }
+      if (healDef) { const reck = rollCast(room, player, healDef); if (!reck.ok) { castUnravels(room, player, healDef.name, reck, healCost); sendState(room); return; } }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -5035,7 +5068,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and the working simply does not happen.
-      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
+      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck, castCost); sendState(room); return; } }
       if (isSpringleaf) {
         // THE SPRINGLEAF AT THE TABLE (Phase C; shape ruled in
         // the book): a GROVE stands at the target hex — hexB,
@@ -5183,7 +5216,7 @@ function handleConnection(ws: WebSocket): void {
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
-      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck); sendState(room); return; } }
+      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck, runeCost); sendState(room); return; } }
       // ── THE NEW WORKINGS (Nigel, 2026-10-22; seated
       // 2026-10-23): they stand here, past the roll — Bats
       // loosed as a living swarm, the Hold Rune forming over
