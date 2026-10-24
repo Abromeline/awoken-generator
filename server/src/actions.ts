@@ -3347,7 +3347,20 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
   if (!tile) return none;
   let nums: Record<string, number> = {};
   try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
-  const wanderer = sqlite.prepare("SELECT id, hp FROM homeland_wanderers WHERE owner_key = ? AND tile_id = ?").get(ownerKey, w.tile_id) as { id: number; hp: number | null } | undefined;
+  let wanderer = sqlite.prepare("SELECT id, hp FROM homeland_wanderers WHERE owner_key = ? AND tile_id = ?").get(ownerKey, w.tile_id) as { id: number; hp: number | null } | undefined;
+  // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built 2026-10-24):
+  // a writing laid at a tapped POINT also springs for a
+  // dark thing standing on that point — within half a hex
+  // of the writing, by its free point — not only for one
+  // filed under the writing's tile. The tile spring stands
+  // as it always has; the point widens the ground the
+  // writing covers to the ground the player wrote on.
+  if (!wanderer && typeof nums.aimQ === "number" && typeof nums.aimR === "number") {
+    const cand = (sqlite.prepare("SELECT id, hp, pos_q, pos_r FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+      .find((x: any) => x.pos_q != null && x.pos_r != null
+        && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, { q: nums.aimQ, r: nums.aimR }) <= 0.5);
+    if (cand) wanderer = { id: cand.id, hp: cand.hp };
+  }
   const bright = !!sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey);
   const harmWanderer = (harm: number): boolean => {
     if (!wanderer) return false;
@@ -3659,7 +3672,18 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
           nextPieceAt += 333;
           const aimTile = byId.get(w.tile_id);
           if (!aimTile) continue;
-          const foe = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+          const allStreamFoes = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
+          // A stream laid at a tapped point strikes the
+          // dark standing on that point (2026-10-24); the
+          // tile road strikes the dark on the aim tile.
+          const streamAim = typeof nums.aimQ === "number" && typeof nums.aimR === "number" ? { q: nums.aimQ, r: nums.aimR } : null;
+          const foe = (streamAim
+            ? allStreamFoes
+                .filter((x: any) => x.pos_q != null && x.pos_r != null
+                  && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, streamAim) <= 0.5)
+                .sort((a: any, b: any) => axialDist({ q: Number(a.pos_q), r: Number(a.pos_r) }, streamAim) - axialDist({ q: Number(b.pos_q), r: Number(b.pos_r) }, streamAim))[0]
+            : undefined)
+            ?? allStreamFoes
             .find((x: any) => {
               if (Number(x.tile_id) === Number(w.tile_id)) return true;
               if (x.pos_q == null || x.pos_r == null) return false;
@@ -9506,9 +9530,22 @@ export const handlers = {
       // eight and refuses the rest, so no other working's
       // cast is narrowed by this field's shape.
       facing: z.string().max(4).optional(),
+      // NO HEX-LOCK — THE AIM IS A POINT (Nigel, 2026-10-23
+      // 23:04; built 2026-10-24): the tapped point on the
+      // land, in fractional axial — the tongue the marches,
+      // the wanderers and Bulwark's nodes already speak on
+      // this ground. A cast carrying a point is aimed THERE:
+      // the distance from where the caster stands to the
+      // point, against the working's own reach, is the only
+      // gate on where it may land; the tile the point falls
+      // in is named only as the ground the working stands
+      // on. A cast carrying no point keeps the hex road
+      // whole, for older clients and the standing drives.
+      pointQ: z.number().min(-40).max(40).optional(),
+      pointR: z.number().min(-40).max(40).optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("The book needs a spell — and a hex, an edge, or an Awokin to receive it.");
-    const { spellKey, tileId, dir, awakenedId, heldMs, facing } = parsed.data;
+    const { spellKey, dir, awakenedId, heldMs, facing } = parsed.data;
     await refreshGrimoire();
     const spell = spellByKey(spellKey);
     if (!spell) badRequest("That spell is not in the book.");
@@ -9551,6 +9588,26 @@ export const handlers = {
     const assertCastReach = (tile: any, range: number = HOMELAND_CAST_RING) => {
       if (!standTile || !tile) badRequest("You have no stand on this land to cast from.");
       if (hexDistTiles(standTile as any, tile as any) > range) {
+        badRequest(`“${spell.name}” lies beyond your casting reach — ring ${range} of where you stand.`);
+      }
+    };
+    // THE POINT AIM, resolved (2026-10-24): the tile the
+    // tapped point falls in stands in for `tileId` wherever
+    // a branch names ground, and the point itself is judged
+    // by distance wherever a branch judges reach — so a
+    // point cast and a hex cast are one law, two tongues.
+    const aimPoint = parsed.data.pointQ != null && parsed.data.pointR != null
+      ? { q: parsed.data.pointQ, r: parsed.data.pointR }
+      : null;
+    const aimCell = aimPoint ? axialRound(aimPoint.q, aimPoint.r) : null;
+    const aimTile = aimCell
+      ? (castTiles as any[]).find((t: any) => t.q === aimCell.q && t.r === aimCell.r) ?? null
+      : null;
+    const tileId = parsed.data.tileId ?? (aimTile ? (aimTile as any).id : undefined);
+    const assertPointReach = (range: number = HOMELAND_CAST_RING) => {
+      if (!aimPoint) return;
+      if (!standTile) badRequest("You have no stand on this land to cast from.");
+      if (axialDist({ q: (standTile as any).q, r: (standTile as any).r }, aimPoint) > range + 1e-9) {
         badRequest(`“${spell.name}” lies beyond your casting reach — ring ${range} of where you stand.`);
       }
     };
@@ -9637,8 +9694,11 @@ export const handlers = {
       // THE BINDER'S RANGE (Recovery R9): the Springleaf is
       // a Binding working that heals — a Binder plants it at
       // twice the casting ring, and the grove she raises
-      // below spans twice the radius.
+      // below spans twice the radius. (2026-10-24: a point
+      // cast is judged by the point's own distance, the
+      // same ring in the point's tongue.)
       assertCastReach(tile, bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
+      if (aimPoint) assertPointReach(bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
       const springleafPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
       if (!(await spendEnergy(ownerKey, springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
       const cast = homelandCastRoll(progress, spell);
@@ -9659,7 +9719,14 @@ export const handlers = {
       const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
       for (const p of placements as any[]) {
         const pt = castTileById.get(p.tileId);
-        if (pt && hexDistTiles(pt as any, tile) <= radiusHexes) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false, castBinderBonus);
+        if (!pt) continue;
+        // The burst is judged from where the grove was
+        // planted: the tapped point when the cast carried
+        // one, the tile's heart on the hex road (2026-10-24).
+        const inGlow = aimPoint
+          ? axialDist({ q: (pt as any).q, r: (pt as any).r }, aimPoint) <= radiusHexes + 1e-9
+          : hexDistTiles(pt as any, tile) <= radiusHexes;
+        if (inGlow) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false, castBinderBonus);
       }
       // The saplings: 1d4, on distinct ground within 0.55 of
       // her radius (the Table's spacing), her own hex filling
@@ -9673,6 +9740,9 @@ export const handlers = {
       const saplings = sapTiles.map((t, i) => ({ tileId: t.id, dueAt: now + 1600 * (i + 1), expiresAt: 0, rooted: false }));
       const groveNums = {
         ...(spell.numbers ?? {}),
+        // The planted point, when the cast carried one —
+        // the view draws the grove's heart there (2026-10-24).
+        ...(aimPoint ? { aimQ: aimPoint.q, aimR: aimPoint.r } : {}),
         radiusHexes,
         healPerBreath: spell.numbers?.healPerBreath ?? 1,
         motherExpiresAt: now + 34000,
@@ -9735,7 +9805,30 @@ export const handlers = {
       // it in its walk-blocking and its strike pass.
       if (spell.engine === "blackgate") {
         if (!standTile) badRequest("You have no stand on this land to cast from.");
-        const step = facing ? blackGateStepFor(facing) : null;
+        let step = facing ? blackGateStepFor(facing) : null;
+        let gateFacing = facing;
+        // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built
+        // 2026-10-24): a cast carrying a tapped POINT and
+        // no facing reads its facing from the point — the
+        // direction from where the caster stands to where
+        // they pointed, taken as the nearest of the eight
+        // steps (the step whose ray the direction rides
+        // closest). The wall then stands exactly as a
+        // facing cast's does: one axial unit along that
+        // step from the stand tile's point. A facing named
+        // on the cast still rules, as it always has.
+        if (!step && aimPoint) {
+          const dq = aimPoint.q - (standTile as any).q, dr = aimPoint.r - (standTile as any).r;
+          if (Math.hypot(dq, dr) > 1e-6) {
+            let bestDot = -Infinity;
+            for (const f of BLACK_GATE_FACINGS) {
+              const s = BLACK_GATE_STEP[f];
+              const sl = Math.hypot(s[0], s[1]) || 1;
+              const dot = (dq * s[0] + dr * s[1]) / sl;
+              if (dot > bestDot) { bestDot = dot; step = s; gateFacing = f; }
+            }
+          }
+        }
         if (!step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
         const gateCost = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
         if (!(await spendEnergy(ownerKey, gateCost))) badRequest(`Not enough energy — ${spell.name} costs ${gateCost}.`);
@@ -9746,14 +9839,32 @@ export const handlers = {
         const nodes = [{ q: wallQ, r: wallR, hp: wallHp, maxHp: wallHp }];
         const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, 0, 'blackgate', ?, ?, ?, ?)")
           .run(ownerKey, wallQ, wallR, JSON.stringify(nodes), Date.now());
-        return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile.id, cost: gateCost, wallHp, facing, wallQ, wallR, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile.id, cost: gateCost, wallHp, facing: gateFacing, wallQ, wallR, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
       }
-      if (tileId == null || dir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
+      if (tileId == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
       const tileRows = await db.select().from(schema.territoryTiles)
         .where(and(eq(schema.territoryTiles.id, tileId), eq(schema.territoryTiles.ownerKey, ownerKey)));
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not yours to ward.");
       assertCastReach(tile);
+      if (aimPoint) assertPointReach();
+      // THE EDGE FROM THE POINT (2026-10-24): a ward cast
+      // carrying a tapped point and no edge direction takes
+      // the edge of the named hex whose midpoint the point
+      // lies nearest — the player pointed at the edge they
+      // meant, and the wall stands on it. A direction named
+      // on the cast still rules, as it always has.
+      let effDir = dir;
+      if (effDir == null && aimPoint) {
+        let bestD = Infinity;
+        for (let d = 0; d < 6; d++) {
+          const [wdq, wdr] = WALL_DIRS[d];
+          const mq = tile.q + wdq * 0.5, mr = tile.r + wdr * 0.5;
+          const dd = Math.hypot(aimPoint.q - mq, aimPoint.r - mr);
+          if (dd < bestD) { bestD = dd; effDir = d; }
+        }
+      }
+      if (effDir == null) badRequest("A ward stands on an edge: name the hex your Awokin holds and the edge (0–5).");
       // BULWARK (Nigel, 2026-10-23 — Recovery R12): the line
       // of shields is raised HERE, through the ward door's
       // own law — the purse charged before the roll, a
@@ -9777,7 +9888,7 @@ export const handlers = {
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: bulwarkCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, bulwarkCost), spellKey: spell.key };
         const count = bulwarkShieldCountFor(progress.level);
         const shieldHp = rockWallHpForLevel(progress.level);
-        const [bdq, bdr] = WALL_DIRS[dir];
+        const [bdq, bdr] = WALL_DIRS[effDir];
         const blen = Math.hypot(bdq, bdr) || 1;
         const fx = bdq / blen, fr = bdr / blen;
         const px = -fr, pr = fx; // the line runs along the aim's perpendicular — the edge's own line
@@ -9803,10 +9914,10 @@ export const handlers = {
       // Tender. (The edge must still be free — one work
       // per edge — and the hex still his: those are the
       // land's shape, not a holding.)
-      const [dq, dr] = WALL_DIRS[dir];
+      const [dq, dr] = WALL_DIRS[effDir];
       const nq = tile.q + dq, nr = tile.r + dr;
       const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
-      const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[dir] : dir;
+      const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[effDir] : effDir;
       const edgeKey = `${cq},${cr},${cdir}`;
       const wallRow = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as any;
       if (wallRow) badRequest(`That edge already carries a ${EDGE_WORK[wallRow.kind]?.name ?? "work"} — one work per edge.`);
@@ -9846,6 +9957,10 @@ export const handlers = {
       // the same snapshot modifiers as at the Table.
       const eff = workingEffects(ownerKey);
       const mapNums: Record<string, number> = { ...(spell.numbers ?? {}) };
+      // The tapped point rides the working, when the cast
+      // carried one — the view may draw the ward's heart
+      // where the player pointed (2026-10-24).
+      if (aimPoint) { mapNums.aimQ = aimPoint.q; mapNums.aimR = aimPoint.r; }
       if (spell.engine === "seal") {
         mapNums.stops = (mapNums.stops ?? 3) + eff.sealStops + (hue === "stone" ? eff.deepSetSealStops : 0);
         mapNums.riposte = (mapNums.riposte ?? 3) + eff.riposte + slots;
@@ -9898,10 +10013,21 @@ export const handlers = {
         const tile = castTileById.get(tileId) as any;
         if (!tile) badRequest("That hex is not on your map.");
         assertCastReach(tile);
+        if (aimPoint) assertPointReach();
         // The dark standing on the named ground: by its tile,
         // or by its free point's cell (the living battle's
         // tongue — a wanderer stands where its point stands).
-        const target = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+        // A point cast takes the shade standing ON the point
+        // first (2026-10-24): within half a hex of where the
+        // player tapped, the nearest answers.
+        const allWanderers = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
+        const target = (aimPoint
+          ? allWanderers
+              .filter((x: any) => x.pos_q != null && x.pos_r != null
+                && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, aimPoint) <= 0.5)
+              .sort((a: any, b: any) => axialDist({ q: Number(a.pos_q), r: Number(a.pos_r) }, aimPoint) - axialDist({ q: Number(b.pos_q), r: Number(b.pos_r) }, aimPoint))[0]
+          : undefined)
+          ?? allWanderers
           .find((x: any) => {
             if (Number(x.tile_id) === tileId) return true;
             if (x.pos_q == null || x.pos_r == null) return false;
@@ -9925,14 +10051,27 @@ export const handlers = {
       const tile = castTileById.get(tileId) as any;
       if (!tile) badRequest("That hex is not on your map.");
       if (!standTile) badRequest("You have no stand on this land to cast from.");
-      if (hexDistTiles(standTile as any, tile as any) > SHATTER_RANGE) {
+      // Shatter's reach is a DISTANCE (2026-10-24): from
+      // where the caster stands to where the cast lands —
+      // the tapped point when the cast carries one, the
+      // named hex's heart on the hex road.
+      if (aimPoint
+        ? axialDist({ q: (standTile as any).q, r: (standTile as any).r }, aimPoint) > SHATTER_RANGE + 1e-9
+        : hexDistTiles(standTile as any, tile as any) > SHATTER_RANGE) {
         badRequest("Beyond reach — 2 tiles is Rune Shatter's edge.");
       }
       if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
       const bonus = castModFor(progress.classKey, progress.level, spell.kind);
-      const foe = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+      const allFoes = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
+      const foe = (aimPoint
+        ? allFoes
+            .filter((x: any) => x.pos_q != null && x.pos_r != null
+              && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, aimPoint) <= 0.5)
+            .sort((a: any, b: any) => axialDist({ q: Number(a.pos_q), r: Number(a.pos_r) }, aimPoint) - axialDist({ q: Number(b.pos_q), r: Number(b.pos_r) }, aimPoint))[0]
+        : undefined)
+        ?? allFoes
         .find((x: any) => {
           if (Number(x.tile_id) === tileId) return true;
           if (x.pos_q == null || x.pos_r == null) return false;
@@ -9971,7 +10110,7 @@ export const handlers = {
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
           VALUES (?, ?, 'shatter', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
           .run(ownerKey, spell.key, spell.kind, hue, tileId, tile.q, tile.r,
-            JSON.stringify({ streamUntil: nowCast + heldSeconds * 1000, nextChargeAt: nowCast + 1000, nextPieceAt: nowCast + 333 }), nowCast);
+            JSON.stringify({ streamUntil: nowCast + heldSeconds * 1000, nextChargeAt: nowCast + 1000, nextPieceAt: nowCast + 333, ...(aimPoint ? { aimQ: aimPoint.q, aimR: aimPoint.r } : {}) }), nowCast);
         streamId = Number(info.lastInsertRowid);
       }
       return { ok: true as const, id: streamId ?? undefined, tileId, cost: newWorkingPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, shots, felled: felledShatter, hits: shots.filter(s => s.hit).length };
@@ -9984,6 +10123,7 @@ export const handlers = {
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not on your map to write upon.");
       assertCastReach(tile);
+      if (aimPoint) assertPointReach();
       const existing = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell')").get(ownerKey, tileId) as any;
       if (existing) badRequest("That ground is already written — one writing per hex.");
       // THE THREE BLADES ON THE MAP (the audit of 2026-10-20):
@@ -10022,6 +10162,12 @@ export const handlers = {
       // and the band is the dice's ONE feed — the page's slots
       // never feed the Rain (it holds none).
       let numsToStore: Record<string, number> = { ...(spell.numbers ?? {}) };
+      // The tapped point rides the writing (2026-10-24):
+      // the spring reads it (a dark thing standing on the
+      // point springs the writing), the loose reads it
+      // (the Blade answers by the distance from it), and
+      // the view draws the writing where it was laid.
+      if (aimPoint) { numsToStore.aimQ = aimPoint.q; numsToStore.aimR = aimPoint.r; }
       // The Zodiac rides the rune's stored numbers (tranche one).
       if (typeof numsToStore.power === "number") numsToStore.power += effR.runePower;
       if (typeof numsToStore.pinRounds === "number") numsToStore.pinRounds += effR.runePin;
@@ -10101,7 +10247,18 @@ export const handlers = {
     for (const w of blades) {
       const rt = tileById.get(Number(w.tile_id));
       if (!rt) continue;
-      const dist = hexDistTiles(rt, markTile);
+      // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built
+      // 2026-10-24): a Blade written at a tapped point
+      // answers by the DISTANCE from that point to the
+      // dark thing's own standing point — two hexes of
+      // ground, the book's own spring measure. A Blade
+      // written on the hex road keeps its hex measure.
+      let wNums: Record<string, number> = {};
+      try { wNums = JSON.parse(w.nums ?? "{}"); } catch { wNums = {}; }
+      const dist = typeof wNums.aimQ === "number" && typeof wNums.aimR === "number"
+        && wanderer.pos_q != null && wanderer.pos_r != null
+        ? axialDist({ q: wNums.aimQ, r: wNums.aimR }, { q: Number(wanderer.pos_q), r: Number(wanderer.pos_r) })
+        : hexDistTiles(rt, markTile);
       if (dist <= 2 && (!best || dist < best.dist)) best = { w, tile: rt, dist };
     }
     if (!best) badRequest("Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed.");

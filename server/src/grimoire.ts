@@ -479,14 +479,20 @@ export function defaultGrimoire(): GrimoireState {
   // Its page takes no attunement slots (it stands
   // outside POUR_ENGINES, as Bulwark does): its strength
   // is the cast level law Nigel ruled for it.
-  // THE TABLE SEAM, FLAGGED: the Table's cast machinery
-  // names an AIM by hexes (an edge, six directions) — it
-  // cannot honestly express an 8-facing cast (the
-  // diagonals have no neighbouring hex, and no facing
-  // is stored at the Table), so the Gate is NOT castable
-  // at the Table in this build: table.ts's ward door
-  // refuses it in plain words rather than faking a
-  // facing. The homeland build stands whole.
+  // THE TABLE SEAM, ANSWERED (2026-10-24, under the
+  // no-hex-lock law — Nigel, 2026-10-23 23:04: "make
+  // sure no spell or working is hex locked — range is
+  // the casting gate for spells"): R13 flagged the Gate
+  // uncastable at the Table because the Table named
+  // aims by hexes and kept no facing. The range law
+  // frees it: at the Table the player POINTS, and the
+  // wall stands one hex-length from where the caster
+  // stands in the direction of their point — the point
+  // gives the wall its facing, as the homeland's figure
+  // facing does. The Gate now stands on BOTH grounds:
+  // same filed shape (an impassable-to-the-dark wall,
+  // HP from the shared table at cast level), same filed
+  // price (✦8 as a ward, still UNRULED — see above).
   spells.push({
     key: "blackgate",
     name: "Black Gate",

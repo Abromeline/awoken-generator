@@ -40,6 +40,7 @@ import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
+import blackGateImg from "./assets/effects/black-gate.png";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
 import { elementPalette } from "./palette";
 
@@ -92,6 +93,9 @@ interface WorkingView {
   /** BULWARK (Recovery R12): the line of shields itself —
    *  each shield's field point and its own wounds. */
   shields?: { x: number; y: number; hp: number; maxHp: number }[];
+  /** THE BLACK GATE AT THE TABLE (2026-10-24): its one
+   *  wall node — the point it stands at and its wounds. */
+  wall?: { x: number; y: number; hp: number; maxHp: number } | null;
 }
 
 interface TableCard {
@@ -186,7 +190,7 @@ interface SharedState {
   rainFalls?: { id: string; at: number; hexes: string[] }[];
   /** THE SINGLE BLADE'S FLIGHTS (Recovery R4): a Blade was
    *  loosed — from its rune's hex, at the mark's point. */
-  bladeFlights?: { id: string; at: number; fromHex: string; to: { x: number; y: number } }[];
+  bladeFlights?: { id: string; at: number; fromHex: string; fromPos?: { x: number; y: number } | null; to: { x: number; y: number } }[];
   battle: { active: boolean; wave: number };
   strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean }[];
   /** MANIFEST (Phase C): live copies of a Tender's weapon,
@@ -553,6 +557,10 @@ export default function Table() {
   // tap — the held stream is bought by that measure.
   const castPressAtRef = useRef<number>(0);
   const [wardAnchor, setWardAnchor] = useState<string | null>(null);
+  /** NO HEX-LOCK (2026-10-24): the ward anchor's tapped
+   *  POINT, carried beside its hex — the cast is aimed by
+   *  the two points the player actually tapped. */
+  const [wardAnchorPt, setWardAnchorPt] = useState<{ x: number; y: number } | null>(null);
   const [bladePicks, setBladePicks] = useState<string[]>([]);
   const [callKeyInput, setCallKeyInput] = useState("");
   // VISUALIZED COMBAT (Nigel, 2026-10-17): the referee reports
@@ -771,7 +779,7 @@ export default function Table() {
   // cast's own transients (the anchor, the picks) at the
   // send.
   const unloadCast = () => {
-    setPlacing(null); setWardAnchor(null); setBladePicks([]);
+    setPlacing(null); setWardAnchor(null); setWardAnchorPt(null); setBladePicks([]);
   };
   unloadCastRef.current = unloadCast;
   useEffect(() => {
@@ -1838,9 +1846,15 @@ export default function Table() {
   // A tap on the land itself. The placing flows drink first;
   // then a chosen card is cast; then a chosen Awoken marches;
   // then the tap chooses (or cycles) my Awoken standing there.
-  const onTileTap = (t: MapTileView) => {
+  const onTileTap = (t: MapTileView, pt?: { x: number; y: number } | null) => {
     if (!you) return;
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
+    // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built
+    // 2026-10-24): the tap's own POINT rides the cast —
+    // the working is written where the player pointed,
+    // and range from where they stand is the only gate.
+    // A tap with no point to give (a programmatic tap)
+    // falls back to the tapped tile's heart.
     if (placing) {
       if (placing.kind === "attune") {
         // The tap lays one point of the readied element on
@@ -1854,7 +1868,7 @@ export default function Table() {
       if (placing.kind === "heal") {
         // The tap casts — and the placing stays armed: mend
         // another standing, or set the light down to stop.
-        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id }); beginCast(t.id); }
+        if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id, ...(pt ? { point: pt } : {}) }); beginCast(t.id); }
         return;
       }
       if (placing.kind === "rune") {
@@ -1868,27 +1882,43 @@ export default function Table() {
           // The new workings ride this same door; Shatter's
           // held stream is measured by the press itself.
           const heldMs = eng === "shatter" && castPressAtRef.current ? Math.max(0, Date.now() - castPressAtRef.current) : undefined;
-          send({ type: "castRune", root: placing.root, hexes: [t.id], ...(heldMs ? { heldMs } : {}) });
+          send({ type: "castRune", root: placing.root, hexes: [t.id], ...(pt ? { points: [pt] } : {}), ...(heldMs ? { heldMs } : {}) });
           beginCast(t.id);
           return;
         }
         if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
-          send({ type: "castRune", root: placing.root, hexes: [t.id] });
+          send({ type: "castRune", root: placing.root, hexes: [t.id], ...(pt ? { points: [pt] } : {}) });
           beginCast(t.id);
         }
+        return;
+      }
+      // THE BLACK GATE (2026-10-24): one tap, no anchor —
+      // the Gate stands where the player points, a
+      // hex-length from where they stand in the direction
+      // of the point. The placing stays armed, as every
+      // cast here does.
+      if (defs[placing.root]?.engine === "blackgate") {
+        const c = centerOf(t.id);
+        send({ type: "castWard", root: placing.root, point: pt ?? (c ? { x: c.cx, y: c.cy } : null) });
+        beginCast(t.id);
         return;
       }
       // ward: an anchor hex — ANY hex now (Nigel, 2026-10-20:
       // wards stand anywhere) — then a neighbour, for its edge.
       // The cast fires on the neighbour tap; the anchor alone
       // clears for the next edge, the placing stays armed.
-      if (!wardAnchor) { setWardAnchor(t.id); return; }
+      // The two tapped POINTS ride the cast (2026-10-24):
+      // the edge is read from the ground the player
+      // actually touched, and range alone gates it.
+      if (!wardAnchor) { setWardAnchor(t.id); setWardAnchorPt(pt ?? null); return; }
       const anchor = tileById.get(wardAnchor);
       if (anchor && axialDist(anchor, t) === 1) {
-        send({ type: "castWard", root: placing.root, hexA: wardAnchor, hexB: t.id });
+        const cB = centerOf(t.id);
+        send({ type: "castWard", root: placing.root, hexA: wardAnchor, hexB: t.id, pointA: wardAnchorPt, pointB: pt ?? (cB ? { x: cB.cx, y: cB.cy } : null) });
         beginCast(t.id);
         setWardAnchor(null);
-      } else if (t.id === wardAnchor) setWardAnchor(null);
+        setWardAnchorPt(null);
+      } else if (t.id === wardAnchor) { setWardAnchor(null); setWardAnchorPt(null); }
       return;
     }
     if (marchArmed && marchArmed.length) {
@@ -2732,7 +2762,7 @@ export default function Table() {
                       fill="transparent"
                       pointerEvents="all"
                       onPointerDown={() => { castPressAtRef.current = Date.now(); }}
-                      onClick={() => onTileTap(t)}
+                      onClick={(e) => onTileTap(t, stagePointOf(e.clientX, e.clientY))}
                       style={{ cursor: overlay || myUnitOn(t.id) ? "pointer" : "default" }}
                     />
                   </g>
@@ -2824,7 +2854,11 @@ export default function Table() {
                   );
                 }
                 if (w.kind === "rune" && w.hex) {
-                  const c = centerOf(w.hex);
+                  // Written at a tapped point, the writing is
+                  // drawn where it was laid (2026-10-24);
+                  // the hex road draws at the hex's heart.
+                  const hc = centerOf(w.hex);
+                  const c = w.pos ? { cx: w.pos.x, cy: w.pos.y } : hc;
                   if (!c) return null;
                   return (
                     <g key={w.id} pointerEvents="none">
@@ -2833,6 +2867,21 @@ export default function Table() {
                         : <text className="ts-glyph-fallback" x={c.cx} y={c.cy + 7} style={{ filter }}>✦</text>}
                       {(defs[w.root]?.engine === "blade" || defs[w.root]?.engine === "springblade") && <text className="ts-tag" x={c.cx} y={c.cy + 23}>{w.charges}✦</text>}
                       {defs[w.root]?.engine === "lattice" && <text className="ts-tag" x={c.cx} y={c.cy + 23}>❤{w.hp}</text>}
+                    </g>
+                  );
+                }
+                if (w.engine === "blackgate" && w.wall) {
+                  // THE BLACK GATE AT THE TABLE (2026-10-24):
+                  // Nigel's own Black Gate piece standing at
+                  // its wall point, paling as its wounds
+                  // deepen, its HP worn beneath it — as the
+                  // homeland draws it, and as Bulwark's
+                  // shields are drawn beside it here.
+                  const frac = Math.max(0, Math.min(1, w.wall.hp / Math.max(1, w.wall.maxHp)));
+                  return (
+                    <g key={w.id} pointerEvents="none" opacity={0.3 + 0.7 * frac}>
+                      <image href={blackGateImg} x={w.wall.x - 40} y={w.wall.y - 40} width={80} height={80} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 7px rgba(0,0,0,0.8))" }} />
+                      <text className="ts-tag" x={w.wall.x} y={w.wall.y + 48}>❤{w.wall.hp}</text>
                     </g>
                   );
                 }
@@ -2905,7 +2954,8 @@ export default function Table() {
                   rise from the rune's hex and spear down
                   into the mark from above. */}
               {(shared.bladeFlights ?? []).filter(f => nowMs - f.at < 1000).map(f => {
-                const c = centerOf(f.fromHex);
+                const hc = centerOf(f.fromHex);
+                const c = f.fromPos ? { cx: f.fromPos.x, cy: f.fromPos.y } : hc;
                 if (!c) return null;
                 return (
                   <g key={`bladeflight-${f.id}`} pointerEvents="none">
@@ -3045,14 +3095,15 @@ export default function Table() {
                 <span className="placing-text">
                   {placing.kind === "attune" && <>Attuning with <strong>{placing.root}</strong> — tap ground {you?.storytender ? <>anywhere on the field</> : <>within your reach — your hex and its ring{(you?.attuneReach ?? 0) > 0 ? <> and {you?.attuneReach} ring{(you?.attuneReach ?? 0) > 1 ? "s" : ""} more by your skill</> : null}</>} to lay a {placing.root} point on it — 1 point of {placing.root} from your pool ({Math.floor(you?.pools?.[placing.root] ?? 0)} held). The point rests in the ground's own ledger; ground a rune or ward stands on takes the point the same way. Attune on until you set it down or the pool runs dry.</>}
                   {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down, your purse empties, or a roll falls short.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. Written, it waits ARMED: click a dark thing within two hexes of its ground and its blades rise and spear down into it from above. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
+                  {placing.kind === "rune" && defs[placing.root]?.engine === "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap the ground to write it THERE, where you tap, within your reach — range alone gates the writing. Written, it waits ARMED: click a dark thing within two hexes of its ground and its blades rise and spear down into it from above. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && defs[placing.root]?.engine !== "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down, your purse empties, or a roll falls short.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
                   {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}
                   {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex: the ward will stand on one of its edges. Wards stand anywhere now — but cursed ground eats what stands on it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two. It stays in your hand — raise another edge when this one lands.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine === "blackgate" && <>Raising the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap the ground where you point: the Gate rises one hex-length from where you stand, in the direction of your tap. Range alone gates it — beyond your reach, it will not rise. The dark cannot pass it while it stands.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && defs[placing.root]?.engine !== "blackgate" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex within your reach: the ward will stand on one of its edges. Range alone gates the cast now — but cursed ground eats what stands on it.</>}
+                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && defs[placing.root]?.engine !== "blackgate" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two. It stays in your hand — raise another edge when this one lands.</>}
                 </span>
                 {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
                   <button className="table-btn primary" onClick={() => {

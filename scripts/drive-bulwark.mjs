@@ -103,6 +103,10 @@ async function claim(name, exp, classKey = "warden") {
   const now = Date.now();
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = excluded.total_exp").run(ownerKey, exp, now);
   db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 5000, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 5000").run(ownerKey, now);
+  // FIXTURE REPAIR (2026-10-24, the no-hex-lock build): the
+  // choosing now opens only after the first three wakes
+  // (landed after this drive was written) — seed them first.
+  if (classKey) { seedAwokin(ownerKey, name, `${name} Wake One`, "root"); seedAwokin(ownerKey, name, `${name} Wake Two`, "root"); seedAwokin(ownerKey, name, `${name} Wake Three`, "root"); }
   if (classKey) await call("chooseClass", { classKey }, c.token);
   return { token: c.token, ownerKey, tenderId, name };
 }

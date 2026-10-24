@@ -97,6 +97,10 @@ async function mkTender(name, exp, classKey, discId) {
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
   const ownerKey = `tender:${tenderId}`;
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = excluded.total_exp").run(ownerKey, exp, Date.now());
+  // FIXTURE REPAIR (2026-10-24, the no-hex-lock build): the
+  // choosing now opens only after the first three wakes
+  // (landed after this drive was written) — seed them first.
+  if (classKey) { mkAwokin(ownerKey, name, `${name} Wake One`, 2); mkAwokin(ownerKey, name, `${name} Wake Two`, 2); mkAwokin(ownerKey, name, `${name} Wake Three`, 2); }
   if (classKey) await call("chooseClass", { classKey }, claim.token);
   const tt = issueTableToken({ id: discId, name });
   const bindCode = (await call("getTableBindCode", {}, claim.token)).code;

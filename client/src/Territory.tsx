@@ -2584,7 +2584,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // pointerdown below) and ends at the cast tap; the held
   // stream the server stands is bought by that measure.
   const castPressAtRef = useRef<number>(0);
-  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number; heldMs?: number; facing?: string }) => {
+  const doCastMap = async (args: { tileId?: number; dir?: number; awakenedId?: number; heldMs?: number; facing?: string; pointQ?: number; pointR?: number }) => {
     if (!castSpell) return;
     // THE CAST GESTURE FOR WORKINGS (Nigel, 2026-10-23 —
     // "I want casting animation on homeland too"): a working
@@ -2669,8 +2669,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (/^Not enough energy/.test(msg)) endMapCastRun();
     }
   };
-  const handleCastTap = (tile: { id: number; cursed: number | boolean }) => {
+  const handleCastTap = (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
     if (!castSpell) { showHexNotice("No working is readied — right-click and pick one from the wheel."); return; }
+    // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built
+    // 2026-10-24): the tap's own POINT rides the cast —
+    // the working lands where the player pointed, and the
+    // distance from where they stand is the only gate.
+    const pointArgs = pt ? { pointQ: pt.q, pointR: pt.r } : {};
     // BLACK GATE (Nigel, 2026-10-23 — Recovery R13): the
     // Gate names no ground and no edge — it is cast IN
     // FRONT OF THE CASTER in the direction they face, so
@@ -2679,12 +2684,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // the 8-direction facing the figure strides and is
     // drawn by) to the server whole, and the wall stands
     // at his point stepped along it, wherever the tap
-    // happened to land.
-    if (castSpell.engine === "blackgate") { void doCastMap({ facing: tenderFacingRef.current }); return; }
+    // happened to land. (2026-10-24: a tap carrying a
+    // point aims the Gate by the point instead — the
+    // server reads the facing from the direction of the
+    // point, the range law's own tongue.)
+    if (castSpell.engine === "blackgate") { void doCastMap(pt ? { ...pointArgs } : { facing: tenderFacingRef.current }); return; }
     // The Springleaf is a binding by the book's filing, but
     // she is planted on GROUND, not cast on a body — the tap
     // casts her on her hex (Homeland Casting).
-    if (castSpell.engine === "springleaf") { void doCastMap({ tileId: tile.id }); return; }
+    if (castSpell.engine === "springleaf") { void doCastMap({ tileId: tile.id, ...pointArgs }); return; }
     if (castSpell.engine === "heal" || castSpell.kind === "binding") {
       const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
         const a = tenderItems.find((x) => x.id === p.awakenedId);
@@ -2715,10 +2723,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     if (castSpell.engine === "shatter") {
       const heldMs = castPressAtRef.current ? Math.max(0, Date.now() - castPressAtRef.current) : 0;
-      void doCastMap({ tileId: tile.id, heldMs });
+      void doCastMap({ tileId: tile.id, heldMs, ...pointArgs });
       return;
     }
-    void doCastMap({ tileId: tile.id });
+    void doCastMap({ tileId: tile.id, ...pointArgs });
   };
 
   // ── MARCH ORDERS OBEYED (Nigel, 2026-10-22 — the
@@ -2836,10 +2844,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (marched) showHexNotice(`The line is taken — ${marched} on the road, spread evenly along it.`);
   };
 
-  const handleHexTap = (tile: { id: number; cursed: number | boolean }) => {
+  const handleHexTap = (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
     if (attuneElement) { void handleAttuneTap(tile); return; }
-    if (castMode && castSpellKey) { handleCastTap(tile); return; }
+    if (castMode && castSpellKey) { handleCastTap(tile, pt); return; }
     if (pendingMarch) {
       // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
       // the march; this tap IS the order — fired at once, no
@@ -4064,7 +4072,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   // or it bubbles into the map's dismiss handler and erases
                   // the confirm/targeting this very tap just raised.
                   e.stopPropagation();
-                  handleHexTap(t);
+                  // The tap's own point on the land rides
+                  // the tap (2026-10-24): a cast aimed by
+                  // this tap lands where the player pointed.
+                  const sp = svgPoint(e.clientX, e.clientY);
+                  handleHexTap(t, sp ? screenToAxial(sp.x, sp.y, pan, zoom) : null);
                 }} />
             </g>
           );
@@ -4193,6 +4205,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const t = w.tileId != null ? tiles.find((tt) => tt.id === w.tileId) : null;
           if (!t) return null;
           const { cx, cy } = tilePos(t);
+          // A working laid at a tapped point is drawn where
+          // it was laid (2026-10-24): the point's screen
+          // place, by the land's own iso delta from its
+          // tile's heart — the pattern the figures' free
+          // points are drawn by.
+          let drawCx = cx, drawCy = cy;
+          if ((w.kind === "rune" || w.kind === "spell" || w.engine === "springleaf")
+            && typeof (w.nums as any)?.aimQ === "number" && typeof (w.nums as any)?.aimR === "number") {
+            const dpA = isoOffset((w.nums as any).aimQ, (w.nums as any).aimR, size);
+            const dcA = isoOffset(t.q, t.r, size);
+            drawCx = cx + (dpA.px - dcA.px); drawCy = cy + (dpA.py - dcA.py);
+          }
           if (w.engine === "springleaf") {
             // THE GROVE (Homeland Casting): the mother drawn
             // as her living glow — the radius the server
@@ -4205,7 +4229,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             return (
               <g key={w.id} opacity={0.92}>
                 <title>{`${title} — a living grove; the company standing in her glow mends.`}</title>
-                <circle cx={cx} cy={cy} r={radiusPx} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1 / zoom} pointerEvents="none" />
+                <circle cx={drawCx} cy={drawCy} r={radiusPx} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1 / zoom} pointerEvents="none" />
                 {saps.filter(s => s.rooted).map((s, i) => {
                   const st = tiles.find((tt) => tt.id === s.tileId);
                   if (!st) return null;
@@ -4213,8 +4237,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   return <circle key={i} cx={sp2.cx} cy={sp2.cy} r={radiusPx / 2} fill="rgba(125,208,105,0.08)" stroke="rgba(125,208,105,0.25)" strokeWidth={0.7 / zoom} pointerEvents="none" />;
                 })}
                 {img
-                  ? <image href={img} x={cx - size * 0.34} y={cy - size * 0.34} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />
-                  : <text x={cx} y={cy + size * 0.22} textAnchor="middle" fontSize={size * 0.62} pointerEvents="none">🌿</text>}
+                  ? <image href={img} x={drawCx - size * 0.34} y={drawCy - size * 0.34} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />
+                  : <text x={drawCx} y={drawCy + size * 0.22} textAnchor="middle" fontSize={size * 0.62} pointerEvents="none">🌿</text>}
               </g>
             );
           }
@@ -4268,10 +4292,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             return (
               <g key={w.id} opacity={0.95}>
                 <title>{`${title} — it hovers over this hex, waiting for a dark thing of power ${w.nums.minPower ?? 5}+ to stand beneath it; then it falls on the whole hex.`}</title>
-                <ellipse cx={cx} cy={cy + size * 0.20} rx={size * 0.30} ry={size * 0.10} fill="rgba(0,0,0,0.35)" pointerEvents="none" />
+                <ellipse cx={drawCx} cy={drawCy + size * 0.20} rx={size * 0.30} ry={size * 0.10} fill="rgba(0,0,0,0.35)" pointerEvents="none" />
                 <g>
                   <animateTransform attributeName="transform" type="translate" values={`0 ${(-size * 0.05).toFixed(2)}; 0 ${(size * 0.05).toFixed(2)}; 0 ${(-size * 0.05).toFixed(2)}`} dur="2.6s" repeatCount="indefinite" />
-                  {img && <image href={img} x={cx - size * 0.34} y={cy - size * 0.98} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />}
+                  {img && <image href={img} x={drawCx - size * 0.34} y={drawCy - size * 0.98} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />}
                 </g>
               </g>
             );
@@ -4279,7 +4303,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           return (
             <g key={w.id} opacity={0.92}>
               <title>{title}</title>
-              {img && <image href={img} x={cx - size * 0.30} y={cy - size * 0.30} width={size * 0.60} height={size * 0.60} style={{ filter }} pointerEvents="none" />}
+              {img && <image href={img} x={drawCx - size * 0.30} y={drawCy - size * 0.30} width={size * 0.60} height={size * 0.60} style={{ filter }} pointerEvents="none" />}
             </g>
           );
         })}
@@ -4306,7 +4330,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none" />
                 {!taken && (
                   <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26 / zoom} strokeLinecap="round" style={{ cursor: "pointer" }}
-                    onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d }); }} />
+                    onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d, pointQ: t.q + WALL_DIR_DELTAS[d][0] * 0.5, pointR: t.r + WALL_DIR_DELTAS[d][1] * 0.5 }); }} />
                 )}
               </g>
             );

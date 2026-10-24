@@ -460,6 +460,14 @@ interface Working {
    *  TOTAL (for the view); the shields' HP is the body
    *  the battle reckons, node by node. */
   shields?: { x: number; y: number; hp: number; maxHp: number }[];
+  /** THE BLACK GATE AT THE TABLE (Nigel, 2026-10-23 —
+   *  Recovery R13's flag, answered by the no-hex-lock law
+   *  of 2026-10-23 23:04): the Gate's one wall node — the
+   *  point it stands at and its own wounds. Its body is
+   *  this node's HP alone, struck in the battle pass like
+   *  a Bulwark shield's; the working's hp/maxHp carry the
+   *  same figure for the view. */
+  wall?: { x: number; y: number; hp: number; maxHp: number } | null;
   bornAt?: number;
   nextBiteAt?: number;
   bites?: number;
@@ -564,6 +572,47 @@ function axialDist(a: string, b: string): number {
   if (!ta || !tb) return 999;
   const dq = ta.q - tb.q, dr = ta.r - tb.r;
   return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+}
+/** NO HEX-LOCK — RANGE IS THE CASTING GATE (Nigel,
+ *  2026-10-23 23:04): "make sure no spell or working is hex
+ *  locked — range is the casting gate for spells." A cast
+ *  at this Table is aimed by the point the player tapped
+ *  and gated by the DISTANCE from where the caster
+ *  stands, in the working's own reach reckoning — nothing
+ *  else. One hex of this ground spans ~69 px (the measure
+ *  the weapon's reach and the dark's claw already reckon
+ *  by: neighbouring tile centres stand 64.9 × 47.4 px
+ *  apart on the iso basis, and 69 is the field's standing
+ *  hex measure). A seat that stands nowhere (the
+ *  storytender) is measured by no ring, as Attune and Heal
+ *  at this Table have always held. */
+const HEX_PX = 69;
+function casterPointOf(player: Player): Pt | null {
+  if (player.pos) return player.pos;
+  if (player.hex) return TILE_CENTERS.get(player.hex) ?? null;
+  return null;
+}
+/** The range gate itself: refuse in plain words when the
+ *  tapped point lies beyond the working's reach (in hexes)
+ *  from the caster's standing point. Returns the refusal
+ *  text, or null when the cast may land. */
+function rangeRefusal(player: Player, aim: Pt, reachHexes: number, spellName: string): string | null {
+  const from = casterPointOf(player);
+  if (!from) return null; // a seat that stands nowhere is measured by no ring
+  const d = distPx(from, aim);
+  if (d > reachHexes * HEX_PX + 1) {
+    return `Beyond reach — ${spellName} is gated by range alone, and that ground lies ${Math.max(1, Math.round(d / HEX_PX))} hexes from where you stand; its reach is ${reachHexes}. Step closer, and cast again.`;
+  }
+  return null;
+}
+/** A tapped point off the message, judged for sanity: it
+ *  must be two finite numbers somewhere near the field. */
+function pointOf(v: unknown): Pt | null {
+  if (!v || typeof v !== "object") return null;
+  const x = Number((v as any).x), y = Number((v as any).y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (Math.abs(x) > 2000 || Math.abs(y) > 2000) return null;
+  return { x, y };
 }
 /** A road that dares any ground (the land's seed-mission road,
  *  findAnyRoad, ported): at the Table the march may cross and
@@ -797,7 +846,7 @@ interface Room {
    *  like the rain's fall — the rune's hex and the mark's
    *  standing point at the loose, so clients can fly the
    *  blades up from the writing and spear them down. */
-  bladeFlights?: { id: string; at: number; fromHex: string; to: Pt }[];
+  bladeFlights?: { id: string; at: number; fromHex: string; fromPos?: Pt | null; to: Pt }[];
   /** PASSIVE WALLS (Phase C): when a passive ward on an edge
    *  is broken, the moment it may re-raise (edge|owner → at). */
   passiveRearm?: Map<string, number>;
@@ -2066,15 +2115,24 @@ function stepToward(e: { pos: Pt; target: Pt | null }, speedPx: number, dt: numb
  *  the field (a wall is a wall, whoever raised it — the
  *  passive walls' own law at this Table), or null when no
  *  shield stands within `reach` px. The shields are the
- *  working's body: a shield at 0 HP is no shield at all. */
-function nearestBulwarkShield(room: Room, pos: Pt, reach: number): { w: Working; s: { x: number; y: number; hp: number; maxHp: number }; d: number } | null {
-  let best: { w: Working; s: { x: number; y: number; hp: number; maxHp: number }; d: number } | null = null;
+ *  working's body: a shield at 0 HP is no shield at all.
+ *  THE BLACK GATE'S WALL stands in this same reckoning
+ *  (2026-10-24, the no-hex-lock build): its one node is a
+ *  wall body exactly as a shield is — the dark halts at it,
+ *  strikes it, and is shoved back from it — so the scan
+ *  reads both bodies and names which it found. */
+function nearestStandingWall(room: Room, pos: Pt, reach: number): { w: Working; s: { x: number; y: number; hp: number; maxHp: number }; gate: boolean; d: number } | null {
+  let best: { w: Working; s: { x: number; y: number; hp: number; maxHp: number }; gate: boolean; d: number } | null = null;
   for (const w of room.workings) {
-    if (w.engine !== "bulwark" || !w.shields) continue;
-    for (const s of w.shields) {
-      if (s.hp <= 0) continue;
-      const d = distPx(pos, s);
-      if (d <= reach && (!best || d < best.d)) best = { w, s, d };
+    if (w.engine === "bulwark" && w.shields) {
+      for (const s of w.shields) {
+        if (s.hp <= 0) continue;
+        const d = distPx(pos, s);
+        if (d <= reach && (!best || d < best.d)) best = { w, s, gate: false, d };
+      }
+    } else if (w.engine === "blackgate" && w.wall && w.wall.hp > 0) {
+      const d = distPx(pos, w.wall);
+      if (d <= reach && (!best || d < best.d)) best = { w, s: w.wall, gate: true, d };
     }
   }
   return best;
@@ -2114,7 +2172,7 @@ function integrate(room: Room, now: number): void {
       // walls' note stands for them; Bulwark's ruling is
       // its own: a line of shields, in the Rock Wall's
       // working fashion, and the Rock Wall blocks.)
-      if (nearestBulwarkShield(room, e.pos, 46)) { e.target = null; continue; }
+      if (nearestStandingWall(room, e.pos, 46)) { e.target = null; continue; }
       // STEERING: the nearest standing light, if it can be clawed
       // or is nearer than the seed; otherwise the seed itself —
       // but at the gate (ring 1) it halts and assaults.
@@ -2440,7 +2498,10 @@ function settleWorkingWithering(room: Room, dtSec: number): boolean {
     // struck node by node in the battle pass — the curse
     // does not also eat the line through this ledger (the
     // homeland's defence works carry no wither either).
-    if (w.engine === "bulwark") continue;
+    // THE BLACK GATE stands the same way (2026-10-24): its
+    // body is its wall node's HP, and the homeland's Gate
+    // carries no wither either.
+    if (w.engine === "bulwark" || w.engine === "blackgate") continue;
     const ground = w.kind === "rune"
       ? (w.hex ? [w.hex] : [])
       : [w.hexA, w.hexB].filter((h): h is string => !!h);
@@ -3079,12 +3140,22 @@ function endCampaign(room: Room, how: "ended" | "fallen"): void {
   sendState(room);
 }
 
-/** Spring the rune written on a hex, if the dark stands on it. */
+/** Spring the rune written on a hex, if the dark stands on it.
+ *  NO HEX-LOCK (Nigel, 2026-10-23 23:04; built 2026-10-24):
+ *  a rune written at a tapped POINT also springs for a dark
+ *  thing standing on that point — within half a hex of the
+ *  writing (34 px, the measure the homeland's written
+ *  ground springs by) — not only for one whose derived hex
+ *  is the writing's hex. The hex spring stands as it always
+ *  has; the point widens the ground the writing covers to
+ *  the ground the player actually wrote on. */
+const POINT_SPRING_PX = 34;
 function springHex(room: Room, hex: string, fired: Set<string>): void {
-  const darkHere = [...room.dark.values()].filter(e => e.hex === hex);
-  if (!darkHere.length) return;
   const rune = room.workings.find(w => w.kind === "rune" && w.hex === hex && !fired.has(w.id));
   if (!rune) return;
+  const darkHere = [...room.dark.values()].filter(e => e.hex === hex
+    || (!!rune.pos && distPx(e.pos, rune.pos) <= POINT_SPRING_PX));
+  if (!darkHere.length) return;
   // THE SINGLE BLADE NEVER SPRINGS HERE (Nigel, 2026-10-20;
   // re-ruled 2026-10-23 — Recovery R4): engine "blade"
   // waits armed for the click (the looseBlade door), so a
@@ -3777,7 +3848,7 @@ async function runRound(room: Room): Promise<void> {
       // untouched in the rolls that read them (strikeOnce,
       // the runic weapon), and no pre-drop figure enters.
       {
-        const hitShield = nearestBulwarkShield(room, enemy.pos, 69);
+        const hitShield = nearestStandingWall(room, enemy.pos, 69);
         const nearestUnitD = inReach.length ? Math.min(...inReach.map(u => distPx(enemy.pos, u.pos))) : Infinity;
         if (hitShield && hitShield.d <= nearestUnitD) {
           if (now < (enemy.nextStrike ?? 0)) continue;
@@ -3785,7 +3856,8 @@ async function runRound(room: Room): Promise<void> {
           enemy.struck = true;
           const { w, s } = hitShield;
           s.hp -= enemy.power;
-          w.hp = (w.shields ?? []).reduce((sum, x) => sum + Math.max(0, x.hp), 0);
+          if (hitShield.gate) w.hp = Math.max(0, s.hp);
+          else w.hp = (w.shields ?? []).reduce((sum, x) => sum + Math.max(0, x.hp), 0);
           const kb = Math.hypot(enemy.pos.x - s.x, enemy.pos.y - s.y);
           let ux = kb > 0 ? (enemy.pos.x - s.x) / kb : 0, uy = kb > 0 ? (enemy.pos.y - s.y) / kb : -1;
           if (kb === 0) { const sc = TILE_CENTERS.get(SEED_TILE)!; const sl = Math.hypot(enemy.pos.x - sc.x, enemy.pos.y - sc.y) || 1; ux = (enemy.pos.x - sc.x) / sl; uy = (enemy.pos.y - sc.y) / sl; }
@@ -3793,12 +3865,19 @@ async function runRound(room: Room): Promise<void> {
           enemy.target = null;
           witness(s, enemy.pos, w.hue && w.hue !== "unaligned" ? w.hue : "unaligned", "dark", true, s.hp <= 0);
           if (s.hp <= 0) {
-            w.shields = (w.shields ?? []).filter(x => x.hp > 0);
-            tell(room, `A shield of ${w.name} is struck through and falls — the ${enemy.label} is shoved back, and the line opens there.`);
-            if (!w.shields.length) {
+            if (hitShield.gate) {
               room.workings = room.workings.filter(x => x !== w);
-              tell(room, `${w.name} stands no more — its last shield has fallen.`);
+              tell(room, `${w.name} is struck through and falls — the ${enemy.label} is shoved back, and the road opens where the Gate stood.`);
+            } else {
+              w.shields = (w.shields ?? []).filter(x => x.hp > 0);
+              tell(room, `A shield of ${w.name} is struck through and falls — the ${enemy.label} is shoved back, and the line opens there.`);
+              if (!w.shields.length) {
+                room.workings = room.workings.filter(x => x !== w);
+                tell(room, `${w.name} stands no more — its last shield has fallen.`);
+              }
             }
+          } else if (hitShield.gate) {
+            tell(room, `${w.name} takes the ${enemy.label}'s blow (${s.hp} HP stands) — the dark cannot pass it, and is shoved back.`);
           } else {
             tell(room, `${w.name}'s shield takes the ${enemy.label}'s blow (${s.hp} HP stands) — and shoves it back.`);
           }
@@ -5071,22 +5150,39 @@ function handleConnection(ws: WebSocket): void {
       if (!player) return;
       if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no mending — bind in the game to cast." })); return; }
       const myKey = player.key;
-      const unit = unitsAt(room, String(msg.hex || "")).filter(u => u.ownerKey === myKey)
-        .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+      // NO HEX-LOCK (Nigel, 2026-10-23 23:04): the mending
+      // may be aimed by the tapped POINT — the most-hurt of
+      // the caster's own Awokin standing within half a hex of
+      // it answers. The hex road stands for older clients;
+      // both roads are one reckoning below: the DISTANCE
+      // from where the caster stands to where the mended one
+      // stands, against the class's binding reach, is the
+      // only gate.
+      const aimPt = pointOf((msg as any).point);
+      const unit = aimPt
+        ? standingUnits(room).filter(u => u.ownerKey === myKey && distPx(u.pos, aimPt) <= POINT_SPRING_PX)
+            .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0]
+        : unitsAt(room, String(msg.hex || "")).filter(u => u.ownerKey === myKey)
+            .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
       // THE BINDER'S RANGE (Nigel, 2026-10-22; Recovery R9):
       // Heal is a Binding working that heals, and its reach
       // is the casting ring — six hexes, the measure the
       // homeland reads from this ground's own size
       // (HOMELAND_CAST_RING) — from where the caster stands
-      // to the mended one's hex, doubled for a Binder's cast
+      // to the mended one, doubled for a Binder's cast
       // (bindingHealRangeFor). Judged before any charge, as
       // every reach refusal is. A seat that stands nowhere
       // (the storytender) is measured by no ring, as with
-      // Attune at this Table.
-      if (player.hex) {
-        const healRange = bindingHealRangeFor(player.classKey, HOMELAND_CAST_RING);
-        if (axialDist(player.hex, unit.hex) > healRange) { ws.send(JSON.stringify({ type: "error", message: `Heal reaches ${healRange} hexes from where you stand — ${unit.card.name} stands beyond it.` })); return; }
+      // Attune at this Table. (2026-10-24: the measure is
+      // the distance between the two standing points, not
+      // the hexes they happen to stand on.)
+      {
+        const from = casterPointOf(player);
+        if (from) {
+          const healRange = bindingHealRangeFor(player.classKey, HOMELAND_CAST_RING);
+          if (distPx(from, unit.pos) > healRange * HEX_PX + 1) { ws.send(JSON.stringify({ type: "error", message: `Heal reaches ${healRange} hexes from where you stand — ${unit.card.name} stands beyond it.` })); return; }
+        }
       }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = witchCompanyPrice(room, player, healSpell()?.cost ?? 2);
@@ -5133,23 +5229,28 @@ function handleConnection(ws: WebSocket): void {
       // engine only. Every other non-ward def is still refused.
       const isSpringleaf = def?.engine === "springleaf";
       if (!def || (def.kind !== "ward" && !isSpringleaf)) { ws.send(JSON.stringify({ type: "error", message: "That is not a ward of the Written Light." })); return; }
-      // BLACK GATE — THE TABLE SEAM, FLAGGED (Nigel,
-      // 2026-10-23 — Recovery R13): the Gate is cast IN
-      // FRONT OF THE CASTER in the direction they face —
-      // eight facings, diagonals included. This door's
-      // cast machinery names an AIM by hexes (hexA/hexB,
-      // an edge — six directions, the diagonals have no
-      // neighbouring hex) and the Table stores no facing
-      // for a seat (its figure's facing is drawn from its
-      // glide at render, never kept), so a facing cast
-      // cannot be honestly expressed here. The door
-      // refuses the Gate in plain words BEFORE any charge
-      // rather than faking a facing from an aim or a
-      // default; the Gate stands whole on the homeland,
-      // where the figure's facing is real. (Its ward
-      // filing itself is an UNRULED derivation — see its
-      // page in grimoire.ts.)
-      if (def.engine === "blackgate") { ws.send(JSON.stringify({ type: "error", message: "The Black Gate is cast in the direction you face — the Table names a cast's aim by hexes, not a facing, so the Gate cannot be cast here. It stands on the homeland, in front of your figure where it faces." })); return; }
+      // BLACK GATE — THE TABLE SEAM, ANSWERED (Nigel,
+      // 2026-10-23 — Recovery R13 flagged it; the
+      // no-hex-lock law of 2026-10-23 23:04 frees it, built
+      // 2026-10-24): R13 refused the Gate here because this
+      // door named aims by hexes and the Table keeps no
+      // facing. Under the range law the player POINTS: the
+      // tapped point within range aims the Gate — the wall
+      // stands one hex-length from where the caster stands,
+      // in the direction of their point, which IS the
+      // facing the homeland reads from the figure. A Gate
+      // cast naming no point is refused in plain words
+      // before any charge; the Gate's branch stands below,
+      // after this door's common charge and roll. (Its ward
+      // filing and ✦8 price remain an UNRULED derivation —
+      // see its page in grimoire.ts.)
+      const isGate = def.engine === "blackgate";
+      const gateAim = isGate ? pointOf((msg as any).point) : null;
+      if (isGate) {
+        if (!gateAim) { ws.send(JSON.stringify({ type: "error", message: "The Black Gate stands where you point — tap the ground within reach, and the Gate rises one hex-length from where you stand, in the direction of your point. A cast that names no point cannot raise it." })); return; }
+        const gateRefusal = rangeRefusal(caster, gateAim, HOMELAND_CAST_RING, def.name);
+        if (gateRefusal) { ws.send(JSON.stringify({ type: "error", message: gateRefusal })); return; }
+      }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
       // 2026-10-20 19:35): a hue riding in on this message
@@ -5158,8 +5259,28 @@ function handleConnection(ws: WebSocket): void {
       // hue changes nothing. An unbound seat holds no book
       // and casts unaligned.
       const hue = caster.expKey ? await pageHueFor(caster.expKey, def) : "unaligned";
-      const hexA = String(msg.hexA || "");
-      const hexB = String(msg.hexB || "");
+      // NO HEX-LOCK — THE AIM IS A POINT (Nigel, 2026-10-23
+      // 23:04): a ward cast may carry the two tapped POINTS
+      // (pointA the anchor tap, pointB the facing tap). The
+      // edge the ward stands on is the edge between the two
+      // tiles those points fall in — the points are the aim;
+      // the hexes remain only as the edge's name for the
+      // strike-side machinery that reads edges. The
+      // Springleaf's grove stands at its tapped point itself.
+      const ptA = pointOf((msg as any).pointA);
+      const ptB = pointOf((msg as any).pointB);
+      const grovePt: Pt | null = isSpringleaf ? (ptB ?? pointOf((msg as any).point)) : null;
+      let hexA = String(msg.hexA || "");
+      let hexB = String(msg.hexB || "");
+      if (ptA && ptB) { hexA = nearestTileId(ptA); hexB = nearestTileId(ptB); }
+      if (grovePt) {
+        hexB = nearestTileId(grovePt);
+        const nb = neighborsOf(hexB);
+        const fromPt = casterPointOf(caster);
+        hexA = fromPt && nb.length
+          ? nb.reduce((best, h) => (distPx(TILE_CENTERS.get(h)!, fromPt) < distPx(TILE_CENTERS.get(best)!, fromPt) ? h : best), nb[0])
+          : (nb[0] ?? hexB);
+      }
       // WARDS STAND ANYWHERE (Nigel, 2026-10-20): "wards and
       // runes should be able to be cast anywhere." The held-
       // ground anchor is LIFTED — any edge of the map may
@@ -5168,7 +5289,24 @@ function handleConnection(ws: WebSocket): void {
       // cursed ground suffers the curse's attrition, like the
       // Tender. The edge itself must still exist — the two
       // tiles share a side — for that is geometry, not ground.
-      if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
+      // THE RANGE LAW (Nigel, 2026-10-23 23:04) now gates
+      // where "anywhere" reaches: the six-hex casting ring
+      // from where the caster stands, the homeland's own
+      // measure — distance is the only gate on the cast.
+      if (!isGate) {
+        // RANGE IS JUDGED FIRST (2026-10-24): a cast aimed
+        // by points at far ground meets the range refusal,
+        // not an edge refusal — the edge is only the aim's
+        // name, read from the points after range allows it.
+        // The Springleaf keeps its own reach reckoning —
+        // the Binder's doubled ring, as on the homeland.
+        const aimForRange = ptB ?? grovePt ?? TILE_CENTERS.get(hexB) ?? null;
+        if (aimForRange) {
+          const rr = rangeRefusal(caster, aimForRange, isSpringleaf ? bindingHealRangeFor(caster.classKey, HOMELAND_CAST_RING) : HOMELAND_CAST_RING, def.name);
+          if (rr) { ws.send(JSON.stringify({ type: "error", message: rr })); return; }
+        }
+      }
+      if (!isGate && !neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
       // BULWARK (Recovery R12) stands apart from the edge
       // law below: its line does not stand ON the edge the
       // cast names — the edge is the cast's aim (hexA the
@@ -5191,23 +5329,72 @@ function handleConnection(ws: WebSocket): void {
       // The Springleaf is a binding cast, not a ward: the
       // ward-side economies (Second Wall, Steady Attention)
       // do not ride it — its price is the def's ✦3, plain.
-      if (!isSpringleaf && eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
+      if (!isSpringleaf && !isGate && eff.secondWall && !caster.secondWallUsed) { castCost = Math.ceil(def.cost / 2); secondWallSpent = true; }
       // Steady Attention (the Heart, 2026-10-18): the first
       // ward or rune of the battle costs 1✦ less — it rides
       // after the Second Wall's halving when both are held.
       let steadySpent = false;
       const steadyAmt = caster.expKey ? heartEffects(caster.expKey).steadyAmount : 0;
-      if (!isSpringleaf && steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
+      if (!isSpringleaf && !isGate && steadyAmt > 0 && !caster.steadyUsed) { castCost = Math.max(0, castCost - steadyAmt); steadySpent = true; }
       // THE WITCH'S COMPANY PRICE (Recovery R7): the ward
       // door's final reckoned price, halved while a party
-      // member she has cast stands.
-      castCost = witchCompanyPrice(room, caster, castCost);
+      // member she has cast stands. THE BLACK GATE is
+      // excepted (2026-10-24): its filed price is ✦8 as a
+      // ward on BOTH grounds, flat — the homeland's Gate
+      // door takes no economy either, and the price is
+      // UNRULED besides; no economy may quietly reprice it.
+      if (!isGate) castCost = witchCompanyPrice(room, caster, castCost);
       if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — the purse no longer holds it.` })); return; }
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and the working simply does not happen.
       { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck, castCost); sendState(room); return; } }
+      if (isGate) {
+        // THE BLACK GATE AT THE TABLE (built 2026-10-24,
+        // under the no-hex-lock law — Nigel, 2026-10-23
+        // 23:04; Recovery R13's flag answered): the wall
+        // stands ONE HEX-LENGTH from where the caster
+        // stands, in the direction of the point they
+        // tapped — the tapped point gives the wall its
+        // facing, exactly as the homeland's cast steps one
+        // axial unit along the figure's facing. Its body
+        // is the shared HP table read at the caster's
+        // level (rockWallHpForLevel — the one reckoning in
+        // actions.ts, never a forked copy), and it stands
+        // in the battle pass as a wall body: the dark halts
+        // at it, strikes it, and is shoved back from it
+        // (nearestStandingWall), impassable to the dark as
+        // the homeland's Gate is impassable. The curse does
+        // not wither it (settleWorkingWithering skips it,
+        // as the homeland's defence works carry no wither).
+        // Its price was the def's ✦8, charged above by this
+        // door's common law — UNRULED, flagged on its page.
+        const from = casterPointOf(caster);
+        const aim = gateAim!;
+        let wallPt: Pt;
+        if (from) {
+          const dx = aim.x - from.x, dy = aim.y - from.y;
+          const len = Math.hypot(dx, dy);
+          wallPt = len > 0.001
+            ? { x: from.x + (dx / len) * HEX_PX, y: from.y + (dy / len) * HEX_PX }
+            : { x: from.x, y: from.y - HEX_PX };
+        } else {
+          wallPt = { ...aim };
+        }
+        const gateHp = rockWallHpForLevel(caster.tenderLevel);
+        room.workings.push({
+          id: randomUUID(), kind: "ward", root: def.key, engine: "blackgate", nums: { ...def.numbers },
+          name: def.forms[hue] ?? def.name, hue,
+          ownerKey: caster.key, ownerName: caster.name, hex: nearestTileId(wallPt), hexA: null, hexB: null,
+          hp: gateHp, maxHp: gateHp, pour: 0, stops: 0, charges: 0,
+          pos: { ...wallPt }, wall: { x: wallPt.x, y: wallPt.y, hp: gateHp, maxHp: gateHp },
+        });
+        tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} — a black wall of ${gateHp} HP stands a hex-length before them, where they pointed. The dark cannot pass it; what strikes it is shoved back.`);
+        caster.castAt = Date.now();
+        sendState(room);
+        return;
+      }
       if (isSpringleaf) {
         // THE SPRINGLEAF AT THE TABLE (Phase C; shape ruled in
         // the book): a GROVE stands at the target hex — hexB,
@@ -5215,7 +5402,10 @@ function handleConnection(ws: WebSocket): void {
         // held ground by this handler's existing law. Its
         // radius is the tender ward size: (66 + 12 × level)
         // × 2.75, read in Table pixels (× 69/80).
-        const centre = TILE_CENTERS.get(hexB);
+        // The grove stands where the player pointed when
+        // the cast carries a point (2026-10-24); the hex
+        // road stands at the named tile's heart, as ever.
+        const centre = grovePt ?? TILE_CENTERS.get(hexB);
         if (!centre) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." })); return; }
         // THE BINDER'S RANGE (Recovery R9): the grove's
         // radius is the reach its burst and mending work
@@ -5307,8 +5497,11 @@ function handleConnection(ws: WebSocket): void {
       // door's common law (the ward economies rode the
       // price there, as for every ward).
       if (def.engine === "bulwark") {
-        const aC = TILE_CENTERS.get(hexA);
-        const bC = TILE_CENTERS.get(hexB);
+        // The line stands across the cast's aim — the two
+        // tapped points when the cast carries them
+        // (2026-10-24), the two hexes' hearts on the hex road.
+        const aC = ptA ?? TILE_CENTERS.get(hexA);
+        const bC = ptB ?? TILE_CENTERS.get(hexB);
         if (!aC || !bC) { ws.send(JSON.stringify({ type: "error", message: "That is no edge of this land." })); return; }
         const count = bulwarkShieldCountFor(caster.tenderLevel);
         const shieldHp = rockWallHpForLevel(caster.tenderLevel);
@@ -5335,6 +5528,10 @@ function handleConnection(ws: WebSocket): void {
       room.workings.push({
         id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: wardNums, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
+        // A point-aimed ward also carries the midpoint of
+        // its two tapped points — the spot the player
+        // actually meant — for the view (2026-10-24).
+        pos: ptA && ptB ? { x: (ptA.x + ptB.x) / 2, y: (ptA.y + ptB.y) / 2 } : null,
         hp, maxHp: hp, pour: slots, stops: 0, charges: 0,
       });
       tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} on the edge between ${hexA} and ${hexB}.`);
@@ -5355,7 +5552,25 @@ function handleConnection(ws: WebSocket): void {
       // the message's hue is inert; the book judges.
       const hue = caster.expKey ? await pageHueFor(caster.expKey, def) : "unaligned";
       const eff = workingEffects(caster.expKey);
-      const hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 12) : [];
+      // NO HEX-LOCK — THE AIM IS A POINT (Nigel, 2026-10-23
+      // 23:04): a rune cast may carry the tapped POINTS —
+      // one per writing, or a single `point` — and the
+      // writing is laid where the player pointed, not
+      // snapped to a hex's heart. The hex each point falls
+      // in is still named on the working: it is the ground
+      // the writing stands on (the spring's tile-entry and
+      // the one-writing law read it), never the aim. The
+      // hex road stands whole for older clients.
+      const msgPoints: (Pt | null)[] = Array.isArray((msg as any).points)
+        ? (msg as any).points.map((p: unknown) => pointOf(p))
+        : [];
+      const lonePoint = pointOf((msg as any).point);
+      if (!msgPoints.length && lonePoint) msgPoints.push(lonePoint);
+      let hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 12) : [];
+      if (!hexes.length && msgPoints.length && msgPoints.every(p => !!p)) {
+        hexes = msgPoints.map(p => nearestTileId(p!));
+      }
+      const aimPoints: (Pt | null)[] = hexes.map((_, i) => msgPoints[i] ?? null);
       if (def.engine === "blades") {
         const maxT = (def.numbers.maxTargets ?? 3) + eff.bladesExtra;
         if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is planted on one to ${maxT} hexes.` })); return; }
@@ -5371,6 +5586,30 @@ function handleConnection(ws: WebSocket): void {
         if (def.engine !== "bats" && def.engine !== "holdrune" && def.engine !== "shatter"
           && room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
       }
+      // NO HEX-LOCK — RANGE IS THE CASTING GATE (Nigel,
+      // 2026-10-23 23:04): every writing this door lays is
+      // gated by the DISTANCE from where the caster stands
+      // — the six-hex casting ring, the homeland's own
+      // measure — judged before any charge. "Runes cast
+      // anywhere" (2026-10-20) reaches as far as the
+      // caster's range and no farther now. Bats names no
+      // ground at all — the swarm stands at the caster —
+      // so no gate stands over it. The Hold Rune aimed by
+      // a point takes the shade standing on that point.
+      if (def.engine === "holdrune" && aimPoints[0]) {
+        const nearShade = [...room.dark.values()]
+          .filter(e => distPx(e.pos, aimPoints[0]!) <= POINT_SPRING_PX)
+          .sort((a, b) => distPx(a.pos, aimPoints[0]!) - distPx(b.pos, aimPoints[0]!))[0];
+        if (nearShade) hexes[0] = nearShade.hex;
+      }
+      if (def.engine !== "bats") {
+        for (let i = 0; i < hexes.length; i++) {
+          const aimC = aimPoints[i] ?? TILE_CENTERS.get(hexes[i]);
+          if (!aimC) continue;
+          const rr = rangeRefusal(caster, aimC, HOMELAND_CAST_RING, def.name);
+          if (rr) { ws.send(JSON.stringify({ type: "error", message: rr })); return; }
+        }
+      }
       // THE NEW WORKINGS' OWN GATES (Nigel, 2026-10-22),
       // judged before any charge, as the page judged them:
       // Bats' cap of three standing swarms (the Witch suffers
@@ -5378,6 +5617,8 @@ function handleConnection(ws: WebSocket): void {
       // and Rune Shatter's 2-tile reach from the caster's
       // standing (a seat that stands nowhere — the
       // storytender — is measured by no ring, as with Attune).
+      // (2026-10-24: Shatter's reach is the DISTANCE between
+      // the two standing points, not a count of hexes.)
       if (def.engine === "bats" && caster.classKey !== "witch"
         && room.workings.filter(w => w.engine === "bats" && w.ownerKey === caster.key).length >= 3) {
         ws.send(JSON.stringify({ type: "error", message: "Three swarms already hunt for you — the cap is three to a caster, and the Witch alone suffers none." })); return;
@@ -5385,8 +5626,12 @@ function handleConnection(ws: WebSocket): void {
       if (def.engine === "holdrune" && !darkAt(room, hexes[0])) {
         ws.send(JSON.stringify({ type: "error", message: "Hold Rune needs a shade under the tap." })); return;
       }
-      if (def.engine === "shatter" && caster.hex && axialDist(caster.hex, hexes[0]) > 2) {
-        ws.send(JSON.stringify({ type: "error", message: "Beyond reach — 2 tiles is Rune Shatter's edge." })); return;
+      if (def.engine === "shatter") {
+        const fromPt = casterPointOf(caster);
+        const aimC = aimPoints[0] ?? TILE_CENTERS.get(hexes[0]);
+        if (fromPt && aimC && distPx(fromPt, aimC) > 2 * HEX_PX + 1) {
+          ws.send(JSON.stringify({ type: "error", message: "Beyond reach — 2 tiles is Rune Shatter's edge." })); return;
+        }
       }
       // Steady Attention (the Heart, 2026-10-18): the first
       // ward or rune of the battle costs 1✦ less — one flag,
@@ -5447,7 +5692,7 @@ function handleConnection(ws: WebSocket): void {
               id: randomUUID(), kind: "spell", root: def.key, engine: "shatter", nums: { ...def.numbers },
               name: def.forms[hue] ?? def.name, hue, ownerKey: caster.key, ownerName: caster.name,
               hex: aimHex, hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
-              pos: { ...(TILE_CENTERS.get(aimHex) ?? from) },
+              pos: { ...(aimPoints[0] ?? TILE_CENTERS.get(aimHex) ?? from) },
               streamUntil: nowC + heldSeconds * 1000, nextChargeAt: nowC + 1000, nextPieceAt: nowC + SHATTER_STREAM_PIECE_MS,
             });
             tell(room, `${caster.name} holds Rune Shatter — the pieces stream on.`);
@@ -5497,7 +5742,7 @@ function handleConnection(ws: WebSocket): void {
       }
       const group = randomUUID();
       let castIndex = 0;
-      for (const hx of hexes) {
+      for (const [aimIdx, hx] of hexes.entries()) {
         // Split Writing (tranche one): the FOURTH blade is
         // planted at half power — its own numbers, its own
         // hunger.
@@ -5510,6 +5755,11 @@ function handleConnection(ws: WebSocket): void {
         const wNew: Working = {
           id: randomUUID(), kind: "rune", root: def.key, engine: def.engine, nums: thisNums, name: def.forms[hue] ?? def.name, hue,
           ownerKey: caster.key, ownerName: caster.name, hex: hx, hexA: null, hexB: null,
+          // The point the player tapped, when the cast
+          // carried one (2026-10-24): the writing stands
+          // THERE — the spring and the loose read it, and
+          // the view draws it there.
+          pos: aimPoints[aimIdx] ?? null,
           hp, maxHp: hp, pour: slots, stops: 0, charges: chargesNow, maxCharges: chargesNow,
           group,
         };
@@ -5552,7 +5802,12 @@ function handleConnection(ws: WebSocket): void {
       if (!armed.length) { ws.send(JSON.stringify({ type: "error", message: "No Single Blade of yours stands armed — write one, and it will wait for your click." })); return; }
       let best: { w: Working; dist: number } | null = null;
       for (const w of armed) {
-        const dist = axialDist(w.hex!, enemy.hex);
+        // NO HEX-LOCK (Nigel, 2026-10-23 23:04): a blade
+        // written at a tapped point answers by the DISTANCE
+        // from that point to the dark thing — two hexes of
+        // ground, the book's own spring measure. A blade
+        // written on the old hex road keeps its hex measure.
+        const dist = w.pos ? distPx(w.pos, enemy.pos) / HEX_PX : axialDist(w.hex!, enemy.hex);
         if (dist <= 2 && (!best || dist < best.dist)) best = { w, dist };
       }
       if (!best) { ws.send(JSON.stringify({ type: "error", message: "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed." })); return; }
@@ -5570,7 +5825,7 @@ function handleConnection(ws: WebSocket): void {
       const power = (rune.nums.power ?? 6) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
         + (eff.warRunewright && !enemy.struck ? 2 : 0);
       room.bladeFlights = [...(room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
-        { id: randomUUID(), at: Date.now(), fromHex: rune.hex!, to: { ...enemy.pos } }];
+        { id: randomUUID(), at: Date.now(), fromHex: rune.hex!, fromPos: rune.pos ? { ...rune.pos } : null, to: { ...enemy.pos } }];
       tell(room, `${rune.name} is LOOSED at ${caster.name}'s word — its blades rise from the written ground and spear down into the ${enemy.label} from above: ${power} harm.`);
       enemy.hp -= power;
       let felledByBlade = 0;

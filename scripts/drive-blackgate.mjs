@@ -39,10 +39,12 @@
 //     standing wall/ward analogue — the page is classed
 //     a WARD at BLACK_GATE_COST (8, the ONE named
 //     constant in grimoire.ts), awaiting Nigel's word.
-//   · THE TABLE SEAM, FLAGGED: the Table's cast names an
-//     aim by hexes (six directions) and stores no
-//     facing, so the Gate is refused there in plain
-//     words before any charge — proven in §E.
+//   · THE TABLE SEAM, ANSWERED (2026-10-24, under the
+//     no-hex-lock law of 2026-10-23 23:04): the Table
+//     cast now aims by a tapped POINT — the Gate stands
+//     one hex-length from the caster in the direction
+//     of the point, the point giving the wall its
+//     facing — proven in §E, battle and all.
 //   · The dropped enemy ACs stand as enemyACFor reads
 //     them: Fray 11, Hollow 12, Unraveler 13, Tangle 15.
 //
@@ -113,6 +115,12 @@ async function claim(name, exp, classKey = "warden") {
   const now = Date.now();
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = excluded.total_exp").run(ownerKey, exp, now);
   db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 5000, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 5000").run(ownerKey, now);
+  // FIXTURE REPAIR (2026-10-24, the no-hex-lock build): the
+  // choosing now opens only after the first three wakes
+  // (the "first three are the party" law, landed after this
+  // drive was written) — seed the three wakes first, as
+  // drive-nohexlock's claim does, or no seat can choose.
+  if (classKey) { seedAwokin(ownerKey, name, `${name} Wake One`, "root"); seedAwokin(ownerKey, name, `${name} Wake Two`, "root"); seedAwokin(ownerKey, name, `${name} Wake Three`, "root"); }
   if (classKey) await call("chooseClass", { classKey }, c.token);
   return { token: c.token, ownerKey, tenderId, name };
 }
@@ -388,8 +396,19 @@ console.log("§D controls — the Gate's kin behave exactly as they did");
     nodes.length === 6 && nodes.every((n) => n.maxHp === 10), JSON.stringify(nodes.map((n) => n.maxHp)));
 }
 
-/* ══ §E THE TABLE SEAM ════════════════════════════════════ */
-console.log("§E the Table — the ward door refuses the Gate in plain words (no facing can be honestly named there), and charges nothing");
+/* ══ §E THE TABLE — THE GATE FREED (2026-10-24) ═══════════
+ * R13's seam is ANSWERED by the no-hex-lock law (Nigel,
+ * 2026-10-23 23:04: "make sure no spell or working is hex
+ * locked — range is the casting gate for spells"): at the
+ * Table the player POINTS, and the Gate stands one
+ * hex-length from where the caster stands in the direction
+ * of the point — the point gives the wall its facing. This
+ * section proves: a Gate cast naming NO point is refused in
+ * plain words before any charge; a point cast stands the
+ * wall at the shared table's HP for the filed ✦8; a point
+ * beyond the casting ring is refused by RANGE alone; and
+ * in battle the dark strikes the Gate and cannot pass it. */
+console.log("§E the Table — the Gate is cast by a tapped point under the range law (R13's seam, answered 2026-10-24)");
 const { issueTableToken } = await import("../server/dist/table.js");
 const part = (name, category, power, toughness) => Number(db.prepare(
   "INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, 'sky', ?, 'image/png', ?)")
@@ -449,24 +468,102 @@ function neighbourToward(state, fromId, toId) {
   return best;
 }
 const myPlayer = (actor, name) => (actor.state?.players ?? []).find((p) => p.name === name);
+/** A tile's heart on the Table's own iso basis (the
+ *  server's TILE_CENTERS: ISO_E [1292,470], ISO_SE [0,948],
+ *  ISO_DEN 796, TILE_SIZE 40). */
+const centreOfHex = (id) => {
+  const { q, r } = parseHex(id);
+  const k = 40 / 796;
+  return { x: q * 1292 * k + r * 0, y: q * 470 * k + r * 948 * k };
+};
+const gateWorking = (actor) => (actor.state?.workings ?? []).find((w) => w.engine === "blackgate");
+async function castGateTable(actor, point, tries = 24) {
+  let attempts = 0;
+  for (let i = 0; i < tries; i++) {
+    attempts++;
+    actor.send({ type: "castWard", root: "blackgate", point });
+    try { await waitFor(() => !!gateWorking(actor), "the Gate stands at the Table", 1500); return { attempts, stood: true }; }
+    catch { /* a fizzle is an honest face — cast again */ }
+  }
+  return { attempts, stood: false };
+}
 {
-  const W = await mkTableTender("Gate Table Seam", 3800, "disc-blackgate-seam");
+  const W = await mkTableTender("Gate Table Point", 3800, "disc-blackgate-point");
   const a = new Actor();
-  await a.join(W.tt, "blackgate-seam");
+  await a.join(W.tt, "blackgate-point");
   await waitFor(() => !!myPlayer(a, W.name)?.hex, "the Table seat stands");
-  const myHex = myPlayer(a, W.name).hex;
+  const me = () => myPlayer(a, W.name);
+  const myHex = me().hex;
+  const cPt = me().pos ?? centreOfHex(myHex);
   const hexB = neighbourToward(a.state, myHex, "0,0");
-  const e0 = myPlayer(a, W.name)?.energy;
+  // E1 — no point named: refused in plain words, no charge.
+  const e0 = me()?.energy;
   a.send({ type: "castWard", root: "blackgate", hexA: myHex, hexB });
-  await waitFor(() => a.errors.some((m) => /Black Gate/.test(m)), "the seam refusal speaks", 8000);
-  await sleep(600);
-  const e1 = myPlayer(a, W.name)?.energy;
-  const refusal = a.errors.find((m) => /Black Gate/.test(m)) ?? "";
-  ok("the Table's ward door REFUSES the Gate in plain words — it is cast in the direction you face, and the Table names an aim by hexes, not a facing",
-    /direction you face/.test(refusal) && /cannot be cast here/.test(refusal), refusal);
-  ok("the refusal charged nothing and raised nothing — no Gate working stands at the Table, and no facing was faked",
-    e0 != null && e1 === e0 && !(a.state?.workings ?? []).some((w) => w.engine === "blackgate"),
-    `energy ${e0} -> ${e1}; workings=${JSON.stringify((a.state?.workings ?? []).map((w) => w.engine))}`);
+  await waitFor(() => a.errors.some((m) => /stands where you point/.test(m)), "the no-point refusal speaks", 8000);
+  await sleep(400);
+  ok("a Gate cast naming NO point is refused in plain words — the Gate stands where you point, and a cast that names no point cannot raise it",
+    a.errors.some((m) => /stands where you point/.test(m) && /names no point/.test(m)), JSON.stringify(a.errors.slice(-2)));
+  ok("the no-point refusal charged nothing and raised nothing",
+    me()?.energy === e0 && !gateWorking(a), `energy ${e0} -> ${me()?.energy}`);
+  // E2 — the point cast stands the wall: one hex-length
+  // from the caster, in the direction of the point (aimed
+  // at a NON-CENTRE point of a tile two steps toward the
+  // seed: its heart, nudged (11, −6)).
+  const aimTile = neighbourToward(a.state, hexB, "0,0") ?? hexB;
+  const ac = centreOfHex(aimTile);
+  const aim = { x: ac.x + 11, y: ac.y - 6 };
+  const { attempts, stood } = await castGateTable(a, aim);
+  const w = gateWorking(a);
+  const e1 = me()?.energy;
+  ok("the point cast STANDS the Gate at the Table through the ward door", stood && !!w, `errors=${JSON.stringify(a.errors.slice(-2))}`);
+  ok("the Table Gate's body is the shared table read at the cast level — one wall node of 10 HP at Lv 10, the working's own hp the same",
+    !!w && !!w.wall && w.wall.hp === 10 && w.wall.maxHp === 10 && w.hp === 10, JSON.stringify(w && { wall: w.wall, hp: w.hp }));
+  const wallD = w?.wall ? Math.hypot(w.wall.x - cPt.x, w.wall.y - cPt.y) : -1;
+  const dot = w?.wall ? (w.wall.x - cPt.x) * (aim.x - cPt.x) + (w.wall.y - cPt.y) * (aim.y - cPt.y) : -1;
+  ok("the wall stands ONE HEX-LENGTH (69px) from where the caster stands, in the direction of their point — the point gave the wall its facing",
+    Math.abs(wallD - 69) <= 3 && dot > 0, `dist=${wallD.toFixed(1)} dot=${Math.round(dot)}`);
+  ok("every attempt — fizzle and standing alike — charged exactly the filed 8 (UNRULED, as on the homeland)",
+    e0 != null && e1 != null && e0 - e1 === 8 * attempts, `delta=${e0 - e1} attempts=${attempts}`);
+  // E3 — beyond the ring: range alone refuses, no charge.
+  const e2 = me()?.energy;
+  const farAim = { x: cPt.x + 500, y: cPt.y };
+  a.send({ type: "castWard", root: "blackgate", point: farAim });
+  await waitFor(() => a.errors.some((m) => /Beyond reach/.test(m)), "the range refusal speaks", 8000);
+  await sleep(400);
+  ok("a Gate point beyond the six-hex casting ring is refused by RANGE alone, in plain words — and charges nothing",
+    a.errors.some((m) => /Beyond reach/.test(m)) && me()?.energy === e2, `energy ${e2} -> ${me()?.energy}; errors=${JSON.stringify(a.errors.slice(-2))}`);
+  a.ws.close();
+}
+{
+  // E4 — the battle: the dark strikes the Gate and is
+  // shoved back; it cannot pass while the Gate stands.
+  const WB = await mkTableTender("Gate Table Battle", 3800, "disc-blackgate-battle");
+  const a = new Actor();
+  await a.join(WB.tt, "blackgate-battle");
+  await waitFor(() => !!myPlayer(a, WB.name)?.hex, "the battle seat stands");
+  const darkOf = () => a.state?.dark ?? [];
+  let wave = false;
+  for (let i = 0; i < 3 && !wave; i++) {
+    a.send({ type: "startWave" });
+    try { await waitFor(() => a.state?.battle?.active && darkOf().length > 0, "the wave is dealt", 8000); wave = true; }
+    catch { /* deal again */ }
+  }
+  ok("the battle wave is dealt", wave && darkOf().length > 0, `dark=${darkOf().length}`);
+  const target = darkOf()[0];
+  const { stood } = await castGateTable(a, { x: target.pos.x, y: target.pos.y }, 24);
+  ok("the Gate rises in battle, aimed by the point toward the coming dark", stood && !!gateWorking(a), `errors=${JSON.stringify(a.errors.slice(-2))}`);
+  let hitSeen = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 150000 && !hitSeen) {
+    await sleep(250);
+    const w = gateWorking(a);
+    if (w && w.wall && w.wall.hp < 10) hitSeen = true;
+    if (!w && stood) hitSeen = true; // struck through and fallen under the blows
+  }
+  const taleHas = (a.state?.tale ?? []).some((t) => /Black Gate/.test(typeof t === "string" ? t : t?.text ?? ""));
+  ok("the dark STRUCK the Gate at the Table — its wall's HP fell under the blows (it is a wall body in the battle pass, as Bulwark's shields are)",
+    hitSeen, `tale=${JSON.stringify((a.state?.tale ?? []).slice(-3))}`);
+  ok("the tale names the Black Gate's stand", taleHas, "");
   a.ws.close();
 }
 

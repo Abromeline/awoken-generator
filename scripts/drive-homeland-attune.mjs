@@ -81,6 +81,19 @@ const claim = await call("claimTender", { password: "homeland-attune-password", 
 const token = claim.token;
 const me = `tender:${db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id}`;
 db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, hp, updated_at) VALUES (?, 3800, 0, 100, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 3800, hp = 100").run(me, now);
+// FIXTURE REPAIR (2026-10-24, the no-hex-lock build): the
+// choosing now opens only after the first three wakes
+// (landed after this drive was written) — seed them first.
+for (const wakeName of ["Attune Wake One", "Attune Wake Two", "Attune Wake Three"]) {
+  const parts = [];
+  for (const cat of ["body", "arms", "head"]) {
+    const pid = Number(db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', 3, 3, 'root', ?, 'image/png', ?)")
+      .run(`${wakeName} ${cat}`, cat, `homeland-attune/${wakeName}-${cat}.png`, now).lastInsertRowid);
+    parts.push({ source_id: `db:${pid}`, name: `${wakeName} ${cat}`, category: cat, rarity: "common", power: 3, toughness: 3, element: "root" });
+  }
+  db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', ?, ?, ?)")
+    .run(wakeName, wakeName, `homeland-attune/${wakeName}.png`, JSON.stringify(parts), "Attune Tender", me, now);
+}
 await call("chooseClass", { classKey: "warden" }, token);
 
 // The ground: a small hand-seeded territory around the heart.
