@@ -3857,22 +3857,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       setMoveTargeting(false);
                       setOrdersWheel({ ids: [a.id], x: e.clientX, y: e.clientY });
                     }}>
-                    {/* Light aura glow behind Awoken */}
-                    <ellipse cx={kx} cy={ky} rx={aws * 0.48} ry={ahs * 0.44}
-                      fill="rgba(255,240,200,0.28)"
-                      style={{ filter: `blur(${6 / zoom}px)` }} />
-                    <ellipse cx={kx} cy={ky} rx={aws * 0.38} ry={ahs * 0.34}
-                      fill="rgba(255,250,230,0.22)"
-                      style={{ filter: `blur(${4 / zoom}px)` }} />
-                    {isWhispering && (
-                      <ellipse cx={kx} cy={ky} rx={aws * 0.6} ry={ahs * 0.55}
-                        fill="rgba(255,235,180,0.35)"
-                        style={{ filter: `blur(${8 / zoom}px)` }} />
-                    )}
+                    {/* THE GLOW IS AN OUTLINE NOW (Nigel, 2026-10-24,
+                        from his first play: "the glow from large
+                        awoken is way too much, please make it only
+                        outline them"). The blurred pools of light
+                        that stood behind every figure — two warm
+                        ellipses, a wider one for the whispering —
+                        are gone whole: on a grown veteran they
+                        flooded whole hexes. What remains is cast
+                        by the figure itself, in the drop-shadow
+                        filter on its own group below: offset-free
+                        light shadows follow the alpha silhouette,
+                        so the glow hugs the creature's own edge
+                        and scales with the figure and nothing
+                        more — no pool of light on the ground. The
+                        whispering Awoken's outline simply burns
+                        a pass stronger. */}
                     {isSelected && (
                       <circle cx={kx} cy={ky} r={14 * awScale * lvlScale / zoom} fill="none" stroke="#ffd700" strokeWidth={1.5 / zoom} opacity="0.9" />
                     )}
-                    <g data-summon-fig={a.id} style={{ filter: `drop-shadow(0 ${2 / zoom}px ${4 / zoom}px rgba(0,0,0,0.7))` }}>
+                    <g data-summon-fig={a.id} style={{ filter: `drop-shadow(0 ${2 / zoom}px ${4 / zoom}px rgba(0,0,0,0.7)) drop-shadow(0 0 ${3 / zoom}px rgba(255,240,200,0.6)) drop-shadow(0 0 ${3 / zoom}px rgba(255,240,200,0.6))${isWhispering ? ` drop-shadow(0 0 ${5 / zoom}px rgba(255,235,180,0.75))` : ""}` }}>
                     <FieldAwoken awoken={a} assets={assets}
                       x={kx - aws / 2} y={ky + baseAhs / 2 - ahs}
                       width={aws} height={ahs} />
