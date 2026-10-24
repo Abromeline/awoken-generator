@@ -52,7 +52,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
-import { BRAMBLE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, brambleFrameAt } from "./brambleFx";
+import { BRAMBLE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
@@ -543,7 +543,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // lighthouse and its ledgers, and the defence works the
   // defenders raise — all served by the territory read.
   const [battle, setBattle] = useState<{ shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }>({ shadowMatter: 0, protectionBankMs: 0, lighthouseLit: false, waveIntensity: 1 });
-  const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]>([]);
+  const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number }[] }[]>([]);
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
   // strike arrives, the weapon lunges at that foe's hex on the
@@ -5139,7 +5139,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // flipbook growing in on its raise (ruled 2026-10-22,
     // bound 2026-10-24; before the binding the thicket stood
     // as drawn dark green knots) — each paling as its wounds
-    // deepen. BULWARK's cast line
+    // deepen. The bramble's MOTES (WATERING, Nigel
+    // 2026-10-24) stand in the same layer at their own
+    // points, drawn young and small from the same flipbook.
+    // BULWARK's cast line
     // of shields (Recovery R12) stands in this same layer,
     // in the same ledger: Nigel's own Shield piece at each
     // node, paling the same way.
@@ -5182,6 +5185,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <g key={i} opacity={0.35 + 0.65 * frac}>
                   <ellipse cx={cx} cy={cy + size * 0.12} rx={size * 0.3} ry={size * 0.09} fill="rgba(0,0,0,0.45)" />
                   <image href={blackGateImg} x={cx - size * 0.42} y={cy - size * 1.3} width={size * 0.84} height={size * 1.43} preserveAspectRatio="xMidYMax meet" />
+                </g>
+              ) : n.mote ? (
+                // A BRAMBLE MOTE (WATERING, Nigel 2026-10-24):
+                // the young growth at a node's fringe — and
+                // the growth a Tide watering adds — drawn
+                // from the flipbook's own young run at mote
+                // scale, seated on its own point by the
+                // thicket's constants scaled, paling with
+                // its wounds as the works beside it pale.
+                // It is no decoration: the engine serves it
+                // in the work's node list, the dark is
+                // hindered on its ground and can hack it
+                // down, and a Tide strike that lands on it
+                // grows the next.
+                <g key={i} opacity={0.35 + 0.65 * frac}>
+                  <ellipse cx={cx} cy={cy + size * 0.05} rx={size * 0.09} ry={size * 0.03} fill="rgba(0,0,0,0.4)" />
+                  <image href={brambleMoteFrameAt(marchNow, brambleBornRef.current.get(brambleKeyOf(wk.id, n)) ?? Date.now())}
+                    x={cx + size * BRAMBLE_CENTRE_OFF * BRAMBLE_MOTE_SCALE - size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE / 2} y={cy + size * BRAMBLE_BASE_OFF * BRAMBLE_MOTE_SCALE - size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT} width={size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE} height={size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT}
+                    preserveAspectRatio="xMidYMax meet" />
                 </g>
               ) : (
                 // BRAMBLE (Nigel's Bramble 1 flipbook — ruled

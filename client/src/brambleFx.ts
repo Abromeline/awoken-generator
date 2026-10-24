@@ -128,3 +128,25 @@ export function brambleFrameAt(nowMs: number, bornAt: number): string {
   const k = Math.floor((nowMs - bornAt) / BRAMBLE_FRAME_MS);
   return BRAMBLE_FRAMES[Math.min(BRAMBLE_FRAMES.length - 1, Math.max(0, k))];
 }
+
+/** WATERING's young growth (Nigel, 2026-10-24 — the Tide ×
+ *  Bramble synergy, "the positive effect of wet"): a bramble
+ *  MOTE — the young growth a node's fringe bears, and the
+ *  growth a watering adds — is drawn from the flipbook's own
+ *  young run: the first eight frames, walked at the growth's
+ *  own tempo from the moment the map first saw the mote,
+ *  then HELD on the eighth. A mote stands young beside its
+ *  parent thicket, never the full-grown mass; only a true
+ *  node wears the whole growth. */
+export const BRAMBLE_MOTE_HOLD = 7; // the eighth frame (index 7)
+/** A mote's drawn size against a node's: it stands at this
+ *  share of the thicket's own box, seated on its own point
+ *  by the same offsets, scaled. */
+export const BRAMBLE_MOTE_SCALE = 0.45;
+/** The Bramble frame a mote shows at a moment: the young
+ *  run walked from its first sighting, held at the young
+ *  standing frame. */
+export function brambleMoteFrameAt(nowMs: number, bornAt: number): string {
+  const k = Math.floor((nowMs - bornAt) / BRAMBLE_FRAME_MS);
+  return BRAMBLE_FRAMES[Math.min(BRAMBLE_MOTE_HOLD, Math.max(0, k))];
+}

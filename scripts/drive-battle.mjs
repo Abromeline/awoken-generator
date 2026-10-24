@@ -343,7 +343,7 @@ console.log("§F defence works stand and bite; tide wets, sky shoves, stone crac
   await advance(G.ownerKey, G.token, 3000);
   works = db.prepare("SELECT * FROM defence_works WHERE owner_key = ?").all(G.ownerKey);
   const bramble = works.find(w => w.kind === "bramble" && w.placement_id === rootPl);
-  ok("the Root defender grew her BRAMBLE (one node per part of her body)", !!bramble && JSON.parse(bramble.nodes).length === 3, JSON.stringify(works.map(w => w.kind)));
+  ok("the Root defender grew her BRAMBLE (one node per part of her body; since WATERING, 2026-10-24, her nodes bear their motes — three a node, in the same list)", !!bramble && JSON.parse(bramble.nodes).filter(n => !n.mote).length === 3 && JSON.parse(bramble.nodes).filter(n => n.mote && n.hp > 0).length === 9, JSON.stringify(works.map(w => w.kind)));
   // Stand the raising Fray ON a bramble node and hold the
   // defender's next answer a minute out (her own battle
   // clock, set as openly as the watermark): in this window

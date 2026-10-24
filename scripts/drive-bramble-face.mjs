@@ -17,6 +17,15 @@
 //      connected mass with no detached opaque pixel, and
 //      the field where the art's spore dots floated is
 //      clean on the rendered map.
+// WATERING (Nigel, 2026-10-24, later the same day) seats
+// MOTES in the work's node list — young growths at each
+// node's fringe, drawn from the flipbook's young run at
+// mote scale, holding the eighth frame. The recorder
+// below reads node frames and mote frames apart by their
+// drawn width (a mote stands at 0.45 of a node's width),
+// and §0/§D assert both populations as the law now has
+// them: three true nodes wearing frame 32, nine motes
+// wearing the young held frame.
 // The raise is the engine's own: a Root Awokin standing in
 // defence on an empty land, then a Fray seeded within her
 // reach — her settle raises the thicket (one node per part)
@@ -154,13 +163,20 @@ await page.evaluate(() => {
   const rec = { ticks: [] };
   window.__brambleRec = rec;
   rec.iv = setInterval(() => {
-    const tick = { t: performance.now(), frames: [], knots: 0, knotInNodeGroup: 0 };
+    const tick = { t: performance.now(), frames: [], nodeFrames: [], moteFrames: [], knots: 0, knotInNodeGroup: 0 };
+    const imgs = [];
     for (const im of document.querySelectorAll("image")) {
       const href = im.getAttribute("href") || "";
       if (!href.includes("bramble-")) continue;
-      tick.frames.push(href.split("/").pop());
+      imgs.push({ name: href.split("/").pop(), w: im.getBoundingClientRect().width });
       const g = im.closest("g");
       if (g && g.querySelectorAll("circle, [stroke-dasharray]").length) tick.knotInNodeGroup++;
+    }
+    const maxW = Math.max(0, ...imgs.map((x) => x.w));
+    for (const x of imgs) {
+      tick.frames.push(x.name);
+      if (x.w >= maxW * 0.8) tick.nodeFrames.push(x.name);
+      else tick.moteFrames.push(x.name);
     }
     tick.knots = document.querySelectorAll("circle[stroke-dasharray]").length;
     rec.ticks.push(tick);
@@ -181,8 +197,8 @@ for (let i = 0; i < 10; i++) {
   engineWorks = (read.defenceWorks ?? []).filter(w => w.kind === "bramble");
   if (engineWorks.length) break;
 }
-ok("§0 the engine raised a real bramble work for the Root defender (three nodes, one per part)",
-  engineWorks.length === 1 && engineWorks[0].nodes.filter(n => n.hp > 0).length === 3,
+ok("§0 the engine raised a real bramble work for the Root defender (three nodes, one per part — and since WATERING each node bears its three motes in the same list)",
+  engineWorks.length === 1 && engineWorks[0].nodes.filter(n => n.hp > 0 && !n.mote).length === 3 && engineWorks[0].nodes.filter(n => n.hp > 0 && n.mote).length === 9,
   JSON.stringify(engineWorks).slice(0, 300));
 
 // Watch the page until the growth has fully played and the
@@ -195,9 +211,9 @@ for (let i = 0; i < 40; i++) {
     const withFrames = ticks.filter(tk => tk.frames.length > 0);
     if (!withFrames.length) return { seen: 0 };
     const first = withFrames[0], last = withFrames[withFrames.length - 1];
-    return { seen: withFrames.length, firstT: first.t, lastT: last.t, lastFrames: last.frames };
+    return { seen: withFrames.length, firstT: first.t, lastT: last.t, lastFrames: last.nodeFrames, lastMotes: last.moteFrames };
   });
-  if (st.seen && st.lastT - st.firstT > 5500 && st.lastFrames.every(f => f.includes("bramble-32"))) { heldLongEnough = true; break; }
+  if (st.seen && st.lastT - st.firstT > 5500 && st.lastFrames.length === 3 && st.lastFrames.every(f => f.includes("bramble-32")) && st.lastMotes.length === 9 && st.lastMotes.every(f => f.includes("bramble-08"))) { heldLongEnough = true; break; }
 }
 const rec = await page.evaluate(() => { clearInterval(window.__brambleRec.iv); return window.__brambleRec; });
 clearInterval(stillIv);
@@ -332,8 +348,8 @@ const frameNo = (f) => Number(/bramble-(\d+)(?:-[^/]*)?\.png/.exec(f)?.[1] ?? Na
 console.log(`distinct hrefs in order: ${[...new Set(rec.ticks.flatMap(tk => tk.frames))].join(" | ") || "none"}`);
 const sequence = [];
 for (const tk of withFrames) {
-  const f = tk.frames[0];
-  if (sequence[sequence.length - 1] !== f) sequence.push(f);
+  const f = (tk.nodeFrames && tk.nodeFrames[0]) ?? tk.frames[0];
+  if (f && sequence[sequence.length - 1] !== f) sequence.push(f);
 }
 console.log(`recorded ${withFrames.length} ticks wearing bramble art; frame walk: ${sequence.map(f => frameNo(f)).join(" → ") || "none"}`);
 
@@ -350,8 +366,11 @@ ok("§C a fresh raise advances through the frames in order (at least five distin
   `walk: ${nos.join(",")}`);
 const lastTick = withFrames[withFrames.length - 1];
 ok("§D the standing node holds its full-grown frame — frame 32, steady to the record's end",
-  heldLongEnough && !!lastTick && lastTick.frames.every(f => f.includes("bramble-32")),
-  `last frames: ${lastTick ? lastTick.frames.join(",") : "none"}; hold witnessed: ${heldLongEnough}`);
+  heldLongEnough && !!lastTick && lastTick.nodeFrames.length === 3 && lastTick.nodeFrames.every(f => f.includes("bramble-32")),
+  `last node frames: ${lastTick ? lastTick.nodeFrames.join(",") : "none"}; hold witnessed: ${heldLongEnough}`);
+ok("§D2 the motes stand drawn at the fringe — nine of them, small, holding the flipbook's young frame (frame 8) beside their parent thickets",
+  heldLongEnough && !!lastTick && lastTick.moteFrames.length === 9 && lastTick.moteFrames.every(f => f.includes("bramble-08")),
+  `last mote frames: ${lastTick ? lastTick.moteFrames.join(",") : "none"}`);
 
 const eFrames = eScan?.frames ?? {};
 const eNames = Object.keys(eFrames);

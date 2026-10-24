@@ -3943,6 +3943,35 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
  *    hacked at 1 a strike (the PG's WALL_HACK_DMG pencil);
  *    bramble slows the dark that pushes through it by half
  *    and answers with 1 thorn a beat.
+ *  · WATERING (Nigel, 2026-10-24: "make bramble motes
+ *    targetable by a tide awokin attack. each attack
+ *    causes a new bramble mote to grow — effect called
+ *    watering — allow bramble to spread and overlap
+ *    slightly as well"; "add it to tide element"; "its
+ *    the positive effect of wet"): a standing bramble's
+ *    nodes bear MOTES — young growths of the same work,
+ *    standing at the node's fringe (up to 3 a node, born
+ *    with the raise; a mote carries the node's own HP and
+ *    remembers its parent node's point). A mote IS
+ *    bramble: it stands in the work's node list, so the
+ *    walk's own reckoning hinders the dark that crosses
+ *    it exactly as at a node — half pace and the thorn
+ *    tick, no new numbers. A dark can hack a mote down
+ *    like a node of the walls (WALL_HACK_DMG a strike, in
+ *    its face), and a mote falls with its work, as every
+ *    node does. WATERING is the Tide rider's other face:
+ *    the same Wet her strike leaves on a dark thing,
+ *    landing on bramble, FEEDS it — on her strike step,
+ *    where no dark stands within her reach but a mote
+ *    does, her strike lands on the mote as Watering and
+ *    exactly ONE new mote grows, one spread step beyond
+ *    the watered one, outward from its parent node, so
+ *    tended bramble creeps and may overlap slightly.
+ *    Any mote can be watered, so the creep can chain; a
+ *    work bears at most 12 living motes, and a step that
+ *    would land off the land grows nothing. No roll is
+ *    made against a mote: she tends her own side's
+ *    growth, and her cadence is the price.
  *  · The DEFENCE BONUS on strikes: no standing number exists
  *    in code or law for a defender's blows on this ground —
  *    defenders strike with the unmodified math and raise
@@ -3975,6 +4004,15 @@ const BATTLE_BEAT_MS = 2800;
 const ENEMY_BITE_REACH = 1.35;
 const ENEMY_BASE_SEC_PER_HEX = 6; // twice the neutral march — the "slower than Awoken" law
 const WET_MS = 10000; // the Proving Ground's pencil for Wet's length
+/** WATERING's measures (Nigel, 2026-10-24, above): the
+ *  motes a node bears at its fringe, the living motes a
+ *  work may bear at once, the fringe's radius, and the
+ *  creep's step — the work's own node spread step (0.55,
+ *  raiseWork's measure) read again, not a new number. */
+const BRAMBLE_MOTES_PER_NODE = 3;
+const BRAMBLE_MOTE_CAP = 12;
+const BRAMBLE_MOTE_FRINGE = 0.5;
+const BRAMBLE_MOTE_SPREAD_STEP = 0.55;
 const WALL_HACK_DMG = 1; // the Proving Ground's pencil: a shade's blow hacked into stone
 export const ROCK_WALL_HP_BY_LEVEL = [5, 6, 6, 7, 8, 8, 9, 9, 10];
 /** The shared 5–10 HP-by-level reading (Nigel, 2026-10-23 —
@@ -4429,7 +4467,11 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     }
   }
   // Defence works: raised by Root and Stone defenders.
-  type WorkNode = { q: number; r: number; hp: number; maxHp: number };
+  // A bramble MOTE stands in the same list as its work's
+  // nodes, flagged (mote: 1) and carrying its parent
+  // node's point (pq/pr) — WATERING's bookkeeping; every
+  // other work's nodes carry neither field.
+  type WorkNode = { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number };
   type DWork = { id: number; placementId: number; kind: string; nodes: WorkNode[]; dirty: boolean; gone: boolean };
   const works: DWork[] = (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => {
     let nodes: WorkNode[] = [];
@@ -4461,6 +4503,20 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       for (let i = 0; i < f.partCount; i++) {
         const off = (i - (f.partCount - 1) / 2) * 0.55;
         nodes.push({ q: f.q + fx * 0.8 + px * off, r: f.r + fr * 0.8 + pr * off, hp: nodeHp, maxHp: nodeHp });
+      }
+      // WATERING's ground (Nigel, 2026-10-24): each node
+      // bears its motes at its fringe from the raise —
+      // young growths of the same work, in the same list,
+      // each carrying the node's own measure for its body
+      // and remembering its parent node's point, so a
+      // watering's creep can step outward from the parent.
+      const raised = [...nodes];
+      for (let i = 0; i < raised.length; i++) {
+        const nd = raised[i];
+        for (let k = 0; k < BRAMBLE_MOTES_PER_NODE; k++) {
+          const ang = (k / BRAMBLE_MOTES_PER_NODE) * Math.PI * 2 + i * 0.9;
+          nodes.push({ q: nd.q + Math.cos(ang) * BRAMBLE_MOTE_FRINGE, r: nd.r + Math.sin(ang) * BRAMBLE_MOTE_FRINGE, hp: nodeHp, maxHp: nodeHp, mote: 1, pq: nd.q, pr: nd.r });
+        }
       }
       const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, ?, 'bramble', ?, ?, ?, ?)").run(ownerKey, f.id, f.q, f.r, JSON.stringify(nodes), now);
       works.push({ id: Number(info.lastInsertRowid), placementId: f.id, kind: "bramble", nodes, dirty: false, gone: false });
@@ -4573,6 +4629,53 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     if (byAwakenedId != null) d.killer = byAwakenedId;
     if (d.hp <= 0) await fellDark(d);
   };
+  /** THE TIDE RIDER (the Proving Ground's ruling): her
+   *  strikes leave what they land on WET — on a dark
+   *  thing, Wet stands for WET_MS (its pace drops on the
+   *  Table's scale and Sky strikes land +2 on it, both
+   *  read where the dark is read). WATERING (Nigel,
+   *  2026-10-24) is this same Wet landing on bramble —
+   *  "its the positive effect of wet": waterMote below
+   *  is the rider's other face, kept beside it so the
+   *  code itself says the one Wet has two landings. */
+  const tideWetOnDark = (d: Dark, at: number): void => { d.wetUntil = at + WET_MS; };
+  /** WATERING's growth (Nigel, 2026-10-24): a Tide
+   *  strike landing on a mote feeds the work — exactly
+   *  one new mote grows, one spread step beyond the
+   *  watered one, outward from its parent node, carrying
+   *  the work's own node measure for its body. The creep
+   *  is capped per work and stays on the land: at the
+   *  cap, or where the step would land off the ground,
+   *  the strike still lands as Watering and grows
+   *  nothing. The nearest living mote in her reach is
+   *  the one she tends. */
+  const waterMote = (f: Fighter, reach: number): void => {
+    let bestW: DWork | null = null; let bestMote: WorkNode | null = null; let bestD = Infinity;
+    for (const w of works) {
+      if (w.gone || w.kind !== "bramble") continue;
+      for (const n of w.nodes) {
+        if (!n.mote || n.hp <= 0) continue;
+        const dd = axialDist(f, n);
+        if (dd <= reach && dd < bestD) { bestD = dd; bestW = w; bestMote = n; }
+      }
+    }
+    if (!bestW || !bestMote) return;
+    if (bestW.nodes.filter(n => n.mote && n.hp > 0).length >= BRAMBLE_MOTE_CAP) return;
+    const pq = bestMote.pq ?? bestMote.q, pr = bestMote.pr ?? bestMote.r;
+    let ux = bestMote.q - pq, ur = bestMote.r - pr;
+    const len = Math.hypot(ux, ur);
+    if (len < 1e-6) {
+      // A mote standing on its parent's own point has no
+      // outward of its own: the step reads from her hand.
+      ux = bestMote.q - f.q; ur = bestMote.r - f.r;
+      const l2 = Math.hypot(ux, ur) || 1; ux /= l2; ur /= l2;
+    } else { ux /= len; ur /= len; }
+    const nq = bestMote.q + ux * BRAMBLE_MOTE_SPREAD_STEP, nr = bestMote.r + ur * BRAMBLE_MOTE_SPREAD_STEP;
+    const cell = axialRound(nq, nr);
+    if (!byKey.has(`${cell.q},${cell.r}`)) return;
+    bestW.nodes.push({ q: nq, r: nr, hp: bestMote.maxHp, maxHp: bestMote.maxHp, mote: 1, pq, pr });
+    bestW.dirty = true;
+  };
 
   const STEP_MS = 500;
   const steps = Math.max(0, Math.ceil(elapsed / STEP_MS));
@@ -4588,7 +4691,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       const wet = tNow < d.wetUntil;
       let pace = 1 / enemySecPerHex(d.kind, wet); // axial units per second
       pace /= crowdTax(crowdOf(d.tileId));
-      // Bramble underfoot halves the pace that pushes through it.
+      // Bramble underfoot halves the pace that pushes
+      // through it. WATERING's motes stand in the same
+      // node list (Nigel, 2026-10-24): a mote's ground
+      // hinders exactly as a node's — this same check,
+      // this same half pace and thorn tick, no new
+      // numbers for the young growth.
       let inBramble = false;
       for (const w of works) {
         if (w.gone || w.kind !== "bramble") continue;
@@ -4767,6 +4875,20 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (node) { node.hp -= WALL_HACK_DMG; w.dirty = true; hacked = true; break; }
       }
       if (hacked) continue;
+      // A bramble MOTE in its face is hacked down like a
+      // node of the walls (WATERING, Nigel 2026-10-24):
+      // the same hack measure at the same reach. The
+      // thicket's true nodes keep their standing fate —
+      // they stand while their defender stands, as they
+      // always have — the young growth is what the dark
+      // can cut, and a cut mote hinders no more.
+      let moteHacked = false;
+      for (const w of works) {
+        if (w.gone || w.kind !== "bramble") continue;
+        const node = w.nodes.find(n => n.hp > 0 && n.mote && axialDist(d, n) <= 0.75);
+        if (node) { node.hp -= WALL_HACK_DMG; w.dirty = true; moteHacked = true; break; }
+      }
+      if (moteHacked) continue;
       // Victims in bite reach, chosen by its kind's hunger
       // (the Table's own: the Fray worries the weakest, the
       // Unraveler hunts the strongest).
@@ -4920,7 +5042,20 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // bonus's number is unruled — the math stands plain).
       const target = darks.filter(d => !d.dead && axialDist(f, d) <= reach)
         .sort((a, b) => axialDist(f, a) - axialDist(f, b))[0];
-      if (!target) continue;
+      if (!target) {
+        // WATERING (Nigel, 2026-10-24): no dark stands
+        // within her reach — a Tide hand's strike is not
+        // spent idle while bramble near her goes thirsty.
+        // Her tending rides her ordinary strike, no new
+        // door: where a mote stands within her reach, the
+        // strike lands on it, and the Tide rider's Wet —
+        // tideWetOnDark's own other face — feeds the work
+        // instead of marking a foe. Defence first, as
+        // ever: a dark in reach is fought, never watered
+        // past.
+        if (f.dominant === "tide") waterMote(f, reach);
+        continue;
+      }
       const roll = homelandDN(20);
       const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + (sageCompany ? 2 : 0);
       const targetAC = Math.max(1, enemyACFor(target.kind) - target.cracked);
@@ -4970,7 +5105,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // carries it — so the map's projectile flies true.
       recordHomelandStrike(ownerKey, { tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant });
       if (!target.dead) {
-        if (f.dominant === "tide") target.wetUntil = tNow + WET_MS;
+        if (f.dominant === "tide") tideWetOnDark(target, tNow);
         if (f.dominant === "stone") target.cracked = Math.min(3, target.cracked + 1);
         if (f.dominant === "sky") {
           const tilesPush = Math.floor((f.elSum.sky ?? 0) / 3);
@@ -9004,7 +9139,7 @@ export const handlers = {
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
