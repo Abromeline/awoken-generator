@@ -99,9 +99,11 @@ export interface TenderProgressView {
   healAmount: number;
   wardRuneUnlocked: boolean;
   maxTenderHp: number;
-  /** The Class Gate (Nigel, 2026-10-19): the chosen class, or
-   *  null before the Lv 3 choosing; whether the one free
-   *  second-thoughts rite still waits; held reclass tokens. */
+  /** The Class Gate (Nigel, 2026-10-19; the choosing's
+   *  trigger amended 2026-10-23 — choose at three woken, not
+   *  at Lv 3): the chosen class, or null before the choosing;
+   *  whether the one free second-thoughts rite still waits;
+   *  held reclass tokens. */
   classKey: string | null;
   classRiteAvailable: boolean;
   reclassTokens: number;
@@ -115,6 +117,13 @@ export interface TenderProgressView {
    *  numbers (the Tender's aspect_attunement balances). */
   arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[];
   pools: Record<string, number>;
+  /** CHOOSE AT THREE (Nigel, 2026-10-23 22:26 as amended
+   *  22:36): how many Awoken the Tender holds right now —
+   *  awakened rows under their owner key, collection
+   *  "tender" (the same count that seeds the ledger below).
+   *  The choosing ceremony fires on THIS count reaching
+   *  three, not on level; the level-3 gate is dead. */
+  awokenCount: number;
 }
 
 export const ARSENAL_KEYS = ["swordshield", "sword", "spear", "arrow"];
@@ -122,7 +131,7 @@ export function defaultArsenal() {
   return ARSENAL_KEYS.map((key) => ({ key, level: 1, xp: 0, element: null as string | null, depth: 0, manifest: false, signature: false }));
 }
 
-function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number; weaponKey?: string | null }, extra?: { arsenal: TenderProgressView["arsenal"]; pools: Record<string, number> }): TenderProgressView {
+function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string | null; classFreeRiteUsed: number; reclassTokens: number; weaponKey?: string | null }, extra?: { arsenal: TenderProgressView["arsenal"]; pools: Record<string, number> }, awokenCount = 0): TenderProgressView {
   const level = levelForExp(totalExp);
   const floor = TENDER_LEVEL_THRESHOLDS[level - 1] ?? 0;
   const next = TENDER_LEVEL_THRESHOLDS[level] ?? null;
@@ -142,7 +151,18 @@ function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string 
     weaponKey: cls?.weaponKey ?? null,
     arsenal: extra?.arsenal ?? defaultArsenal(),
     pools: extra?.pools ?? {},
+    awokenCount,
   };
+}
+
+/** How many Awoken stand under an owner key right now —
+ *  awakened rows, collection "tender". The same count the
+ *  ledger seeding below reads, and the count the choosing
+ *  ceremony (choose at three) reckons by. */
+async function countAwokenHeld(ownerKey: string): Promise<number> {
+  const mine = await db.select({ id: schema.awakened.id }).from(schema.awakened)
+    .where(and(eq(schema.awakened.ownerKey, ownerKey), eq(schema.awakened.collection, "tender")));
+  return mine.length;
 }
 
 /** The Heart rides the standing (2026-10-18): Strong Hands,
@@ -171,7 +191,8 @@ export async function getTenderProgress(ownerKey: string): Promise<TenderProgres
       .where(eq(schema.aspectAttunement.ownerKey, ownerKey));
     const pools: Record<string, number> = {};
     for (const pr of prows) pools[pr.element] = pr.points;
-    return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes, { classKey: (row as any).classKey ?? null, classFreeRiteUsed: (row as any).classFreeRiteUsed ?? 0, reclassTokens: (row as any).reclassTokens ?? 0, weaponKey: (row as any).weaponKey ?? null }, { arsenal, pools }));
+    const awokenCount = await countAwokenHeld(ownerKey);
+    return withHeart(ownerKey, view(row.totalExp, row.lifetimeWakes, { classKey: (row as any).classKey ?? null, classFreeRiteUsed: (row as any).classFreeRiteUsed ?? 0, reclassTokens: (row as any).reclassTokens ?? 0, weaponKey: (row as any).weaponKey ?? null }, { arsenal, pools }, awokenCount));
   }
   // First reading for a Tender whose waking predates the
   // ledger (2026-10-16): their standing collection is the
@@ -187,9 +208,9 @@ export async function getTenderProgress(ownerKey: string): Promise<TenderProgres
     await db.insert(schema.tenderProgress)
       .values({ ownerKey, totalExp: exp, lifetimeWakes: tenderOwned, updatedAt: new Date() })
       .catch(() => null);
-    return withHeart(ownerKey, view(exp, tenderOwned));
+    return withHeart(ownerKey, view(exp, tenderOwned, undefined, undefined, tenderOwned));
   }
-  return withHeart(ownerKey, view(0, 0));
+  return withHeart(ownerKey, view(0, 0, undefined, undefined, 0));
 }
 
 /** Award EXP for any work of tending; returns the Tender's new standing. */

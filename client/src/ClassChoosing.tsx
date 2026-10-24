@@ -1,8 +1,10 @@
 /**
- * THE CHOOSING (Nigel, 2026-10-19 — the Class Gate): the surface
- * where a Tender picks their class — presented once as a ceremony
- * when a classless Tender reaches Lv 3, and always waiting on the
- * character sheet behind the Choose Your Class button.
+ * THE CHOOSING (Nigel, 2026-10-19 — the Class Gate; trigger
+ * amended 2026-10-23 22:26 as amended 22:36 — CHOOSE AT THREE):
+ * the surface where a Tender picks their class — presented once
+ * as a ceremony when a classless Tender has woken their first
+ * three Awoken (the level-3 gate is dead), and always waiting
+ * on the character sheet behind the Choose Your Class button.
  *
  * The law, in plain words on every card: +2 within your school,
  * -3 across the closed schools, every cast rolled d20 + gift vs
@@ -121,7 +123,7 @@ export default function ClassChoosing({
   function weaponStep(repickMode: boolean) {
     return (
       <>
-        <p className="eyebrow">{repickMode ? "The second gift, re-named" : mode === "ceremony" ? "Level 3 — the choosing" : "The character sheet"}</p>
+        <p className="eyebrow">{repickMode ? "The second gift, re-named" : mode === "ceremony" ? "Three woken — the choosing" : "The character sheet"}</p>
         <h2>{repickMode ? "Re-name your runic weapon" : "The choosing's second gift — name your runic weapon"}</h2>
         <p className="class-choosing-law">
           A runic weapon floats at your side <strong>like an Awokin of its own</strong> and lunges out swinging at whatever
@@ -167,6 +169,7 @@ export default function ClassChoosing({
             <p>Chosen by {done.via}. Your figure now walks the world in this shape — and the Table will seat you.</p>
             {myWeapon && <p>Your runic weapon wakes with you: <strong>{WEAPONS[myWeapon].name}</strong> (d{WEAPONS[myWeapon].die} · {WEAPONS[myWeapon].note}){weaponDone ? <>, named by {weaponDone.via}</> : null} — it floats at your side like an Awokin and lunges at what comes within reach.</p>}
             <p><strong>Your skill tree awaits.</strong> Five points come with every level — at Lv {progress.level} you already hold {(progress.level - 1) * 5} banked. The tree is every tender's to walk; your school's road runs through it.</p>
+            <p>Wake all twenty of your welcome wakes when you can, and grow toward level 3 before you press deep into the cursed lands. No door is locked to you — the map and the field stand open — but twenty friends at your side and a Tender's strength behind them will hold far steadier when the curse tests you.</p>
             <div className="class-choosing-row">
               <button type="button" className="abtn gold" onClick={onOpenTree}>Open the skill tree</button>
               <button type="button" className="abtn" onClick={onClose}>Walk on</button>
@@ -174,7 +177,7 @@ export default function ClassChoosing({
           </>
         ) : current && (!myWeapon || repick) ? weaponStep(repick) : (
           <>
-            <p className="eyebrow">{mode === "ceremony" ? "Level 3 — the choosing" : "The character sheet"}</p>
+            <p className="eyebrow">{mode === "ceremony" ? "Three woken — the choosing" : "The character sheet"}</p>
             <h2>{current ? "Your class" : "What manner of tender are you?"}</h2>
             <p className="class-choosing-law">
               Every cast of the Written Light rolls a d20 and your class's gift against the working's level + 10.

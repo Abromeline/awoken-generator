@@ -779,9 +779,10 @@ export const api = {
   updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
   claimSpark: (value: { tileId: number }) => post<{ ok: boolean; fireLevel: number }>("claimSpark", value),
   getTenderRank: () => post<{ ok: boolean; myRank: number; myCount: number; totalTenders: number; nearby: { rank: number; name: string; count: number; isMe: boolean }[] }>("getTenderRank", {}),
-  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; weaponKey: string | null; arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[]; pools: Record<string, number> }>("getTenderExp", {}),
-  /** THE RUNIC WEAPON (2026-10-19): chosen with the class at
-   *  Lv 3; re-picking rides the second-thoughts economy. */
+  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; weaponKey: string | null; arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[]; pools: Record<string, number>; awokenCount: number }>("getTenderExp", {}),
+  /** THE RUNIC WEAPON (2026-10-19; trigger amended
+   *  2026-10-23 — chosen with the class at three woken, not
+   *  at Lv 3); re-picking rides the second-thoughts economy. */
   chooseWeapon: (args: { weaponKey: "swordshield" | "sword" | "spear" | "arrow" }) =>
     post<{ ok: true; weaponKey: string; via: string }>("chooseWeapon", args),
   wieldWeapon: (args: { weaponKey: "swordshield" | "sword" | "spear" | "arrow" }) =>

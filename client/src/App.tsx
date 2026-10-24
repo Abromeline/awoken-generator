@@ -489,9 +489,14 @@ function ClassDoorChip({ onOpen }: { onOpen: () => void }) {
 }
 
 /** The ceremony watcher + the choosing overlay's host: when a
- *  classless Tender stands at Lv 3+, the choosing presents itself
- *  once per session; the sheet door (classDoor state) opens it any
- *  time. Closing without choosing never nags — the chip remains. */
+ *  classless Tender holds THREE Awoken (Nigel, 2026-10-23 22:26
+ *  as amended 22:36 — CHOOSE AT THREE; the level-3 gate is
+ *  dead), the choosing presents itself once per session; the
+ *  sheet door (classDoor state) opens it any time. This same
+ *  trigger is the catch-up door: any claimed classless Tender
+ *  already holding three or more is served by it, at any
+ *  level. Closing without choosing never nags — the chip
+ *  remains. */
 function ClassChoosingHost({ door, setDoor, onOpenTree }: { door: null | "ceremony" | "sheet"; setDoor: (d: null | "ceremony" | "sheet") => void; onOpenTree: () => void }) {
   const queryClient = useQueryClient();
   const { data } = useQuery({ queryKey: ["tenderExp"], queryFn: () => api.getTenderExp(), refetchInterval: 60000 });
@@ -501,7 +506,7 @@ function ClassChoosingHost({ door, setDoor, onOpenTree }: { door: null | "ceremo
     // the ceremony simply offers itself again next visit.
     let seen = false;
     try { seen = !!sessionStorage.getItem("awoken-class-ceremony-seen"); } catch { /* storage denied — proceed unremembered */ }
-    if (data && data.level >= 3 && !data.classKey && !seen) {
+    if (data && data.awokenCount >= 3 && !data.classKey && !seen) {
       try { sessionStorage.setItem("awoken-class-ceremony-seen", "1"); } catch { /* storage denied */ }
       setDoor("ceremony");
     }
@@ -702,7 +707,29 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   const save = useMutation({ mutationFn: async (layers: LayerAsset[]) => api.saveAwoken({ layers: toLayerRefs(layers), imageBase64: await compose(layers), collection, ownerName }), onSuccess: (data) => { setNotice(data.iteration > 0 ? `${ordinal(data.iteration)}. Every matching Awokin received +${data.empowerment}/+${data.empowerment}.` : "A new form has crossed over."); if (collection === "tender") setCardId(data.id); onSaved(data.id); }, onError: (error) => { abortCeremony(); if (collection === "tender" && isClaimGateError(error)) onNeedClaim?.(); } });
   const checkout = useMutation({ mutationFn: () => api.createCheckoutSession(), onSuccess: (data) => { window.location.href = data.url; }, onError: (error) => { if (isClaimGateError(error) && onNeedClaim) onNeedClaim(); else setNotice(mutationError(error)); } });
   const vesselEmpty = credits !== null && credits.balance <= 0;
-  function onWakeButton() { if (vesselEmpty) { if (credits?.checkoutEnabled) checkout.mutate(); else setNotice("Wakes are gathered in packs — payments are not configured yet."); return; } wakeOne(); }
+  // CLAIM FIRST (Nigel, 2026-10-23 22:26 as amended 22:36):
+  // "Account name and password comes before waking any
+  // awoken." No Awoken can be woken before an account exists.
+  // Every wake entry on the tender face passes this guard
+  // first — an accountless reach for a wake routes to the
+  // claim through the standing onNeedClaim path (the gate
+  // opens carrying CLAIM_GATE_NOTE), before any ceremony
+  // starts and before any API call is made. The credit Wake
+  // One's server call already 403'd for non-Tenders, but only
+  // after the ceremony started; the spark free-wake cluster
+  // (wakeFreeAtSpark → claimFreeWake, claimWaitingFree,
+  // reconstituteWaitingFree) was genuinely SERVED to an
+  // accountless visitor end-to-end, because welcomeIdentity
+  // still honors a grandfathered soft visitor under a visitor
+  // owner key. This guard closes all four entries the same
+  // way. The workshop face is untouched: there signedIn is
+  // undefined and collection is "workshop", so the guard
+  // never fires there.
+  function routeGuestToClaim() {
+    if (collection === "tender" && !signedIn) { onNeedClaim?.(); return true; }
+    return false;
+  }
+  function onWakeButton() { if (routeGuestToClaim()) return; if (vesselEmpty) { if (credits?.checkoutEnabled) checkout.mutate(); else setNotice("Wakes are gathered in packs — payments are not configured yet."); return; } wakeOne(); }
   useEffect(() => {
     if (!composition.length) return; let cancelled = false;
     void compose(composition, canvasRef.current).catch((error: unknown) => { if (!cancelled) setNotice(mutationError(error)); });
@@ -740,6 +767,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
     return () => clearInterval(timer);
   }, [collection, freeWakeAvailable, nextFreeWakeAt, composition.length]);
   async function wakeFreeAtSpark() {
+    if (routeGuestToClaim()) return;
     if (freeBusy) return;
     setFreeBusy(true);
     startCeremony();
@@ -760,6 +788,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   // row, the claim arms the card, which forms once the form lands in the
   // deck payload — its Keep then concludes.
   async function claimWaitingFree(fromCard: boolean) {
+    if (routeGuestToClaim()) return;
     const waiting = waitingFree?.awakened ?? sessionWaiting?.awakened;
     if (!waiting || freeBusy) return;
     setFreeBusy(true);
@@ -776,6 +805,7 @@ function WakeRitual({ assets, collection, ownerName, manual, onSaved, onNeedClai
   // the new form grows out of the spark, and the card re-forms around it;
   // from the row, the form simply re-gathers on the canvas, as before.
   async function reconstituteWaitingFree(fromCard: boolean) {
+    if (routeGuestToClaim()) return;
     if ((!waitingFree?.awakened && !sessionWaiting?.awakened) || freeBusy) return;
     if (!canWake(assets)) { setNotice("The pools are still gathering matter — the first pieces have not arrived yet."); return; }
     setFreeBusy(true);

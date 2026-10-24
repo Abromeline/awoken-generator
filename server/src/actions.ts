@@ -13359,13 +13359,20 @@ export const handlers = {
     return getTenderProgress(ownerKeyFor(ctx));
   },
 
-  /** THE CHOOSING (Nigel, 2026-10-19 — the Class Gate): a Tender
-   *  picks their class at Lv 3. The first choosing is the calling;
-   *  ONE free second-thoughts rite may unmake it; after that the
-   *  class is sealed, and only a reclass token sent by a workshop
-   *  hand (grantReclassToken) opens it again, consumed on use.
-   *  Until a class is chosen the Tender's avatar shows nowhere
-   *  and the Table will not seat them (see getTableBindCode). */
+  /** THE CHOOSING (Nigel, 2026-10-19 — the Class Gate; trigger
+   *  amended 2026-10-23 22:26 as amended 22:36 — CHOOSE AT
+   *  THREE): a Tender picks their class after waking their
+   *  first three Awoken. The level-3 gate is dead: a FIRST
+   *  choosing is refused only when the Tender is classless
+   *  and holds fewer than three Awoken; the second-thoughts
+   *  rite and the reclass-token paths below carry no count
+   *  gate at all, exactly as they stood. The first choosing
+   *  is the calling; ONE free second-thoughts rite may unmake
+   *  it; after that the class is sealed, and only a reclass
+   *  token sent by a workshop hand (grantReclassToken) opens
+   *  it again, consumed on use. Until a class is chosen the
+   *  Tender's avatar shows nowhere and the Table will not seat
+   *  them (see getTableBindCode). */
   async chooseClass(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({
@@ -13374,7 +13381,7 @@ export const handlers = {
     if (!parsed.success) badRequest("Name one of the five classes: Warden, Runewright, Binder, Witch, or Sage.");
     const ownerKey = ownerKeyFor(ctx);
     const progress = await getTenderProgress(ownerKey);
-    if (progress.level < 3) badRequest("The choosing comes at Lv 3 — wake, tend, and grow; your class wakes with your third level.");
+    if (!progress.classKey && progress.awokenCount < 3) badRequest("The choosing comes after your first three wakes — wake three Awoken, and the choosing opens.");
     sqlite.prepare("INSERT OR IGNORE INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 0, 0, ?)")
       .run(ownerKey, Date.now());
     const row = sqlite.prepare("SELECT class_key, class_free_rite_used, reclass_tokens FROM tender_progress WHERE owner_key = ?")
@@ -13401,13 +13408,14 @@ export const handlers = {
   },
 
   /** THE RUNIC WEAPON (Nigel, 2026-10-19): the choosing's second
-   *  gift — at Lv 3, with his class, the Tender names the weapon
-   *  that will float at his side: sword & shield (d6, +3 AC),
-   *  sword (d10, +1 AC), spear (d6, +1 range), arrow (d4, range
-   *  4). It is the grimoire's first spell unlock at Lv 3, and it
-   *  takes elemental attunement like an Awokin. Re-picking rides
-   *  the class's own economy: the second-thoughts rite once, then
-   *  reclass tokens — the choosing is one choosing. */
+   *  gift — with his class, the Tender names the weapon that
+   *  will float at his side: sword & shield (d6, +3 AC), sword
+   *  (d10, +1 AC), spear (d6, +1 range), arrow (d4, range 4).
+   *  It takes elemental attunement like an Awokin. This door
+   *  has never carried a level gate — classKey only — and
+   *  binds as-is under choose at three (2026-10-23). Re-picking
+   *  rides the class's own economy: the second-thoughts rite
+   *  once, then reclass tokens — the choosing is one choosing. */
   async chooseWeapon(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({

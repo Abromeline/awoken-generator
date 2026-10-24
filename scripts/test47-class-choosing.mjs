@@ -1,11 +1,16 @@
-// test47 — THE CHOOSING + THE CLASS GATE (Nigel, 2026-10-19): a
-// Tender picks their class at Lv 3; one free second-thoughts rite
-// unmakes it; after that only a workshop-sent reclass token opens
-// the class again, consumed on use; and no Tender takes a Table
-// binding code classless. Proven against the real API on a scratch
-// server. (The bound seat's classKey display rides the same
-// getTenderProgress read proven here; the seat itself needs a
-// Discord-proven join, out of a scratch world's reach.)
+// test47 — THE CHOOSING + THE CLASS GATE (Nigel, 2026-10-19;
+// trigger RESTATED 2026-10-23 22:26 as amended 22:36 — CHOOSE
+// AT THREE): a Tender picks their class after waking their
+// first three Awoken; the level-3 gate is dead — Lv 3 alone,
+// with no Awoken held, no longer opens the choosing, and three
+// held Awoken open it at any level. One free second-thoughts
+// rite unmakes it; after that only a workshop-sent reclass
+// token opens the class again, consumed on use; and no Tender
+// takes a Table binding code classless. Proven against the
+// real API on a scratch server. (The bound seat's classKey
+// display rides the same getTenderProgress read proven here;
+// the seat itself needs a Discord-proven join, out of a
+// scratch world's reach.)
 import Database from "better-sqlite3";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,17 +53,25 @@ const tenderId = db.prepare("SELECT id FROM tenders WHERE tender_name = 'Class T
 const ownerKey = `tender:${tenderId}`;
 
 let exp = await api("getTenderExp", {}, token);
-check("a new tender is Lv 1 and classless", exp.data.level === 1 && exp.data.classKey === null && exp.data.reclassTokens === 0, JSON.stringify(exp.data).slice(0, 160));
+check("a new tender is Lv 1, classless, and holds no Awoken", exp.data.level === 1 && exp.data.classKey === null && exp.data.reclassTokens === 0 && exp.data.awokenCount === 0, JSON.stringify(exp.data).slice(0, 160));
 
 let bind = await api("getTableBindCode", {}, token);
 check("THE GATE: no binding code while classless", bind.status === 400 && errText(bind).includes("chosen a class"), `status ${bind.status} ${errText(bind)}`);
 
 let ch = await api("chooseClass", { classKey: "witch" }, token);
-check("the choosing refuses before Lv 3", ch.status === 400 && errText(ch).includes("Lv 3"), `status ${ch.status} ${errText(ch)}`);
+check("CHOOSE AT THREE: the choosing refuses with no Awoken held (the old Lv-3 refusal, restated)", ch.status === 400 && errText(ch).includes("first three wakes"), `status ${ch.status} ${errText(ch)}`);
 
 db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 150, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 150").run(ownerKey, Date.now());
 exp = await api("getTenderExp", {}, token);
-check("Lv 3 reached (150 XP)", exp.data.level === 3, `level ${exp.data.level}`);
+check("Lv 3 reached (150 XP) — and the count still reads none held", exp.data.level === 3 && exp.data.awokenCount === 0, `level ${exp.data.level} count ${exp.data.awokenCount}`);
+
+ch = await api("chooseClass", { classKey: "witch" }, token);
+check("THE LEVEL-3 GATE IS DEAD: Lv 3 alone, with zero Awoken, no longer opens the choosing", ch.status === 400 && errText(ch).includes("first three wakes"), `status ${ch.status} ${errText(ch)}`);
+
+const insAwoken47 = db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, '[]', 'tender', 'Class Tester', ?, ?)");
+for (const n of ["First Woken", "Second Woken", "Third Woken"]) insAwoken47.run(n, n, `test47/${n}.png`, ownerKey, Date.now());
+exp = await api("getTenderExp", {}, token);
+check("three Awoken held — the progress read carries awokenCount 3", exp.data.awokenCount === 3, `count ${exp.data.awokenCount}`);
 
 ch = await api("chooseClass", { classKey: "witch" }, token);
 check("the calling: first choosing lands", ch.status === 200 && ch.data.classKey === "witch" && ch.data.via === "the calling", `status ${ch.status} ${JSON.stringify(ch.data).slice(0, 140)}`);

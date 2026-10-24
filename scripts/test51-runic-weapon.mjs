@@ -1,7 +1,13 @@
-// THE RUNIC WEAPON (Nigel, 2026-10-19): chosen with the class at
-// Lv 3; the first pick is the choosing's gift; re-picking rides
-// the second-thoughts rite, then reclass tokens, then seals.
-// The stand on the homeland carries it. (test51)
+// THE RUNIC WEAPON (Nigel, 2026-10-19; RESTATED 2026-10-23
+// 22:26 as amended 22:36 — CHOOSE AT THREE): chosen with the
+// class after the first three wakes (this test formerly chose
+// at Lv 3 with zero Awoken — under the new law that choosing
+// is refused, so the Tender here holds three); the weapon door
+// itself never carried a level gate — classKey only — and
+// binds as-is. The first pick is the choosing's gift;
+// re-picking rides the second-thoughts rite, then reclass
+// tokens, then seals. The stand on the homeland carries it.
+// (test51)
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +37,10 @@ const token = claim.data.token;
 const me = `tender:${db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.data.tender.code).id}`;
 db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 200, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 200").run(me, Date.now());
 db.prepare("INSERT INTO territory_tiles (owner_key, q, r, cursed, created_at) VALUES (?, 0, 0, 0, ?)").run(me, Date.now());
+// CHOOSE AT THREE (2026-10-23): three Awoken held, so the
+// choosing below opens under the new law.
+const insAwoken51 = db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, '[]', 'tender', 'Weapon Tender', ?, ?)");
+for (const n of ["Weapon One", "Weapon Two", "Weapon Three"]) insAwoken51.run(n, n, `test51/${n}.png`, me, Date.now());
 
 // 1. No class yet: the weapon refuses.
 const early = await call("chooseWeapon", { weaponKey: "sword" }, token, true);
