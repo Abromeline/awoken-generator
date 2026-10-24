@@ -3,6 +3,16 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, GRIMOIRE_POUR_ENGINES, GRIMOIRE_PAGE_SLOTS, GRIMOIRE_SLOT_COST, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
 import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, type WeaponKey } from "./weaponArt";
+import glyphSealImg from "./assets/glyphs/seal.png";
+import glyphEngineImg from "./assets/glyphs/engine.png";
+import glyphStandardImg from "./assets/glyphs/standard.png";
+import glyphBeaconImg from "./assets/glyphs/beacon.png";
+import glyphLatticeImg from "./assets/glyphs/lattice.png";
+import glyphBladeImg from "./assets/glyphs/blade.png";
+import glyphBladesImg from "./assets/glyphs/blades.png";
+import glyphShardImg from "./assets/glyphs/shard.png";
+import glyphCoilImg from "./assets/glyphs/coil.png";
+import glyph05Img from "./assets/glyphs/trees.png";
 
 /**
  * THE SKILL ZODIAC (Nigel's directive via Law, 2026-10-17):
@@ -44,6 +54,32 @@ const SIGNATURES: Record<string, { name: string; desc: string }> = {
   swordshield: { name: "Aegis", desc: "+1 AC" },
 };
 const ROMAN = ["0", "I", "II", "III", "IV"];
+/** THE BOOK'S DRAWN FACES, by working key — the game's own
+ *  hand-drawn runes, worn in the book through a gold mask
+ *  (the spellbook's ruled face, 2026-10-23). The map follows
+ *  the data of record (workingsData / glyphs-of-ward-and-
+ *  rune): Seal glyph-08, Engine glyph-06, Standard glyph-01,
+ *  Beacon glyph-10, Lattice glyph-07, the Blade glyph-02
+ *  (the Springing Blade wears glyph-02 too, by that same
+ *  record), Blades glyph-04, Crown Shard glyph-09, Coil
+ *  glyph-03 — and glyph-05, imported here from the file the
+ *  bundle calls trees.png, is the SPRINGLEAF's true face,
+ *  permanently, by Nigel's 2026-10-20 ruling. The Twin Trees
+ *  has NO entry: its new face is owed by Nigel's hand, and
+ *  glyph-05 is never lent to it. Workings with no entry and
+ *  no served glyph art (Shard Rain, Bats, Hold Rune, Rune
+ *  Shatter, Bulwark, Black Gate, Heal) open on an owed frame
+ *  carrying the working's name-mark — never another
+ *  working's face. */
+const FACE_BY_KEY: Record<string, string> = {
+  seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg,
+  beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg,
+  springblade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg,
+  coil: glyphCoilImg, springleaf: glyph05Img,
+};
+/** One page of the book: a weapon of the arsenal, or a
+ *  working of the Grimoire. */
+type BookEntry = { type: "weapon"; key: WeaponKey } | { type: "spell"; spell: GrimoireSpell };
 /** Points as the Grimoire's pour system shows them: two
  *  decimal places at most, no long tails (Nigel, 2026-10-20). */
 const fmtPts = (n: number) => String(Math.round((n ?? 0) * 100) / 100);
@@ -119,6 +155,11 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   // the tender record so the card never lies.
   const [tab, setTab] = useState<"profile" | "inventory" | "grimoire" | "party" | "messages">("profile");
   const [grimTab, setGrimTab] = useState<"weapons" | "spells" | "runes">("weapons");
+  // THE SPELLBOOK (Nigel, 2026-10-24): the Grimoire's three
+  // sections stand as the book's chapters; within a chapter,
+  // page 0 is its index and pages 1..N are its entries, one
+  // working to a page, turned by the pips and the turn bar.
+  const [grimPage, setGrimPage] = useState(0);
   const [charMsg, setCharMsg] = useState("");
   const [charErr, setCharErr] = useState("");
   const studioQ = useQuery({ queryKey: ["zodiacStudio"], queryFn: () => api.getStudio() });
@@ -236,18 +277,21 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     const held = ELEMENTS.filter(el => (standing[el] ?? 0) > 0);
     const total = held.reduce((n, el) => n + (standing[el] ?? 0), 0);
     const pips = held.flatMap(el => Array.from({ length: standing[el] ?? 0 }, () => el));
+    const slots: (ElementKey | null)[] = [...pips, ...Array.from({ length: GRIMOIRE_PAGE_SLOTS - total }, () => null)];
     return (
       <div className="page-attune">
-        <div className="attune-row" aria-label={`${s.name} attunement slots`}>
-          <span>Slots {total} of {GRIMOIRE_PAGE_SLOTS}:</span>
-          {total ? pips.map((el, i) => (
-            <span key={i} className="attune-node lit" title={`a filled ${el} slot — casts of this page in ${el} carry it`}>{EL_EMOJI[el] ?? ""}</span>
-          )) : <span>— all eight empty; every cast of this page goes bare</span>}
+        <div className="attune-row book-slots" aria-label={`${s.name} attunement slots — ${total} of ${GRIMOIRE_PAGE_SLOTS} filled`}>
+          <span>Slots</span>
+          {slots.map((el, i) => el ? (
+            <span key={i} className="slot-pip lit" style={{ background: `var(--elem-${el})`, borderColor: `var(--elem-${el})` }} title={`a filled ${el} slot — casts of this page in ${el} carry it`} />
+          ) : (
+            <span key={i} className="slot-pip" title="an empty slot" />
+          ))}
+          <span>{total}/{GRIMOIRE_PAGE_SLOTS}</span>
         </div>
+        {total === 0 && <p className="book-mark-line">All eight empty — every cast of this page goes bare.</p>}
         {held.map(el => (
-          <div key={el} className="attune-row">
-            <span>{EL_EMOJI[el] ?? ""} {el} ×{standing[el]} — a cast of this page in {el} gains +{standing[el]} power and +{standing[el]} health</span>
-          </div>
+          <p key={el} className="book-mark-line">{EL_EMOJI[el] ?? ""} {el} ×{standing[el]} — +{standing[el]} power · +{standing[el]} health on {el} casts</p>
         ))}
         <div className="weapon-actions" role="group" aria-label={`Fill a slot of ${s.name}`}>
           {ELEMENTS.map(el => {
@@ -255,15 +299,121 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
             return (
               <button key={el} type="button" className="zodiac-btn" disabled={charBusy || total >= GRIMOIRE_PAGE_SLOTS || pool < GRIMOIRE_SLOT_COST}
                 onClick={() => attunePageM.mutate({ spellKey: s.key, element: el })}>
-                {EL_EMOJI[el] ?? ""} {el} — fill a slot for {GRIMOIRE_SLOT_COST} pts (pool {fmtPts(pool)}){total >= GRIMOIRE_PAGE_SLOTS ? " · page full" : ""}
+                {EL_EMOJI[el] ?? ""} {el} — fill · {GRIMOIRE_SLOT_COST} pts (pool {fmtPts(pool)})
               </button>
             );
           })}
         </div>
-        <p className="zodiac-note small">Eight slots stand in each page. Filling one costs {GRIMOIRE_SLOT_COST} points of that element's pool, and the slot stands: every cast of this page in that slot's element carries +1 power and +1 health per filled slot, and the spell's own level rides every cast's roll. A filled slot cannot be emptied or changed yet. The Witch's doubled attunement and the Sage's +2 priced the old way of powering a page; how they bend slots is not ruled yet, so today every hand fills at the same {GRIMOIRE_SLOT_COST} points.</p>
+        {total >= GRIMOIRE_PAGE_SLOTS && <p className="book-mark-line">The page is full.</p>}
       </div>
     );
   };
+  /** The face a page wears: the working's own drawn rune,
+   *  shown through the gold mask. A served glyph's bound art
+   *  wins; else the bundled face the data of record assigns.
+   *  The Twin Trees opens on the owed frame — its new face
+   *  is Nigel's to draw, and glyph-05 (the Springleaf's) is
+   *  never lent to it. Undrawn faces return null and the
+   *  page carries the owed frame with the name-mark. */
+  const pageFace = (s: GrimoireSpell): string | null => {
+    if (s.key === "trees") return null;
+    const glyph = grimoireQ.data?.glyphs.find(g => g.id === s.glyphId);
+    if (glyph?.imageUrl) return glyph.imageUrl;
+    return FACE_BY_KEY[s.key] ?? (glyph?.assetKey ? FACE_BY_KEY[glyph.assetKey] : undefined) ?? null;
+  };
+  /** The element pools as the book's foot-marks: clean
+   *  numbers, no tails (Nigel's struck deluge, 2026-10-24). */
+  const renderBookPools = () => !exp ? null : (
+    <p className="book-pools"><span className="book-pools-label">Pools</span>{ELEMENTS.map(el => (
+      <span key={el} className="book-pool">{EL_EMOJI[el]} {fmtPts(exp.pools[el] ?? 0)}</span>
+    ))}</p>
+  );
+  /** A weapon's page: its face, its marks, its attunement
+   *  ladder standing as nodes on the page, and Manifest and
+   *  Signature as the page's own marks — every action the
+   *  old card carried, on the same doors (wieldWeapon,
+   *  attuneWeapon, buyWeaponNode), with the cost written on
+   *  the action itself and every pool a clean number. */
+  const renderWeaponPage = (key: WeaponKey) => {
+    if (!exp) return null;
+    const w = arsenalOf(key); if (!w) return null;
+    const sig = SIGNATURES[key];
+    const reach = w.element && w.depth >= 1 ? (ELEMENT_REACH[w.element] ?? BASE_REACH[key]) : BASE_REACH[key];
+    const pay = payPoolFor(w);
+    const nextCost = w.depth + 1;
+    return (
+      <section key={key} className="book-page">
+        <div className="book-face">
+          <img key={key} className="book-burn" src={weaponImg(key)} alt="" />
+          {exp.weaponKey === key ? <span className="weapon-held">⚔ In hand</span> : <button type="button" className="zodiac-btn" disabled={charBusy || !exp.classKey} onClick={() => wieldM.mutate(key)}>Wield</button>}
+        </div>
+        <h5 className="book-name">{WEAPONS[key].name}</h5>
+        <p className="book-marks">d{WEAPONS[key].die} · {WEAPONS[key].note} · Reach {reach}{w.element && w.depth >= 1 ? ` — ${w.element}` : ""} · Lv {w.level} · {w.xp} xp · damage +{w.level}</p>
+        <p className="book-line">{WEAPONS[key].blurb}</p>
+        <div className="attune-row book-nodes" aria-label={`${WEAPONS[key].name} attunement`}>
+          <span>Attunement{w.element ? ` — ${EL_EMOJI[w.element] ?? ""} ${w.element}` : " — none"}:</span>
+          {[1, 2, 3, 4].map(d => (
+            <span key={d} className={`attune-node${w.depth >= d ? " lit" : ""}`} title={`Node ${ROMAN[d]}`}
+              style={w.depth >= d && w.element ? { background: `var(--elem-${w.element})`, borderColor: `var(--elem-${w.element})`, color: "#14161f" } : undefined}>{ROMAN[d]}</span>
+          ))}
+        </div>
+        {w.depth >= 4 ? <p className="zodiac-held">Attunement at its deepest — IV.</p> : w.element ? (
+          <div className="weapon-actions">
+            <button type="button" className="zodiac-btn take" disabled={charBusy || (exp.pools[w.element] ?? 0) < nextCost} onClick={() => attuneM.mutate({ weaponKey: key, element: w.element as ElementKey })}>Attune {w.element} — {ROMAN[w.depth + 1]} · {nextCost} pt{nextCost === 1 ? "" : "s"} (pool {fmtPts(exp.pools[w.element] ?? 0)})</button>
+            <details className="weapon-switch"><summary>Start a different element over — restarts at I · 1 pt</summary>
+              <div className="weapon-actions">{ELEMENTS.filter(el => el !== w.element).map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} {el} — 1 pt (pool {fmtPts(exp.pools[el] ?? 0)})</button>)}</div>
+            </details>
+          </div>
+        ) : (
+          <div className="weapon-actions">{ELEMENTS.map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} Attune {el} — I · 1 pt (pool {fmtPts(exp.pools[el] ?? 0)})</button>)}</div>
+        )}
+        <div className="weapon-nodes">
+          <div className="weapon-node">
+            <strong>Manifest</strong><span> — casts +1 copy</span>
+            {w.manifest ? <p className="zodiac-held">✓ Held</p> : <><button type="button" className="zodiac-btn take" title="Manifest casts +1 copy" disabled={charBusy || !exp.classKey || pay.points < 3} onClick={() => buyNodeM.mutate({ weaponKey: key, node: "manifest" })}>Buy Manifest — 3 pts</button><p className="book-mark-line">{pay.el ? `Pays from your ${pay.el} pool (${fmtPts(pay.points)}).` : "No aspect pool holds points yet."}{pay.points < 3 ? " Needs 3." : ""}</p></>}
+          </div>
+          <div className="weapon-node">
+            <strong>Signature · {sig.name}</strong><span> — {sig.desc}</span>
+            {w.signature ? <p className="zodiac-held">✓ Held</p> : <><button type="button" className="zodiac-btn take" title={`${sig.name}: ${sig.desc}`} disabled={charBusy || !exp.classKey || pay.points < 3} onClick={() => buyNodeM.mutate({ weaponKey: key, node: "signature" })}>Buy {sig.name} — 3 pts</button><p className="book-mark-line">{pay.el ? `Pays from your ${pay.el} pool (${fmtPts(pay.points)}).` : "No aspect pool holds points yet."}{pay.points < 3 ? " Needs 3." : ""}</p></>}
+          </div>
+        </div>
+      </section>
+    );
+  };
+  /** A working's page: its rune burning in in neutral gold
+   *  (or the owed frame), its name, its marks, its one line,
+   *  and — for the pages that drink — its slots and their
+   *  fill doors, unchanged (attuneGrimoirePage). */
+  const renderSpellPage = (s: GrimoireSpell) => {
+    const face = pageFace(s);
+    return (
+      <section key={s.key} className="book-page">
+        {face ? (
+          <div key={s.key} className="book-rune book-burn" role="img" aria-label={`${s.name} — its drawn face`}
+            style={{ WebkitMaskImage: `url(${face})`, maskImage: `url(${face})` }} />
+        ) : (
+          <div className="book-rune owed" role="img" aria-label={`${s.name} — its face is not yet drawn`}>
+            <span>{s.name}</span>
+          </div>
+        )}
+        <h5 className="book-name">{s.name}</h5>
+        <p className="book-marks">{s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}</p>
+        {s.blurb ? <p className="book-line">{s.blurb}</p> : null}
+        {pageAttunementBlock(s) ?? (s.kind === "binding" ? <p className="book-mark-line">Binding — its strength is not bought with slots.</p> : null)}
+      </section>
+    );
+  };
+  /** The open chapter's entries, in the book's own order:
+   *  the arsenal for Weapons; the served book filtered by
+   *  kind for Spells (spell + binding) and Runes/Wards
+   *  (ward + rune) — the same lists the card tabs carried. */
+  const grimEntries: BookEntry[] = grimTab === "weapons"
+    ? WEAPON_ORDER.filter(k => arsenalOf(k)).map((key): BookEntry => ({ type: "weapon", key }))
+    : (grimoireQ.data?.spells ?? [])
+        .filter(s => (grimTab === "spells" ? s.kind === "spell" || s.kind === "binding" : s.kind === "ward" || s.kind === "rune"))
+        .map((spell): BookEntry => ({ type: "spell", spell }));
+  const bookPage = Math.max(0, Math.min(grimPage, grimEntries.length));
+  const bookEntry = bookPage > 0 ? grimEntries[bookPage - 1] : undefined;
 
   return (
     <div className="zodiac-overlay" role="dialog" aria-label="The Skill Zodiac">
@@ -554,87 +704,47 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
 
             {tab === "grimoire" && (
               <div className="character-pane">
-                <div className="character-tabs sub" role="tablist" aria-label="Grimoire tabs">
+                <div className="character-tabs sub" role="tablist" aria-label="Grimoire chapters">
                   {(["weapons", "spells", "runes"] as const).map(t => (
-                    <button key={t} type="button" role="tab" aria-selected={grimTab === t} className={`character-tab${grimTab === t ? " active" : ""}`} onClick={() => setGrimTab(t)}>{t === "weapons" ? "Weapons" : t === "spells" ? "Spells" : "Runes/Wards"}</button>
+                    <button key={t} type="button" role="tab" aria-selected={grimTab === t} className={`character-tab${grimTab === t ? " active" : ""}`} onClick={() => { setGrimTab(t); setGrimPage(0); }}>{t === "weapons" ? "Weapons" : t === "spells" ? "Spells" : "Runes/Wards"}</button>
                   ))}
                 </div>
 
-                {grimTab === "weapons" && (
-                  <div className="weapon-tree">
-                    <p className="zodiac-note small">One tree, four branches. Damage rises +1 per weapon level. Attunement pours follow the ladder: from depth D the next node costs D+1 points of that element, cap IV — pouring a different element starts that weapon over at depth I for 1 pt. Manifest and Signature each cost a flat 3 pts (from the attuned element's pool, or your richest pool when unattuned).</p>
-                    {WEAPON_ORDER.map(key => { const w = arsenalOf(key); if (!w) return null; const sig = SIGNATURES[key]; const reach = w.element && w.depth >= 1 ? (ELEMENT_REACH[w.element] ?? BASE_REACH[key]) : BASE_REACH[key]; const pay = payPoolFor(w); const nextCost = w.depth + 1; return (
-                      <section key={key} className={`weapon-branch${exp.weaponKey === key ? " in-hand" : ""}`}>
-                        <header>
-                          <img src={weaponImg(key)} alt="" />
-                          <div><h5>{WEAPONS[key].name}</h5><p>d{WEAPONS[key].die} · {WEAPONS[key].note} · {WEAPONS[key].blurb}</p></div>
-                          {exp.weaponKey === key ? <span className="weapon-held">⚔ In hand</span> : <button type="button" className="zodiac-btn" disabled={charBusy || !exp.classKey} onClick={() => wieldM.mutate(key)}>Wield</button>}
-                        </header>
-                        <p>Level <strong>{w.level}</strong> · {w.xp} xp · damage <strong>+{w.level}</strong> (+1 per level) · Reach <strong>{reach}</strong> {w.element && w.depth >= 1 ? `(${w.element} reach while attuned)` : "(base reach)"}</p>
-                        <div className="attune-row" aria-label={`${WEAPONS[key].name} attunement`}>
-                          <span>Attunement {w.element ? `${EL_EMOJI[w.element] ?? ""} ${w.element}` : "— none"}:</span>
-                          {[1, 2, 3, 4].map(d => <span key={d} className={`attune-node${w.depth >= d ? " lit" : ""}`} title={`Node ${ROMAN[d]}`}>{ROMAN[d]}</span>)}
-                        </div>
-                        {w.depth >= 4 ? <p className="zodiac-held">Attunement at its deepest (IV).</p> : w.element ? (
-                          <div className="weapon-actions">
-                            <button type="button" className="zodiac-btn take" disabled={charBusy || (exp.pools[w.element] ?? 0) < nextCost} onClick={() => attuneM.mutate({ weaponKey: key, element: w.element as ElementKey })}>Attune {w.element} — node {ROMAN[w.depth + 1]} for {nextCost} pt{nextCost === 1 ? "" : "s"} (pool {exp.pools[w.element] ?? 0})</button>
-                            <details className="weapon-switch"><summary>Start a different element over (resets depth, 1 pt)</summary>
-                              <div className="weapon-actions">{ELEMENTS.filter(el => el !== w.element).map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} {el} — 1 pt</button>)}</div>
-                            </details>
-                          </div>
-                        ) : (
-                          <div className="weapon-actions">{ELEMENTS.map(el => <button key={el} type="button" className="zodiac-btn" disabled={charBusy || (exp.pools[el] ?? 0) < 1} onClick={() => attuneM.mutate({ weaponKey: key, element: el })}>{EL_EMOJI[el]} Attune {el} — node I for 1 pt (pool {exp.pools[el] ?? 0})</button>)}</div>
-                        )}
-                        <div className="weapon-nodes">
-                          <div className="weapon-node">
-                            <strong>Manifest</strong><span> — casts +1 copy</span>
-                            {w.manifest ? <p className="zodiac-held">✓ Owned</p> : <><button type="button" className="zodiac-btn take" title="Manifest casts +1 copy" disabled={charBusy || !exp.classKey || pay.points < 3} onClick={() => buyNodeM.mutate({ weaponKey: key, node: "manifest" })}>Buy Manifest — 3 pts</button><p className="zodiac-note small">{pay.el ? `Pays from your ${pay.el} pool (${pay.points}).` : "No aspect pool holds points yet."}{pay.points < 3 ? " Needs 3." : ""}</p></>}
-                          </div>
-                          <div className="weapon-node">
-                            <strong>Signature · {sig.name}</strong><span> — {sig.desc}</span>
-                            {w.signature ? <p className="zodiac-held">✓ Owned</p> : <><button type="button" className="zodiac-btn take" title={`${sig.name}: ${sig.desc}`} disabled={charBusy || !exp.classKey || pay.points < 3} onClick={() => buyNodeM.mutate({ weaponKey: key, node: "signature" })}>Buy {sig.name} — 3 pts</button><p className="zodiac-note small">{pay.el ? `Pays from your ${pay.el} pool (${pay.points}).` : "No aspect pool holds points yet."}{pay.points < 3 ? " Needs 3." : ""}</p></>}
-                          </div>
-                        </div>
-                      </section>); })}
-                    {!exp.classKey && <p className="zodiac-lock">The arsenal opens with your class — choose a class first.</p>}
-                  </div>
+                {grimTab === "weapons" ? (
+                  <p className="book-chapter-marks">Damage +1 per level · attunement I–IV — the next node costs depth + 1 pts · a new element restarts at I · Manifest &amp; Signature — 3 pts</p>
+                ) : grimTab === "spells" ? (
+                  <p className="book-chapter-marks">Casting — your school +2 · closed schools −3 · the Sage −3 on all · d20 + gift vs Lv + 10 · a failed cast still spends its energy</p>
+                ) : (
+                  <p className="book-chapter-marks">Ward &amp; Rune arts — {exp.wardRuneUnlocked ? "unlocked" : `locked · opens at Tender Lv 3 · you are Lv ${exp.level}`}</p>
                 )}
-
-                {grimTab === "spells" && (
-                  <div>
-                    <p className="zodiac-note small">Powering lives in this book (Nigel, 2026-10-20; the slots, 2026-10-21): a page's eight attunement slots are filled here, and every cast of that page — at the Table and on your land — carries the page's filled slots of the cast's element, each +1 power and +1 health. Nothing is poured at the moment of casting any more.</p>
-                    <p className="casting-law">Casting law: <strong>+2</strong> within your school, <strong>−3</strong> across the closed schools (the Sage pays −3 on every cast; the Spell school stays open to all). Every cast rolls d20 + gift against the working's level + 10, and a failed cast still spends its energy.</p>
-                    {grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
-                    {grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
-                    <ul className="character-list spells">
-                      {(grimoireQ.data?.spells ?? []).filter(s => s.kind === "spell" || s.kind === "binding").map(s => (
-                        <li key={s.key}><strong>{s.name}</strong> — school: {s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}{s.blurb ? <><br /><span>{s.blurb}</span></> : null}{pageAttunementBlock(s)}</li>
+                {grimTab !== "weapons" && grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
+                {grimTab !== "weapons" && grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
+                <div className="spellbook">
+                  <div className="book-turn">
+                    <button type="button" className="book-turn-btn" disabled={bookPage <= 0} onClick={() => setGrimPage(bookPage - 1)} aria-label="Turn back a page">‹</button>
+                    <span className="book-turn-label">{bookPage === 0 ? `Index — ${grimEntries.length} page${grimEntries.length === 1 ? "" : "s"}` : `Page ${bookPage} of ${grimEntries.length}`}</span>
+                    <button type="button" className="book-turn-btn" disabled={bookPage >= grimEntries.length} onClick={() => setGrimPage(bookPage + 1)} aria-label="Turn a page forward">›</button>
+                  </div>
+                  {bookPage === 0 ? (
+                    <div className="book-index">
+                      {grimEntries.length === 0 ? <p className="zodiac-note">No pages are written in this chapter yet.</p> : grimEntries.map((e, i) => (
+                        <button key={e.type === "weapon" ? e.key : e.spell.key} type="button" className="book-index-row" onClick={() => setGrimPage(i + 1)}>
+                          <span className="book-index-num">{i + 1}</span>
+                          <span className="book-index-name">{e.type === "weapon" ? WEAPONS[e.key].name : e.spell.name}</span>
+                          <span className="book-index-marks">{e.type === "weapon" ? `d${WEAPONS[e.key].die} · ${WEAPONS[e.key].note}` : `${e.spell.kind} · Lv ${e.spell.numbers?.level ?? 1} · cost ${e.spell.cost}`}</span>
+                        </button>
                       ))}
-                    </ul>
-                    <p className="zodiac-note small">Binding pages take no attunement — their strength is not bought with points. The pages that drink are the holding wards and the Crown Shard, under Runes/Wards.</p>
-                    {grimoireQ.data && grimoireQ.data.spells.length === 0 && <p className="zodiac-note">No spells are written in the book yet.</p>}
+                    </div>
+                  ) : bookEntry?.type === "weapon" ? renderWeaponPage(bookEntry.key) : bookEntry?.type === "spell" ? renderSpellPage(bookEntry.spell) : null}
+                  <div className="book-pips" role="navigation" aria-label="Book pages">
+                    <button type="button" className={`book-pip${bookPage === 0 ? " here" : ""}`} onClick={() => setGrimPage(0)} aria-label="The chapter index">Index</button>
+                    {grimEntries.map((e, i) => (
+                      <button key={e.type === "weapon" ? e.key : e.spell.key} type="button" className={`book-pip${bookPage === i + 1 ? " here" : ""}`} onClick={() => setGrimPage(i + 1)} aria-label={`Page ${i + 1} — ${e.type === "weapon" ? WEAPONS[e.key].name : e.spell.name}`}>{i + 1}</button>
+                    ))}
                   </div>
-                )}
-
-                {grimTab === "runes" && (
-                  <div>
-                    <p className="zodiac-note small">These pages are cast on the land and at the Table — and powered HERE, in the book: fill a page's slots with an element and every cast of it in that element carries those slots, +1 power and +1 health apiece, with the spell's own level riding the cast's roll. There is no pouring at the cast, and standing workings can no longer be pushed.</p>
-                    <ul className="character-list">
-                      <li>Ward &amp; Rune arts: <strong>{exp.wardRuneUnlocked ? "unlocked" : "locked"}</strong> — {exp.wardRuneUnlocked ? "opened at Tender Lv 3." : `opens at Tender Lv 3 (you are Lv ${exp.level}).`}</li>
-                    </ul>
-                    {grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
-                    {grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
-                    <ul className="character-list spells">
-                      {(grimoireQ.data?.spells ?? []).filter(s => s.kind === "ward" || s.kind === "rune").map(s => (
-                        <li key={s.key}><strong>{s.name}</strong> — school: {s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}{s.blurb ? <><br /><span>{s.blurb}</span></> : null}{pageAttunementBlock(s)}</li>
-                      ))}
-                    </ul>
-                    <h4>The filling energy — attunement pools</h4>
-                    <ul className="character-list">
-                      {ELEMENTS.map(el => <li key={el}>{EL_EMOJI[el]} {el}: <strong>{fmtPts(exp.pools[el] ?? 0)}</strong> pts · attunement Lv {state?.attunementLevels[el] ?? 0}</li>)}
-                    </ul>
-                  </div>
-                )}
+                </div>
+                {grimTab !== "weapons" && renderBookPools()}
+                {grimTab === "weapons" && !exp.classKey && <p className="zodiac-lock">The arsenal opens with your class — choose a class first.</p>}
               </div>
             )}
           </>
