@@ -119,6 +119,13 @@ export const ENGINE_NUMBER_FIELDS: Record<string, { key: string; label: string; 
   bats: [],
   holdrune: [],
   shatter: [],
+  // BULWARK (Nigel, 2026-10-23 — Recovery R12): its numbers
+  // are the ruling itself, carried in the cast's own law
+  // (the shared 5–10 rock-wall HP table and the shield
+  // count by cast level, in actions.ts) — no tunable field
+  // stands in the book for it yet, as with the workings
+  // above.
+  bulwark: [],
   none: [],
 };
 
@@ -369,6 +376,41 @@ export function defaultGrimoire(): GrimoireState {
     blurb: "The Hold Rune broken into its pieces, fired in a straight shot — 2 tiles of reach, each piece at −2 to hit, 1 damage a hit. A tap looses three pieces; held, it streams three pieces a second for 1 energy a second.",
     numbers: { level: 1 },
     forms: { unaligned: "Rune Shatter", tide: "Tide Rune Shatter", sky: "Sky Rune Shatter", stone: "Stone Rune Shatter", root: "Root Rune Shatter", fire: "Fire Rune Shatter" },
+    builtin: true,
+  });
+  // BULWARK (Nigel, 2026-10-23 — Recovery R12; the ruling
+  // itself, 2026-10-23 12:04): a WARD, 8 energy — "implemented
+  // in the Rock Wall's working fashion — a LINE OF SHIELDS
+  // with HP, classed as a WARD, that KNOCKS BACK enemies
+  // that hit it." The shields stand across the caster's aim
+  // as the Rock Wall's nodes stand; their COUNT follows the
+  // warding cast level (the caster's Tender level — the
+  // reading named in actions.ts, beside the shared table):
+  // a low cast raises only 1 or 2, the count grows with the
+  // level, capped at 6 in the rock-wall fashion; each
+  // shield's HP is read off the shared ROCK_WALL_HP_BY_LEVEL
+  // table (5–10 by level) at the cast level — the one table,
+  // never a forked copy. An enemy that hits a shield is
+  // knocked back one tile. The shields stand by their own
+  // HP alone — no figure's Defence stance sustains them.
+  // The shield ART is Nigel's own upload (the Shield piece,
+  // "Artwork 4" of his rune/ward set, 2026-10-21) — no
+  // substitute. Its GLYPH FACE is separately owed by his
+  // hand, like Shard Rain's: glyphId stands null and no
+  // glyph is invented for it. Its page takes no attunement
+  // slots (it stands outside POUR_ENGINES, as the Standard,
+  // the Engine and the Beacon do): its strength is the cast
+  // level law Nigel ruled for it, not the slots.
+  spells.push({
+    key: "bulwark",
+    name: "Bulwark",
+    kind: "ward",
+    engine: "bulwark",
+    glyphId: null,
+    cost: 8,
+    blurb: "A line of shields raised across your aim, in the Rock Wall's working fashion: the count follows your cast level (a low cast only one or two, six at the cap), each shield's health read off the shared 5–10 table at that level. An enemy that hits a shield is knocked back a tile; a shield falls at 0 HP and the line opens there.",
+    numbers: { level: 1 },
+    forms: { unaligned: "Bulwark", tide: "Tide Bulwark", sky: "Sky Bulwark", stone: "Stone Bulwark", root: "Root Bulwark", fire: "Fire Bulwark" },
     builtin: true,
   });
   return { glyphs, spells };

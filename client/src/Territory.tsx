@@ -34,6 +34,7 @@ import grimGlyphBlades from "./assets/glyphs/blades.png";
 import grimGlyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 import { batsFrameAt, holdRuneFrameAt } from "./workingFx";
+import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, springblade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
 /** The hues of the Written Light — the grimoire's filter recipes,
  *  the same as the Table's (Table.tsx). */
@@ -2709,7 +2710,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           ? `${formName} is written into the ground — it waits ARMED. Click a dark thing within two hexes of its ground and its blades will rise and spear down into it from above.`
           : castSpell.engine === "springleaf"
           ? `${formName} takes root — a grove of ${res.radiusHexes ?? 1} hexes' glow; its burst mends ${res.burst ?? 0} HP, and ${res.saplings ?? 0} saplings follow.`
-          : castSpell.kind === "ward"
+          : castSpell.engine === "bulwark"
+            ? `${formName} rises — ${res.shields ?? 0} shield${(res.shields ?? 0) === 1 ? "" : "s"} stand in a line across your aim, each with ${res.shieldHp ?? 0} HP. What strikes them is shoved back a tile.`
+            : castSpell.kind === "ward"
             ? `${formName} rises on the edge — the Written Light stands on your land, and the border is guarded.`
             : res.purified
               ? `${formName} springs — and the curse on that ground BREAKS. The hex is yours.`
@@ -5014,8 +5017,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         <g key="cast-edges">
           {verts.map((v, d) => {
             const n = verts[(d + 1) % 6];
-            const taken = walls.some((w) => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d))
-              || workings.some((w) => w.kind === "ward" && w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d));
+            // BULWARK (Recovery R12) takes no edge: the tap
+            // names its AIM, not a standing place — an edge
+            // already carrying a work still aims a line of
+            // shields across itself, so nothing reads taken
+            // while Bulwark is the readied ward.
+            const taken = castSpell?.engine !== "bulwark" && (walls.some((w) => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d))
+              || workings.some((w) => w.kind === "ward" && w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d)));
             return (
               <g key={d}>
                 <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none" />
@@ -5636,7 +5644,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // defender's rock wall and a Root defender's bramble,
     // drawn at their nodes' own free points — rocks as
     // standing stones, the thicket as dark green knots —
-    // each paling as its wounds deepen.
+    // each paling as its wounds deepen. BULWARK's cast line
+    // of shields (Recovery R12) stands in this same layer,
+    // in the same ledger: Nigel's own Shield piece at each
+    // node, paling the same way.
     const defenceWorksLayer = (
       <g key="defence-works" pointerEvents="none">
         {defenceWorks.map(wk => (
@@ -5650,6 +5661,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <g key={i} opacity={0.35 + 0.65 * frac}>
                   <ellipse cx={cx} cy={cy + size * 0.1} rx={size * 0.17} ry={size * 0.06} fill="rgba(0,0,0,0.4)" />
                   <polygon points={`${cx},${cy - size * 0.3} ${cx + size * 0.16},${cy + size * 0.08} ${cx - size * 0.16},${cy + size * 0.08}`} fill="#8d8578" stroke="#4c463c" strokeWidth={1 / zoom} strokeLinejoin="round" />
+                </g>
+              ) : wk.kind === "bulwark" ? (
+                // BULWARK (Nigel, 2026-10-23 — Recovery R12):
+                // the Tender's cast line of shields, drawn
+                // with his own uploaded Shield piece (the
+                // rune/ward set's "Artwork 4") — no substitute
+                // art — paling as its wounds deepen, as the
+                // rocks pale beside it.
+                <g key={i} opacity={0.35 + 0.65 * frac}>
+                  <ellipse cx={cx} cy={cy + size * 0.12} rx={size * 0.2} ry={size * 0.07} fill="rgba(0,0,0,0.4)" />
+                  <image href={bulwarkShieldImg} x={cx - size * 0.31} y={cy - size * 0.34} width={size * 0.62} height={size * 0.64} preserveAspectRatio="xMidYMid meet" />
                 </g>
               ) : (
                 <g key={i} opacity={0.35 + 0.65 * frac}>

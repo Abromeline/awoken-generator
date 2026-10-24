@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel } from "./actions.js";
 import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
@@ -453,6 +453,13 @@ interface Working {
    *  birth and next bite and its quarry, the rune's cast
    *  moment and the strike that begins its hold, the stream's
    *  next piece and next charge and its end. */
+  /** BULWARK (Nigel, 2026-10-23 — Recovery R12): the line
+   *  of shields itself — free points on the field, each
+   *  with its own wounds, raised across the cast's aim.
+   *  The working's own hp/maxHp above carry the line's
+   *  TOTAL (for the view); the shields' HP is the body
+   *  the battle reckons, node by node. */
+  shields?: { x: number; y: number; hp: number; maxHp: number }[];
   bornAt?: number;
   nextBiteAt?: number;
   bites?: number;
@@ -2047,6 +2054,25 @@ function stepToward(e: { pos: Pt; target: Pt | null }, speedPx: number, dt: numb
   if (d <= 2 || step >= d) { e.pos = { ...e.target }; e.target = null; return; }
   e.pos = { x: e.pos.x + (e.target.x - e.pos.x) / d * step, y: e.pos.y + (e.target.y - e.pos.y) / d * step };
 }
+/** BULWARK (Nigel, 2026-10-23 — Recovery R12): the nearest
+ *  standing Bulwark shield to a point, across every line on
+ *  the field (a wall is a wall, whoever raised it — the
+ *  passive walls' own law at this Table), or null when no
+ *  shield stands within `reach` px. The shields are the
+ *  working's body: a shield at 0 HP is no shield at all. */
+function nearestBulwarkShield(room: Room, pos: Pt, reach: number): { w: Working; s: { x: number; y: number; hp: number; maxHp: number }; d: number } | null {
+  let best: { w: Working; s: { x: number; y: number; hp: number; maxHp: number }; d: number } | null = null;
+  for (const w of room.workings) {
+    if (w.engine !== "bulwark" || !w.shields) continue;
+    for (const s of w.shields) {
+      if (s.hp <= 0) continue;
+      const d = distPx(pos, s);
+      if (d <= reach && (!best || d < best.d)) best = { w, s, d };
+    }
+  }
+  return best;
+}
+
 /** THE INTEGRATOR: advance every position by the time since the
  *  last integration, steer the dark (in battle), then derive
  *  every entity's hex from its position. Enemies crossing into
@@ -2072,6 +2098,16 @@ function integrate(room: Room, now: number): void {
       // the seed while only its strike was held. A pinned
       // dark does not step.
       if ((e.pinnedUntil ?? 0) > now) { e.target = null; continue; }
+      // BULWARK (Recovery R12): the line HALTS the dark as
+      // the homeland's line does — a dark come up against a
+      // standing shield (within half a hex of one) goes no
+      // farther this beat; the strike pass below is where
+      // it hits the shield and is shoved back. (The Table's
+      // older wards never blocked movement — the passive
+      // walls' note stands for them; Bulwark's ruling is
+      // its own: a line of shields, in the Rock Wall's
+      // working fashion, and the Rock Wall blocks.)
+      if (nearestBulwarkShield(room, e.pos, 46)) { e.target = null; continue; }
       // STEERING: the nearest standing light, if it can be clawed
       // or is nearer than the seed; otherwise the seed itself —
       // but at the gate (ring 1) it halts and assaults.
@@ -2393,6 +2429,11 @@ function settleWorkingWithering(room: Room, dtSec: number): boolean {
   let changed = false;
   for (const w of [...room.workings]) {
     if (w.kind === "grove") continue;
+    // BULWARK (Recovery R12): its body is its shields' HP,
+    // struck node by node in the battle pass — the curse
+    // does not also eat the line through this ledger (the
+    // homeland's defence works carry no wither either).
+    if (w.engine === "bulwark") continue;
     const ground = w.kind === "rune"
       ? (w.hex ? [w.hex] : [])
       : [w.hexA, w.hexB].filter((h): h is string => !!h);
@@ -3712,6 +3753,50 @@ async function runRound(room: Room): Promise<void> {
         // It never claws: steering in integrate moves and
         // halts it; here it only drains (above).
         continue;
+      }
+      // BULWARK (Recovery R12): a shield within claw's reach
+      // is hit INSTEAD of any light standing no nearer — the
+      // dark meets the line before it meets what the line
+      // guards. The shield takes the blow's POWER (the
+      // Seal's own Table measure: "every blow it stops costs
+      // it that blow's power"), falls at 0 HP, and the line
+      // opens where it fell; and the hit SHOVES THE STRIKER
+      // BACK one tile (69px) along the line from the shield
+      // to the striker — the ruling's knock back, at the
+      // homeland line's own measure. No AC is reckoned here:
+      // the hit is the meeting, as the homeland's hack has
+      // never rolled; the dropped enemy ACs (enemyACFor —
+      // Fray 11, Hollow 12, Unraveler 13, Tangle 15) stand
+      // untouched in the rolls that read them (strikeOnce,
+      // the runic weapon), and no pre-drop figure enters.
+      {
+        const hitShield = nearestBulwarkShield(room, enemy.pos, 69);
+        const nearestUnitD = inReach.length ? Math.min(...inReach.map(u => distPx(enemy.pos, u.pos))) : Infinity;
+        if (hitShield && hitShield.d <= nearestUnitD) {
+          if (now < (enemy.nextStrike ?? 0)) continue;
+          enemy.nextStrike = now + darkIntervalMs(enemy);
+          enemy.struck = true;
+          const { w, s } = hitShield;
+          s.hp -= enemy.power;
+          w.hp = (w.shields ?? []).reduce((sum, x) => sum + Math.max(0, x.hp), 0);
+          const kb = Math.hypot(enemy.pos.x - s.x, enemy.pos.y - s.y);
+          let ux = kb > 0 ? (enemy.pos.x - s.x) / kb : 0, uy = kb > 0 ? (enemy.pos.y - s.y) / kb : -1;
+          if (kb === 0) { const sc = TILE_CENTERS.get(SEED_TILE)!; const sl = Math.hypot(enemy.pos.x - sc.x, enemy.pos.y - sc.y) || 1; ux = (enemy.pos.x - sc.x) / sl; uy = (enemy.pos.y - sc.y) / sl; }
+          enemy.pos = { x: enemy.pos.x + ux * 69, y: enemy.pos.y + uy * 69 };
+          enemy.target = null;
+          witness(s, enemy.pos, w.hue && w.hue !== "unaligned" ? w.hue : "unaligned", "dark", true, s.hp <= 0);
+          if (s.hp <= 0) {
+            w.shields = (w.shields ?? []).filter(x => x.hp > 0);
+            tell(room, `A shield of ${w.name} is struck through and falls — the ${enemy.label} is shoved back, and the line opens there.`);
+            if (!w.shields.length) {
+              room.workings = room.workings.filter(x => x !== w);
+              tell(room, `${w.name} stands no more — its last shield has fallen.`);
+            }
+          } else {
+            tell(room, `${w.name}'s shield takes the ${enemy.label}'s blow (${s.hp} HP stands) — and shoves it back.`);
+          }
+          continue;
+        }
       }
       if (inReach.length > 0) {
         if (now < (enemy.nextStrike ?? 0)) continue;
@@ -5060,7 +5145,13 @@ function handleConnection(ws: WebSocket): void {
       // Tender. The edge itself must still exist — the two
       // tiles share a side — for that is geometry, not ground.
       if (!neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
-      if (!isSpringleaf) {
+      // BULWARK (Recovery R12) stands apart from the edge
+      // law below: its line does not stand ON the edge the
+      // cast names — the edge is the cast's aim (hexA the
+      // anchor, hexB the neighbour the line faces) — so no
+      // edge-occupancy refusal stands over it, and it takes
+      // no edge away from another ward.
+      if (!isSpringleaf && def.engine !== "bulwark") {
         const standingEdge = room.workings.find(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)));
         if (standingEdge && standingEdge.engine !== "passive") { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
         // A passive wall yields to a real cast ward — the cast ward wins the edge.
@@ -5174,6 +5265,49 @@ function handleConnection(ws: WebSocket): void {
         wardNums.riposte = (wardNums.riposte ?? 3) + eff.riposte + slots;
       }
       if (def.engine === "engine") wardNums.energyPerRound = (wardNums.energyPerRound ?? 1) + eff.engineEnergy;
+      // BULWARK (Nigel, 2026-10-23 — Recovery R12): the line
+      // of shields, raised across the cast's aim — hexA the
+      // anchor, hexB the neighbour it faces: the line stands
+      // centred on the midpoint between the two hexes'
+      // hearts, its shields spread along the perpendicular
+      // at the Rock Wall's spacing (0.55 of a hex ≈ 38px on
+      // this ground). The count follows the warding cast
+      // level and each shield's HP reads the shared 5–10
+      // table at that level — the one reckoning in
+      // actions.ts (bulwarkShieldCountFor /
+      // rockWallHpForLevel), read here at the caster's
+      // Tender level, never a forked copy. The book's
+      // hpForCast and the Zodiac's wardHp do NOT ride it:
+      // its health is the ruled table's, whole. The purse
+      // was charged and the roll rolled above, by this
+      // door's common law (the ward economies rode the
+      // price there, as for every ward).
+      if (def.engine === "bulwark") {
+        const aC = TILE_CENTERS.get(hexA);
+        const bC = TILE_CENTERS.get(hexB);
+        if (!aC || !bC) { ws.send(JSON.stringify({ type: "error", message: "That is no edge of this land." })); return; }
+        const count = bulwarkShieldCountFor(caster.tenderLevel);
+        const shieldHp = rockWallHpForLevel(caster.tenderLevel);
+        const mx = (aC.x + bC.x) / 2, my = (aC.y + bC.y) / 2;
+        const dx = bC.x - aC.x, dy = bC.y - aC.y;
+        const dl = Math.hypot(dx, dy) || 1;
+        const px = -dy / dl, py = dx / dl;
+        const shields: { x: number; y: number; hp: number; maxHp: number }[] = [];
+        for (let i = 0; i < count; i++) {
+          const off = (i - (count - 1) / 2) * 38;
+          shields.push({ x: mx + px * off, y: my + py * off, hp: shieldHp, maxHp: shieldHp });
+        }
+        room.workings.push({
+          id: randomUUID(), kind: "ward", root: def.key, engine: "bulwark", nums: wardNums, name: def.forms[hue] ?? def.name, hue,
+          ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,
+          hp: shieldHp * count, maxHp: shieldHp * count, pour: slots, stops: 0, charges: 0,
+          shields,
+        });
+        tell(room, `${caster.name} raises ${def.forms[hue] ?? def.name} — a line of ${count} shield${count === 1 ? "" : "s"} stands across the way, each with ${shieldHp} HP. What strikes them is shoved back.`);
+        caster.castAt = Date.now();
+        sendState(room);
+        return;
+      }
       room.workings.push({
         id: randomUUID(), kind: "ward", root: def.key, engine: def.engine, nums: wardNums, name: def.forms[hue] ?? def.name, hue,
         ownerKey: caster.key, ownerName: caster.name, hex: null, hexA, hexB,

@@ -3702,7 +3702,35 @@ const ENEMY_BITE_REACH = 1.35;
 const ENEMY_BASE_SEC_PER_HEX = 6; // twice the neutral march — the "slower than Awoken" law
 const WET_MS = 10000; // the Proving Ground's pencil for Wet's length
 const WALL_HACK_DMG = 1; // the Proving Ground's pencil: a shade's blow hacked into stone
-const ROCK_WALL_HP_BY_LEVEL = [5, 6, 6, 7, 8, 8, 9, 9, 10];
+export const ROCK_WALL_HP_BY_LEVEL = [5, 6, 6, 7, 8, 8, 9, 9, 10];
+/** The shared 5–10 HP-by-level reading (Nigel, 2026-10-23 —
+ *  the recovery's shared law for the Rock Wall's kin): the
+ *  ONE table above, read at a level clamped to its span.
+ *  The Rock Wall reads it at the raising Awoken's level;
+ *  BULWARK (Recovery R12) reads it at the warding cast
+ *  level — no second copy of the law stands anywhere. */
+export function rockWallHpForLevel(level: number): number {
+  return ROCK_WALL_HP_BY_LEVEL[Math.min(9, Math.max(1, Math.floor(level) || 1)) - 1];
+}
+/** BULWARK'S COUNT (Nigel, 2026-10-23 12:04 — Recovery
+ *  R12): "BULWARK'S COUNT FOLLOWS THE WARDING CAST LEVEL:
+ *  a high cast summons more shields, a low cast only one
+ *  or 2." THE READING, named plainly: the warding cast
+ *  level is the CASTER'S TENDER LEVEL — the same figure
+ *  the cast's own roll is reckoned from (castModFor reads
+ *  the Tender level) and the figure hpForCast calls the
+ *  caster's level for every other ward; the Rock Wall
+ *  likewise reads its raiser's level. THE FORMULA: one
+ *  shield per two cast levels, ⌊level / 2⌋ — the shape of
+ *  Nigel's own earlier pencil for this line ("tender lvl
+ *  /2", 2026-10-21) — floored at 1 (a cast that stands
+ *  raises a shield) and CAPPED AT 6 in the rock-wall
+ *  fashion (the homeland Rock Wall's own cap), per the
+ *  12:04 ruling where the two differ: Lv 3 → 1, Lv 4–5 →
+ *  2, Lv 6–7 → 3, Lv 8–9 → 4, Lv 10–11 → 5, Lv 12+ → 6. */
+export function bulwarkShieldCountFor(castLevel: number): number {
+  return Math.min(6, Math.max(1, Math.floor(Math.max(1, Math.floor(castLevel) || 1) / 2)));
+}
 const DEFENCE_WORK_ENGAGE = 2.5; // a work is raised when the dark comes within her reach + this
 /** THE LIGHTHOUSE'S SHADOW UPKEEP — UNRULED (Nigel to set):
  *  while the light burns it drinks this much Shadow Matter
@@ -3981,7 +4009,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     const nodes: WorkNode[] = [];
     if (f.dominant === "stone") {
       const count = Math.min(6, 3 + Math.floor(f.level / 3));
-      const rockHp = ROCK_WALL_HP_BY_LEVEL[Math.min(9, Math.max(1, f.level)) - 1];
+      const rockHp = rockWallHpForLevel(f.level);
       for (let i = 0; i < count; i++) {
         const off = (i - (count - 1) / 2) * 0.55;
         nodes.push({ q: f.q + fx * 1.0 + px * off, r: f.r + fr * 1.0 + pr * off, hp: rockHp, maxHp: rockHp });
@@ -4002,7 +4030,14 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // Works stand while she defends; a changed stance or a
   // fallen figure takes hers down. Defenders without a work
   // and with the dark near raise theirs.
+  // BULWARK (Recovery R12) stands apart from this law: its
+  // shields are a ward the Tender cast (their row's
+  // placement_id is 0 — no figure raises or sustains them),
+  // and they stand by the working's own life — their HP
+  // alone, reckoned in the strike pass below — never by a
+  // figure's Defence stance.
   for (const w of works) {
+    if (w.kind === "bulwark") continue;
     const f = fighters.find(x => x.id === w.placementId);
     if (!f || f.dead || f.stance !== "defense") w.gone = true;
   }
@@ -4122,9 +4157,13 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       const nq = d.q + ux * travel, nr = d.r + ur * travel;
       // A standing rock blocks the step outright (the PG's
       // law): the dark halts at the line and hacks instead.
+      // A Bulwark shield blocks the same way (Recovery R12:
+      // the line is raised in the Rock Wall's working
+      // fashion) — a fallen shield (hp 0) blocks nothing:
+      // the line opens where it fell.
       let blocked = false;
       for (const w of works) {
-        if (w.gone || w.kind !== "rockwall") continue;
+        if (w.gone || (w.kind !== "rockwall" && w.kind !== "bulwark")) continue;
         if (w.nodes.some(n => n.hp > 0 && axialDist({ q: nq, r: nr }, n) <= 0.55)) { blocked = true; break; }
       }
       if (blocked) continue;
@@ -4149,6 +4188,44 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       if (d.lastStrikeAt === 0) { d.lastStrikeAt = tNow; continue; }
       if (tNow < d.lastStrikeAt + interval) continue;
       d.lastStrikeAt += interval * Math.max(1, Math.floor((tNow - d.lastStrikeAt) / interval));
+      // BULWARK (Recovery R12): a shield in its face is hit
+      // the way a rock is hacked — the shield takes the
+      // blow's hack measure (WALL_HACK_DMG, the line's own
+      // fashion) and falls at 0 HP — and the hit SHOVES THE
+      // STRIKER BACK one tile: the ruling's own words, "it
+      // KNOCKS BACK enemies that hit it". The shove's
+      // measure is ONE TILE along the line from the shield
+      // to the striker, landed with the Sky strike's own
+      // fallback (the full step where ground stands, half
+      // the step where only nearer ground stands, no shove
+      // where no ground stands at all). The shove deals no
+      // harm of its own — no AC is reckoned here, for the
+      // shield rolls against nothing and nothing rolls
+      // against the shield: the hack branch has never
+      // rolled, and this build invents no AC for a shield.
+      // (The dropped enemy ACs — enemyACFor: Fray 11,
+      // Hollow 12, Unraveler 13, Tangle 15 — stand untouched
+      // in every roll that does read them, below and in the
+      // Awoken's answer; no pre-drop figure enters here.)
+      let shoved = false;
+      for (const w of works) {
+        if (w.gone || w.kind !== "bulwark") continue;
+        const node = w.nodes.find(n => n.hp > 0 && axialDist(d, n) <= 0.75);
+        if (!node) continue;
+        node.hp -= WALL_HACK_DMG; w.dirty = true; shoved = true;
+        const len = Math.hypot(d.q - node.q, d.r - node.r) || 1;
+        const ux = (d.q - node.q) / len, ur = (d.r - node.r) / len;
+        let nq = d.q + ux * 1, nr = d.r + ur * 1;
+        let cell = axialRound(nq, nr);
+        if (!byKey.has(`${cell.q},${cell.r}`)) { nq = d.q + ux * 0.5; nr = d.r + ur * 0.5; cell = axialRound(nq, nr); }
+        if (byKey.has(`${cell.q},${cell.r}`)) {
+          d.q = nq; d.r = nr;
+          const nt = byKey.get(`${cell.q},${cell.r}`);
+          if (nt && nt.id !== d.tileId) { d.tileId = nt.id; d.chewTileId = null; d.chewProgress = 0; }
+        }
+        break;
+      }
+      if (shoved) continue;
       // A rock in its face is hacked (WALL_HACK_DMG, the PG's pencil).
       let hacked = false;
       for (const w of works) {
@@ -9254,6 +9331,43 @@ export const handlers = {
       const tile = tileRows[0] as any;
       if (!tile) badRequest("That hex is not yours to ward.");
       assertCastReach(tile);
+      // BULWARK (Nigel, 2026-10-23 — Recovery R12): the line
+      // of shields is raised HERE, through the ward door's
+      // own law — the purse charged before the roll, a
+      // fizzle spent (the Witch's mercy riding it as at
+      // every door), the page's level on the roll — but it
+      // does not stand on the edge the tap names: the edge
+      // is the cast's AIM. The line stands across that edge,
+      // centred on its midpoint, its nodes spread along the
+      // edge's own line at the Rock Wall's spacing (0.55),
+      // in the Rock Wall's working fashion. It takes no
+      // edge's occupancy (it is a line of free-standing
+      // shields, not an edge work, and no one work per edge
+      // law stands over it), and its shields live in the
+      // defence-works ledger beside the Rock Wall's nodes —
+      // with placement_id 0, for no figure raises them and
+      // no stance sustains them: they stand by their HP.
+      if (spell.engine === "bulwark") {
+        const bulwarkCost = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
+        if (!(await spendEnergy(ownerKey, bulwarkCost))) badRequest(`Not enough energy — ${spell.name} costs ${bulwarkCost}.`);
+        const cast = homelandCastRoll(progress, spell);
+        if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: bulwarkCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, bulwarkCost), spellKey: spell.key };
+        const count = bulwarkShieldCountFor(progress.level);
+        const shieldHp = rockWallHpForLevel(progress.level);
+        const [bdq, bdr] = WALL_DIRS[dir];
+        const blen = Math.hypot(bdq, bdr) || 1;
+        const fx = bdq / blen, fr = bdr / blen;
+        const px = -fr, pr = fx; // the line runs along the aim's perpendicular — the edge's own line
+        const cx = tile.q + fx * 0.5, cy = tile.r + fr * 0.5; // the edge's midpoint, half a hex ahead of the anchor
+        const nodes = [];
+        for (let i = 0; i < count; i++) {
+          const off = (i - (count - 1) / 2) * 0.55;
+          nodes.push({ q: cx + px * off, r: cy + pr * off, hp: shieldHp, maxHp: shieldHp });
+        }
+        const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, 0, 'bulwark', ?, ?, ?, ?)")
+          .run(ownerKey, cx, cy, JSON.stringify(nodes), Date.now());
+        return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: bulwarkCost, shields: count, shieldHp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+      }
       // WARDS STAND ANYWHERE (Nigel, 2026-10-20): "wards and
       // runes should be able to be cast anywhere." The held-
       // ground anchor is LIFTED on this ground as at the

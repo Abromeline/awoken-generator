@@ -39,6 +39,7 @@ import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
+import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
 import { elementPalette } from "./palette";
 
@@ -88,6 +89,9 @@ interface WorkingView {
   radiusPx?: number;
   expiresAt?: number;
   mother?: boolean;
+  /** BULWARK (Recovery R12): the line of shields itself —
+   *  each shield's field point and its own wounds. */
+  shields?: { x: number; y: number; hp: number; maxHp: number }[];
 }
 
 interface TableCard {
@@ -2803,6 +2807,28 @@ export default function Table() {
                         : <text className="ts-glyph-fallback" x={c.cx} y={c.cy + 7} style={{ filter }}>✦</text>}
                       {(defs[w.root]?.engine === "blade" || defs[w.root]?.engine === "springblade") && <text className="ts-tag" x={c.cx} y={c.cy + 23}>{w.charges}✦</text>}
                       {defs[w.root]?.engine === "lattice" && <text className="ts-tag" x={c.cx} y={c.cy + 23}>❤{w.hp}</text>}
+                    </g>
+                  );
+                }
+                if (w.engine === "bulwark" && w.shields) {
+                  // BULWARK (Nigel, 2026-10-23 — Recovery R12):
+                  // the cast line of shields, each drawn with
+                  // his own uploaded Shield piece (the
+                  // rune/ward set's "Artwork 4") at its own
+                  // field point, paling as its wounds deepen
+                  // and wearing its HP beneath it, as the
+                  // Trees wear theirs.
+                  return (
+                    <g key={w.id} pointerEvents="none">
+                      {w.shields.filter(s => s.hp > 0).map((s, i) => {
+                        const frac = Math.max(0, Math.min(1, s.hp / Math.max(1, s.maxHp)));
+                        return (
+                          <g key={i} opacity={0.35 + 0.65 * frac}>
+                            <image href={bulwarkShieldImg} x={s.x - 23} y={s.y - 24} width={46} height={48} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,217,138,0.55))" }} />
+                            <text className="ts-tag" x={s.x} y={s.y + 34}>❤{s.hp}</text>
+                          </g>
+                        );
+                      })}
                     </g>
                   );
                 }
