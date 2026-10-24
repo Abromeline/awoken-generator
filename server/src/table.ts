@@ -646,7 +646,10 @@ function findAnyRoad(fromId: string, toId: string): string[] | null {
 function marchRateFor(power: number): number { return 1 + Math.floor((Math.max(1, power) - 1) / 3); }
 /** MARCH SPEED LAW (the land's own; War-Ground, 2026-10-16):
  *  seconds to cross one hex — the element's gait, parts
- *  averaged, weighted by size, and size is level. */
+ *  averaged, weighted by size, and size is level. The growth
+ *  step is ×1.0848077 a level — the same literal as the other
+ *  three readers (2026-10-24: the old nine-step total spread
+ *  over the road to the level-20 cap). */
 const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
 function marchSecondsPerHexFor(card: TableCard): number {
   const parts = partsOf(card) as { element?: string | null }[];
@@ -655,7 +658,7 @@ function marchSecondsPerHexFor(card: TableCard): number {
     pace = parts.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[l.element ?? "neutral"] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / parts.length;
   }
   const level = Math.max(1, card.level ?? 1);
-  return pace * Math.sqrt(Math.pow(1.1875, level - 1));
+  return pace * Math.sqrt(Math.pow(1.0848077, level - 1));
 }
 /** THE DARK's gaits (seconds per hex on its advance): the
  *  Fray skitters, the Hollow drifts, the Tangle creeps, the

@@ -209,7 +209,12 @@ function awokenLevelOf(experience: number): number {
  *  the two must agree, as wall law lives in both engines): seconds to
  *  cross one hex — the element's gait, parts averaged by their sum,
  *  unfilled parts voting the middle road — weighted by SIZE, and
- *  size is LEVEL: the more powerful, the harder to move (÷√growth). */
+ *  size is LEVEL: the more powerful, the harder to move (÷√growth).
+ *  The growth step is ×1.0848077 a level (2026-10-24: the old
+ *  nine-step total, ×1.1875^9 ≈ 4.70, spread over the road to the
+ *  level-20 cap as nineteen steps) — the same literal stands in all
+ *  four readers (Territory's draw and march, this march, the
+ *  Table's march) so no ground disagrees about how big she stands. */
 const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
 function marchSecondsPerHexFor(layers: { element?: string | null }[], experience: number): number {
   let pace = MARCH_SECONDS_PER_HEX.neutral;
@@ -217,7 +222,7 @@ function marchSecondsPerHexFor(layers: { element?: string | null }[], experience
     pace = layers.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[l.element ?? "neutral"] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / layers.length;
   }
   const level = Math.max(1, awokenLevelOf(experience));
-  return pace * Math.sqrt(Math.pow(1.1875, level - 1));
+  return pace * Math.sqrt(Math.pow(1.0848077, level - 1));
 }
 /** CURSED GROUND SLOWS THE MARCH (Nigel, 2026-10-20): a step
  *  whose destination tile is cursed takes TWICE as long —
@@ -2513,31 +2518,51 @@ async function getConceivedTwin(sessionId: number) {
 // engine: "make them gain experience much slower… increase the experience
 // pool and curve" — the living battle pays XP constantly, and under the
 // old measure his Awoken maxed out in minutes). The base constant rises
-// 20 → 60 and the ratio steepens 1.5 → 1.75. Thresholds: L1=60, L2=165,
-// L3=349, L5=1233, L10≈21471 (the old L10 stood at ≈2267 — the pool at
-// the tenth level is now some nine and a half times deeper). A fresh
-// Awoken now needs three 10✦ feeds (60 XP) to reach level 1 by the
-// peaceful road; battles remain the faster road. Levels are DERIVED
-// from stored XP, never stored: no one's XP is touched and no stat
-// points already granted are clawed back — an existing veteran simply
-// reads at the level the deeper curve gives their total (2267 XP read
-// L10 before; it reads L6 now), and grows on from there.
-// Total XP for level L = 60 * (1.75^L - 1) / (1.75 - 1), rounded.
+// 20 → 60 and the ratio steepens 1.5 → 1.75. A fresh Awoken needs three
+// 10✦ feeds (60 XP) to reach level 1 by the peaceful road; battles
+// remain the faster road. Levels are DERIVED from stored XP, never
+// stored: no one's XP is touched and no stat points already granted
+// are clawed back — an existing veteran simply reads at the level the
+// standing curve gives their total, and grows on from there.
+//
+// THE CAP AND THE SOFTENED CLIMB (Nigel, 2026-10-24, the same play,
+// hours later): "lets increase awoken lvl cap to 20" — and "soften the
+// climb to make 20 more of a 3 month long goal of active play." The
+// diagnosis, stated plainly: this derivation had NO hard cap before —
+// the while loop in levelForXp ran as far as XP could carry it, and
+// "10" was only where the practical world ended (the deeds' thresholds
+// and this comment's landmarks). AWOKEN_LEVEL_CAP is the cap now,
+// enforced in levelForXp — the one derivation every card level, XP
+// grant, milestone deed and payload flows through. The climb softens
+// to suit the longer road: the base holds at 60 and the ratio eases
+// 1.75 → 1.381, chosen so the twentieth level lands at ≈100,000 XP —
+// a favoured Awoken in daily active play earns on the order of a
+// thousand XP a day, so the cap is a season's goal, not a wall. The
+// softening is felt mid-curve, and that is the ruling working, not an
+// error: L10 falls from the morning's 21,471 to 3,816. Landmarks
+// under the standing curve: L1=60, L2=143, L3=257, L5=634, L10=3,816,
+// L15=19,801, L20=100,096.
+// Total XP for level L = 60 * (1.381^L - 1) / (1.381 - 1), rounded.
+/** The Awoken level cap (Nigel, 2026-10-24): twenty, for AWOKEN only —
+ *  the Tender's own level is a different system, uncapped here. */
+export const AWOKEN_LEVEL_CAP = 20;
 function xpForLevel(level: number): number {
   if (level <= 0) return 0;
-  // Geometric series: 60 * (1.75^level - 1) / (1.75 - 1)
-  return Math.round(60 * (Math.pow(1.75, level) - 1) / 0.75);
+  // Geometric series: 60 * (1.381^level - 1) / (1.381 - 1)
+  return Math.round(60 * (Math.pow(1.381, level) - 1) / 0.381);
 }
 function levelForXp(xp: number): number {
   let level = 0;
   xp = Math.max(0, xp);
-  while (xpForLevel(level + 1) <= xp) level++;
+  while (level < AWOKEN_LEVEL_CAP && xpForLevel(level + 1) <= xp) level++;
   return level;
 }
 function xpProgress(xp: number): { level: number; current: number; next: number; progress: number } {
   const level = levelForXp(xp);
   const current = xpForLevel(level);
-  const next = xpForLevel(level + 1);
+  // At the cap there is no next level: next reads as current, so the
+  // progress stands full and xp_for_next_level reckons to zero.
+  const next = level >= AWOKEN_LEVEL_CAP ? current : xpForLevel(level + 1);
   return { level, current, next, progress: next > current ? Math.min(1, (xp - current) / (next - current)) : 1 };
 }
 

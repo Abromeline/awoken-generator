@@ -265,12 +265,14 @@ interface Props {
 
 // MARCH SPEED LAW (War-Ground, Nigel 2026-10-16): a walker's pace is
 // its element's gait — sky quickest, stone slowest — weighted by
-// SIZE, and size is LEVEL (the ×1.1875-per-level growth the map draws
-// — ×1.25 until 2026-10-24, when Nigel cut the mark by a quarter).
+// SIZE, and size is LEVEL (the ×1.0848077-per-level growth the map
+// draws — ×1.25 originally, cut by a quarter to ×1.1875 on
+// 2026-10-24, then spread the same day over the road to the new
+// level-20 cap: the old nine-step total taken as nineteen steps).
 // The trade-off is the law's heart: the more powerful an Awoken, the
 // harder it is to move — speed divides by the square root of its
-// growth, so a Lv10 sky veteran crosses a hex in ~4.3s where a Lv10
-// stone one needs ~12.2s, and the young outrun them both. Mixed
+// growth, so a Lv20 sky veteran crosses a hex in ~3.5s where a Lv20
+// stone one needs ~9.8s, and the young outrun them both. Mixed
 // parts average by their sum; a part with no filed element votes
 // the middle road (elementForPiece: the filing is the only judge).
 const MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
@@ -285,7 +287,7 @@ function marchSecondsPerHex(a: Awakened): number {
     pace = layers.reduce((sum, l) => sum + (MARCH_SECONDS_PER_HEX[elementForPiece(l.name, (l as any).element)] ?? MARCH_SECONDS_PER_HEX.neutral), 0) / layers.length;
   }
   const level = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
-  return pace * Math.sqrt(Math.pow(1.1875, level - 1));
+  return pace * Math.sqrt(Math.pow(1.0848077, level - 1));
 }
 
 // Dominant element of an Awoken, for corner motifs.
@@ -3703,15 +3705,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // map size compounds for every level above 1 — ×1.25 a
       // level until 2026-10-24, when Nigel, watching his own
       // maxed veterans flood the field, kept the growth and
-      // cut the mark by a quarter: the step is now ×1.1875,
-      // so Lv5 stands ~2× a Lv1 and Lv10 ~4.7× (they stood
-      // ~2.4× and ~7.5×). Veterans still tower over the
-      // field, exactly as ruled — less vastly. The level is
-      // the card's own number (the experience fallback mirrors
-      // the card's math). Growth is grounded: the feet stay
-      // on today's ground line (baseAhs) and the size rises.
+      // cut the mark by a quarter (×1.1875, Lv10 ≈ 4.70×). The
+      // same day he raised the Awoken level cap to 20 and
+      // spread the SAME total gain over the longer road: the
+      // step is now ×1.0848077 — the old nine-step total taken
+      // as nineteen steps — so Lv5 stands ~1.38× a Lv1, Lv10
+      // ~2.08×, and the old maximum itself (~4.70×) is reached
+      // only at Lv20, the cap. Veterans still tower over the
+      // field, exactly as ruled — at the journey's end, not
+      // its middle. The level is the card's own number (the
+      // experience fallback mirrors the card's math). Growth
+      // is grounded: the feet stay on today's ground line
+      // (baseAhs) and the size rises.
       const awLevel = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)) ?? 1);
-      const lvlScale = Math.pow(1.1875, awLevel - 1);
+      const lvlScale = Math.pow(1.0848077, awLevel - 1);
       // The figure's screen size is awScale's law (fieldFigure-
       // HeightClient reckons it the same way) — in land space the
       // dims divide by zoom and the camera restores them exactly.
