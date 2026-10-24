@@ -1172,13 +1172,44 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // down into the mark from above. The harm is refereed
   // where the loose is ordered (the server for the
   // wandering dark; this battle's mirror for its own
-  // units); only the flight is drawn here.
-  const [bladeFlights, setBladeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number }[]>([]);
+  // units); only the flight is drawn here. THE DELIVERY
+  // (Nigel, 2026-10-24): a written Blade no longer appears
+  // at the tap — at its writing it FLIES from the caster's
+  // standing point to the cast target and sticks there;
+  // cast on an enemy, it flies right into that enemy. Both
+  // flights are drawn on the map's own clock (marchNow),
+  // the shard's road — SMIL never moves a blade again:
+  // <animateMotion> is the meteor-pattern disease, dead on
+  // the browsers the Tender actually plays on.
+  const BLADE_FLIGHT_MS = 700;
+  const BLADE_CAST_MS = 700;
+  const [bladeFlights, setBladeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; bornAt: number }[]>([]);
   const pushBladeFlight = (fx: number, fy: number, tx: number, ty: number) => {
     const id = `bladeflight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setBladeFlights((prev) => [...prev.slice(-6), { id, fx, fy, tx, ty }]);
+    setBladeFlights((prev) => [...prev.slice(-6), { id, fx, fy, tx, ty, bornAt: Date.now() }]);
     setTimeout(() => setBladeFlights((prev) => prev.filter((f) => f.id !== id)), 1200);
   };
+  // THE CAST'S OWN FLIGHT (Nigel, 2026-10-24): the blade
+  // thrown from the caster's hand to the writing's ground.
+  // While it flies, the workings layer holds the written
+  // blade's own glyph back (it is matched by working id) —
+  // the blade seen flying IS the blade that sticks.
+  const [bladeCastFlights, setBladeCastFlights] = useState<{ id: string; workingId: number; fx: number; fy: number; tx: number; ty: number; bornAt: number }[]>([]);
+  const pushBladeCastFlight = (workingId: number, fx: number, fy: number, tx: number, ty: number) => {
+    const id = `bladecast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setBladeCastFlights((prev) => [...prev.slice(-6), { id, workingId, fx, fy, tx, ty, bornAt: Date.now() }]);
+    setTimeout(() => setBladeCastFlights((prev) => prev.filter((f) => f.id !== id)), BLADE_CAST_MS + 80);
+  };
+  // THE BLADE'S CLOCK (the delivery, 2026-10-24): while any
+  // blade flight is live — a loose or a cast — the map's
+  // clock ticks at the stride's 50 ms, the shard's cadence,
+  // so the blade's road is walked render by render.
+  const anyBladeFlight = bladeFlights.length > 0 || bladeCastFlights.length > 0;
+  useEffect(() => {
+    if (!anyBladeFlight) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
+    return () => window.clearInterval(iv);
+  }, [anyBladeFlight]);
   /** The click on one of the wandering dark (the homeland
    *  ground): an ORDER to the written Blade, refereed by
    *  the server (api.looseBlade) — a plain answer rides the
@@ -2685,6 +2716,46 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         await refreshWorkings();
         void refreshEnergy();
         return;
+      }
+      // THE SINGLE BLADE'S DELIVERY (Nigel, 2026-10-24):
+      // "instead of having the blade spawn where it was
+      // clicked have it fly from the caster. to the click
+      // target. if its the ground it sticks waiting for an
+      // enemy to be clicked if its an enemy it flies right
+      // into that enemy." The writing stands exactly as the
+      // server wrote it — only its arrival is drawn: the
+      // blade leaves the caster's standing point for the
+      // cast target, and where a dark thing stands at the
+      // aim, the flight's end is the dark thing itself.
+      if (castSpell.engine === "blade" && res.id != null && tenderFig && targetTile && targetC) {
+        const size = HEX_BASE_SIZE * tenderZoomRef.current;
+        let tx = targetC.cx;
+        let ty = targetC.cy;
+        if (args.pointQ != null && args.pointR != null) {
+          const dp = isoOffset(args.pointQ, args.pointR, size);
+          const dc = isoOffset(targetTile.q, targetTile.r, size);
+          tx = targetC.cx + (dp.px - dc.px);
+          ty = targetC.cy + (dp.py - dc.py);
+        }
+        const aimQ = args.pointQ ?? targetTile.q;
+        const aimR = args.pointR ?? targetTile.r;
+        let mark: (typeof wanderers)[number] | null = null;
+        let markDist = Infinity;
+        for (const w of wanderers) {
+          const d = (Math.abs(w.posQ - aimQ) + Math.abs(w.posQ + w.posR - aimQ - aimR) + Math.abs(w.posR - aimR)) / 2;
+          if (d < markDist) { markDist = d; mark = w; }
+        }
+        if (mark && markDist <= 0.6) {
+          const wt = tiles.find((t) => t.id === mark!.tileId);
+          if (wt) {
+            const base = tileCenterScreen(wt, tenderPanRef.current, tenderZoomRef.current);
+            const dp = isoOffset(mark.posQ, mark.posR, size);
+            const dc = isoOffset(wt.q, wt.r, size);
+            tx = base.cx + (dp.px - dc.px);
+            ty = base.cy + (dp.py - dc.py);
+          }
+        }
+        pushBladeCastFlight(res.id, tenderFig.x, tenderFig.y, tx, ty);
       }
       showHexNotice(castSpell.engine === "heal"
         ? `${formName} mends ${res.healed ?? 0} HP — the binding light, at your word.`
@@ -4254,6 +4325,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const workingsLayer = (
       <g key="workings">
         {workings.map((w) => {
+          // THE DELIVERY'S HAND-OFF (Nigel, 2026-10-24): a
+          // Blade still flying in from its caster is not yet
+          // drawn standing — the glyph in the air IS this
+          // writing; when the flight lands, the planted
+          // glyph stands in its place.
+          if (w.engine === "blade" && bladeCastFlights.some((f) => f.workingId === w.id && marchNow - f.bornAt < BLADE_CAST_MS)) return null;
           const img = grimGlyphImg(w.spellKey);
           const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 ${5 / zoom}px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
           const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
@@ -6209,19 +6286,63 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               on this map is the real wanderers, inside
               renderGrid's wanderersLayer, wearing their drawn
               faces at their free points. */}
-          {/* THE BLADE FLIGHTS (Recovery R4): the loosed          {/* THE BLADE FLIGHTS (Recovery R4): the loosed
-              blades rise from the rune's ground and spear
-              down into the mark from above. */}
-          {bladeFlights.map((f) => (
-            <g key={f.id} pointerEvents="none">
-              <image href={grimGlyphBlade} x={-15} y={-15} width={30} height={30} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.8))" }}>
-                <animateMotion dur="0.7s" fill="freeze" rotate="auto" path={`M ${f.fx} ${f.fy} L ${f.fx} ${f.fy - 92} L ${f.tx} ${f.ty}`} />
-              </image>
-              <image href={grimGlyphBlade} x={-11} y={-11} width={22} height={22} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.8))" }}>
-                <animateMotion dur="0.7s" begin="0.12s" fill="freeze" rotate="auto" path={`M ${f.fx + 10} ${f.fy} L ${f.fx + 10} ${f.fy - 80} L ${f.tx} ${f.ty}`} />
-              </image>
-            </g>
-          ))}
+          {/* THE BLADE FLIGHTS (Recovery R4; the clock,
+              2026-10-24): the loosed blades rise from the
+              rune's ground and spear down into the mark from
+              above. The road is the one the SMIL telling
+              walked — up from the writing, down into the
+              mark, the second blade 120 ms behind on a
+              shorter rise — now walked by the map's own
+              clock at a constant pace along the whole road,
+              head-forward on each leg: <animateMotion> is
+              dead on the browsers the Tender plays on (the
+              meteor pattern), so no blade rides it. */}
+          {bladeFlights.map((f) => {
+            const leg = (rise: number, delay: number, ox: number) => {
+              const elapsed = marchNow - f.bornAt - delay;
+              if (elapsed < 0) return null;
+              const ax = f.fx + ox, ay = f.fy;
+              const bx = ax, by = ay - rise;
+              const spear = Math.hypot(f.tx - bx, f.ty - by);
+              const total = rise + spear;
+              const walked = total * (Math.min(elapsed, BLADE_FLIGHT_MS) / BLADE_FLIGHT_MS);
+              if (walked <= rise) return { x: ax, y: ay - walked, ang: -90 };
+              const k = spear > 0 ? (walked - rise) / spear : 1;
+              return { x: bx + (f.tx - bx) * k, y: by + (f.ty - by) * k, ang: Math.atan2(f.ty - by, f.tx - bx) * 180 / Math.PI };
+            };
+            const lead = leg(92, 0, 0);
+            const follower = leg(80, 120, 10);
+            return (
+              <g key={f.id} pointerEvents="none">
+                {lead && (
+                  <g transform={`translate(${lead.x} ${lead.y}) rotate(${lead.ang})`}>
+                    <image href={grimGlyphBlade} x={-15} y={-15} width={30} height={30} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.8))" }} />
+                  </g>
+                )}
+                {follower && (
+                  <g transform={`translate(${follower.x} ${follower.y}) rotate(${follower.ang})`}>
+                    <image href={grimGlyphBlade} x={-11} y={-11} width={22} height={22} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.8))" }} />
+                  </g>
+                )}
+              </g>
+            );
+          })}
+          {/* THE CAST FLIGHTS (Nigel, 2026-10-24 — the
+              delivery): a written Blade flies straight from
+              the caster's standing point to the cast target,
+              head-forward on the same clock, and lands where
+              the planted glyph then stands. */}
+          {bladeCastFlights.map((f) => {
+            const road = Math.min(Math.max(marchNow - f.bornAt, 0), BLADE_CAST_MS) / BLADE_CAST_MS;
+            const x = f.fx + (f.tx - f.fx) * road;
+            const y = f.fy + (f.ty - f.fy) * road;
+            const heading = Math.atan2(f.ty - f.fy, f.tx - f.fx) * 180 / Math.PI;
+            return (
+              <g key={f.id} pointerEvents="none" transform={`translate(${x} ${y}) rotate(${heading})`}>
+                <image href={grimGlyphBlade} x={-15} y={-15} width={30} height={30} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }} />
+              </g>
+            );
+          })}
           {/* THE PLACEMENT STRIKE FLIGHTS (the Token Strip,
               2026-10-23; the shot itself ruled 2026-10-24):
               what flies from the striking Awokin's standing

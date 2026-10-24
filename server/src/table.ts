@@ -850,6 +850,14 @@ interface Room {
    *  standing point at the loose, so clients can fly the
    *  blades up from the writing and spear them down. */
   bladeFlights?: { id: string; at: number; fromHex: string; fromPos?: Pt | null; to: Pt }[];
+  /** THE SINGLE BLADE'S CAST FLIGHTS (Nigel, 2026-10-24 —
+   *  the delivery): a cast Blade is an event too — the
+   *  caster's standing point and the writing's ground at
+   *  the cast — so clients fly the blade from the caster
+   *  to where it sticks instead of conjuring it at the tap.
+   *  Cast on an enemy, the flight's end is the enemy's own
+   *  standing point: it flies right into that enemy. */
+  bladeCasts?: { id: string; at: number; workingId: string; fromPos: Pt; to: Pt }[];
   /** PASSIVE WALLS (Phase C): when a passive ward on an edge
    *  is broken, the moment it may re-raise (edge|owner → at). */
   passiveRearm?: Map<string, number>;
@@ -1801,6 +1809,7 @@ function sharedState(room: Room) {
     strikes: room.strikes,
     rainFalls: (room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
     bladeFlights: (room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
+    bladeCasts: (room.bladeCasts ?? []).filter(f => Date.now() - f.at < 3000),
     manifests: (room.manifests ?? []).filter(m => m.expiresAt > Date.now()).map(m => ({ ownerKey: m.ownerKey, weaponKey: m.weaponKey, count: m.count, expiresAt: m.expiresAt })),
     bastion: room.bastion ? {
       callId: room.bastion.callId, kind: room.bastion.kind, hostName: room.bastion.hostName,
@@ -5837,6 +5846,22 @@ function handleConnection(ws: WebSocket): void {
           caster.groundRemembered = true;
         }
         room.workings.push(wNew);
+        if (def.engine === "blade") {
+          // THE DELIVERY (Nigel, 2026-10-24): record the
+          // cast's flight — from the caster's standing
+          // point to the writing's ground; where a dark
+          // thing stands on that ground or at the aim, the
+          // flight's end is the dark thing itself.
+          const fromPt = casterPointOf(caster);
+          const aimPt = aimPoints[aimIdx] ?? null;
+          const mark = darkAt(room, hx)
+            ?? (aimPt ? [...room.dark.values()].find(e => distPx(e.pos, aimPt) <= POINT_SPRING_PX) : undefined);
+          const toPt = mark?.pos ?? aimPt ?? TILE_CENTERS.get(hx);
+          if (fromPt && toPt) {
+            room.bladeCasts = [...(room.bladeCasts ?? []).filter(f => Date.now() - f.at < 3000),
+              { id: randomUUID(), at: Date.now(), workingId: wNew.id, fromPos: { ...fromPt }, to: { ...toPt } }];
+          }
+        }
       }
       tell(room, hexes.length > 1
         ? `${caster.name} writes ${def.forms[hue] ?? def.name} across ${hexes.length} hexes.`

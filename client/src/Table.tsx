@@ -191,6 +191,7 @@ interface SharedState {
   /** THE SINGLE BLADE'S FLIGHTS (Recovery R4): a Blade was
    *  loosed — from its rune's hex, at the mark's point. */
   bladeFlights?: { id: string; at: number; fromHex: string; fromPos?: { x: number; y: number } | null; to: { x: number; y: number } }[];
+  bladeCasts?: { id: string; at: number; workingId: string; fromPos: { x: number; y: number }; to: { x: number; y: number } }[];
   battle: { active: boolean; wave: number };
   strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean }[];
   /** MANIFEST (Phase C): live copies of a Tender's weapon,
@@ -656,6 +657,17 @@ export default function Table() {
     const t = setInterval(() => setNowMs(Date.now()), 150);
     return () => clearInterval(t);
   }, []);
+  // THE BLADE'S CLOCK (the delivery, 2026-10-24): while any
+  // blade flight is live — a loose or a cast — the stage
+  // clock ticks at 50 ms, the homeland shard's cadence, so
+  // the blade's road is walked step by step, not in five
+  // 150 ms strides.
+  const anyBladeFlightLive = (shared?.bladeFlights ?? []).length > 0 || (shared?.bladeCasts ?? []).length > 0;
+  useEffect(() => {
+    if (!anyBladeFlightLive) return;
+    const t = setInterval(() => setNowMs(Date.now()), 50);
+    return () => clearInterval(t);
+  }, [anyBladeFlightLive]);
   // THE TENDERS TAKE THE FIELD (Nigel's class sprites, 2026-10-19):
   // which class figure the local tender wears on the stage. THE
   // CLASS GATE (ruled 2026-10-19): for a bound Tender the figure IS
@@ -2924,6 +2936,12 @@ export default function Table() {
                   );
                 }
                 if (w.kind === "rune" && w.hex) {
+                  // THE DELIVERY'S HAND-OFF (Nigel, 2026-10-24):
+                  // a Blade still flying in from its caster is
+                  // not yet drawn standing — the glyph in the
+                  // air IS this writing; when the flight lands,
+                  // the planted glyph stands in its place.
+                  if (w.engine === "blade" && (shared.bladeCasts ?? []).some((f) => f.workingId === w.id && nowMs - f.at < 700)) return null;
                   // Written at a tapped point, the writing is
                   // drawn where it was laid (2026-10-24);
                   // the hex road draws at the hex's heart.
@@ -3019,22 +3037,64 @@ export default function Table() {
                   on a timer keyed to its id, then unmounts —
                   state pushes can no longer strand one at its
                   endpoint (the Fix Pass, 2026-10-20). */}
-              {/* THE SINGLE BLADE'S FLIGHTS (Recovery R4):
-                  a Blade loosed by the click — its blades
-                  rise from the rune's hex and spear down
-                  into the mark from above. */}
+              {/* THE SINGLE BLADE'S FLIGHTS (Recovery R4;
+                  the clock, 2026-10-24): a Blade loosed by
+                  the click — its blades rise from the rune's
+                  hex and spear down into the mark from above.
+                  The road is the one the SMIL telling walked
+                  — up from the writing, down into the mark,
+                  the second blade 120 ms behind on a shorter
+                  rise — now walked by this ground's own clock
+                  (nowMs) at a constant pace along the whole
+                  road, head-forward on each leg: <animateMotion>
+                  is dead on the browsers the Tender plays on
+                  (the meteor pattern), so no blade rides it. */}
               {(shared.bladeFlights ?? []).filter(f => nowMs - f.at < 1000).map(f => {
                 const hc = centerOf(f.fromHex);
                 const c = f.fromPos ? { cx: f.fromPos.x, cy: f.fromPos.y } : hc;
                 if (!c) return null;
+                const leg = (rise: number, delay: number, ox: number) => {
+                  const elapsed = nowMs - f.at - delay;
+                  if (elapsed < 0) return null;
+                  const ax = c.cx + ox, ay = c.cy;
+                  const bx = ax, by = ay - rise;
+                  const spear = Math.hypot(f.to.x - bx, f.to.y - by);
+                  const total = rise + spear;
+                  const walked = total * (Math.min(elapsed, 650) / 650);
+                  if (walked <= rise) return { x: ax, y: ay - walked, ang: -90 };
+                  const k = spear > 0 ? (walked - rise) / spear : 1;
+                  return { x: bx + (f.to.x - bx) * k, y: by + (f.to.y - by) * k, ang: Math.atan2(f.to.y - by, f.to.x - bx) * 180 / Math.PI };
+                };
+                const lead = leg(74, 0, 0);
+                const follower = leg(64, 120, 9);
                 return (
                   <g key={`bladeflight-${f.id}`} pointerEvents="none">
-                    <image href={glyphBlade} x={-14} y={-14} width={28} height={28} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }}>
-                      <animateMotion dur="0.65s" fill="freeze" rotate="auto" path={`M ${c.cx} ${c.cy} L ${c.cx} ${c.cy - 74} L ${f.to.x} ${f.to.y}`} />
-                    </image>
-                    <image href={glyphBlade} x={-10} y={-10} width={20} height={20} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }}>
-                      <animateMotion dur="0.65s" begin="0.12s" fill="freeze" rotate="auto" path={`M ${c.cx + 9} ${c.cy} L ${c.cx + 9} ${c.cy - 64} L ${f.to.x} ${f.to.y}`} />
-                    </image>
+                    {lead && (
+                      <g transform={`translate(${lead.x} ${lead.y}) rotate(${lead.ang})`}>
+                        <image href={glyphBlade} x={-14} y={-14} width={28} height={28} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }} />
+                      </g>
+                    )}
+                    {follower && (
+                      <g transform={`translate(${follower.x} ${follower.y}) rotate(${follower.ang})`}>
+                        <image href={glyphBlade} x={-10} y={-10} width={20} height={20} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }} />
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+              {/* THE CAST FLIGHTS (Nigel, 2026-10-24 — the
+                  delivery): a written Blade flies straight
+                  from the caster's standing point to the cast
+                  target, head-forward on the same clock, and
+                  lands where the planted glyph then stands. */}
+              {(shared.bladeCasts ?? []).filter(f => nowMs - f.at < 700).map(f => {
+                const road = Math.min(Math.max(nowMs - f.at, 0), 700) / 700;
+                const x = f.fromPos.x + (f.to.x - f.fromPos.x) * road;
+                const y = f.fromPos.y + (f.to.y - f.fromPos.y) * road;
+                const heading = Math.atan2(f.to.y - f.fromPos.y, f.to.x - f.fromPos.x) * 180 / Math.PI;
+                return (
+                  <g key={`bladecast-${f.id}`} pointerEvents="none" transform={`translate(${x} ${y}) rotate(${heading})`}>
+                    <image href={glyphBlade} x={-14} y={-14} width={28} height={28} style={{ filter: "drop-shadow(0 0 6px rgba(255,215,120,0.85))" }} />
                   </g>
                 );
               })}
