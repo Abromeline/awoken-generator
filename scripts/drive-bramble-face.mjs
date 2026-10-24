@@ -11,7 +11,12 @@
 //      stands in any bramble node's group, at any sample;
 //   §C a fresh raise ADVANCES through the frames in order;
 //   §D a standing node then HOLDS its full-grown frame
-//      (frame 32), steady across a held window.
+//      (frame 32), steady across a held window;
+//   §E the copies are cropped to the thicket alone (Nigel's
+//      tap, 2026-10-24): every drawn frame bitmap is one
+//      connected mass with no detached opaque pixel, and
+//      the field where the art's spore dots floated is
+//      clean on the rendered map.
 // The raise is the engine's own: a Root Awokin standing in
 // defence on an empty land, then a Fray seeded within her
 // reach — her settle raises the thicket (one node per part)
@@ -197,6 +202,128 @@ for (let i = 0; i < 40; i++) {
 const rec = await page.evaluate(() => { clearInterval(window.__brambleRec.iv); return window.__brambleRec; });
 clearInterval(stillIv);
 await page.screenshot({ path: join(OUT, "bramble-standing.png") }).catch(() => {});
+
+/* ══ §E THE CROP'S PROOF (Nigel's tap, 2026-10-24: "Crop
+   the game's copies to the thicket — the floating dots
+   never appear"): the frames as first bound carried the
+   art's detached spore dots onto the map. Now every frame
+   bitmap the page actually drew is scanned in the page
+   itself: one connected thicket (components joined through
+   faint alpha, bridged at 3px as the crop bridged them),
+   no opaque pixel standing free of it; the crop's base
+   stands at the canvas's bottom; and on the rendered
+   map, the field the first binding's box covered around
+   the topmost node — where the dots floated — holds no
+   bright-green mote outside the drawn images themselves. ═ */
+const eRects = await page.evaluate(() => {
+  const nodeImgs = [...document.querySelectorAll("image")].filter((im) => (im.getAttribute("href") || "").includes("bramble-"));
+  const allImgs = [...document.querySelectorAll("image")].map((im) => {
+    const r = im.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+  let top = null;
+  for (const im of nodeImgs) {
+    const r = im.getBoundingClientRect();
+    if (!top || r.y < top.rect.y) {
+      const el = im.closest("g")?.querySelector("ellipse");
+      const er = el?.getBoundingClientRect();
+      top = { rect: { x: r.x, y: r.y, w: r.width, h: r.height }, ellipse: er ? { x: er.x, y: er.y, w: er.width, h: er.height } : null };
+    }
+  }
+  return { allImgs, top };
+});
+const eShot64 = await page.screenshot({ encoding: "base64" });
+const eScan = await page.evaluate(async (names, rects, shot64) => {
+  // The recorder kept file names; the page's own resource
+  // ledger holds the URLs it actually drew them from.
+  const byName = new Map();
+  for (const e of performance.getEntriesByType("resource")) {
+    const base = e.name.split("/").pop();
+    if (base?.includes("bramble-")) byName.set(base, e.name);
+  }
+  for (const im of document.querySelectorAll("image")) {
+    const href = im.getAttribute("href") || "";
+    if (href.includes("bramble-")) byName.set(href.split("/").pop(), new URL(href, location.href).href);
+  }
+  async function scanHref(href) {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = href; });
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const ctx = cv.getContext("2d"); ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const alpha = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) alpha[i] = data[i * 4 + 3];
+    let mask = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) mask[i] = alpha[i] > 16 ? 1 : 0;
+    for (let d = 0; d < 3; d++) {
+      const src = mask, out = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let v = 0;
+        for (let dy = -1; dy <= 1 && !v; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if (xx >= 0 && yy >= 0 && xx < w && yy < h && src[yy * w + xx]) { v = 1; break; }
+        }
+        out[y * w + x] = v;
+      }
+      mask = out;
+    }
+    const lab = new Int32Array(w * h).fill(-1);
+    let ncomp = 0; const compTrue = [];
+    for (let i = 0; i < w * h; i++) {
+      if (!mask[i] || lab[i] >= 0) continue;
+      const id = ncomp++; let cnt = 0;
+      const stack = [i]; lab[i] = id;
+      while (stack.length) {
+        const p = stack.pop(); if (alpha[p] > 16) cnt++;
+        const px = p % w, py = (p / w) | 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = px + dx, yy = py + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const q = yy * w + xx;
+          if (mask[q] && lab[q] < 0) { lab[q] = id; stack.push(q); }
+        }
+      }
+      compTrue.push(cnt);
+    }
+    let main = 0; for (let c = 1; c < ncomp; c++) if (compTrue[c] > compTrue[main]) main = c;
+    let stray = 0, bottomRow = -1;
+    for (let i = 0; i < w * h; i++) {
+      if (alpha[i] >= 32 && lab[i] !== main) stray++;
+      if (alpha[i] >= 4) { const y = (i / w) | 0; if (y > bottomRow) bottomRow = y; }
+    }
+    return { w, h, stray, bottomRow };
+  }
+  const frames = {};
+  for (const name of names) {
+    const url = byName.get(name);
+    frames[name] = url ? await scanHref(url) : { missing: true };
+  }
+  // The screenshot scan: the first binding's box around the
+  // topmost node, outside every drawn image on the map.
+  let motes = -1, moteAt = null;
+  if (rects.top?.ellipse) {
+    const er = rects.top.ellipse;
+    const size = er.w / 0.4;
+    const cx = er.x + er.w / 2, cy = er.y + er.h / 2 - 0.12 * size;
+    const box = { l: cx - 0.475 * size, r: cx + 0.475 * size, b: cy + 0.1 * size, t: cy + 0.1 * size - 0.95 * size * (524 / 512) };
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = "data:image/png;base64," + shot64; });
+    const cv = document.createElement("canvas"); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    const ctx = cv.getContext("2d"); ctx.drawImage(img, 0, 0);
+    const W = cv.width, H = cv.height;
+    const data = ctx.getImageData(0, 0, W, H).data;
+    const excluded = (x, y) => rects.allImgs.some((r) => x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4);
+    motes = 0;
+    for (let y = Math.max(0, Math.floor(box.t)); y < Math.min(H, box.b) && motes <= 40; y++)
+      for (let x = Math.max(0, Math.floor(box.l)); x < Math.min(W, box.r); x++) {
+        if (excluded(x, y)) continue;
+        const o = (y * W + x) * 4, R = data[o], G = data[o + 1], B = data[o + 2];
+        if (G >= 140 && G - R >= 45 && G - B >= 80) { motes++; if (!moteAt) moteAt = [x, y, R, G, B]; }
+      }
+  }
+  return { frames, motes, moteAt };
+}, [...new Set(rec.ticks.flatMap((tk) => tk.frames))], eRects, eShot64).catch((e) => ({ error: String(e).slice(0, 200) }));
 await browser.close();
 
 /* ══ THE READING OF THE RECORD ══════════════════════════ */
@@ -225,6 +352,24 @@ const lastTick = withFrames[withFrames.length - 1];
 ok("§D the standing node holds its full-grown frame — frame 32, steady to the record's end",
   heldLongEnough && !!lastTick && lastTick.frames.every(f => f.includes("bramble-32")),
   `last frames: ${lastTick ? lastTick.frames.join(",") : "none"}; hold witnessed: ${heldLongEnough}`);
+
+const eFrames = eScan?.frames ?? {};
+const eNames = Object.keys(eFrames);
+const eStrayTotal = eNames.reduce((s, k) => s + (eFrames[k].stray ?? 0), 0);
+const eMissing = eNames.filter(k => eFrames[k].missing);
+console.log(`§E scanned ${eNames.length} drawn frame bitmaps in the page; stray opaque px total: ${eStrayTotal}; motes in the floated field: ${eScan?.motes}; ${eScan?.error ?? ""}`);
+ok("§E1 every frame bitmap the page drew is one connected thicket — no opaque pixel stands free of the mass (the detached spore dots are gone from the drawn art)",
+  !eScan?.error && eNames.length >= 5 && eMissing.length === 0 && eStrayTotal === 0,
+  `frames scanned: ${eNames.length}, missing: ${eMissing.join(",")}, stray: ${eStrayTotal}, error: ${eScan?.error ?? "none"}`);
+const eDrawn = eNames.map(k => eFrames[k]).filter(f => !f.missing);
+const eDeepest = eDrawn.length ? Math.max(...eDrawn.map(f => f.bottomRow)) : -1;
+const eCanvasH = eDrawn[0]?.h ?? 0;
+ok("§E2 the crop's base stands at the canvas's own bottom — the deepest drawn frame's lowest kept row (any alpha, the base the seating was derived from) reaches the canvas's last rows; individual frames sit on that shared base line, shallower as their own mass is",
+  eDrawn.length >= 5 && eDeepest >= eCanvasH - 3,
+  `deepest kept row: ${eDeepest} of canvas height ${eCanvasH}`);
+ok("§E3 on the rendered map, the field where the dots floated — the first binding's box around the topmost node, outside every drawn image — holds no bright-green mote",
+  !eScan?.error && eScan?.motes === 0,
+  `motes: ${eScan?.motes} at ${JSON.stringify(eScan?.moteAt)}`);
 
 console.log(`\nBRAMBLE FACE DRIVE: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

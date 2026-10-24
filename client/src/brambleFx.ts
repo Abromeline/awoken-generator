@@ -5,11 +5,37 @@
  * the field"; bound to the homeland map 2026-10-24).
  *
  * Thirty-two frames, 3840×2160 RGBA as his hand delivered
- * them, cropped here to their union alpha box (1420×1454)
- * and shrunk for the page at 512×524 — prepared copies only;
- * the originals stand untouched in the workshop folder.
- * Nothing is redrawn, recoloured or tinted: the green-gold
- * glow is the art's own.
+ * them — prepared copies only; the originals stand
+ * untouched in the workshop folder. Nothing is redrawn,
+ * recoloured or tinted: the green-gold glow is the art's
+ * own.
+ *
+ * THE CROP (Nigel's tap, 2026-10-24: "Crop the game's copies
+ * to the thicket — the floating dots never appear"): the
+ * frames as delivered carry bright spore dots floating
+ * detached in the empty field above the thicket, and the
+ * first binding's plain union-box crop (1420×1454, shrunk to
+ * 512×524) carried them onto the map, frozen around every
+ * standing node. The copies are now re-derived from the
+ * originals keeping ONLY the thicket — its one connected
+ * glowing mass, filaments and all (components joined through
+ * faint alpha are kept whole; the three floating dots in each
+ * frame, standing 700–1,090 original px clear of the mass,
+ * are blanked — and with them small near-base fragments the
+ * same rule caught: mostly crumbs of ≤55 px at 1–33 px gaps,
+ * a 292 px detached speck at a 13 px gap in frame 8, and
+ * tendril tips of ~180/204 px at 2–3 px gaps in frames 10/11
+ * whose joining filaments fall below the threshold; on the
+ * rendered map the thicket's bright-green signature measured
+ * 378 px before the crop and 377 after, its base row
+ * identical) — cropped to the mass's union bounds across
+ * all frames, (1567, 1265)–(2160, 1721) = 593×456 original
+ * px, and shrunk at the first binding's own scale to
+ * 214×164. The seating constants below re-derive the node's
+ * drawing from this crop so the thicket stands on the map at
+ * exactly the size and place the first binding gave it:
+ * same scale (map units per original px), its centre and
+ * its base on the same map points as before.
  *
  * THE READING OF THE ART: the sequence is a GROWTH, not a
  * loop. Frame 1 is a near-empty ground with the first sprout;
@@ -71,8 +97,28 @@ export const BRAMBLE_FRAMES = [
 export const BRAMBLE_FRAME_MS = 66;
 /** The growth run's whole life: all 32 frames, once. */
 export const BRAMBLE_GROW_MS = BRAMBLE_FRAME_MS * BRAMBLE_FRAMES.length;
-/** The bundled frames' shape (512×524) — height per unit width. */
-export const BRAMBLE_ASPECT = 524 / 512;
+/** The bundled frames' shape (214×164) — height per unit width. */
+export const BRAMBLE_ASPECT = 164 / 214;
+/** The drawn box's width, in tile-size units: the thicket
+ *  crop is 593 of the first binding's 1420 original px wide,
+ *  drawn at that binding's scale (0.95 of a tile per 1420
+ *  original px) — the thicket keeps its exact on-map width. */
+export const BRAMBLE_DRAW_W = 0.396725; // 0.95 × 593/1420
+/** The thicket centre's standing place against the node's
+ *  own point, in tile-size units: in the first binding the
+ *  mass's centre (original x 1863.5, the crop's middle) sat
+ *  this far left of the node's centre, the old box having
+ *  reached right to catch a floating dot; the new box is
+ *  centred so the mass stands there still. */
+export const BRAMBLE_CENTRE_OFF = -0.068574;
+/** The thicket base's standing place against the node's own
+ *  point, in tile-size units: the old canvas ran 28 original
+ *  px of empty field below the mass's base (the base is the
+ *  crop's bottom, original y 1721; the old box ran to 1749),
+ *  so the base stood at 0.1 of a tile less that field's
+ *  height above the old box's bottom. The new box's bottom
+ *  sits exactly where the base itself stood. */
+export const BRAMBLE_BASE_OFF = 0.081277;
 
 /** The Bramble frame a node shows at a moment: the growth
  *  walked from the moment the map first saw the node raised

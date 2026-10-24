@@ -52,7 +52,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
-import { BRAMBLE_GROW_MS, BRAMBLE_ASPECT, brambleFrameAt } from "./brambleFx";
+import { BRAMBLE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, brambleFrameAt } from "./brambleFx";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
@@ -5194,10 +5194,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 // brambleFx, never SMIL. Its base stands on
                 // the node's own ground and it pales as its
                 // wounds deepen, as the works beside it pale.
+                // The copies are cropped to the thicket alone
+                // (Nigel's tap, 2026-10-24 — the frames'
+                // detached spore dots blanked, never drawn);
+                // the box below is seated by brambleFx's
+                // re-derived constants so the thicket stands
+                // at the same size and place the first
+                // binding gave it.
                 <g key={i} opacity={0.35 + 0.65 * frac}>
                   <ellipse cx={cx} cy={cy + size * 0.12} rx={size * 0.2} ry={size * 0.07} fill="rgba(0,0,0,0.4)" />
                   <image href={brambleFrameAt(marchNow, brambleBornRef.current.get(brambleKeyOf(wk.id, n)) ?? Date.now())}
-                    x={cx - size * 0.475} y={cy + size * 0.1 - size * 0.95 * BRAMBLE_ASPECT} width={size * 0.95} height={size * 0.95 * BRAMBLE_ASPECT}
+                    x={cx + size * BRAMBLE_CENTRE_OFF - size * BRAMBLE_DRAW_W / 2} y={cy + size * BRAMBLE_BASE_OFF - size * BRAMBLE_DRAW_W * BRAMBLE_ASPECT} width={size * BRAMBLE_DRAW_W} height={size * BRAMBLE_DRAW_W * BRAMBLE_ASPECT}
                     preserveAspectRatio="xMidYMax meet" />
                 </g>
               );
