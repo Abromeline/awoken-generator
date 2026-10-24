@@ -52,7 +52,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
-import { BRAMBLE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
+import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
@@ -543,7 +543,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // lighthouse and its ledgers, and the defence works the
   // defenders raise — all served by the territory read.
   const [battle, setBattle] = useState<{ shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }>({ shadowMatter: 0, protectionBankMs: 0, lighthouseLit: false, waveIntensity: 1 });
-  const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number }[] }[]>([]);
+  const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]>([]);
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
   // strike arrives, the weapon lunges at that foe's hex on the
@@ -837,6 +837,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // still inside its growth, the map's clock ticks at the
   // stride's 50 ms, the cadence the flights keep, so the
   // growth is walked render by render.
+  // A MOTE keeps a different tongue (the refinement,
+  // 2026-10-24): its birth moment is the ENGINE's, stored
+  // in its served entry and read off its served age — the
+  // map's own memory below is only the fallback for a mote
+  // served without one (a work not yet settled under the
+  // growth law), and a mote's run is the slowed one
+  // (BRAMBLE_MOTE_GROW_MS), not the node's.
   const brambleBornRef = useRef<Map<string, number>>(new Map());
   const brambleKeyOf = (workId: number, n: { q: number; r: number }) => `${workId}:${n.q.toFixed(2)},${n.r.toFixed(2)}`;
   let anyBrambleGrowing = false;
@@ -850,7 +857,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         liveKeys.add(key);
         let born = brambleBornRef.current.get(key);
         if (born === undefined) { born = Date.now(); brambleBornRef.current.set(key, born); }
-        if (marchNow - born < BRAMBLE_GROW_MS) anyBrambleGrowing = true;
+        if (n.mote) {
+          const moteBorn = typeof n.born === "number" ? n.born : born;
+          if (marchNow - moteBorn < BRAMBLE_MOTE_GROW_MS) anyBrambleGrowing = true;
+        } else if (marchNow - born < BRAMBLE_GROW_MS) anyBrambleGrowing = true;
       }
     }
     for (const key of [...brambleBornRef.current.keys()]) {
@@ -5189,19 +5199,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               ) : n.mote ? (
                 // A BRAMBLE MOTE (WATERING, Nigel 2026-10-24):
                 // the young growth at a node's fringe — and
-                // the growth a Tide watering adds — drawn
-                // from the flipbook's own young run at mote
-                // scale, seated on its own point by the
-                // thicket's constants scaled, paling with
-                // its wounds as the works beside it pale.
-                // It is no decoration: the engine serves it
-                // in the work's node list, the dark is
-                // hindered on its ground and can hack it
-                // down, and a Tide strike that lands on it
-                // grows the next.
+                // the growth a watering's bank spreads —
+                // drawn from the flipbook's whole growth run
+                // at mote scale, seated on its own point by
+                // the thicket's constants scaled, paling with
+                // its wounds as the works beside it pale. It
+                // is born small and grows ON ITS OWN (the
+                // refinement, 2026-10-24): the frame is read
+                // off its SERVED age — the birth moment the
+                // engine stored in its entry — at the slowed
+                // tempo brambleFx keeps, so a mote swells to
+                // its grown frame (frame 32 at mote scale)
+                // in seconds as you watch. It is no
+                // decoration: the engine serves it in the
+                // work's node list, the dark is hindered on
+                // its ground and can hack it down, and a
+                // Tide strike that lands on it banks toward
+                // the next.
                 <g key={i} opacity={0.35 + 0.65 * frac}>
                   <ellipse cx={cx} cy={cy + size * 0.05} rx={size * 0.09} ry={size * 0.03} fill="rgba(0,0,0,0.4)" />
-                  <image href={brambleMoteFrameAt(marchNow, brambleBornRef.current.get(brambleKeyOf(wk.id, n)) ?? Date.now())}
+                  <image href={brambleMoteFrameAt(marchNow, typeof n.born === "number" ? n.born : (brambleBornRef.current.get(brambleKeyOf(wk.id, n)) ?? Date.now()))}
                     x={cx + size * BRAMBLE_CENTRE_OFF * BRAMBLE_MOTE_SCALE - size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE / 2} y={cy + size * BRAMBLE_BASE_OFF * BRAMBLE_MOTE_SCALE - size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT} width={size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE} height={size * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT}
                     preserveAspectRatio="xMidYMax meet" />
                 </g>

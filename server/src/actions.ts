@@ -3963,15 +3963,48 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
  *    the same Wet her strike leaves on a dark thing,
  *    landing on bramble, FEEDS it — on her strike step,
  *    where no dark stands within her reach but a mote
- *    does, her strike lands on the mote as Watering and
- *    exactly ONE new mote grows, one spread step beyond
- *    the watered one, outward from its parent node, so
- *    tended bramble creeps and may overlap slightly.
+ *    does, her strike lands on the mote as Watering.
  *    Any mote can be watered, so the creep can chain; a
  *    work bears at most 12 living motes, and a step that
  *    would land off the land grows nothing. No roll is
  *    made against a mote: she tends her own side's
  *    growth, and her cadence is the price.
+ *  · THE MOTE'S OWN GROWTH + THE WATERING METER (Nigel,
+ *    2026-10-24 19:23, refining the paragraph above:
+ *    "make the bramble motes grow by them selves
+ *    overtime a little slower then the origional — what
+ *    the watering does is causes the mote to spread
+ *    another mote every 10 dmg"; the pace ruled by his
+ *    tap, 19:26: SECONDS — a breath slower than the
+ *    thicket's own growth-in, watched as it swells): a
+ *    mote is BORN SMALL and grows ON ITS OWN through
+ *    the flipbook's whole growth run, at mote scale,
+ *    over a run a quarter slower than the node's
+ *    growth-in (the client's brambleFx keeps the
+ *    measure: 32 frames over ≈2.64 s against the node's
+ *    ≈2.11 s). The growth is engine-true, not a client
+ *    guess: each mote's entry in the work's node list
+ *    carries its BIRTH MOMENT (born, the settle's own
+ *    clock), served with the work, and the map reads
+ *    the mote's frame off its served age. A mote that
+ *    finishes its run stands GROWN and STAYS A MOTE —
+ *    hackable, counted in the work's 12, sharing its
+ *    parent's fate. And a watering no longer grows a
+ *    mote a strike: each mote carries a WATERING BANK,
+ *    and her strike's rolled harm — the raw sum a
+ *    landed blow starts from, her parts' dice and
+ *    powers with the banners' lendings and the tower's
+ *    +2, banked whole because a mote has no AC for the
+ *    fate mitigation to read — pours into the watered
+ *    mote's bank; at EVERY 10 damage banked the mote
+ *    SPREADS exactly one new mote, one spread step
+ *    beyond it on its parent ray (a fat strike can
+ *    spread several, stepping from each newborn in
+ *    turn), and the bank keeps the remainder. At the
+ *    cap the damage still banks and no spread occurs;
+ *    the banked damage spreads when room returns and
+ *    a later strike lands. The per-strike growth of
+ *    the first telling is struck by these words.
  *  · The DEFENCE BONUS on strikes: no standing number exists
  *    in code or law for a defender's blows on this ground —
  *    defenders strike with the unmodified math and raise
@@ -4008,11 +4041,16 @@ const WET_MS = 10000; // the Proving Ground's pencil for Wet's length
  *  motes a node bears at its fringe, the living motes a
  *  work may bear at once, the fringe's radius, and the
  *  creep's step — the work's own node spread step (0.55,
- *  raiseWork's measure) read again, not a new number. */
+ *  raiseWork's measure) read again, not a new number.
+ *  The last is the METER's price (Nigel, 2026-10-24
+ *  19:23, above): the damage a mote must bank before
+ *  it spreads another mote — "every 10 dmg", his own
+ *  figure. */
 const BRAMBLE_MOTES_PER_NODE = 3;
 const BRAMBLE_MOTE_CAP = 12;
 const BRAMBLE_MOTE_FRINGE = 0.5;
 const BRAMBLE_MOTE_SPREAD_STEP = 0.55;
+const BRAMBLE_MOTE_SPREAD_COST = 10;
 const WALL_HACK_DMG = 1; // the Proving Ground's pencil: a shade's blow hacked into stone
 export const ROCK_WALL_HP_BY_LEVEL = [5, 6, 6, 7, 8, 8, 9, 9, 10];
 /** The shared 5–10 HP-by-level reading (Nigel, 2026-10-23 —
@@ -4469,15 +4507,33 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // Defence works: raised by Root and Stone defenders.
   // A bramble MOTE stands in the same list as its work's
   // nodes, flagged (mote: 1) and carrying its parent
-  // node's point (pq/pr) — WATERING's bookkeeping; every
-  // other work's nodes carry neither field.
-  type WorkNode = { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number };
+  // node's point (pq/pr), its BIRTH MOMENT (born — the
+  // settle's clock at its growing, so its self-growth is
+  // served, not guessed) and its WATERING BANK (bank —
+  // the damage watered into it toward its next spread)
+  // — WATERING's bookkeeping; every other work's nodes
+  // carry none of these fields.
+  type WorkNode = { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number };
   type DWork = { id: number; placementId: number; kind: string; nodes: WorkNode[]; dirty: boolean; gone: boolean };
   const works: DWork[] = (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => {
     let nodes: WorkNode[] = [];
     try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; }
     return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes, dirty: false, gone: false };
   });
+  // A mote raised before the growth law carries no
+  // birth moment: it is born at the first settle that
+  // reads it under the new law, its bank empty, and the
+  // stamping is written back with the work, so the
+  // served age the map reads is the engine's own from
+  // here on — never a client's guess.
+  for (const w of works) {
+    if (w.kind !== "bramble") continue;
+    for (const n of w.nodes) {
+      if (!n.mote) continue;
+      if (typeof n.born !== "number") { n.born = now; w.dirty = true; }
+      if (typeof n.bank !== "number") { n.bank = 0; w.dirty = true; }
+    }
+  }
   const raiseWork = (f: Fighter): void => {
     // The nearest dark sets her facing; the work stands a
     // hex ahead of her, turned with her (the PG's law).
@@ -4515,7 +4571,10 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         const nd = raised[i];
         for (let k = 0; k < BRAMBLE_MOTES_PER_NODE; k++) {
           const ang = (k / BRAMBLE_MOTES_PER_NODE) * Math.PI * 2 + i * 0.9;
-          nodes.push({ q: nd.q + Math.cos(ang) * BRAMBLE_MOTE_FRINGE, r: nd.r + Math.sin(ang) * BRAMBLE_MOTE_FRINGE, hp: nodeHp, maxHp: nodeHp, mote: 1, pq: nd.q, pr: nd.r });
+          // Born with the raise, at the settle's own
+          // moment, its bank empty — the mote grows on
+          // its own from here (the refinement, above).
+          nodes.push({ q: nd.q + Math.cos(ang) * BRAMBLE_MOTE_FRINGE, r: nd.r + Math.sin(ang) * BRAMBLE_MOTE_FRINGE, hp: nodeHp, maxHp: nodeHp, mote: 1, pq: nd.q, pr: nd.r, born: now, bank: 0 });
         }
       }
       const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, ?, 'bramble', ?, ?, ?, ?)").run(ownerKey, f.id, f.q, f.r, JSON.stringify(nodes), now);
@@ -4639,17 +4698,33 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
    *  is the rider's other face, kept beside it so the
    *  code itself says the one Wet has two landings. */
   const tideWetOnDark = (d: Dark, at: number): void => { d.wetUntil = at + WET_MS; };
-  /** WATERING's growth (Nigel, 2026-10-24): a Tide
-   *  strike landing on a mote feeds the work — exactly
-   *  one new mote grows, one spread step beyond the
-   *  watered one, outward from its parent node, carrying
-   *  the work's own node measure for its body. The creep
-   *  is capped per work and stays on the land: at the
-   *  cap, or where the step would land off the ground,
-   *  the strike still lands as Watering and grows
-   *  nothing. The nearest living mote in her reach is
-   *  the one she tends. */
-  const waterMote = (f: Fighter, reach: number): void => {
+  /** WATERING's meter (Nigel, 2026-10-24, refined
+   *  19:23 — "causes the mote to spread another mote
+   *  every 10 dmg"): a Tide strike landing on a mote
+   *  pours its harm into the mote's BANK, and the bank
+   *  — not the strike — grows the work: at every
+   *  BRAMBLE_MOTE_SPREAD_COST banked, the mote spreads
+   *  exactly one new mote, one spread step beyond it on
+   *  its parent ray, and a fat strike spreads in a
+   *  chain, each newborn the next step's foot. THE
+   *  FIGURE BANKED, named: her strike's RAW ROLLED
+   *  HARM — the sum a landed blow starts from (each
+   *  part's fate die + its power, the banners' flat
+   *  lendings for the ground she and the mote stand
+   *  on, the tower's +2 where she stands guarded) —
+   *  rolled as a fighting strike rolls it, but with no
+   *  d20 and no crit: no hit roll is made against a
+   *  mote, as ever, and the whole figure banks because
+   *  a mote has no AC for homelandFateMitigate to read.
+   *  At the work's cap the damage still banks and
+   *  spreads nothing; banked damage spreads when room
+   *  returns and a later strike lands. A spread step
+   *  that would land off the ground grows nothing and
+   *  spends nothing — the bank keeps its measure. The
+   *  nearest living mote in her reach is the one she
+   *  tends; a newborn is born at the strike's own
+   *  moment, its bank empty, and grows on its own. */
+  const waterMote = async (f: Fighter, reach: number, at: number): Promise<void> => {
     let bestW: DWork | null = null; let bestMote: WorkNode | null = null; let bestD = Infinity;
     for (const w of works) {
       if (w.gone || w.kind !== "bramble") continue;
@@ -4660,21 +4735,43 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       }
     }
     if (!bestW || !bestMote) return;
-    if (bestW.nodes.filter(n => n.mote && n.hp > 0).length >= BRAMBLE_MOTE_CAP) return;
-    const pq = bestMote.pq ?? bestMote.q, pr = bestMote.pr ?? bestMote.r;
-    let ux = bestMote.q - pq, ur = bestMote.r - pr;
-    const len = Math.hypot(ux, ur);
-    if (len < 1e-6) {
-      // A mote standing on its parent's own point has no
-      // outward of its own: the step reads from her hand.
-      ux = bestMote.q - f.q; ur = bestMote.r - f.r;
-      const l2 = Math.hypot(ux, ur) || 1; ux /= l2; ur /= l2;
-    } else { ux /= len; ur /= len; }
-    const nq = bestMote.q + ux * BRAMBLE_MOTE_SPREAD_STEP, nr = bestMote.r + ur * BRAMBLE_MOTE_SPREAD_STEP;
-    const cell = axialRound(nq, nr);
-    if (!byKey.has(`${cell.q},${cell.r}`)) return;
-    bestW.nodes.push({ q: nq, r: nr, hp: bestMote.maxHp, maxHp: bestMote.maxHp, mote: 1, pq, pr });
+    const payload = await awakenedPayloadById(f.awakenedId);
+    const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
+    let raw = 0;
+    for (const l of layers) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6) + (l.power ?? 0);
+    const banner = homelandBannerBonus(ownerKey, axialRound(f.q, f.r), axialRound(bestMote.q, bestMote.r));
+    raw += banner.std + banner.bcn;
+    if (f.towerGuard) raw += towerPowerBonus;
+    bestMote.bank = (bestMote.bank ?? 0) + raw;
     bestW.dirty = true;
+    // One spread step beyond a mote, on its parent ray.
+    // The newborn stands on the land or not at all.
+    const spreadFrom = (base: WorkNode): WorkNode | null => {
+      const pq = base.pq ?? base.q, pr = base.pr ?? base.r;
+      let ux = base.q - pq, ur = base.r - pr;
+      const len = Math.hypot(ux, ur);
+      if (len < 1e-6) {
+        // A mote standing on its parent's own point has
+        // no outward of its own: the step reads from
+        // her hand.
+        ux = base.q - f.q; ur = base.r - f.r;
+        const l2 = Math.hypot(ux, ur) || 1; ux /= l2; ur /= l2;
+      } else { ux /= len; ur /= len; }
+      const nq = base.q + ux * BRAMBLE_MOTE_SPREAD_STEP, nr = base.r + ur * BRAMBLE_MOTE_SPREAD_STEP;
+      const cell = axialRound(nq, nr);
+      if (!byKey.has(`${cell.q},${cell.r}`)) return null;
+      const born: WorkNode = { q: nq, r: nr, hp: base.maxHp, maxHp: base.maxHp, mote: 1, pq, pr, born: at, bank: 0 };
+      bestW!.nodes.push(born);
+      return born;
+    };
+    let base = bestMote;
+    while ((bestMote.bank ?? 0) >= BRAMBLE_MOTE_SPREAD_COST
+      && bestW.nodes.filter(n => n.mote && n.hp > 0).length < BRAMBLE_MOTE_CAP) {
+      const grown = spreadFrom(base);
+      if (!grown) break; // off the land: nothing grows, nothing is spent
+      bestMote.bank = (bestMote.bank ?? 0) - BRAMBLE_MOTE_SPREAD_COST;
+      base = grown;
+    }
   };
 
   const STEP_MS = 500;
@@ -5050,10 +5147,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         // door: where a mote stands within her reach, the
         // strike lands on it, and the Tide rider's Wet —
         // tideWetOnDark's own other face — feeds the work
-        // instead of marking a foe. Defence first, as
-        // ever: a dark in reach is fought, never watered
-        // past.
-        if (f.dominant === "tide") waterMote(f, reach);
+        // instead of marking a foe: her rolled harm pours
+        // into the mote's bank, and the bank spreads the
+        // creep at its every-10 measure (the meter,
+        // above). Defence first, as ever: a dark in
+        // reach is fought, never watered past.
+        if (f.dominant === "tide") await waterMote(f, reach, tNow);
         continue;
       }
       const roll = homelandDN(20);
@@ -9139,7 +9238,7 @@ export const handlers = {
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex

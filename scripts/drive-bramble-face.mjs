@@ -19,13 +19,18 @@
 //      clean on the rendered map.
 // WATERING (Nigel, 2026-10-24, later the same day) seats
 // MOTES in the work's node list — young growths at each
-// node's fringe, drawn from the flipbook's young run at
-// mote scale, holding the eighth frame. The recorder
+// node's fringe. The refinement (19:23, pace tapped
+// 19:26) has each mote GROW ON ITS OWN through the whole
+// flipbook run at mote scale, a quarter slower than the
+// node's growth-in, off its served birth moment, and
+// stand GROWN — frame 32 at mote scale. The recorder
 // below reads node frames and mote frames apart by their
 // drawn width (a mote stands at 0.45 of a node's width),
 // and §0/§D assert both populations as the law now has
 // them: three true nodes wearing frame 32, nine motes
-// wearing the young held frame.
+// wearing the grown frame at mote scale. (The young run
+// of eight frames, held young, is struck law — the
+// watering drive witnesses a mote's climb itself.)
 // The raise is the engine's own: a Root Awokin standing in
 // defence on an empty land, then a Fray seeded within her
 // reach — her settle raises the thicket (one node per part)
@@ -213,7 +218,7 @@ for (let i = 0; i < 40; i++) {
     const first = withFrames[0], last = withFrames[withFrames.length - 1];
     return { seen: withFrames.length, firstT: first.t, lastT: last.t, lastFrames: last.nodeFrames, lastMotes: last.moteFrames };
   });
-  if (st.seen && st.lastT - st.firstT > 5500 && st.lastFrames.length === 3 && st.lastFrames.every(f => f.includes("bramble-32")) && st.lastMotes.length === 9 && st.lastMotes.every(f => f.includes("bramble-08"))) { heldLongEnough = true; break; }
+  if (st.seen && st.lastT - st.firstT > 5500 && st.lastFrames.length === 3 && st.lastFrames.every(f => f.includes("bramble-32")) && st.lastMotes.length === 9 && st.lastMotes.every(f => f.includes("bramble-32"))) { heldLongEnough = true; break; }
 }
 const rec = await page.evaluate(() => { clearInterval(window.__brambleRec.iv); return window.__brambleRec; });
 clearInterval(stillIv);
@@ -368,8 +373,8 @@ const lastTick = withFrames[withFrames.length - 1];
 ok("§D the standing node holds its full-grown frame — frame 32, steady to the record's end",
   heldLongEnough && !!lastTick && lastTick.nodeFrames.length === 3 && lastTick.nodeFrames.every(f => f.includes("bramble-32")),
   `last node frames: ${lastTick ? lastTick.nodeFrames.join(",") : "none"}; hold witnessed: ${heldLongEnough}`);
-ok("§D2 the motes stand drawn at the fringe — nine of them, small, holding the flipbook's young frame (frame 8) beside their parent thickets",
-  heldLongEnough && !!lastTick && lastTick.moteFrames.length === 9 && lastTick.moteFrames.every(f => f.includes("bramble-08")),
+ok("§D2 the motes stand drawn at the fringe — nine of them, small, holding the FULL-GROWN frame (frame 32) at mote scale beside their parent thickets: each grew on its own through the whole run off its served birth (the refinement — the young held frame is struck)",
+  heldLongEnough && !!lastTick && lastTick.moteFrames.length === 9 && lastTick.moteFrames.every(f => f.includes("bramble-32")),
   `last mote frames: ${lastTick ? lastTick.moteFrames.join(",") : "none"}`);
 
 const eFrames = eScan?.frames ?? {};

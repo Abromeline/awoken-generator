@@ -130,23 +130,44 @@ export function brambleFrameAt(nowMs: number, bornAt: number): string {
 }
 
 /** WATERING's young growth (Nigel, 2026-10-24 — the Tide ×
- *  Bramble synergy, "the positive effect of wet"): a bramble
- *  MOTE — the young growth a node's fringe bears, and the
- *  growth a watering adds — is drawn from the flipbook's own
- *  young run: the first eight frames, walked at the growth's
- *  own tempo from the moment the map first saw the mote,
- *  then HELD on the eighth. A mote stands young beside its
- *  parent thicket, never the full-grown mass; only a true
- *  node wears the whole growth. */
-export const BRAMBLE_MOTE_HOLD = 7; // the eighth frame (index 7)
+ *  Bramble synergy, "the positive effect of wet"), refined
+ *  the same day (19:23: "make the bramble motes grow by
+ *  them selves overtime a little slower then the
+ *  origional"; the pace ruled by his tap, 19:26: SECONDS —
+ *  a breath slower than the thicket's own growth-in, you
+ *  watch it swell): a bramble MOTE — the young growth a
+ *  node's fringe bears, and the growth a watering's bank
+ *  spreads — is born small and grows ON ITS OWN through
+ *  the flipbook's WHOLE growth run, all 32 frames, at mote
+ *  scale, over a run A QUARTER SLOWER than the node's own
+ *  growth-in (BRAMBLE_GROW_MS × 1.25 ≈ 2.64 s against the
+ *  node's ≈2.11 s). The growth is engine-true: the mote's
+ *  entry in the served work carries its birth moment, and
+ *  the frame below is read off its served age — the map
+ *  keeps no birthday of its own for a mote. A mote that
+ *  finishes its run stands GROWN — the full frame at mote
+ *  scale — and stays a mote: only a true node wears the
+ *  growth at full size. (The first telling's young run —
+ *  eight frames walked, then held young — is struck by
+ *  the refinement.) */
+/** The mote growth's slowness against the node's run:
+ *  a quarter slower, the brief's reading of "a little
+ *  slower then the origional". */
+export const BRAMBLE_MOTE_GROWTH_FACTOR = 1.25;
+/** The mote's whole growth run: the node's run, slowed. */
+export const BRAMBLE_MOTE_GROW_MS = Math.round(BRAMBLE_GROW_MS * BRAMBLE_MOTE_GROWTH_FACTOR);
+/** One mote frame's hold: the slowed run shared over the
+ *  flipbook's 32 frames (82.5 ms). */
+export const BRAMBLE_MOTE_FRAME_MS = BRAMBLE_MOTE_GROW_MS / BRAMBLE_FRAMES.length;
 /** A mote's drawn size against a node's: it stands at this
  *  share of the thicket's own box, seated on its own point
  *  by the same offsets, scaled. */
 export const BRAMBLE_MOTE_SCALE = 0.45;
-/** The Bramble frame a mote shows at a moment: the young
- *  run walked from its first sighting, held at the young
- *  standing frame. */
+/** The Bramble frame a mote shows at a moment: the whole
+ *  growth run walked from its SERVED birth moment at the
+ *  slowed tempo, clamped at the full-grown frame — a
+ *  grown mote holds frame 32 at mote scale. */
 export function brambleMoteFrameAt(nowMs: number, bornAt: number): string {
-  const k = Math.floor((nowMs - bornAt) / BRAMBLE_FRAME_MS);
-  return BRAMBLE_FRAMES[Math.min(BRAMBLE_MOTE_HOLD, Math.max(0, k))];
+  const k = Math.floor((nowMs - bornAt) / BRAMBLE_MOTE_FRAME_MS);
+  return BRAMBLE_FRAMES[Math.min(BRAMBLE_FRAMES.length - 1, Math.max(0, k))];
 }
