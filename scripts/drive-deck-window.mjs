@@ -28,16 +28,18 @@
 //      DATA; the wheel's window (the §0 code over the served
 //      list) holds six of them and its last page holds the
 //      60th. The wheel entry's act body — the guarded
-//      callTableReinforcement send — is run for that entry:
-//      before a battle stands it is refused in plain words
-//      ("while a battle stands"); with a battle standing the
-//      call writes the road (incoming, price charged, not
-//      yet a member); calling it again is refused in plain
-//      words ("already on the road").
+//      castTableDeckSummon send (Nigel, 2026-10-24: the tap
+//      IS the summon cast; the R6 road this section proved
+//      until tonight was the gate Nigel struck) — is run
+//      for that entry: a name outside the deck is refused
+//      in plain words ("not in your deck"); the cast lands
+//      the 60th on the field FOLLOWING, and enrols it in
+//      the party in the same act.
 //   §3 THE HOMELAND, 60 DECK — the deck is served with the
 //      field; the window's last page holds the 60th; its
-//      entry's act body (api.callReinforcement, exactly what
-//      callHomelandReinforcement runs) joins it to the party
+//      entry's act body (api.summonAwoken, exactly what
+//      castSummon runs) casts its summon: it stands on the
+//      field following, enrolled in the party by the cast
 //      at once, it stands in the summon company and leaves
 //      the deck; calling it again is refused in plain words
 //      ("already stands in your party").
@@ -108,10 +110,10 @@ console.log("§1 the tap path at the component level (no Chrome — source-level
     gw.includes("entry.pinKey && !entry.tapOnly"));
   ok("GroundWheel spreads the Awoken fan evenly (evenFan) so a full window never stacks",
     gw.includes("evenFan && entries.length > 1"));
-  for (const [file, marker] of [["client/src/Table.tsx", "THE REINFORCEMENT WINDOW"], ["client/src/Territory.tsx", "THE REINFORCEMENT WINDOW"]]) {
+  for (const [file, marker] of [["client/src/Table.tsx", "THE DECK WINDOW (Nigel, 2026-10-23"], ["client/src/Territory.tsx", "THE DECK WINDOW (Nigel, 2026-10-23"]]) {
     const src = readFileSync(file, "utf8");
     const at = src.indexOf(marker);
-    const block = at >= 0 ? src.slice(at, at + 2600) : "";
+    const block = at >= 0 ? src.slice(at, at + 3600) : "";
     ok(`${file}: its deck entries are built in a window of the deck (deckWindow over the served list)`,
       block.includes("deckWindow("), file);
     ok(`${file}: its deck entries are tapOnly, with NO dragKey and NO pinKey in their construction`,
@@ -124,8 +126,8 @@ console.log("§1 the tap path at the component level (no Chrome — source-level
     ok(`${file}: the Awoken wheel is given the even fan`, src.includes('evenFan={wheelTab === "awoken"}'), file);
   }
   const tableSrc = readFileSync("client/src/Table.tsx", "utf8");
-  ok("the Table's deck call is socket-guarded — a call that cannot be sent speaks instead of dropping silently",
-    tableSrc.includes("callTableReinforcement") && tableSrc.includes("could not be sent — the Table's connection is not open"));
+  ok("the Table's deck cast is socket-guarded — a cast that cannot be sent speaks instead of dropping silently",
+    tableSrc.includes("castTableDeckSummon") && tableSrc.includes("could not be sent — the Table's connection is not open"));
 }
 
 /* ── server boot + seeding (drive-reinforcements' rails) ── */
@@ -170,8 +172,11 @@ async function claimBound(name, discordId) {
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
   const ownerKey = `tender:${tenderId}`;
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 3800, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 3800").run(ownerKey, Date.now());
-  await call("chooseClass", { classKey: "warden" }, token);
-  await call("chooseWeapon", { weaponKey: "sword" }, token);
+  // The class and weapon are written directly, as the
+  // harness's other drives write them — the choosing door
+  // itself (choose at three wakes, intro piece 3) is not
+  // this drive's ground.
+  db.prepare("UPDATE tender_progress SET class_key = 'warden', weapon_key = 'sword' WHERE owner_key = ?").run(ownerKey);
   const { issueTableToken } = await import("../server/dist/table.js");
   const tt = issueTableToken({ id: discordId, name });
   const code = (await call("getTableBindCode", {}, token)).code;
@@ -207,7 +212,7 @@ function client(label) {
 
 /* ── §2 THE TABLE AT 60-DECK SCALE ──────────────────────── */
 {
-  console.log("§2 the Table — 60 deck Awoken, windowed, the last one's tap writes the road");
+  console.log("§2 the Table — 60 deck Awoken, windowed, the last one's tap casts its summon");
   const T = await claimBound("Window Caller", "dw-1");
   const M = seedAwokin(T.ownerKey, "Window Caller", "Standing Member");
   const deckIds = [];
@@ -216,7 +221,7 @@ function client(label) {
   db.prepare("UPDATE tender_progress SET weapon_next_at = ? WHERE owner_key = ?").run(Date.now() + 3600_000, T.ownerKey);
 
   const b = client("DW1");
-  await b.join({ authToken: T.tt, room: "deckwindow-road" });
+  await b.join({ authToken: T.tt, room: "deckwindow-cast" });
   await b.waitFor((cc) => (cc.you.reinforcements ?? []).length === 60, "the whole 60-Awoken deck served as data", 30000);
   const served = (b.you.reinforcements ?? []).map(r => r.awakenedId);
   ok("the Table serves the whole deck as data — all 60, in roster order (the wheel windows this list; it is not itself the fan)",
@@ -230,39 +235,39 @@ function client(label) {
   ok("paging reaches the last deck Awoken — the 60th stands in the last window",
     winLast.entries.some(r => r.awakenedId === sixtieth), JSON.stringify(winLast.entries.map(r => r.awakenedId)));
 
-  // The tap, before a battle stands: the deck entry's act
-  // body is the guarded send of callReinforcement (Table.tsx
-  // callTableReinforcement); the refusal must speak.
+  // The tap IS the cast now (Nigel, 2026-10-24): the deck
+  // entry's act body is the guarded send of summonCast by
+  // ledger id (Table.tsx castTableDeckSummon). A name
+  // outside the deck must refuse in plain words.
   const errMark = b.errors.length;
-  b.send({ type: "callReinforcement", awakenedId: sixtieth });
+  b.send({ type: "summonCast", awakenedId: 999999 });
   await sleep(600);
-  ok("a tap with no battle standing is refused in plain words — never silence",
-    b.errors.slice(errMark).some(e => /while a battle stands/.test(e)), JSON.stringify(b.errors.slice(errMark)));
+  ok("a cast naming an Awokin outside the deck is refused in plain words — never silence",
+    b.errors.slice(errMark).some(e => /not in your deck/.test(e)), JSON.stringify(b.errors.slice(errMark)));
 
   b.send({ type: "startWave" });
   await b.waitFor((cc) => cc.state.battle.active && cc.state.dark.length > 0, "the wave stands", 20000);
-  b.send({ type: "callReinforcement", awakenedId: sixtieth });
-  await b.waitFor((cc) => (cc.you.partyView?.incoming ?? []).some(i => i.awakenedId === sixtieth), "the road stands for the 60th", 15000);
-  const inc = (b.you.partyView?.incoming ?? []).find(i => i.awakenedId === sixtieth);
-  ok("the last window's tap writes the road — the 60th is incoming at its price, not yet a member, not on the field",
-    !!inc && inc.cost === 3 && !partyRows(T.ownerKey).includes(sixtieth) && !b.state.field.some(u => u.awokenId === sixtieth),
-    JSON.stringify(inc));
-  ok("the tale speaks the call in plain words", (b.state.tale ?? []).some(t => /Deck Awoken 60 is called/.test(t.text)),
+  // The cast can falter — the dice are the dice; the tap
+  // is simply made again, as a player makes it.
+  let stood = false;
+  for (let i = 0; i < 14 && !stood; i++) {
+    b.send({ type: "summonCast", awakenedId: sixtieth });
+    await sleep(800);
+    stood = (b.state?.field ?? []).some(u => u.awokenId === sixtieth);
+  }
+  const unit = (b.state?.field ?? []).find(u => u.awokenId === sixtieth);
+  ok("the last window's tap casts the summon — the 60th stands on the field, following its Tender",
+    stood && unit?.follow === true, JSON.stringify(unit ?? null));
+  ok("the cast enrolled it in the party in the same act — following means in party",
+    partyRows(T.ownerKey).includes(sixtieth), JSON.stringify(partyRows(T.ownerKey)));
+  ok("the tale speaks the call in plain words", (b.state.tale ?? []).some(t => /calls Deck Awoken 60 onto the field/.test(t.text)),
     (b.state.tale ?? []).slice(-4).map(t => t.text).join(" | "));
-  const errMark2 = b.errors.length;
-  b.send({ type: "callReinforcement", awakenedId: sixtieth });
-  await sleep(600);
-  ok("tapping one already on the road is refused in plain words",
-    b.errors.slice(errMark2).some(e => /already on the road/.test(e)), JSON.stringify(b.errors.slice(errMark2)));
-  await b.waitFor((cc) => (cc.you.company ?? []).some(cd => cd.awokenId === sixtieth), "the road settled into the company", 15000);
-  ok("when the road settles the 60th lands in the party and stands in the wheel's company",
-    partyRows(T.ownerKey).includes(sixtieth));
   b.ws.close();
 }
 
 /* ── §3 THE HOMELAND AT 60-DECK SCALE ───────────────────── */
 {
-  console.log("§3 the homeland — 60 deck Awoken, windowed, the last one's tap joins at once");
+  console.log("§3 the homeland — 60 deck Awoken, windowed, the last one's tap casts its summon");
   const claim = await call("claimTender", { password: "deckwindow-password", tenderName: "Home Window" });
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
   const ownerKey = `tender:${tenderId}`;
@@ -286,18 +291,26 @@ function client(label) {
   const sixtieth = deckIds[59];
   ok("the homeland window's last page holds the 60th deck Awoken",
     winLast.entries.some(r => r.awakenedId === sixtieth));
-  // The entry's act body: api.callReinforcement — exactly
-  // what callHomelandReinforcement runs on the tap.
-  const r = await call("callReinforcement", { awakenedId: sixtieth }, claim.token);
-  ok("the 60th's tap joins it to the party AT ONCE on the homeland — the answer names it instant",
-    r.reinforcement?.instant === true && partyRows(ownerKey).includes(sixtieth), JSON.stringify(r.reinforcement ?? r));
+  // The entry's act body IS the summon cast (Nigel,
+  // 2026-10-24): api.summonAwoken — exactly what castSummon
+  // runs on the tap. The cast can falter; the tap is made
+  // again, as a player makes it.
+  let landed = null;
+  for (let i = 0; i < 16 && !landed; i++) {
+    const r = await call("summonAwoken", { awakenedId: sixtieth }, claim.token);
+    if (r.summoned) landed = r;
+  }
+  const srow = db.prepare("SELECT follow FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, sixtieth);
+  ok("the 60th's tap casts its summon — it stands on the field following, enrolled in the party by the cast",
+    !!landed && srow?.follow === 1 && partyRows(ownerKey).includes(sixtieth),
+    JSON.stringify({ landed: !!landed, follow: srow?.follow, party: partyRows(ownerKey) }));
   const terr2 = await call("getTerritory", {}, claim.token);
-  ok("it now stands in the wheel's summon company, and the deck the wheel windows holds 59",
-    (terr2.summoning?.company ?? []).some(c => c.awakenedId === sixtieth)
-    && (terr2.summoning?.reinforcements ?? []).length === 59);
-  const again = await callRaw("callReinforcement", { awakenedId: sixtieth }, claim.token);
-  ok("calling it again is refused in plain words — already in the party",
-    again.status === 400 && /already stands in your party/.test(again.data?.error ?? ""), JSON.stringify(again.data));
+  ok("the deck the wheel windows now holds 59 — the summoned one stands placed, out of the window's list",
+    (terr2.summoning?.reinforcements ?? []).length === 59,
+    JSON.stringify((terr2.summoning?.reinforcements ?? []).length));
+  const again = await callRaw("summonAwoken", { awakenedId: sixtieth }, claim.token);
+  ok("summoning it again is refused in plain words — already standing on the field",
+    again.status === 400 && /already stands on your field/.test(again.data?.error ?? ""), JSON.stringify(again.data));
 }
 
 console.log(`\nDECK WINDOW DRIVE (R6 in-wheel fix): ${pass} passed, ${fail} failed`);

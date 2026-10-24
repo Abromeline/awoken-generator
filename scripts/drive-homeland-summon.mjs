@@ -9,8 +9,11 @@
 //      a free beside-tile; the purse is charged BEFORE the
 //      roll (a forced falter spends the full price and
 //      stands nothing); standing in cursed land the cast
-//      carries the −3 in its reckoning; a non-party Awokin
-//      cannot be summoned; the retired hand road fields
+//      carries the −3 in its reckoning; any Awokin of the
+//      deck can be summoned — the gate is the FOLLOWING,
+//      not the party (Nigel, 2026-10-24) — and a landed
+//      outsider follows and is enrolled in the party by
+//      the cast itself; the retired hand road fields
 //      nothing (deployAwoken is gone; deployBattle refuses
 //      quiet ground and keeps only its assault on cursed
 //      ground). §G CONTROL: a Lv 1 Tender with no party
@@ -102,7 +105,7 @@ const energyOf = (ownerKey) => db.prepare("SELECT energy FROM tender_resources W
 const placedOf = (ownerKey, id) => db.prepare("SELECT COUNT(*) AS n FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, id).n;
 
 /* ══ §A THE CAST, AT THE API ══════════════════════════════ */
-console.log("§A the homeland cast — no target, purse before roll, the curse's −3, the party gate");
+console.log("§A the homeland cast — no target, purse before roll, the curse's −3, the gate is the following");
 {
   // §G CONTROL: Lv 1, no stars of any kind — base arithmetic.
   const G = await claimWithExp("Plain Summoner", 0);
@@ -137,22 +140,42 @@ console.log("§A the homeland cast — no target, purse before roll, the curse's
     terr.summoning.standCursed === false && terr.tender?.tileId === heart,
     JSON.stringify({ standCursed: terr.summoning.standCursed, stand: terr.tender?.tileId, heart }));
 
-  // A non-party Awokin cannot be summoned.
-  const e0 = energyOf(G.ownerKey);
-  const noMember = await callRaw("summonAwoken", { awakenedId: outsider }, G.token);
-  ok("a non-party Awokin cannot be summoned — the party's plain voice refuses",
-    noMember.status === 400 && /is not in your party/.test(noMember.data?.error ?? ""), JSON.stringify(noMember.data));
-  ok("the refusal spent nothing and fielded nothing", energyOf(G.ownerKey) === e0 && placedOf(G.ownerKey, outsider) === 0);
+  // ANY DECK AWOKEN CAN BE SUMMONED (Nigel, 2026-10-24):
+  // the outsider stands in no party — the cast answers it
+  // all the same (a falter spends the price, as any cast
+  // does), and a landed call follows and enrols it. The
+  // party refusal this block asserted until tonight is
+  // struck from the law.
+  let outsiderCast = null;
+  for (let i = 0; i < 16 && !outsiderCast; i++) {
+    const r = await call("summonAwoken", { awakenedId: outsider }, G.token);
+    if (r.summoned || r.faltered) outsiderCast = r;
+  }
+  ok("a non-party deck Awokin is answered by the cast itself — landed or faltered, never a party refusal",
+    !!outsiderCast, JSON.stringify(outsiderCast));
+  if (outsiderCast?.summoned) {
+    const orow = db.prepare("SELECT follow FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(G.ownerKey, outsider);
+    const oParty = db.prepare("SELECT COUNT(*) AS n FROM tender_party WHERE owner_key = ? AND awakened_id = ?").get(G.ownerKey, outsider).n;
+    ok("the landed outsider follows (follow raised) and stands in the party ledger — following means in party",
+      orow?.follow === 1 && oParty === 1, JSON.stringify({ follow: orow?.follow, inParty: oParty }));
+  }
 
   // THE FORCED FALTER: the Giant's DC is 100 — every cast
   // but a natural 20 falters; each attempt must spend the
-  // full ✦90 BEFORE its roll and stand nothing.
+  // full ✦90 BEFORE its roll and stand nothing. A natural
+  // 20 (one cast in twenty) lands it instead: the harness
+  // lifts that landing off the scratch field and out of
+  // the ledger and casts again — the falter is the thing
+  // under proof, not the dice's mercy.
   let falter = null, falterSpend = 0;
-  for (let i = 0; i < 40 && !falter; i++) {
+  for (let i = 0; i < 60 && !falter; i++) {
     const before = energyOf(G.ownerKey);
     const r = await call("summonAwoken", { awakenedId: giant }, G.token);
     if (r.faltered) { falter = r; falterSpend = before - energyOf(G.ownerKey); }
-    else break; // a natural 20 landed it — astronomically against us; stop and let the check speak
+    else {
+      db.prepare("DELETE FROM field_placements WHERE owner_key = ? AND awakened_id = ?").run(G.ownerKey, giant);
+      db.prepare("DELETE FROM tender_party WHERE owner_key = ? AND awakened_id = ?").run(G.ownerKey, giant);
+    }
   }
   ok("a falter spends the price and stands nothing",
     !!falter && falterSpend === 90 && placedOf(G.ownerKey, giant) === (falter ? 0 : 1),

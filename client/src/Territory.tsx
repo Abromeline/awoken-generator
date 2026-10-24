@@ -1913,21 +1913,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
-  /** CALL A REINFORCEMENT (Nigel, 2026-10-23 — Recovery
-   *  R6): the wheel's pick names a deck Awoken outside the
-   *  party; on the homeland the call lands AT ONCE — the
-   *  Awoken joins the party in this breath, and the branch,
-   *  read fresh, lists it in the company, ready for the
-   *  summon cast. No road, no price. */
-  const callHomelandReinforcement = async (entry: { awakenedId: number; name: string }) => {
-    try {
-      const r = await api.callReinforcement({ awakenedId: entry.awakenedId });
-      await refreshTerritory();
-      await partyQ.refetch();
-      showHexNotice(`${r.reinforcement?.name ?? entry.name} answers the call — it joins your party at once, and the wheel's summon cast can stand it at your side.`);
-    } catch (err) {
-      showHexNotice(err instanceof Error ? err.message : "The call was refused.");
-    }
+  /** THE DECK WINDOW'S TAP IS THE SUMMON CAST (Nigel,
+   *  2026-10-24 — the gate moved to the following): the
+   *  wheel's deck window names a deck Awoken outside the
+   *  party, and its tap casts the summon itself, exactly as
+   *  a company entry's tap does — the server lands it at the
+   *  Tender's side as a follower and enrols it in the party
+   *  in the same act. (Until tonight the tap called the
+   *  R6 reinforcement door — a join first, capped by the
+   *  party, and only then a summon: the two-step was the
+   *  gate Nigel struck.) */
+  const castDeckSummon = async (entry: { awakenedId: number; name: string }) => {
+    await castSummon(entry);
+    await partyQ.refetch();
   };
 
   /** Follow, toggled from the wheel or the belt: the one
@@ -1987,7 +1985,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!summoning.company.length && !(summoning.reinforcements ?? []).length) {
         return [{
           key: "sum-none", sigil: "awo", label: "None callable", locked: true,
-          act: () => showHexNotice("No one can be called — your party stands fielded, staged at the bastion, or still re-coalescing, and no deck Awoken waits to be called in. Fill a spot from the Party tab of your Zodiac; the wheel's cast is the only gate."),
+          act: () => showHexNotice("No one can be called — everyone in your deck already stands on the field, waits staged at the bastion, or is still re-coalescing from a fall."),
         } as WheelEntry];
       }
       const companyEntries = summoning.company.map(c => ({
@@ -1999,19 +1997,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         dragKey: `sum-${c.awakenedId}`,
         act: () => { void castSummon(c); },
       } as WheelEntry));
-      // THE REINFORCEMENT WINDOW (Nigel, 2026-10-23 —
-      // Recovery R6, presentation re-ruled 19:45: summoning
-      // stays in the wheel, no pop-up, never the full deck
-      // visible): under the company, the branch shows ONE
-      // WINDOW of the deck it can call in — six entries,
-      // paged by the "More" entry below. On the homeland
-      // the call is INSTANT: the tap joins it to the party
-      // at once, and it stands in the company above from the
-      // next reading, ready for the summon cast. A deck
-      // entry's face is its portrait and its name, nothing
-      // more — the outcome words belong to the tap's answer,
-      // spoken by callHomelandReinforcement in plain words.
-      // THE TAP IS THE CALL, and it is tap-only: no drag
+      // THE DECK WINDOW (Nigel, 2026-10-23 — Recovery R6,
+      // presentation re-ruled 19:45: summoning stays in the
+      // wheel, no pop-up, never the full deck visible):
+      // under the company, the branch shows ONE WINDOW of
+      // the rest of the deck — six entries, paged by the
+      // "More" entry below. THE TAP IS THE SUMMON CAST
+      // (Nigel, 2026-10-24): a window entry casts exactly as
+      // a company entry does — the server lands the Awoken
+      // at the Tender's side as a follower and enrols it in
+      // the party in the same act; no join step stands
+      // before the cast any more. A deck entry's face is its
+      // portrait and its name, nothing more — the outcome
+      // words belong to the tap's answer, spoken by
+      // castSummon in plain words.
+      // THE TAP IS THE CAST, and it is tap-only: no drag
       // key and no pin key are set on it, no drag
       // reclassification and no pin badge
       // can eat it — the drag-to-hotbar for deck entries is
@@ -2023,7 +2023,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         emoji: "🚶",
         label: c.name,
         tapOnly: true,
-        act: () => { void callHomelandReinforcement(c); },
+        act: () => { void castDeckSummon(c); },
       } as WheelEntry));
       // THE MORE STEP: inside the wheel, under the window —
       // it advances the window through the deck (wrapping at
@@ -2208,7 +2208,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (key.startsWith("reinf-")) {
       const c = (summoning.reinforcements ?? []).find(x => x.awakenedId === Number(key.slice(6))) ?? null;
       if (!c) { toggleHotbar(key); return; }
-      void callHomelandReinforcement(c);
+      void castDeckSummon(c);
       return;
     }
     if (key.startsWith("cast-")) {
@@ -6462,14 +6462,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 );
               }
               if (key.startsWith("reinf-")) {
-                // A keyed reinforcement call (Recovery R6):
-                // the tap calls the deck Awoken into the party
-                // at once — on the homeland, reinforcements
-                // are instant.
+                // A keyed deck entry (the window's key, kept
+                // from Recovery R6): the tap casts the summon
+                // itself now (Nigel, 2026-10-24) — the Awoken
+                // stands at the Tender's side as a follower.
                 const c = (summoning.reinforcements ?? []).find(x => x.awakenedId === Number(key.slice(6))) ?? null;
                 return (
                   <button type="button" key={key} className={`tender-slot${!c ? " dim" : ""}`}
-                    title={c ? `${c.name} — tap to call it in as a reinforcement: it joins your party at once (right-click to loose the slot)` : "That Awokin cannot be called in now — tap to loose the slot"}
+                    title={c ? `${c.name} — tap to cast the summon: it stands at your side as a follower (right-click to loose the slot)` : "That Awokin cannot be called now — tap to loose the slot"}
                     onClick={() => actTerritorySlot(key)}
                     onContextMenu={(e) => { e.preventDefault(); toggleHotbar(key); }}>
                     {c?.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="tender-slot-emoji">🚶</span>}

@@ -9177,6 +9177,30 @@ export const handlers = {
     const own = await db.select().from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.id, parsed.data.placementId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
     if (!own[0]) badRequest("That Awokin does not stand on your field.");
+    if (parsed.data.follow) {
+      // THE FOLLOWING GATE stands on this door too (Nigel,
+      // 2026-10-24): raising a follow while the following
+      // stands full is refused plainly — orders given to
+      // one who follows free the spot. And raising enrols
+      // the creature in the party in the same act, as the
+      // summon cast enrols its landed follower: following
+      // means in party. (Lowering the flag only lowers it —
+      // the orders that end membership are the march and
+      // the patrol, as they have always been.)
+      const progress = await getTenderProgress(ownerKey);
+      const followCap = partyCapFor(ownerKey, progress.level);
+      const rows = await db.select({ id: schema.fieldPlacements.id, follow: schema.fieldPlacements.follow }).from(schema.fieldPlacements)
+        .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+      const followingCount = rows.filter(p => p.follow === 1 && p.id !== parsed.data.placementId).length;
+      if (followingCount >= followCap) {
+        badRequest(`Your following stands full — ${followCap} at your side. Give orders to one who follows you — a march, a patrol — and her spot frees.`);
+      }
+      const placedAwakenedId = (own[0] as any).awakenedId as number;
+      if (placedAwakenedId && !isPartyMember(ownerKey, placedAwakenedId)) {
+        sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")
+          .run(ownerKey, placedAwakenedId, Date.now());
+      }
+    }
     await db.update(schema.fieldPlacements).set({ follow: parsed.data.follow ? 1 : 0 }).where(eq(schema.fieldPlacements.id, parsed.data.placementId));
     return { ok: true, follow: parsed.data.follow };
   },
@@ -9195,9 +9219,17 @@ export const handlers = {
    *  stands in cursed land, against DC 10 + the Awokin's
    *  power; a natural 20 always lands, a natural 1 always
    *  falters; a falter spends the price and stands nothing.
-   *  Party membership is re-checked here, at the cast itself —
-   *  the party is who you can summon, on both grounds. The
-   *  price is the Table's: the Awokin's power, one at least.
+   *  THE GATE IS THE FOLLOWING, NOT THE PARTY (Nigel,
+   *  2026-10-24 15:48 + 15:51 + 15:52): any Awokin of the
+   *  Tender's own deck can be summoned — membership is never
+   *  asked at this door. What the party's width gates is the
+   *  FOLLOWING: a landed summon follows by default, so while
+   *  the following stands full the cast is refused whole, and
+   *  the way past is the Tender's own hand — give orders to
+   *  one who follows (a march, a patrol: orders end the
+   *  follow and the membership both) and a spot frees.
+   *  Awoken standing on the field under orders never count.
+   *  The price is the Table's: the Awokin's power, one at least.
    *  This road replaces deployAwoken whole: the hand-card →
    *  tile-tap fielding is retired (the hand stays the
    *  collection; battle entry keeps deployBattle, below). */
@@ -9218,11 +9250,12 @@ export const handlers = {
     const tileById = new Map((tiles as any[]).map(t => [t.id, t]));
     const standTile = tileById.get(stand.tileId);
     if (!standTile) badRequest("You have no stand on this land to summon from.");
-    // THE PARTY IS WHO YOU CAN SUMMON — re-checked at the cast.
-    if (!isPartyMember(ownerKey, awakenedId)) {
-      const named = await awakenedPayloadById(awakenedId).catch(() => null);
-      badRequest(`${named?.name ?? "That Awokin"} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; the fill lands at once, and the wheel's cast is the only gate.`);
-    }
+    // THE DECK IS WHO YOU CAN SUMMON (Nigel, 2026-10-24):
+    // ownership is the only belonging ever asked at this
+    // door — the party gate that stood here is struck, and
+    // the gate lives on the following now, below.
+    const ownedRow = sqlite.prepare("SELECT name FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as { name: string } | undefined;
+    if (!ownedRow) badRequest("That Awokin is not yours to call.");
     // Already standing: one body stands in one place.
     const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
       .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
@@ -9248,6 +9281,18 @@ export const handlers = {
     // stands, this call costs her half. The first member she
     // ever fields pays full price: none stands yet to grant it.
     const cost = await witchPriceFor(ownerKey, progress.classKey, Math.max(1, power));
+    // THE FOLLOWING GATE (Nigel, 2026-10-24): the count is
+    // the placements standing in the follow on this ground —
+    // never the field's whole number, never the ledger's
+    // rows. A landed summon follows by default, so a full
+    // following refuses the cast whole, before any price is
+    // charged: the way past is orders, spoken in the refusal.
+    const followCap = partyCapFor(ownerKey, progress.level);
+    const followingCount = (await db.select({ follow: schema.fieldPlacements.follow }).from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).filter(p => p.follow === 1).length;
+    if (followingCount >= followCap) {
+      badRequest(`Your following stands full — ${followCap} at your side, and a summon follows by default. Give orders to one who follows you — a march, a patrol — and her spot frees for the next call. (The width is reckoned: 3 to start, plus a spot for every party star you hold.)`);
+    }
     // THE LANDING, chosen before the charge (as the Table
     // checks its ground before its purse): the Tender's own
     // tile first, then the tiles beside it — open ground that
@@ -9258,6 +9303,14 @@ export const handlers = {
     // is in the cast, not in the ground).
     const allPlacements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     const loadOf = (tileId: number) => (allPlacements as any[]).reduce((n, p) => {
+      // THE OVERCROWD TALLY (Nigel, 2026-10-24 15:52):
+      // Awoken in the party — the following — never count
+      // toward a hex's crowding for a landing: summons land
+      // at the Tender's side, where his followers cluster,
+      // and their standing there must never block his call.
+      // Only the non-party standing (and those marching in
+      // to stand) weigh on the tally.
+      if (p.follow === 1) return n;
       if (p.tileId === tileId && !p.marchPath) return n + 1;
       if (p.marchPath) { try { const r = JSON.parse(p.marchPath); if (Array.isArray(r) && r[r.length - 1] === tileId) return n + 1; } catch { /* broken roads hold no room */ } }
       return n;
@@ -9266,15 +9319,22 @@ export const handlers = {
       .filter(t => hexDistTiles(t, standTile) <= 1 && (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1)
       .sort((a, b) => (a.id === standTile.id ? 0 : 1) - (b.id === standTile.id ? 0 : 1)
         || hexDistTiles(a, standTile) - hexDistTiles(b, standTile) || a.id - b.id);
-    // THE CROWDING GATE (Nigel, 2026-10-18): no tile refuses
-    // a landing for numbers — the least crowded ground is
-    // still chosen first, and when every tile at the
-    // Tender's side stands crowded the call lands on his
-    // own tile all the same, and the crowd costs the
-    // company speed, never the summon. Only ground that
-    // does not exist at all can refuse the call.
-    const landing = candidates.find(t => loadOf(t.id) < 4) ?? candidates[0];
-    if (!landing) badRequest("No ground at your side can hold them — there is no land at your side to stand on.");
+    // THE OVERCROWDED HEX (Nigel, 2026-10-24 15:51 — for
+    // this door superseding the 2026-10-18 crowding ruling's
+    // fall-back landing): a summon cannot LAND on a hex
+    // already holding four or more — the least crowded
+    // lawful ground is still chosen first, but when every
+    // hex at the Tender's side stands at four or more
+    // non-party standing (the tally above), the call is
+    // refused whole and the price is never reached. The
+    // tally caps only this landing: more Awoken may still
+    // walk or march onto such a hex afterward, and the
+    // crowd's tax on pace and cadence stands untouched.
+    // Only ground that does not exist at all refuses
+    // otherwise, in the older words.
+    if (!candidates.length) badRequest("No ground at your side can hold them — there is no land at your side to stand on.");
+    const landing = candidates.find(t => loadOf(t.id) < 4);
+    if (!landing) badRequest("No ground at your side can take another standing — every hex beside you already holds four or more who are not of your party. Step to clearer ground, or let the crowd move on.");
     // THE PURSE, BEFORE THE ROLL — a faltering call spends it.
     if (!(await spendEnergy(ownerKey, cost))) badRequest(`Not enough energy — ${payload.name} costs ✦${cost}.`);
     // THE CAST, the Table referee's arithmetic whole.
@@ -9295,13 +9355,12 @@ export const handlers = {
     const bornShield = await rollShieldFor(awakenedId);
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId, tileId: landing.id,
-      // A SUMMONED AWOKEN FOLLOWS ITS TENDER (the party's
-      // own definition, party.ts: a member follows when it
-      // stands on a ground; the Table raises the same flag
-      // at its join). Only party members can be summoned at
-      // all, so the summon is the homeland's follow-raising
-      // moment: with the flag up, the muster enrols the
-      // figure and it trails the Tender's ring. (The other
+      // A SUMMONED AWOKEN FOLLOWS ITS TENDER (Nigel,
+      // 2026-10-24, as it has always been on this ground):
+      // the cast is the homeland's follow-raising moment —
+      // the gate above saw the following had room, so the
+      // flag is raised whole, and with it the muster keeps
+      // the figure at the Tender's ring. (The other
       // placement births — deploy, assault, bastion return —
       // deliberately stay follow 0: fighters under orders.)
       follow: 1,
@@ -9315,6 +9374,17 @@ export const handlers = {
       // pool is rolled at the summoning itself.
       shield: bornShield, shieldMax: bornShield,
     });
+    // FOLLOWING MEANS IN PARTY (Nigel, 2026-10-24): the
+    // landed follower is entered in the party ledger in
+    // this same act — written directly, as the first-three
+    // fielding writes it (party.ts's join door is not used:
+    // a join would lift the creature OFF the field it has
+    // just taken). A member already standing in the ledger
+    // keeps her earlier seat untouched.
+    if (!isPartyMember(ownerKey, awakenedId)) {
+      sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")
+        .run(ownerKey, awakenedId, Date.now());
+    }
     return { ok: true as const, summoned: true as const, faltered: false as const, name: payload.name, tileId: landing.id, roll, gift, summonersPower: sp, curse, dc, cost };
   },
 

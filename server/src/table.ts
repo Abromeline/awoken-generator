@@ -1218,11 +1218,12 @@ export function awokinAcFor(room: Room, victim: FieldUnit): number {
  *  half-energy bonus to her casting until they dissipate."
  *  At the Table every standing Awokin arrived by its
  *  owner's summon cast — placeUnit has no other caller —
- *  and the summon itself refuses any but party members for
- *  a bound seat, so a cast party member stands exactly
- *  when one of her Awokin stands whose card is of her
- *  party (an unbound seat's company counts whole, as its
- *  summon gate counts it). The price of every cast she
+ *  and a cast Awokin stands in its Tender's party by the
+ *  cast's own enrolment (Nigel, 2026-10-24 — following
+ *  means in party, and a landed summon follows), so a cast
+ *  party member stands exactly when one of her Awokin
+ *  stands whose card is of her party (an unbound seat's
+ *  company counts whole). The price of every cast she
  *  makes — the summon cast and the Grimoire doors alike —
  *  reads through witchCastCostFor with that standing. */
 function witchCompanyPrice(room: Room, player: Player, cost: number): number {
@@ -1275,13 +1276,17 @@ function cardFromPayload(payload: NonNullable<Awaited<ReturnType<typeof awakened
  *  are NOT field placements and stay callable, as the
  *  Territory dock promises); a member staged at the bastion
  *  is kept back for the instance that carries it; a creature
- *  still re-coalescing from a fall is callable nowhere. The
- *  strict party law stands (Nigel, 2026-10-20; the strict
- *  reading 2026-10-21 12:11): the company is the party and
- *  ONLY the party — a Tender who keeps no party has an EMPTY
- *  company, nothing summonable, and fills a spot from the
- *  Zodiac's deck screen (the fill lands at once now; the
- *  wheel's cast is the only gate). An instance's staged
+ *  still re-coalescing from a fall is callable nowhere. THE
+ *  COMPANY IS THE WHEEL'S FAN, NOT THE GATE (Nigel,
+ *  2026-10-24): this listing still names the party — the
+ *  branch's fan and every other reader read it as they
+ *  always have — but the summon cast itself no longer
+ *  refuses a non-member: any Awokin of the Tender's deck
+ *  may be named at the cast (the summonCast door builds its
+ *  card from the roster, under this function's own
+ *  exclusions), and the gate lives on the following. A
+ *  Tender who keeps no party has an empty company fan —
+ *  and a full deck at the cast all the same. An instance's staged
  *  company (stagedOnly) stands apart, as its own exception.
  *  Members currently FIELDED at this Table are set aside by
  *  the caller — the company is who can still be called. */
@@ -4631,37 +4636,51 @@ function handleConnection(ws: WebSocket): void {
           return;
         }
       }
-      // Resolve the called member from the wheel's company —
-      // a bound seat's party member by its ledger id, an
-      // unbound seat's stand-in by its card id. The company
-      // already holds only the callable (party members, or
-      // the staged company, or the pool — never the fielded),
-      // so a name outside it is refused here, at the cast
-      // itself: the wheel calls nothing the company does not.
+      // Resolve the called Awokin — from the wheel's company
+      // where it stands there (a bound seat's party member by
+      // its ledger id, an unbound seat's stand-in by its card
+      // id). THE DECK IS WHO YOU CAN SUMMON (Nigel,
+      // 2026-10-24 — the gate moved to the following): a bound
+      // seat naming one of its own deck outside the company
+      // fan has its card built from the roster here, at the
+      // cast itself, under the company's own exclusions
+      // (companyForTender's): fielded on the homeland, staged
+      // at the bastion, or still re-coalescing refuse plainly
+      // in their own words. The instance host's staged
+      // company (Station 4) stands as its own exception, as
+      // it always has — a stagedDeal seat calls the staged
+      // set, and only it.
       const awakenedId = typeof msg.awakenedId === "number" ? msg.awakenedId : null;
       const cardId = typeof msg.cardId === "string" ? msg.cardId : null;
-      const card = awakenedId !== null
+      let card = awakenedId !== null
         ? (player.company ?? []).find(c => c.awokenId === awakenedId)
         : cardId !== null
           ? (player.company ?? []).find(c => c.id === cardId)
           : undefined;
+      if (!card && awakenedId !== null && player.expKey && !player.stagedDeal) {
+        const row = sqlite.prepare("SELECT owner_key, dispersed_until FROM awakened WHERE id = ?").get(awakenedId) as { owner_key: string | null; dispersed_until: number | null } | undefined;
+        if (row && row.owner_key === player.expKey) {
+          const placedRow = sqlite.prepare("SELECT 1 AS one FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(player.expKey, awakenedId) as { one: number } | undefined;
+          if (placedRow) {
+            ws.send(JSON.stringify({ type: "error", message: "That Awokin already stands on your homeland field — one body stands in one place." }));
+            return;
+          }
+          if (stagedIdsFor(player.expKey).includes(awakenedId)) {
+            ws.send(JSON.stringify({ type: "error", message: "That Awokin waits at the bastion — it is kept back for the instance that carries it." }));
+            return;
+          }
+          if (row.dispersed_until && row.dispersed_until > Date.now()) {
+            ws.send(JSON.stringify({ type: "error", message: "That Awokin is still re-coalescing from its fall — it can be called nowhere yet." }));
+            return;
+          }
+          const payload = await awakenedPayloadById(awakenedId).catch(() => null);
+          if (payload) card = cardFromPayload(payload);
+        }
+      }
       if (!card) {
         ws.send(JSON.stringify({ type: "error", message: player.expKey && !player.stagedDeal
-          ? "That Awokin is not in your party — the party is who you can summon, and only members not already standing. Fill a spot from the Party tab of your Zodiac; the fill lands at once, and the wheel's cast is the only gate."
+          ? "That Awokin is not in your deck — the wheel calls only your own Awokin, and only ones not already standing."
           : "That Awokin is not in your company — the wheel calls only the company it lists, and only members not already standing." }));
-        return;
-      }
-      // THE PARTY IS WHO YOU CAN SUMMON (Nigel, 2026-10-21;
-      // the strict reading, ruled the same day): "the party
-      // is the ONLY Awoken a Tender can summon" — the cast
-      // road itself refuses a non-member, so no staleness (a
-      // member benched since the company was last built, say)
-      // can put one on the field. The instance host's staged
-      // company (Station 4) stands as its own exception — its
-      // seat is marked stagedDeal, at the join or the claim.
-      if (player.expKey && !player.stagedDeal && typeof card.awokenId === "number"
-        && !isPartyMember(player.expKey, card.awokenId)) {
-        ws.send(JSON.stringify({ type: "error", message: `${card.name} is not in your party — the party is who you can summon. Fill a spot from the Party tab of your Zodiac; the fill lands at once, and the wheel's cast is the only gate.` }));
         return;
       }
       // Already standing: the company sets the fielded aside,
@@ -4709,15 +4728,23 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile, by the March law.` }));
         return;
       }
-      // The Travelling Company (ruled 2026-10-18): the band
-      // standing on the field is capped by the tender's level
-      // (3 at Lv 1, 4 at Lv 3, the true 5 at Lv 6), widened by
-      // the Muster roads (companyCapFor).
+      // THE FOLLOWING GATE (Nigel, 2026-10-24 — in place of
+      // the field-band cap this reckoning carried since
+      // 2026-10-18): the width (companyCapFor — the level
+      // ladder, 3 at Lv 1, 4 at Lv 3, the true 5 at Lv 6,
+      // widened by the Muster roads) now caps the FOLLOWING,
+      // never the field's whole number and never the cast's
+      // naming. A landed summon follows by default, so a
+      // full following refuses the cast whole, before any
+      // price: the way past is orders — a march ends a
+      // follow and frees its spot. The tile tally below is
+      // the landing's own and stands as it always has: a
+      // tile at the stack cap refuses the LANDING only.
       const bandCap = companyCapFor(player.expKey, player.tenderLevel);
       const myKey = player.key;
-      const bandStanding = [...room.field.values()].filter(u => u.ownerKey === myKey).length;
-      if (bandStanding >= bandCap) {
-        ws.send(JSON.stringify({ type: "error", message: `Your band stands full — ${bandCap} strong. Levels widen it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
+      const followingStanding = [...room.field.values()].filter(u => u.ownerKey === myKey && u.follow).length;
+      if (followingStanding >= bandCap) {
+        ws.send(JSON.stringify({ type: "error", message: `Your following stands full — ${bandCap} at your side, and a summon follows by default. Give orders to one who follows you — a march — and her spot frees for the next call. Levels widen the band (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.` }));
         return;
       }
       // THE PURSE, MATCHED TO THE TABLE'S SPELL DOORS
@@ -4780,8 +4807,26 @@ function handleConnection(ws: WebSocket): void {
       placeUnit(room, {
         hex, card, hp: card.toughness, maxHp: card.toughness,
         shield, maxShield: shield, speedGauge: 0,
+        // A SUMMONED AWOKIN FOLLOWS ITS TENDER (Nigel,
+        // 2026-10-24): the gate above saw the following had
+        // room, so the standing order is raised whole — the
+        // muster keeps it at its Tender's side, and it
+        // strikes and is struck as the party does.
+        follow: true,
         ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null,
       });
+      // FOLLOWING MEANS IN PARTY (Nigel, 2026-10-24): the
+      // landed follower is entered in the party ledger in
+      // this same act — written directly, as the homeland's
+      // cast writes it (the join door is not used: a join
+      // would lift the creature off the field it has just
+      // taken). The enrolment is also what keeps the
+      // battle's-end reckoning (dissipateFieldedNonParty)
+      // from reading a cast follower as an outsider.
+      if (player.expKey && typeof card.awokenId === "number" && !isPartyMember(player.expKey, card.awokenId)) {
+        sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")
+          .run(player.expKey, card.awokenId, Date.now());
+      }
       tell(room, `${player.name} calls ${card.name} onto the field — ${reckoning}: the call lands (✦${cost}${room.campaign && recastCount(room, player.key, card.id) > 0 ? ` — the recast price` : ""}).`);
       sendState(room);
       return;
@@ -4904,6 +4949,25 @@ function handleConnection(ws: WebSocket): void {
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
       const follow = !!msg.follow;
       if (!!unit.follow === follow) { sendState(room); return; }
+      if (follow && player.expKey) {
+        // THE FOLLOWING GATE stands on this door too (Nigel,
+        // 2026-10-24): raising a follow while the following
+        // stands full is refused plainly — a march given to
+        // one who follows frees the spot. And raising enrols
+        // the creature in the party in the same act, as the
+        // summon cast enrols its landed follower: following
+        // means in party.
+        const cap = companyCapFor(player.expKey, player.tenderLevel);
+        const followingStanding = [...room.field.values()].filter(u => u.ownerKey === myKey && u.follow && u !== unit).length;
+        if (followingStanding >= cap) {
+          ws.send(JSON.stringify({ type: "error", message: `Your following stands full — ${cap} at your side. Give orders to one who follows you — a march — and her spot frees.` }));
+          return;
+        }
+        if (typeof unit.card.awokenId === "number" && !isPartyMember(player.expKey, unit.card.awokenId)) {
+          sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")
+            .run(player.expKey, unit.card.awokenId, Date.now());
+        }
+      }
       unit.follow = follow;
       tell(room, follow
         ? `👣 ${unit.card.name} will follow ${player.name} — where they stand, it musters.`

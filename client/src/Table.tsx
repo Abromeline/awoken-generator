@@ -2374,25 +2374,31 @@ export default function Table() {
   // working's price, a summon's price and its summoner's
   // power, and — while the caster stands in the curse — the
   // −3 the curse presses on the cast.
-  /** CALL A REINFORCEMENT FROM THE WHEEL (Nigel, 2026-10-23
-   *  — Recovery R6, the tap law of the in-wheel fix): the
-   *  deck entry's tap IS this call, through R6's unchanged
-   *  server path — the road when no bastion plays, the air
-   *  drop when one does. The outcome speaks in plain words:
-   *  a landed call is told in the room's tale by the server,
-   *  a refusal comes back as an error and stands in the
-   *  notice line, and a call that cannot even be SENT (the
-   *  socket is not open) says so here instead of dropping
-   *  silently — the diagnosis named that silent drop as one
-   *  of the ways Nigel's taps died. */
-  const callTableReinforcement = (r: { awakenedId: number; name: string }) => {
+  /** THE DECK WINDOW'S TAP IS THE SUMMON CAST (Nigel,
+   *  2026-10-24 — the gate moved to the following): the
+   *  deck entry's tap casts the summon itself, by the
+   *  Awokin's ledger id, exactly as a company entry's tap
+   *  does — the server builds its card from the roster,
+   *  lands it at the Tender's side as a follower, and
+   *  enrols it in the party in the same act. (Until tonight
+   *  the tap sent R6's reinforcement call — the road or the
+   *  air drop into the party first, and only then a summon:
+   *  the two-step was the gate Nigel struck.) The outcome
+   *  speaks in plain words: a landed cast is told in the
+   *  room's tale by the server, a refusal comes back as an
+   *  error and stands in the notice line, and a cast that
+   *  cannot even be SENT (the socket is not open) says so
+   *  here instead of dropping silently — the diagnosis
+   *  named that silent drop as one of the ways Nigel's
+   *  taps died. */
+  const castTableDeckSummon = (r: { awakenedId: number; name: string }) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setNotice(`The call for ${r.name} could not be sent — the Table's connection is not open. Rejoin the Table, then tap again.`);
       return;
     }
     setSelUnitId(null);
-    send({ type: "callReinforcement", awakenedId: r.awakenedId });
+    send({ type: "summonCast", awakenedId: r.awakenedId });
   };
 
   const buildWheelEntries = (): WheelEntry[] => {
@@ -2457,18 +2463,21 @@ export default function Table() {
           dragKey: `card-${card.id}`,
           act: () => { setSelUnitId(null); castSummonCard(card); },
         } as WheelEntry));
-        // THE REINFORCEMENT WINDOW (Nigel, 2026-10-23 —
-        // Recovery R6, presentation re-ruled 19:45: summoning
-        // stays in the wheel, no pop-up, never the full deck
+        // THE DECK WINDOW (Nigel, 2026-10-23 — Recovery
+        // R6, presentation re-ruled 19:45: summoning stays
+        // in the wheel, no pop-up, never the full deck
         // visible): under the company, the branch shows ONE
-        // WINDOW of the deck it can call in — six entries,
-        // paged by the "More" entry below — never the whole
-        // deck fanned at once. A deck entry's face is its
-        // portrait and its name, nothing more: the road and
-        // price words belong to the tap's outcome, spoken by
-        // the server in plain words (the tale for a landed
-        // call, the notice line for a refusal). THE TAP IS
-        // THE CALL, and it is tap-only: no drag key and no
+        // WINDOW of the rest of the deck — six entries, paged
+        // by the "More" entry below — never the whole deck
+        // fanned at once. THE TAP IS THE SUMMON CAST (Nigel,
+        // 2026-10-24), exactly as a company entry's tap is:
+        // the server lands the Awoken at the Tender's side as
+        // a follower and enrols it in the party in the same
+        // act. A deck entry's face is its portrait and its
+        // name, nothing more: the outcome words belong to the
+        // tap's answer, spoken by the server in plain words
+        // (the tale for a landed cast, the notice line for a
+        // refusal). THE TAP IS THE CAST, and it is tap-only: no drag key and no
         // pin key are set on it, no drag reclassification and no pin badge can eat
         // it — the drag-to-hotbar for deck entries is gone,
         // by the ruling that the tap wins.
@@ -2479,7 +2488,7 @@ export default function Table() {
           emoji: "🚶",
           label: r.name,
           tapOnly: true,
-          act: () => { callTableReinforcement(r); },
+          act: () => { castTableDeckSummon(r); },
         } as WheelEntry));
         // THE MORE STEP: inside the wheel, under the window —
         // it advances the window through the deck (wrapping
@@ -2547,8 +2556,8 @@ export default function Table() {
       case "rune": return `Rune — writings in the ground — they wait, and spring${drag}`;
       case "binding": return `Binding — threads that mend and hold — the Springleaf's grove among them${drag}`;
       case "awoken": return (you?.company.length ?? 0) || (you?.reinforcements?.length ?? 0)
-        ? `Awoken — your company, called by the cast: pick one and it stands at your side — no target; a falter spends the price. Below them, one window of your deck at a time: tap a deck Awokin to call it in as a reinforcement, and tap More to page through the rest${drag}`
-        : "Awoken — your company stands empty; your party is on the field, or no party is composed";
+        ? `Awoken — called by the cast: pick one and it stands at your side as a follower — no target; a falter spends the price. Below the company, one window of the rest of your deck at a time: tap a deck Awokin to cast its summon the same way, and tap More to page through the rest${drag}`
+        : "Awoken — no one can be called: your whole deck already stands on the field, waits staged, or is still re-coalescing";
       case "ability": return `Ability — the tender's own deeds, beyond spellcraft${drag}`;
       case "attune": return you?.storytender
         ? "Ability — Attune — your reach is the whole field: tap an element, then tap any ground to lay a point on it, one point of that element from your pools per tap"
@@ -2609,7 +2618,7 @@ export default function Table() {
       // A slot keyed before the in-wheel fix: its tap runs
       // the same guarded call the wheel's deck entries run.
       const r = you?.reinforcements?.find(x => x.awakenedId === Number(key.slice(6))) ?? null;
-      if (r) callTableReinforcement(r);
+      if (r) castTableDeckSummon(r);
       else toggleHotbar(key); // no longer callable — the slot looses itself
       return;
     }
@@ -2638,7 +2647,7 @@ export default function Table() {
     }
     if (key.startsWith("reinf-")) {
       const r = you?.reinforcements?.find(x => x.awakenedId === Number(key.slice(6))) ?? null;
-      return { img: r?.art ?? null, emoji: "🚶", label: r ? r.name.split(" ")[0] : "gone", dim: !r, lit: false, title: r ? `${r.name} — tap to call it in as a reinforcement: a bastion playing air-drops it into your party at once; otherwise it walks the road, ✦${r.cost} paid, four minutes to your party` : "This Awokin cannot be called now — tap to loose the slot" };
+      return { img: r?.art ?? null, emoji: "🚶", label: r ? r.name.split(" ")[0] : "gone", dim: !r, lit: false, title: r ? `${r.name} — tap to cast the summon: it stands at your side as a follower, ✦${r.cost} the cast's price` : "This Awokin cannot be called now — tap to loose the slot" };
     }
     const off = buildOfferings().find(o => o.key === key);
     if (off) {
@@ -3470,7 +3479,7 @@ export default function Table() {
                       })}
                     </div>
                     {shared.battle.active && you.partyView.openSpots > 0 && (
-                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. Fill one from the Party tab of your Zodiac — the fill lands at once now, even mid-battle, and costs nothing — or call a reinforcement from the wheel's Awoken branch: with no bastion playing it walks the road to your party, and the wheel's summon cast is then the gate between the party and the field.</p>
+                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. Fill one from the Party tab of your Zodiac — the fill lands at once now, even mid-battle, and costs nothing — or summon straight from the wheel's Awoken branch: any Awokin in your deck can be cast from the branch's deck window, and a landed summon follows you and stands in your party from that act.</p>
                     )}
                     {shared.battle.active && you.partyView.openSpots === 0 && (
                       <p className="quiet small">Your party stands full — no spot stands open for a fill.</p>
