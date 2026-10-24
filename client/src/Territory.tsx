@@ -764,6 +764,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [selectedGroup, setSelectedGroup] = useState<number[]>([]);
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const bandRef = useRef<{ cx: number; cy: number; sx: number; sy: number; active: boolean } | null>(null);
+  // The band's live rect, mirrored into a ref beside the state:
+  // the band's completion (below) reads the rect from here, so
+  // the SAME completion can be run by the map's own pointer-up
+  // and by the window-level release listener — a drag that ends
+  // over the dock or the hand tray still completes its choosing
+  // (the group-orders fix, Nigel 2026-10-23 23:42: he could
+  // select a group of Awoken but the action menu did not
+  // appear, so he could not give them orders).
+  const bandRectRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const completeBandRef = useRef<(clientX: number, clientY: number) => void>(() => {});
   const bandClosedAt = useRef(0);
   const panDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -5278,7 +5288,140 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
   );
 }
 
+  // ── THE BAND'S COMPLETION AND THE FINGER'S CHOOSING (the
+  // group-orders fix, Nigel 2026-10-23 23:42: "i was able to
+  // selece a group of awoken but the action menue did not
+  // apear so i could not give them orders"). The defect, named
+  // exactly: on the homeland a non-mouse drag armed the band
+  // ONLY while the War-Grounds dock stood open (onPointerDown's
+  // wgTileId gate), so a finger or pencil drag in the map's
+  // normal posture panned the screen and never chose anyone —
+  // and even with the dock open, the completion lived only in
+  // the map div's own onPointerUp, so a release over the dock
+  // the gate had forced open (or over the hand tray) never
+  // completed the choosing: a drawn box, no menu, no orders.
+  // Every standing drive proved the flow with a MOUSE, which
+  // the button law had already freed of the gate — the touch
+  // road was the dead one. The fix takes the Table's standing
+  // shape for the finger (click law, 2026-10-23: there a drag
+  // that BEGINS on one of my own standing Awokin draws the
+  // band, a drag from empty ground pans): the homeland finger
+  // now chooses the same way, dock or no dock; and the band's
+  // completion is ONE function, run by the map's pointer-up
+  // and by a window-level release listener, so a completed
+  // drag-select raises the orders wheel wherever the hand
+  // lifts. The mouse road is untouched, the single-Awoken
+  // wheel is untouched, and no step is added anywhere:
+  // selecting is the ask, the menu is the answer.
 
+  /** Does this press (a map point, the svg's own measure)
+   *  begin on a standing Awokin's own ground — within one
+   *  hex's measure of where a fielded Awokin stands (its
+   *  standing point, as the band's choosing reads it)? */
+  const pressBeginsOnAwoken = (pt: { x: number; y: number }): boolean => {
+    const reach = HEX_BASE_SIZE * zoom;
+    for (const p of placements) {
+      const t = tiles.find(tt => tt.id === p.tileId);
+      if (!t) continue;
+      let a = tileCenterScreen(t, pan, zoom);
+      if (p.posQ != null && p.posR != null) {
+        const dp = isoOffset(p.posQ, p.posR, HEX_BASE_SIZE * zoom);
+        const dc = isoOffset(t.q, t.r, HEX_BASE_SIZE * zoom);
+        a = { cx: a.cx + (dp.px - dc.px), cy: a.cy + (dp.py - dc.py) };
+      }
+      if (Math.hypot(a.cx - pt.x, a.cy - pt.y) <= reach) return true;
+    }
+    return false;
+  };
+
+  /** The band's completion: the wardens inside the band are
+   *  chosen, and their orders wheel rises where the hand
+   *  lifted — one caught gets ITS wheel; a company gets the
+   *  company's wheel (March · Attack · Defend · Follow). */
+  const completeBand = (clientX: number, clientY: number) => {
+    const rect = bandRectRef.current;
+    bandRectRef.current = null;
+    setBand(null);
+    if (!rect) return;
+    const x0 = Math.min(rect.x0, rect.x1), x1 = Math.max(rect.x0, rect.x1);
+    const y0 = Math.min(rect.y0, rect.y1), y1 = Math.max(rect.y0, rect.y1);
+    bandClosedAt.current = Date.now();
+    // The wardens inside the band are chosen. A MARCHER is
+    // caught by where it stands on its road (the same road +
+    // clock derivation the map draws); a STANDING figure by
+    // its own standing point (Nigel, 2026-10-23 — the band
+    // gathers Awoken where they stand, never by a centre
+    // borrowed from their tile); the patrolling by their
+    // post, as ever.
+    const chosen: number[] = [];
+    const bandSize = HEX_BASE_SIZE * zoom; // the render block's own measure
+    const centerOf = (t: TerritoryTile) => {
+      const { px, py } = isoOffset(t.q, t.r, bandSize);
+      return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * Math.round(bandSize * 0.2) };
+    };
+    for (const p of placements) {
+      const t = tiles.find(tt => tt.id === p.tileId);
+      if (!t) continue;
+      let anchor = centerOf(t);
+      let onRoad = false;
+      const road = marchRoadOf(p).map(id => tiles.find(tt => tt.id === id)).filter(Boolean) as TerritoryTile[];
+      if (road.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
+        const centers = road.map(centerOf);
+        // The same cursed weighting the walker's drawn
+        // place uses (a segment into cursed ground takes
+        // twice its share of the hour).
+        const total = centers.reduce((s, c, i) => i === 0 ? 0 : s + Math.hypot(c.cx - centers[i - 1].cx, c.cy - centers[i - 1].cy) * (road[i].cursed ? 2 : 1), 0);
+        if (total > 0) {
+          onRoad = true;
+          let d = Math.min(1, Math.max(0, (Date.now() - p.marchSince) / (p.marchEnds - p.marchSince))) * total;
+          for (let i = 0; i < centers.length - 1; i++) {
+            const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy) * (road[i + 1].cursed ? 2 : 1);
+            if (d <= len) { const k = len ? d / len : 0; anchor = { cx: centers[i].cx + (centers[i + 1].cx - centers[i].cx) * k, cy: centers[i].cy + (centers[i + 1].cy - centers[i].cy) * k }; break; }
+            d -= len;
+            anchor = centers[centers.length - 1];
+          }
+        }
+      }
+      if (!onRoad && p.posQ != null && p.posR != null) {
+        const dp = isoOffset(p.posQ, p.posR, bandSize);
+        const dc = isoOffset(t.q, t.r, bandSize);
+        anchor = { cx: anchor.cx + (dp.px - dc.px), cy: anchor.cy + (dp.py - dc.py) };
+      }
+      if (anchor.cx >= x0 && anchor.cx <= x1 && anchor.cy >= y0 && anchor.cy <= y1) chosen.push(p.awakenedId);
+    }
+    if (chosen.length === 1) {
+      // One caught: ITS orders wheel, where the band's
+      // release falls (Nigel, 2026-10-22).
+      setSelectedGroup([]);
+      setSelectedAwoken(chosen[0]);
+      setOrdersWheel({ ids: [chosen[0]], x: clientX, y: clientY });
+    } else if (chosen.length > 1) {
+      // The company's wheel: ONE wheel for the whole
+      // selection — March · Attack · Defend · Follow.
+      setSelectedAwoken(null);
+      setSelectedGroup(chosen);
+      setOrdersWheel({ ids: chosen, x: clientX, y: clientY });
+    }
+  };
+  completeBandRef.current = completeBand;
+  // The release is the completion, wherever it lands: the
+  // map's own pointer-up consumes the band first when the
+  // hand lifts over the map (it clears bandRef); this
+  // listener runs the SAME completion when the lift lands on
+  // a surface outside the map's handlers — the War-Grounds
+  // dock, the hand tray — and a browser-cancelled drag just
+  // sets the band down, half-chosen nothing.
+  useEffect(() => {
+    const up = (e: PointerEvent) => {
+      if (bandRef.current?.active) { bandRef.current = null; completeBandRef.current(e.clientX, e.clientY); }
+    };
+    const cancel = () => {
+      if (bandRef.current) { bandRef.current = null; bandRectRef.current = null; setBand(null); }
+    };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); };
+  }, []);
 
   return (
     <div className="territory-view">
@@ -5848,14 +5991,24 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             if (p) bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
             return;
           }
-          // THE DRAG LAW for a finger (Nigel, 2026-10-16 — touch
-          // is untouched by the button law): a drag MOVES THE
-          // SCREEN — until the War-Grounds are opened; while
-          // they are open, the same drag draws the choosing
-          // band instead.
-          if (wgTileId !== null) {
-            const p = svgPoint(e.clientX, e.clientY);
-            if (p) bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
+          // THE DRAG LAW for a finger (Nigel, 2026-10-16),
+          // amended by the group-orders fix (2026-10-24, on
+          // Nigel's defect report of 2026-10-23 23:42): a drag
+          // from EMPTY ground still MOVES THE SCREEN — but a
+          // drag that BEGINS on a standing Awokin's own ground
+          // draws the choosing band, War-Grounds open or not.
+          // That is the Table's standing shape for the finger
+          // under the click law (a drag beginning on my own
+          // Awokin chooses the company; a drag from empty
+          // ground pans), and it is the shape the single-
+          // Awoken wheel already keeps here: choosing never
+          // waited on the fine-edit dock. The old gate — band
+          // only while the dock stood open — is the condition
+          // that never held in the map's normal posture, and
+          // it is why a touch-chosen group got no orders menu.
+          const p = svgPoint(e.clientX, e.clientY);
+          if (p && (wgTileId !== null || pressBeginsOnAwoken(p))) {
+            bandRef.current = { cx: e.clientX, cy: e.clientY, sx: p.x, sy: p.y, active: false };
           } else {
             panDragRef.current = { cx: e.clientX, cy: e.clientY, panX: pan.x, panY: pan.y, moved: false };
           }
@@ -5866,7 +6019,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             if (!b.active && Math.hypot(e.clientX - b.cx, e.clientY - b.cy) < 9) return;
             b.active = true;
             const p = svgPoint(e.clientX, e.clientY);
-            if (p) setBand({ x0: b.sx, y0: b.sy, x1: p.x, y1: p.y });
+            if (p) {
+              const rect = { x0: b.sx, y0: b.sy, x1: p.x, y1: p.y };
+              bandRectRef.current = rect; // the completion reads the rect from here (see completeBand)
+              setBand(rect);
+            }
             return;
           }
           const pd = panDragRef.current;
@@ -5882,67 +6039,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           if (pd?.moved) bandClosedAt.current = Date.now(); // a screen-drag's release-click is not a tap
           const b = bandRef.current;
           bandRef.current = null;
-          if (!b?.active || !band) return;
-          const x0 = Math.min(band.x0, band.x1), x1 = Math.max(band.x0, band.x1);
-          const y0 = Math.min(band.y0, band.y1), y1 = Math.max(band.y0, band.y1);
-          setBand(null);
-          bandClosedAt.current = Date.now();
-          // The wardens inside the band are chosen. A MARCHER is
-          // caught by where it stands on its road (the same road +
-          // clock derivation the map draws); a STANDING figure by
-          // its own standing point (Nigel, 2026-10-23 — the band
-          // gathers Awoken where they stand, never by a centre
-          // borrowed from their tile); the patrolling by their
-          // post, as ever.
-          const chosen: number[] = [];
-          const bandSize = HEX_BASE_SIZE * zoom; // the render block's own measure
-          const centerOf = (t: TerritoryTile) => {
-            const { px, py } = isoOffset(t.q, t.r, bandSize);
-            return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * Math.round(bandSize * 0.2) };
-          };
-          for (const p of placements) {
-            const t = tiles.find(tt => tt.id === p.tileId);
-            if (!t) continue;
-            let anchor = centerOf(t);
-            let onRoad = false;
-            const road = marchRoadOf(p).map(id => tiles.find(tt => tt.id === id)).filter(Boolean) as TerritoryTile[];
-            if (road.length >= 2 && p.marchSince && p.marchEnds && p.marchEnds > p.marchSince) {
-              const centers = road.map(centerOf);
-              // The same cursed weighting the walker's drawn
-              // place uses (a segment into cursed ground takes
-              // twice its share of the hour).
-              const total = centers.reduce((s, c, i) => i === 0 ? 0 : s + Math.hypot(c.cx - centers[i - 1].cx, c.cy - centers[i - 1].cy) * (road[i].cursed ? 2 : 1), 0);
-              if (total > 0) {
-                onRoad = true;
-                let d = Math.min(1, Math.max(0, (Date.now() - p.marchSince) / (p.marchEnds - p.marchSince))) * total;
-                for (let i = 0; i < centers.length - 1; i++) {
-                  const len = Math.hypot(centers[i + 1].cx - centers[i].cx, centers[i + 1].cy - centers[i].cy) * (road[i + 1].cursed ? 2 : 1);
-                  if (d <= len) { const k = len ? d / len : 0; anchor = { cx: centers[i].cx + (centers[i + 1].cx - centers[i].cx) * k, cy: centers[i].cy + (centers[i + 1].cy - centers[i].cy) * k }; break; }
-                  d -= len;
-                  anchor = centers[centers.length - 1];
-                }
-              }
-            }
-            if (!onRoad && p.posQ != null && p.posR != null) {
-              const dp = isoOffset(p.posQ, p.posR, bandSize);
-              const dc = isoOffset(t.q, t.r, bandSize);
-              anchor = { cx: anchor.cx + (dp.px - dc.px), cy: anchor.cy + (dp.py - dc.py) };
-            }
-            if (anchor.cx >= x0 && anchor.cx <= x1 && anchor.cy >= y0 && anchor.cy <= y1) chosen.push(p.awakenedId);
-          }
-          if (chosen.length === 1) {
-            // One caught: ITS orders wheel, where the band's
-            // release falls (Nigel, 2026-10-22).
-            setSelectedGroup([]);
-            setSelectedAwoken(chosen[0]);
-            setOrdersWheel({ ids: [chosen[0]], x: e.clientX, y: e.clientY });
-          } else if (chosen.length > 1) {
-            // The company's wheel: ONE wheel for the whole
-            // selection — March · Attack · Defend · Follow.
-            setSelectedAwoken(null);
-            setSelectedGroup(chosen);
-            setOrdersWheel({ ids: chosen, x: e.clientX, y: e.clientY });
-          }
+          if (b?.active) completeBand(e.clientX, e.clientY);
         }}
         onClick={() => {
         if (bandJustClosed()) return; // the band's own click is not a dismissal

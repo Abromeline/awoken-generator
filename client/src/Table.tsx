@@ -1060,6 +1060,16 @@ export default function Table() {
   const [bandSel, setBandSel] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [lineSel, setLineSel] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const bandDragRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
+  // The band's live rect, mirrored into a ref beside the
+  // state, and the band's completion beside it (the
+  // group-orders fix, 2026-10-24, carried to this ground by
+  // the both-grounds law): the SAME completion runs from the
+  // stage's own pointer-up and from a window-level release
+  // listener, so a drag-select whose release lands over the
+  // hand tray or another surface outside the stage still
+  // raises the company's wheel, exactly as on the homeland.
+  const bandSelRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const completeTableBandRef = useRef<(clientX: number, clientY: number) => void>(() => {});
   const lineDragRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
   const lineJustDrawnRef = useRef(0);
   const [notesDraft, setNotesDraft] = useState("");
@@ -1611,7 +1621,8 @@ export default function Table() {
         const t = tiles.find(tt => { const c = tileCenter(tt); return Math.hypot(c.cx - pt.x, c.cy - pt.y) < TILE_SIZE * 0.9; });
         if (t && shared.field.some(u => u.hex === t.id && u.ownerKey === you.key)) {
           bandDragRef.current = { sx: pt.x, sy: pt.y, moved: false };
-          setBandSel({ x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y });
+          bandSelRef.current = { x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y };
+          setBandSel(bandSelRef.current);
           dragRef.current = null;
           return;
         }
@@ -1650,7 +1661,8 @@ export default function Table() {
           bandDragRef.current.moved = true;
           suppressTapRef.current = true;
         }
-        setBandSel(b => b ? { ...b, x1: pt.x, y1: pt.y } : b);
+        bandSelRef.current = bandSelRef.current ? { ...bandSelRef.current, x1: pt.x, y1: pt.y } : null;
+        setBandSel(bandSelRef.current);
       }
       return;
     }
@@ -1675,6 +1687,57 @@ export default function Table() {
     const f = rect && rect.width > 0 ? stageBox.w / rect.width : 1;
     setView(v => ({ ...v, pan: { x: d.panX + dx * f, y: d.panY + dy * f } }));
   };
+  /** The band's completion (the group-orders fix, 2026-10-24):
+   *  the units inside the band are chosen — one caught opens
+   *  ITS wheel; a company opens the company's wheel (March ·
+   *  Follow). One completion, run by the stage's pointer-up
+   *  and by the window-level release listener below, so the
+   *  choosing completes wherever the hand lifts. */
+  const completeTableBand = (clientX: number, clientY: number) => {
+    const bs = bandSelRef.current;
+    bandSelRef.current = null;
+    if (!bs || !you) return;
+    const x0 = Math.min(bs.x0, bs.x1), x1 = Math.max(bs.x0, bs.x1);
+    const y0 = Math.min(bs.y0, bs.y1), y1 = Math.max(bs.y0, bs.y1);
+    const chosen = shared.field.filter(u => {
+      if (u.ownerKey !== you.key || u.moving) return false;
+      const t = tileById.get(u.hex);
+      if (!t) return false;
+      const c = tileCenter(t);
+      return c.cx >= x0 && c.cx <= x1 && c.cy >= y0 && c.cy <= y1;
+    });
+    if (chosen.length === 1) {
+      setSelUnitId(chosen[0].cardId);
+      setTableOrders({ ids: [chosen[0].cardId], x: clientX, y: clientY });
+    } else if (chosen.length > 1) {
+      setSelUnitId(null);
+      setTableOrders({ ids: chosen.map(u => u.cardId), x: clientX, y: clientY });
+    }
+    setTimeout(() => { suppressTapRef.current = false; }, 80);
+  };
+  completeTableBandRef.current = completeTableBand;
+  // The release is the completion, wherever it lands: the
+  // stage's own pointer-up consumes the band first when the
+  // hand lifts over the stage (it clears bandDragRef); this
+  // listener runs the SAME completion when the lift lands on
+  // a surface outside the stage — the hand tray, a panel —
+  // and a browser-cancelled drag just sets the band down.
+  useEffect(() => {
+    const up = (e: PointerEvent) => {
+      if (bandDragRef.current?.moved) {
+        bandDragRef.current = null;
+        setBandSel(null);
+        completeTableBandRef.current(e.clientX, e.clientY);
+      }
+    };
+    const cancel = () => {
+      if (bandDragRef.current) { bandDragRef.current = null; bandSelRef.current = null; setBandSel(null); }
+    };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); };
+  }, []);
+
   const onStageUp = (e?: ReactPointerEvent<SVGSVGElement>) => {
     // Release the drag's pointer capture (taken in the move
     // handler once a drag proved itself) so no held capture
@@ -1700,27 +1763,9 @@ export default function Table() {
     if (bandDragRef.current) {
       const bd = bandDragRef.current;
       bandDragRef.current = null;
-      const bs = bandSel;
       setBandSel(null);
-      if (bd.moved && bs && e && you) {
-        const x0 = Math.min(bs.x0, bs.x1), x1 = Math.max(bs.x0, bs.x1);
-        const y0 = Math.min(bs.y0, bs.y1), y1 = Math.max(bs.y0, bs.y1);
-        const chosen = shared.field.filter(u => {
-          if (u.ownerKey !== you.key || u.moving) return false;
-          const t = tileById.get(u.hex);
-          if (!t) return false;
-          const c = tileCenter(t);
-          return c.cx >= x0 && c.cx <= x1 && c.cy >= y0 && c.cy <= y1;
-        });
-        if (chosen.length === 1) {
-          setSelUnitId(chosen[0].cardId);
-          setTableOrders({ ids: [chosen[0].cardId], x: e.clientX, y: e.clientY });
-        } else if (chosen.length > 1) {
-          setSelUnitId(null);
-          setTableOrders({ ids: chosen.map(u => u.cardId), x: e.clientX, y: e.clientY });
-        }
-        setTimeout(() => { suppressTapRef.current = false; }, 80);
-      }
+      if (bd.moved && e) completeTableBand(e.clientX, e.clientY);
+      else bandSelRef.current = null;
       return;
     }
     const d = dragRef.current;
