@@ -149,6 +149,20 @@ export interface TerritoryTile {
   bankPaid?: number;
 }
 
+/** A placement's strike in the living homeland battle, served
+ *  by getTerritory in the weaponStrike record's own shape,
+ *  extended (the Token Strip, 2026-10-23): the map draws its
+ *  projectiles from these — the engine's strikes, never a
+ *  second simulated fight. fromQ/fromR and toQ/toR are the
+ *  free points the striker and the dark stood on at the
+ *  striking. */
+export interface HomelandStrike {
+  id: number; kind: "placement";
+  tileId: number; wandererId: number; awakenedId: number; fromTileId: number;
+  fromQ: number; fromR: number; toQ: number; toR: number;
+  at: number; hit: boolean; dmg: number; felled: boolean;
+}
+
 export interface FieldPlacement {
   id: number;
   awakenedId: number;
@@ -178,6 +192,12 @@ export interface FieldPlacement {
    *  figure here, never on a fixed offset of its tile. */
   posQ?: number | null;
   posR?: number | null;
+  /** The figure's standing wounds, as the living battle left
+   *  them (field_placements.hp; null = never reckoned, whole
+   *  at her toughness). Read by the heal targeting since the
+   *  battle mirror — the wound map's only writer — retired
+   *  (the Token Strip, 2026-10-23). */
+  hp?: number | null;
   /** The free point the march in flight will stand on when
    *  it lands (fractional axial); null = it lands on its
    *  destination's centre point. */
@@ -721,7 +741,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean } }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; strikes?: HomelandStrike[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean } }>("getTerritory", {}),
   looseBlade: (args: { wandererId: number }) =>
     post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number }>("looseBlade", args),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; heldMs?: number; facing?: string }) =>

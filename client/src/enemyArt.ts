@@ -67,8 +67,10 @@ export function enemyImgFor(name: string, art?: EnemyArtMap | null): string {
  *  five, cropped to the cycle's bounds and scaled (originals untouched;
  *  see ~/workspace/fray-flipbook-2026-10-22/GAME-COPY.md). The cycle is
  *  the Fray's face wherever the bundled face is live; a live workshop
- *  upload still wins, exactly as with every other enemy face, and
- *  stands still as uploads do. */
+ *  upload still wins on the HTML surfaces, exactly as with every
+ *  other enemy face, and stands still as uploads do — and on the
+ *  homeland map the cycle is the standing face outright (the Token
+ *  Strip, 2026-10-23; see frayFaceSrc's note below). */
 export const FRAY_WALK_FRAMES = [frayWalk1, frayWalk2, frayWalk3, frayWalk4, frayWalk5] as const;
 
 /** One stride's hold: 100 ms a frame, a half-second loop. */
@@ -81,7 +83,16 @@ export function frayWalkFrameAt(nowMs: number): number {
 }
 
 /** The Fray's face at a moment: the live upload when one is live, else
- *  the walking cycle's frame for that moment. */
+ *  the walking cycle's frame for that moment. This remains the
+ *  resolver for every surface that asks it — but note the homeland
+ *  map no longer asks (the Token Strip, Nigel 2026-10-23): there
+ *  the walking cycle is the Fray's standing face outright
+ *  (FrayFaceSvgImage in EnemyFace.tsx), because the cycle is an
+ *  animation its author uploaded FOR that purpose and a still
+ *  upload standing in its place was the stuck face he named.
+ *  The upload still rules wherever this resolver is read — the
+ *  battleground and the tutorial's parade, through FrayFaceImg
+ *  and enemyImgFor — and in the workshop's Enemies section. */
 export function frayFaceSrc(art: EnemyArtMap | null | undefined, nowMs: number): string {
   const live = art?.["fray"]?.url;
   if (live) return live;

@@ -1,15 +1,27 @@
 /**
  * The Fray's animated face (Nigel's "Fray 1" walking cycle, 2026-10-22).
  *
- * Two renderers, one rule: while the bundled face is live, the Fray
- * walks — the five strides of its cycle, read off the wall clock so
- * every Fray on a surface marches in step. When the workshop has a
- * live upload for the Fray, the upload is the face and stands still,
- * exactly as uploads do on every other surface (see enemyArt.ts).
+ * Two renderers, two rules (the Token Strip, Nigel 2026-10-23:
+ * "I have never seen the true face of the Fray since I added
+ * the animated one anywhere. Is that going to come in now?"):
+ *
+ *  - HTML surfaces (FrayFaceImg — the battleground, the
+ *    tutorial's parade): the workshop's upload-wins law stands
+ *    as for every enemy — a live upload is the face and stands
+ *    still; while the bundled face is live, the Fray walks.
+ *  - The homeland map (FrayFaceSvgImage): the walking cycle IS
+ *    the Fray's standing face, always — a resolver rule for
+ *    the Fray alone, because its bundled face is an animation
+ *    its author uploaded FOR that purpose, and a still upload
+ *    standing in its place is exactly the stuck face Nigel
+ *    named. His live Fray upload is NOT erased: it still
+ *    rules the Fray on the HTML surfaces above and in the
+ *    workshop's Enemies section; it simply no longer stands
+ *    where the walk should be on his own map.
  */
 import { useEffect, useState, type ImgHTMLAttributes } from "react";
 import type { EnemyArtMap } from "./api";
-import { FRAY_WALK_FRAMES, FRAY_WALK_FRAME_MS, frayFaceSrc, frayWalkFrameAt } from "./enemyArt";
+import { FRAY_WALK_FRAMES, FRAY_WALK_FRAME_MS, frayWalkFrameAt } from "./enemyArt";
 
 let preloaded = false;
 /** Warm the browser's cache with the whole cycle once, so the first
@@ -47,8 +59,11 @@ export function FrayFaceImg({ art, ...props }: { art?: EnemyArtMap | null } & Im
 
 /** The Fray's face for SVG surfaces (the homeland map): an <image>
  *  that walks, with its own heartbeat — a wanderer stands on the map
- *  even while the map's own clock sleeps, and its face stays alive. */
-export function FrayFaceSvgImage({ art, x, y, width, height, opacity }: {
+ *  even while the map's own clock sleeps, and its face stays alive.
+ *  The homeland rule (above): the cycle is the standing face here,
+ *  whatever the workshop holds — the `art` prop is accepted so
+ *  callers keep one shape, and deliberately not consulted. */
+export function FrayFaceSvgImage({ art: _art, x, y, width, height, opacity }: {
   art?: EnemyArtMap | null;
   x: number;
   y: number;
@@ -56,10 +71,9 @@ export function FrayFaceSvgImage({ art, x, y, width, height, opacity }: {
   height: number;
   opacity?: number;
 }) {
-  const liveUrl = art?.fray?.url ?? null;
-  useFrayWalkTick(!liveUrl);
+  useFrayWalkTick(true);
   return (
-    <image href={frayFaceSrc(art, Date.now())} x={x} y={y} width={width} height={height}
+    <image href={FRAY_WALK_FRAMES[frayWalkFrameAt(Date.now())]} x={x} y={y} width={width} height={height}
       preserveAspectRatio="xMidYMax meet" opacity={opacity} />
   );
 }

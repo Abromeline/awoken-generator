@@ -786,6 +786,12 @@ for (const col of ["pos_q REAL", "pos_r REAL", "power INTEGER NOT NULL DEFAULT 1
 // moment in time — the placements' pinned_until in the dark's
 // own ledger, read by the living battle's walk and strike.
 try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN held_until INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+// THE TOKEN STRIP (Nigel, 2026-10-23): a landed incursion
+// column's force stands on the land as real wanderers, and
+// each carries the column it came with — the guard a
+// corrupted seed waits on. A seed's corruption lifts when
+// no wanderer of its guarding column still stands.
+try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN column_id INTEGER"); } catch { /* exists */ }
 // The battle's own ledgers on the progress row: the Shadow
 // Matter hoard, the banked protection and the lighthouse that
 // spends it, the standing wave intensity and the weather

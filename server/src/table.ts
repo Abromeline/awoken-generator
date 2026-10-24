@@ -3357,7 +3357,7 @@ async function resolveBastionVictory(room: Room): Promise<void> {
       if (seed && seed.state === "corrupted") {
         sqlite.prepare("UPDATE star_seeds SET state = 'fallen' WHERE id = ?").run(b.seedId);
         sqlite.prepare("UPDATE territory_tiles SET cursed = 0, element = 'neutral' WHERE id = ?").run(seed.tile_id);
-        sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE owner_key = ? AND target_tile_id = ? AND state = 'arrived'")
+        sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE owner_key = ? AND target_tile_id = ? AND state IN ('arrived','landed')")
           .run(Date.now(), b.hostKey, seed.tile_id);
         tell(room, "The cursed bastion FALLS — the seed is free, and its hex is light again.");
       }

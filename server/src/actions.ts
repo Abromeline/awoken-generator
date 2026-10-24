@@ -3931,6 +3931,36 @@ async function settleProtection(ownerKey: string): Promise<void> {
     .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), lit ? 1 : 0, now, intensity, mark, ownerKey);
 }
 
+/** THE STRIKE WITNESS (the Token Strip, Nigel 2026-10-23):
+ *  the living battle's blows, kept in the weaponStrike
+ *  record's own shape and extended to the placements' strikes
+ *  — who struck, from where, at which dark, and what came of
+ *  it — so the map can draw projectiles from the ONE real
+ *  fight and never from a second simulated one. The log is a
+ *  witness, not a ledger: it lives in memory, keeps only the
+ *  last two minutes, and a restart simply starts it empty,
+ *  exactly as an unwitnessed blow is lost. */
+export type HomelandStrike = {
+  id: number; kind: "placement";
+  tileId: number; wandererId: number; awakenedId: number; fromTileId: number;
+  fromQ: number; fromR: number; toQ: number; toR: number;
+  at: number; hit: boolean; dmg: number; felled: boolean;
+};
+const homelandStrikeLog = new Map<string, HomelandStrike[]>();
+let homelandStrikeSeq = 0;
+function recordHomelandStrike(ownerKey: string, s: Omit<HomelandStrike, "id" | "kind">): void {
+  const log = homelandStrikeLog.get(ownerKey) ?? [];
+  log.push({ ...s, id: ++homelandStrikeSeq, kind: "placement" });
+  const keep = s.at - 120000;
+  homelandStrikeLog.set(ownerKey, log.filter(x => x.at >= keep).slice(-64));
+}
+/** The strikes the map has yet to witness, newest last. */
+export function recentHomelandStrikes(ownerKey: string): HomelandStrike[] {
+  const log = homelandStrikeLog.get(ownerKey) ?? [];
+  const keep = Date.now() - 120000;
+  return log.filter(x => x.at >= keep);
+}
+
 /** THE LIVING BATTLE, settled on the map read. One settle
  *  never reckons more than a minute of world (the wanderer
  *  watermark's own cap), walked in half-second sub-steps so
@@ -4034,6 +4064,33 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     if ((w.engine === "seal" || w.engine === "trees") && w.edgeKey && (w.hp ?? 0) > 0) {
       try { w.nums = JSON.parse(w.nums ?? "{}"); } catch { w.nums = {}; }
       wardByEdge.set(w.edgeKey, w);
+    }
+  }
+  // ── THE THORNS, RE-HOMED (the Token Strip, Nigel
+  // 2026-10-23): the edge-Thorns' skip cost and the Thorn
+  // Wall building's bite lived ONLY in the retired battle
+  // mirror (thornsDragUnit's held tick; the thorn-wall
+  // tiles' entry damage in both of the mirror's tellings).
+  // They stand in the one real fight now. Edge thorns
+  // (hex_walls, kind 'thorns') touch their edge's two hexes;
+  // a dark whose own walk carries it onto a thorned hex is
+  // held one battle beat — it neither walks nor strikes for
+  // that beat, the mirror's lost action in this engine's
+  // measure. A Thorn Wall building bites a dark that enters
+  // its hex for the building's own damage.
+  const thornTiles = new Set<number>();
+  for (const w of sqlite.prepare("SELECT q, r, dir FROM hex_walls WHERE owner_key = ? AND kind = 'thorns'").all(ownerKey) as any[]) {
+    const a = byKey.get(`${w.q},${w.r}`);
+    if (a) thornTiles.add(a.id);
+    const d = WALL_DIRS[Number(w.dir) || 0];
+    if (d) { const b = byKey.get(`${w.q + d[0]},${w.r + d[1]}`); if (b) thornTiles.add(b.id); }
+  }
+  const thornWallBites = new Map<number, number>();
+  {
+    const cfg = await loadGameConfig().catch(() => null) as any;
+    const bite = Number(cfg?.buildings?.["thorn-wall"]?.damage ?? 1) || 1;
+    for (const b of sqlite.prepare("SELECT tile_id AS tileId FROM territory_buildings WHERE owner_key = ? AND building_type = 'thorn-wall' AND status = 'active'").all(ownerKey) as any[]) {
+      thornWallBites.set(Number(b.tileId), bite);
     }
   }
   // Defence works: raised by Root and Stone defenders.
@@ -4229,7 +4286,18 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       if (!byKey.has(`${cell.q},${cell.r}`)) continue; // no ground there: the step is not taken
       d.q = nq; d.r = nr;
       const nt = byKey.get(`${cell.q},${cell.r}`);
-      if (nt && nt.id !== d.tileId) { d.tileId = nt.id; d.chewTileId = null; d.chewProgress = 0; }
+      if (nt && nt.id !== d.tileId) {
+        d.tileId = nt.id; d.chewTileId = null; d.chewProgress = 0;
+        // THE THORNS ANSWER AN ENTRY (re-homed, above): the
+        // skip cost and the Thorn Wall's bite fire on the
+        // dark's own entry onto the ground, as they fired on
+        // entry in the mirror — entries by shove (Bulwark's,
+        // Sky's) are not the dark's own crossing and spring
+        // neither.
+        if (thornTiles.has(nt.id)) d.heldUntil = Math.max(d.heldUntil, tNow + BATTLE_BEAT_MS);
+        const bite = thornWallBites.get(nt.id);
+        if (bite) await hurtDark(d, bite, null);
+      }
     }
     // ── THE CROWN SHARD FALLS ───────────────────────────
     // The written Shards reckon the ground the walk has
@@ -4415,8 +4483,18 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       }
     }
     // ── THE AWOKEN ANSWER ───────────────────────────────
+    // THE MID-MUSTER LAW (the Token Strip, Nigel 2026-10-23):
+    // a follower a read has just mustered onto a march (the
+    // Tender-muster in getTerritory) was SKIPPED here while
+    // the dark above still chose her as its victim — mid-
+    // muster the party stood disarmed. She answers now, from
+    // the ground she stands on, like any fighter: the march
+    // moves her between settles (settleMarches), and this
+    // pass never moved her — it only refused her blow. A
+    // marching or patrolling Awokin strikes what comes
+    // within her reach, and is bitten as she always was.
     for (const f of fighters) {
-      if (f.dead || f.marching) continue;
+      if (f.dead) continue;
       if ((f.row.pinnedUntil ?? 0) > tNow) continue;
       const baseMs = AWOKEN_STRIKE_MS[f.dominant] ?? 1500;
       const interval = baseMs * crowdTax(crowdOf(f.tileId));
@@ -4446,7 +4524,13 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + (sageCompany ? 2 : 0);
       const targetAC = Math.max(1, enemyACFor(target.kind) - target.cracked);
       const hit = roll === 20 || (roll !== 1 && roll + bonus >= targetAC);
-      if (!hit) continue;
+      if (!hit) {
+        // The witness keeps misses too (the weaponStrike
+        // record's own shape): the map lunges only where the
+        // referee struck, hit or miss.
+        recordHomelandStrike(ownerKey, { tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false });
+        continue;
+      }
       const payload = await awakenedPayloadById(f.awakenedId);
       const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
       let raw = 0;
@@ -4457,6 +4541,11 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       if (f.dominant === "sky" && tNow < target.wetUntil) raw += 2; // Sky strikes land +2 on the wet
       const dmg = homelandFateMitigate(raw, targetAC, f.level);
       await hurtDark(target, dmg, f.awakenedId);
+      // THE STRIKE WITNESS (the Token Strip, above): the blow
+      // is recorded where the referee struck it — the point
+      // the dark stood on at the striking, before any shove
+      // carries it — so the map's projectile flies true.
+      recordHomelandStrike(ownerKey, { tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead });
       if (!target.dead) {
         if (f.dominant === "tide") target.wetUntil = tNow + WET_MS;
         if (f.dominant === "stone") target.cracked = Math.min(3, target.cracked + 1);
@@ -8241,7 +8330,7 @@ export const handlers = {
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -9991,22 +10080,87 @@ export const handlers = {
     }
     // Fetch parties land, gather, and ride home.
     await this.settleSeedMissions(ownerKey);
-    // Arrivals.
+    // Arrivals — THE LANDING (the Token Strip, Nigel
+    // 2026-10-23: "Get rid of all the letters and skull UI.
+    // They have been stuck on my map for days."). A column
+    // used to come to rest in 'arrived' and stand on the map
+    // as lettered chips until a Table battle retired it —
+    // columns and corrupted seeds had NO exit of their own,
+    // so they persisted for days. A column now LANDS: its
+    // roster takes the land as real wanderers on the cursed
+    // hexes beside its target (the very hexes the letter
+    // chips stood on), each carrying its column's id, and
+    // the column itself comes to rest in 'landed' — fought
+    // where it stands, by the living battle, the weapon and
+    // the written ground, like any other dark. This pass
+    // also lands every column already resting in 'arrived',
+    // so a Tender whose map has carried the tokens for days
+    // is cleared by the next read, not merely spared new
+    // ones. An open call against a landing column closes
+    // (state 'landed'): the fight has moved to the land.
     const arriving = sqlite.prepare(
-      "SELECT id, target_tile_id, target_kind FROM incursion_columns WHERE owner_key = ? AND state = 'marching' AND arrives_at <= ?"
+      "SELECT * FROM incursion_columns WHERE owner_key = ? AND (state = 'arrived' OR (state = 'marching' AND arrives_at <= ?))"
     ).all(ownerKey, now) as any[];
-    for (const col of arriving) {
-      sqlite.prepare("UPDATE incursion_columns SET state = 'arrived' WHERE id = ?").run(col.id);
-      if (col.target_kind === "seed" && col.target_tile_id != null) {
-        // Q4 RULED (Nigel, 2026-10-17): an unheld seed a column
-        // reaches is CORRUPTED — it becomes theirs, a cursed
-        // bastion, and the column stands as its guard: a siege.
-        const seed = sqlite.prepare(
-          "SELECT id FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'fallen'"
-        ).get(ownerKey, col.target_tile_id) as any;
-        if (seed) {
-          sqlite.prepare("UPDATE star_seeds SET state = 'corrupted' WHERE id = ?").run(seed.id);
-          sqlite.prepare("UPDATE incursion_columns SET kind = 'siege' WHERE id = ?").run(col.id);
+    if (arriving.length) {
+      const tilesAll = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const tileById = new Map((tilesAll as any[]).map(t => [t.id, t]));
+      const tileByQR = new Map((tilesAll as any[]).map(t => [`${t.q},${t.r}`, t]));
+      const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      // Standing points within a host hex, cycled so the
+      // landed force spreads over the ground it holds
+      // instead of stacking on one point.
+      const SPREAD: [number, number][] = [[0, 0], [0.32, 0], [0, 0.32], [-0.32, 0.16], [0.16, -0.32], [-0.32, -0.16], [0.32, 0.32], [-0.16, 0.32]];
+      for (const col of arriving) {
+        const target = col.target_tile_id != null ? tileById.get(col.target_tile_id) : null;
+        if (target) {
+          const hosts = DIRS6
+            .map(([dq, dr]) => tileByQR.get(`${target.q + dq},${target.r + dr}`))
+            .filter(t => t && t.cursed) as any[];
+          const hostTiles = hosts.length ? hosts : [target];
+          const kinds = incursionRoster(Number(col.size || 0), Number(col.power || 1))
+            .flatMap(r => Array(r.count).fill(r.kind)) as string[];
+          const lvl = Math.max(1, Number(col.power || 1));
+          kinds.forEach((kind, i) => {
+            const host = hostTiles[i % hostTiles.length];
+            const [oq, orr] = SPREAD[Math.floor(i / hostTiles.length) % SPREAD.length];
+            const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + (lvl - 1);
+            sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, column_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+              .run(ownerKey, host.id, kind, now, maxHp, host.q + oq, host.r + orr, HOMELAND_DARK_POWER[kind] ?? 1, lvl, col.id);
+          });
+        }
+        sqlite.prepare("UPDATE incursion_columns SET state = 'landed', resolved_at = ? WHERE id = ?").run(now, col.id);
+        sqlite.prepare("UPDATE bastion_calls SET state = 'landed' WHERE column_id = ? AND state = 'open'").run(col.id);
+        if (col.target_kind === "seed" && col.target_tile_id != null) {
+          // Q4 RULED (Nigel, 2026-10-17): an unheld seed a column
+          // reaches is CORRUPTED — it becomes theirs, a cursed
+          // bastion, and the column stands as its guard: a siege.
+          // The guard stands now as the landed wanderers above.
+          const seed = sqlite.prepare(
+            "SELECT id FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'fallen'"
+          ).get(ownerKey, col.target_tile_id) as any;
+          if (seed) {
+            sqlite.prepare("UPDATE star_seeds SET state = 'corrupted' WHERE id = ?").run(seed.id);
+            sqlite.prepare("UPDATE incursion_columns SET kind = 'siege' WHERE id = ?").run(col.id);
+          }
+        }
+      }
+    }
+    // THE CORRUPTED SEED'S EXIT (the Token Strip): a corrupted
+    // seed had no road back — it waited for a Table siege
+    // forever. Its guard is the landed force that holds it:
+    // when no wanderer of its guarding column still stands,
+    // the corruption lifts and the seed lies FALLEN again,
+    // to be fetched or held like any other. (A siege won at
+    // the Table frees it the same way, by that road's own
+    // reckoning in table.ts.)
+    {
+      const corrupted = sqlite.prepare("SELECT id, tile_id FROM star_seeds WHERE owner_key = ? AND state = 'corrupted'").all(ownerKey) as any[];
+      for (const seed of corrupted) {
+        const guards = sqlite.prepare("SELECT id FROM incursion_columns WHERE owner_key = ? AND target_tile_id = ? AND kind = 'siege' AND state IN ('arrived','landed')").all(ownerKey, seed.tile_id) as any[];
+        const guardStands = guards.some(g =>
+          Number((sqlite.prepare("SELECT COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ? AND column_id = ?").get(ownerKey, g.id) as any)?.n ?? 0) > 0);
+        if (!guardStands) {
+          sqlite.prepare("UPDATE star_seeds SET state = 'fallen' WHERE id = ?").run(seed.id);
         }
       }
     }
@@ -10507,6 +10661,11 @@ export const handlers = {
       const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
       if (!col) badRequest("No such column walks your land.");
       if (col.state === "defeated") badRequest("That column is already broken.");
+      // THE TOKEN STRIP (2026-10-23): a landed column is no
+      // longer a column — its force stands on the land as
+      // wanderers, fought there. There is nothing to call
+      // against at the Table.
+      if (col.state === "landed") badRequest("That column has landed — its force stands on your land now, as the wandering dark. Fight it where it stands.");
       kind = col.state === "marching" ? "ambush" : "bastion";
     }
     // THE KEY (Nigel, 2026-10-17): every call carries a short
@@ -10794,6 +10953,13 @@ export const handlers = {
       .filter((pr: any) => pr.awakenedId > 0 && pr.ownerKey);
     const now = Date.now();
     sqlite.prepare("UPDATE incursion_columns SET state = 'defeated', resolved_at = ? WHERE id = ?").run(now, columnId);
+    // A LANDED column beaten at the Table (the Token Strip,
+    // 2026-10-23): its force stands on the land as wanderers —
+    // they fall with their column, or the land would keep a
+    // beaten force standing after its beating.
+    if (col.state === "landed") {
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ? AND column_id = ?").run(ownerKey, columnId);
+    }
     // A HELD SEED DEFENDED (the personal bastion settlement,
     // ruled 2026-10-16): when the beaten column had come for a
     // held seed's hex, the hold is reckoned — every third

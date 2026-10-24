@@ -52,7 +52,7 @@ import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
-import { useEnemyArt, enemyImgFor, frayFaceSrc } from "./enemyArt";
+import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import Tutorial, { tutorialComplete } from "./Tutorial";
 import tideImg from "./assets/terrain-iso/tide-v3.png";
@@ -548,6 +548,49 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     strikeSeenRef.current = s.at;
     setWeaponStrikeAnim({ tileId: s.tileId, felled: s.felled, localAt: Date.now() });
   };
+  // ── THE PLACEMENT STRIKES' WITNESS (the Token Strip, Nigel
+  // 2026-10-23) ────────────────────────────────────────────
+  // The living battle's blows ride every territory read in
+  // the weaponStrike record's shape, extended to the
+  // placements (getTerritory's strikes). A NEW strike becomes
+  // a mote's flight from the striker's standing point to the
+  // point the dark stood on — this is how Awoken get
+  // projectiles: drawn from the engine's strikes, never from
+  // a second simulated fight. The first read only sets the
+  // watermark — the witness log reaches two minutes back,
+  // and the map does not replay a battle it did not watch.
+  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean }[]>([]);
+  const strikeIdSeenRef = useRef(0);
+  const strikeWitnessInitRef = useRef(false);
+  const notePlacementStrikes = (strikes: import("./api").HomelandStrike[] | null | undefined, tilesList: TerritoryTile[]) => {
+    if (!strikes || !strikes.length) return;
+    const maxId = Math.max(...strikes.map(s => s.id));
+    if (!strikeWitnessInitRef.current) {
+      strikeWitnessInitRef.current = true;
+      strikeIdSeenRef.current = maxId;
+      return;
+    }
+    const fresh = strikes.filter(s => s.id > strikeIdSeenRef.current);
+    if (!fresh.length) return;
+    strikeIdSeenRef.current = maxId;
+    const size = HEX_BASE_SIZE * tenderZoomRef.current;
+    const pointOf = (tileId: number, q: number, r: number) => {
+      const t = tilesList.find(x => x.id === tileId);
+      if (!t) return null;
+      const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
+      const dp = isoOffset(q, r, size);
+      const dc = isoOffset(t.q, t.r, size);
+      return { x: c.cx + (dp.px - dc.px), y: c.cy + (dp.py - dc.py) };
+    };
+    for (const s of fresh) {
+      const from = pointOf(s.fromTileId, s.fromQ, s.fromR);
+      const to = pointOf(s.tileId, s.toQ, s.toR);
+      if (!from || !to) continue;
+      const id = `strike-${s.id}`;
+      setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit }]);
+      setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), 1100);
+    }
+  };
   // THE WEAPON'S FLIGHT (the Proving Ground's motion, ported
   // 2026-10-20): a witnessed strike becomes a flight of the
   // weapon itself — the bladed forms jab and return on the
@@ -1030,106 +1073,33 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // hall's panel opens at a tap, like the Eye's.
   const [bastionOpen, setBastionOpen] = useState(false);
   const [wave, setWave] = useState<{ waveNumber: number; wavesDefeated: number; frayCount: number; unravelers: number; totalPower: number; nextWaveAt?: string | null; hollows?: number; tangles?: number; isBoss?: boolean; bossLevel?: number } | null>(null);
-  // Wave simulation (preview only, no DB changes)
-  const [simActive, setSimActive] = useState(false);
-  const [battleActive, setBattleActive] = useState(false);
-  const [battleWave, setBattleWave] = useState(0);
-  const [battleUnits, setBattleUnits] = useState<typeof simUnits>([]);
-  const [betweenWaves, setBetweenWaves] = useState(false);
-  const [turnPhase, setTurnPhase] = useState<"towers" | "initiative" | "enemies" | null>(null);
-  const [turnNumber, setTurnNumber] = useState(0);
+  // THE BATTLE MIRROR IS RETIRED (the Token Strip, Nigel
+  // 2026-10-23: "Get rid of all the letters and skull UI").
+  // The in-map simulated battle — its unit chips (battleUnits /
+  // simUnits), its turn phases, its local HP maps and its
+  // resolution write-back — is gone whole. The homeland's one
+  // real fight is the server's living battle (settleHomeland
+  // Battle), read on the battle's own cadence by the read loop
+  // below; the dark on this map is only the real wanderers,
+  // drawn with their drawn faces at their free points. The
+  // Battleground (boss / wave-pull battles) keeps its own
+  // surface and its own resolution, untouched.
   const [wavesCleared, setWavesCleared] = useState(0);
   const [bossLevel, setBossLevel] = useState(1);
   const [isBossFight, setIsBossFight] = useState(false);
-  const [tileHp, setTileHp] = useState<Map<number, number>>(new Map());
-  const [awokenHp, setAwokenHp] = useState<Map<number, number>>(new Map());
-  const [battlePaused, setBattlePaused] = useState(false);
-  const [battleSpeed, setBattleSpeed] = useState(1.3);
-  const [battleManual, setBattleManual] = useState(false);
-  // Cached tile positions for battle performance (tileId -> {cx, cy, q, r})
-  const tilePosCache = useRef<Map<number, { cx: number; cy: number; q: number; r: number }>>(new Map());
-  // Cached tile objects by ID (avoids tiles.find in hot loops)
-  const tileByIdCache = useRef<Map<number, any>>(new Map());
-  const [simUnits, setSimUnits] = useState<Array<{ id: number; type: string; tileId: number; hp: number; maxHp: number; power: number; x: number; y: number; targetX: number; targetY: number }>>([]);
-  const simRef = useRef<{ units: typeof simUnits; timer: any } | null>(null);
-  const battleRef = useRef<{ timer: any } | null>(null);
-  const [waveResult, setWaveResult] = useState<{ victory: boolean; wavePower: number; defensePower: number } | null>(null);
   const [showBattleground, setShowBattleground] = useState(false);
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
-  // The company committed to the current in-map battle (attack/defense
-  // placements at battle start) — the survivors reported to the server
-  // at resolution are drawn from this list (War-Ground fix, 2026-10-15).
-  const battleFighterIdsRef = useRef<number[]>([]);
-  // Hex walls during the in-map battle sim: live HP per edge, seeded
-  // from the server's walls when the battle starts; enemy damage to a
-  // fighter is absorbed by its tile's walls first (damageAwoken), and
-  // the remainder is reported at resolution (War-Ground, 2026-10-15).
-  const battleWallHpRef = useRef<Map<string, number>>(new Map());
+  /** The edge works touching a tile: a work stands on the edge
+   *  between its own hex and the neighbour across its dir, so
+   *  it touches both. Read by the Battleground's props (its
+   *  runes and thorns by tile) — the mirror that also read it
+   *  is retired (the Token Strip, 2026-10-23). */
   const wallsTouchingTile = (t: { q: number; r: number }) => walls.filter(w =>
     (w.q === t.q && w.r === t.r) ||
     (w.q + WALL_DIR_DELTAS[w.dir][0] === t.q && w.r + WALL_DIR_DELTAS[w.dir][1] === t.r));
-  const seedBattleWalls = () => {
-    // Only the barrier works (wall, ward) carry HP into the sim.
-    battleWallHpRef.current = new Map(
-      walls.filter(w => w.kind === "wall" || w.kind === "ward").map(w => [w.edgeKey, w.hp]));
-    simRunesTriggeredRef.current = [];
-    simRuneFiredRef.current = new Set();
-    simSkipRef.current = new Map();
-    grimBattleRef.current = new Map(workings.map((w) => [w.id, { hp: w.hp, stops: w.stops, charges: w.charges, spent: false, maxHp: w.maxHp, pour: w.pour }]));
-    grimYieldRef.current = 0;
-  };
-  const simWallState = (): { edgeKey: string; hp: number }[] =>
-    [...battleWallHpRef.current.entries()].map(([edgeKey, hp]) => ({ edgeKey, hp }));
-  // Edge-work traps in the in-map sim (War-Ground, Nigel 2026-10-15):
-  // runes spring when an enemy ENTERS a runed tile or closes on a
-  // fighter standing on one; thorns cost an enemy its next action
-  // whenever it crosses or fights through them. Sprung runes are
-  // one-shot — reported at resolution and consumed by the server.
-  const simRunesTriggeredRef = useRef<string[]>([]);
-  const simRuneFiredRef = useRef<Set<string>>(new Set());
-  const simSkipRef = useRef<Map<string, number>>(new Map());
-  const simHoldUnit = (unitId: string, ticks: number) => {
-    simSkipRef.current.set(unitId, Math.max(simSkipRef.current.get(unitId) ?? 0, ticks));
-  };
-  const springRuneOnTile = (unitId: string, t: { q: number; r: number }): number => {
-    const rune = wallsTouchingTile(t).find(w => w.kind === "rune" && !simRuneFiredRef.current.has(w.edgeKey));
-    if (!rune) return 0;
-    simRuneFiredRef.current.add(rune.edgeKey);
-    simRunesTriggeredRef.current.push(rune.edgeKey);
-    const scale = Math.pow(2, (rune.level ?? 1) - 1);
-    if (rune.runeKind === "snare") {
-      simHoldUnit(unitId, 2);
-      showHexNotice("A snare rune springs — the Unraveling is held fast!");
-      return 0;
-    }
-    if (rune.runeKind === "meld") {
-      simHoldUnit(unitId, 1);
-      showHexNotice("A meld rune springs — the Unraveling is bitten and held!");
-      return 3 * scale;
-    }
-    showHexNotice("A harm rune springs — the Unraveling is torn!");
-    return 6 * scale;
-  };
-  const thornsDragUnit = (unitId: string, t: { q: number; r: number }) => {
-    if (wallsTouchingTile(t).some(w => w.kind === "thorns")) simHoldUnit(unitId, 1);
-  };
-  // ── The Written Light in the in-map sim (the Grimoire, Nigel
-  // 2026-10-17) ─────────────────────────────────────────────
-  // The standings fight by the same engines as at the Table,
-  // tracked in a battle mirror seeded at the battle's start and
-  // reported at its resolution (grimState / grimEnergy ride
-  // resolveBattle beside wallState / runesTriggered, and the
-  // server reckons them onto territory_workings). Runes spring
-  // where the edge-runes spring — when the dark ENTERS their
-  // hex; wards answer inside damageAwoken, the one funnel every
-  // enemy blow to a fighter passes through.
-  const grimBattleRef = useRef<Map<number, { hp: number; stops: number; charges: number; spent: boolean; maxHp: number; pour: number }>>(new Map());
-  const grimYieldRef = useRef(0);
-  const grimUnitsRef = useRef<any[]>([]);
-  useEffect(() => { grimUnitsRef.current = battleUnits; }, [battleUnits]);
-  const grimBright = () => workings.some((w) => w.engine === "engine" && !(grimBattleRef.current.get(w.id)?.spent));
-  const grimFormName = (w: MapWorking) => grim?.spells.find((sp) => sp.key === w.spellKey)?.forms[w.hue] ?? w.spellKey;
+  /** A written working's two hexes: its own, and the one
+   *  across its written direction. */
   const grimEdgeTiles = (w: MapWorking): [{ q: number; r: number }, { q: number; r: number }] => {
     const a = { q: w.q ?? 0, r: w.r ?? 0 };
     const d = WALL_DIR_DELTAS[w.dir ?? 0];
@@ -1160,10 +1130,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     return { wardTiles, wardsByTile, stdTiles, bcnTiles, names };
   };
-  const grimReport = () => ({
-    grimState: [...grimBattleRef.current.entries()].map(([id, st]) => ({ id, hp: st.hp, stops: st.stops, charges: st.charges, spent: st.spent })),
-    grimEnergy: grimYieldRef.current,
-  });
   // THE SINGLE BLADE'S FLIGHTS (Nigel, 2026-10-20; re-ruled
   // 2026-10-23 — Recovery R4): a loosed Blade drawn on this
   // ground — the blades rise from the rune's hex and spear
@@ -1177,8 +1143,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setBladeFlights((prev) => [...prev.slice(-6), { id, fx, fy, tx, ty }]);
     setTimeout(() => setBladeFlights((prev) => prev.filter((f) => f.id !== id)), 1200);
   };
-  const axialDistTiles = (a: { q: number; r: number }, b: { q: number; r: number }) =>
-    (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
   /** The click on one of the wandering dark (the homeland
    *  ground): an ORDER to the written Blade, refereed by
    *  the server (api.looseBlade) — a plain answer rides the
@@ -1202,109 +1166,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       void refreshTerritory();
     } catch (e) {
       showHexNotice(refusalText(e, "The blade could not answer."));
-    }
-  };
-  /** The click on a dark unit of the in-map battle: this
-   *  mirror's own loose — the NEAREST armed Blade in the
-   *  battle answers, at the book's flat power, a charge
-   *  spent in the mirror (reported at the resolution, as
-   *  every grim standing is reported). */
-  const looseSimBlade = (unit: { id: number; tileId: number; x: number; y: number }) => {
-    const uTile = tiles.find((t) => t.id === unit.tileId);
-    if (!uTile) return;
-    let best: { w: MapWorking; st: { charges: number; spent: boolean }; tile: any; dist: number } | null = null;
-    let anyArmed = false;
-    for (const w of workings) {
-      if (w.engine !== "blade") continue;
-      const st = grimBattleRef.current.get(w.id);
-      if (!st || st.spent || st.charges <= 0) continue;
-      anyArmed = true;
-      const wt = w.tileId != null ? tiles.find((t) => t.id === w.tileId) : null;
-      if (!wt) continue;
-      const dist = axialDistTiles(wt, uTile);
-      if (dist <= 2 && (!best || dist < best.dist)) best = { w, st, tile: wt, dist };
-    }
-    if (!best) {
-      showHexNotice(anyArmed
-        ? "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed."
-        : "No Single Blade stands armed in this battle — write one, and it will wait for your click.");
-      return;
-    }
-    const chosen: NonNullable<typeof best> = best;
-    const power = (chosen.w.nums.power ?? 6) + (grimBright() ? (chosen.w.nums.brightBonus ?? 1) : 0);
-    chosen.st.charges--;
-    if (chosen.st.charges <= 0) chosen.st.spent = true;
-    const from = simTilePos(chosen.tile);
-    pushBladeFlight(from.cx, from.cy, unit.x, unit.y);
-    setBattleUnits((prev) => prev.map((u) => u.id === unit.id ? { ...u, hp: u.hp - power } : u).filter((u) => u.hp > 0));
-    showHexNotice(`${grimFormName(chosen.w)} is loosed — its blades rise and spear down from above (${power} harm).`);
-  };
-  /** A floor-rune springs as the dark enters its hex. Returns
-   *  the units after the spring, and whether the entering unit
-   *  was relocated (the Coil) — its own move then does not run. */
-  const applyGrimoireEntry = (unit: any, tile: { id: number; q: number; r: number }, updated: any[]): { updated: any[]; moved: boolean } => {
-    const rune = workings.find((w) => (w.kind === "rune" || w.kind === "spell") && w.tileId === tile.id);
-    const st = rune ? grimBattleRef.current.get(rune.id) : undefined;
-    if (!rune || !st || st.spent) return { updated, moved: false };
-    const bright = grimBright() ? 1 : 0;
-    let moved = false;
-    if (rune.engine === "lattice") {
-      // The Lattice holds with its health rating (Nigel,
-      // 2026-10-17): pinning costs the entering dark's power,
-      // and the writing stands on while health remains.
-      const strain = Math.max(1, unit.power || 2);
-      if (st.hp >= strain) {
-        st.hp -= strain;
-        simHoldUnit(unit.id, rune.nums.pinRounds ?? 2);
-        showHexNotice(`${grimFormName(rune)} springs — the whole floor is the snare.`);
-        if (st.hp <= 0) { st.spent = true; showHexNotice(`${grimFormName(rune)} is worn through and goes out, spent and honored.`); }
-      } else {
-        showHexNotice(`${grimFormName(rune)} strains to hold — its light is too worn (❤${Math.max(0, st.hp)}).`);
-      }
-    } else if (rune.engine === "blades" || rune.engine === "springblade") {
-      // The Single Blade (engine "blade") does NOT spring
-      // here (Nigel, 2026-10-20; re-ruled 2026-10-23 —
-      // Recovery R4): in this mirror it waits armed, and
-      // the click on a battle unit looses it (looseSimBlade
-      // below). Its old spring lives on in the Springing
-      // Blade at the Blade spring's own power (6); the
-      // Three Blades spring as ever at 3.
-      const power = (rune.nums.power ?? (rune.engine === "springblade" ? 6 : 3)) + bright * (rune.nums.brightBonus ?? 1);
-      updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - power } : u).filter((u) => u.hp > 0);
-      st.charges--;
-      if (st.charges <= 0) st.spent = true;
-      showHexNotice(`${grimFormName(rune)} springs — ${power} harm to everything standing on its ground.`);
-    } else if (rune.engine === "coil") {
-      const free = tiles.filter((t) => !t.cursed && t.id !== tile.id && !updated.some((u) => u.tileId === t.id) && !placements.some((p) => p.tileId === t.id));
-      const dest = free.length ? free[Math.floor(Math.random() * free.length)] : null;
-      if (dest && updated.some((u) => u.id === unit.id)) {
-        const { cx, cy } = simTilePos(dest);
-        updated = updated.map((u) => u.id === unit.id ? { ...u, tileId: dest.id, x: cx, y: cy } : u);
-        grimYieldRef.current += Math.min(rune.nums.energyCap ?? 3, rune.nums.energyPerDark ?? 1);
-        moved = true;
-      }
-      st.spent = true;
-      showHexNotice(`${grimFormName(rune)} turns the dark aside — thrown back to far ground.`);
-    } else if (rune.engine === "shard") {
-      const here = updated.filter((u) => u.tileId === tile.id);
-      const greatest = here.length ? Math.max(...here.map((u) => u.power || 2)) : 0;
-      if (greatest >= (rune.nums.minPower ?? 5)) {
-        const dmg = greatest * (rune.nums.multiplier ?? 2) + (rune.pour ?? 0);
-        updated = updated.map((u) => u.tileId === tile.id ? { ...u, hp: u.hp - dmg } : u).filter((u) => u.hp > 0);
-        st.spent = true;
-        showHexNotice(`${grimFormName(rune)} falls on the whole hex — ${dmg} harm, measured by the greatest standing there.`);
-      }
-    }
-    return { updated, moved };
-  };
-  /** Each turn: Engines sing their yield into the report, and
-   *  the Trees regrow toward the health they were raised with. */
-  const grimRoundTick = () => {
-    for (const w of workings) {
-      const st = grimBattleRef.current.get(w.id);
-      if (!st || st.spent) continue;
-      if (w.engine === "engine") grimYieldRef.current += w.nums.energyPerRound ?? 1;
-      if (w.engine === "trees") st.hp = Math.min(st.maxHp || (w.nums.hp ?? 8), st.hp + (w.nums.regrow ?? 2));
     }
   };
   // Boss resolution recorded at victory detection (before the victory
@@ -1387,23 +1248,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const rb = await api.getBuildings();
       setBuildings(rb.buildings);
     } catch (e) { showHexNotice(refusalText(e, "The hold could not be raised.")); }
-  };
-  const [battleColumnId, setBattleColumnId] = useState<number | null>(null);
-  const startColumnBattle = (col: import("./api").IncursionColumn) => {
-    const count = (k: string) => col.roster.find(r => r.kind === k)?.count ?? 0;
-    const totalPower = col.roster.reduce((acc, r) => acc + r.count * r.power, 0);
-    setWave({
-      waveNumber: 1, wavesDefeated: 0,
-      frayCount: count("fray"), unravelers: count("unraveler"),
-      totalPower, hollows: count("hollow"), tangles: count("tangle"),
-    });
-    const t = tiles.find(t => t.id === col.targetTileId);
-    setWaveTarget(t ? {
-      tile: { id: t.id, q: t.q, r: t.r },
-      defenderIds: placements.filter(p => p.tileId === t.id).map(p => p.awakenedId),
-    } : null);
-    setBattleColumnId(col.id);
-    setShowBattleground(true);
   };
   const fmtCountdown = (ms: number) => {
     const mins = Math.max(0, Math.round(ms / 60000));
@@ -1518,6 +1362,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         if (t.battle) setBattle(t.battle);
         setDefenceWorks(t.defenceWorks ?? []);
         noteWeaponStrike(t.weaponStrike);
+        notePlacementStrikes(t.strikes, t.tiles);
       } catch (e) {
         console.error("[Territory] getTerritory failed:", e);
       } finally {
@@ -1562,8 +1407,38 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (refreshed.battle) setBattle(refreshed.battle);
     setDefenceWorks(refreshed.defenceWorks ?? []);
     noteWeaponStrike(refreshed.weaponStrike);
+    notePlacementStrikes(refreshed.strikes, refreshed.tiles);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
   };
+
+  // ── THE READ LOOP (the Token Strip, Nigel 2026-10-23) ───
+  // The living battle settles only inside getTerritory reads
+  // — and until this loop, NOTHING polled it while the map
+  // stood open, so a fight arrived in sixty-second lumps: a
+  // dark invisible at one glance, standing at the next, dead
+  // at the third (the uncle's first entry died of exactly
+  // this). The loop reads on the battle's own cadence — the
+  // server's BATTLE_BEAT_MS, 2800 ms — for as long as the
+  // map is mounted. It starts no fight and simulates none:
+  // every settle happens server-side inside the read it
+  // makes, and what it carries back (wanderers, wounds,
+  // strike witnesses) is the one real fight, witnessed.
+  const HOMELAND_BATTLE_BEAT_MS = 2800;
+  const readLoopBusyRef = useRef(false);
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      if (readLoopBusyRef.current) return;
+      readLoopBusyRef.current = true;
+      refreshTerritory()
+        .catch(() => {})
+        .finally(() => { readLoopBusyRef.current = false; });
+    }, HOMELAND_BATTLE_BEAT_MS);
+    return () => window.clearInterval(iv);
+    // refreshTerritory is the component's standing read; the
+    // loop binds the one from the first render, whose state
+    // setters and refs are the component's own throughout.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ──────────────────
   // The map is the UI: a dashed ghost on the void founds the
@@ -2616,12 +2491,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
-      // Thorns land server-side now: mirror the authoritative attacker HP
-      // the server returns. At 0 HP the server has already dissipated the
-      // attacker back to hand — the refreshed placements below show it.
-      if (typeof result.attackerHp === "number") {
-        setAwokenHp(prev => new Map(prev).set(selectedAwoken, result.attackerHp));
-      }
+      // Thorns land server-side now: the attacker's HP stands
+      // on her own placement row, and the refreshed placements
+      // below show it. (The mirror's local HP map that once
+      // mirrored it here is retired — the Token Strip,
+      // 2026-10-23.) At 0 HP the server has already dissipated
+      // the attacker back to hand.
       const refreshed = await api.getTerritory();
       setTiles(refreshed.tiles);
       setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
@@ -2729,7 +2604,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // and never come through here — no gesture for them,
     // as at the Table.
     const targetTileId = args.tileId ?? (args.awakenedId != null ? placements.find((p) => p.awakenedId === args.awakenedId)?.tileId : undefined);
-    const targetC = targetTileId != null ? tilePosCache.current.get(targetTileId) : undefined;
+    // The cast's facing reads the target hex's centre from the
+    // land itself. (It read the battle mirror's position
+    // cache until the mirror retired — a cache only the
+    // mirror ever filled, so the facing silently fell back
+    // outside its battles; the Token Strip, 2026-10-23.)
+    const targetTile = targetTileId != null ? tiles.find((t) => t.id === targetTileId) : undefined;
+    const targetC = targetTile ? tileCenterScreen(targetTile, tenderPanRef.current, tenderZoomRef.current) : undefined;
     tenderCastDirRef.current = targetC && tenderFig
       ? tenderDirOf(targetC.cx - tenderFig.x, targetC.cy - tenderFig.y)
       : tenderFig?.dir ?? "S";
@@ -2807,7 +2688,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (castSpell.engine === "heal" || castSpell.kind === "binding") {
       const wounded = placements.filter((p) => p.tileId === tile.id).map((p) => {
         const a = tenderItems.find((x) => x.id === p.awakenedId);
-        return { id: p.awakenedId, name: p.name, hp: awokenHp.get(p.awakenedId) ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
+        // The figure's wounds stand on her own row now (the
+        // Token Strip, 2026-10-23): the mirror's local HP map
+        // was this list's only writer, and it is retired — the
+        // living battle writes field_placements.hp, and that
+        // is the wound track every surface reads.
+        return { id: p.awakenedId, name: p.name, hp: p.hp ?? a?.toughness ?? 0, max: a?.toughness ?? 0 };
       }).filter((x) => x.max > 0 && x.hp < x.max).sort((x, y) => (x.hp / x.max) - (y.hp / y.max));
       if (!wounded.length) { showHexNotice("No wounded Awokin stands on that hex."); return; }
       void doCastMap({ awakenedId: wounded[0].id });
@@ -3111,564 +2997,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setShowBattleground(true);
   };
 
-  // === WAVE SIMULATION (preview only) ===
-  const simTilePos = (t: any) => {
-    const size = HEX_BASE_SIZE * zoom;
-    const TRAY_LIFT = Math.round(size * 0.2);
-    const originX = 250, originY = 170;
-    const { px, py } = isoOffset(t.q, t.r, size);
-    return { cx: originX + px + pan.x, cy: originY + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT };
-  };
-  const startSim = () => {
-    if (!wave || !tiles.length) return;
-    // Find cursed perimeter tiles (cursed tiles adjacent to purified)
-    const cursed = tiles.filter(t => t.cursed);
-    const purified = tiles.filter(t => !t.cursed);
-    if (!cursed.length || !purified.length) return;
-    
-    // Spawn unravelers on random cursed tiles.
-    // Enemy stats come from the one source of truth: gameConfig.enemies
-    // (workshop-overridable; fallbacks match the design law — Fray power 1).
-    const units: typeof simUnits = [];
-    let id = 0;
-    const frayCfg = (gameConfig as any)?.enemies?.["fray"] ?? { power: 1, hp: 3 };
-    const unravCfg = (gameConfig as any)?.enemies?.["unraveler"] ?? { power: 4, hp: 6 };
-    for (let i = 0; i < wave.frayCount; i++) {
-      const tile = cursed[Math.floor(Math.random() * cursed.length)];
-      const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "fray", tileId: tile.id, hp: frayCfg.hp, maxHp: frayCfg.hp, power: frayCfg.power, x: cx, y: cy, targetX: cx, targetY: cy });
-    }
-    for (let i = 0; i < wave.unravelers; i++) {
-      const tile = cursed[Math.floor(Math.random() * cursed.length)];
-      const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: unravCfg.hp, maxHp: unravCfg.hp, power: unravCfg.power, x: cx, y: cy, targetX: cx, targetY: cy });
-    }
-    
-    setSimUnits(units);
-    setSimActive(true);
-    
-    // Get tower/defender info
-    const watchtowers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
-    const thornWalls = buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active");
-    const simTowerDamage = (gameConfig as any)?.buildings?.["watchtower"]?.damage ?? 3;
-    const simTowerBonus = (gameConfig as any)?.buildings?.["watchtower"]?.powerBonus ?? 2;
-    const simThornDamage = (gameConfig as any)?.buildings?.["thorn-wall"]?.damage ?? 1;
-    
-    // Track which units have been hit by volley (once per tower)
-    const volleyHit = new Set<string>();
-    
-    // Animation loop: move toward center, apply defenses
-    const timer = setInterval(() => {
-      setSimUnits(prev => {
-        if (!prev.length) {
-          clearInterval(timer);
-          setSimActive(false);
-          return prev;
-        }
-        const center = tiles.find(t => t.q === 0 && t.r === 0) || purified[0];
-        const { cx: ccx, cy: ccy } = simTilePos(center);
-        
-        return prev.map(u => {
-          const dx = ccx - u.x;
-          const dy = ccy - u.y;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          if (dist < 5) return u;
-          const speed = 1.5;
-          const nx = u.x + (dx/dist) * speed;
-          const ny = u.y + (dy/dist) * speed;
-          let hp = u.hp;
-          
-          // Find current tile (closest tile to unit position)
-          let closestTile = null;
-          let closestDist = Infinity;
-          for (const t of tiles) {
-            const { cx, cy } = simTilePos(t);
-            const d = Math.sqrt((nx-cx)**2 + (ny-cy)**2);
-            if (d < closestDist) { closestDist = d; closestTile = t; }
-          }
-          
-          if (closestTile) {
-            // Watchtower volley: 3 damage once per tower when in range (own + adjacent)
-            for (const wt of watchtowers) {
-              const wtTile = tiles.find(t => t.id === wt.tileId);
-              if (!wtTile) continue;
-              const dq = Math.abs(wtTile.q - closestTile.q);
-              const dr = Math.abs(wtTile.r - closestTile.r);
-              const inRange = (dq <= 1 && dr <= 1);
-              const key = `${wt.id}-${u.id}`;
-              if (inRange && !volleyHit.has(key)) {
-                volleyHit.add(key);
-                hp -= simTowerDamage;
-              }
-            }
-            // Thorn Wall: 1 damage when entering tile
-            const wall = thornWalls.find(w => w.tileId === closestTile.id);
-            if (wall && u.tileId !== closestTile.id) {
-              hp -= simThornDamage;
-            }
-            // Defenders: Awoken on tile deal full power as damage per tick
-            // Enemies are stopped (don't advance) while defenders are present
-            const defenders = placements.filter(p => p.tileId === closestTile.id && (p.stance === "defense" || p.stance === "attack"));
-            if (defenders.length > 0) {
-              const nearTower = watchtowers.some(wt => {
-                const wtTile = tiles.find(t => t.id === wt.tileId);
-                return wtTile && Math.abs(wtTile.q - closestTile.q) <= 1 && Math.abs(wtTile.r - closestTile.r) <= 1;
-              });
-              for (const d of defenders) {
-                const aw = tenderItems.find(a => a.id === d.awakenedId);
-                if (aw) {
-                  hp -= ((aw.power || 3) + (nearTower ? simTowerBonus : 0)) * 0.5; // Meaningful damage per tick
-                }
-              }
-              // Don't move while defenders hold the tile
-              return { ...u, x: u.x, y: u.y, hp, tileId: closestTile?.id ?? u.tileId };
-            }
-          }
-          
-          return { ...u, x: nx, y: ny, hp, tileId: closestTile?.id ?? u.tileId };
-        }).filter(u => u.hp > 0);
-      });
-    }, 50);
-    
-    simRef.current = { units, timer };
-  };
-  
-  const stopSim = () => {
-    if (simRef.current?.timer) clearInterval(simRef.current.timer);
-    setSimActive(false);
-    setSimUnits([]);
-  };
-
-  /** Start a single wave (turn-based). */
-  const startBattle = () => {
-    if (!wave || !tiles.length || battleActive) return;
-    // The committed company: Awoken placed in attack or defense stance.
-    // Towers alone cannot claim a victory — the server reckons the
-    // result against this company (War-Ground fix, 2026-10-15).
-    const fighterIds = placements
-      .filter(p => p.stance === "attack" || p.stance === "defense")
-      .map(p => p.awakenedId);
-    if (!fighterIds.length) {
-      showHexNotice("Commit Awokin in attack or defense stance first — towers alone cannot claim a victory.");
-      return;
-    }
-    battleFighterIdsRef.current = fighterIds;
-    seedBattleWalls();
-    const committedPower = fighterIds.reduce((sum, id) => {
-      const aw = tenderItems.find(a => a.id === id);
-      return sum + (aw?.power ?? 0);
-    }, 0);
-    if (committedPower < wave.totalPower) {
-      showHexNotice(`Your committed company stands at ${committedPower} against the Unraveling's ${wave.totalPower} — the War-Ground will not reckon a victory until the company matches it.`);
-    }
-    setBattleActive(true);
-    setBattleWave(wavesCleared + 1);
-    setTurnNumber(1);
-    spawnBattleWave();
-  };
-
   /** Hex distance for range calculations. */
   const hexDist = (a: { q: number; r: number }, b: { q: number; r: number }) => {
     return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-  };
-
-  /** Get cached tile position (fast). */
-  const getTilePos = (tileId: number) => tilePosCache.current.get(tileId);
-  /** Get cached tile object (fast, avoids tiles.find). */
-  const getTile = (tileId: number) => tileByIdCache.current.get(tileId);
-
-  /** Spawn a battle wave on cursed tiles. */
-  const spawnBattleWave = () => {
-    const cursed = tiles.filter(t => t.cursed);
-    if (!cursed.length) return;
-    // Cache all tile positions and objects once (performance)
-    tilePosCache.current.clear();
-    tileByIdCache.current.clear();
-    for (const t of tiles) {
-      const { cx, cy } = simTilePos(t);
-      tilePosCache.current.set(t.id, { cx, cy, q: t.q, r: t.r });
-      tileByIdCache.current.set(t.id, t);
-    }
-    const units: typeof simUnits = [];
-    let id = Date.now();
-    const frayCfgB = (gameConfig as any)?.enemies?.["fray"] ?? { power: 1, hp: 3 };
-    const unravCfgB = (gameConfig as any)?.enemies?.["unraveler"] ?? { power: 4, hp: 6 };
-    // The enemy company is the server's composition for the CURRENT
-    // server wave, exactly as getWave served it — no local escalation
-    // on top (War-Ground fix, 2026-10-15: one composition law, held
-    // server-side, so the battle fought is the battle resolved).
-    const frayCount = wave!.frayCount;
-    const unravelerCount = wave!.unravelers;
-    for (let i = 0; i < frayCount; i++) {
-      const tile = cursed[Math.floor(Math.random() * cursed.length)];
-      const { cx, cy } = simTilePos(tile);
-      units.push({ id: id++, type: "fray", tileId: tile.id, hp: frayCfgB.hp, maxHp: frayCfgB.hp, power: frayCfgB.power, x: cx, y: cy, targetX: cx, targetY: cy });
-    }
-    for (let i = 0; i < unravelerCount; i++) {
-      const tile = cursed[Math.floor(Math.random() * cursed.length)];
-      const { cx, cy } = simTilePos(tile);
-      // Wave scaling rides on the config base HP, as before.
-      units.push({ id: id++, type: "unraveler", tileId: tile.id, hp: unravCfgB.hp + wave!.waveNumber * 2, maxHp: unravCfgB.hp + wave!.waveNumber * 2, power: unravCfgB.power, x: cx, y: cy, targetX: cx, targetY: cy });
-    }
-    setBattleUnits(units);
-    setTurnPhase("towers");
-    // Auto-advance through phases with delays for readability
-    setTimeout(() => doTowerPhase(), 800);
-  };
-
-  /** Phase 1: All towers fire at range 3. */
-  const doTowerPhase = () => {
-    const watchtowers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
-    const wtDamage = (gameConfig as any)?.buildings?.["watchtower"]?.damage ?? 3;
-    setBattleUnits(prev => {
-      let updated = [...prev];
-      for (const wt of watchtowers) {
-        const wtTile = getTile(wt.tileId);
-        if (!wtTile) continue;
-        // Find closest enemy within range 3
-        let best: typeof updated[0] | null = null;
-        let bestDist = 4;
-        for (const u of updated) {
-          const uTile = getTile(u.tileId);
-          if (!uTile) continue;
-          const d = hexDist(wtTile, uTile);
-          if (d <= 3 && d < bestDist) { bestDist = d; best = u; }
-        }
-        if (best) {
-          updated = updated.map(u => u.id === best!.id ? { ...u, hp: u.hp - wtDamage } : u).filter(u => u.hp > 0);
-        }
-      }
-      return updated;
-    });
-    setTurnPhase("initiative");
-    setTimeout(() => doInitiativePhase(), battleSpeed * 1000);
-  };
-
-  /** Phase 2: Awoken and enemies act in initiative order (lower toughness = faster). */
-  const doInitiativePhase = () => {
-    if (battlePaused) { setTimeout(() => doInitiativePhase(), 500); return; }
-    grimRoundTick();
-
-    const fighters = placements
-      .filter(p => p.stance === "attack" || p.stance === "defense")
-      .map(p => {
-        const aw = tenderItems.find(a => a.id === p.awakenedId);
-        const tile = tiles.find(t => t.id === p.tileId);
-        return aw && tile ? { ...p, aw, tile, initiative: aw.toughness || 3, isAwoken: true } : null;
-      })
-      .filter(Boolean) as any[];
-
-    // Initialize Awoken HP if not set (HP = toughness)
-    setAwokenHp(prev => {
-      const next = new Map(prev);
-      for (const f of fighters) {
-        if (!next.has(f.awakenedId)) {
-          next.set(f.awakenedId, (f.aw.toughness || 3));
-        }
-      }
-      return next;
-    });
-
-    setBattleUnits(prev => {
-      const combatants: any[] = [
-        ...fighters.map(f => ({ ...f, toughness: f.initiative })),
-        ...prev.map(u => ({ ...u, toughness: u.type === "fray" ? 1 : 3, isAwoken: false })),
-      ].sort((a, b) => a.toughness - b.toughness);
-
-      let updated = [...prev];
-      const purified = tiles.filter(t => !t.cursed);
-      const towers = buildings.filter(b => b.buildingType === "watchtower" && b.status === "active");
-      // Watchtower aura: defenders on the tower's tile or adjacent fight at
-      // +powerBonus (config-driven). Thorn walls bite enemies entering.
-      const towerBonus = (gameConfig as any)?.buildings?.["watchtower"]?.powerBonus ?? 2;
-      const towerAura = new Set<number>();
-      for (const t of towers) {
-        const tt = tiles.find(ti => ti.id === t.tileId);
-        if (!tt) continue;
-        for (const tile of tiles) if (hexDist(tt, tile) <= 1) towerAura.add(tile.id);
-      }
-      const thornDmg = (gameConfig as any)?.buildings?.["thorn-wall"]?.damage ?? 1;
-      const thornWallTiles = new Set(buildings.filter(b => b.buildingType === "thorn-wall" && b.status === "active").map(b => b.tileId));
-
-      for (const c of combatants) {
-        if (c.isAwoken) {
-          // Awoken: fire at range with -1 per hex penalty
-          let best: typeof updated[0] | null = null;
-          let bestDmg = 0;
-          for (const u of updated) {
-            const uTile = getTile(u.tileId);
-            if (!uTile) continue;
-            const d = hexDist(c.tile, uTile);
-            // Exponential falloff: damage = power * 0.65^distance (min 1)
-            // The Written Light's auras (the Grimoire): a Standard
-            // on an edge of the striker's hex lends its bonus; a
-            // Beacon lends its bonus against dark standing on or
-            // beside the hexes it lights.
-            const stdBonus = workings.filter((w) => w.engine === "standard").reduce((best, w) => {
-              const [ea, eb] = grimEdgeTiles(w);
-              return (c.tile.q === ea.q && c.tile.r === ea.r) || (c.tile.q === eb.q && c.tile.r === eb.r) ? Math.max(best, w.nums.strikeBonus ?? 1) : best;
-            }, 0);
-            const bcnBonus = workings.filter((w) => w.engine === "beacon").reduce((best, w) => {
-              const [ea, eb] = grimEdgeTiles(w);
-              const reach = [ea, eb, ...[ea, eb].flatMap((e) => WALL_DIR_DELTAS.map((d) => ({ q: e.q + d[0], r: e.r + d[1] })))];
-              return reach.some((e) => uTile.q === e.q && uTile.r === e.r) ? Math.max(best, w.nums.darkBonus ?? 1) : best;
-            }, 0);
-            const effPower = (c.aw.power || 3) + (towerAura.has(c.tile.id) ? towerBonus : 0) + stdBonus + bcnBonus;
-            const dmg = Math.max(1, Math.round(effPower * Math.pow(0.65, d)));
-            if (dmg > bestDmg) { bestDmg = dmg; best = u; }
-          }
-          if (best) {
-            updated = updated.map(u => u.id === best!.id ? { ...u, hp: u.hp - bestDmg } : u).filter(u => u.hp > 0);
-          }
-        } else {
-          // Held fast: a sprung snare, a meld's grip, or thorns crossed
-          // cost this enemy its action (War-Ground, 2026-10-15).
-          const heldTicks = simSkipRef.current.get(c.id) ?? 0;
-          if (heldTicks > 0) { simSkipRef.current.set(c.id, heldTicks - 1); continue; }
-          // Enemy targeting: check for corruptible hex in reach first
-          const uTile = getTile(c.tileId);
-          if (!uTile) continue;
-
-          // Find corruptible hexes (purified, no defenders/towers) within 2 hexes
-          let targetHex = null;
-          for (const p of purified) {
-            const d = hexDist(uTile, p);
-            if (d <= 2) {
-              const hasDefenders = placements.some(pl =>
-                pl.tileId === p.id && (pl.stance === "attack" || pl.stance === "defense")
-              );
-              const hasTower = towers.some(t => {
-                const tt = tiles.find(ti => ti.id === t.tileId);
-                return tt && hexDist(tt, p) <= 1;
-              });
-              if (!hasDefenders && !hasTower) { targetHex = p; break; }
-            }
-          }
-
-          if (targetHex) {
-            // Move toward corruptible hex (away from defenders)
-            const dq = Math.sign(targetHex.q - uTile.q);
-            const dr = Math.sign(targetHex.r - uTile.r);
-            const next = tiles.find(t =>
-              Math.abs(t.q - (uTile.q + dq)) <= 1 && Math.abs(t.r - (uTile.r + dr)) <= 1 &&
-              t.id !== uTile.id
-            );
-            if (next) {
-              const { cx, cy } = simTilePos(next);
-              const runeDmg = springRuneOnTile(c.id, next);
-              const gr = applyGrimoireEntry(c, next, updated);
-              updated = gr.updated;
-              thornsDragUnit(c.id, next);
-              updated = updated.map(u => u.id === c.id ? (gr.moved ? { ...u, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg }) : u).filter(u => u.hp > 0);
-              // If reached the hex, attack purification
-              if (next.id === targetHex.id) {
-                damageTile(next.id, c.power || 2);
-              }
-            }
-          } else {
-            // No corruptible hex: prioritize attacking Awoken/towers
-            let bestTarget: any = null;
-            let bestDist = Infinity;
-            // Find nearest fighter
-            for (const f of fighters) {
-              const d = hexDist(uTile, f.tile);
-              if (d < bestDist) { bestDist = d; bestTarget = { type: "awoken", ...f }; }
-            }
-            // Find nearest tower
-            for (const t of towers) {
-              const tt = tiles.find(ti => ti.id === t.tileId);
-              if (!tt) continue;
-              const d = hexDist(uTile, tt);
-              if (d < bestDist) { bestDist = d; bestTarget = { type: "tower", tile: tt }; }
-            }
-
-            if (bestTarget && bestDist <= 1) {
-              // Attack! Closing on a fighter springs its tile's rune
-              // first — the trap is on the crossing (War-Ground).
-              if (bestTarget.type === "awoken") {
-                const runeDmg = springRuneOnTile(c.id, bestTarget.tile);
-                if (runeDmg > 0) {
-                  updated = updated.map(u => u.id === c.id ? { ...u, hp: u.hp - runeDmg } : u).filter(u => u.hp > 0);
-                }
-                updated = applyGrimoireEntry(c, bestTarget.tile, updated).updated;
-                if (updated.some(u => u.id === c.id)) {
-                  damageAwoken(bestTarget.awakenedId, c.power || 2);
-                  thornsDragUnit(c.id, bestTarget.tile);
-                }
-              }
-              // Towers don't have HP yet — skip
-            } else if (bestTarget) {
-              // Move toward target
-              const dq = Math.sign(bestTarget.tile.q - uTile.q);
-              const dr = Math.sign(bestTarget.tile.r - uTile.r);
-              const next = tiles.find(t =>
-                Math.abs(t.q - (uTile.q + dq)) <= 1 && Math.abs(t.r - (uTile.r + dr)) <= 1 &&
-                t.id !== uTile.id
-              );
-              if (next) {
-                const { cx, cy } = simTilePos(next);
-                const runeDmg = springRuneOnTile(c.id, next);
-                thornsDragUnit(c.id, next);
-                updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : u).filter(u => u.hp > 0);
-              }
-            } else {
-              // No targets: move toward center
-              const center = tiles.find(t => t.q === 0 && t.r === 0) || purified[0];
-              if (center) {
-                const dq = Math.sign(center.q - uTile.q);
-                const dr = Math.sign(center.r - uTile.r);
-                const next = tiles.find(t =>
-                  Math.abs(t.q - (uTile.q + dq)) <= 1 && Math.abs(t.r - (uTile.r + dr)) <= 1 &&
-                  t.id !== uTile.id
-                );
-                if (next) {
-                  const { cx, cy } = simTilePos(next);
-                  const runeDmg = springRuneOnTile(c.id, next);
-                  thornsDragUnit(c.id, next);
-                  updated = updated.map(u => u.id === c.id ? { ...u, x: cx, y: cy, tileId: next.id, hp: u.hp - (thornWallTiles.has(next.id) ? thornDmg : 0) - runeDmg } : u).filter(u => u.hp > 0);
-                }
-              }
-            }
-          }
-        }
-      }
-      return updated;
-    });
-
-    if (!battleManual) {
-      setTimeout(() => endTurn(), battleSpeed * 1000);
-    }
-  };
-
-  /** Damage a tile (10 HP, visible when <10). Syncs to server. */
-  const damageTile = async (tileId: number, dmg: number) => {
-    try {
-      const { hp, cursed } = await api.damageTileHp({ tileId, damage: Math.round(dmg) });
-      setTileHp(prev => new Map(prev).set(tileId, hp));
-      if (cursed) {
-        // Tile fell — refresh territory
-        onUpdate();
-      }
-    } catch (e) {
-      console.error("Tile damage sync failed", e);
-      // Fallback to local
-      setTileHp(prev => {
-        const next = new Map(prev);
-        next.set(tileId, Math.max(0, (next.get(tileId) ?? 10) - dmg));
-        return next;
-      });
-    }
-  };
-
-  /** Damage an Awoken (defends tile first). Syncs to server. */
-  const damageAwoken = async (awakenedId: number, dmg: number) => {
-    // The Written Light answers first (the Grimoire, Nigel
-    // 2026-10-17): a Seal on the edge between the striker and
-    // this fighter stops the blow cold and answers it; the
-    // Trees take what crosses their edge into their own health.
-    const placement = placements.find(p => p.awakenedId === awakenedId);
-    const tile = placement ? tiles.find(t => t.id === placement.tileId) : null;
-    if (tile) {
-      for (const w of workings) {
-        if (w.kind !== "ward" || w.engine !== "seal") continue;
-        const st = grimBattleRef.current.get(w.id);
-        if (!st || st.spent) continue;
-        const [ea, eb] = grimEdgeTiles(w);
-        const victimSide = (tile.q === ea.q && tile.r === ea.r) ? eb : (tile.q === eb.q && tile.r === eb.r) ? ea : null;
-        if (!victimSide) continue;
-        const attacker = grimUnitsRef.current.find((u) => {
-          const ut = tiles.find((t) => t.id === u.tileId);
-          return ut && ut.q === victimSide.q && ut.r === victimSide.r;
-        });
-        if (!attacker) continue;
-        st.stops++;
-        // The Seal's health rating: the stopped blow's power
-        // comes out of the Seal's own health.
-        st.hp -= dmg;
-        if (st.stops >= (w.nums.stops ?? 3) || st.hp <= 0) st.spent = true;
-        const rip = (w.nums.riposte ?? 3) + (grimBright() ? (w.nums.brightBonus ?? 1) : 0);
-        setBattleUnits((prev) => prev.map((u) => u.id === attacker.id ? { ...u, hp: u.hp - rip } : u).filter((u) => u.hp > 0));
-        showHexNotice(`${grimFormName(w)} stops the strike cold — and answers it (${rip}).`);
-        return;
-      }
-      for (const w of workings) {
-        if (dmg <= 0) break;
-        if (w.kind !== "ward" || w.engine !== "trees") continue;
-        const st = grimBattleRef.current.get(w.id);
-        if (!st || st.spent || st.hp <= 0) continue;
-        const [ea, eb] = grimEdgeTiles(w);
-        if (!(tile.q === ea.q && tile.r === ea.r) && !(tile.q === eb.q && tile.r === eb.r)) continue;
-        const absorbed = Math.min(st.hp, dmg);
-        st.hp -= absorbed;
-        dmg -= absorbed;
-        if (st.hp <= 0) { st.spent = true; showHexNotice(`${grimFormName(w)} are broken — for this battle. The seed remembers them.`); }
-        else showHexNotice(`${grimFormName(w)} take the blow meant for their Tender's own.`);
-      }
-      if (dmg <= 0) return;
-    }
-    // Hex walls absorb next (War-Ground, 2026-10-15): damage meant
-    // for a fighter standing on a walled tile chews through that
-    // tile's walls before it reaches the Awoken.
-    if (tile) {
-      let remaining = dmg;
-      for (const w of wallsTouchingTile(tile)) {
-        if (remaining <= 0) break;
-        const hp = battleWallHpRef.current.get(w.edgeKey) ?? 0;
-        if (hp <= 0) continue;
-        const absorbed = Math.min(hp, remaining);
-        battleWallHpRef.current.set(w.edgeKey, hp - absorbed);
-        remaining -= absorbed;
-        if (hp - absorbed <= 0) showHexNotice("A wall crumbles under the Unraveling's blows!");
-      }
-      if (remaining <= 0) return;
-      dmg = remaining;
-    }
-    try {
-      const { hp } = await api.damageAwokenHp({ awakenedId, damage: Math.round(dmg) });
-      setAwokenHp(prev => new Map(prev).set(awakenedId, hp));
-    } catch (e) {
-      console.error("Awoken damage sync failed", e);
-      setAwokenHp(prev => {
-        const next = new Map(prev);
-        next.set(awakenedId, Math.max(0, (next.get(awakenedId) ?? 6) - dmg));
-        return next;
-      });
-    }
-  };
-
-  /** Curse a tile that hit 0 HP. */
-  const curseTile = (tileId: number) => {
-    // TODO: call server to curse the tile
-    console.log(`[battle] Tile ${tileId} falls to curse!`);
-  };
-
-  /** End of turn: check win/loss, or next turn. */
-  const endTurn = () => {
-    setBattleUnits(prev => {
-      if (prev.length === 0) {
-        // Wave cleared!
-        setTimeout(() => onWaveCleared(), 100);
-        return prev;
-      }
-      // Defeat: enemies remain and every committed fighter has fallen
-      // (HP is the server-synced map; an untouched fighter has no entry
-      // and stands at full toughness). Before this check existed the
-      // battle soft-locked here — enemies kept striking with no loss
-      // ever declared (War-Ground fix, 2026-10-15).
-      const fighterIds = battleFighterIdsRef.current;
-      if (fighterIds.length > 0 && fighterIds.every(id => (awokenHp.get(id) ?? 1) <= 0)) {
-        setTimeout(() => onBattleLost(), 100);
-        return prev;
-      }
-      // Next turn — in manual step-through, wait for the next Step
-      // instead of advancing the phases on a timer.
-      setTurnNumber(t => t + 1);
-      if (!battleManual) {
-        setTurnPhase("towers");
-        setTimeout(() => doTowerPhase(), battleSpeed * 1000);
-      }
-      return prev;
-    });
   };
 
   /** Refresh map + wave state from the server after a resolution. */
@@ -3689,105 +3020,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     await refreshEnergy();
     onUpdate();
   };
-
-  /** Called when a wave is cleared. The clear is reported to the server
-   *  for its reckoning — wave_state, XP, territory and the recovery clock
-   *  all move only there (War-Ground fix, 2026-10-15). Until this wiring
-   *  the in-map battle was local theatre: nothing it won was real. */
-  const onWaveCleared = async () => {
-    setBattleActive(false);
-    setBattleUnits([]);
-    setTurnPhase(null);
-    // Binding heal between waves
-    doBindingHeal();
-    if (!wave) return;
-    const survivors = battleFighterIdsRef.current
-      .filter(id => (awokenHp.get(id) ?? 1) > 0);
-    try {
-      const res = await api.resolveBattle({
-        victory: true,
-        waveNumber: wave.waveNumber,
-        survivorIds: survivors,
-        targetTileId: waveTarget?.tile?.id,
-        wallState: simWallState(),
-        runesTriggered: [...simRunesTriggeredRef.current],
-        ...grimReport(),
-      });
-      if (res.bonusEligible && res.bonusEligible.length > 0) {
-        setBonusTiles(res.bonusEligible);
-      }
-      showHexNotice(`The Unraveling breaks — victory reckoned by the War-Ground (${res.committedPower ?? "?"} against ${res.wavePower ?? wave.totalPower}).`);
-    } catch (e) {
-      showHexNotice(refusalText(e, "The War-Ground did not reckon this victory."));
-    }
-    await refreshAfterResolution();
-  };
-
-  /** Binding Awoken heal: total power divided by wounded Awoken in hex + adjacent. */
-  const doBindingHeal = () => {
-    const binders = placements.filter(p => p.stance === "binding");
-    if (!binders.length) return;
-    setAwokenHp(prev => {
-      const next = new Map(prev);
-      for (const b of binders) {
-        const bAw = tenderItems.find(a => a.id === b.awakenedId);
-        const bTile = tiles.find(t => t.id === b.tileId);
-        if (!bAw || !bTile) continue;
-        const power = bAw.power || 3;
-        // Find wounded Awoken in hex + adjacent
-        const wounded: number[] = [];
-        for (const p of placements) {
-          if (p.stance !== "attack" && p.stance !== "defense") continue;
-          const pTile = tiles.find(t => t.id === p.tileId);
-          if (!pTile) continue;
-          if (hexDist(bTile, pTile) <= 1) {
-            const hp = next.get(p.awakenedId) ?? 6;
-            // Woundedness is judged on the same basis the heal caps
-            // at — toughness, the field health the map itself shows
-            // (❤ hp/toughness). The power+toughness test that stood
-            // here counted full-health Awoken as wounded and diluted
-            // the split (Law's audit, Obs. 4; fixed 2026-10-17).
-            const maxHp = (tenderItems.find(a => a.id === p.awakenedId)?.toughness || 3);
-            if (hp < maxHp) wounded.push(p.awakenedId);
-          }
-        }
-        if (wounded.length > 0) {
-          const healPer = power / wounded.length;
-          for (const id of wounded) {
-            const aw = tenderItems.find(a => a.id === id);
-            const maxHp = (aw?.toughness || 3);
-            next.set(id, Math.min(maxHp, (next.get(id) ?? 0) + healPer));
-          }
-        }
-      }
-      return next;
-    });
-  };
-
-  /** Called when the committed company has fallen with enemies still
-   *  standing. The defeat is reported to the server, which takes its
-   *  price — an unbound border tile falls (War-Ground fix, 2026-10-15). */
-  const onBattleLost = async () => {
-    setBattleActive(false);
-    setBattleUnits([]);
-    setTurnPhase(null);
-    showHexNotice("The line has fallen — the Unraveling takes its price.");
-    if (!wave) return;
-    try {
-      await api.resolveBattle({
-        victory: false,
-        waveNumber: wave.waveNumber,
-        survivorIds: [],
-        wallState: simWallState(),
-        runesTriggered: [...simRunesTriggeredRef.current],
-        ...grimReport(),
-      });
-    } catch (e) {
-      console.error("Defeat resolution failed", e);
-    }
-    await refreshAfterResolution();
-  };
-
 
   // Called when victory is detected — before the victory screen opens.
   // For a boss fight the resolution happens HERE (War-Ground fix,
@@ -3879,26 +3111,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       } catch (e) { console.error("Wave-pull resolve failed", e); }
       return;
     }
-    // Column battle (the Columns, 2026-10-17): a victory is
-    // reported to the Eye — the column falls and the ruled
-    // 12-minute break begins. The Unraveling ladder is not
-    // touched: a column is not a wave.
-    if (battleColumnId !== null) {
-      const columnId = battleColumnId;
-      setBattleColumnId(null);
-      try {
-        if (result.victory) {
-          const reck = await api.defeatIncursion({ columnId, survivorIds: result.survivors });
-          const earned = (reck.xpGains ?? []).reduce((acc, g) => acc + g.xpGain, 0);
-          if (earned > 0) showHexNotice(`The attack breaks — your defenders earned ${earned} EXP from the killing and the victory.`);
-        }
-        else await api.failIncursion({ columnId }).catch(() => {});
-        await refreshAfterResolution();
-        void incursionsQ.refetch();
-        void seedsQ.refetch();
-      } catch (e) { console.error("Column resolution failed", e); }
-      return;
-    }
+    // Column battles on this face are retired (the Token
+    // Strip, 2026-10-23): a landed column's force stands on
+    // the land as wanderers and is fought there; a column
+    // beaten at the Table resolves through the Table's own
+    // reckoning (defeatIncursion / failIncursion in table.ts).
     if (!wave) return;
     try {
       // Always resolve with the real survivor list so XP and deeds are granted
@@ -4242,16 +3459,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // (max six, the crop's own layer beside the seats).
       const seatBuildings = tileBuildings.filter(b => b.buildingType !== "dream-wheat");
       const shroomsByAge = tileBuildings.filter(b => b.buildingType === "dream-wheat").sort((a, b) => a.id - b.id);
-      const hp = tileHp.get(t.id);
-      const showHp = hp !== undefined && hp < 10;
+      // The mirror's tile-HP bar stood here (♥ hp/10, written
+      // only by the mirror's own damage sync) — retired with
+      // the mirror (the Token Strip, 2026-10-23); a tile's
+      // curse is read from the tile itself, as the land serves
+      // it.
       return (
         <g key={`entity-${t.id}`} transform={`translate(0,${lift / zoom})`}>
-          {showHp && (
-            <g transform={`translate(${cx},${cy - s * 0.7})`}>
-              <rect x={-18 / zoom} y={-8 / zoom} width={36 / zoom} height={14 / zoom} rx={3 / zoom} fill="rgba(0,0,0,0.7)" stroke="#ff4444" strokeWidth={1 / zoom} />
-              <text y={3 / zoom} textAnchor="middle" fontSize={10 / zoom} fill="#ff6666" fontWeight="bold">♥ {hp}/10</text>
-            </g>
-          )}
           {/* Buildings on this tile's seats (max 2) */}
           {seatBuildings.map((b, bi) => {
             const place = BUILDING_PLACE[b.buildingType];
@@ -5266,11 +4480,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
-    // THE COLUMNS ON THE MAP (2026-10-17): a marching column is
-    // only a traced dotted line from outside the map to its
-    // target, with the warning mark at the threatened hex; an
-    // arrived column's force STANDS on the cursed hexes beside
-    // the target, lettered by kind.
+    // THE COLUMNS ON THE MAP (2026-10-17; the Token Strip,
+    // 2026-10-23): a marching column is only a traced dotted
+    // line from outside the map to its target, with the
+    // warning mark at the threatened hex. An ARRIVED column
+    // drew its force as letter chips (F / U / T / H) on the
+    // cursed hexes beside the target — those letters are
+    // STRIPPED, and the force itself now stands there as
+    // real wanderers in the wanderersLayer, wearing their
+    // drawn faces: the server lands the roster on those
+    // very hexes at the arrival (settleIncursions), so this
+    // layer draws marching columns only — a landed column
+    // is no longer served here at all.
     const axialPos = (q: number, r: number) => {
       const { px, py } = isoOffset(q, r, size);
       return { cx: originX + px, cy: originY + py };
@@ -5304,34 +4525,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               </g>
             );
           }
-          const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-          const cursedAdj = dirs
-            .map(([dq, dr]) => tiles.find(t => t.q === target.q + dq && t.r === target.r + dr))
-            .filter(t => t && t.cursed) as any[];
-          const kinds = col.roster.flatMap(r => Array(r.count).fill(r.kind)) as string[];
-          const marks = kinds.slice(0, 8).map((k, i) => {
-            const host = cursedAdj.length ? cursedAdj[i % cursedAdj.length] : target;
-            const hp = tilePos(host);
-            return { x: hp.cx + (i % 3 - 1) * size * 0.34, y: hp.cy + (Math.floor(i / 3) % 2 ? size * 0.3 : -size * 0.1), k };
-          });
-          return (
-            <g key={col.id}>
-              <circle cx={tp.cx} cy={tp.cy} r={size * 1.0} fill="rgba(176,77,240,0.10)" stroke="#ff5340" strokeWidth={2.5 / zoom} />
-              {marks.map((m, i) => (
-                <g key={i}>
-                  <circle cx={m.x} cy={m.y} r={size * 0.30} fill="#160b20" stroke="#b04df0" strokeWidth={1.6 / zoom} />
-                  <text x={m.x} y={m.y + size * 0.13} textAnchor="middle" fontSize={size * 0.32} fill="#e8c8ff">{m.k === "fray" ? "F" : m.k === "unraveler" ? "U" : m.k === "tangle" ? "T" : "H"}</text>
-                </g>
-              ))}
-            </g>
-          );
+          return null;
         })}
       </g>
     );
     // THE SEEDS ON THE MAP (the Columns, 2026-10-17): a fallen
     // seed burns gold on its hex; a held seed wears its ring
-    // and its growth; a corrupted seed is a skull on cursed
-    // ground — the dark's bastion, waiting for a siege.
+    // and its growth; a corrupted seed wore a SKULL on cursed
+    // ground — stripped (the Token Strip, 2026-10-23): it is
+    // a seed still, drawn as a seed, in the dark's violet ring
+    // while the dark's guard holds it.
     const seedLayer = (
       <g key="seeds" pointerEvents="none">
         {(seedsQ.data?.seeds ?? []).map(sd => {
@@ -5352,7 +4555,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             );
           }
           if (sd.state === "corrupted") {
-            return (<g key={sd.id}><text x={cx} y={cy - size * 0.4} textAnchor="middle" fontSize={size * 0.52}>💀</text></g>);
+            // THE SKULL IS STRIPPED (the Token Strip, 2026-10-23):
+            // the seed wears its own face in the dark's violet
+            // ring — a seed held by the dark, not a skull token.
+            // Its guard stands beside it as real wanderers; when
+            // the guard is gone the seed itself is fallen again
+            // (the exit in settleIncursions) and this face goes
+            // with the state.
+            return (
+              <g key={sd.id}>
+                <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(16,8,24,0.88)" stroke="#b04df0" strokeWidth={2.2 / zoom} />
+                <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
+                <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#d8a6ff">held by the dark</text>
+              </g>
+            );
           }
           return (
             <g key={sd.id}>
@@ -5763,11 +4979,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       </g>
     );
     // PHASE D — THE BLIND FRAY on the face: each wanderer wears
-    // the Fray's own art (Nigel's drawn face, the workshop's live
-    // choice respected), standing in its hex on the map's clock —
-    // a slow, sightless sway, nothing like a march. Since "Fray 1"
-    // (2026-10-22) the face itself walks: the five-stride cycle
-    // loops on its own heartbeat while the bundled face is live.
+    // the Fray's own art (Nigel's drawn face), standing in its
+    // hex on the map's clock — a slow, sightless sway, nothing
+    // like a march. Since "Fray 1" (2026-10-22) the face itself
+    // walks: the five-stride cycle loops on its own heartbeat.
+    // And since the Token Strip (2026-10-23) the cycle is the
+    // standing face on this map outright — Nigel's animated
+    // one, never the still workshop upload standing in its
+    // place (the resolver rule lives in EnemyFace.tsx); the
+    // upload still rules the Fray on the other surfaces.
     const wanderersLayer = (
       <g key="wanderers" pointerEvents="none">
         {wanderers.map(w => {
@@ -6387,13 +5607,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             {" "}· Power {wave.totalPower}
           </div>
 
-          {waveResult && (
-            <div className={`wave-result ${waveResult.victory ? "victory" : "defeat"}`}>
-              {waveResult.victory
-                ? `Victory! The Unraveling breaks. (${waveResult.defensePower} vs ${waveResult.wavePower})`
-                : `The line bends... (${waveResult.defensePower} vs ${waveResult.wavePower})`}
-            </div>
-          )}
         </div>
       )}
       {incursionsQ.data && eyeOpen && (() => {
@@ -6416,17 +5629,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 : call?.kind === "ambush"
                   ? `⚔️ AMBUSH CALLED — a ${col.kind} of ${col.size} reaches my ${col.targetKind === "seed" ? "fallen seed" : "edge"} in ${fmtCountdown(col.arrivesAt - nowMs)}. Friends: open the Table, enter my AMBUSH key, and muster BEFORE it lands — warned ahead, our Awokin strike with the ambush's edge.${keyStr}`
                   : `⚔️ BASTION — a ${col.kind} of ${col.size} is at my ${col.targetKind === "seed" ? "seed" : "edge"}. Friends: open the Table, enter my BASTION key, call your Awokin, and hold the tide with me.${keyStr}`;
-              return col.state === "marching" ? (
+              // Only MARCHING columns are served now (the Token
+              // Strip, 2026-10-23): a column that lands stands on
+              // the land as real wanderers and leaves this list —
+              // there is no arrived force left to "face" here,
+              // and no lettered chips standing in for it.
+              return (
               <div key={col.id} className="curse-eye-line warn">
                 ⚠ ATTACK INCOMING — a {col.kind === "siege" ? "SIEGE" : "raid"} of {col.size} walks for your {col.targetKind === "seed" ? "fallen seed" : "edge"} — here in {fmtCountdown(col.arrivesAt - nowMs)}. Move your companies to meet it.
                 {!call && <button className="abtn small" onClick={() => void handleCallToArms({ columnId: col.id })}>📣 Call to arms — warn your friends</button>}
-                {call && <div className="curse-eye-invite">📣 {call.kind.toUpperCase()} called — carry it to Discord: <em>{invite}</em> Then open the Table together and claim the call.</div>}
-              </div>
-            ) : (
-              <div key={col.id} className="curse-eye-line here">
-                🔥 THE {col.kind === "siege" ? "SIEGE" : "RAID"} IS HERE — {col.size} dark stand at your {col.targetKind === "seed" ? "seed" : "edge"}.
-                <button className="abtn small" onClick={() => startColumnBattle(col)}>⚔ Face them</button>
-                {!call && <button className="abtn small" onClick={() => void handleCallToArms({ columnId: col.id })}>📣 Call to arms</button>}
                 {call && <div className="curse-eye-invite">📣 {call.kind.toUpperCase()} called — carry it to Discord: <em>{invite}</em> Then open the Table together and claim the call.</div>}
               </div>
             );
@@ -6441,7 +5652,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               const call = (callsQ.data?.calls ?? []).find(c => c.seed_id === sd.id);
               return (
                 <div key={sd.id} className="curse-eye-line here">
-                  💀 A cursed bastion stands on your land — the seed that was, is theirs.
+                  A cursed bastion stands on your land — the seed that was, is theirs. Fell the dark that guards it and the seed is free; or call the siege and take it back together.
                   {!call && <button className="abtn small" onClick={() => void handleCallToArms({ seedId: sd.id })}>📣 Call a SIEGE</button>}
                   {call && <div className="curse-eye-invite">📣 SIEGE called — carry it to Discord: <em>⚔️ SIEGE — a cursed bastion stands on my land, and we take it back. Friends: open the Table, enter my SIEGE key, call your Awokin, and help in the taking — this one wants many hands, and the dark will not give it up gently.{call.join_key ? ` Key: ${call.join_key}` : ""}</em></div>}
                 </div>
@@ -6450,28 +5661,12 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             {seedsQ.data && seedsQ.data.seeds.some(sd => sd.state === "fallen") && (
               <div className="curse-eye-line">⭐ {seedsQ.data.seeds.filter(sd => sd.state === "fallen").length} seed{seedsQ.data.seeds.filter(sd => sd.state === "fallen").length > 1 ? "s lie" : " lies"} fallen on your land — fetch or hold them before the dark does. Open a seed's hex in the War-Grounds to choose.</div>
             )}
-            <div className="curse-eye-line" style={{ marginTop: 8 }}>
-        {!battleActive && wavesCleared < 3 && wave && (() => {
-          // Wave recovery (fix list #4): after a victory the next wave
-          // gathers for a while — show the wait instead of inviting a
-          // fight the server would refuse.
-          const readyMs = wave.nextWaveAt ? new Date(wave.nextWaveAt).getTime() - Date.now() : 0;
-          if (readyMs > 0) {
-            const mins = Math.ceil(readyMs / 60000);
-            const label = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
-            return (
-              <button className="abtn" disabled style={{ marginLeft: 8, borderColor: "#666", opacity: 0.75 }}>
-                🌑 Next Unraveling in {label}
-              </button>
-            );
-          }
-          return (
-            <button className="abtn" onClick={startBattle} style={{ marginLeft: 8, borderColor: "#ff4444" }}>
-              ⚔ Face the Next Unraveling ({wavesCleared + 1}/3)
-            </button>
-          );
-        })()}
-            </div>
+            {/* THE MIRROR'S DOOR IS RETIRED (the Token Strip,
+                2026-10-23): "Face the Next Unraveling" opened
+                the simulated in-map battle. The Unraveling is
+                fought where it stands now — the living battle
+                on the land itself, read on its own cadence —
+                and the boss door below keeps its own road. */}
           </div>
         );
       })()}
@@ -6552,25 +5747,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             👑 BOSS FIGHT
           </button>
         )}
-        {battleActive && (
-          <span style={{ marginLeft: 8 }}>
-            <button className="abtn small" onClick={() => setBattlePaused(p => !p)} title={battlePaused ? "Resume" : "Pause"}>
-              {battlePaused ? "▶" : "⏸"}
-            </button>
-            <button className={`abtn small ${battleManual ? "active" : ""}`} onClick={() => setBattleManual(m => !m)} title={battleManual ? "Auto battle" : "Manual step-through"} style={{ marginLeft: 4 }}>
-              {battleManual ? "⏭ Manual" : "▶ Auto"}
-            </button>
-            {battleManual && (
-              <button className="abtn small" onClick={() => { doInitiativePhase(); setTimeout(() => endTurn(), 50); }} title="Next attack" style={{ marginLeft: 4 }}>
-                → Step
-              </button>
-            )}
-            <button className="abtn small" onClick={() => setBattleSpeed(s => s === 1.3 ? 0.6 : s === 0.6 ? 2.5 : 1.3)} title="Battle speed" style={{ marginLeft: 4 }}>
-              {battleSpeed === 0.6 ? "2x" : battleSpeed === 2.5 ? "0.5x" : "1x"}
-            </button>
-          </span>
-        )}
-
         {incursionsQ.data && (() => {
           const inc = incursionsQ.data;
           const eyeWord = inc.eye >= 100 ? "Under investigation" : inc.eye >= 60 ? "Drawing attention" : inc.eye >= 25 ? "Stirring" : "Hidden";
@@ -6591,17 +5767,9 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             All Unravelings broken — Boss awaits!
           </span>
         )}
-        {battleActive && (
-          <span style={{ marginLeft: 12, color: "#ff6666", fontWeight: "bold" }}>
-            Unraveling {battleWave}/3 — Turn {turnNumber} ({turnPhase === "towers" ? "Towers" : turnPhase === "initiative" ? "Initiative" : "..."})
-          </span>
-        )}
-        {simActive && (
-          <button className="abtn small" onClick={stopSim} style={{ marginLeft: 8 }}>
-            ⏹ Stop Sim
-          </button>
-        )}
       </div>
+
+      {/* The centre-screen attune card stood here until      </div>
 
       {/* The centre-screen attune card stood here until
           2026-10-21 — retired by the Attune Ability law
@@ -6836,29 +6004,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             </radialGradient>
           </defs>
           {renderGrid()}
-          {/* Simulation units */}
-          {battleUnits.map(u => {
-            const imgSrc = u.type === "fray" ? frayFaceSrc(enemyArtData?.art, Date.now()) : enemyImgFor(u.type, enemyArtData?.art);
-            return (
-            <g key={`battle-${u.id}`} transform={`translate(${u.x},${u.y})`}>
-              {imgSrc ? (
-                <image href={imgSrc} x="-12" y="-12" width="24" height="24" />
-              ) : (
-                <circle r="8" fill="#3a1a1a" stroke="#ff4444" strokeWidth="1.5" />
-              )}
-              <rect x="-10" y="-14" width="20" height="3" fill="#333" />
-              <rect x="-10" y="-14" width={20 * (u.hp / u.maxHp)} height="3" fill="#ff4444" />
-              {/* THE CLICK THAT LOOSES, in this battle's
-                  mirror (Recovery R4): a tap on the dark is
-                  the order to the written Blade. */}
-              <circle r="13" fill="transparent" pointerEvents="all" style={{ cursor: "pointer" }}
-                onClick={(e) => { e.stopPropagation(); looseSimBlade(u); }}>
-                <title>Loose the Single Blade on this dark thing</title>
-              </circle>
-            </g>
-            );
-          })}
-          {/* THE BLADE FLIGHTS (Recovery R4): the loosed
+          {/* THE STRIP (the Token Strip, 2026-10-23): the
+              mirror's unit chips stood here — battleUnits with
+              their image-or-red-circle fallback, and below the
+              blade flights the simUnits with their 🌀/💥 letter
+              tokens. Both are gone whole: the only dark drawn
+              on this map is the real wanderers, inside
+              renderGrid's wanderersLayer, wearing their drawn
+              faces at their free points. */}
+          {/* THE BLADE FLIGHTS (Recovery R4): the loosed          {/* THE BLADE FLIGHTS (Recovery R4): the loosed
               blades rise from the rune's ground and spear
               down into the mark from above. */}
           {bladeFlights.map((f) => (
@@ -6871,13 +6025,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </image>
             </g>
           ))}
-          {simUnits.map(u => (
-            <g key={`sim-${u.id}`} transform={`translate(${u.x},${u.y})`}>
-              <circle r={8} fill={u.type === "unraveler" ? "#1a0a2a" : "#2a1a0a"} stroke="#ff4444" strokeWidth={1.5} opacity={0.9} />
-              <text textAnchor="middle" dy={3} fontSize={8}>{u.type === "unraveler" ? "🌀" : "💥"}</text>
-              {/* HP bar */}
-              <rect x={-10} y={-14} width={20} height={3} fill="#333" />
-              <rect x={-10} y={-14} width={20 * (u.hp / u.maxHp)} height={3} fill={u.hp / u.maxHp > 0.5 ? "#4f4" : "#f44"} />
+          {/* THE PLACEMENT STRIKE FLIGHTS (the Token Strip,
+              2026-10-23): a mote flies from the striking
+              Awokin's standing point to the dark it struck —
+              drawn only from the server's strike witness
+              (getTerritory's strikes), never from a local
+              simulation. A grey mote is a witnessed miss. */}
+          {strikeFlights.map((f) => (
+            <g key={f.id} pointerEvents="none">
+              <line x1={f.fx} y1={f.fy} x2={f.tx} y2={f.ty} stroke="rgba(255,214,140,0.30)" strokeWidth={1.3} />
+              <circle r={3.4} fill={f.hit ? "#ffd98a" : "#9a94a8"} style={{ filter: "drop-shadow(0 0 5px rgba(255,214,140,0.9))" }}>
+                <animateMotion dur="0.45s" fill="freeze" path={`M ${f.fx} ${f.fy} L ${f.tx} ${f.ty}`} />
+              </circle>
             </g>
           ))}
         </svg>
@@ -7333,7 +6492,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             energy={energy}
             maxEnergy={maxEnergy}
             onBattleEnd={handleBattleEnd}
-            onClose={() => { setShowBattleground(false); setBattleColumnId(null); }}
+            onClose={() => { setShowBattleground(false); }}
             bonusTiles={bonusTiles}
             onVictoryDetected={handleVictoryDetected}
             aspectGrant={bossAspectGrant}
@@ -7363,13 +6522,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           />
         );
       })()}
-      {/* Castle button - toggles building menu (disabled during battle) */}
+      {/* Castle button - toggles building menu. (It stood
+          disabled while the retired mirror battle ran; the
+          living battle shuts nothing — the Token Strip,
+          2026-10-23.) */}
       <button
         className={`castle-toggle ${showBuildingMenu ? "open" : ""}`}
-        onClick={() => { if (!battleActive) setShowBuildingMenu(v => !v); }}
-        title={battleActive ? "Cannot build during battle" : "Buildings"}
-        disabled={battleActive}
-        style={battleActive ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+        onClick={() => { setShowBuildingMenu(v => !v); }}
+        title="Buildings"
       >
         <svg viewBox="0 0 32 32"><path d="M7 26 V13 L10.5 13 V9 H14 V13 H18 V9 H21.5 V13 L25 13 V26 Z"/><path d="M13.5 26 V21 C13.5 18.8 18.5 18.8 18.5 21 V26"/><path d="M16 9 V5"/><path d="M16 5 L20 6.2 L16 7.4"/></svg>
       </button>
@@ -7377,11 +6537,12 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       {/* War-Grounds button — the fine-edit panel from the map screen
           itself (Nigel, 2026-10-16): one tap opens the panel on the
           selected Awoken's hex (or the first stationed Awoken's), the
-          same panel the stance picker opens. Shut during battle. */}
+          same panel the stance picker opens. (It stood shut while
+          the retired mirror battle ran; the living battle shuts
+          nothing — the Token Strip, 2026-10-23.) */}
       <button
         className={`wg-toggle ${wgTileId !== null ? "open" : ""}`}
         onClick={() => {
-          if (battleActive) return;
           if (wgTileId !== null) { setWgTileId(null); setWgArmedWork(null); return; }
           const sel = selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken) : undefined;
           const target = sel ?? placements[0];
@@ -7390,9 +6551,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           setWgTileId(target.tileId);
           showHexNotice("The War-Grounds are open.");
         }}
-        title={battleActive ? "The War-Grounds are shut while battle is joined" : "War-Grounds — fine work on one hex: edge works, buildings, readings"}
-        disabled={battleActive}
-        style={battleActive ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+        title="War-Grounds — fine work on one hex: edge works, buildings, readings"
       >
         <svg viewBox="0 0 32 32"><path d="M10 27 V5"/><path d="M10 6 C13.5 4.6 16.5 7 21.5 5.4 V12.4 C16.5 14 13.5 11.4 10 12.8"/><path d="M6 27 H14"/></svg>
       </button>
@@ -7647,7 +6806,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       {/* War-Grounds fine-edit panel (War-Ground, Nigel 2026-10-15):
           one hex enlarged — fat edges for walls, the building seat,
           the tile's readings. All actions ride existing server law. */}
-      {wgTileId !== null && !battleActive && (() => {
+      {wgTileId !== null && (() => {
         const tile = tiles.find(t => t.id === wgTileId);
         if (!tile) return null;
         const standing = placements
