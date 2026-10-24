@@ -4,8 +4,10 @@
 // upload "Dream 15", frames 1–6), cropped to its content and
 // bundled at 512px wide beside the other effects sets. The
 // frames play in order as the shot flies, the shard's bright
-// head forward (its native facing is +x; the flight's
-// animateMotion rotate="auto" turns it onto its road).
+// head forward (its native facing is +x; Territory turns it
+// onto its road by the flight's heading, drawn from the
+// map's own clock — never SMIL, which iPad Safari does not
+// run; the projectile repair, 2026-10-24).
 //
 // THE TINT: the shot wears the hue of the FIRING Awoken's
 // dominant element — the card-corner colour language, read from

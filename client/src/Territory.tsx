@@ -566,7 +566,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // a second simulated fight. The first read only sets the
   // watermark — the witness log reaches two minutes back,
   // and the map does not replay a battle it did not watch.
-  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string }[]>([]);
+  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; bornAt: number }[]>([]);
   const strikeIdSeenRef = useRef(0);
   const strikeWitnessInitRef = useRef(false);
   const notePlacementStrikes = (strikes: import("./api").HomelandStrike[] | null | undefined, tilesList: TerritoryTile[]) => {
@@ -598,7 +598,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const to = pointOf(s.tileId, s.toQ, s.toR);
       if (!from || !to) continue;
       const id = `strike-${s.id}`;
-      setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral" }]);
+      setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", bornAt: Date.now() }]);
       setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), SHARD_FLIGHT_MS + 60);
     }
   };
@@ -805,6 +805,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
     return () => window.clearInterval(iv);
   }, [anyPatrol, anyMarch, patrolSettingFor]);
+  // THE SHARD'S CLOCK (the projectile repair, 2026-10-24):
+  // a strike flight is drawn from this same map clock, the
+  // way the weapon's flight is integrated on the map's
+  // renders — while a shard is live, the clock ticks at the
+  // stride's 50 ms, the cadence the weapon keeps for its
+  // own flight, so the shard's road is walked render by
+  // render. It is NOT drawn by SMIL: the flight's first
+  // telling rode <animateMotion> and per-frame <animate>,
+  // which iPad Safari never runs — every frame sat at the
+  // SVG origin with its base opacity 0, and the Tender,
+  // iPad-first, never saw a single shot.
+  const anyStrikeFlight = strikeFlights.length > 0;
+  useEffect(() => {
+    if (!anyStrikeFlight) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
+    return () => window.clearInterval(iv);
+  }, [anyStrikeFlight]);
   // ── THE SUMMON SEQUENCE (Nigel, 2026-10-23 — the Proving
   // Ground's theatre, ported whole; see summonFx.ts) ────────
   // A landed summon cast leaves its reckoning here; the
@@ -6245,16 +6262,32 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </defs>
           {strikeFlights.map((f) => {
             const tint = shardTintFilterId(f.element);
+            // THE FLIGHT, DRAWN BY THE MAP'S CLOCK (the
+            // projectile repair, 2026-10-24): where the SMIL
+            // stood, the road is now reckoned at every render
+            // from marchNow — the position walked from the
+            // striker's point to the mark's over the flight's
+            // life, the head turned onto the road, the one
+            // frame of the elapsed slice shown, rising,
+            // holding and fading inside its slice exactly as
+            // the old per-frame <animate> shaped it (0→1 by
+            // 0.3 of the slice, held to 0.7, out by its end).
+            // The tint, the miss's fade and the frames
+            // themselves are untouched; only the hand that
+            // moves them changed, because SMIL's hand does
+            // not move on iPad Safari.
+            const elapsed = Math.min(Math.max(marchNow - f.bornAt, 0), SHARD_FLIGHT_MS);
+            const road = SHARD_FLIGHT_MS > 0 ? elapsed / SHARD_FLIGHT_MS : 1;
+            const x = f.fx + (f.tx - f.fx) * road;
+            const y = f.fy + (f.ty - f.fy) * road;
+            const heading = Math.atan2(f.ty - f.fy, f.tx - f.fx) * 180 / Math.PI;
+            const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / SHARD_SLICE_MS));
+            const within = Math.min(1, Math.max(0, (elapsed - slice * SHARD_SLICE_MS) / SHARD_SLICE_MS));
+            const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
             return (
-              <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65}>
-                {MATTER_SHARD_FRAMES.map((src, i) => (
-                  <image key={i} href={src} x={-36} y={-19} width={72} height={38} opacity={0}
-                    filter={tint ? `url(#${tint})` : undefined}>
-                    <animateMotion dur={`${SHARD_FLIGHT_MS / 1000}s`} fill="freeze" rotate="auto" path={`M ${f.fx} ${f.fy} L ${f.tx} ${f.ty}`} />
-                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.3;0.7;1"
-                      dur={`${SHARD_SLICE_MS / 1000}s`} begin={`${(i * SHARD_SLICE_MS / 1000).toFixed(3)}s`} fill="freeze" />
-                  </image>
-                ))}
+              <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
+                <image href={MATTER_SHARD_FRAMES[slice]} x={-36} y={-19} width={72} height={38} opacity={fade}
+                  filter={tint ? `url(#${tint})` : undefined} />
               </g>
             );
           })}
