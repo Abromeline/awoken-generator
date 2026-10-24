@@ -13,13 +13,16 @@
 //      hpForCast (each carried slot is +1 health, exactly;
 //      the Shard's page buys its slots into harm, for it
 //      holds no health), the eight and the four standing in
-//      the book, and the Witch/Sage reckoning (pourLaidFor)
-//      PRESERVED whole — its translation onto slots is not
-//      ruled, so it stands in the book untranslated and no
-//      door calls it.
+//      the book, and the gifts' reckoning (pourLaidFor,
+//      Recovery R9, Nigel's Binder ruling of 2026-10-22):
+//      the book's door READS it — a slot spend lays the
+//      reckoning's count of slots (Witch 2, Sage 3, Binder
+//      3, every other hand 1) for the same flat 4 points,
+//      and the Attune acts read it too (no page kind: only
+//      the Binder's kind-unrestricted gift bends there).
 //   §1 THE GRIMOIRE DOOR — filling a slot costs exactly 4
-//      of that element from the pool, for every hand alike
-//      today (the gifts untranslated); a page holds a mix
+//      of that element from the pool, for every hand alike;
+//      what the spend LAYS bends by the gifts (above); a page holds a mix
 //      across its eight; the ninth slot is refused whole;
 //      a pool that cannot pay the 4 is refused whole; a
 //      page that takes no attunement refuses a slot; the
@@ -94,11 +97,13 @@ async function call(action, args, token, expectFail = false) {
 }
 
 /* ── §0 THE BOOK'S OWN MEASURES: the flat law (+1 per slot,
-      exactly), the eight and the four, and the reckoning
-      preserved — the Witch/Sage grid over pourLaidFor reads
-      exactly as it did, for no door calls it now and its
-      translation onto slots awaits a ruling. */
-console.log("\n§0 the book's measures — the flat slot law, the reckoning preserved");
+      exactly), the eight and the four, and the gifts'
+      reckoning — pourLaidFor reads as it always did, and
+      (Recovery R9) the book's door and the Attune acts now
+      call it: the Witch ×2 and the Sage +2 on spell, rune
+      and ward pages, the Binder ×3 on every attune spend
+      (no kind named in her ruling). */
+console.log("\n§0 the book's measures — the flat slot law, the gifts' reckoning");
 {
   const L = G.pourLaidFor;
   check("the pages that take attunement stand as ruled (seal, trees, lattice, shard)",
@@ -111,15 +116,20 @@ console.log("\n§0 the book's measures — the flat slot law, the reckoning pres
     G.hpForCast(LATTICE, 10, 2, false) - G.hpForCast(LATTICE, 10, 0, false) === 2);
   check("the Crown Shard holds no health for its slots to land on (hpForCast 0) — its slots feed its harm instead",
     G.hpForCast(SHARD, 10, 3, false) === 0);
-  check("the reckoning stands preserved: WITCH pours of 3 lay 6 into spell, rune and ward pages alike",
+  check("the reckoning: WITCH pours of 3 lay 6 into spell, rune and ward pages alike",
     L("witch", "spell", 3) === 6 && L("witch", "rune", 3) === 6 && L("witch", "ward", 3) === 6,
     `${L("witch", "spell", 3)}/${L("witch", "rune", 3)}/${L("witch", "ward", 3)}`);
-  check("the reckoning stands preserved: SAGE pours of 3 lay 5 into the same kinds",
+  check("the reckoning: SAGE pours of 3 lay 5 into the same kinds",
     L("sage", "spell", 3) === 5 && L("sage", "rune", 3) === 5 && L("sage", "ward", 3) === 5,
     `${L("sage", "spell", 3)}/${L("sage", "rune", 3)}/${L("sage", "ward", 3)}`);
-  check("BINDINGS stand outside both gifts, and no other hand is bent",
+  check("the reckoning: BINDER pours of 3 lay 9 — her ×3 names no kind, and her own school is Binding itself (and at the Attune acts, where no page kind stands, her single spend lays 3)",
+    L("binder", "binding", 3) === 9 && L("binder", "ward", 3) === 9 && L("binder", "spell", 3) === 9
+    && L("binder", null, 1) === 3 && L("binder", "ward", 0) === 0,
+    `${L("binder", "binding", 3)}/${L("binder", null, 1)}`);
+  check("BINDINGS stand outside the Witch's and the Sage's gifts, and no other hand is bent",
     L("witch", "binding", 3) === 3 && L("sage", "binding", 3) === 3 &&
-    L("warden", "ward", 3) === 3 && L("runewright", "rune", 3) === 3 && L("binder", "binding", 3) === 3 &&
+    L("warden", "ward", 3) === 3 && L("runewright", "rune", 3) === 3 &&
+    L("witch", null, 1) === 1 && L("sage", null, 1) === 1 && L("warden", null, 1) === 1 &&
     L(null, "ward", 3) === 3 && L("witch", "ward", 0) === 0 && L("sage", "ward", 0) === 0);
   check("the pools' own band stands untouched (9 is Lv 0, 10 Lv I, 29 Lv II, 30 Lv III) — the pages' slots do not read it",
     G.attunementLevel(9) === 0 && G.attunementLevel(10) === 1 && G.attunementLevel(29) === 2 && G.attunementLevel(30) === 3);
@@ -237,12 +247,13 @@ const sowLand = (me) => {
 };
 
 /* ── §1 THE GRIMOIRE DOOR: a slot costs exactly 4 of its
-      element, for every hand alike today — the Witch's and
-      the Sage's gifts stand untranslated onto slots (their
-      reckoning is §0's preserved measure), so the door
-      charges the Witch, the Sage and the Warden the same 4.
-      A page mixes elements across its eight; the ninth is
-      refused; the refusals stand guard around it. */
+      element, for every hand alike — the price never bends.
+      What a spend LAYS bends by the gifts (Recovery R9,
+      pourLaidFor read at the door): the Witch lays 2 slots,
+      the Sage 3, the Binder 3, the Warden 1, each for the
+      same 4 points. A page mixes elements across its
+      eight; the ninth is refused; the refusals stand guard
+      around it. */
 console.log("\n§1 the grimoire door — slots filled at 4 the slot, the eight, the refusals");
 {
   const mk = async (name, classKey) => {
@@ -261,13 +272,18 @@ console.log("\n§1 the grimoire door — slots filled at 4 the slot, the eight, 
     wdFill.data?.slots?.stone === 1 && pageSlots(wd.me, "seal", "stone") === 1 && poolOf(wd.me, "stone") === 21,
     JSON.stringify(wdFill.data));
   const wiFill = await call("attuneGrimoirePage", { spellKey: "seal", element: "stone" }, wi.token);
-  check("WITCH: the same slot at the same price — 4 paid, 1 standing (the doubling stands untranslated onto slots)",
-    wiFill.data?.spent === 4 && wiFill.data?.inElement === 1 && poolOf(wi.me, "stone") === 21,
+  check("WITCH: the same spend at the same price — 4 paid, 2 standing (her doubling, read at the door)",
+    wiFill.data?.spent === 4 && wiFill.data?.laid === 2 && wiFill.data?.inElement === 2 && wiFill.data?.filled === 2 && poolOf(wi.me, "stone") === 21,
     JSON.stringify(wiFill.data));
   const sgFill = await call("attuneGrimoirePage", { spellKey: "seal", element: "root" }, sg.token);
-  check("SAGE: the same slot at the same price — 4 paid, 1 standing (her +2 stands untranslated onto slots)",
-    sgFill.data?.spent === 4 && sgFill.data?.inElement === 1 && poolOf(sg.me, "root") === 21,
+  check("SAGE: the same spend at the same price — 4 paid, 3 standing (her +2, read at the door)",
+    sgFill.data?.spent === 4 && sgFill.data?.laid === 3 && sgFill.data?.inElement === 3 && sgFill.data?.filled === 3 && poolOf(sg.me, "root") === 21,
     JSON.stringify(sgFill.data));
+  const bi = await mk("Book Binder", "binder");
+  const biFill = await call("attuneGrimoirePage", { spellKey: "seal", element: "stone" }, bi.token);
+  check("BINDER: the same spend at the same price — 4 paid, 3 standing (her Attune ×3, read at the door)",
+    biFill.data?.spent === 4 && biFill.data?.laid === 3 && biFill.data?.inElement === 3 && biFill.data?.filled === 3 && poolOf(bi.me, "stone") === 21,
+    JSON.stringify(biFill.data));
 
   const wdRoot1 = await call("attuneGrimoirePage", { spellKey: "seal", element: "root" }, wd.token);
   const wdRoot2 = await call("attuneGrimoirePage", { spellKey: "seal", element: "root" }, wd.token);
@@ -430,40 +446,40 @@ console.log("\n§3 the homeland carries the page — and the old push action is 
   await call("attuneGrimoirePage", { spellKey: "shard", element: "fire" }, wi.token);
   await call("attuneGrimoirePage", { spellKey: "shard", element: "fire" }, wi.token);
   await call("attuneGrimoirePage", { spellKey: "shard", element: "fire" }, wi.token);
-  check("the Witch's pages stand slotted by the door itself (seal stone ×2, lattice root ×1, shard fire ×3; pools 25 → 17 / 21 / 13)",
-    pageSlots(wi.me, "seal", "stone") === 2 && pageSlots(wi.me, "lattice", "root") === 1 && pageSlots(wi.me, "shard", "fire") === 3 &&
+  check("the Witch's pages stand slotted by the door itself — each of her spends laid 2 (seal stone ×4, lattice root ×2, shard fire ×6; pools 25 → 17 / 21 / 13, the price per spend unchanged)",
+    pageSlots(wi.me, "seal", "stone") === 4 && pageSlots(wi.me, "lattice", "root") === 2 && pageSlots(wi.me, "shard", "fire") === 6 &&
     poolOf(wi.me, "stone") === 17 && poolOf(wi.me, "root") === 21 && poolOf(wi.me, "fire") === 13,
     `${pageSlots(wi.me, "seal", "stone")}/${pageSlots(wi.me, "lattice", "root")}/${pageSlots(wi.me, "shard", "fire")} pools ${poolOf(wi.me, "stone")}/${poolOf(wi.me, "root")}/${poolOf(wi.me, "fire")}`);
 
   const wiSeal = await castUntilStands(wi.token, { spellKey: "seal", hue: "stone", tileId: wi.ids["2,0"], dir: 2 });
-  check("WITCH (homeland cast, ward): the Seal carries its page's 2 stone slots — the response speaks it",
-    wiSeal?.pour === 2, JSON.stringify(wiSeal));
+  check("WITCH (homeland cast, ward): the Seal carries its page's 4 stone slots — the response speaks it",
+    wiSeal?.pour === 4, JSON.stringify(wiSeal));
   const wiSealRow = workingRow(wi.me, wiSeal?.id);
-  check("WITCH (homeland cast, ward): the standing Seal holds the 2 slots at the bare health + 2",
-    wiSealRow?.pour === 2 && wiSealRow?.hp === expHp(SEAL, 3, 2),
-    `row=${JSON.stringify(wiSealRow)} expected hp ${expHp(SEAL, 3, 2)}`);
-  check("WITCH (homeland cast, ward): the Seal's stored riposte — its power — is the book's riposte + 2 slots",
-    JSON.parse(wiSealRow?.nums ?? "{}")?.riposte === (SEAL.numbers?.riposte ?? 3) + 2, `nums=${wiSealRow?.nums}`);
+  check("WITCH (homeland cast, ward): the standing Seal holds the 4 slots at the bare health + 4",
+    wiSealRow?.pour === 4 && wiSealRow?.hp === expHp(SEAL, 3, 4),
+    `row=${JSON.stringify(wiSealRow)} expected hp ${expHp(SEAL, 3, 4)}`);
+  check("WITCH (homeland cast, ward): the Seal's stored riposte — its power — is the book's riposte + 4 slots",
+    JSON.parse(wiSealRow?.nums ?? "{}")?.riposte === (SEAL.numbers?.riposte ?? 3) + 4, `nums=${wiSealRow?.nums}`);
   check("WITCH (homeland cast, ward): the cast spent no pool (stone still 17 — the door's price alone)",
     poolOf(wi.me, "stone") === 17, `pool=${poolOf(wi.me, "stone")}`);
   const wiSeal2 = await castUntilStands(wi.token, { spellKey: "seal", hue: "stone", tileId: wi.ids["1,0"], dir: 2, pour: 5 });
-  check("THE DEAD FIELD: a pour smuggled into the homeland cast changes nothing — 2 slots again, pool unmoved",
-    wiSeal2?.pour === 2 && poolOf(wi.me, "stone") === 17, `res=${JSON.stringify(wiSeal2)} pool=${poolOf(wi.me, "stone")}`);
+  check("THE DEAD FIELD: a pour smuggled into the homeland cast changes nothing — 4 slots again, pool unmoved",
+    wiSeal2?.pour === 4 && poolOf(wi.me, "stone") === 17, `res=${JSON.stringify(wiSeal2)} pool=${poolOf(wi.me, "stone")}`);
   const wdSeal = await castUntilStands(wd.token, { spellKey: "seal", hue: "stone", tileId: wd.ids["2,0"], dir: 2 });
   check("CONTROL (homeland cast, ward): the Warden's bare page casts bare — 0 carried at the bare health",
     wdSeal?.pour === 0 && workingRow(wd.me, wdSeal?.id)?.hp === expHp(SEAL, 3, 0), `res=${JSON.stringify(wdSeal)}`);
 
   const wiLat = await castUntilStands(wi.token, { spellKey: "lattice", hue: "root", tileId: wi.ids["1,1"] });
-  check("WITCH (homeland cast, rune): the Lattice carries its page's 1 root slot, health exact",
-    wiLat?.pour === 1 && wiLat?.hp === expHp(LATTICE, 3, 1) && workingRow(wi.me, wiLat?.id)?.pour === 1,
+  check("WITCH (homeland cast, rune): the Lattice carries its page's 2 root slots, health exact",
+    wiLat?.pour === 2 && wiLat?.hp === expHp(LATTICE, 3, 2) && workingRow(wi.me, wiLat?.id)?.pour === 2,
     `res=${JSON.stringify(wiLat)}`);
   const wiShard = await castUntilStands(wi.token, { spellKey: "shard", hue: "fire", tileId: wi.ids["2,1"] });
-  check("WITCH (homeland cast, rune): the Crown Shard stands holding its page's 3 fire slots — the measure its fall reads where a fall exists",
-    wiShard?.pour === 3 && workingRow(wi.me, wiShard?.id)?.pour === 3, `res=${JSON.stringify(wiShard)}`);
+  check("WITCH (homeland cast, rune): the Crown Shard stands holding its page's 6 fire slots — the measure its fall reads where a fall exists",
+    wiShard?.pour === 6 && workingRow(wi.me, wiShard?.id)?.pour === 6, `res=${JSON.stringify(wiShard)}`);
 
   const gone = await call("pourMapWorking", { id: wiLat.id, hue: "root", pour: 2 }, wi.token, true);
   check("THE DEAD ROAD: pourMapWorking is gone from the world (404) — the standing rune is untouched",
-    gone.status === 404 && workingRow(wi.me, wiLat.id)?.pour === 1, `status=${gone.status}`);
+    gone.status === 404 && workingRow(wi.me, wiLat.id)?.pour === 2, `status=${gone.status}`);
 
   const grove = await castUntilStands(wi.token, { spellKey: "springleaf", hue: "root", tileId: wi.ids["3,0"], pour: 2 });
   check("THE BINDING STANDS BARE: a pour smuggled into the Springleaf's cast plants the grove carrying 0, pool untouched",

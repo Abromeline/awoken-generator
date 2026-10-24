@@ -159,6 +159,24 @@ export function curseReliefFor(classKey: string | null | undefined, tenderLevel?
 export function bindingHealBonusFor(classKey: string | null | undefined): number {
   return classKey === "binder" ? 4 : 0;
 }
+/** THE BINDER'S RANGE (Nigel, 2026-10-22 — entered in the
+ *  class-cards spreadsheet beside the Attune ×3 ruling:
+ *  "her Binding workings that heal have 2× range"; coded
+ *  in 2026-10-23, Recovery R9): every range a Binding
+ *  healing working is reckoned by — the Heal cast's reach
+ *  from the caster's stand, the Springleaf's planting reach
+ *  and the radius of the grove she plants (the measure its
+ *  bursts and its per-beat mending reach by, on both
+ *  grounds) — is TWICE the standing measure when the
+ *  caster is a Binder, and the standing measure for every
+ *  other hand. The AMOUNT is not this reader's business:
+ *  it stands in bindingHealBonusFor above (+4, Recovery
+ *  R7), read separately, never doubled here. One helper,
+ *  so both grounds' range reckoning is the only reckoning
+ *  there is. */
+export function bindingHealRangeFor(classKey: string | null | undefined, baseRange: number): number {
+  return classKey === "binder" ? baseRange * 2 : baseRange;
+}
 export function witchCastCostFor(classKey: string | null | undefined, cost: number, castPartyMemberStanding: boolean): number {
   if (classKey !== "witch" || !castPartyMemberStanding) return cost;
   return Math.ceil(cost / 2);

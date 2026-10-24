@@ -22,9 +22,9 @@ import {
   type TenderRow,
   requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, pourLaidFor, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
-import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
+import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
@@ -8303,6 +8303,16 @@ export const handlers = {
     if (tile.cursed) badRequest("That ground is still cursed — attunement rests only on purified land. Win it first, and the ground will turn.");
     if (buildUnderway(tile)) badRequest("A work is rising on that ground — its pours are the builder's, ten at a time. Attune it when it stands finished, or stand elsewhere.");
     if ((tile as any).baked) badRequest("That ground is baked sealed — the kiln shut its bank, and no attunement pours into it.");
+    // THE BINDER'S GIFT (Nigel, 2026-10-22; Recovery R9):
+    // one point still leaves her pool — the spend is the
+    // same spend every hand makes — but what the spend LAYS
+    // is reckoned by the book's one reckoning (pourLaidFor,
+    // no page kind at this door): a Binder's Attune lays
+    // triple the points, into the bank and, where the ground
+    // already holds the element, into the growing tray
+    // alike, as each standing press point feeds both.
+    const attuneProgress = await getTenderProgress(ownerKey);
+    const laid = pourLaidFor(attuneProgress.classKey, null, 1);
     const spent = await spendAttunement(ownerKey, element, 1);
     if (!spent.ok) badRequest(`Attuning the ground costs 1 ${element} point — your ${element} pool holds ${Math.floor(spent.held)}.`);
     // A working of his standing on the target ground lends
@@ -8326,7 +8336,7 @@ export const handlers = {
       }
     }
     const elementBefore = tile.element as string;
-    const upd = pourAttunementBank(tile, element, 1);
+    const upd = pourAttunementBank(tile, element, laid);
     if (upd) Object.assign(tile, upd);
     const turned = (tile.element as string) !== elementBefore;
     let traysMoved = false;
@@ -8343,7 +8353,7 @@ export const handlers = {
       // never reaches this branch, its element is its own).
       const sealed = tile.sealedTrays ?? 0;
       if (sealed < 6) {
-        let grow = (tile.growPoints ?? 0) + 1;
+        let grow = (tile.growPoints ?? 0) + laid;
         let sealedNow = sealed;
         while (grow >= 30 && sealedNow < 6) { grow -= 30; sealedNow += 1; }
         if (sealedNow >= 6) grow = 0;
@@ -8365,7 +8375,7 @@ export const handlers = {
       ok: true as const, tileId: tile.id, element: tile.element as string,
       attuneElement: (tile.attuneElement ?? null) as string | null, attunePoints: tile.attunePoints ?? 0,
       growPoints: tile.growPoints ?? 0, sealedTrays: tile.sealedTrays ?? 0, turned,
-      working: workingName,
+      working: workingName, laid,
       pool: await aspectPoolFor(ownerKey, element),
     };
   },
@@ -9079,10 +9089,10 @@ export const handlers = {
     }
     const stand = await this.tenderStand(ownerKey, castTiles as any[]);
     const standTile = stand ? castTileById.get(stand.tileId) : null;
-    const assertCastReach = (tile: any) => {
+    const assertCastReach = (tile: any, range: number = HOMELAND_CAST_RING) => {
       if (!standTile || !tile) badRequest("You have no stand on this land to cast from.");
-      if (hexDistTiles(standTile as any, tile as any) > HOMELAND_CAST_RING) {
-        badRequest(`“${spell.name}” lies beyond your casting reach — ring ${HOMELAND_CAST_RING} of where you stand.`);
+      if (hexDistTiles(standTile as any, tile as any) > range) {
+        badRequest(`“${spell.name}” lies beyond your casting reach — ring ${range} of where you stand.`);
       }
     };
 
@@ -9103,6 +9113,21 @@ export const handlers = {
       const towerBonus = cfg.buildings["watchtower"]?.powerBonus ?? 2;
       const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
       const myTile = tileById.get(placement.tileId);
+      // THE BINDER'S RANGE (Nigel, 2026-10-22; Recovery R9):
+      // Heal is a Binding working that heals, and its reach
+      // is the homeland's casting ring (HOMELAND_CAST_RING,
+      // the common reach every homeland cast stands on
+      // above) measured from the Tender's stand to the
+      // mended one's hex — doubled for a Binder's cast
+      // (bindingHealRangeFor), the standing ring for every
+      // other hand. Judged before any charge, as every
+      // reach refusal on this ground is.
+      if (standTile && myTile) {
+        const healRange = bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING);
+        if (hexDistTiles(standTile as any, myTile as any) > healRange) {
+          badRequest(`“${spell.name}” lies beyond your casting reach — ring ${healRange} of where you stand.`);
+        }
+      }
       const maxHp = (payload?.toughness ?? 3) + (myTile && towerTiles.some((tt) => hexDist(myTile, tt) <= 1) ? towerBonus : 0);
       const curHp = placement.hp ?? maxHp;
       if (curHp >= maxHp) badRequest(`${payload?.name ?? "That Awokin"} stands whole already.`);
@@ -9150,12 +9175,22 @@ export const handlers = {
       if (tileId == null) badRequest("The Springleaf roots on a hex — name the ground.");
       const tile = castTileById.get(tileId) as any;
       if (!tile) badRequest("That hex is not yours to plant.");
-      assertCastReach(tile);
+      // THE BINDER'S RANGE (Recovery R9): the Springleaf is
+      // a Binding working that heals — a Binder plants it at
+      // twice the casting ring, and the grove she raises
+      // below spans twice the radius.
+      assertCastReach(tile, bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
       const springleafPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
       if (!(await spendEnergy(ownerKey, springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
       const cast = homelandCastRoll(progress, spell);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: springleafPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, springleafPrice), spellKey: spell.key };
-      const radiusHexes = Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80));
+      // THE BINDER'S RANGE (Recovery R9): the grove's radius
+      // is the reach its bursts and mending work by — a
+      // Binder's grove spans twice the measure, and the
+      // doubled radius is what stands in the stored numbers
+      // the settle reads (its saplings' span and glow derive
+      // from it there, as they derive for every hand).
+      const radiusHexes = bindingHealRangeFor(progress.classKey, Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80)));
       const now = Date.now();
       // The raising burst: every one of his standing in the
       // glow rolls its OWN element die, as at the Table — a
@@ -11388,10 +11423,14 @@ export const handlers = {
    *  whose eight slots all stand filled refuses more.
    *  Filling is one-way today: emptying or re-attuning a
    *  filled slot is not ruled and is not offered. The
-   *  Witch's doubling and the Sage's +2 (pourLaidFor) priced
-   *  the retired point pour; how they bend slots is not
-   *  ruled, so every hand fills at the same flat 4 until it
-   *  is — the reckoning stands preserved in the book. Only
+   *  GIFTS BEND THE LAYING (Recovery R9): the price is the
+   *  flat 4 for every hand, but what a spend LAYS is the
+   *  book's one reckoning (pourLaidFor, in grimoire.ts):
+   *  the Witch's slot spend lays 2 slots, the Sage's lays
+   *  3 (hers is +2), the Binder's lays 3 (hers is ×3, her
+   *  Attune gift of 2026-10-22), every other hand lays the
+   *  1 it sought — capped by the page's room, as a hex's
+   *  cap stands over a tile gift. Only
    *  pages whose strength is bought with attunement take
    *  slots at all (the book's POUR_ENGINES). */
   async attuneGrimoirePage(args: unknown, ctx?: ActionContext) {
@@ -11413,11 +11452,21 @@ export const handlers = {
     if (totalNow >= PAGE_SLOTS) {
       badRequest(`That page's eight slots all stand filled — there is no room for another.`);
     }
+    const progress = await getTenderProgress(ownerKey);
+    // What this spend LAYS (pourLaidFor — the book's one
+    // reckoning, read here at its own door): 1 slot sought;
+    // a gifted hand's spend lays more standing in the page
+    // for the same 4 points, capped by the page's room.
+    const laid = Math.max(1, Math.min(pourLaidFor(progress.classKey, spell.kind, 1), PAGE_SLOTS - totalNow));
     const spent = await spendAttunement(ownerKey, element, SLOT_COST);
     if (!spent.ok) badRequest(`Filling a ${element} slot costs ${SLOT_COST} ${element} points — your ${element} pool holds ${Math.floor(spent.held)}. Nothing was spent.`);
-    const { inElement, total } = await fillPageSlot(ownerKey, spellKey, element);
+    let inElement = 0, total = totalNow;
+    for (let i = 0; i < laid; i++) {
+      const fill = await fillPageSlot(ownerKey, spellKey, element);
+      inElement = fill.inElement; total = fill.total;
+    }
     const slots = await pageAttunementsFor(ownerKey);
-    return { ok: true as const, spellKey, element, spent: SLOT_COST, inElement, filled: total, slots: slots[spellKey] ?? {} };
+    return { ok: true as const, spellKey, element, spent: SLOT_COST, laid, inElement, filled: total, slots: slots[spellKey] ?? {} };
   },
 
   /** THE PARTY, READ (Nigel, 2026-10-20; built 2026-10-21):

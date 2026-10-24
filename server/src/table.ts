@@ -29,11 +29,11 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING } from "./actions.js";
 import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
-import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor } from "./grimoire.js";
-import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
+import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
+import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, companyAcBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
@@ -4933,10 +4933,16 @@ function handleConnection(ws: WebSocket): void {
         if (axialDist(player.hex, hex) > reach) { ws.send(JSON.stringify({ type: "error", message: `That ground lies beyond your attuning reach — Attune touches your own hex and its ring${reach > 1 ? `, and ${reach - 1} ring${reach > 2 ? "s" : ""} more by your skill` : ""}. Step closer, and attune again.` })); return; }
       }
       if (tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is still cursed — attunement rests only on purified land. Fell what holds it, or grind it down, and it will turn." })); return; }
+      // THE BINDER'S GIFT (Nigel, 2026-10-22; Recovery R9):
+      // one point still leaves her pool, but what the spend
+      // LAYS is the book's one reckoning (pourLaidFor, no
+      // page kind at this door): a Binder's Attune lays
+      // triple the points resting on the tile.
+      const laid = pourLaidFor(player.classKey, null, 1);
       const spent = await spendAttunement(player.expKey, element, 1);
       if (!spent.ok) { ws.send(JSON.stringify({ type: "error", message: `Attuning a tile costs 1 ${element} point — your ${element} pool holds ${spent.held}.` })); return; }
       if (player.pools) player.pools[element] = Math.max(0, (player.pools[element] ?? 0) - 1);
-      tile.points[element] = (tile.points[element] ?? 0) + 1;
+      tile.points[element] = (tile.points[element] ?? 0) + laid;
       tile.element = elementFromPoints(tile);
       // A working standing on the tapped ground lends the
       // tale its name — the point still rests in the tile's
@@ -4948,9 +4954,13 @@ function handleConnection(ws: WebSocket): void {
         .sort((a, b) => Number(b.ownerKey === mySeatKey) - Number(a.ownerKey === mySeatKey))[0] : undefined;
       const workingHere = runeHere ?? wardHere;
       if (workingHere) {
-        tell(room, `✦ ${player.name} attunes the ${workingHere.name} — a ${element} point rests on its ground now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+        tell(room, laid > 1
+          ? `✦ ${player.name} attunes the ${workingHere.name} — her Attune lays triple: ${laid} ${element} points rest on its ground now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`
+          : `✦ ${player.name} attunes the ${workingHere.name} — a ${element} point rests on its ground now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
       } else {
-        tell(room, `✦ ${player.name} attunes the ground — a ${element} point rests on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
+        tell(room, laid > 1
+          ? `✦ ${player.name} attunes the ground — her Attune lays triple: ${laid} ${element} points rest on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`
+          : `✦ ${player.name} attunes the ground — a ${element} point rests on it now (${tile.points[element]} ${element} in all), and the ground holds ${tile.element}.`);
       }
       sendState(room);
       return;
@@ -4972,6 +4982,20 @@ function handleConnection(ws: WebSocket): void {
       const unit = unitsAt(room, String(msg.hex || "")).filter(u => u.ownerKey === myKey)
         .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "Heal reaches only your own standing Awokin." })); return; }
+      // THE BINDER'S RANGE (Nigel, 2026-10-22; Recovery R9):
+      // Heal is a Binding working that heals, and its reach
+      // is the casting ring — six hexes, the measure the
+      // homeland reads from this ground's own size
+      // (HOMELAND_CAST_RING) — from where the caster stands
+      // to the mended one's hex, doubled for a Binder's cast
+      // (bindingHealRangeFor). Judged before any charge, as
+      // every reach refusal is. A seat that stands nowhere
+      // (the storytender) is measured by no ring, as with
+      // Attune at this Table.
+      if (player.hex) {
+        const healRange = bindingHealRangeFor(player.classKey, HOMELAND_CAST_RING);
+        if (axialDist(player.hex, unit.hex) > healRange) { ws.send(JSON.stringify({ type: "error", message: `Heal reaches ${healRange} hexes from where you stand — ${unit.card.name} stands beyond it.` })); return; }
+      }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
       const healCost = witchCompanyPrice(room, player, healSpell()?.cost ?? 2);
       if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ✦${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` })); return; }
@@ -5078,7 +5102,13 @@ function handleConnection(ws: WebSocket): void {
         // × 2.75, read in Table pixels (× 69/80).
         const centre = TILE_CENTERS.get(hexB);
         if (!centre) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." })); return; }
-        const radiusPx = (66 + 12 * caster.tenderLevel) * 2.75 * (69 / 80);
+        // THE BINDER'S RANGE (Recovery R9): the grove's
+        // radius is the reach its burst and mending work
+        // by — a Binder's grove spans twice the measure,
+        // and the doubled radius is what stands on the
+        // working the tick reads (its saplings' spread and
+        // half-glow derive from it there, as for every hand).
+        const radiusPx = bindingHealRangeFor(caster.classKey, (66 + 12 * caster.tenderLevel) * 2.75 * (69 / 80));
         const groveHue = hue === "unaligned" ? "root" : hue;
         // The BURST: every ally in the glow rolls its own
         // element die once, hp-then-shield — a Binder's

@@ -636,18 +636,36 @@ export function hpForCast(spell: GrimoireSpell, tenderLevel: number, slots: numb
  *  them; BINDINGS stand outside both, as they stand outside
  *  the pour itself (binding healing is energy only). Every
  *  other class lays what it spends. The two gifts never meet
- *  on one caster. THE SLOTS (Nigel, 2026-10-21) retired the
- *  point pour this reckoning priced: a page is now powered
- *  slot by slot at a flat 4 points the slot, and NO door
- *  calls this reckoning today — it stands preserved in the
- *  book, untranslated, because how the gifts bend SLOTS is
- *  not yet ruled. The candidate readings stand named in
- *  the build report of 2026-10-21 (the gifts bend the price
- *  of a slot, or the gifts bend what a filled slot grants);
- *  until the ruling lands, every hand fills slots at the
- *  same flat price and the gifts sleep here, whole. */
+ *  on one caster. THE BINDER'S GIFT (Nigel, 2026-10-22 —
+ *  Recovery R9): her Attune lays TRIPLE — "Attune ×3 — her
+ *  Attune lays triple the points", entered in the
+ *  class-cards spreadsheet. Her ruling names Attune
+ *  itself, with no kind named, and her own school IS
+ *  Binding — so her branch stands BEFORE the kind gate:
+ *  every attunement spend of hers lays three times what
+ *  it costs, at the book's door and at the Attune act on
+ *  a tile alike.
+ *  THE SLOTS (Nigel, 2026-10-21) retired the point pour
+ *  this reckoning first priced; its translation onto
+ *  slots is the book door's own reading (Recovery R9): a
+ *  slot spend (SLOT_COST, one slot sought) LAYS this
+ *  reckoning's count of slots in the page — the price
+ *  never bends, the laying does — capped by the page's
+ *  room, as the hex's thirty-point cap stands over even
+ *  the Sage's tile gift. The Attune act on a tile
+ *  (attuneTile, both grounds) calls this same reckoning
+ *  with no page kind (null): only the Binder's
+ *  kind-unrestricted gift bends there — the Witch's and
+ *  the Sage's gifts are page-kind gifts and lay nothing
+ *  extra on a tile, exactly as they stood before this
+ *  build. (The name pourLaidFor is legacy: the system's
+ *  true name is ATTUNEMENT, and the cast-time "pour" is
+ *  dead law this reckoning does not revive — it prices
+ *  what a spend lays where the spend is made, beforehand
+ *  and apart from any cast.) */
 export function pourLaidFor(classKey: string | null | undefined, kind: string | null | undefined, wanted: number): number {
   if (wanted <= 0) return wanted;
+  if (classKey === "binder") return wanted * 3;
   if (kind !== "spell" && kind !== "rune" && kind !== "ward") return wanted;
   if (classKey === "witch") return wanted * 2;
   if (classKey === "sage") return wanted + 2;
