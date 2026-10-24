@@ -319,14 +319,6 @@
 
 .territory-nav button{pointer-events:auto}
 
-/* Battle pool — staged Awoken above the hand */
-.battle-pool{margin-top:10px;padding:10px;background:#0d0d0d;border:1px solid #b89b5e;border-radius:8px}
-.battle-pool-label{font-size:12px;color:#b89b5e;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
-.battle-pool-cards{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-.battle-pool-card{background:#1a1a1a;border:1px solid #b89b5e;border-radius:6px;padding:6px;cursor:pointer;width:72px;position:relative}
-.battle-pool-card img{width:100%;height:auto;border-radius:4px}
-.battle-pool-card-name{font-size:10px;color:#e8e0d0;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hand-card.in-pool{opacity:0.35}
 
 /* Selection layers (fix list #13, refined): all drawn from the fitted
    hex-cell geometry — hover glow (desktop), mist preview (touch),
@@ -1473,7 +1465,6 @@ body.defeat-flash {
    a touched card rises out of the fan. */
 .dock-hand .dock-card{margin-left:-26px;}
 .dock-hand .dock-card:first-child{margin-left:0;}
-.dock-card.in-pool{border-color:#ffd700;box-shadow:0 0 10px rgba(255,215,0,0.5);}
 .dock-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;display:block;}
 .dock-card-name{font-size:9px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
 .dock-card-stats{font-size:10px;color:#b8b8b8;font-family:monospace;}
@@ -2327,7 +2318,6 @@ body.defeat-flash {
   .packet-page,
   .energy-label,
   .fighter-stats,
-  .battle-pool-card-name,
   .cosmic-pool-card-name,
   .battle-log,
   .sprite-current small,
@@ -2578,11 +2568,9 @@ body.defeat-flash {
 .hex-notice p{margin:0;color:#f3ddba}
 
 .corruption-glow{animation:corruptionPulse 4.2s ease-in-out infinite}
-.corruption-glow.armed{animation-duration:1.9s}
 @keyframes corruptionPulse{0%,100%{opacity:.7}50%{opacity:1}}
 
 .mist-wisp{transform-box:fill-box;transform-origin:center;animation:mistRise 5.5s ease-in-out infinite}
-.corruption-glow.armed .mist-wisp{animation-duration:3.4s}
 @keyframes mistRise{0%,100%{transform:translateY(5px);opacity:.55}50%{transform:translateY(-9px);opacity:1}}
 
 /* The Ode's pause — always within reach over the main page */

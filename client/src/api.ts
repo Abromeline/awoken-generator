@@ -769,7 +769,6 @@ export const api = {
   // landing at the Tender's side and answers with the whole
   // reckoning (a falter spends the price and stands nothing).
   summonAwoken: (args: { awakenedId: number }) => post<{ ok: true; summoned: boolean; faltered: boolean; name: string; tileId?: number; roll: number; gift: number; summonersPower: number; curse: number; dc: number; cost: number; refunded?: number }>("summonAwoken", args),
-  deployBattle: (args: { awakenedIds: number[]; tileId: number }) => post<{ ok: true; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("deployBattle", args),
   setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),
   setLighthouse: (args: { lit: boolean }) =>

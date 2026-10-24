@@ -10,11 +10,13 @@
 //      creature off the field into the party (Nigel,
 //      2026-10-23 — the join law); a march order and
 //      a laid patrol road each end the membership.
-//   §G the homeland gate (the fix, 2026-10-21): both
-//      deploy doors refuse a non-member in plain words,
-//      spending nothing and fielding nothing; a member
-//      deploys exactly as before; a party fill at home
-//      lands at once — no road, no timer.
+//   §G the homeland gate (the fix, 2026-10-21): the
+//      deploy door refused a non-member in plain words,
+//      spending nothing and fielding nothing; the assault
+//      door (deployBattle) is struck whole (Nigel,
+//      2026-10-24) and its checks now prove the door
+//      answers no more; a party fill at home lands at
+//      once — no road, no timer.
 //   §T the Table: a membership written over HTTP stands in
 //      the seat's own payload (the same ledger, read across
 //      grounds); adding a fielded Awokin by the unit's bar
@@ -190,18 +192,12 @@ const partyRows = (ownerKey) => db.prepare("SELECT awakened_id FROM tender_party
     energyOf() === 100 && placedOf(N) === 0, `energy ${energyOf()}, placed ${placedOf(N)}`);
 
   refused = null;
+  const energyBeforeDeadDoor = energyOf();
   try { await call("deployBattle", { awakenedIds: [M, N], tileId: g11 }, G.token); } catch (e) { refused = e; }
-  ok("deployBattle refuses a company carrying a non-member",
-    !!refused && /is not in your party/.test(refused.message), refused ? refused.message : "no refusal");
-  ok("the battle refusal spent nothing and fielded nothing — the member in the company stands undeployed too",
-    energyOf() === 100 && placedOf(M) === 0 && placedOf(N) === 0, `energy ${energyOf()}`);
-
-  refused = null;
-  try { await call("deployBattle", { awakenedIds: [M], tileId: g00 }, G.token); } catch (e) { refused = e; }
-  ok("the readied company fields nothing on quiet ground — summoning rides the wheel",
-    !!refused && /Quiet ground takes no assault/.test(refused.message), refused ? refused.message : "no refusal");
-  ok("the quiet-ground refusal spent nothing and fielded nothing",
-    energyOf() === 100 && placedOf(M) === 0, `energy ${energyOf()}`);
+  ok("the assault door is struck whole — deployBattle answers no more (Nigel, 2026-10-24)",
+    !!refused, refused ? refused.message : "no refusal");
+  ok("the dead door spent nothing and fielded nothing — both Awokin stand undeployed",
+    energyOf() === energyBeforeDeadDoor && placedOf(M) === 0 && placedOf(N) === 0, `energy ${energyOf()}`);
 
   // The member is summoned BY THE CAST: no tile is named —
   // the server lands it at the Tender's side (his stand is

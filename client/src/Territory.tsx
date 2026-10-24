@@ -4,7 +4,6 @@ import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeW
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
 import { WALL_STYLES } from "./wallArt";
 import EnergyTimer from "./EnergyTimer";
-import { useCardBorder } from "./cardBorder";
 import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
 
@@ -444,7 +443,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // stands, served by getTerritory beside the placements (the
   // Table's honest margin, brought to the homeland hand).
   const [elsewhere, setElsewhere] = useState<{ name: string; element: string; where: "fielded" | "staged" }[]>([]);
-  const [battlePool, setBattlePool] = useState<number[]>([]); // AWAKENED IDs staged for battle, max 4 — IDs, never hand indices: an index rots the moment the hand re-derives
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [musicOn, setMusicOn] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
@@ -1022,9 +1020,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     return "unaligned";
   };
-  // The chosen card border (Nigel, 2026-10-17): the hand in the dock
-  // wears the same frame as the arena and the Table.
-  const cardBorder = useCardBorder();
   const [castAnchor, setCastAnchor] = useState<number | null>(null);
 
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
@@ -1057,8 +1052,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   );
   const [hoverHexId, setHoverHexId] = useState<number | null>(null);
-  const [hexConfirm, setHexConfirm] = useState<{ kind: "attack" | "move" | "deploy"; tileId: number } | null>(null);
-  const raiseHexConfirm = (kind: "attack" | "move" | "deploy", tileId: number) => setHexConfirm({ kind, tileId });
+  const [hexConfirm, setHexConfirm] = useState<{ kind: "attack" | "move"; tileId: number } | null>(null);
+  const raiseHexConfirm = (kind: "attack" | "move", tileId: number) => setHexConfirm({ kind, tileId });
   const clearHexConfirm = () => setHexConfirm(null);
   // Refusals must SPEAK (Nigel's iPad, 2026-10-14: "I tapped to place and
   // nothing happened at all"). Every guard on the hex flows — staging,
@@ -1083,7 +1078,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTargetHexId(pending.tileId);
     if (pending.kind === "attack") handleAttack(pending.tileId);
     else if (pending.kind === "move") handleMove(pending.tileId);
-    else handleDeploy(pending.tileId);
   };
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
   const [spendOpenId, setSpendOpenId] = useState<number | null>(null);
@@ -1303,10 +1297,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // no local formula remains to drift away from the server again.
   const maxEnergy = serverMaxEnergy;
 
-  // Deploy cost scales with power: 2 base + 1 per 3 power.
-  // 1-3: 2, 4-6: 3, 7-9: 4, 10+: 5.
-  const deployCost = (power: number) => 2 + Math.floor((power - 1) / 3);
-
   // Whisper state: which field Awoken is speaking
   const [whisper, setWhisper] = useState<{ awakenedId: number; text: string } | null>(null);
 
@@ -1398,8 +1388,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the patrol ONCE, when the territory's true state is known. While
   // the first seed's hold stands open, the patrol is named to the
   // seed's company — the deploy selection, up to the hex's four.
-  // The event done (or never sown) → they are simply readied in the
-  // battle pool.
+  // The event done (or never sown) → they simply stand in the party
+  // as woken; the wheel's cast fields them at the Tender's side.
   const patrolSeededRef = useRef(false);
   useEffect(() => {
     if (patrolSeededRef.current || !territoryLoaded || firstSeedQ.isPending) return;
@@ -1409,8 +1399,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (mine.length === 0) return;
     if (firstSeedEv && firstSeedEv.state !== "done") {
       setSeedTeam(mine.slice(0, 4));
-    } else {
-      setBattlePool(mine.filter(id => !placements.some(p => p.awakenedId === id)).slice(0, 4));
     }
   }, [territoryLoaded, tiles, placements, initialPatrolIds, tenderItems, firstSeedQ.isPending, firstSeedEv]);
 
@@ -1607,7 +1595,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     tenderStandRef.current = tenderStand;
     tenderInputBlockedRef.current = !!(
       castMode || moveTargeting || attackTargeting ||
-      patrolSettingFor !== null || pendingMarch !== null || battlePool.length > 0 ||
+      patrolSettingFor !== null || pendingMarch !== null ||
       showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
     );
   });
@@ -2445,58 +2433,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   };
 
-  // Hand = Awoken not on field (defined above for energy calc)
-
-  const handleDeploy = async (tileId: number) => {
-    if (battlePool.length === 0) return;
-    const tile = tiles.find(t => t.id === tileId);
-    if (!tile) return;
-    // The hand road's summoning door is RETIRED (Nigel,
-    // 2026-10-22): the readied company assaults cursed
-    // ground only. Fielding Awokin belongs to the wheel's
-    // cast, which stands them at the Tender's side.
-    if (!tile.cursed) {
-      showHexNotice("Quiet ground takes no assault — summoning rides the wheel now: right-click to open it, pick your Awokin under its branch, and they stand at your side. A readied company is for cursed ground.");
-      return;
-    }
-    const fighters = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
-    if (fighters.length === 0) {
-      showHexNotice("The readied company has scattered — ready them again.");
-      return;
-    }
-    // No client-side energy gate (round four): this client's `energy` is a
-    // mount-time snapshot that regen leaves behind, while the orb reads
-    // the server fresh — a stale gate here refused deploys the tender
-    // could afford ("couldn't place, but had energy"). The server's
-    // spendEnergy is the only honest cashier; its refusal speaks below.
-    const fighterIds = fighters.map(a => a.id);
-    try {
-      const result = await api.deployBattle({ awakenedIds: fighterIds, tileId });
-      await refreshEnergy();
-      const after = await api.getTerritory();
-      setTiles(after.tiles);
-      setPlacements(after.placements); setElsewhere(after.elsewhere ?? []);
-      setBattlePool([]);
-      setTargetHexId(null);
-      // If the dark broke, a newborn joins the hand. Server-side, fire-and-forget —
-      // it can never hang the purification.
-      if (result.purified) {
-        const liberatorNames = fighters.map(a => a.name);
-        api.birthNewbornToHand({ tileId, liberatorNames }).catch(e =>
-          console.error("[Birth] Newborn failed — game continues", e)
-        );
-      }
-      onUpdate();
-    } catch (e) {
-      console.error("Battle deployment failed", e);
-      setTargetHexId(null);
-      showHexNotice(refusalText(e, "The deployment was refused."));
-    }
-  };
-
   // The First Seed's company (Nigel via Wake, 2026-10-17): sending
   // Awoken onto the seed's hex rides the server's own deploy law
-  // for the hold — no assault, no instant break; the waves decide.
+  // for the hold — no instant break; the risings decide.
   // Casting never closes, so this answers before and during a run.
   const handleDeployFirstSeed = async () => {
     if (seedBusy || seedTeam.length === 0) return;
@@ -2571,7 +2510,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   const handleAttack = async (tileId: number) => {
     if (selectedAwoken === null) return;
-    // (No client energy gate — the server's cashier decides; see deploy.)
+    // (No client energy gate — the server's cashier decides.)
     try {
       const result = await api.attackTile({ awakenedId: selectedAwoken, tileId }) as any;
       await refreshEnergy();
@@ -2623,7 +2562,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (selectedAwoken === null) return;
     const awoken = tenderItems.find(a => a.id === selectedAwoken);
     if (!awoken) return;
-    // (No client energy gate — the server's cashier decides; see deploy.)
+    // (No client energy gate — the server's cashier decides.)
     try {
       await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
       await refreshEnergy();
@@ -2975,7 +2914,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     {
       const bt = tiles.find(t => t.id === tile.id);
       const bs = (bt as any)?.buildStage ?? 0;
-      if (bt && bs >= 1 && bs <= 4 && !selectedBuilding && !attackTargeting && !moveTargeting && battlePool.length === 0) {
+      if (bt && bs >= 1 && bs <= 4 && !selectedBuilding && !attackTargeting && !moveTargeting) {
         openBuildTile(bt.id);
         return;
       }
@@ -3000,17 +2939,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     } else if (moveTargeting && selectedAwoken !== null) {
       if (touchMode) raiseHexConfirm("move", tile.id);
       else { setTargetHexId(tile.id); handleMove(tile.id); }
-    } else if (battlePool.length > 0) {
-      // The readied company is for the ASSAULT only (the
-      // summoning fix): quiet ground takes no deploy — the
-      // wheel's cast fields Awokin now, at the Tender's side.
-      const bt = tiles.find(t => t.id === tile.id);
-      if (bt && !bt.cursed) {
-        showHexNotice("Quiet ground takes no assault — summoning rides the wheel now: right-click to open it, pick your Awokin under its branch, and they stand at your side. A readied company is for cursed ground.");
-        return;
-      }
-      if (touchMode) raiseHexConfirm("deploy", tile.id);
-      else { setTargetHexId(tile.id); handleDeploy(tile.id); }
     }
     // A plain tap on open ground, with a classed Tender standing
     // on it: his body glides to the tapped hex — the tap is a road
@@ -3019,7 +2947,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // re-checked here, so a tap that reaches this line unclaimed
     // and unarmed is his to answer. The tap's old behaviour is
     // untouched — a plain tap never did anything else.
-    if (tenderStandRef.current && !selectedBuilding && !attackTargeting && !moveTargeting && battlePool.length === 0) {
+    if (tenderStandRef.current && !selectedBuilding && !attackTargeting && !moveTargeting) {
       const full = tiles.find(t => t.id === tile.id);
       if (full) {
         const c = tileCenterScreen(full, pan, zoom);
@@ -3261,19 +3189,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   const courtMarks = useCourtMarks();
   const isCourt = (a: Awakened) => courtMarks.championId === a.id || courtMarks.housedIds.has(a.id);
-  const toggleBattlePool = (a: Awakened) => {
-    // Court-bound: housed Awoken and the champion stay in hand for battles —
-    // they never stage for field deployment.
-    if (isCourt(a) && !battlePool.includes(a.id)) {
-      showHexNotice(`${a.name} is of the court — housed Awokin and the champion stay in hand for battles.`);
-      return;
-    }
-    setBattlePool(prev => {
-      if (prev.includes(a.id)) return prev.filter(id => id !== a.id);
-      if (prev.length >= 4) return prev;
-      return [...prev, a.id];
-    });
-  };
 
   // Helper: get dominant element from Awoken layers (simplified)
   const getDominantElement = (awoken: Awakened): string => {
@@ -3600,7 +3515,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   e.stopPropagation();
                   // A building stands ON a hex: while a flow is armed,
                   // a tap here is a tap on that hex (round four).
-                  if (attackTargeting || moveTargeting || battlePool.length > 0) { handleHexTap(t); return; }
+                  if (attackTargeting || moveTargeting) { handleHexTap(t); return; }
                   if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
                   if (demoMode) {
                     if (confirm(`Demolish this ${b.buildingType}?`)) {
@@ -3692,7 +3607,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   e.stopPropagation();
                   // A shroom stands ON a hex: while a flow is armed,
                   // a tap here is a tap on that hex (round four).
-                  if (attackTargeting || moveTargeting || battlePool.length > 0) { handleHexTap(t); return; }
+                  if (attackTargeting || moveTargeting) { handleHexTap(t); return; }
                   if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
                   if (demoMode) {
                     if (confirm(`Demolish this Dream Shroom?`)) {
@@ -3821,7 +3736,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       if (bandJustClosed()) return; // the band's release is not a tap
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || battlePool.length > 0 || patrolSettingFor !== null || pendingMarch) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -4096,23 +4011,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
               GLOW crimson-violet from within — the dark bruising the land
               itself, never a red grid laid over it. Always on: the wilds
-              smolder at the edge of the light. When a company is readied
-              the bruise deepens and its pulse quickens — the dark knows
-              it is being aimed at. Layered polygons, no SVG filters, so
-              the iPad stays smooth. */}
+              smolder at the edge of the light. Layered polygons, no SVG
+              filters, so the iPad stays smooth. */}
           {t.cursed && (
-            <g className={battlePool.length > 0 ? "corruption-glow armed" : "corruption-glow"} pointerEvents="none">
-              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill={battlePool.length > 0 ? "rgba(120,8,30,0.34)" : "rgba(110,6,26,0.16)"} stroke="none" />
-              <polygon points={pts} fill={battlePool.length > 0 ? "rgba(165,18,60,0.38)" : "rgba(148,14,52,0.20)"} stroke="none" />
+            <g className="corruption-glow" pointerEvents="none">
+              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill="rgba(110,6,26,0.16)" stroke="none" />
+              <polygon points={pts} fill="rgba(148,14,52,0.20)" stroke="none" />
               {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
                   drifting up off the corruption — the glow made taller.
                   Two soft wisps per hex, staggered by tile so the wilds
                   never breathe in lockstep. CSS-risen, no filters. */}
               <ellipse className="mist-wisp" cx={cx - s * 0.18} cy={cy - s * 0.30} rx={s * 0.30} ry={s * 0.55}
-                fill={battlePool.length > 0 ? "rgba(178,24,44,0.16)" : "rgba(178,24,44,0.09)"} stroke="none"
+                fill="rgba(178,24,44,0.09)" stroke="none"
                 style={{ animationDelay: `${(t.id % 5) * 0.9}s` }} />
               <ellipse className="mist-wisp" cx={cx + s * 0.22} cy={cy - s * 0.42} rx={s * 0.22} ry={s * 0.44}
-                fill={battlePool.length > 0 ? "rgba(160,20,70,0.14)" : "rgba(160,20,70,0.07)"} stroke="none"
+                fill="rgba(160,20,70,0.07)" stroke="none"
                 style={{ animationDelay: `${(t.id % 7) * 0.7 + 1.3}s` }} />
             </g>
           )}
@@ -4193,7 +4106,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 fill="rgba(0,0,0,0)"
                 stroke="transparent"
                 style={{
-                  cursor: (battlePool.length > 0 || attackTargeting) ? "pointer" : "default",
+                  cursor: attackTargeting ? "pointer" : "default",
                   filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
                   pointerEvents: "all"
                 }}
@@ -4261,7 +4174,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     //    committed; the confirm bar (or the builder popup) decides.
     //  · SHINE (committed): the gold double outline + chevron on the
     //    hex the tap chose, while its action resolves.
-    const flowArmed = battlePool.length > 0 || attackTargeting || moveTargeting || !!selectedBuilding;
+    const flowArmed = attackTargeting || moveTargeting || !!selectedBuilding;
     const mistTileId = hexConfirm?.tileId ?? pendingTile;
     const cellLayer = (tileId: number | null, kind: "hover" | "mist" | "shine") => {
       if (tileId === null) return null;
@@ -6529,12 +6442,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         } else if (hexConfirm.kind === "move") {
           text = `${actorName} will move to this hex — ${actor ? moveCost(actor.power) : 1}✦.`;
           confirmLabel = "Move";
-        } else {
-          const pooled = battlePool.map(id => hand.find(a => a.id === id)).filter(Boolean) as Awakened[];
-          const names = pooled.map(a => a.name).join(", ");
-          const cost = pooled.reduce((sum, a) => sum + deployCost(a.power), 0);
-          text = `${names || "The readied company"} will assault this cursed hex — if their combined power breaks the corruption, the land becomes yours. ${cost}✦.`;
-          confirmLabel = "Send them";
         }
         return (
           <div className="hex-confirm" role="dialog" aria-live="polite">
@@ -6560,28 +6467,8 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         )}
       </div>
       <div className="bottom-dock">
-        <div className="hand-label">Your Awokin. Summoning rides the wheel now — right-click anywhere, pick a party member under the Awoken branch, and they stand at your side. Tap cards here to ready a company for the assault on cursed ground.</div>
+        <div className="hand-label">Your Awokin. Summoning rides the wheel — right-click anywhere, pick an Awokin under the Awoken branch, and they stand at your side.</div>
         <div className="dock-row">
-                {battlePool.length > 0 && (
-          <div className="battle-pool">
-            <div className="battle-pool-label">Ready for battle ({battlePool.length}/4)</div>
-            <div className="battle-pool-cards">
-              {battlePool.map(id => {
-                const a = hand.find(x => x.id === id);
-                if (!a) return null;
-                const el = dominantElement(a);
-                return (
-                  <button key={a.id} className="battle-pool-card" onClick={() => toggleBattlePool(a)} title="Remove">
-                    <Corner element={el} className="hcorner tl" />
-                    <Corner element={el} className="hcorner br" />
-                    <img src={a.image_url} alt={a.name} />
-                    <div className="battle-pool-card-name">{a.name}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
         <div className="dock-hand">
           {hand.map((a, i) => {
             const el = dominantElement(a);
@@ -6589,7 +6476,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             const xp = a.experience ?? 0;
             const progress = a.xp_progress ?? 0;
             return (
-            <button key={a.id} className={`dock-card ${battlePool.includes(a.id) ? "in-pool" : ""} ${applyingAspect ? "apply-target" : ""} ${courtMarks.championId === a.id ? "dock-court-champion" : courtMarks.housedIds.has(a.id) ? "dock-court-housed" : ""}`}
+            <button key={a.id} className={`dock-card ${applyingAspect ? "apply-target" : ""} ${courtMarks.championId === a.id ? "dock-court-champion" : courtMarks.housedIds.has(a.id) ? "dock-court-housed" : ""}`}
               title={courtMarks.championId === a.id ? "Your champion — the court stays in hand for battles" : courtMarks.housedIds.has(a.id) ? "Housed in the Hall — the court stays in hand for battles" : undefined}
               onClick={async () => {
                 if (applyingAspect) {
@@ -6612,7 +6499,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   }
                   return;
                 }
-                toggleBattlePool(a);
               }}>
               <Corner element={el} className="hcorner tl" />
               <Corner element={el} className="hcorner br" />
@@ -6635,7 +6521,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   </div>
                 )
               )}
-              {battlePool.includes(a.id) && cardBorder.imageUrl && <img className={`card-border-frame fit-${cardBorder.fit ?? "hug"}`} src={cardBorder.imageUrl} alt="" aria-hidden="true" />}
             </button>
             );
           })}

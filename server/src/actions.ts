@@ -1206,9 +1206,6 @@ export function describeValidationIssues(error: z.ZodError): string {
  *   Ring 3: 9 toughness... and so on outward.
  *
  * How Awoken break it:
- * - ACTIVE ASSAULT (deployBattle): The combined power of ALL Awoken standing
- *   on the tile must meet or exceed its toughness. If so, the dark breaks
- *   immediately. The tile takes the dominant element of its liberators.
  * - PASSIVE SIEGE (passivePurify): Every 48 hours, each cursed tile adjacent
  *   to purified land may attempt to break. If the combined power of Awoken
  *   on neighboring purified tiles (plus defenders on the tile itself) meets
@@ -1578,10 +1575,7 @@ async function dominantClaimElement(standingRows: Array<{ compositionJson: strin
  *  the reading rides with it, or it would be read nowhere
  *  at home.) It is deliberately NOT spent at the weapon
  *  referee (the Table's weapon strikes carry neither bonus
- *  — fireWeapon reads its die alone) nor on deployBattle's
- *  assault (a combined-power threshold against the ground's
- *  toughness: no per-strike reckoning, no dark creature
- *  standing anywhere for a Beacon to light). */
+ *  — fireWeapon reads its die alone). */
 function homelandBannerBonus(ownerKey: string, striker: { q: number; r: number }, target: { q: number; r: number }): { std: number; bcn: number } {
   const rows = sqlite.prepare("SELECT engine, q, r, dir, nums FROM territory_workings WHERE owner_key = ? AND kind = 'ward' AND engine IN ('standard', 'beacon') ORDER BY id").all(ownerKey) as any[];
   if (!rows.length) return { std: 0, bcn: 0 };
@@ -2753,7 +2747,8 @@ async function gainEnergy(ownerKey: string, amount: number, maxEnergy: number): 
 // keep their own rules; they do not pass through here.
 
 /** Deploy / re-entry cost by power: 1-3 → 2, 4-6 → 3, 7-9 → 4, 10+ → 5.
- *  The single form of the scale deployBattle always charged inline. */
+ *  The single form of the power-scaled deploy price — its live
+ *  spender is the first seed's deploy door (deployFirstSeed). */
 export function deployCostForPower(power: number): number {
   return 2 + Math.floor((Math.max(1, power) - 1) / 3);
 }
@@ -3273,9 +3268,9 @@ export function homelandVictimAcFor(toughness: number, classKey: string | null |
  *  arrived by — the summon cast is the casting door, and
  *  only party members can be summoned at all — so the
  *  standing is read as the party's own: a member of her
- *  party standing among her field placements. (A party
- *  member fielded by the assault door, deployBattle, would
- *  read as standing too; the ledger cannot tell the two
+ *  party standing among her field placements. (Fielded by
+ *  the seed's deploy or returned from the bastion, a member
+ *  reads as standing too; the ledger cannot tell the
  *  arrivals apart, and the reading is named here rather
  *  than hidden.) */
 async function witchCompanyStanding(ownerKey: string): Promise<boolean> {
@@ -9232,7 +9227,7 @@ export const handlers = {
    *  The price is the Table's: the Awokin's power, one at least.
    *  This road replaces deployAwoken whole: the hand-card →
    *  tile-tap fielding is retired (the hand stays the
-   *  collection; battle entry keeps deployBattle, below). */
+   *  collection). */
   async summonAwoken(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
@@ -9361,8 +9356,9 @@ export const handlers = {
       // the gate above saw the following had room, so the
       // flag is raised whole, and with it the muster keeps
       // the figure at the Tender's ring. (The other
-      // placement births — deploy, assault, bastion return —
-      // deliberately stay follow 0: fighters under orders.)
+      // placement births — the seed's deploy, the bastion
+      // return — deliberately stay follow 0: fighters under
+      // orders.)
       follow: 1,
       // Born standing on a real free point (Nigel,
       // 2026-10-23): the landing tile's centre — its own
@@ -9387,122 +9383,6 @@ export const handlers = {
     }
     return { ok: true as const, summoned: true as const, faltered: false as const, name: payload.name, tileId: landing.id, roll, gift, summonersPower: sp, curse, dc, cost };
   },
-
-  /**
-   * Battle deployment — the ACTIVE ASSAULT, this door's only
-   * duty since the summoning fix (Nigel, 2026-10-22): send
-   * 1-4 Awoken from the battle pool onto a CURSED tile. If
-   * the combined power on it meets the curse weight, the
-   * dark breaks — the tile purifies, takes the attackers'
-   * dominant element, and neighboring cursed tiles start
-   * their 48h passive timers. (Quiet-ground fielding through
-   * the hand is retired — summonAwoken, above, is the only
-   * summoning door on this ground now.)
-   */
-  async deployBattle(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({
-      awakenedIds: z.array(z.number().int().positive()).min(1).max(4),
-      tileId: z.number().int().positive(),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid battle deployment.");
-    if (new Set(parsed.data.awakenedIds).size !== parsed.data.awakenedIds.length) {
-      badRequest("Each Awokin fights once.");
-    }
-    const tile = await db.select().from(schema.territoryTiles)
-      .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
-    if (!tile.length) badRequest("That tile is not yours.");
-    // BATTLE ENTRY IS THIS DOOR'S ONLY DUTY NOW (Nigel,
-    // 2026-10-22 — the summoning fix): a readied company is
-    // sent against CURSED ground — the assault, its XP and
-    // the break. Quiet ground fields no one through the hand
-    // any more: summoning rides the wheel (summonAwoken —
-    // pick the Awokin, and it stands at your side by the
-    // cast). The refusal spends nothing and fields nothing.
-    if (!tile[0].cursed) badRequest("Quiet ground takes no assault — summoning rides the wheel now: right-click, the Awoken branch, pick your Awokin, and it stands at your side by the cast. A readied company is for cursed ground.");
-    const owned = await db.select().from(schema.awakened)
-      .where(
-        and(
-          eq(schema.awakened.collection, "tender"),
-          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
-        )
-      );
-    const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
-    if (fighters.length !== parsed.data.awakenedIds.length) badRequest("Those Awokin are not all yours.");
-    const placedIds = new Set((await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
-      .from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).map(p => p.awakenedId));
-    for (const f of fighters) {
-      if (!canTouchAwoken(f, ownerKey)) badRequest("That Awokin is not yours to send.");
-      if (placedIds.has(f.id)) badRequest("Already on the field.");
-      // Court-bound (Nigel, 2026-10-12): housed Awoken and the marked champion
-      // stay in hand for battles — they cannot be stationed on field tiles.
-      const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
-        .where(eq(schema.hallResidents.ownerKey, ownerKey));
-      const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
-        .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
-      const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
-      if (courtIds.has(f.id)) badRequest(`${f.name} is of the court — housed Awokin and the champion stay in hand for battles.`);
-      // STAGED AT THE BASTION (Station 4, Nigel 2026-10-20):
-      // a waiting reinforcement fights from the bastion's hex
-      // by mustering — it is not in the battle pool while staged.
-      const stagedF = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, f.id) as any;
-      if (stagedF) badRequest(`${f.name} waits at the bastion — muster it onto the bastion's hex before it fights on the field.`);
-      // THE PARTY IS WHO YOU CAN FIELD (Nigel, 2026-10-21):
-      // the party gate stands on this road too — a fighter
-      // outside the party is refused whole, in the deploy
-      // door's plain voice, before any price is reckoned or
-      // spent and before anything takes the field.
-      if (!isPartyMember(ownerKey, f.id)) badRequest(`${f.name} is not in your party — the party is who you can field. Add it from the Party tab of your Zodiac — at home the fill lands at once.`);
-    }
-    // No count refuses a deployment (THE CROWDING GATE,
-    // Nigel 2026-10-18): a tile may hold a whole company;
-    // the crowd costs speed, never the standing spot.
-    // Server-authoritative deploy cost: 2 + floor((power - 1) / 3) per fighter
-    const assetRows = await db.select().from(schema.layerAssets);
-    const assetStats = new Map<number, AssetStats>();
-    for (const r of assetRows) {
-      const rar = raritySchema.safeParse(r.rarity);
-      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
-    }
-    let totalCost = 0;
-    for (const f of fighters) {
-      // True (payload) power — empowerment/stories/aspects count, matching
-      // the cost the client quoted from the same payload stats.
-      const layers = parseLayers(f.compositionJson, assetStats);
-      const payload = await awakenedPayloadById(f.id);
-      const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
-      totalCost += deployCostForPower(power);
-    }
-    if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
-    for (const f of fighters) {
-      const shield = await rollShieldFor(f.id);
-      await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: f.id, tileId: parsed.data.tileId,
-        posQ: tile[0].q, posR: tile[0].r,
-        hp: await placementMaxHp(f.id),
-        stance: "attack", stanceOrdered: 1,
-        shield, shieldMax: shield,
-      });
-    }
-    // THE INSTANT ASSAULT IS RETIRED (Nigel, 2026-10-23):
-    // this door's only duty now is the FIELDING — the readied
-    // company takes the cursed ground under attack orders,
-    // shields rolled, and the LIVING BATTLE decides what
-    // happens there: the dark walks, bites, and is answered
-    // in real time (settleHomelandBattle). No fight is
-    // resolved in this breath, no combined-power break is
-    // struck here, and no XP bursts from the sending — blows
-    // earn their events as they land. The curse still breaks
-    // the standing ways: strike workings grind it
-    // (grindHomelandCurse) and an attack-ordered Awokin's
-    // attackTile worries the tile beside her. The response
-    // keeps its shape — purified stands false, honestly:
-    // nothing was purified by the sending.
-    return z.object({ ok: z.literal(true), purified: z.boolean(), xpGains: z.array(z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() })) })
-      .parse({ ok: true, purified: false, xpGains: [] });
-  },
-
 
 
   async moveAwoken(args: unknown, ctx?: ActionContext) {
@@ -11226,10 +11106,10 @@ export const handlers = {
     return { ok: true, element, aspectSpawned };
   },
 
-  /** Send Awoken onto the seed's hex. The field's own deploy law
-      (deployBattle's guards and price) — but NOT its assault: the
-      seed anchors this hex's curse, and standing power alone
-      never breaks it. Only the hold purifies here. Casting never
+  /** Send Awoken onto the seed's hex. The field's own deploy
+      guards and price stand here — but no assault: the seed
+      anchors this hex's curse, and standing power alone never
+      breaks it. Only the hold purifies here. Casting never
       closes: this answers in 'waiting' and 'holding' alike. */
   async deployFirstSeed(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);

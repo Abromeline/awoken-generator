@@ -14,9 +14,9 @@
 //      not the party (Nigel, 2026-10-24) — and a landed
 //      outsider follows and is enrolled in the party by
 //      the cast itself; the retired hand road fields
-//      nothing (deployAwoken is gone; deployBattle refuses
-//      quiet ground and keeps only its assault on cursed
-//      ground). §G CONTROL: a Lv 1 Tender with no party
+//      nothing (deployAwoken is gone; the assault door,
+//      deployBattle, was struck whole — Nigel, 2026-10-24 —
+//      and answers no more). §G CONTROL: a Lv 1 Tender with no party
 //      stars and no summon skills casts at the base
 //      arithmetic — summoner's power 0, DC = 10 + power.
 //   §B THE WHEEL ITSELF (browser): right-click → the
@@ -223,13 +223,9 @@ console.log("§A the homeland cast — no target, purse before roll, the curse's
   // THE HAND ROAD FIELDS NOTHING.
   const gone = await callRaw("deployAwoken", { awakenedId: outsider, tileId: heart }, G.token);
   ok("the retired deployAwoken no longer answers at all", gone.status >= 400, JSON.stringify(gone.data).slice(0, 120));
-  const quiet = await callRaw("deployBattle", { awakenedIds: [third], tileId: heart }, G.token);
-  ok("the readied company fields nothing on quiet ground — the wheel word answers",
-    quiet.status === 400 && /Quiet ground takes no assault/.test(quiet.data?.error ?? ""), JSON.stringify(quiet.data));
-  const assault = await callRaw("deployBattle", { awakenedIds: [giant], tileId: cursedEast }, G.token);
-  ok("on cursed ground the assault road still answers as battle entry — never with the quiet-ground word",
-    !/Quiet ground takes no assault/.test(assault.data?.error ?? ""),
-    JSON.stringify(assault.data).slice(0, 160));
+  const assaultGone = await callRaw("deployBattle", { awakenedIds: [third], tileId: heart }, G.token);
+  ok("the struck assault door no longer answers at all — deployBattle is gone",
+    assaultGone.status >= 400, JSON.stringify(assaultGone.data).slice(0, 120));
 }
 
 /* ══ §B THE WHEEL ITSELF, IN THE BROWSER ══════════════════ */
