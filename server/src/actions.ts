@@ -4825,6 +4825,116 @@ async function settleHomelandEngines(ownerKey: string): Promise<void> {
   }
 }
 
+/** THE FIRST THREE ARE THE PARTY (Nigel, 2026-10-23 22:26 —
+ *  front-intro redo, piece 4): "the Tender's first three
+ *  Awoken must BE the party when the Tender first goes to
+ *  the field — following along outside in the party as they
+ *  should be to help defend and fight that first battle to
+ *  defend the starseed." Wired at the honest joint: the
+ *  first territory read on which the Tender STANDS on his
+ *  land (getTerritory, once tenderStand has reckoned his
+ *  stand — the standing flow, no side intro, no new area
+ *  or door), before his followers muster and before the
+ *  living battle settles, so the three stand in that very
+ *  read's field and answer in its battle.
+ *
+ *  THE NEVER-OVERWRITE LAW: this pass runs only while the
+ *  party ledger (tender_party, party.ts) stands EMPTY. A
+ *  Tender who already has a party — any party, in any
+ *  order — is passed over whole: no entry is added,
+ *  removed, re-ordered or topped up, and no placement of
+ *  his is touched. A Tender holding fewer than three
+ *  Awoken gets nothing invented either: the pass writes
+ *  nothing at all, and waits — the next standing read
+ *  after his third Awoken exists completes it (in the
+ *  ruled flow, piece 3's choose-at-three means a new
+ *  Tender already holds three before the field matters).
+ *  A Tender with no stand yet (no class chosen, or no
+ *  ground to stand on) likewise waits whole: no ledger
+ *  entry is made until he stands, so the ledger and the
+ *  fielding always land together, in one read.
+ *
+ *  THE ENTRY is written directly into the ledger, NOT
+ *  through tryAddPartyMember: that door is a JOIN, and a
+ *  join lifts a fielded member off the field (the join
+ *  law, 2026-10-23) — here the ruling is the opposite
+ *  motion (into the party AND onto the field in one act),
+ *  and a first-three creature that already stands placed
+ *  keeps its standing row exactly as it stands; this pass
+ *  only refrains from placing a second body for it.
+ *
+ *  THE FIELDING mirrors the summon cast's landing, free
+ *  of its price and its roll — this is not a cast, it is
+ *  the Tender arriving with his party already beside
+ *  him: each of the three takes a standing point on the
+ *  Tender's own tile or one beside it (the summon
+ *  landing's own candidates, in its own order, the least
+ *  crowded first), born at full HP with its shield rolled
+ *  as any figure taking the field rolls it (rollShieldFor),
+ *  FOLLOW raised (follow 1 — the party's own definition:
+ *  a member follows when it stands on a ground), with no
+ *  stance ever ordered, so the living battle reads it as
+ *  ATTACK by the no-orders law and it strikes and is
+ *  struck in settleHomelandBattle like any fighter. The
+ *  summon company's exclusions are honoured whole: a
+ *  member already placed, staged at the bastion, housed
+ *  in the court or its champion, or still re-coalescing
+ *  from a fall is entered in the ledger but NOT fielded
+ *  by this pass — each already stands (or lies) somewhere
+ *  this arrival cannot reach past. Energy is never spent
+ *  and no roll is ever made here.
+ *
+ *  IDEMPOTENT by its gate: once the three stand in the
+ *  ledger, the ledger is not empty, and every later read
+ *  passes over — a second entry changes nothing. */
+async function fieldFirstThreeParty(ownerKey: string, tiles: any[], standTileId: number): Promise<void> {
+  if (!ownerKey.startsWith("tender:")) return;
+  if (partyIdsFor(ownerKey).length) return;
+  const roster = sqlite.prepare(
+    "SELECT id, dispersed_until AS dispersedUntil FROM awakened WHERE owner_key = ? ORDER BY created_at ASC, id ASC",
+  ).all(ownerKey) as { id: number; dispersedUntil: number | null }[];
+  if (roster.length < 3) return;
+  const firstThree = roster.slice(0, 3);
+  const standTile = tiles.find((t: any) => t.id === standTileId);
+  if (!standTile) return;
+  // The ledger first — in hatch order, its own added_at
+  // steps so partyIdsFor reads them back in that order.
+  const now = Date.now();
+  const ins = sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)");
+  firstThree.forEach((r, i) => ins.run(ownerKey, r.id, now + i));
+  // Then the fielding, beside the Tender.
+  const placedRows = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+  const placedIds = new Set(placedRows.map(p => p.awakenedId));
+  const stagedSet = new Set(stagedIdsFor(ownerKey));
+  const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
+    .where(eq(schema.hallResidents.ownerKey, ownerKey));
+  const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
+    .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+  const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
+  const load = new Map<number, number>();
+  for (const p of placedRows) load.set(p.tileId, (load.get(p.tileId) ?? 0) + 1);
+  const candidates = (tiles as any[])
+    .filter(t => hexDistTiles(t, standTile) <= 1 && (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1)
+    .sort((a, b) => (a.id === standTile.id ? 0 : 1) - (b.id === standTile.id ? 0 : 1)
+      || hexDistTiles(a, standTile) - hexDistTiles(b, standTile) || a.id - b.id);
+  const nowMs = Date.now();
+  for (const r of firstThree) {
+    if (placedIds.has(r.id) || stagedSet.has(r.id) || courtIds.has(r.id)) continue;
+    if (r.dispersedUntil && Number(r.dispersedUntil) > nowMs) continue;
+    const landing = candidates.find(t => (load.get(t.id) ?? 0) < 4) ?? candidates[0];
+    if (!landing) return;
+    const shield = await rollShieldFor(r.id);
+    await db.insert(schema.fieldPlacements).values({
+      ownerKey, awakenedId: r.id, tileId: landing.id,
+      follow: 1,
+      posQ: landing.q, posR: landing.r,
+      hp: await placementMaxHp(r.id),
+      shield, shieldMax: shield,
+    });
+    load.set(landing.id, (load.get(landing.id) ?? 0) + 1);
+  }
+}
+
 /** THE PARTY, as the Zodiac reads it (Nigel, 2026-10-20;
  *  built 2026-10-21): the members standing in the party —
  *  each with the face its card carries — the width the band
@@ -7686,6 +7796,18 @@ export const handlers = {
     // The Tender's body settles before the field is read: his
     // stand is reckoned, and his followers muster to his ring.
     const tenderStand = await this.tenderStand(ownerKey, tiles as any[]);
+    // THE FIRST THREE ARE THE PARTY (Nigel, 2026-10-23
+    // 22:26 — piece 4): on the first read where a Tender
+    // stands on his land with an EMPTY party ledger and
+    // three or more Awoken, his first three (hatch order)
+    // are entered as his party and fielded beside him,
+    // following — before the muster and the living battle
+    // below settle, so they answer in this read's fight as
+    // they answer in every later one. An existing party is
+    // never touched by the pass (fieldFirstThreeParty
+    // carries the whole law); fewer than three, nothing is
+    // written and the pass waits for the third.
+    if (tenderStand) await fieldFirstThreeParty(ownerKey, tiles as any[], tenderStand.tileId);
     if (tenderStand) await this.settleTenderMuster(ownerKey, tiles as any[], tenderStand.tileId);
     // PHASE D — THE LIVING HOMELAND settles on the same read
     // (Nigel, 2026-10-19): the Tender's own body answers the
