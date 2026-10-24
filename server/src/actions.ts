@@ -1405,6 +1405,80 @@ async function generateFirstWorld(ownerKey: string): Promise<number> {
   return center.id;
 }
 
+/** ONE SAFE SQUARE, ALWAYS (Nigel, 2026-10-23 22:40: "The map
+ *  at default needs to have one safe square at least, for the
+ *  tender to rebuild from. My uncle is currently stuck and
+ *  I'll bet other tenders are too."): every Tender's map
+ *  guarantees AT LEAST ONE safe square — a purified, standing
+ *  tile — the rebuilding ground a Tender falls back to when
+ *  everything else is lost. The guarantee fires ONLY when no
+ *  purified tile stands: a Tender holding safe ground is
+ *  never touched by it — nothing re-purified, moved or
+ *  minted, his tile states exactly as they stood. When it
+ *  fires, ONE tile is purified in place, by the standing
+ *  purification shape (the neutral purify the claim and the
+ *  wave-victory paths write: cursed 0, element neutral, the
+ *  curse HP cleared, PURIFIED_TILE_FIELDS — born clean at
+ *  Z1: buildable, standable, dealing no curse damage). No
+ *  new land is minted — the frontier buffer law owns minting
+ *  on reads, as it always has.
+ *  THE ANCHOR is the code's own chain — the one tenderStand
+ *  and bastionAnchorTileId walk: (1) his bastion building's
+ *  tile; (2) the heart (0,0) — the map's centre, the first
+ *  seed's hex; (3) the nearest other ground to the heart, by
+ *  the land's ring law, lowest id breaking the tie so the
+ *  choice never wanders. Where the standing chain passes a
+ *  cursed anchor OVER (the bastion wake never lands
+ *  mid-curse), this guarantee does the opposite at the same
+ *  address: it PURIFIES the anchor rather than choosing
+ *  different ground — the square a groundless Tender is
+ *  given back is his home square, not a stranger's.
+ *  THE SEED STANDS APART: while the first seed's hold is
+ *  live and unbanked, its hex is the seed referee's ground —
+ *  the bank at wave 3 is the only law that may purify it,
+ *  and its waves, state and ladder are never read for
+ *  change or written here (the referee itself stands
+ *  untouched by this build, stopped on Nigel's word at
+ *  piece 5's fork). If the anchor chain names that hex, the
+ *  guarantee steps to the nearest OTHER ground and purifies
+ *  that instead: a fresh Tender's safe square stands beside
+ *  his seed, and the hold he must fight for the centre is
+ *  exactly as it was.
+ *  `tiles`, when given, is the caller's just-loaded tile
+ *  rows, mutated in place so the read that fired the
+ *  guarantee serves the square it made. */
+async function ensureOneSafeSquare(ownerKey: string, tiles?: any[]): Promise<{ ensured: boolean; tileId: number | null }> {
+  const rows: any[] = tiles ?? await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  if (!rows.length) return { ensured: false, tileId: null };
+  if (rows.some((t: any) => !t.cursed)) return { ensured: false, tileId: null };
+  // The first seed's hex, while its hold is live and
+  // unbanked: the referee's ground, never this law's.
+  let seedHexId: number | null = null;
+  try {
+    const ev = firstSeedEventRow(ownerKey);
+    if (ev && !ev.banked && ev.state !== "done") {
+      const seed = sqlite.prepare("SELECT tile_id AS tileId FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as { tileId: number } | undefined;
+      if (seed) seedHexId = seed.tileId;
+    }
+  } catch { /* no seed ledger — the chain walks on */ }
+  const standable = (t: any) => (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1 && t.id !== seedHexId;
+  const ring = (t: any) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+  let chosen: any = null;
+  try {
+    const b = sqlite.prepare("SELECT b.tile_id AS tileId FROM star_seeds s JOIN territory_buildings b ON b.id = s.bastion_building_id WHERE s.owner_key = ? AND s.bastion_building_id IS NOT NULL LIMIT 1").get(ownerKey) as { tileId: number } | undefined;
+    if (b) chosen = rows.find((t: any) => t.id === b.tileId && standable(t)) ?? null;
+  } catch { /* no bastion yet — the chain walks on */ }
+  if (!chosen) chosen = rows.find((t: any) => t.q === 0 && t.r === 0 && standable(t)) ?? null;
+  if (!chosen) {
+    chosen = rows.filter(standable).sort((a: any, b: any) => ring(a) - ring(b) || a.id - b.id)[0] ?? null;
+  }
+  if (!chosen) return { ensured: false, tileId: null };
+  const upd = { cursed: 0, element: "neutral" as const, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS };
+  await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, chosen.id));
+  Object.assign(chosen, upd);
+  return { ensured: true, tileId: chosen.id };
+}
+
 /** The element a victorious company claims land with: the dominant
  *  element of their layers, read from the parts' own records (fire
  *  never claims conquered land; a tie stays neutral). The same
@@ -7762,6 +7836,20 @@ export const handlers = {
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    // ONE SAFE SQUARE, ALWAYS (Nigel, 2026-10-23 22:40):
+    // the guarantee stands here, on the ordinary read, after
+    // every settle above has had its say (the seed's bank
+    // above may itself have purified the centre this read —
+    // then the guarantee rightly sleeps) and BEFORE the
+    // Tender's stand is reckoned below, so a groundless
+    // Tender stands ON the square this same read gives him,
+    // his first three muster beside it (piece 4, below) and
+    // his body settles on clean ground. It fires only when
+    // NO purified tile stands; a Tender holding safe ground
+    // passes through it untouched. The sowing carries the
+    // other half (ensureFirstSeed): a fresh map is born with
+    // its square already standing.
+    await ensureOneSafeSquare(ownerKey, tiles as any[]);
     // The Seed-Calm's reach, served (Nigel, 2026-10-17): any
     // tile within two rings of a held seed carries the level
     // the curse WOULD be reckoned at there — its distance
@@ -10508,9 +10596,13 @@ export const handlers = {
       2026-10-18): the Starfall Bastion's world-making. Idempotent:
       a Tender who holds any ground — or whose seed is already
       sown — is simply told so. Otherwise the whole world is
-      generated (cursed rings + frontier, nothing purified) and a
-      star seed is planted at the cursed center, state 'first',
-      with its hold ledger opened. Territory calls this on mount
+      generated (cursed rings + frontier) and a star seed is
+      planted at the cursed center, state 'first', with its hold
+      ledger opened — and ONE SAFE SQUARE, ALWAYS (Nigel,
+      2026-10-23 22:40) is purified at the sowing, on the
+      nearest ground beside the seed's hex, so the fresh map
+      starts with a square to rebuild from while the centre
+      stays the hold's to win. Territory calls this on mount
       when no tiles are held; getTerritory itself stays a read. */
   async ensureFirstSeed(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
@@ -10527,6 +10619,14 @@ export const handlers = {
     sqlite.prepare(`INSERT INTO first_seed_events (owner_key, seed_id, state, banked, waves_cleared, next_wave_at, newborn_claimed_at, created_at, updated_at)
       VALUES (?, ?, 'waiting', 0, 0, 0, NULL, ?, ?)`)
       .run(ownerKey, seedId, now, now);
+    // ONE SAFE SQUARE, ALWAYS (Nigel, 2026-10-23 22:40): a
+    // fresh map starts WITH its safe square standing — the
+    // guarantee fires at the sowing itself, not on some
+    // later event. The seed's hex stays cursed for its hold
+    // (the guarantee steps beside it, to the nearest other
+    // ground — see ensureOneSafeSquare), so the hold's ruled
+    // state is exactly as it was sown.
+    await ensureOneSafeSquare(ownerKey);
     return { ok: true, created: true, seedId, tileId: centerId };
   },
 
