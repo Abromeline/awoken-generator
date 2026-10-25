@@ -339,12 +339,29 @@ console.log("§P the six faces in the Spellbook");
     if (b) b.click();
   });
   await sleep(1200);
-  const readPage = async () => page.evaluate(() => {
-    const rune = document.querySelector(".book-rune");
+  // RESTATED TO THE BOOK'S SHAPE (the Grimoire rebuilt as
+  // a book, 2026-10-25): the book stands OPEN — two facing
+  // leaves to a spread — so a page is read within ITS OWN
+  // leaf (found by the page's name), never as the only
+  // rune on the screen as the old card kept it. The same
+  // assertions stand: the page stands, it is not owed, and
+  // its face is the working's true art byte for byte —
+  // plus the rebuild's own law: the face stands WHOLE
+  // within its page frame, inside the leaf's bounds.
+  const readPage = async (name) => page.evaluate((n) => {
+    const leaves = [...document.querySelectorAll(".book-leaf")];
+    // A page's served name may carry its line ("Heal — the
+    // Binding Light") and its article ("The Twin Trees"):
+    // match on the name's root, never a substring.
+    const root = (t) => t.replace(/^The /, "").split(" — ")[0].trim();
+    const leaf = leaves.find((l) => root((l.querySelector(".book-name")?.textContent || "").trim()) === root(n));
+    const rune = leaf?.querySelector(".book-rune");
     if (!rune) return null;
     const st = rune.getAttribute("style") || "";
-    return { cls: rune.className, style: st, owed: rune.classList.contains("owed") };
-  });
+    const rr = rune.getBoundingClientRect(), lr = leaf.getBoundingClientRect();
+    const contained = rr.left >= lr.left - 1 && rr.right <= lr.right + 1 && rr.top >= lr.top - 1 && rr.bottom <= lr.bottom + 1;
+    return { cls: rune.className, style: st, owed: rune.classList.contains("owed"), contained, leaves: leaves.length, covered: !!document.querySelector(".book-cover") };
+  }, name);
   const openPage = async (chapter, name) => {
     await page.evaluate((c) => {
       const b = [...document.querySelectorAll('[role="tab"]')].find((x) => x.textContent.trim() === c);
@@ -358,7 +375,7 @@ console.log("§P the six faces in the Spellbook");
     }, name);
     if (!clicked) throw new Error("no book pip for " + name);
     await sleep(700);
-    return readPage();
+    return readPage(name);
   };
   const BOOK_FACES = [
     ["Spells", "Shard Rain", "shardrain", "05-book-shard-rain.png"],
@@ -372,6 +389,8 @@ console.log("§P the six faces in the Spellbook");
     const p = await openPage(chapter, name);
     ok(`${name}: its page stands in the book`, !!p);
     if (p) {
+      ok(`${name}: the book stands open — a cover over two facing leaves`, p.covered && p.leaves === 2, `leaves=${p.leaves} covered=${p.covered}`);
+      ok(`${name}: its face stands whole within its page frame`, p.contained, `cls=${p.cls}`);
       const url = /url\("([^"]+)"\)/.exec(p.style)?.[1] ?? null;
       ok(`${name}: the page is not owed — its face stands in the gold mask`, !!url && !p.owed, `style=${p.style.slice(0, 160)} cls=${p.cls}`);
       if (url) {

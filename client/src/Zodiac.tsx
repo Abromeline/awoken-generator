@@ -160,10 +160,13 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   // the tender record so the card never lies.
   const [tab, setTab] = useState<"profile" | "inventory" | "grimoire" | "party" | "messages">("profile");
   const [grimTab, setGrimTab] = useState<"weapons" | "spells" | "runes">("weapons");
-  // THE SPELLBOOK (Nigel, 2026-10-24): the Grimoire's three
-  // sections stand as the book's chapters; within a chapter,
-  // page 0 is its index and pages 1..N are its entries, one
-  // working to a page, turned by the pips and the turn bar.
+  // THE SPELLBOOK (Nigel, 2026-10-24; REBUILT AS A BOOK,
+  // 2026-10-25): the Grimoire's three sections stand as the
+  // book's chapters; within a chapter, folio 0 is its index
+  // spread and folios 1..N are its entries, one working to
+  // a page, two pages to a spread — turned by the side
+  // arrows and the numbered folio circles at the pages'
+  // feet.
   const [grimPage, setGrimPage] = useState(0);
   const [charMsg, setCharMsg] = useState("");
   const [charErr, setCharErr] = useState("");
@@ -393,14 +396,16 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     const face = pageFace(s);
     return (
       <section key={s.key} className="book-page">
-        {face ? (
-          <div key={s.key} className="book-rune book-burn" role="img" aria-label={`${s.name} — its drawn face`}
-            style={{ WebkitMaskImage: `url(${face})`, maskImage: `url(${face})` }} />
-        ) : (
-          <div className="book-rune owed" role="img" aria-label={`${s.name} — its face is not yet drawn`}>
-            <span>{s.name}</span>
-          </div>
-        )}
+        <div className="book-frame">
+          {face ? (
+            <div key={s.key} className="book-rune book-burn" role="img" aria-label={`${s.name} — its drawn face`}
+              style={{ WebkitMaskImage: `url(${face})`, maskImage: `url(${face})` }} />
+          ) : (
+            <div className="book-rune owed" role="img" aria-label={`${s.name} — its face is not yet drawn`}>
+              <span>{s.name}</span>
+            </div>
+          )}
+        </div>
         <h5 className="book-name">{s.name}</h5>
         <p className="book-marks">{s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}</p>
         {s.blurb ? <p className="book-line">{s.blurb}</p> : null}
@@ -418,7 +423,89 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
         .filter(s => (grimTab === "spells" ? s.kind === "spell" || s.kind === "binding" : s.kind === "ward" || s.kind === "rune"))
         .map((spell): BookEntry => ({ type: "spell", spell }));
   const bookPage = Math.max(0, Math.min(grimPage, grimEntries.length));
-  const bookEntry = bookPage > 0 ? grimEntries[bookPage - 1] : undefined;
+  /** THE BOOK AS A BOOK (Nigel, 2026-10-24 23:46–23:50 —
+   *  this build): the condemned card is struck; the
+   *  Grimoire stands OPEN in its seat — a bound cover with
+   *  brass corners and clasps, TWO FACING PAGES, one
+   *  working to a page so a spread shows two workings, the
+   *  chapter's name at each page's head, the index standing
+   *  as its own spread with its entries half to a leaf,
+   *  and the numbered folios riding as circles along each
+   *  page's foot — the FORM of the example he set
+   *  (~/workspace/spellbook-design/: the UO spell-pages
+   *  and index references), wearing the ruled skin: dark
+   *  pages, cream text, our own runes in neutral gold.
+   *  grimPage stays the folio: 0 is the chapter's index
+   *  spread; folios 1..N pair into spreads (1,2), (3,4)… */
+  const grimChapter = grimTab === "weapons" ? "Weapons" : grimTab === "spells" ? "Spells" : "Runes/Wards";
+  const spreadCount = Math.ceil(grimEntries.length / 2);
+  const grimSpread = bookPage === 0 ? 0 : Math.ceil(bookPage / 2);
+  const turnToFolio = (folio: number) => setGrimPage(Math.max(0, Math.min(folio, grimEntries.length)));
+  const turnSpread = (dir: 1 | -1) => {
+    const next = grimSpread + dir;
+    if (next < 0 || next > spreadCount) return;
+    turnToFolio(next === 0 ? 0 : next * 2 - 1);
+  };
+  const entryName = (e: BookEntry) => (e.type === "weapon" ? WEAPONS[e.key].name : e.spell.name);
+  const entryKey = (e: BookEntry) => (e.type === "weapon" ? e.key : e.spell.key);
+  /** One leaf's foot: its share of the chapter's numbered
+   *  folios as circles — the left leaf carries the first
+   *  half, the right the rest, and the Index circle stands
+   *  at the head of the left leaf's foot, as the numbered
+   *  circles stand along the example's page feet. */
+  const leafFoot = (side: "left" | "right") => {
+    const half = Math.ceil(grimEntries.length / 2);
+    const folios = grimEntries.map((_, i) => i + 1).filter(f => (side === "left" ? f <= half : f > half));
+    return (
+      <div className="book-foot" role="navigation" aria-label={`${grimChapter} pages`}>
+        {side === "left" && (
+          <button type="button" className={`book-pip index${bookPage === 0 ? " here" : ""}`} onClick={() => turnToFolio(0)} aria-label="The chapter index">Index</button>
+        )}
+        {folios.map(f => (
+          <button key={f} type="button" className={`book-pip${bookPage === f ? " here" : ""}`} onClick={() => turnToFolio(f)} aria-label={`Page ${f} — ${entryName(grimEntries[f - 1])}`}>{f}</button>
+        ))}
+      </div>
+    );
+  };
+  /** A leaf of the open book: the chapter's name at its
+   *  head, one working's page standing whole within, and
+   *  the leaf's folios at its foot. A chapter whose count
+   *  is odd leaves its last right leaf blank — a blank
+   *  page, as a book keeps, never a borrowed face. */
+  const renderLeaf = (side: "left" | "right", entry: BookEntry | undefined) => (
+    <div className={`book-leaf ${side}`}>
+      <p className="book-leaf-head">{grimChapter}</p>
+      {entry ? (entry.type === "weapon" ? renderWeaponPage(entry.key) : renderSpellPage(entry.spell)) : <div className="book-blank" aria-hidden="true" />}
+      {leafFoot(side)}
+    </div>
+  );
+  /** The index spread: INDEX at the head of both leaves,
+   *  the chapter's name beneath it, and the chapter's
+   *  entries in the book's own order, half to a leaf —
+   *  each name a door to its page, as in the example's
+   *  index (~/workspace/spellbook-design/uo-ref-index-
+   *  circles.png). */
+  const renderIndexLeaf = (side: "left" | "right") => {
+    const half = Math.ceil(grimEntries.length / 2);
+    const rows = grimEntries.map((e, i) => ({ e, i })).filter(({ i }) => (side === "left" ? i < half : i >= half));
+    return (
+      <div className={`book-leaf ${side}`}>
+        <p className="book-leaf-head">Index</p>
+        <p className="book-index-chapter">{grimChapter}</p>
+        <div className="book-index">
+          {grimEntries.length === 0 && side === "left" && <p className="zodiac-note">No pages are written in this chapter yet.</p>}
+          {rows.map(({ e, i }) => (
+            <button key={entryKey(e)} type="button" className="book-index-row" onClick={() => turnToFolio(i + 1)}>
+              <span className="book-index-num">{i + 1}</span>
+              <span className="book-index-name">{entryName(e)}</span>
+              <span className="book-index-marks">{e.type === "weapon" ? `d${WEAPONS[e.key].die} · ${WEAPONS[e.key].note}` : `${e.spell.kind} · Lv ${e.spell.numbers?.level ?? 1} · cost ${e.spell.cost}`}</span>
+            </button>
+          ))}
+        </div>
+        {leafFoot(side)}
+      </div>
+    );
+  };
 
   return (
     <div className="zodiac-overlay" role="dialog" aria-label="The Skill Zodiac">
@@ -724,30 +811,23 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                 )}
                 {grimTab !== "weapons" && grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
                 {grimTab !== "weapons" && grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}
-                <div className="spellbook">
-                  <div className="book-turn">
-                    <button type="button" className="book-turn-btn" disabled={bookPage <= 0} onClick={() => setGrimPage(bookPage - 1)} aria-label="Turn back a page">‹</button>
-                    <span className="book-turn-label">{bookPage === 0 ? `Index — ${grimEntries.length} page${grimEntries.length === 1 ? "" : "s"}` : `Page ${bookPage} of ${grimEntries.length}`}</span>
-                    <button type="button" className="book-turn-btn" disabled={bookPage >= grimEntries.length} onClick={() => setGrimPage(bookPage + 1)} aria-label="Turn a page forward">›</button>
-                  </div>
-                  {bookPage === 0 ? (
-                    <div className="book-index">
-                      {grimEntries.length === 0 ? <p className="zodiac-note">No pages are written in this chapter yet.</p> : grimEntries.map((e, i) => (
-                        <button key={e.type === "weapon" ? e.key : e.spell.key} type="button" className="book-index-row" onClick={() => setGrimPage(i + 1)}>
-                          <span className="book-index-num">{i + 1}</span>
-                          <span className="book-index-name">{e.type === "weapon" ? WEAPONS[e.key].name : e.spell.name}</span>
-                          <span className="book-index-marks">{e.type === "weapon" ? `d${WEAPONS[e.key].die} · ${WEAPONS[e.key].note}` : `${e.spell.kind} · Lv ${e.spell.numbers?.level ?? 1} · cost ${e.spell.cost}`}</span>
-                        </button>
-                      ))}
+                <div className="book" role="group" aria-label={`The Grimoire — the ${grimChapter} chapter, standing open as a book`}>
+                  <button type="button" className="book-arrow" disabled={grimSpread <= 0} onClick={() => turnSpread(-1)} aria-label="Turn back a page">‹</button>
+                  <div className="book-cover">
+                    <span className="book-corner tl" aria-hidden="true" /><span className="book-corner tr" aria-hidden="true" />
+                    <span className="book-corner bl" aria-hidden="true" /><span className="book-corner br" aria-hidden="true" />
+                    <span className="book-clasp left" aria-hidden="true" /><span className="book-clasp right" aria-hidden="true" />
+                    <div className="book-spread">
+                      {grimSpread === 0 ? (
+                        <>{renderIndexLeaf("left")}{renderIndexLeaf("right")}</>
+                      ) : (
+                        <>{renderLeaf("left", grimEntries[grimSpread * 2 - 2])}{renderLeaf("right", grimEntries[grimSpread * 2 - 1])}</>
+                      )}
                     </div>
-                  ) : bookEntry?.type === "weapon" ? renderWeaponPage(bookEntry.key) : bookEntry?.type === "spell" ? renderSpellPage(bookEntry.spell) : null}
-                  <div className="book-pips" role="navigation" aria-label="Book pages">
-                    <button type="button" className={`book-pip${bookPage === 0 ? " here" : ""}`} onClick={() => setGrimPage(0)} aria-label="The chapter index">Index</button>
-                    {grimEntries.map((e, i) => (
-                      <button key={e.type === "weapon" ? e.key : e.spell.key} type="button" className={`book-pip${bookPage === i + 1 ? " here" : ""}`} onClick={() => setGrimPage(i + 1)} aria-label={`Page ${i + 1} — ${e.type === "weapon" ? WEAPONS[e.key].name : e.spell.name}`}>{i + 1}</button>
-                    ))}
                   </div>
+                  <button type="button" className="book-arrow" disabled={grimSpread >= spreadCount} onClick={() => turnSpread(1)} aria-label="Turn a page forward">›</button>
                 </div>
+                <p className="book-caption">{grimSpread === 0 ? `The ${grimChapter} index — ${grimEntries.length} page${grimEntries.length === 1 ? "" : "s"}` : `Pages ${grimSpread * 2 - 1}${grimEntries[grimSpread * 2 - 1] ? `–${grimSpread * 2}` : ""} of ${grimEntries.length} — the ${grimChapter}`}</p>
                 {grimTab !== "weapons" && renderBookPools()}
                 {grimTab === "weapons" && !exp.classKey && <p className="zodiac-lock">The arsenal opens with your class — choose a class first.</p>}
               </div>

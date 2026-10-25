@@ -2939,49 +2939,81 @@ body.defeat-flash {
 .weapon-node .zodiac-btn{font-size:12px;padding:7px 10px}
 @media (max-width: 820px){.character-card{max-height:none}.weapon-nodes{grid-template-columns:1fr}}
 
-/* THE SPELLBOOK (Nigel, 2026-10-24 — the Grimoire's card
-   lists become the book of the ruled design, 2026-10-23):
-   dark charcoal-brown pages, cream text, the workings' own
+/* THE GRIMOIRE AS A BOOK (Nigel, 2026-10-24 23:46–23:50 —
+   the rebuild of the condemned card, which "has pages,
+   but not book like the example i set for you"): the
+   Grimoire stands OPEN in the same seat inside the
+   skill-tree menu — a bound cover with brass corners and
+   clasps, TWO FACING PAGES, one working to a page so a
+   spread shows two workings, the chapter's name at each
+   page's head, the chapter index standing as its own
+   spread with its entries half to a leaf, and the
+   numbered folios riding as circles along each page's
+   foot. Turn arrows stand at the book's sides, outside
+   the cover. The FORM is his example's (~/workspace/
+   spellbook-design/uo-ref-spell-pages.png + uo-ref-
+   index-circles.png); the skin is the ruled one: dark
+   charcoal-brown pages, cream text, the workings' own
    runes in neutral gold burning in as their page opens.
-   Chapters where the three sections stood (Weapons ·
-   Spells · Runes/Wards); page 0 of a chapter is its index,
-   one working to a page after it, turned by the turn bar
-   and the numbered pips along the page foot. */
-.spellbook{border:1px solid rgba(216,182,106,0.5);border-radius:10px;background:linear-gradient(165deg,#241b11 0%,#191209 55%,#120d07 100%);box-shadow:inset 0 0 34px rgba(0,0,0,0.65),0 2px 10px rgba(0,0,0,0.45);padding:12px 14px 10px;color:#efe3c2;margin-top:8px}
+   Every face stands whole within its page frame: the
+   leaves size to their content and the spread grows to
+   the taller leaf — nothing is cut at a page's foot. */
+.book{display:flex;align-items:stretch;margin-top:8px}
+.book-cover{position:relative;flex:1 1 auto;min-width:0;border:1px solid rgba(216,182,106,0.55);border-radius:9px 13px 13px 9px;background:linear-gradient(150deg,#3d1810 0%,#2a110a 46%,#1c0b05 100%);box-shadow:0 3px 14px rgba(0,0,0,0.55),inset 0 0 0 2px rgba(0,0,0,0.35);padding:10px}
+.book-corner{position:absolute;width:20px;height:20px;border:2px solid #c9a44f;opacity:.9;pointer-events:none;z-index:2}
+.book-corner.tl{top:3px;left:3px;border-right:none;border-bottom:none;border-top-left-radius:8px}
+.book-corner.tr{top:3px;right:3px;border-left:none;border-bottom:none;border-top-right-radius:8px}
+.book-corner.bl{bottom:3px;left:3px;border-right:none;border-top:none;border-bottom-left-radius:8px}
+.book-corner.br{bottom:3px;right:3px;border-left:none;border-top:none;border-bottom-right-radius:8px}
+.book-clasp{position:absolute;top:50%;width:7px;height:34px;margin-top:-17px;background:linear-gradient(90deg,#8a6c2a,#e6c877 55%,#8a6c2a);border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,0.6);z-index:2}
+.book-clasp.left{left:-4px}
+.book-clasp.right{right:-4px}
+.book-spread{display:flex;align-items:stretch;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,0.55)}
+.book-leaf{flex:1 1 0;min-width:0;min-height:396px;display:flex;flex-direction:column;color:#efe3c2;padding:12px 12px 9px}
+.book-leaf.left{background:linear-gradient(252deg,#2b2114 0%,#1d150c 60%,#130c05 100%);box-shadow:inset -16px 0 24px -14px rgba(0,0,0,0.9),inset 0 0 26px rgba(0,0,0,0.5);border-right:1px solid rgba(0,0,0,0.7)}
+.book-leaf.right{background:linear-gradient(108deg,#2b2114 0%,#1d150c 60%,#130c05 100%);box-shadow:inset 16px 0 24px -14px rgba(0,0,0,0.9),inset 0 0 26px rgba(0,0,0,0.5)}
+.book-leaf-head{font-family:Georgia,'Times New Roman',serif;font-size:12.5px;letter-spacing:0.24em;text-transform:uppercase;text-align:center;color:#c8a95e;margin:0 0 4px}
+.book-index-chapter{font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:600;text-align:center;color:#f4e7bd;letter-spacing:0.04em;margin:0 0 8px}
+.book-blank{flex:1 1 auto}
+.book-arrow{align-self:center;flex:0 0 auto;width:24px;min-height:72px;border:none;background:none;color:#e9d9a8;font-size:32px;line-height:1;cursor:pointer;padding:0;opacity:.85}
+.book-arrow:hover:not(:disabled){opacity:1;color:#fff0bd}
+.book-arrow:disabled{opacity:.2;cursor:default}
+.book-caption{font-size:11px;letter-spacing:0.12em;text-transform:uppercase;text-align:center;color:#9c8f6e;margin:6px 0 0}
+.book-foot{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;border-top:1px solid rgba(216,182,106,0.25);padding-top:8px;margin-top:auto}
 .book-chapter-marks{font-size:11.5px;letter-spacing:0.04em;color:#b8ab8a;margin:8px 0 2px;line-height:1.5}
-.book-turn{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid rgba(216,182,106,0.25);padding-bottom:8px;margin-bottom:10px}
-.book-turn-btn{width:30px;height:30px;border-radius:50%;border:1px solid rgba(216,182,106,0.55);background:rgba(64,46,16,0.4);color:#f0d68c;font-size:17px;line-height:1;cursor:pointer}
-.book-turn-btn:disabled{opacity:.35;cursor:default}
-.book-turn-label{font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#cbbd93}
 .book-index{display:flex;flex-direction:column}
-.book-index-row{display:flex;align-items:baseline;gap:9px;width:100%;text-align:left;padding:7px 6px;border:none;border-bottom:1px solid rgba(216,182,106,0.14);background:none;color:#efe3c2;cursor:pointer;font-size:13.5px}
+.book-index-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;width:100%;text-align:left;padding:6px 4px;border:none;border-bottom:1px solid rgba(216,182,106,0.14);background:none;color:#efe3c2;cursor:pointer;font-size:13px}
 .book-index-row:hover{background:rgba(216,182,106,0.08)}
 .book-index-num{color:#a68c4e;font-size:11.5px;min-width:16px;text-align:right}
-.book-index-name{color:#f4e7bd}
-.book-index-marks{margin-left:auto;font-size:11px;color:#9c8f6e;white-space:nowrap}
-.book-page{text-align:center;padding:2px 2px 4px}
-.book-face{display:flex;flex-direction:column;align-items:center;gap:7px;min-height:120px;justify-content:flex-start}
-.book-face img{height:104px;max-width:150px;object-fit:contain}
-.book-rune{width:138px;height:138px;margin:2px auto 4px;background:linear-gradient(160deg,#f7e08a 0%,#d8b66a 52%,#a37f33 100%);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center}
-.book-rune.owed{display:flex;align-items:center;justify-content:center;background:none;border:1px solid rgba(216,182,106,0.5);border-radius:6px;box-shadow:inset 0 0 0 4px rgba(216,182,106,0.12);padding:10px}
-.book-rune.owed span{font-family:Georgia,'Times New Roman',serif;font-size:14.5px;letter-spacing:0.08em;color:#d8b66a;text-align:center;line-height:1.45}
+.book-index-name{color:#f4e7bd;font-family:Georgia,'Times New Roman',serif}
+.book-index-marks{margin-left:auto;font-size:10.5px;color:#9c8f6e;white-space:nowrap}
+.book-page{display:flex;flex-direction:column;text-align:center;padding:2px 0 4px}
+.book-name{order:1;font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:600;color:#f4e7bd;margin:2px 0 6px;letter-spacing:0.03em}
+.book-face{order:2;display:flex;flex-direction:column;align-items:center;gap:7px;justify-content:flex-start}
+.book-face img{height:96px;max-width:100%;object-fit:contain;border:1px solid rgba(216,182,106,0.55);outline:1px solid rgba(216,182,106,0.22);outline-offset:3px;padding:4px;background:rgba(0,0,0,0.25)}
+.book-frame{order:2;flex:0 0 auto;width:118px;max-width:84%;aspect-ratio:1;margin:0 auto;padding:6px;border:1px solid rgba(216,182,106,0.6);outline:1px solid rgba(216,182,106,0.22);outline-offset:3px;background:rgba(0,0,0,0.25);display:flex}
+.book-rune{flex:1 1 auto;min-width:0;background:linear-gradient(160deg,#f7e08a 0%,#d8b66a 52%,#a37f33 100%);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center}
+.book-rune.owed{display:flex;align-items:center;justify-content:center;background:none;padding:4px}
+.book-rune.owed span{font-family:Georgia,'Times New Roman',serif;font-size:14px;letter-spacing:0.08em;color:#d8b66a;text-align:center;line-height:1.45}
 @keyframes book-burn{0%{opacity:.1;filter:brightness(.35) blur(1.5px)}55%{opacity:1;filter:brightness(1.55) drop-shadow(0 0 15px rgba(240,200,90,.85))}100%{opacity:1;filter:brightness(1.06) drop-shadow(0 0 5px rgba(240,200,90,.4))}}
 .book-burn{animation:book-burn 1.15s ease-out}
-.book-name{font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:600;color:#f4e7bd;margin:6px 0 2px;letter-spacing:0.03em}
-.book-marks{font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#c8a95e;margin:0 0 4px}
-.book-line{font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:13px;line-height:1.5;color:#d9cba3;margin:2px auto 8px;max-width:340px}
-.book-mark-line{font-size:12px;color:#b8ab8a;margin:3px 0;line-height:1.45}
+.book-marks{order:3;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#c8a95e;margin:8px 0 4px;border-top:1px solid rgba(216,182,106,0.3);padding-top:7px}
+.book-line{order:4;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:12.5px;line-height:1.5;color:#d9cba3;margin:2px auto 8px}
+.book-mark-line{order:5;font-size:11.5px;color:#b8ab8a;margin:3px 0;line-height:1.45}
+.page-attune{order:5}
+.book-page>.attune-row,.book-page>.weapon-actions,.book-page>.weapon-nodes,.book-page>.zodiac-held{order:5}
 .book-slots{justify-content:center}
 .slot-pip{width:15px;height:15px;border-radius:50%;border:1px solid rgba(216,182,106,0.5);display:inline-block}
 .book-nodes{justify-content:center}
-.spellbook .weapon-actions{justify-content:center}
-.spellbook .weapon-node{text-align:left;border-color:rgba(216,182,106,0.3)}
-.spellbook .zodiac-btn{border-color:rgba(216,182,106,0.55)}
-.book-pips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;border-top:1px solid rgba(216,182,106,0.25);padding-top:9px;margin-top:10px}
-.book-pip{min-width:24px;height:24px;padding:0 6px;border-radius:50%;border:1px solid rgba(216,182,106,0.4);background:none;color:#cbbd93;font-size:11px;cursor:pointer}
+.book .weapon-actions{justify-content:center}
+.book .weapon-node{text-align:left;border-color:rgba(216,182,106,0.3)}
+.book .zodiac-btn{border-color:rgba(216,182,106,0.55)}
+.book-pip{min-width:22px;height:22px;padding:0 5px;border-radius:50%;border:1px solid rgba(216,182,106,0.4);background:none;color:#cbbd93;font-size:10.5px;cursor:pointer}
+.book-pip.index{min-width:0;border-radius:11px;padding:0 8px;letter-spacing:0.06em}
 .book-pip.here{background:rgba(216,182,106,0.9);color:#1a1409;font-weight:700;border-color:#d8b66a}
 .book-pools{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12.5px;color:#cfd3e2;margin:10px 0 0}
 .book-pools-label{color:#f0d68c;letter-spacing:0.1em;text-transform:uppercase;font-size:11px}
+@media (max-width:560px){.book-leaf{padding:10px 8px 8px;min-height:340px}.book-name{font-size:15px}.book-frame{width:94px}.book-arrow{font-size:26px;width:18px}}
 
 /* The deepen door on the front page (Nigel, 2026-10-18):
    it stands only while the attunement panel stands open —
