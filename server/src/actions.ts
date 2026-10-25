@@ -84,13 +84,16 @@ function assertPngBytes(bytes: Buffer): void {
 // the credits Stripe sells. (Corrected 2026-10-15: purification events
 // recorded claims when the ledger was built, but Nigel's 2026-10-14
 // ruling abolished purification births and those recording sites were
-// removed; since the War-Ground fix the ONLY recording site is a
+// removed; since the War-Ground fix the ONLY recording site was a
 // verified boss victory in resolveBossBattle.)
-
-function recordNewbornClaim(ownerKey: string, source: string): void {
-  sqlite.prepare("INSERT INTO pending_newborn_claims (owner_key, source, created_at) VALUES (?, ?, ?)")
-    .run(ownerKey, source, Date.now());
-}
+// (Abolition, Nigel 2026-10-24: the staged boss battle mode no longer
+// exists — "that battle mode should no longer exist and its triggers
+// should go too" — so resolveBossBattle is gone, and with it the last
+// recording site. recordNewbornClaim, its recording helper, goes with
+// its only caller. The ledger and the birth endpoint STAND: no living
+// system records a claim today, birthNewbornToHand refuses every
+// birth, and claims will be recorded again by the next qualifying
+// event — creation belongs to the Awoken Forge Nigel plans.)
 
 /** Take the owner's oldest pending claim, atomically — a claim pays out
  *  exactly once, even if two birth calls race. */
@@ -353,67 +356,13 @@ function applyRunesTriggered(ownerKey: string, runesTriggered: unknown): void {
   }
 }
 
-// --- Boss state & pending aspect grants -------------------------------------
-// The boss ladder is the server's record, never the client's: how many
-// bosses this tender has broken, and the wavesDefeated count when the
-// last one fell. A boss can be faced only when a fresh cycle of three
-// Unravelings has been broken since then (War-Ground fix, 2026-10-15 —
-// boss victories previously had NO server resolution path: the client
-// sent waveNumber 901+ to resolveBattle, which rejected it as a ladder
-// mismatch and swallowed the error, so no claim ever recorded).
-
-interface BossStateRow {
-  bossesDefeated: number;
-  lastVictoryDefeated: number;
-  lastBossAt: number | null;
-}
-
-function loadBossState(ownerKey: string): BossStateRow {
-  sqlite.prepare("INSERT OR IGNORE INTO boss_state (owner_key) VALUES (?)").run(ownerKey);
-  const row = sqlite.prepare(
-    "SELECT bosses_defeated AS bd, last_victory_defeated AS lvd, last_boss_at AS lba FROM boss_state WHERE owner_key = ?"
-  ).get(ownerKey) as { bd: number; lvd: number; lba: number | null };
-  return { bossesDefeated: row.bd, lastVictoryDefeated: row.lvd, lastBossAt: row.lba };
-}
-
-/** A boss waits when a full 3-Unraveling cycle has been broken since
- *  the last boss victory (or since the beginning). */
-function bossEligible(wavesDefeated: number, boss: BossStateRow): boolean {
-  return wavesDefeated > 0 && wavesDefeated % 3 === 0 && wavesDefeated > boss.lastVictoryDefeated;
-}
-
-function recordAspectGrant(ownerKey: string, elements: AspectElement[], source: string): void {
-  sqlite.prepare("INSERT INTO pending_aspect_grants (owner_key, elements, source, created_at) VALUES (?, ?, ?, ?)")
-    .run(ownerKey, JSON.stringify(elements), source, Date.now());
-}
-
-/** The owner's oldest pending aspect grant, or null when none waits. */
-function peekAspectGrant(ownerKey: string): { elements: AspectElement[]; source: string } | null {
-  const row = sqlite.prepare("SELECT elements, source FROM pending_aspect_grants WHERE owner_key = ? ORDER BY id ASC LIMIT 1")
-    .get(ownerKey) as { elements: string; source: string } | undefined;
-  if (!row) return null;
-  try {
-    const elements = JSON.parse(row.elements) as AspectElement[];
-    return Array.isArray(elements) ? { elements, source: row.source } : null;
-  } catch { return null; }
-}
-
-/** Take the owner's oldest pending aspect grant, atomically — a grant
- *  pays out exactly once, like a newborn claim. */
-function consumeAspectGrant(ownerKey: string): { elements: AspectElement[]; source: string } | null {
-  return sqlite.transaction(() => {
-    const row = sqlite.prepare("SELECT MIN(id) AS id FROM pending_aspect_grants WHERE owner_key = ?")
-      .get(ownerKey) as { id: number | null } | undefined;
-    if (!row || row.id == null) return null;
-    const grant = sqlite.prepare("SELECT elements, source FROM pending_aspect_grants WHERE id = ?")
-      .get(row.id) as { elements: string; source: string };
-    sqlite.prepare("DELETE FROM pending_aspect_grants WHERE id = ?").run(row.id);
-    try {
-      const elements = JSON.parse(grant.elements) as AspectElement[];
-      return Array.isArray(elements) ? { elements, source: grant.source } : null;
-    } catch { return null; }
-  })();
-}
+// --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
+// The staged boss battle mode — its server ladder (boss_state), its
+// eligibility cycle, and its pending aspect-grant rail — no longer
+// exists. The homeland's living battle engine is the only battle.
+// Aspect points move through addAspectPoints' living roads (the
+// attunement drip, the lake yield, the first-seed reward, the
+// creator's gift), never through a boss's prize again.
 
 type AspectElement = "tide" | "sky" | "stone" | "root";
 
@@ -1338,8 +1287,9 @@ async function ensureFrontierBuffer(ownerKey: string) {
    the hold counted as a boss equivalent (Nigel, 2026-10-18) —
    struck (Nigel, 2026-10-19): births handed out by an event
    drop the value of minted cards, and creation belongs to the
-   Awoken Forge he plans. Boss victories still free newborns;
-   this event no longer pretends to be one.
+   Awoken Forge he plans. Boss victories once freed newborns —
+   the boss battle mode itself is abolished now (Nigel,
+   2026-10-24), and this event no longer pretends to be one.
    THE RISINGS RIDE THE ENGINE (Nigel, 2026-10-24): the
    hold's own wave referee (resolveFirstSeedWave — an
    instant arithmetic struck on read) is RETIRED. The dark
@@ -2682,18 +2632,6 @@ export function nextWaveAtFor(state: { lastVictoryAt: Date | null; wavesDefeated
   // at the victory, not read live, so the countdown never flickers.
   const readyAt = new Date(state.lastVictoryAt).getTime() + waveCooldownMs(exponent) * (state.recoveryMult ?? 1);
   return readyAt > Date.now() ? new Date(readyAt).toISOString() : null;
-}
-
-// Boss scaling: significantly harder than regular waves.
-// Boss N = equivalent to wave (5 + N*3) in power, with full enemy variety.
-function bossPowerFor(bossLevel: number): { totalPower: number; frayCount: number; unravelers: number; hollows: number; tangles: number } {
-  const effectiveWave = 5 + bossLevel * 3;
-  const unravelers = Math.floor(effectiveWave / 3);
-  const hollows = Math.floor(bossLevel / 2); // Hollows from boss 2
-  const tangles = Math.floor((bossLevel + 1) / 3); // Tangles from boss 2
-  const totalPower = 7 + (effectiveWave - 1) * 2 + unravelers * 4 + hollows * 3 + tangles * 3;
-  const frayCount = Math.max(0, totalPower - unravelers * 4 - hollows * 3 - tangles * 3);
-  return { totalPower, frayCount, unravelers, hollows, tangles };
 }
 
 // Conceive a victory twin from both tenders' champions.
@@ -7219,13 +7157,13 @@ export const handlers = {
       for (const id of parsed.data.survivorIds) {
         await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
       }
-      // Only BOSS fights free new Awoken (Nigel, 2026-10-14):
-      // purification births are abolished — too many unnamed Awoken
-      // were simply popping up. No claim is recorded here, ever: the
-      // old boss-wave (900+) check that stood in this spot could never
-      // fire (the ladder never holds a 900+ wave number) and boss
-      // victories now record their claim in resolveBossBattle, the
-      // boss's own resolution path (War-Ground fix, 2026-10-15).
+      // Purification births are abolished (Nigel, 2026-10-14) — too
+      // many unnamed Awoken were simply popping up. No claim is
+      // recorded here, ever. Boss victories once recorded the claim
+      // (resolveBossBattle, War-Ground fix 2026-10-15), but the boss
+      // battle mode is abolished (Nigel, 2026-10-24): no living
+      // system records a newborn claim today, and creation belongs
+      // to the Awoken Forge he plans.
     } else {
       // Wave lost — curse HP restores to half. A legacy tile with no
       // stored max is measured by the ring law under the live sky.
@@ -7684,8 +7622,11 @@ export const handlers = {
 
   // grantAspectPoint is GONE (War-Ground fix, 2026-10-15): it minted a
   // point for any caller with no victory behind it, as often as it was
-  // called. Aspect points now move only through claimAspectGrant,
-  // which consumes a grant a verified boss victory recorded.
+  // called. Its gated successor claimAspectGrant is gone too — it paid
+  // out the aspect grants a verified boss victory recorded, and the
+  // boss battle mode is abolished (Nigel, 2026-10-24). Aspect points
+  // now move through addAspectPoints' living roads: the attunement
+  // drip, the lake yield, the first-seed reward, the creator's gift.
 
   /** Persist battle damage to a tile. Returns new HP, and whether it fell. */
   async damageTileHp(args: unknown, ctx?: ActionContext) {
@@ -10441,170 +10382,6 @@ export const handlers = {
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
-
-  async getBossWave(args: unknown, ctx?: ActionContext) {
-    const parsed = z.object({
-      bossLevel: z.number().int().min(1).max(99),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid boss level.");
-    const { totalPower, frayCount, unravelers, hollows, tangles } = bossPowerFor(parsed.data.bossLevel);
-    return {
-      waveNumber: 900 + parsed.data.bossLevel, // Boss waves are 901+
-      wavesDefeated: 0,
-      frayCount, unravelers, hollows, tangles, totalPower,
-      isBoss: true,
-      bossLevel: parsed.data.bossLevel,
-    };
-  },
-
-  /** The boss ladder as the server holds it: how many bosses this
-   *  tender has broken, which boss comes next, and whether a fresh
-   *  3-Unraveling cycle has opened the boss window. (Replaces the
-   *  client's old localStorage count, which the server never saw.) */
-  async getBossState(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const boss = loadBossState(ownerKey);
-    const waveRows = await db.select().from(schema.waveState)
-      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
-    const wavesDefeated = waveRows[0]?.wavesDefeated ?? 0;
-    return {
-      bossesDefeated: boss.bossesDefeated,
-      nextBossLevel: boss.bossesDefeated + 1,
-      eligible: bossEligible(wavesDefeated, boss),
-      wavesDefeated,
-      cycleProgress: wavesDefeated % 3,
-    };
-  },
-
-  /** Resolve a boss battle — the boss's own verified path, beside the
-   *  wave ladder rather than forced through it (War-Ground fix,
-   *  2026-10-15). The reckoning mirrors resolveBattle: the boss's power
-   *  is recomputed server-side from bossPowerFor, survivors must be
-   *  committed fighters still placed, a victory needs at least one
-   *  survivor and a company whose server-measured power matches the
-   *  boss. A victory records the only things that free a newborn: the
-   *  newborn claim in the ledger, and a pending aspect grant whose
-   *  element split (5 + 2 per boss level, Nigel 2026-10-11) is rolled
-   *  here, server-side, at the moment of victory. */
-  async resolveBossBattle(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    await this.settleMarches(ownerKey);
-    const parsed = z.object({
-      victory: z.boolean(),
-      bossLevel: z.number().int().min(1).max(99),
-      survivorIds: z.array(z.number().int().positive()),
-      wallState: z.array(z.object({ edgeKey: z.string(), hp: z.number() })).optional(),
-      runesTriggered: z.array(z.string()).optional(),
-      grimState: z.array(z.object({
-        id: z.number().int().positive(),
-        hp: z.number().optional(), stops: z.number().optional(), charges: z.number().optional(),
-        spent: z.boolean().optional(),
-      })).optional(),
-      grimEnergy: z.number().int().min(0).max(500).optional(),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid boss battle result.");
-
-    const boss = loadBossState(ownerKey);
-    const expectedLevel = boss.bossesDefeated + 1;
-    if (parsed.data.bossLevel !== expectedLevel) {
-      badRequest(`Boss mismatch — the next boss is level ${expectedLevel}.`);
-    }
-    const waveRows = await db.select().from(schema.waveState)
-      .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
-    const wavesDefeated = waveRows[0]?.wavesDefeated ?? 0;
-    if (!bossEligible(wavesDefeated, boss)) {
-      badRequest("No boss waits — break a full cycle of three Unravelings since the last boss fell.");
-    }
-
-    const { totalPower: bossPower } = bossPowerFor(parsed.data.bossLevel);
-    const survivorIds = [...new Set(parsed.data.survivorIds)];
-    const placements = await db.select().from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
-    const fighterIds = new Set(
-      placements
-        .filter(p => p.stance === "attack" || p.stance === "defense")
-        .map(p => p.awakenedId)
-    );
-    for (const id of survivorIds) {
-      if (!fighterIds.has(id)) badRequest("Invalid survivor.");
-    }
-    let committedPower = 0;
-    for (const id of fighterIds) {
-      const payload = await awakenedPayloadById(id);
-      committedPower += payload?.power ?? 0;
-    }
-    if (parsed.data.victory) {
-      if (survivorIds.length === 0) badRequest("A victory with no survivors is no victory.");
-      if (committedPower < bossPower) {
-        badRequest(`The War-Ground does not reckon this victory — your committed company stands at ${committedPower} against the boss's ${bossPower}.`);
-      }
-    }
-
-    // Unified XP: the survivors stood in the battle — a DEFENSE EVENT,
-    // +10 XP each, win or lose. (No hex is taken from a boss; its prize
-    // is the newborn and the aspects, not the +50 hex-taken grant.)
-    const xpById = new Map<number, XpGainReport>();
-    for (const id of survivorIds) {
-      await grantEventXp(xpById, id, XP_PER_DEFENSE);
-    }
-
-    // The report is accepted — walls took their damage, win or lose.
-    applyWallDamage(ownerKey, parsed.data.wallState);
-    applyRunesTriggered(ownerKey, parsed.data.runesTriggered);
-    await applyGrimoireState(ownerKey, parsed.data.grimState, parsed.data.grimEnergy);
-
-    if (!parsed.data.victory) {
-      sqlite.prepare("UPDATE boss_state SET last_boss_at = ? WHERE owner_key = ?")
-        .run(Date.now(), ownerKey);
-      return { ok: true as const, victory: false, bossesDefeated: boss.bossesDefeated, committedPower, bossPower, xpGains: [...xpById.values()] };
-    }
-
-    for (const id of survivorIds) {
-      await recordDeed(ownerKey, id, "battle_won");
-    }
-    sqlite.prepare("UPDATE boss_state SET bosses_defeated = ?, last_victory_defeated = ?, last_boss_at = ? WHERE owner_key = ?")
-      .run(boss.bossesDefeated + 1, wavesDefeated, Date.now(), ownerKey);
-    // Only boss victories free newborns (Nigel, 2026-10-14) — the claim
-    // is the server's record; birthNewbornToHand consumes it once.
-    recordNewbornClaim(ownerKey, "bossVictory");
-    // The aspect split is rolled here, not in the client: 5 + 2 per
-    // boss level, split randomly among the four elements.
-    const grantCount = 5 + parsed.data.bossLevel * 2;
-    const elements: AspectElement[] = ["tide", "sky", "stone", "root"];
-    const rolled: AspectElement[] = Array.from({ length: grantCount }, () =>
-      elements[Math.floor(Math.random() * elements.length)]);
-    recordAspectGrant(ownerKey, rolled, `bossVictory:${parsed.data.bossLevel}`);
-    return {
-      ok: true as const, victory: true,
-      bossesDefeated: boss.bossesDefeated + 1,
-      committedPower, bossPower,
-      aspectElements: rolled, newbornClaimed: true,
-      xpGains: [...xpById.values()],
-    };
-  },
-
-  /** The oldest pending aspect grant waiting for this tender, if any —
-   *  what the victory screen shows is the server's roll, not its own. */
-  async getPendingAspectGrant(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const grant = peekAspectGrant(ownerKey);
-    return { grant };
-  },
-
-  /** Claim the oldest pending aspect grant: the recorded elements are
-   *  granted exactly once through the same addAspectPoint arithmetic
-   *  every grant has always used (points accumulate; at 10 an aspect
-   *  may be born into the inventory). */
-  async claimAspectGrant(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const grant = consumeAspectGrant(ownerKey);
-    if (!grant) badRequest("No aspect grant waits — aspects are earned by a boss victory, and this victory's grant has already been claimed.");
-    const spawnedElements: AspectElement[] = [];
-    for (const element of grant!.elements) {
-      if (await addAspectPoint(ownerKey, element)) spawnedElements.push(element);
-    }
-    return { ok: true as const, elements: grant!.elements, spawnedElements, source: grant!.source };
-  },
 
   // ── HEX WALLS (War-Ground charter extension, Nigel 2026-10-15) ──
   // An Awoken standing on a hex raises a wall on one of its six edges:
@@ -14828,12 +14605,13 @@ export const handlers = {
       liberatorNames: z.array(z.string()),
     }).safeParse(args);
     if (!parsed.success) badRequest(`Invalid birth request — ${describeValidationIssues(parsed.error)}.`);
-    // A birth follows a BOSS victory, and the victory is the server's
-    // own record: consume exactly one pending claim (recorded by
-    // resolveBossBattle when a boss broke — the boss's own verified
-    // resolution path since the War-Ground fix of 2026-10-15; before
-    // it, the claim was recorded on a wave-state condition that could
-    // never occur, so no boss birth could ever be gathered).
+    // A birth follows a qualifying victory, and the victory is the
+    // server's own record: consume exactly one pending claim. Boss
+    // victories recorded the claims while the boss mode stood
+    // (resolveBossBattle, War-Ground fix of 2026-10-15) — the mode
+    // is abolished (Nigel, 2026-10-24), no living system records a
+    // claim today, and this endpoint refuses every birth until the
+    // next qualifying event (the planned Awoken Forge) records one.
     // Before this ledger, any caller could mint paid wake credits here on
     // demand — no victory, no limit, no record.
     if (!consumeNewbornClaim(ownerKey)) {

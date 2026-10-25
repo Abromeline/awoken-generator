@@ -469,9 +469,11 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_births (
 // raw-DDL table like tender_births — the claim is the server's own
 // record of the event, never the client's word for it. (Since Nigel's
 // 2026-10-14 abolition of purification births, the only recording site
-// is a verified boss victory in resolveBossBattle — corrected
+// was a verified boss victory in resolveBossBattle — corrected
 // 2026-10-15; this comment previously listed the purification sites
-// the ledger was first built with.)
+// the ledger was first built with. The boss mode itself is abolished
+// since 2026-10-24, so no living system records claims today; the
+// ledger stands for the next qualifying event — the planned Forge.)
 sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_newborn_claims (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_key TEXT NOT NULL,
@@ -479,33 +481,11 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_newborn_claims (
   created_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_newborn_claims_owner ON pending_newborn_claims (owner_key, id);`);
-// Boss state (War-Ground fix, 2026-10-15): the server's own record of
-// the boss ladder — how many bosses this tender has broken, and the
-// wavesDefeated count at the last boss victory (a new cycle of three
-// Unravelings must complete before the next boss can be faced). Until
-// this table existed the boss count lived in the client's localStorage
-// and boss victories had no server resolution path at all. Raw DDL,
-// like the newborn-claim ledger above.
-sqlite.exec(`CREATE TABLE IF NOT EXISTS boss_state (
-  owner_key TEXT PRIMARY KEY,
-  bosses_defeated INTEGER NOT NULL DEFAULT 0,
-  last_victory_defeated INTEGER NOT NULL DEFAULT 0,
-  last_boss_at INTEGER
-);`);
-// Pending aspect grants: a verified boss victory records ONE grant
-// here — the element split (5 + 2 per boss level) rolled server-side
-// at the moment of victory. The claim endpoint consumes a grant
-// exactly once. Until this ledger existed, VictoryAspects rolled the
-// split in the client and grantAspectPoint minted the points with no
-// victory behind them, repeatable per battle.
-sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_aspect_grants (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  owner_key TEXT NOT NULL,
-  elements TEXT NOT NULL,
-  source TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);`);
-sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_aspect_grants_owner ON pending_aspect_grants (owner_key, id);`);
+// The boss ladder's tables (boss_state, pending_aspect_grants) are
+// no longer created: the staged boss battle mode is abolished
+// (Nigel, 2026-10-24 — "that battle mode should no longer exist
+// and its triggers should go too"). Databases that already hold
+// them keep two orphan tables nothing reads or writes.
 // Hex walls (War-Ground charter extension, Nigel 2026-10-15): an
 // Awoken standing on a hex raises a wall on one of its six edges for
 // energy. The edge is stored CANONICALLY (the lexicographically

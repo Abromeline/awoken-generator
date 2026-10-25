@@ -873,7 +873,6 @@ export const api = {
   deleteGlyph: (value: { id: number }) => post<{ ok: boolean }>("deleteGlyph", value),
   applyAspect: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; element: string; newLevel?: number; upgraded?: boolean; cost?: number; targetName?: string; targetKey?: string; imageUrl?: string; stacked?: number }>("applyAspect", value),
   updateTrackPages: (value: { id: number; pages: string[] }) => post<{ ok: boolean }>("updateTrackPages", value),
-  getBossState: () => post<{ bossesDefeated: number; nextBossLevel: number; eligible: boolean; wavesDefeated: number; cycleProgress: number }>("getBossState", {}),
   placeWall: (args: { tileId: number; dir: number }) =>
     post<{ ok: true; wall: { edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }; cost: number }>("placeWall", args),
   placeEdgeWork: (args: { tileId: number; dir: number; kind: "wall" | "thorns" | "ward" | "rune"; runeKind?: "snare" | "harm" | "meld"; style?: "stone" | "spire" }) =>
@@ -906,10 +905,6 @@ export const api = {
     post<{ ok: true; follow: boolean }>("setPlacementFollow", args),
   recallMarch: (args: { awakenedId: number }) =>
     post<{ ok: true; awakenedId: number; recalled: boolean; stepsHome: number }>("recallMarch", args),
-  resolveBossBattle: (args: { victory: boolean; bossLevel: number; survivorIds: number[]; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number; }) =>
-    post<{ ok: true; victory: boolean; bossesDefeated: number; committedPower: number; bossPower: number; aspectElements?: string[]; newbornClaimed?: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveBossBattle", args),
-  getPendingAspectGrant: () => post<{ grant: { elements: string[]; source: string } | null }>("getPendingAspectGrant", {}),
-  claimAspectGrant: () => post<{ ok: true; elements: string[]; spawnedElements: string[]; source: string }>("claimAspectGrant", {}),
   damageTileHp: (value: { tileId: number; damage: number }) => post<{ ok: boolean; hp: number; cursed: boolean }>("damageTileHp", value),
   damageAwokenHp: (value: { awakenedId: number; damage: number }) => post<{ ok: boolean; hp: number; maxHp: number; dissipated?: boolean; awakenedId?: number; xpGain?: number; leveledUp?: boolean; newLevel?: number }>("damageAwokenHp", value),
   demolishBuilding: (value: { buildingId: number }) => post<{ ok: boolean }>("demolishBuilding", value),

@@ -40,8 +40,6 @@ interface WaveInfo {
   hollows?: number;
   tangles?: number;
   totalPower: number;
-  isBoss?: boolean;
-  bossLevel?: number;
 }
 
 interface BattlegroundProps {
@@ -97,9 +95,6 @@ interface BattlegroundProps {
   // within two hexes of its writing — the mirror measures
   // that reach in the land's own coordinates.
   grimTileAxial?: Record<number, { q: number; r: number }>;
-  // The server's rolled aspect grant for a boss victory (resolved at
-  // detection, before this screen opens) — null when no grant waits.
-  aspectGrant?: string[] | null;
   // The live world mood, kept current by the Territory's sky watch —
   // when the sky turns mid-battle, Weather's teeth turn with it.
   mood?: string | null;
@@ -212,79 +207,7 @@ function dominantElementOf(aw?: Awakened): Element {
   return best;
 }
 
-/** Victory aspect rewards: the grant a verified boss victory recorded
- *  server-side (5 + 2 per boss level, split rolled by the server at the
- *  moment of victory). This component only displays the server's roll
- *  and claims it — exactly once, through claimAspectGrant. Until the
- *  War-Ground fix (2026-10-15) it rolled the split in the client and
- *  minted the points through an ungated endpoint, on every victory
- *  screen, as often as the screen was shown. */
-function VictoryAspects({ grant }: { grant: string[] | null }) {
-  const [claimed, setClaimed] = useState(false);
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const aspects = (grant ?? []).map(element => ({ element }));
-
-  const glyphs: Record<string, React.ReactElement> = {
-    tide: (
-      <svg viewBox="0 0 60 24" width="40" height="16">
-        <path d="M2,12 Q10,4 18,12 T34,12 T50,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M50,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-      </svg>
-    ),
-    sky: (
-      <svg viewBox="0 0 60 24" width="40" height="16">
-        <path d="M28,12 m-8,0 a8,8 0 1,1 8,8 a6,6 0 1,0 -6,-6 a4,4 0 1,1 4,4" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M36,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-      </svg>
-    ),
-    stone: (
-      <svg viewBox="0 0 60 24" width="40" height="16">
-        <path d="M6,18 L18,4 L26,12" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M26,12 L60,12" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-      </svg>
-    ),
-    root: (
-      <svg viewBox="0 0 60 24" width="40" height="16">
-        <path d="M10,18 Q10,6 22,6 Q34,6 34,14" fill="none" stroke="#d4af6a" strokeWidth="1.5" opacity="0.9"/>
-        <path d="M34,14 L60,14" fill="none" stroke="#d4af6a" strokeWidth="1.5"/>
-      </svg>
-    ),
-  };
-
-  const claim = async () => {
-    // One call: the server consumes the recorded grant and pays its
-    // elements exactly once. A second claim finds no grant waiting.
-    try {
-      await api.claimAspectGrant();
-      setClaimed(true);
-      setClaimError(null);
-    } catch (e) {
-      setClaimError((e as Error).message || "The grant could not be claimed.");
-    }
-  };
-
-  if (!aspects.length) return null;
-  return (
-    <div className="victory-aspects">
-      <h3>Aspect Rewards</h3>
-      <div className="aspect-reward-list">
-        {aspects.map((a, i) => (
-          <div key={i} className="aspect-reward">
-            {glyphs[a.element]}
-            <span>+1 {a.element}</span>
-          </div>
-        ))}
-      </div>
-      {!claimed && (
-        <button className="abtn small" onClick={claim}>Claim Aspects</button>
-      )}
-      {claimError && <p className="quiet" style={{ color: "#ff8888" }}>{claimError}</p>}
-      {claimed && <p className="quiet">✓ Aspects claimed</p>}
-    </div>
-  );
-}
-
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, aspectGrant = null, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [], grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {}, grimTileAxial = {} }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [], grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {}, grimTileAxial = {} }: BattlegroundProps) {
   // The creator's live enemy art (UI Workspace uploads/selection).
   const { data: enemyArtData } = useEnemyArt();
   const [fighters, setFighters] = useState<Fighter[]>([]);
@@ -1241,7 +1164,6 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               fill="rgba(255,215,0,0.2)" stroke="#ffedaa" strokeWidth="2" />
           </svg>
           <h1>UNRAVELING COMPLETE</h1>
-          <VictoryAspects grant={aspectGrant} />
           {bonusTiles.length > 0 && (
             <div className="victory-territory-pick">
               <p>Choose one new territory to claim:</p>
