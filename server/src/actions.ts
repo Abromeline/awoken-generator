@@ -1366,9 +1366,30 @@ async function ensureFrontierBuffer(ownerKey: string) {
    seed's ground with no defender standing on the seed's
    hex or its ring has broken the defense — the run ends,
    the rising's remaining Fray withdraw with it, and
-   banked ground is never clawed back. */
+   banked ground is never clawed back.
+   THE GROWTH CYCLE (Nigel, 2026-10-24 18:18 + 18:32,
+   ratified whole 19:21; commissioned 2026-10-25): THE
+   LADDER IS STRUCK — "forget the waves survied, it will
+   be by energy fed." The seed's level no longer derives
+   from risings cleared (firstSeedLevelFor is gone, and
+   nothing here writes a level): a seed's level is FEEDING'S
+   ALONE (settleSeedFeeding, below), for this seed and for
+   every seed on the map — Starseed → Sapling of Light →
+   Beacon → Bastion is the life cycle of every starseed
+   that is not corrupted or consumed. The risings STAND,
+   as the defence that comes while the seed feeds — their
+   numbers, gaps, pay, the bank at the third rising and
+   the fall's terms are untouched — but they measure
+   nothing: the hold's event completes when the seed is
+   FED to level 3 (a full lighthouse at 30 energy fed),
+   where the level-3 reward is laid up, and never at a
+   rising count. A fall or an ended run now resets only
+   the run's own rising count; banked ground and fed
+   growth are never clawed back. */
 const FIRST_SEED_MAX_WAVE = 12;
-const FIRST_SEED_MAX_LEVEL = 4;
+// FIRST_SEED_MAX_LEVEL (the struck ladder's cap of 4) is
+// gone with firstSeedLevelFor — levels are feeding's now,
+// and the stage names cap themselves in seedStageForLevel.
 
 type FirstSeedEventRow = {
   owner_key: string; seed_id: number; state: string; banked: number;
@@ -1405,12 +1426,15 @@ function firstSeedWaveGapMs(cleared: number): number {
   return 45 * 1000 + Math.floor(Math.random() * 75 * 1000);
 }
 
-/** The seed's level for a ladder count: level 1 stands from the
- *  fall itself; every full three waves raise it one. */
-function firstSeedLevelFor(wavesCleared: number): number {
-  if (wavesCleared < 3) return 1;
-  return Math.min(FIRST_SEED_MAX_LEVEL, Math.floor(wavesCleared / 3));
-}
+/** STRUCK (Nigel, 2026-10-24 18:32: "forget the waves survied,
+ *  it will be by energy fed"): the seed's level once derived
+ *  from risings cleared — firstSeedLevelFor(wavesCleared),
+ *  level 1 from the fall, one level every full three waves,
+ *  capped at FIRST_SEED_MAX_LEVEL. The reading is dead law;
+ *  a seed's level is FEEDING'S alone now (seedLevelForFed,
+ *  at the growth cycle below). FIRST_SEED_MAX_WAVE survives
+ *  above as the risings' own size cap — the fullest the
+ *  dark's investigation ever stands at once. */
 
 /** Sow a brand-new Tender's world: the same cursed rings + frontier
  *  the retired claimFirstTile generated — but the center stays
@@ -1641,16 +1665,20 @@ async function payFirstSeedStood(ownerKey: string, ev: FirstSeedEventRow): Promi
   for (const id of stood) await grantEventXp(xpById, id, XP_PER_DEFENSE);
 }
 
-/** THE LADDER, SETTLED ON A RISING'S CLEARING — the old
- *  referee's settle block, carried whole onto the new
- *  referee's event: the defense paid first (above), then
- *  bank at wave 3, a rising of the seed's level every
- *  three waves, the reward laid up at the first reaching
- *  of level 3, and the run complete at the twelfth. */
+/** A RISING'S CLEARING, SETTLED — the old referee's settle
+ *  block, carried onto the living battle's event: the
+ *  defense paid first (above), then the bank at the third
+ *  rising, and the next rising scheduled by its gap. THE
+ *  GROWTH CYCLE (2026-10-25) struck everything else this
+ *  block once did: no level is read or written here (levels
+ *  are feeding's alone), no reward is laid up here (it is
+ *  laid up at the feeding rise to level 3), and no rising
+ *  count completes the run (the event completes at that
+ *  same feeding rise). The risings measure nothing now —
+ *  they are the defence that comes while the seed feeds. */
 async function settleFirstSeedLadder(ownerKey: string, ev: FirstSeedEventRow, seed: any, wave: number): Promise<void> {
   await payFirstSeedStood(ownerKey, ev);
   ev.waves_cleared = wave;
-  const newLevel = firstSeedLevelFor(wave);
   if (wave === 3 && !ev.banked) {
     // THE BANK: the center purifies under the company standing on
     // it, wearing their dominant element; the pool fills to the
@@ -1694,26 +1722,15 @@ async function settleFirstSeedLadder(ownerKey: string, ev: FirstSeedEventRow, se
       .set({ energy: maxEnergy, updatedAt: new Date() })
       .where(eq(schema.tenderResources.ownerKey, ownerKey));
   }
-  if (newLevel > Number(seed.level ?? 1)) {
-    sqlite.prepare("UPDATE star_seeds SET level = ? WHERE id = ?").run(newLevel, seed.id);
-    // THE THIRD RISING (Nigel, 2026-10-19): the newborn claim
-    // that stood here is STRUCK — births from an event drop the
-    // value of minted cards, and creation belongs to the Forge
-    // he plans. In its place, once ever, the event lays up its
-    // reward: a single attunement point of a random element,
-    // shining on the Tender's home until gathered by hand
-    // (claimFirstSeedReward). The guard is the reward itself:
-    // once laid up it is never laid up again, claimed or not.
-    if (newLevel === 3 && !ev.reward_element) {
-      ev.reward_element = ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
-    }
-  }
-  if (wave >= FIRST_SEED_MAX_WAVE) {
-    ev.state = "done";
-    ev.next_wave_at = 0;
-  } else {
-    ev.next_wave_at = Date.now() + firstSeedWaveGapMs(wave);
-  }
+  // THE GROWTH CYCLE (2026-10-25): the level write and the
+  // twelfth-rising completion that stood here are STRUCK
+  // with the ladder — the seed's level rises only in the
+  // feeding settle, the level-3 reward is laid up there
+  // (applySeedStageRise carries the 2026-10-19 reward law:
+  // once ever, a single attunement point of a random
+  // element, gathered by hand), and the event completes
+  // there. A clearing only ever schedules the next rising.
+  ev.next_wave_at = Date.now() + firstSeedWaveGapMs(wave);
   ev.rising_live = 0;
   ev.rising_stood = null;
   saveFirstSeedEvent(ev);
@@ -1803,15 +1820,17 @@ async function settleFirstSeedEvent(ownerKey: string): Promise<void> {
   // withdraw with the run — they were the event's own,
   // and the seed waits whole, exactly as it waited when
   // the old referee's wave ceased at its resolution.
-  // Banked ground is never clawed back — the ladder
-  // rolls back only to the banked level's rung.
+  // Banked ground is never clawed back, and under the
+  // growth cycle (2026-10-25) neither is fed growth: the
+  // fall resets only the run's own rising count, so the
+  // next run's risings number from the first again.
   await payFirstSeedStood(ownerKey, ev);
   sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ? AND seed_rising = ?").run(ownerKey, wave);
   ev.state = "waiting";
   ev.next_wave_at = 0;
   ev.rising_live = 0;
   ev.rising_stood = null;
-  ev.waves_cleared = ev.banked ? Number(seed.level ?? 1) * 3 : 0;
+  ev.waves_cleared = 0;
   saveFirstSeedEvent(ev);
 }
 
@@ -1862,7 +1881,15 @@ async function spawnFirstSeedRising(ownerKey: string, tiles: any[]): Promise<voi
   const SPREAD: [number, number][] = [[0, 0], [0.32, 0], [0, 0.32], [-0.32, 0.16], [0.16, -0.32], [-0.32, -0.16], [0.32, 0.32], [-0.16, 0.32]];
   const now = Date.now();
   const ins = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, seed_rising) VALUES (?, ?, 'fray', ?, ?, ?, ?, ?, 1, ?)");
-  for (let i = 0; i < wave; i++) {
+  // THE GROWTH CYCLE (2026-10-25): a rising's size is its
+  // number, as it always was — but the count is capped at
+  // the struck ladder's top (FIRST_SEED_MAX_WAVE): the hold
+  // now runs until the seed is FED to level 3, however many
+  // risings that takes, and past the twelfth the dark's
+  // investigation stands at its fullest, twelve Fray, and
+  // comes again at twelve.
+  const risingSize = Math.min(wave, FIRST_SEED_MAX_WAVE);
+  for (let i = 0; i < risingSize; i++) {
     const host = hosts[i % hosts.length];
     const [oq, orr] = SPREAD[Math.floor(i / hosts.length) % SPREAD.length];
     ins.run(ownerKey, host.id, now, HOMELAND_DARK_HP.fray, host.q + oq, host.r + orr, HOMELAND_DARK_POWER.fray, wave);
@@ -1871,6 +1898,218 @@ async function spawnFirstSeedRising(ownerKey: string, tiles: any[]): Promise<voi
   ev.rising_stood = null;
   ev.next_wave_at = 0;
   saveFirstSeedEvent(ev);
+}
+
+/* ── THE STARSEED GROWTH CYCLE (Nigel, 2026-10-24: the life
+   cycle at 18:03, the sanctuary + feeding law at 18:18, the
+   waves ladder struck at 18:32, the footprint at 18:37;
+   RATIFIED WHOLE 19:21 "all sounds good"; commissioned
+   2026-10-25 00:28) ───────────────────────────────────────
+   Starseed → Sapling of Light → Beacon → Bastion is the
+   life cycle of EVERY starseed that is not corrupted or
+   consumed for energy — the first seed's growth is simply
+   the Tender's lighthouse growing (the ceremony's own
+   words). A seed's LEVEL IS FEEDING'S ALONE: energy fed
+   over time (the attunement share of the climb is an open
+   pencil, unruled — no attunement channel is built here).
+   Stage powers, as ruled: level 1 purifies its own hex
+   (a fallen seed does it at its fall, in the starfall
+   pass; the first seed's hex is the hold's bank, the one
+   standing exception the intro's law keeps); level 2, the
+   Sapling, purifies the surrounding 6; level 3, the
+   Beacon, gains PROTECTION over its center hex and all 6
+   around it (the 7-hex footprint — on the homeland the
+   cradle births no dark inside a Beacon's light, and the
+   first seed's protection is the Tender's own lighthouse,
+   whose ending resets the wave intensity to 1 by the
+   protection settle's standing law); level 4, the Bastion,
+   stands in law with NO FACE YET — Nigel draws it; the map
+   carries a Bastion-stage seed in the Beacon's face until
+   his hand delivers its own (flagged, never invented).
+   Feeding has ONE built channel: THE PASSIVE DRAW — the
+   first time a Tender enters the field near a seed, the
+   seed begins drawing energy from them on its own, and
+   keeps drawing while the company stands within its field
+   (the two rings its calm covers). The draw is settled
+   lazily on territory reads, like every reckoning in this
+   house, and only across presence (a silence longer than
+   the protection settle's presence gap draws nothing).
+   Expending energy excites the dark — the draw rides
+   spendEnergy, so the Curse's Eye opens as a seed drinks,
+   exactly as the dictation's example tells it (the
+   defence comes investigating while the company feeds). */
+export const SEED_STAGE_NAMES = ["starseed", "sapling", "beacon", "bastion"] as const;
+export type SeedStage = (typeof SEED_STAGE_NAMES)[number];
+export function seedStageForLevel(level: number): SeedStage {
+  const l = Math.max(1, Math.min(4, Math.floor(Number(level) || 1)));
+  return SEED_STAGE_NAMES[l - 1];
+}
+/** THE CLIMB'S PRICES. One figure is Nigel's own (18:18):
+ *  level 3 — "a full lighthouse" — at 30 ENERGY FED. The
+ *  level-2 step is NOT his figure: the climb divides into
+ *  equal steps of 15 (the Keeper's derivation, named here
+ *  for his strike, as the record's discipline requires —
+ *  the alternative, no Sapling until 30, would strike the
+ *  stage powers he ruled). Level 4's price is UNRULED —
+ *  feeding raises no seed past 3 in this build; a seed
+ *  stands at the Bastion only by the older roads' levels,
+ *  kept as they were earned. */
+export const SEED_FED_FOR_LEVEL_2 = 15;
+export const SEED_FED_FOR_LEVEL_3 = 30;
+export function seedLevelForFed(fedEnergy: number): number {
+  const fed = Math.max(0, Math.floor(Number(fedEnergy) || 0));
+  if (fed >= SEED_FED_FOR_LEVEL_3) return 3;
+  if (fed >= SEED_FED_FOR_LEVEL_2) return 2;
+  return 1;
+}
+/** THE DRAW'S RATE — THE KEEPER'S READING, flagged for
+ *  Nigel's strike (2026-10-24 18:18): the dictation sets
+ *  the draw at "the same drain rate of the protection
+ *  from shadow matter" — read as the ruled lighthouse
+ *  upkeep, ONE per FOUR MINUTES (0.25 a minute, the exact
+ *  figure LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE carries).
+ *  The draw settles in WHOLE energy — the purse is whole
+ *  points everywhere in this house — with the fractional
+ *  pace carried in the seed's feed_credit; credit that
+ *  cannot be paid is not banked beyond a point (the seed
+ *  drinks only what the purse can give). */
+export const SEED_FEED_PER_MINUTE = 0.25;
+/** THE SEED'S FIELD: the ground a seed's light lies on —
+ *  the same two rings the seed-calm covers (SEED_CALM_RADIUS).
+ *  Company standing within it is "near the seed". */
+export const SEED_FEED_REACH = 2;
+
+/** The purification a stage rise writes: the house's own
+ *  standing shape (the neutral purify the claim, the bank
+ *  and the safe-square paths write — born clean at Z1). */
+async function purifySeedGroundTile(tileId: number): Promise<void> {
+  await db.update(schema.territoryTiles)
+    .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+    .where(eq(schema.territoryTiles.id, tileId));
+}
+
+/** A seed's rise, made true on the land (the growth cycle):
+ *  at the Sapling (level 2) its light widens — the six
+ *  tiles around it purify, still-cursed ones only, wearing
+ *  the neutral purification, their cursed neighbours'
+ *  passive timers started as on every purification. (The
+ *  seed's OWN hex is level 1's business: purified at the
+ *  fall for fallen seeds; the first seed's centre stays
+ *  the hold's bank, untouched here.) At the Beacon
+ *  (level 3) the first seed's hold completes: the reward
+ *  is laid up once ever (Nigel, 2026-10-19 — a single
+ *  attunement point of a random element, shining until
+ *  gathered by hand; the newborn claim that once stood at
+ *  this level stays struck, creation belonging to the
+ *  Forge), a rising still standing withdraws with the
+ *  event as it does at an ended run, and the event rests
+ *  done — the seed stands as the Tender's lighthouse. */
+async function applySeedStageRise(ownerKey: string, seed: any, fromLevel: number, toLevel: number): Promise<void> {
+  if (toLevel >= 2 && fromLevel < 2) {
+    const home = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seed.tile_id) as { q: number; r: number } | undefined;
+    if (home) {
+      const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      const nowD = new Date();
+      for (const [dq, dr] of DIRS) {
+        const n = sqlite.prepare("SELECT id, cursed FROM territory_tiles WHERE owner_key = ? AND q = ? AND r = ?")
+          .get(ownerKey, home.q + dq, home.r + dr) as { id: number; cursed: number } | undefined;
+        if (!n || !n.cursed) continue;
+        await purifySeedGroundTile(n.id);
+        for (const [eq2, er2] of DIRS) {
+          await db.update(schema.territoryTiles)
+            .set({ lastPassiveAt: nowD })
+            .where(and(
+              eq(schema.territoryTiles.ownerKey, ownerKey),
+              eq(schema.territoryTiles.q, home.q + dq + eq2),
+              eq(schema.territoryTiles.r, home.r + dr + er2),
+              eq(schema.territoryTiles.cursed, 1),
+            ));
+        }
+      }
+    }
+  }
+  if (toLevel >= 3 && fromLevel < 3) {
+    const ev = firstSeedEventRow(ownerKey);
+    if (ev && ev.seed_id === seed.id && ev.state !== "done") {
+      if (!ev.reward_element) {
+        ev.reward_element = ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
+      }
+      if (ev.rising_live) {
+        sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ? AND seed_rising = ?").run(ownerKey, ev.waves_cleared + 1);
+        ev.rising_live = 0;
+        ev.rising_stood = null;
+      }
+      ev.state = "done";
+      ev.next_wave_at = 0;
+      saveFirstSeedEvent(ev);
+    }
+  }
+}
+
+/** THE DRAW, settled on the territory read (the growth
+ *  cycle): every living seed — fallen, held, the first —
+ *  drinks while the Tender's company stands within its
+ *  field, at the upkeep's rate, in whole energy, against
+ *  the purse as it stands. The seed's level follows its
+ *  fed ledger and only ever rises here; a rise is made
+ *  true on the land in the same pass (applySeedStageRise).
+ *  Seeds the curse holds (corrupted) and seeds already
+ *  taken up (fetched) do not drink — the cycle is for the
+ *  living. Presence is the read itself: the anchor walks
+ *  with every settle, so an absence banks nothing. */
+async function settleSeedFeeding(ownerKey: string): Promise<void> {
+  const seeds = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[];
+  if (!seeds.length) return;
+  const now = Date.now();
+  const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const byId = new Map(tiles.map(t => [t.id, t]));
+  const placements = await db.select({ tileId: schema.fieldPlacements.tileId }).from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const stoodTiles = placements.map(p => byId.get(p.tileId)).filter(Boolean) as any[];
+  for (const seed of seeds) {
+    const home = byId.get(seed.tile_id);
+    const anchor = Number(seed.feed_anchor_at || 0);
+    if (!home) {
+      if (anchor !== now) sqlite.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(now, seed.id);
+      continue;
+    }
+    if (!anchor) {
+      sqlite.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(now, seed.id);
+      continue;
+    }
+    const elapsed = now - anchor;
+    let credit = Number(seed.feed_credit || 0);
+    let fed = Number(seed.fed_energy || 0);
+    let changed = false;
+    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS && stoodTiles.length) {
+      const near = stoodTiles.some(t => axialDist(t as any, home as any) <= SEED_FEED_REACH);
+      if (near) {
+        credit += (elapsed / 60000) * SEED_FEED_PER_MINUTE;
+        const whole = Math.floor(credit);
+        if (whole >= 1) {
+          const purse = await getEnergyFor(ownerKey);
+          const take = Math.min(whole, Math.max(0, Math.floor(purse)));
+          if (take > 0) {
+            await spendEnergy(ownerKey, take);
+            fed += take;
+            credit -= take;
+          }
+        }
+        if (credit >= 2) credit = 1.999;
+        changed = true;
+      }
+    }
+    const levelBefore = Math.max(1, Number(seed.level || 1));
+    const level = Math.max(levelBefore, seedLevelForFed(fed));
+    if (changed || level !== levelBefore || fed !== Number(seed.fed_energy || 0)) {
+      sqlite.prepare("UPDATE star_seeds SET fed_energy = ?, feed_credit = ?, feed_anchor_at = ?, level = ? WHERE id = ?")
+        .run(fed, credit, now, level, seed.id);
+      seed.fed_energy = fed; seed.feed_credit = credit; seed.level = level;
+    } else if (now - anchor > 1000) {
+      sqlite.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(now, seed.id);
+    }
+    if (level > levelBefore) await applySeedStageRise(ownerKey, seed, levelBefore, level);
+  }
 }
 
 // Energy helpers: server-authoritative energy per tender.
@@ -2375,7 +2614,16 @@ export function moodEffects(mood: WorldMood): MoodEffects {
  *  his ruling) is reckoned by its distance from the SEED, as
  *  the land around the first hex is reckoned from home, so
  *  its level drops to tamable; the calm never raises a
- *  curse — a hex keeps whichever reckoning is kinder. */
+ *  curse — a hex keeps whichever reckoning is kinder.
+ *  EXTENDED by the sanctuary law (Nigel, 2026-10-24 18:18):
+ *  a FALLEN seed thins the curse the same way — "a fallen
+ *  seed purifies the tile it lands on and reduces the
+ *  curse's strength all around for two rings, at the
+ *  strength profile of the curse around the FIRST star" —
+ *  so the calm's sources are every LIVING seed: fallen,
+ *  held, and the first seed itself, the star the profile
+ *  is named for. (A corrupted seed calms nothing: its
+ *  light is in the dark's hands.) */
 export const SEED_CALM_RADIUS = 2;
 export function calmEffRing(seedHexes: { q: number; r: number }[], q: number, r: number, mapRing: number): number {
   let eff = mapRing;
@@ -2386,8 +2634,8 @@ export function calmEffRing(seedHexes: { q: number; r: number }[], q: number, r:
   }
   return eff;
 }
-async function heldSeedHexes(ownerKey: string): Promise<{ q: number; r: number }[]> {
-  const rows = sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state = 'held'").all(ownerKey) as { tile_id: number }[];
+async function livingSeedHexes(ownerKey: string): Promise<{ q: number; r: number }[]> {
+  const rows = sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as { tile_id: number }[];
   if (!rows.length) return [];
   const tiles = await db.select({ id: schema.territoryTiles.id, q: schema.territoryTiles.q, r: schema.territoryTiles.r })
     .from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -8719,7 +8967,16 @@ export const handlers = {
           if (fresh > 0) {
             const beats = Math.min(fresh, CATCHUP_BEATS);
             const cap = 8 + 2 * (intensity - 1);
-            const view = tiles.filter((t: any) => { if (!t.cursed) return false; const d = hexDist(t, stand); return d >= BIRTH_RING && d <= VIEW_RING; });
+            // A BEACON'S PROTECTION (the growth cycle,
+            // 2026-10-25): a seed grown to Beacon (level 3+)
+            // holds PROTECTION over its center hex and all
+            // 6 around it — the cradle births no dark inside
+            // a Beacon's light. (The first seed's protection
+            // is the Tender's lighthouse itself, whose lit
+            // light has already shut this cradle whole above.)
+            const beaconTiles = (sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND level >= 3 AND state IN ('fallen','held','first')").all(ownerKey) as { tile_id: number }[])
+              .map(rw => byId.get(rw.tile_id)).filter(Boolean) as any[];
+            const view = tiles.filter((t: any) => { if (!t.cursed) return false; const d = hexDist(t, stand); if (d < BIRTH_RING || d > VIEW_RING) return false; return !beaconTiles.some(b => hexDist(t, b) <= 1); });
             const kindPool = ["fray", "fray", "fray"];
             if (intensity >= 2) kindPool.push("hollow", "hollow");
             if (intensity >= 3) kindPool.push("unraveler", "unraveler");
@@ -8880,6 +9137,11 @@ export const handlers = {
     // The first seed's waves land before the territory is read
     // (Nigel via Wake, 2026-10-17): the hold's lazy settle.
     await settleFirstSeedEvent(ownerKey);
+    // THE DRAW (the growth cycle, 2026-10-25): every living
+    // seed drinks while the company stands within its field —
+    // feeding settles here, on the field's own read, so a
+    // seed's growth is witnessed by the read that fed it.
+    await settleSeedFeeding(ownerKey);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
@@ -8900,12 +9162,12 @@ export const handlers = {
     // its square already standing.
     await ensureOneSafeSquare(ownerKey, tiles as any[]);
     // The Seed-Calm's reach, served (Nigel, 2026-10-17): any
-    // tile within two rings of a held seed carries the level
-    // the curse WOULD be reckoned at there — its distance
-    // from the seed — so the map can show the calm lying on
-    // the land.
+    // tile within two rings of a living seed carries the
+    // level the curse WOULD be reckoned at there — its
+    // distance from the seed — so the map can show the calm
+    // lying on the land.
     {
-      const seedHexes = await heldSeedHexes(ownerKey);
+      const seedHexes = await livingSeedHexes(ownerKey);
       if (seedHexes.length) {
         for (const t of tiles as any[]) {
           const mapRing = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
@@ -11475,46 +11737,80 @@ export const handlers = {
   },
 
   /** THE COLUMNS SETTLE (Nigel, 2026-10-17): arrivals land,
-      unheld seeds are CORRUPTED, and a lit Eye with no column
-      walking sends one. Lazy, like the marches — the world
-      moves when it is read. The column is only a traced line:
-      it never crosses purified land; on arrival its force
-      appears on the hexes beside the target at the fog's edge. */
+      and a lit Eye with no column walking sends one. Lazy,
+      like the marches — the world moves when it is read.
+      (Unheld seeds were CORRUPTED on a column's arrival
+      until the feeding law suspended the curse's power over
+      starseeds, 2026-10-24 18:18 — see the landing below.)
+      The column is only a traced line: it never crosses
+      purified land; on arrival its force appears on the
+      hexes beside the target at the fog's edge. */
   async settleIncursions(ownerKey: string) {
     const now = Date.now();
-    // STARFALL (ruled 2026-10-16): a 13% roll each settled hour
-    // drops 1–3 seeds anywhere on the map, the cursed ring
-    // included. At most five lie fallen at once.
+    // STARFALL (ruled 2026-10-16; re-founded by Nigel,
+    // 2026-10-24 23:42–23:43): the hourly gate stands — a
+    // 13% roll for each settled hour — under two new laws.
+    // ONE STAR ON A MAP AT A TIME (23:42: "we need to cap
+    // starfall to one star on a map at a time"): while a
+    // star lies on the map untaken — fallen, or corrupted
+    // in the dark's hands — the sky stays closed; it
+    // reopens when the star is taken up (fetched, held,
+    // grown past lying). A fall is a SINGLE star now: the
+    // 1–3 drop and the five-fallen cap this block once
+    // kept are superseded in count by the cap. And ONLINE
+    // ONLY (23:43: "and they only fall online"): the gate
+    // rolls only for hours the Tender was present — the
+    // presence stamp (starfall_seen_at) walks with every
+    // settle, and a silence longer than the house's
+    // presence gap walks the anchor past the absent hours
+    // unrolled, so no falls bank up offline. Where a star
+    // lands, it makes its SANCTUARY (the feeding law,
+    // 2026-10-24 18:18): it purifies the tile it falls on,
+    // and the curse thins for two rings around it at the
+    // first star's calm profile — the calm pass below
+    // (settleSeedCalm) reckons fallen seeds into the calm
+    // now, as it reckons held ones.
     {
-      const attRow = sqlite.prepare("SELECT starfall_anchor_at FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
+      const attRow = sqlite.prepare("SELECT starfall_anchor_at, starfall_seen_at FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
       let anchor = Number(attRow?.starfall_anchor_at || 0);
+      const seen = Number(attRow?.starfall_seen_at || 0);
       if (!anchor) {
-        sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent, starfall_anchor_at)
-          VALUES (?, 0, ?, 0, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET starfall_anchor_at = excluded.starfall_anchor_at`)
-          .run(ownerKey, now, now);
+        sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent, starfall_anchor_at, starfall_seen_at)
+          VALUES (?, 0, ?, 0, 0, ?, ?) ON CONFLICT(owner_key) DO UPDATE SET starfall_anchor_at = excluded.starfall_anchor_at, starfall_seen_at = excluded.starfall_seen_at`)
+          .run(ownerKey, now, now, now);
+        anchor = now;
+      } else if (!seen || now - seen > PROTECTION_ONLINE_GAP_MS) {
+        // Absence: the sky was unwitnessed — those hours
+        // never roll. (PROTECTION_ONLINE_GAP_MS is the
+        // house's standing presence measure, the protection
+        // settle's own.)
         anchor = now;
       }
       const hours = Math.min(24, Math.floor((now - anchor) / 3600000));
       if (hours > 0) {
         const tilesAll = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
         for (let h = 0; h < hours; h++) {
+          const lying = sqlite.prepare("SELECT COUNT(*) AS n FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','corrupted')").get(ownerKey) as any;
+          if (Number(lying?.n ?? 0) > 0) break; // one star at a time: the sky stays closed
           if (Math.random() >= 0.13) continue;
-          const fallen = sqlite.prepare("SELECT COUNT(*) AS n FROM star_seeds WHERE owner_key = ? AND state = 'fallen'").get(ownerKey) as any;
-          if (Number(fallen?.n ?? 0) >= 5) break;
           const seededTiles = new Set((sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted','first')").all(ownerKey) as any[]).map(r => r.tile_id));
           const spots = tilesAll.filter(t => !(t.q === 0 && t.r === 0) && !seededTiles.has(t.id));
-          const drop = 1 + Math.floor(Math.random() * 3);
-          for (let d = 0; d < drop && spots.length; d++) {
-            // The five-fallen cap binds DURING the drop too
-            // (playtest, 2026-10-18): checking only before a
-            // 1–3 drop let one settled hour land seven seeds.
-            if (Number(fallen?.n ?? 0) + d >= 5) break;
-            const spot = spots.splice(Math.floor(Math.random() * spots.length), 1)[0];
-            sqlite.prepare("INSERT INTO star_seeds (owner_key, tile_id, level, state, created_at) VALUES (?, ?, 1, 'fallen', ?)").run(ownerKey, spot.id, now);
+          if (!spots.length) break;
+          const spot = spots[Math.floor(Math.random() * spots.length)];
+          sqlite.prepare("INSERT INTO star_seeds (owner_key, tile_id, level, state, created_at) VALUES (?, ?, 1, 'fallen', ?)").run(ownerKey, spot.id, now);
+          // THE SANCTUARY (2026-10-24 18:18): a fallen seed
+          // purifies the tile it lands on — the standard
+          // purification shape, as the bank writes it.
+          if ((spot as any).cursed) {
+            await db.update(schema.territoryTiles)
+              .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+              .where(eq(schema.territoryTiles.id, spot.id));
+            (spot as any).cursed = 0;
           }
         }
-        sqlite.prepare("UPDATE tender_attention SET starfall_anchor_at = ? WHERE owner_key = ?").run(anchor + hours * 3600000, ownerKey);
+        anchor = anchor + hours * 3600000;
       }
+      sqlite.prepare("UPDATE tender_attention SET starfall_anchor_at = ?, starfall_seen_at = ? WHERE owner_key = ?").run(anchor, now, ownerKey);
     }
     // Fetch parties land, gather, and ride home.
     await this.settleSeedMissions(ownerKey);
@@ -11569,17 +11865,21 @@ export const handlers = {
         sqlite.prepare("UPDATE incursion_columns SET state = 'landed', resolved_at = ? WHERE id = ?").run(now, col.id);
         sqlite.prepare("UPDATE bastion_calls SET state = 'landed' WHERE column_id = ? AND state = 'open'").run(col.id);
         if (col.target_kind === "seed" && col.target_tile_id != null) {
-          // Q4 RULED (Nigel, 2026-10-17): an unheld seed a column
-          // reaches is CORRUPTED — it becomes theirs, a cursed
-          // bastion, and the column stands as its guard: a siege.
-          // The guard stands now as the landed wanderers above.
-          const seed = sqlite.prepare(
-            "SELECT id FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'fallen'"
-          ).get(ownerKey, col.target_tile_id) as any;
-          if (seed) {
-            sqlite.prepare("UPDATE star_seeds SET state = 'corrupted' WHERE id = ?").run(seed.id);
-            sqlite.prepare("UPDATE incursion_columns SET kind = 'siege' WHERE id = ?").run(col.id);
-          }
+          // Q4 RULED (Nigel, 2026-10-17) — SUSPENDED by the
+          // feeding law (Nigel, 2026-10-24 18:18): "for now
+          // give the curse no effect on starseeds. they can
+          // not force their way into its light." A column
+          // that reaches an unheld seed once CORRUPTED it —
+          // a cursed bastion, the column its guard, a siege.
+          // For now the seed is NOT taken: the column lands,
+          // its force stands on the land as wanderers to be
+          // fought there, and the seed lies fallen in its
+          // own light, uncorrupted. Seeds already corrupted
+          // before the suspension keep their road back (the
+          // guard-exit below reads them as it always has).
+          // The suspension is provisional by his own words;
+          // the Q4 road stands written in this comment for
+          // the day he lifts it.
         }
       }
     }
@@ -11691,14 +11991,14 @@ export const handlers = {
 
   /** The calm made true on the tiles themselves (the
    *  Seed-Calm, Nigel 2026-10-17): every cursed tile within a
-   *  held seed's reach has its curse strength re-reckoned at
-   *  its effective ring — current HP clamps down when the
+   *  living seed's reach has its curse strength re-reckoned
+   *  at its effective ring — current HP clamps down when the
    *  calm falls on it — and a tile whose calm has COLLAPSED
    *  (its stored depth is shallower than its natural ring
    *  allows) re-thickens by the difference. Tiles the calm
    *  has never touched are left exactly as they were. */
   async settleSeedCalm(ownerKey: string) {
-    const seedHexes = await heldSeedHexes(ownerKey);
+    const seedHexes = await livingSeedHexes(ownerKey);
     const mood = (await getWorldMood()).mood;
     const tiles = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.ownerKey, ownerKey), eq(schema.territoryTiles.cursed, 1)));
@@ -11810,9 +12110,17 @@ export const handlers = {
     return {
       seeds: seeds.map(sd => {
         const t = tileById.get(sd.tile_id);
+        const level = Number(sd.level ?? 1);
         return {
           id: sd.id, tileId: sd.tile_id, q: t ? t.q : null, r: t ? t.r : null,
-          level: sd.level, state: sd.state, defenses: sd.defenses ?? 0,
+          level, state: sd.state, defenses: sd.defenses ?? 0,
+          // THE GROWTH CYCLE (2026-10-25): the seed's stage
+          // and its fed ledger ride the face — the map draws
+          // the stage's own artwork, and a Tender can see
+          // how much feeding the next stage stands at.
+          stage: seedStageForLevel(level),
+          fedEnergy: Number(sd.fed_energy ?? 0),
+          nextStageAt: level === 1 ? SEED_FED_FOR_LEVEL_2 : level === 2 ? SEED_FED_FOR_LEVEL_3 : null,
           tileCursed: t ? !!t.cursed : false,
         };
       }),
@@ -11880,6 +12188,12 @@ export const handlers = {
       event: {
         seedId: seed.id,
         seedLevel: Number(seed.level ?? 1),
+        // THE GROWTH CYCLE (2026-10-25): the stage's name
+        // and the fed ledger — the panel speaks of stages
+        // and feeding now, never of a waves ladder.
+        seedStage: seedStageForLevel(Number(seed.level ?? 1)),
+        fedEnergy: Number(seed.fed_energy ?? 0),
+        nextStageAt: Number(seed.level ?? 1) === 1 ? SEED_FED_FOR_LEVEL_2 : Number(seed.level ?? 1) === 2 ? SEED_FED_FOR_LEVEL_3 : null,
         tileId: seed.tile_id,
         tileCursed: tile.length ? !!tile[0].cursed : true,
         state: ev.state,
@@ -12001,14 +12315,13 @@ export const handlers = {
   },
 
   /** End a run standing (after the bank) — or stand down before
-      it. The banked level is kept either way; an unfinished
-      stretch rolls back to the banked rung, as a fall does. */
+      it. The bank and the seed's fed growth are kept either
+      way; only the run's rising count resets, as at a fall. */
   async endFirstSeedRun(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const ev = firstSeedEventRow(ownerKey);
     if (!ev) badRequest("No starseed waits on your land.");
     if (ev!.state !== "holding") badRequest("No hold is underway.");
-    const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev!.seed_id, ownerKey) as any;
     // A rising standing on the land withdraws with the
     // run (the risings ride the engine, 2026-10-24): its
     // Fray are the event's own, and they do not outstay
@@ -12020,7 +12333,10 @@ export const handlers = {
     }
     ev!.state = "waiting";
     ev!.next_wave_at = 0;
-    ev!.waves_cleared = ev!.banked ? Number(seed?.level ?? 1) * 3 : 0;
+    // The growth cycle (2026-10-25): an ended run resets
+    // only the run's rising count — the banked ground and
+    // the seed's fed growth stand, as they stand at a fall.
+    ev!.waves_cleared = 0;
     saveFirstSeedEvent(ev!);
     return { ok: true };
   },

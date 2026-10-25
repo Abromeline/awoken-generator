@@ -657,6 +657,13 @@ export interface BastionView {
 export interface StarSeed {
   id: number; tileId: number; q: number | null; r: number | null;
   level: number; state: "fallen" | "held" | "corrupted" | "first"; defenses: number; tileCursed: boolean;
+  /** THE GROWTH CYCLE (2026-10-25): the seed's stage
+   *  ("starseed" | "sapling" | "beacon" | "bastion"), the
+   *  whole energy it has been fed, and the fed total its
+   *  next stage stands at (null at the Beacon and beyond). */
+  stage: "starseed" | "sapling" | "beacon" | "bastion";
+  fedEnergy: number;
+  nextStageAt: number | null;
 }
 export interface SeedsView {
   seeds: StarSeed[];
@@ -667,6 +674,12 @@ export interface SeedsView {
 export interface FirstSeedEvent {
   seedId: number;
   seedLevel: number;
+  /** THE GROWTH CYCLE (2026-10-25): the seed's stage name,
+   *  the energy it has been fed, and the fed total the next
+   *  stage stands at (null at the Beacon and beyond). */
+  seedStage: "starseed" | "sapling" | "beacon" | "bastion";
+  fedEnergy: number;
+  nextStageAt: number | null;
   tileId: number;
   tileCursed: boolean;
   state: "waiting" | "holding" | "done";

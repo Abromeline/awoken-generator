@@ -6,6 +6,18 @@ import { WALL_STYLES } from "./wallArt";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
+// THE STARSEED STAGE FACES (the growth cycle, 2026-10-25):
+// Nigel's Sapling of Light and Beacon, drawn by his hand
+// (delivered 2026-10-24) and prepared for the map the way
+// the bramble's faces were — cropped to the artwork's own
+// box and resized only, never redrawn or recoloured. The
+// Starseed keeps its standing face (the falling star). The
+// Bastion stage has NO face yet — it is Nigel's to draw;
+// a Bastion-stage seed wears the Beacon's face on the map
+// until his hand delivers its own (flagged in the build
+// report, never silently invented).
+import seedSaplingArt from "./assets/starseed/sapling.png";
+import seedBeaconArt from "./assets/starseed/beacon.png";
 
 import FieldAwoken from "./FieldAwoken";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
@@ -1425,7 +1437,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // When the hold's truth moves (a wave lands, the bank falls), the
   // map's own state is re-read so the ground agrees with the ledger.
   const firstSeedSig = firstSeedEv
-    ? `${firstSeedEv.state}|${firstSeedEv.banked}|${firstSeedEv.wavesCleared}|${firstSeedEv.defenders.map(d => `${d.awakenedId}:${d.hp}`).join(",")}`
+    ? `${firstSeedEv.state}|${firstSeedEv.banked}|${firstSeedEv.wavesCleared}|${firstSeedEv.seedStage}|${firstSeedEv.fedEnergy}|${firstSeedEv.defenders.map(d => `${d.awakenedId}:${d.hp}`).join(",")}`
     : "";
   const lastFirstSeedSig = useRef("");
   useEffect(() => {
@@ -1435,6 +1447,51 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     lastFirstSeedSig.current = firstSeedSig;
   }, [firstSeedSig]);
+  // THE GROWTH-LESSONS + THE CEREMONY (the growth cycle,
+  // 2026-10-25; the ceremony and lessons designed 2026-10-24
+  // 19:14, ratified 19:21): a lesson slips in at each stage
+  // of the FIRST seed's first growth — first entry teaches
+  // the draw when a defender first stands at the seed; the
+  // Sapling's lesson fires the first time the served stage
+  // reads sapling; the Beacon's, the first time it reads
+  // beacon (or bastion beyond it). Once per Tender, first
+  // trigger only — the registry remembers (frontLessons),
+  // and only the first seed teaches: starfield seeds grow
+  // by the same law in silence. The CEREMONY is a short
+  // story, not a lesson: served once while the first seed's
+  // hold still stands unfinished — at the claim's own seat,
+  // the name having been chosen at the claim — and
+  // remembered by the same registry under its own key.
+  const seedFeedTouched = useRef(false);
+  useEffect(() => {
+    if (seedFeedTouched.current) return;
+    if (firstSeedEv && firstSeedEv.state !== "done" && firstSeedEv.defenders.length > 0) {
+      seedFeedTouched.current = true;
+      homeland.touch("seedfeed");
+    }
+  }, [firstSeedEv]);
+  const seedStageSeen = useRef<string | null>(null);
+  useEffect(() => {
+    const stage = firstSeedEv?.seedStage;
+    if (!stage) return;
+    if (seedStageSeen.current === stage) return;
+    seedStageSeen.current = stage;
+    if (stage === "sapling") homeland.touch("seedsapling");
+    if (stage === "beacon" || stage === "bastion") homeland.touch("seedbeacon");
+  }, [firstSeedEv?.seedStage]);
+  const [ceremonyOpen, setCeremonyOpen] = useState(false);
+  const ceremonyChecked = useRef(false);
+  useEffect(() => {
+    if (ceremonyChecked.current) return;
+    if (!firstSeedEv) return;
+    ceremonyChecked.current = true;
+    if (firstSeedEv.state === "done") return; // the story belongs to the growing, not to a finished lighthouse
+    api.getFrontLessons().then(r => { if (!r.seen.includes("ceremony")) setCeremonyOpen(true); }).catch(() => {});
+  }, [firstSeedEv]);
+  const closeCeremony = () => {
+    setCeremonyOpen(false);
+    api.markFrontLesson({ lessonKey: "ceremony" }).catch(() => {});
+  };
   const callsQ = useQuery({ queryKey: ["calls"], queryFn: () => api.getCalls(), refetchInterval: 30000 });
   const bastionQ = useQuery({ queryKey: ["bastion"], queryFn: () => api.getBastion(), refetchInterval: 30000 });
   const bastionAct = async (act: () => Promise<unknown>, done: string) => {
@@ -4997,25 +5054,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // ground — stripped (the Token Strip, 2026-10-23): it is
     // a seed still, drawn as a seed, in the dark's violet ring
     // while the dark's guard holds it.
+    // THE STAGE FACES (the growth cycle, 2026-10-25): a seed
+    // wears the face of its STAGE — the Starseed keeps its
+    // standing faces (the first seed's falling-star meteor;
+    // the gold star for the starfield's fallen and held);
+    // the Sapling and the Beacon wear Nigel's own artwork,
+    // standing on their hex. THE BEACON'S HEIGHT IS RULED
+    // (2026-10-24): twice the Tender figure's height — the
+    // Tender figure stands 62 of these map units, so the
+    // Beacon stands 124. THE SAPLING'S HEIGHT IS NOT RULED:
+    // it stands at the Tender figure's height (62) as a
+    // STAND-IN measure for Nigel's ruling, named in the
+    // build report. THE BASTION HAS NO FACE — a Bastion-
+    // stage seed wears the Beacon's face and the Bastion's
+    // name until Nigel draws its own.
+    const SEED_STAGE_FACE: Record<string, string> = {
+      starseed: "Starseed", sapling: "Sapling of Light", beacon: "Beacon", bastion: "Bastion",
+    };
     const seedLayer = (
       <g key="seeds" pointerEvents="none">
         {(seedsQ.data?.seeds ?? []).map(sd => {
           const t = tiles.find(t => t.id === sd.tileId);
           if (!t) return null;
           const { cx, cy } = tilePos(t);
-          if (sd.state === "first") {
-            // THE FIRST SEED (Nigel via Wake, 2026-10-17): the tiny
-            // meteor of the ceremony rain, sparkling on the center
-            // cursed hex of a brand-new map — his own asset, seated
-            // as the seed's face until the hold is done.
-            return (
-              <g key={sd.id}>
-                <circle cx={cx} cy={cy - size * 0.5} r={size * 0.55} fill="rgba(232,182,76,0.14)" stroke="#e8b64c" strokeWidth={1.2 / zoom} strokeDasharray={`${3 / zoom} ${4 / zoom}`} />
-                <image href={meteorGif} x={cx - size * 0.45} y={cy - size * 1.1} width={size * 0.9} height={size * 0.9} />
-                {sd.level > 1 && <text x={cx} y={cy - size * 1.2} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Lv {sd.level}</text>}
-              </g>
-            );
-          }
+          const stage = sd.stage ?? "starseed";
           if (sd.state === "corrupted") {
             // THE SKULL IS STRIPPED (the Token Strip, 2026-10-23):
             // the seed wears its own face in the dark's violet
@@ -5023,7 +5085,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             // Its guard stands beside it as real wanderers; when
             // the guard is gone the seed itself is fallen again
             // (the exit in settleIncursions) and this face goes
-            // with the state.
+            // with the state. A corrupted seed wears no stage
+            // face either: its light is in the dark's hands.
             return (
               <g key={sd.id}>
                 <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(16,8,24,0.88)" stroke="#b04df0" strokeWidth={2.2 / zoom} />
@@ -5032,11 +5095,43 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               </g>
             );
           }
+          if (stage === "sapling" || stage === "beacon" || stage === "bastion") {
+            // The grown faces: Nigel's artwork, standing on the
+            // hex, base at the hex's heart. The Beacon's beam
+            // runs off the top of his canvas, as drawn.
+            const art = stage === "sapling" ? seedSaplingArt : seedBeaconArt;
+            const figH = stage === "sapling" ? 62 : 124; // land units; the Tender figure stands 62
+            const figW = figH * (stage === "sapling" ? 512 / 846 : 512 / 992);
+            const base = cy + size * 0.3;
+            return (
+              <g key={sd.id}>
+                <image href={art} x={cx - figW / 2} y={base - figH} width={figW} height={figH} preserveAspectRatio="xMidYMax meet" />
+                <text x={cx} y={base + size * 0.42} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">{SEED_STAGE_FACE[stage]}</text>
+                {sd.state === "held" && <text x={cx} y={base + size * 0.72} textAnchor="middle" fontSize={size * 0.22} fill="#e8cf8a">held {sd.defenses}/3</text>}
+                {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={base + size * (sd.state === "held" ? 1.0 : 0.72)} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
+              </g>
+            );
+          }
+          if (sd.state === "first") {
+            // THE FIRST SEED (Nigel via Wake, 2026-10-17): the tiny
+            // meteor of the ceremony rain, sparkling on the center
+            // cursed hex of a brand-new map — his own asset, seated
+            // as the seed's face while it stands a Starseed. Grown
+            // past that stage it wears the stage faces above.
+            return (
+              <g key={sd.id}>
+                <circle cx={cx} cy={cy - size * 0.5} r={size * 0.55} fill="rgba(232,182,76,0.14)" stroke="#e8b64c" strokeWidth={1.2 / zoom} strokeDasharray={`${3 / zoom} ${4 / zoom}`} />
+                <image href={meteorGif} x={cx - size * 0.45} y={cy - size * 1.1} width={size * 0.9} height={size * 0.9} />
+                {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={cy + size * 0.62} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
+              </g>
+            );
+          }
           return (
             <g key={sd.id}>
               <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(20,14,4,0.85)" stroke={sd.state === "held" ? "#ffd700" : "#e8b64c"} strokeWidth={(sd.state === "held" ? 2.4 : 1.4) / zoom} />
               <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
-              {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Lv {sd.level} · held {sd.defenses}/3</text>}
+              {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Starseed · held {sd.defenses}/3</text>}
+              {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={cy + size * 0.62} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
             </g>
           );
         })}
@@ -5933,15 +6028,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <h2>A starseed lies in the cursed heart of your land.</h2>
             {ev.state === "holding" ? (
               <>
-                <p>The hold is underway. <strong>{ev.wavesCleared} rising{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · seed level <strong>{ev.seedLevel}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Rising {ev.nextWave} comes in <strong>{waveInSec}s</strong> — {ev.nextWave} Fray ride with it.</> : ""}</p>
-                <p>Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
+                <p>The hold is underway. <strong>{ev.wavesCleared} rising{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · the seed stands a <strong>{({ starseed: "Starseed", sapling: "Sapling of Light", beacon: "Beacon", bastion: "Bastion" } as Record<string, string>)[ev.seedStage] ?? "Starseed"}</strong>, fed <strong>{ev.fedEnergy}{ev.nextStageAt != null ? ` of ${ev.nextStageAt}` : ""}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Rising {ev.nextWave} comes in <strong>{waveInSec}s</strong> — Fray ride with it.</> : ""}</p>
+                <p>The seed grows by FEEDING, never by the risings: while your company stands near it, it drinks from your purse on its own. The risings are only the defence that comes while it feeds. Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
               </>
             ) : ev.banked ? (
-              <p>The seed is <strong>banked at level {ev.seedLevel}</strong> — the ground is yours and the company stands on it. Begin another hold to raise the seed: every three risings, a new level. <strong>Hold the seed to level 3 and it lays up a shining point of attunement, yours to gather.</strong></p>
+              <p>The seed is <strong>banked</strong> — the ground is yours and the company stands on it. The seed grows by FEEDING now: stand the company near it and it drinks from your purse on its own, rising through its stages. <strong>Feed it to level 3 — a full lighthouse at 30 fed — and it lays up a shining point of attunement, yours to gather.</strong></p>
             ) : (
               <>
                 <p>Send your Awokin onto the seed's hex, then begin the hold. Risings of Fray will come, one upon the next — <strong>clear three risings and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
-                <p><strong>Hold the seed to level 3 and it lays up a shining point of attunement, yours to gather.</strong></p>
+                <p>The seed grows by FEEDING, never by the risings: while your company stands near it, it drinks from your purse on its own, and the risings are the defence that comes while it feeds. <strong>Feed it to level 3 — a full lighthouse at 30 fed — and it lays up a shining point of attunement, yours to gather.</strong></p>
               </>
             )}
             {initialPatrolIds && initialPatrolIds.length > 0 && standing.length === 0 && seedTeam.length > 0 && ev.state !== "done" && (
@@ -6208,6 +6303,29 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <div className="return-report-label">Upon your return, an Awokin speaks:</div>
             <div className="return-report-text">"{returnReport.text}"</div>
             <button className="abtn small" onClick={() => setReturnReport(null)}>Tend on</button>
+          </div>
+        </div>
+      )}
+      {ceremonyOpen && (
+        // THE CEREMONY (the growth cycle, 2026-10-25): the short
+        // story of the first seed, served once at the claim's own
+        // seat — the Tender named, the seed fallen, the hold not
+        // yet done. It introduces the lighthouse by story, as
+        // designed (2026-10-24 19:14): the original beacon
+        // becomes the lighthouse, and its mechanics ride its
+        // tale. THE WORDS ARE DRAFT — written in the game's
+        // voice for Nigel's ear, flagged in the build report
+        // for his strike or blessing; they are not ratified law.
+        <div className="return-report-overlay" onClick={closeCeremony}>
+          <div className="return-report ceremony-card" onClick={e => e.stopPropagation()}>
+            <div className="return-report-label">The First Seed — where the light fell</div>
+            <div className="ceremony-text">
+              <p>The star fell before there were names for falling, and it fell on your ground.</p>
+              <p>The Awokin are the only beings in all the world who can take a fallen starseed's light into their hands and raise it — seed to sapling, sapling to shining beacon. No other creature can. The dark can only smother what it cannot hold.</p>
+              <p>That first beacon is yours. Fed from your own purse and guarded by your own company, it becomes your lighthouse: win ground and the victories bank its minutes; light it by hand, and while it burns the curse cannot breed in its light and the waves stand at their weakest.</p>
+              <p>Everything else in the Last Bastion is built around a light you raised yourself.</p>
+            </div>
+            <button className="abtn small" onClick={closeCeremony}>Tend on</button>
           </div>
         </div>
       )}

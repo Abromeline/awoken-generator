@@ -12,7 +12,9 @@
 // Territory tutorial card (auto-shown over a new Tender's
 // first map, with its "?" reopen button and its training
 // banner) is GONE, whole. In its place, nine short lessons,
-// one per homeland system, each fired ONCE at that system's
+// one per homeland system — joined since the GROWTH CYCLE
+// (2026-10-25) by three more, one per stage of the first
+// seed's growth — each fired ONCE at that system's
 // first touch on the terrain map and never again,
 // dismissible, never blocking its system — remembered in
 // the front screen's first-touch registry, EXTENDED (the
@@ -28,7 +30,9 @@
 //
 // Proof shape (stated plainly, as with the front drive):
 //   §A the lesson list itself, read from homelandLessons.ts
-//      — nine lessons in the ground's order, each a line or
+//      — the homeland's lessons in the ground's order (nine of the
+//      ground's systems, and — since the GROWTH CYCLE, 2026-10-25 —
+//      three of the first seed's growth), each a line or
 //      two (<= 160 chars, <= 2 sentences), each naming the
 //      button or control it teaches; and NO lesson teaching
 //      a dying system (no waves as any shape, no hex-lock,
@@ -91,12 +95,12 @@ const serverLessons = readFileSync(join(root, "server/src/frontLessons.ts"), "ut
 const storeSrc = readFileSync(join(root, "server/src/store.ts"), "utf8");
 
 // ── §A THE LESSON LIST ─────────────────────────────────────
-console.log("\n§A homelandLessons.ts — nine lessons, the ground's order, each a line or two naming its control");
+console.log("\n§A homelandLessons.ts — twelve lessons, the ground's order, each a line or two naming its control");
 const entries = [...lessonsSrc.matchAll(/\{\s*key: "([a-z]+)",\s*system: "([^"]+)",\s*text: "([^"]+)",\s*\}/g)]
   .map((m) => ({ key: m[1], system: m[2], text: m[3] }));
-check("exactly nine homeland lessons stand", entries.length === 9, `found ${entries.length}`);
-check("the lessons stand in the ground's order: party, return, safehex, battle, cast, orders, group, warning, seed",
-  entries.map((e) => e.key).join(",") === "party,return,safehex,battle,cast,orders,group,warning,seed",
+check("exactly twelve homeland lessons stand (the ground's nine + the growth cycle's three)", entries.length === 12, `found ${entries.length}`);
+check("the lessons stand in the ground's order: party, return, safehex, battle, cast, orders, group, warning, seed, then the growth cycle's three",
+  entries.map((e) => e.key).join(",") === "party,return,safehex,battle,cast,orders,group,warning,seed,seedfeed,seedsapling,seedbeacon",
   entries.map((e) => e.key).join(","));
 const NAMES = {
   party: ["first three", "party", "🌳", "Party tab"],
@@ -108,6 +112,9 @@ const NAMES = {
   group: ["Drag a box", "orders appear", "March together"],
   warning: ["level 3", "twenty held", "presses harder"],
   seed: ["starseed", "first three", "rebuilding heart"],
+  seedfeed: ["drinks", "purse", "Risings"],
+  seedsapling: ["Sapling of Light", "six hexes", "purify"],
+  seedbeacon: ["Beacon", "Lighthouse panel", "banked"],
 };
 for (const e of entries) {
   const sentences = e.text.split(/(?<=[.!?])\s+/).filter(Boolean).length;
@@ -239,8 +246,8 @@ console.log("\n§R ONE registry, extended — the same table, the same routes, t
 check("the server's homeland keys match the client's, in order",
   ["party", "return", "safehex", "battle", "cast", "orders", "group", "warning", "seed"].every((k) => serverLessons.includes(`"${k}"`))
   && serverLessons.includes("HOMELAND_LESSON_KEYS"));
-check("the server's served set is the UNION (LESSON_KEYS = front + homeland) and the mark judges by it",
-  serverLessons.includes("export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS] as const")
+check("the server's served set is the UNION (LESSON_KEYS = front + homeland + the growth cycle's servings, 2026-10-25) and the mark judges by it",
+  serverLessons.includes("export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS] as const")
   && serverLessons.includes("z.enum(LESSON_KEYS)"));
 check("still ONE table: store DDL creates front_lessons_seen exactly once (no second, parallel registry)",
   (storeSrc.match(/CREATE TABLE IF NOT EXISTS front_lessons_seen/g) ?? []).length === 1
@@ -286,7 +293,7 @@ async function call(action, args, token) {
 }
 const V1 = { "x-visitor-id": "visitor-homeland-0001" };
 const V2 = { "x-visitor-id": "visitor-homeland-0002" };
-const HKEYS = ["party", "return", "safehex", "battle", "cast", "orders", "group", "warning", "seed"];
+const HKEYS = ["party", "return", "safehex", "battle", "cast", "orders", "group", "warning", "seed", "seedfeed", "seedsapling", "seedbeacon"];
 
 {
   const fresh = await lessonsGet(V1);
@@ -323,7 +330,7 @@ const HKEYS = ["party", "return", "safehex", "battle", "cast", "orders", "group"
   await lessonsMark({ ...T, ...V1 }, "map");
   for (const key of HKEYS.slice(1)) await lessonsMark({ ...T, ...V1 }, key);
   const all = await lessonsGet({ ...T, ...V1 });
-  check("one served set holds both screens' lessons (front \"map\" + all nine homeland keys) — extended, not parallel",
+  check("one served set holds both screens' lessons (front \"map\" + all twelve homeland keys, the growth cycle's among them) — extended, not parallel",
     all.status === 200 && all.data.seen.includes("map") && HKEYS.every((k) => all.data.seen.includes(k)),
     JSON.stringify(all));
   const again = await lessonsMark(T, "cast");

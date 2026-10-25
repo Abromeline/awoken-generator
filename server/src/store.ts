@@ -663,6 +663,20 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seeds (
 // Seed growth columns (the hold's reckoning, 2026-10-17).
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN defenses INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN bastion_building_id INTEGER"); } catch { /* exists */ }
+// THE STARSEED GROWTH CYCLE (Nigel, 2026-10-24, ratified 19:21;
+// commissioned 2026-10-25): a seed's level comes from FEEDING
+// ONLY — fed_energy is the whole energy the seed has ever been
+// fed (whole points; the draw settles in whole energy, its
+// fractional pace carried in feed_credit), and feed_anchor_at
+// is the feeding settle's presence stamp, the same lazy shape
+// every settle in this house keeps.
+try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN fed_energy INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN feed_credit REAL NOT NULL DEFAULT 0"); } catch { /* exists */ }
+try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN feed_anchor_at INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+// STARFALL — ONLINE ONLY (Nigel, 2026-10-24 23:43): the last
+// moment a settle saw this Tender present, so the hourly gate
+// can refuse the hours he was away — no falls bank up offline.
+try { sqlite.exec("ALTER TABLE tender_attention ADD COLUMN starfall_seen_at INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 
 // THE FIRST SEED (Nigel via Wake, 2026-10-17; built 2026-10-18):
 // the Starfall Bastion intro that replaced the old "Face the

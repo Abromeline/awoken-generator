@@ -36,6 +36,21 @@
 // twenty, the seed as rebuilding heart — at the seed hold's
 // first touch; how the hold's fight runs is taught by NO
 // lesson until the fork is ruled.
+//
+// THE GROWTH-LESSONS (added 2026-10-25, the growth cycle
+// build): the fork was ruled (2026-10-24: the risings ride
+// the engine; feeding is the only ladder; the whole package
+// ratified 19:21) — and with the ruling came three lessons
+// of the seed's GROWTH, designed into the ratified spec: a
+// step slips in at each stage of the FIRST seed's first
+// growth, once per Tender, only the first seed teaches —
+// the draw and the first-temper defence at first entry,
+// the widening light at the Sapling, PROTECTION in the
+// moment it arrives at the Beacon. They teach the growth,
+// never the battle: the ABSENT paragraph above stands.
+// (The Sapling lesson's attunement half waits on the
+// attunement feeding channel — an open pencil, unbuilt;
+// the lesson speaks only of the energy road that stands.)
 export const HOMELAND_LESSONS = [
   {
     key: "party",
@@ -81,6 +96,21 @@ export const HOMELAND_LESSONS = [
     key: "seed",
     system: "The First Seed, honestly (its ground truth only — the seed's battle lesson is deferred until the fork is ruled)",
     text: "Twenty held — the starseed can be claimed by your first three. The seed is your rebuilding heart: the ground its hold wins turns yours.",
+  },
+  {
+    key: "seedfeed",
+    system: "The seed's draw (the growth cycle: feeding begins — the passive draw and the risings' first-temper defence, at the company's first stand near the first seed)",
+    text: "Stand your company by the seed — it drinks from your purse on its own, and spending stirs the dark. Risings come at the first temper only, while it feeds.",
+  },
+  {
+    key: "seedsapling",
+    system: "The Sapling of Light (the growth cycle: the first seed's second stage — its light widens and the ring purifies, at the first reaching of it)",
+    text: "The seed wakes a Sapling of Light — its light widens, and the six hexes around it purify. Feed it on with energy, toward the Beacon.",
+  },
+  {
+    key: "seedbeacon",
+    system: "The Beacon (the growth cycle: the first seed's third stage — PROTECTION arrives, taught in the moment it arrives)",
+    text: "A Beacon stands — protection is yours to light. The Lighthouse panel holds your banked minutes: light it, and the dark is driven off until the burn ends.",
   },
 ] as const;
 

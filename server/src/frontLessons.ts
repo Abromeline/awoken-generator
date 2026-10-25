@@ -64,9 +64,29 @@ export const HOMELAND_LESSON_KEYS = [
 ] as const;
 export type HomelandLessonKey = (typeof HOMELAND_LESSON_KEYS)[number];
 
+/** THE GROWTH CYCLE'S SERVINGS (Nigel, 2026-10-24 19:14,
+ *  ratified 19:21; built 2026-10-25): the naming CEREMONY
+ *  — a short story, not a lesson, but remembered by this
+ *  same once-only registry, served once at the first
+ *  seed's claim — and the three GROWTH-LESSONS, one at
+ *  each stage of the FIRST seed's first growth, first-
+ *  trigger per Tender, only the first seed teaches: the
+ *  draw and the intensity-1 defence at first entry; the
+ *  widening light and attunement feeding at the Sapling;
+ *  PROTECTION itself in the moment it arrives, at the
+ *  Beacon. Their words live client-side (homelandLessons.ts
+ *  for the lessons; Territory.tsx for the ceremony). */
+export const SEED_GROWTH_KEYS = [
+  "ceremony",
+  "seedfeed",
+  "seedsapling",
+  "seedbeacon",
+] as const;
+export type SeedGrowthKey = (typeof SEED_GROWTH_KEYS)[number];
+
 /** Every lesson key this registry will remember: the front
  *  screen's and the homeland's, one served set per Tender. */
-export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS] as const;
+export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS] as const;
 
 const lessonKeySchema = z.enum(LESSON_KEYS);
 

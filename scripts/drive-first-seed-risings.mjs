@@ -2,11 +2,22 @@
 // (Nigel, 2026-10-24: "The risings ride the engine").
 // The first seed's hold keeps every number it ever had —
 // rising N brings N Fray, a minute apart (later sporadic),
-// the bank at the third rising, the ladder to twelve, the
-// reward at level 3, fail-before-the-bank costs nothing —
-// but its referee is now the homeland's living cadence
-// battle, not the retired instant arithmetic. Proven here
-// against the real API on a scratch server:
+// the bank at the third rising, fail-before-the-bank costs
+// nothing — but its referee is now the homeland's living
+// cadence battle, not the retired instant arithmetic.
+// RESTATED BY THE GROWTH CYCLE (Nigel, 2026-10-24 18:32,
+// ratified 19:21; built 2026-10-25): THE LADDER IS DEAD —
+// "forget the waves survied, it will be by energy fed."
+// The level-by-waves checks this drive once carried are
+// re-stated as FEEDING checks (§S, §D, §H): risings raise
+// nothing; a seed's level is its fed ledger alone; the
+// reward is laid up at the FEEDING rise to level 3
+// (30 energy fed — a full lighthouse), where the event
+// completes. §I proves the starfall cap (one star on a
+// map at a time) and its online-only gate; §J proves the
+// RETURN LAW (a lit lighthouse resets the wave intensity
+// to 1 on the terrain read; unlit, the escalation stands).
+// Proven here against the real API on a scratch server:
 //   §S the seams, read from the source as written: the old
 //      referee is gone; the battle's fell path routes a
 //      marked Fray to the hold's pay before the land's
@@ -33,13 +44,29 @@
 //      ruled minute away.
 //   §D THE BANK AT THE THIRD RISING: the center purifies,
 //      the pool fills to its cap (proven by the cap's own
-//      clamp: a later fell adds nothing).
+//      clamp: a later fell adds nothing) — and the seed
+//      stands LEVEL 1 still, three risings beaten and
+//      nothing fed: the risings are not the ladder.
 //   §E THE FALL COSTS NOTHING: a lone defender mauled by a
 //      stouter fixture dark (the Uncle Run drive's own
-//      fixture shape) — the run ends 'waiting', the ladder
-//      unmoved, the seed's hex still cursed, the rising's
-//      Fray withdrawn with the run, the defender alive in
-//      hand, the purse unfilled.
+//      fixture shape) — the run ends 'waiting', the run's
+//      rising count reset, the seed's hex still cursed, the
+//      rising's Fray withdrawn with the run, the defender
+//      alive in hand, the purse unfilled.
+//   §H FEEDING IS THE LADDER (the growth cycle): with the
+//      risings frozen by hand, the seed drinks one whole
+//      energy per settled four minutes of the company's
+//      standing — 15 fed stands it a Sapling and its ring
+//      purifies; 30 fed stands it a Beacon, lays up the
+//      level-3 reward, and the event rests DONE.
+//   §I STARFALL CAPPED AND ONLINE ONLY: an absent Tender's
+//      hours never roll; while a star lies on the map the
+//      sky stays closed; taken up, the sky reopens — and
+//      where the star lands, its tile is purified
+//      (the sanctuary) and the calm thins around it.
+//   §J THE RETURN LAW: a lit lighthouse pins the served
+//      wave intensity to 1 on the terrain read; unlit, the
+//      escalation the reigns earned stands unreset.
 //   §F ONE AT A TIME: while a rising stands, its successor
 //      never spawns, however past due its hour is wound.
 //   §G THE BANNERS SPENT LIVE: with fixture Standard and
@@ -114,6 +141,27 @@ console.log("§S the seams — the retired referee and the new one's joints, rea
     battleAt > 0 && spawnAt > battleAt);
   check("the hold panel speaks the ruling's word: 'Rising {N} comes in' — and no 'Wave {N} comes in' survives",
     terr.includes("Rising {ev.nextWave} comes in") && !terr.includes("Wave {ev.nextWave} comes in"));
+  // THE GROWTH CYCLE'S SEAMS (2026-10-25): the ladder struck,
+  // feeding standing in its place.
+  check("§S THE LADDER IS STRUCK: firstSeedLevelFor stands nowhere in the server source",
+    !actions.includes("function firstSeedLevelFor"));
+  const ladderAt = actions.indexOf("async function settleFirstSeedLadder");
+  const ladderEnd = actions.indexOf("saveFirstSeedEvent(ev);", ladderAt);
+  check("§S a rising's clearing writes NO seed level and completes NO run (the clearing only schedules the next rising)",
+    ladderAt > 0 && !actions.slice(ladderAt, ladderEnd).includes("UPDATE star_seeds SET level") && !actions.slice(ladderAt, ladderEnd).includes('ev.state = "done"'));
+  check("§S FEEDING stands as the only ladder: the fed prices (15 / the ruled 30), the level read from fed alone, the draw settled on the territory read",
+    actions.includes("export const SEED_FED_FOR_LEVEL_3 = 30") && actions.includes("export function seedLevelForFed") && actions.includes("async function settleSeedFeeding")
+    && actions.slice(actions.indexOf("async getTerritory")).includes("await settleSeedFeeding(ownerKey)"));
+  check("§S the Sapling's rise purifies its ring and the Beacon's rise completes the first seed's event (the stage-rise pass stands)",
+    actions.includes("async function applySeedStageRise") && actions.includes("purifySeedGroundTile"));
+  check("§S STARFALL: one star at a time (the sky closed while a star lies fallen or corrupted) and online only (the presence stamp walks with the settle, under the house's presence gap)",
+    actions.includes("state IN ('fallen','corrupted')") && actions.includes("starfall_seen_at") && actions.slice(actions.indexOf("STARFALL (ruled 2026-10-16; re-founded"), actions.indexOf("async settleSeedCalm")).includes("PROTECTION_ONLINE_GAP_MS"));
+  check("§S seeds are CURSE-IMMUNE for now: no column landing in settleIncursions writes a seed corrupted",
+    !actions.slice(actions.indexOf("async function settleIncursions"), actions.indexOf("async settleSeedCalm")).includes("SET state = 'corrupted'"));
+  check("§S the seed-calm reckons LIVING seeds — fallen, held, and the first (the sanctuary's thinning)",
+    actions.includes("async function livingSeedHexes") && actions.includes("state IN ('fallen','held','first')"));
+  check("§S the panel speaks FEEDING, not the ladder (no 'every three risings, a new level' survives on the face)",
+    terr.includes("grows by FEEDING") && !terr.includes("every three risings, a new level"));
 }
 
 /* ── Fixtures ───────────────────────────────────────── */
@@ -261,18 +309,40 @@ db.prepare("UPDATE tender_resources SET energy = 0 WHERE owner_key = ?").run(T1.
   check("rising 3 is beaten in engine time", cleared);
   const center = db.prepare("SELECT cursed FROM territory_tiles WHERE owner_key = ? AND q = 0 AND r = 0").get(T1.ownerKey);
   const ev = eventRow(T1.ownerKey);
-  check("§D THE BANK at the third rising: the seed banked, the center purified, the ladder at 3 and the seed still level 1",
+  check("§D THE BANK at the third rising: the seed banked, the center purified, three risings on the run's count",
     Number(ev.banked) === 1 && Number(ev.waves_cleared) === 3 && center && center.cursed === 0,
     `banked=${ev.banked} cleared=${ev.waves_cleared} cursed=${center?.cursed}`);
+  // THE GROWTH CYCLE'S RESTATEMENT: this check once read
+  // the ladder ("the ladder at 3 and the seed still level
+  // 1"). The ladder is struck — the truth it now proves is
+  // feeding's: three risings beaten, the risings counted
+  // and banked, and the seed stands a level-1 Starseed
+  // still, because risings raise nothing; whatever little
+  // the seed drank while the company stood (§H's draw,
+  // already running) is far below the Sapling's price and
+  // moves no level. (§H feeds it in earnest and watches
+  // it climb; §S reads the struck function out of the
+  // source.)
+  const evServedD = (await api("getFirstSeedEvent", {}, T1.token)).data.event;
+  check("§D THE LADDER IS STRUCK in fact: three risings beaten and the seed still stands a level-1 Starseed — risings are not the ladder",
+    !!evServedD && evServedD.seedLevel === 1 && evServedD.seedStage === "starseed" && evServedD.fedEnergy < 15,
+    JSON.stringify(evServedD && { level: evServedD.seedLevel, stage: evServedD.seedStage, fed: evServedD.fedEnergy }));
   const filled = purse(T1.ownerKey);
+  const fedAtBank = evServedD ? evServedD.fedEnergy : 0;
   check("§D the pool FILLED at the bank (from empty by hand to the cap's own figure, > 0)", filled > 0, `purse=${filled}`);
   // Rising 4's first fell must add nothing: the purse
   // already stands at its cap — the clamp is the proof.
+  // (The growth cycle's one amendment: the seed DRINKS
+  // while the company stands — the purse may fall below
+  // the fill by exactly what the seed has been fed since,
+  // read off the served ledger, never by a fell's pay.)
   const four = await fightRising(4, T1.token, T1.ownerKey);
   check("rising 4 stands as four real Fray and is beaten (risings continue past the bank, on purified ground)",
     four.spawned === 4 && four.cleared, JSON.stringify(four));
-  check("§D the bank's fill WAS the cap: rising 4's fells (4 × +3✦, capped) leave the purse exactly where the bank left it",
-    purse(T1.ownerKey) === filled, `purse=${purse(T1.ownerKey)} filled=${filled}`);
+  const fedAfterFour = ((await api("getFirstSeedEvent", {}, T1.token)).data.event ?? {}).fedEnergy ?? 0;
+  check("§D the bank's fill WAS the cap: rising 4's fells (4 × +3✦, capped) leave the purse where the bank left it, less only the seed's own drinking since",
+    purse(T1.ownerKey) === filled - (fedAfterFour - fedAtBank),
+    `purse=${purse(T1.ownerKey)} filled=${filled} fedBank=${fedAtBank} fedNow=${fedAfterFour}`);
 }
 
 /* ── §E Tender Two: the fall costs nothing ──────────── */
@@ -396,7 +466,180 @@ db.prepare("UPDATE first_seed_events SET next_wave_at = 1 WHERE owner_key = ?").
   // Standard AND the Beacon both spent into it.
   check("§G a witnessed blow against the rising's Fray dealt 60+ — the Standard AND the Beacon were both spent into the living battle's raw harm",
     maxDmg >= 60, `maxDmg=${maxDmg}`);
-  check("§G the bannered rising is beaten and the ladder climbs", cleared);
+  check("§G the bannered rising is beaten and the run's count climbs (the risings' count — feeding alone climbs the seed)", cleared);
+}
+
+/* ── §H Tender One again: FEEDING IS THE LADDER ────── */
+console.log("§H tender one — the seed drinks, and feeding alone climbs it");
+{
+  const K = T1.ownerKey;
+  // The risings are frozen by hand for the feeding's whole
+  // span (their next hour wound far out before every read):
+  // §H reads the DRAW clean, as §A–§G read the hold clean —
+  // no fell's pay may blur the purse's arithmetic.
+  const freezeRisings = () => db.prepare("UPDATE first_seed_events SET next_wave_at = ? WHERE owner_key = ?").run(Date.now() + 3600000, K);
+  freezeRisings();
+  stillCradle(K);
+  await api("getTerritory", {}, T1.token); // the priming read: the anchor walks to now, no span is drawn across the silence
+  const ev0 = (await api("getFirstSeedEvent", {}, T1.token)).data.event;
+  check("§H the feeding starts where the risings left it: the seed a level-1 Starseed, its event still holding",
+    !!ev0 && ev0.seedLevel === 1 && ev0.seedStage === "starseed" && ev0.state === "holding",
+    JSON.stringify(ev0 && { level: ev0.seedLevel, stage: ev0.seedStage, state: ev0.state, fed: ev0.fedEnergy }));
+  const fed0 = ev0.fedEnergy;
+  const seedRow = db.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state = 'first'").get(K);
+  const seedTile = db.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seedRow.tile_id);
+  const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const ringCursed = () => DIRS.reduce((n, [dq, dr]) => {
+    const t = db.prepare("SELECT cursed FROM territory_tiles WHERE owner_key = ? AND q = ? AND r = ?").get(K, seedTile.q + dq, seedTile.r + dr);
+    return n + (t && t.cursed ? 1 : 0);
+  }, 0);
+  const cursedBefore = ringCursed();
+  check("§H the Sapling's ring stands cursed before the rise (the widening light has something to purify)", cursedBefore >= 1, `cursed=${cursedBefore}`);
+  db.prepare("UPDATE tender_resources SET energy = 80 WHERE owner_key = ?").run(K);
+  // THE DRAW, wound by hand: each read is preceded by the
+  // anchor wound exactly four minutes back — one whole
+  // energy at the ruled upkeep rate (1 per 4 minutes).
+  const feed = async (n) => {
+    for (let i = 0; i < n; i++) {
+      freezeRisings();
+      stillCradle(K);
+      db.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(Date.now() - 240000, seedRow.id);
+      await api("getTerritory", {}, T1.token);
+    }
+  };
+  await feed(15);
+  const ev15 = (await api("getFirstSeedEvent", {}, T1.token)).data.event;
+  check("§H FIFTEEN FED: the purse fell by exactly the drinking (80 → 65), the ledger reads fifteen more than it stood",
+    purse(K) === 65 && !!ev15 && ev15.fedEnergy === fed0 + 15,
+    `purse=${purse(K)} fed=${ev15?.fedEnergy} fed0=${fed0}`);
+  check("§H the Sapling stands: level 2, the stage served by its own name",
+    !!ev15 && ev15.seedLevel === 2 && ev15.seedStage === "sapling",
+    JSON.stringify(ev15 && { level: ev15.seedLevel, stage: ev15.seedStage }));
+  check("§H THE WIDENING LIGHT: the seed's whole ring stands purified at the Sapling's rise",
+    ringCursed() === 0, `cursed=${ringCursed()} before=${cursedBefore}`);
+  await feed(15);
+  const ev30 = (await api("getFirstSeedEvent", {}, T1.token)).data.event;
+  check("§H THIRTY FED — A FULL LIGHTHOUSE: level 3, the Beacon's stage, the purse at 50",
+    purse(K) === 50 && !!ev30 && ev30.fedEnergy === fed0 + 30 && ev30.seedLevel === 3 && ev30.seedStage === "beacon",
+    `purse=${purse(K)} fed=${ev30?.fedEnergy} level=${ev30?.seedLevel} stage=${ev30?.seedStage}`);
+  check("§H the hold COMPLETES at the feeding rise: the event rests done, and the level-3 reward is laid up once, shining to be gathered",
+    !!ev30 && ev30.state === "done" && !!ev30.reward && typeof ev30.reward.element === "string",
+    JSON.stringify(ev30 && { state: ev30.state, reward: ev30.reward }));
+  const seedsServed = (await api("getSeeds", {}, T1.token)).data.seeds ?? [];
+  const firstServed = seedsServed.find(s => s.state === "first");
+  check("§H the map's own serving agrees: the first seed reads a Beacon, fed 30, no next stage priced",
+    !!firstServed && firstServed.stage === "beacon" && firstServed.fedEnergy === fed0 + 30 && firstServed.nextStageAt === null,
+    JSON.stringify(firstServed));
+}
+
+/* ── §I Tender Four: STARFALL — one star, online only ─ */
+console.log("§I tender four — the sky keeps one star, and only while he watches");
+const T4 = await claimTender("Starfall Tester");
+{
+  const K = T4.ownerKey;
+  const guard = seedCompany(K, "Starfall Tester", [["Sky Cloth", "body", 3, 3, "sky"], ["Sky Cord", "arms", 3, 3, "sky"], ["Sky Crown", "head", 3, 3, "sky"]], ["Sky Guard", "Sky Second", "Sky Third"]);
+  r = await api("chooseClass", { classKey: "warden" }, T4.token);
+  check("tender four: the class binds (his figure stands on the land — §J's settles ride his standing)", r.status === 200, errText(r));
+  r = await api("ensureFirstSeed", {}, T4.token);
+  check("tender four: the first seed is sown", r.status === 200 && r.data.created === true, JSON.stringify(r.data).slice(0, 120));
+  r = await api("deployFirstSeed", { awakenedIds: [guard[0]] }, T4.token);
+  check("tender four: a guard stands (the fetch party to come)", r.status === 200 && r.data.ok === true, errText(r));
+  stillCradle(K);
+  await api("getTerritory", {}, T4.token);
+  await api("getSeeds", {}, T4.token); // the starfall settle opens the sky's ledger
+  const fallenCount = () => db.prepare("SELECT COUNT(*) AS n FROM star_seeds WHERE owner_key = ? AND state = 'fallen'").get(K).n;
+  check("§I a fresh sky holds no fallen star (the first settle only opens the ledger)", fallenCount() === 0, `fallen=${fallenCount()}`);
+  // OFFLINE: three hours banked in absence — anchor and
+  // presence stamp both wound back together. The settle
+  // must walk the anchor past them UNROLLED.
+  const longAgo = Date.now() - 3 * 3600000;
+  db.prepare("UPDATE tender_attention SET starfall_anchor_at = ?, starfall_seen_at = ? WHERE owner_key = ?").run(longAgo, longAgo, K);
+  await api("getSeeds", {}, T4.token);
+  const attAfter = db.prepare("SELECT starfall_anchor_at FROM tender_attention WHERE owner_key = ?").get(K);
+  check("§I ONLINE ONLY: three absent hours bank NO fall — the anchor walked past them unrolled",
+    fallenCount() === 0 && Number(attAfter.starfall_anchor_at) > Date.now() - 60000,
+    `fallen=${fallenCount()} anchorAge=${Date.now() - Number(attAfter.starfall_anchor_at)}ms`);
+  // THE CAP: a star lies on the map (placed by hand, as a
+  // fall would lay it) — two present, rolled hours must
+  // not add another.
+  const firstSeedTile = db.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND state = 'first'").get(K).tile_id;
+  const freeTile = db.prepare("SELECT id FROM territory_tiles WHERE owner_key = ? AND NOT (q = 0 AND r = 0) AND id != ? LIMIT 1").get(K, firstSeedTile).id;
+  const handSeed = Number(db.prepare("INSERT INTO star_seeds (owner_key, tile_id, level, state, created_at) VALUES (?, ?, 1, 'fallen', ?)").run(K, freeTile, Date.now()).lastInsertRowid);
+  db.prepare("UPDATE tender_attention SET starfall_anchor_at = ?, starfall_seen_at = ? WHERE owner_key = ?").run(Date.now() - 2 * 3600000, Date.now(), K);
+  await api("getSeeds", {}, T4.token);
+  check("§I ONE STAR AT A TIME: while a star lies on the map, present rolled hours add none — the sky stays closed",
+    fallenCount() === 1, `fallen=${fallenCount()}`);
+  // TAKEN UP: the fetch rides (its stamps wound, as the
+  // house's drives wind arrivals) and the seed is home.
+  r = await api("fetchSeed", { seedId: handSeed, awakenedIds: [guard[0]] }, T4.token);
+  check("tender four: the fetch rides for the lying star", r.status === 200 && r.data.ok === true, errText(r));
+  db.prepare("UPDATE seed_missions SET arrive_at = 1, return_at = 1 WHERE owner_key = ?").run(K);
+  await api("getSeeds", {}, T4.token);
+  await api("getSeeds", {}, T4.token);
+  const handState = db.prepare("SELECT state FROM star_seeds WHERE id = ?").get(handSeed).state;
+  check("§I the star is TAKEN UP (fetched home) — the sky may open again", handState === "fetched" && fallenCount() === 0, `state=${handState} fallen=${fallenCount()}`);
+  // THE SKY REOPENS: present hours roll until a star falls
+  // (24 rolled hours a read, three reads at most — the
+  // gate's 13% makes a fourth read a 1-in-200,000 silence).
+  let fell = null;
+  for (let i = 0; i < 3 && !fell; i++) {
+    db.prepare("UPDATE tender_attention SET starfall_anchor_at = ?, starfall_seen_at = ? WHERE owner_key = ?").run(Date.now() - 24 * 3600000, Date.now(), K);
+    await api("getSeeds", {}, T4.token);
+    fell = db.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state = 'fallen'").get(K) ?? null;
+  }
+  check("§I the sky REOPENS once the star is taken up: a fall lands — and lands as ONE star, never a rain",
+    !!fell && fallenCount() === 1, `fallen=${fallenCount()}`);
+  if (fell) {
+    const fellTile = db.prepare("SELECT cursed FROM territory_tiles WHERE id = ?").get(fell.tile_id);
+    check("§I THE SANCTUARY: the fallen star purified the tile it landed on",
+      !!fellTile && fellTile.cursed === 0, `cursed=${fellTile?.cursed}`);
+    // THE CALM AROUND IT: a tile two rings from the star
+    // (and outside every other seed's calm) carries its
+    // curse thinned — its strength cap (curse_max_hp)
+    // reads strictly below a control tile at the SAME map
+    // ring that no seed's calm touches. (The calm settles
+    // inside every seeds read, so both are read after it.)
+    const st = db.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(fell.tile_id);
+    const firstTile = db.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(firstSeedTile);
+    const ringOf = (q, rr) => Math.max(Math.abs(q), Math.abs(rr), Math.abs(q + rr));
+    const distTo = (t, c) => Math.max(Math.abs(t.q - c.q), Math.abs(t.r - c.r), Math.abs((t.q - c.q) + (t.r - c.r)));
+    const allTiles = db.prepare("SELECT q, r, curse_max_hp FROM territory_tiles WHERE owner_key = ? AND cursed = 1").all(K);
+    const calmed = allTiles.find(t => distTo(t, st) === 2 && ringOf(t.q, t.r) >= 3 && distTo(t, firstTile) > 2);
+    const control = calmed ? allTiles.find(t => ringOf(t.q, t.r) === ringOf(calmed.q, calmed.r) && distTo(t, st) > 2 && distTo(t, firstTile) > 2) : null;
+    check("§I the curse THINS for two rings around the fallen star (a ring tile's curse strength below its uncalmed twin at the same map ring)",
+      !!calmed && !!control && Number(calmed.curse_max_hp) < Number(control.curse_max_hp),
+      `calmed=${JSON.stringify(calmed)} control=${JSON.stringify(control)}`);
+  }
+}
+
+/* ── §J Tender Four still: THE RETURN LAW ───────────── */
+console.log("§J tender four — returning to the terrain: lit resets, unlit stands");
+{
+  const K = T4.ownerKey;
+  const prog = (patch) => {
+    const sets = Object.entries(patch).map(([k]) => `${k} = ?`).join(", ");
+    db.prepare(`UPDATE tender_progress SET ${sets} WHERE owner_key = ?`).run(...Object.values(patch), K);
+  };
+  // LIT: banked minutes and fuel by hand, lit by hand.
+  prog({ lighthouse_lit: 1, protection_bank_ms: 30 * 60000, lighthouse_settled_at: Date.now(), shadow_matter: 10 });
+  stillCradle(K);
+  const litRead = await api("getTerritory", {}, T4.token);
+  check("§J LIT: whatever the reigns earned, the terrain read serves the waves pushed back — intensity 1",
+    litRead.data.battle && litRead.data.battle.lighthouseLit === true && litRead.data.battle.waveIntensity === 1,
+    JSON.stringify(litRead.data.battle));
+  // UNLIT: the reset mark stands written by the lit settle
+  // at the current reign; wound four reigns back by hand,
+  // the escalation it measures must stand served, unreset.
+  prog({ lighthouse_lit: 0 });
+  stillCradle(K);
+  await api("getTerritory", {}, T4.token); // the baseline read: the mark rests at the current reign
+  const markNow = db.prepare("SELECT intensity_reign_mark FROM tender_progress WHERE owner_key = ?").get(K).intensity_reign_mark;
+  prog({ intensity_reign_mark: Number(markNow) - 4 });
+  stillCradle(K);
+  const unlitRead = await api("getTerritory", {}, T4.token);
+  check("§J UNLIT: the escalation stands unreset — four reigns past the mark, intensity 5 is served",
+    unlitRead.data.battle && unlitRead.data.battle.lighthouseLit === false && unlitRead.data.battle.waveIntensity === 5,
+    JSON.stringify(unlitRead.data.battle));
 }
 
 console.log(`\ndrive-first-seed-risings: ${pass} passed, ${fail} failed`);
