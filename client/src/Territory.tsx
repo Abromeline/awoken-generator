@@ -5183,29 +5183,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     ) : null;
-    // THE SEED-CALM ON THE MAP (Nigel, 2026-10-17): a cursed
-    // hex under a held seed's calm names the level the curse
-    // is now reckoned at: tamable. THE GOLD DASHED OUTLINE
-    // that once ringed every calmed hex IS REMOVED (Nigel,
-    // 2026-10-25, from his live screenshot: "what i dont
-    // want to see are the yellow doted lines") — he named
-    // the lines only, so the level's naming stays and the
-    // calm itself (the reckoning the label reports) is
-    // untouched: this layer now only speaks the level.
-    const calmLayer = (
-      <g key="seed-calm" pointerEvents="none">
-        {tiles.filter(t => t.calmLevel != null).map(t => {
-          const { cx, cy } = tilePos(t);
-          return (
-            <g key={t.id}>
-              {t.cursed ? (
-                <text x={cx} y={cy + size * 1.28} textAnchor="middle" fontSize={size * 0.30} fill="#f0d68c">curse Lv {t.calmLevel}</text>
-              ) : null}
-            </g>
-          );
-        })}
-      </g>
-    );
+    // THE SEED-CALM (Nigel, 2026-10-17; its map readings
+    // struck 2026-10-25): a lying seed lowers the curse's
+    // strength around it, and that reckoning still runs on
+    // the server exactly as it always did — the calmLevel
+    // data still flows in the territory read and still
+    // drives what the curse is reckoned at. The map once
+    // SPOKE the level twice over: a gold dashed outline
+    // ringed every calmed hex (struck 2026-10-25 09:42 —
+    // "what i dont want to see are the yellow doted
+    // lines"), and a "curse Lv N" text named the level
+    // outright (struck 2026-10-25 11:00 — "we dont need a
+    // curse lvl reading .. only the hp and the thorns").
+    // So there is NO calm layer anymore: a cursed tile
+    // shows only its HP and its thorns, drawn by the tile
+    // furniture above. The calm itself is not a drawing
+    // and was never touched.
     // THE COLUMNS ON THE MAP (2026-10-17; the Token Strip,
     // 2026-10-23): a marching column is only a traced dotted
     // line from outside the map to its target, with the
@@ -5885,7 +5878,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           
           {wgGuideLayer}
           {wgAttuneLayer}
-          {calmLayer}
           {columnsLayer}
           {seedLayer}
           {wanderersLayer}

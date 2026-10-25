@@ -2,13 +2,19 @@
 // (Nigel, 2026-10-25; branch build/map-faces, worktree only).
 //
 // §CALM (09:42, from his live screenshot: "what i dont want
-//   to see are the yellow doted lines"): the seed-calm layer
-//   no longer draws its gold dashed hex outlines. The
-//   "curse Lv N" labels STAY — he named the lines only.
-//   Proven on the rendered map: no polygon anywhere wears
-//   the calm gold stroke (#f0d68c — that colour exists in
-//   Territory.tsx only on the calm layer), and cursed tiles
-//   under a seed's calm still print their "curse Lv N".
+//   to see are the yellow doted lines"; 11:00: "we dont
+//   need a curse lvl reading .. only the hp and the
+//   thorns"): the seed-calm layer is GONE from the map —
+//   first its gold dashed hex outlines (09:42), then the
+//   "curse Lv N" reading itself (11:00, superseding the
+//   word that had kept the labels). The calm reckoning
+//   still runs on the server untouched; the map simply
+//   names no curse level anymore. Proven on the rendered
+//   map: no "curse Lv" text anywhere and no polygon wearing
+//   the calm gold stroke (#f0d68c), while a cursed tile's
+//   own furniture — its ♥ HP and its 🌵 thorns, drawn by
+//   the tile layer — still stands. (Baseline at 9c3d783:
+//   33 "curse Lv N" labels rendered; after the strike: 0.)
 //
 // §SEEDS (10:35: "stars are still standing in the place
 //   where the meteor ui should be for the star seed. that
@@ -148,6 +154,9 @@ const snapshot = () => page.evaluate(() => {
   const texts = [...document.querySelectorAll("text")].map(t => t.textContent ?? "");
   return {
     calmLabels: texts.filter(s => /^curse Lv \d+$/.test(s.trim())).length,
+    curseTexts: texts.filter(s => s.includes("curse Lv")).length,
+    hpTexts: texts.filter(s => /^♥\s*\d+$/.test(s.trim())).length,
+    thornTexts: texts.filter(s => /^🌵\s*\d+$/.test(s.trim())).length,
     goldStrokePolygons: [...document.querySelectorAll("polygon")]
       .filter(p => (p.getAttribute("stroke") || "").toLowerCase() === "#f0d68c").length,
     starTexts: texts.filter(s => s.includes("⭐")).length,
@@ -171,11 +180,15 @@ const snap = await snapshot();
 console.log("  rendered:", JSON.stringify(snap));
 
 if (wantCalm) {
-  console.log("§CALM the yellow dotted lines are gone; the curse levels still speak");
-  ok("§CALM cursed tiles under a seed's calm still name their reckoned level ('curse Lv N' labels stand)",
-    snap.calmLabels >= 1, `labels=${snap.calmLabels}`);
+  console.log("§CALM no curse level is read on the map; the HP and the thorns stand");
+  ok("§CALM no 'curse Lv' text stands anywhere on the rendered map (the reading is struck)",
+    snap.curseTexts === 0 && snap.calmLabels === 0, `curseTexts=${snap.curseTexts} labels=${snap.calmLabels}`);
   ok("§CALM no gold dashed hex outline stands on the map (no polygon wears the calm gold stroke)",
     snap.goldStrokePolygons === 0, `polygons=${snap.goldStrokePolygons}`);
+  ok("§CALM the cursed tiles still show their HP (♥ N readings stand)",
+    snap.hpTexts >= 1, `hpTexts=${snap.hpTexts}`);
+  ok("§CALM the cursed tiles still show their thorns (🌵 N readings stand)",
+    snap.thornTexts >= 1, `thornTexts=${snap.thornTexts}`);
 }
 if (wantSeeds) {
   console.log("§SEEDS the star seed wears the meteor");
