@@ -71,7 +71,7 @@ const rarityLabel: Record<Rarity, string> = { common: "Common", uncommon: "Uncom
 const rarityWeight: Record<Rarity, number> = { common: 8, uncommon: 4, rare: 2, mythic: 1 };
 const firstbornWeight: Record<Rarity, number> = { common: 2, uncommon: 4, rare: 6, mythic: 4 };
 const rarityScore: Record<Rarity, number> = { common: 1, uncommon: 2, rare: 3, mythic: 4 };
-const statValues = [0, 1, 2, 3] as const;
+const statValues = [0, 1, 2, 3, 4, 5, 6] as const;
 
 const TEMPLATE_WIDTH = 750;
 const TEMPLATE_HEIGHT = 971;

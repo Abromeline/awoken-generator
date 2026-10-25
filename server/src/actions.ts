@@ -733,7 +733,7 @@ const layerCategorySchema = z.enum(["background", "arms", "body", "aura", "aspec
 const filingCategorySchema = z.enum(["background", "arms", "body", "aspect", "head"]);
 const raritySchema = z.enum(["common", "uncommon", "rare", "mythic"]);
 const collectionSchema = z.enum(["tender", "workshop"]);
-const statSchema = z.number().int().min(0).max(3);
+const statSchema = z.number().int().min(0).max(6);
 const statCategories = new Set<z.infer<typeof layerCategorySchema>>(["arms", "body", "head"]);
 const okResponse = z.object({ ok: z.literal(true) });
 const purifyResponse = z.object({
@@ -750,9 +750,9 @@ type AssetStats = { name: string; rarity: Rarity; power: number | null; toughnes
 
 function rarityFromStats(power: number, toughness: number): Rarity {
   const total = power + toughness;
-  if (total <= 3) return "common";
-  if (total === 4) return "uncommon";
-  if (total === 5) return "rare";
+  if (total <= 6) return "common";
+  if (total <= 8) return "uncommon";
+  if (total <= 10) return "rare";
   return "mythic";
 }
 
@@ -782,7 +782,7 @@ function mysticalLegacyName(category: string, name: string) {
  *  the live cap; live writes keep the strict statSchema, and
  *  parseLayers re-stamps from the living asset whenever it survives,
  *  so the stored number is only ever a fallback. */
-const storedStatSchema = z.number().int().min(0).transform((v) => Math.min(v, 3));
+const storedStatSchema = z.number().int().min(0).transform((v) => Math.min(v, 6));
 const storedLayerRefShape = z.object({
   source_id: z.string().min(1).max(100), name: z.string().min(1).max(100), category: layerCategorySchema,
   rarity: raritySchema, power: storedStatSchema.nullable().optional(), toughness: storedStatSchema.nullable().optional(),
