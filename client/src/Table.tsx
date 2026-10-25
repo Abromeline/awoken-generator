@@ -453,6 +453,17 @@ const ROSTER = [
 ] as const;
 
 export default function Table() {
+  // THE ERROR NET'S PROOF INJECTION (2026-10-24): a test-only
+  // fault, set only by scripts/drive-table-error-net.mjs via
+  // the ?tablefault= query flag — no production road ever sets
+  // it. "render" throws as the room renders, "effect" throws
+  // as a mount effect commits: the two teardown roads the
+  // room's error boundary (TableApp.tsx) must catch and speak
+  // for, where once either one left a mute brown screen.
+  const driveFault = new URLSearchParams(window.location.search).get("tablefault");
+  if (driveFault === "render") {
+    throw new Error("drive-injected render fault — the error net's proof, set only by drive-table-error-net");
+  }
   const [phase, setPhase] = useState<Phase>("boot");
   const [bootStep, setBootStep] = useState("Waking the Table…");
   const [error, setError] = useState("");
@@ -510,6 +521,15 @@ export default function Table() {
     };
     document.addEventListener("contextmenu", onMenu);
     return () => document.removeEventListener("contextmenu", onMenu);
+  }, []);
+  // The effect half of the error net's proof injection (see
+  // the component's head): a throw as this mount effect
+  // commits must land in the room's error boundary, not tear
+  // the tree down to brown.
+  useEffect(() => {
+    if (driveFault === "effect") {
+      throw new Error("drive-injected effect fault — the error net's proof, set only by drive-table-error-net");
+    }
   }, []);
   useEffect(() => {
     let live = true;

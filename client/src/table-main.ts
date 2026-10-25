@@ -19,8 +19,12 @@ startEar();
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("missing app root element");
+// The non-null root, for the functions below: the guard's
+// narrowing does not travel into closures, so they take
+// this name.
+const rootNode: HTMLElement = rootEl;
 
-rootEl.innerHTML = `
+const BOOT_CARD_HTML = `
   <div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#17110b;color:#e8dcc3;font-family:Georgia,'Times New Roman',serif;padding:20px;box-sizing:border-box">
     <div style="max-width:520px;width:100%;background:#211810;border:1px solid #4a3520;border-radius:14px;padding:26px 26px 20px;box-shadow:0 18px 50px rgba(0,0,0,.5)">
       <div style="font-size:26px;margin-bottom:10px">🕯️ <span style="color:#e9c979">The Table</span></div>
@@ -30,14 +34,31 @@ rootEl.innerHTML = `
     </div>
   </div>`;
 
-const stepEl = document.getElementById("boot-step")!;
-const errorEl = document.getElementById("boot-error")!;
-const retryEl = document.getElementById("boot-retry")!;
+rootEl.innerHTML = BOOT_CARD_HTML;
+
+let stepEl = document.getElementById("boot-step")!;
+let errorEl = document.getElementById("boot-error")!;
+let retryEl = document.getElementById("boot-retry")!;
 // Set the moment the player presses "Try the door again": a
 // reload is underway, and a room that lands late must not mount
 // over it (the late-room rule, at loadRoom below).
 let reloadUnderway = false;
-retryEl.addEventListener("click", () => { reloadUnderway = true; window.location.reload(); });
+function wireRetry(btn: HTMLElement): void {
+  btn.addEventListener("click", () => { reloadUnderway = true; window.location.reload(); });
+}
+wireRetry(retryEl);
+
+// Rebuild the boot card whole — the door-level trap's making
+// (below) when a teardown has left the root empty: the fresh
+// card replaces nothing (there is nothing), and the element
+// refs and the retry wire are re-taken from the new markup.
+function paintBootCard(): void {
+  rootNode.innerHTML = BOOT_CARD_HTML;
+  stepEl = document.getElementById("boot-step")!;
+  errorEl = document.getElementById("boot-error")!;
+  retryEl = document.getElementById("boot-retry")!;
+  wireRetry(retryEl);
+}
 
 let currentStep = "Waking the Table…";
 function setStep(label: string) {
@@ -165,5 +186,45 @@ async function boot(): Promise<void> {
     showBootError(e);
   }
 }
+
+// THE DOOR-LEVEL TRAP (the error net, 2026-10-24): faults
+// that land OUTSIDE the room's error boundary — in this
+// front page's own road, in module code, in a rejection
+// nothing awaited — must not leave a blank or brown page
+// either. The trap's rule, exactly: it speaks ONLY while
+// the page holds no standing room — while the root still
+// holds the boot card (the room never mounted) or the root
+// has been left empty (a teardown took everything that
+// stood). Once anything stands in the root — the room, its
+// door, the boundary's own fault card — the trap stays
+// silent: a standing room's faults belong to its boundary,
+// and the trap never paints over a living room.
+function pageHoldsNoStandingRoom(): boolean {
+  if (document.getElementById("boot-step")) return true;
+  return rootNode.childElementCount === 0 && (rootNode.textContent ?? "").trim() === "";
+}
+
+function trapPaint(fault: unknown): void {
+  if (!pageHoldsNoStandingRoom()) return;
+  if (!document.getElementById("boot-step")) paintBootCard();
+  const f = fault as { message?: unknown; stack?: unknown } | null;
+  const message = typeof f?.message === "string" && f.message ? f.message
+    : typeof fault === "string" && fault ? fault
+    : "Something at the door broke without saying what.";
+  const stack = typeof f?.stack === "string" && f.stack && f.stack !== message ? `\n${f.stack}` : "";
+  stepEl.textContent = "The Table hit a fault at its door:";
+  errorEl.style.display = "block";
+  errorEl.textContent = `${message}${stack}\n\n${doorRecordLines().join("\n")}`;
+  retryEl.style.display = "inline-block";
+}
+
+window.addEventListener("error", (ev) => {
+  // Only true exceptions speak: a failed image or script
+  // resource raises an error event carrying no error object,
+  // and the door does not cry over furniture.
+  if (ev.error != null) trapPaint(ev.error);
+  else if (typeof ev.message === "string" && ev.message) trapPaint(ev.message);
+});
+window.addEventListener("unhandledrejection", (ev) => { trapPaint(ev.reason); });
 
 void boot();
