@@ -1419,6 +1419,36 @@ export default function Table() {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
 
+  // The release is the completion, wherever it lands: the
+  // stage's own pointer-up consumes the band first when the
+  // hand lifts over the stage (it clears bandDragRef); this
+  // listener runs the SAME completion when the lift lands on
+  // a surface outside the stage — the hand tray, a panel —
+  // and a browser-cancelled drag just sets the band down.
+  // IT STANDS ABOVE THE PHASE RETURNS BELOW, ALWAYS (the fall
+  // of 2026-10-25, React error #310): this effect once lived
+  // further down the body, past the early returns for the
+  // boot/door phases — so the mount renders never called it,
+  // and the first render that fell through to the standing
+  // room called one hook more than every render before it.
+  // React tore the room down for that, every seat, every
+  // room. A hook must never live below those returns.
+  useEffect(() => {
+    const up = (e: PointerEvent) => {
+      if (bandDragRef.current?.moved) {
+        bandDragRef.current = null;
+        setBandSel(null);
+        completeTableBandRef.current(e.clientX, e.clientY);
+      }
+    };
+    const cancel = () => {
+      if (bandDragRef.current) { bandDragRef.current = null; bandSelRef.current = null; setBandSel(null); }
+    };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); };
+  }, []);
+
   if (phase === "boot" || phase === "connecting") {
     return (
       <div className="table-door-wrap">
@@ -1835,27 +1865,6 @@ export default function Table() {
     setTimeout(() => { suppressTapRef.current = false; }, 80);
   };
   completeTableBandRef.current = completeTableBand;
-  // The release is the completion, wherever it lands: the
-  // stage's own pointer-up consumes the band first when the
-  // hand lifts over the stage (it clears bandDragRef); this
-  // listener runs the SAME completion when the lift lands on
-  // a surface outside the stage — the hand tray, a panel —
-  // and a browser-cancelled drag just sets the band down.
-  useEffect(() => {
-    const up = (e: PointerEvent) => {
-      if (bandDragRef.current?.moved) {
-        bandDragRef.current = null;
-        setBandSel(null);
-        completeTableBandRef.current(e.clientX, e.clientY);
-      }
-    };
-    const cancel = () => {
-      if (bandDragRef.current) { bandDragRef.current = null; bandSelRef.current = null; setBandSel(null); }
-    };
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", cancel);
-    return () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); };
-  }, []);
 
   const onStageUp = (e?: ReactPointerEvent<SVGSVGElement>) => {
     // Release the drag's pointer capture (taken in the move
