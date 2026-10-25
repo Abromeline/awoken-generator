@@ -873,7 +873,31 @@ interface Room {
    *  the host's land exactly as the host's own play would.
    *  Null: the room stands on the instanced world. Campaign
    *  rooms never host (their land is the campaign's). */
-  hosted: { ownerKey: string; hostName: string; privacy: "public" | "password"; passwordHash: string | null } | null;
+  hosted: { ownerKey: string; hostName: string; privacy: "public" | "password"; passwordHash: string | null; source: "tableland" | "homeland" } | null;
+  /** THE HOMELAND PORT (Nigel, 2026-10-25): when the room
+   *  stands on a homeland (hosted.source === "homeland"),
+   *  this is the port's bookkeeping — the homeland rows the
+   *  room's window was built from (relative tile id → the
+   *  territory_tiles row id), the snapshot each tile stood
+   *  at when the port opened (the write-back diffs against
+   *  it, and a tile whose homeland row has MOVED under the
+   *  sitting is never overwritten from the room's older
+   *  picture), the tiles the homeland's own roads claimed
+   *  mid-sitting (superseded — the room keeps its snapshot
+   *  of them until it folds, and writes nothing), and the
+   *  seed's fed/level standing the room opened with (seed
+   *  write-back is a delta against the row as it stands at
+   *  save time, never a whole-row overwrite). Tiles beyond
+   *  the radius-6 window are not the room's at all: they
+   *  stay at home, untouched by the sitting. */
+  homeland?: {
+    seedId: number;
+    tileIds: Map<string, number>;
+    baseTiles: Map<string, { cursed: boolean; element: string | null; curseHp: number | null; curseMaxHp: number | null; points: Record<string, number> }>;
+    superseded: Set<string>;
+    baseFed: number;
+    baseLevel: number;
+  };
   /** The land's state changed since its record was last
    *  written (the curse's grind, on the pulse's own roads) —
    *  the pulse writes the record through when this stands. */
@@ -1974,6 +1998,7 @@ function sharedState(room: Room) {
     hosted: room.hosted ? {
       hostName: room.hosted.hostName,
       privacy: room.hosted.privacy,
+      source: room.hosted.source,
       beacon: {
         lit: room.beacon?.lit ?? false,
         standing: room.beacon?.standing ?? false,
@@ -2035,7 +2060,7 @@ function sendState(room: Room): void {
         beaconPurse: room.hosted && player.expKey && player.expKey === room.hosted.ownerKey
           ? { shadow: room.beacon?.shadow ?? 0, bankMinutes: Math.floor((room.beacon?.bankMs ?? 0) / 60000) }
           : null,
-        landDoor: player.expKey ? landDoorOf(player.expKey) : null,
+        landDoor: player.expKey ? servedLandDoor(room, player.expKey) : null,
         company: player.company ?? [],
         // SUMMONER'S POWER, served with the seat (Nigel,
         // 2026-10-21): the wheel's summon preview shows the
@@ -2611,6 +2636,9 @@ function dealHostedLand(ownerKey: string, hostName: string): HostedLandRecord {
  *  and at every door act. Unhosted rooms pay nothing. */
 export function saveHostedLand(room: Room): void {
   if (!room.hosted) return;
+  // THE HOMELAND PORT writes to the homeland's own tables —
+  // never into the ui_config table-land record.
+  if (room.hosted.source === "homeland") { saveHomelandPort(room); return; }
   const rec: HostedLandRecord = {
     v: 1,
     hostName: room.hosted.hostName,
@@ -2624,6 +2652,221 @@ export function saveHostedLand(room: Room): void {
     updatedAt: Date.now(),
   };
   storeHostedLand(room.hosted.ownerKey, rec);
+  room.landDirty = false;
+}
+
+// ════════════════════════════════════════════════════════════
+// THE HOMELAND PORT (Nigel, commissioned 2026-10-25 — the
+// beacon button beside "The Table" on the main page, and its
+// two choices): a casual room can stand on the host's
+// ORIGINAL HOMELAND — the radius-6 window of territory_tiles
+// around the first seed, the seed's own growth read from
+// star_seeds — with every land and seed change written back
+// into those tables. This supersedes, for this door only,
+// the 2026-10-24 note above that the homeland is not
+// re-rendered: the table-land record remains the OTHER
+// choice (hunt a new starseed), untouched.
+//
+// THE WINDOW: the Table board is a radius-6 disc of 127
+// tiles centred on the seed. A Tender whose first beacon
+// stands lit — the only Tenders this door opens for, by the
+// main page's gate — holds the whole disc in their record:
+// the seed's rise purifies its ring, and the homeland's
+// frontier law mints every tile within five rings of
+// purified ground, so centre + ring purified mints all 127.
+// A record that somehow stands short of the disc is refused
+// in words, never padded with invented ground. Homeland
+// tiles BEYOND ring 6 are not the room's: they stay at
+// home, untouched by the sitting, until the growing-edges
+// design is built (it is not this build).
+//
+// ATTUNEMENT, HONESTLY: the two grounds keep different
+// books. The homeland holds ONE bank per tile (attune_points
+// pressing as attune_element, resolved in 10-point stages,
+// plus its tray stacks); the Table holds a per-element
+// points ledger. The port projects the bank onto the board
+// as the pressing element's pile, and writes a changed
+// ledger back as the largest pile that is not the standing
+// element — the same "points resting" reading in reverse.
+// A tile purified or lost to the curse at the Table writes
+// the homeland's own purified/fallen shapes (bank and
+// trays bared, as the homeland's own falls write them).
+// Landing claims are a room's seating, not the land's, and
+// are never written home. Buildings, field standings and
+// the homeland's other furniture are not the port's cargo:
+// the room fights over the ground itself.
+//
+// THE LIVE FRONT: no lock keeps the homeland's own lazy
+// settlement out while a port stands open, so the write-
+// back is defensive — per tile it writes only what the
+// room changed against the snapshot the port opened with,
+// and only if the homeland row still stands AS that
+// snapshot on the shared fields (cursed, element, curse
+// HP). A row the homeland moved mid-sitting is marked
+// superseded and the room writes nothing to it again. The
+// seed is written as a DELTA: the energy fed at this Table
+// is added to the seed row as it stands at save time, and
+// its level only ever rises — two fronts can never unfeed
+// or unraise it.
+// ════════════════════════════════════════════════════════════
+
+type HomelandTileBase = { cursed: boolean; element: string | null; curseHp: number | null; curseMaxHp: number | null; points: Record<string, number> };
+
+function homelandDoorKey(ownerKey: string): string { return `table.homelandDoor.${ownerKey}`; }
+
+/** The homeland's door at the Table, kept apart from the
+ *  table-land record's door: opening one ground never
+ *  rewrites the other's word. Default: open to all. */
+function loadHomelandDoor(ownerKey: string): { privacy: "public" | "password"; passwordHash: string | null } {
+  try {
+    const row = db.select().from(schema.uiConfig).where(eq(schema.uiConfig.key, homelandDoorKey(ownerKey))).get();
+    if (!row?.value) return { privacy: "public", passwordHash: null };
+    const d = JSON.parse(row.value) as { privacy?: string; passwordHash?: string | null };
+    return { privacy: d.privacy === "password" ? "password" : "public", passwordHash: typeof d.passwordHash === "string" ? d.passwordHash : null };
+  } catch { return { privacy: "public", passwordHash: null }; }
+}
+
+function storeHomelandDoor(ownerKey: string, door: { privacy: "public" | "password"; passwordHash: string | null }): void {
+  const value = JSON.stringify(door);
+  db.insert(schema.uiConfig).values({ key: homelandDoorKey(ownerKey), value })
+    .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value } }).run();
+}
+
+/** The door a seat is served in its own payload: the keeper
+ *  of the land standing open is served THAT land's door
+ *  (whichever ground it is); anyone else is served their own
+ *  table-land door, the beacon popup's standing shape. */
+function servedLandDoor(room: Room, expKey: string): { privacy: "public" | "password"; hasPassword: boolean } {
+  if (room.hosted && room.hosted.ownerKey === expKey) {
+    return { privacy: room.hosted.privacy, hasPassword: !!room.hosted.passwordHash };
+  }
+  return landDoorOf(expKey);
+}
+
+type HomelandPortLoad =
+  | { ok: true; map: Map<string, MapTile>; seedGrowth: { level: number; fedEnergy: number }; seedId: number; tileIds: Map<string, number>; baseTiles: Map<string, HomelandTileBase>; outsideCount: number; totalTiles: number }
+  | { ok: false; refusal: string };
+
+/** Build the room's window onto a Tender's homeland from its
+ *  own tables. The homeland seed is the FIRST seed (the
+ *  first_seed_events row names it) — the seed the beacon
+ *  gate itself is read from. Refusals are spoken, never
+ *  padded: no seed, no seed tile, or a window the record
+ *  does not wholly hold. */
+function loadHomelandPort(ownerKey: string): HomelandPortLoad {
+  const ev = sqlite.prepare("SELECT seed_id FROM first_seed_events WHERE owner_key = ?").get(ownerKey) as { seed_id: number } | undefined;
+  const seed = (ev
+    ? sqlite.prepare("SELECT id, tile_id, level, fed_energy FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey)
+    : sqlite.prepare("SELECT id, tile_id, level, fed_energy FROM star_seeds WHERE owner_key = ? AND state = 'first' ORDER BY id LIMIT 1").get(ownerKey)
+  ) as { id: number; tile_id: number; level: number; fed_energy: number } | undefined;
+  if (!seed) return { ok: false, refusal: "No first seed stands on your homeland to carry here — wake the Awokin, go to the cursed lands, and raise your first seed there." };
+  const seedTile = sqlite.prepare("SELECT id, q, r FROM territory_tiles WHERE id = ? AND owner_key = ?").get(seed.tile_id, ownerKey) as { id: number; q: number; r: number } | undefined;
+  if (!seedTile) return { ok: false, refusal: "Your first seed's ground is missing from your homeland's record — step onto your land at home first, and it will stand whole." };
+  const rows = sqlite.prepare("SELECT id, q, r, element, cursed, curse_hp, curse_max_hp, attune_points, attune_element FROM territory_tiles WHERE owner_key = ? AND COALESCE(z, 0) = 0").all(ownerKey) as
+    { id: number; q: number; r: number; element: string | null; cursed: number; curse_hp: number | null; curse_max_hp: number | null; attune_points: number | null; attune_element: string | null }[];
+  const map = new Map<string, MapTile>();
+  const tileIds = new Map<string, number>();
+  const baseTiles = new Map<string, HomelandTileBase>();
+  let outsideCount = 0;
+  for (const t of rows) {
+    const dq = t.q - seedTile.q, dr = t.r - seedTile.r;
+    const ring = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
+    if (ring > MAP_RADIUS) { outsideCount++; continue; }
+    const id = `${dq},${dr}`;
+    // The bank, projected: the pressing element's points
+    // rest on the board as its pile.
+    const points: Record<string, number> = {};
+    if (t.attune_element && (t.attune_points ?? 0) > 0) points[t.attune_element] = Number(t.attune_points);
+    const cursed = !!t.cursed;
+    const curseHp = cursed ? (t.curse_hp ?? curseHpForRing(ring)) : 0;
+    const curseMaxHp = cursed ? (t.curse_max_hp ?? curseHp) : 0;
+    map.set(id, {
+      id, q: dq, r: dr, cursed, element: t.element ?? "neutral",
+      points: { ...points }, attuneAcc: {}, curseHp, curseMaxHp, landingFor: null,
+    });
+    tileIds.set(id, t.id);
+    baseTiles.set(id, { cursed, element: t.element ?? "neutral", curseHp: cursed ? curseHp : null, curseMaxHp: cursed ? curseMaxHp : null, points: { ...points } });
+  }
+  if (map.size < TILE_DEFS.length) {
+    return { ok: false, refusal: `Your homeland's rim has not all been sown — the window around your first seed stands at ${map.size} of ${TILE_DEFS.length} tiles. Step onto your land at home, and the window will stand whole.` };
+  }
+  return {
+    ok: true, map, tileIds, baseTiles, outsideCount, totalTiles: rows.length,
+    seedId: seed.id,
+    seedGrowth: { level: Math.max(1, seed.level || 1), fedEnergy: Math.max(0, seed.fed_energy || 0) },
+  };
+}
+
+/** Write the room's standing homeland state back into the
+ *  homeland's own tables — the port's choke point, riding
+ *  the same saveHostedLand calls every land change already
+ *  makes. Delta and guarded, per the header above. */
+function saveHomelandPort(room: Room): void {
+  const hp = room.homeland;
+  if (!hp || !room.hosted) return;
+  const ownerKey = room.hosted.ownerKey;
+  const readTile = sqlite.prepare("SELECT cursed, element, curse_hp, curse_max_hp FROM territory_tiles WHERE id = ? AND owner_key = ?");
+  const writeFell = sqlite.prepare("UPDATE territory_tiles SET cursed = ?, element = ?, curse_hp = ?, curse_max_hp = ?, attune_points = ?, attune_element = ?, sealed_trays = ?, grow_points = ?, top_points = ?, height = ? WHERE id = ? AND owner_key = ?");
+  const writeSteady = sqlite.prepare("UPDATE territory_tiles SET cursed = ?, element = ?, curse_hp = ?, curse_max_hp = ? WHERE id = ? AND owner_key = ?");
+  const writeSteadyBank = sqlite.prepare("UPDATE territory_tiles SET cursed = ?, element = ?, curse_hp = ?, curse_max_hp = ?, attune_points = ?, attune_element = ? WHERE id = ? AND owner_key = ?");
+  for (const tile of room.map.values()) {
+    const rowId = hp.tileIds.get(tile.id);
+    const base = hp.baseTiles.get(tile.id);
+    if (rowId === undefined || !base || hp.superseded.has(tile.id)) continue;
+    const now = readTile.get(rowId, ownerKey) as { cursed: number; element: string | null; curse_hp: number | null; curse_max_hp: number | null } | undefined;
+    if (!now) { hp.superseded.add(tile.id); continue; }
+    // The homeland moved this tile under the sitting: the
+    // room's older picture never overwrites it.
+    if (!!now.cursed !== base.cursed
+      || (now.element ?? "neutral") !== (base.element ?? "neutral")
+      || (now.curse_hp ?? null) !== base.curseHp
+      || (now.curse_max_hp ?? null) !== base.curseMaxHp) { hp.superseded.add(tile.id); continue; }
+    const element = tile.element ?? base.element ?? "neutral";
+    const curseHp = tile.cursed ? Math.max(0, Math.round(tile.curseHp || 0)) : null;
+    const curseMaxHp = tile.cursed ? Math.max(curseHp ?? 0, Math.round(tile.curseMaxHp || 0)) : null;
+    const pointsNow = tile.points ?? {};
+    const pointsChanged = JSON.stringify(pointsNow) !== JSON.stringify(base.points);
+    const coreChanged = tile.cursed !== base.cursed || element !== (base.element ?? "neutral")
+      || (tile.cursed && (curseHp !== base.curseHp || curseMaxHp !== base.curseMaxHp));
+    if (!coreChanged && !pointsChanged) continue;
+    if (tile.cursed !== base.cursed) {
+      // A fall or a turning writes the homeland's own shape
+      // for it: the bank and the trays are bared either way;
+      // a purified tile stands at height 1, a fallen at 0.
+      writeFell.run(tile.cursed ? 1 : 0, element, curseHp, curseMaxHp, 0, null, 0, 0, null, tile.cursed ? 0 : 1, rowId, ownerKey);
+    } else if (pointsChanged) {
+      // The ledger, read back as a bank: the largest pile
+      // that is not the standing element presses; no such
+      // pile, no bank.
+      let bankEl: string | null = null; let bankPts = 0;
+      for (const [el, pts] of Object.entries(pointsNow)) {
+        if (el !== element && pts > bankPts) { bankEl = el; bankPts = pts; }
+      }
+      writeSteadyBank.run(tile.cursed ? 1 : 0, element, curseHp, curseMaxHp, bankEl ? bankPts : 0, bankEl, rowId, ownerKey);
+    } else {
+      writeSteady.run(tile.cursed ? 1 : 0, element, curseHp, curseMaxHp, rowId, ownerKey);
+    }
+    hp.baseTiles.set(tile.id, {
+      cursed: tile.cursed, element,
+      curseHp: tile.cursed ? curseHp : null, curseMaxHp: tile.cursed ? curseMaxHp : null,
+      points: { ...pointsNow },
+    });
+  }
+  // The seed: what was fed at this Table is added to the
+  // seed row as it stands now; its level only ever rises.
+  const fedNow = Math.max(0, Math.round(room.seedGrowth.fedEnergy));
+  const dFed = fedNow - hp.baseFed;
+  if (dFed !== 0) {
+    const row = sqlite.prepare("SELECT fed_energy, level FROM star_seeds WHERE id = ? AND owner_key = ?").get(hp.seedId, ownerKey) as { fed_energy: number; level: number } | undefined;
+    if (row) {
+      const newFed = Math.max(0, (row.fed_energy ?? 0) + dFed);
+      const newLevel = Math.max(row.level ?? 1, room.seedGrowth.level, seedLevelForFed(newFed));
+      sqlite.prepare("UPDATE star_seeds SET fed_energy = ?, level = ?, feed_anchor_at = ? WHERE id = ? AND owner_key = ?")
+        .run(newFed, newLevel, Date.now(), hp.seedId, ownerKey);
+    }
+    hp.baseFed = fedNow;
+    hp.baseLevel = room.seedGrowth.level;
+  }
   room.landDirty = false;
 }
 
@@ -7251,13 +7494,68 @@ function handleConnection(ws: WebSocket): void {
       if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "A land is a Tender's record — bind your Tender at the Table to open yours." })); return; }
       if (room.campaign) { ws.send(JSON.stringify({ type: "error", message: "A campaign room keeps its own ground — hosted lands open at the casual Table." })); return; }
       if (room.hosted) {
-        if (room.hosted.ownerKey === player.expKey) { sendState(room); return; } // already open: the door stands as it stands
+        if (room.hosted.ownerKey === player.expKey) {
+          // Already open — unless the act asks for the OTHER
+          // ground, which is a different door, named plainly.
+          const wantSource = msg.source === "homeland" ? "homeland" : "tableland";
+          if ((msg.source !== undefined || msg.fresh !== undefined) && wantSource !== room.hosted.source) {
+            ws.send(JSON.stringify({ type: "error", message: `This room already stands on your ${room.hosted.source === "homeland" ? "homeland" : "table land"} — fold it away before opening the other.` })); return;
+          }
+          sendState(room); return;
+        } // already open: the door stands as it stands
         ws.send(JSON.stringify({ type: "error", message: `This room already stands on ${room.hosted.hostName}'s land.` })); return;
       }
       if (room.battle.active || room.dark.size > 0) { ws.send(JSON.stringify({ type: "error", message: "The dark stands on this ground — a land opens in the quiet, not mid-battle. Finish the fight first." })); return; }
       if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed in this room — the land cannot open under it. Resolve the call first." })); return; }
-      let rec = loadHostedLand(player.expKey);
-      if (!rec) rec = dealHostedLand(player.expKey, player.name);
+      // THE HOMELAND PORT (Nigel, 2026-10-25): the main
+      // page's beacon button carries its choice into the
+      // room as this act's source. "homeland" stands the
+      // room on the Tender's original homeland, read from
+      // its own tables; anything else is the table land of
+      // Twelve #2, unchanged — save that the button's hunt
+      // (fresh) deals a NEW table land, in the open, rather
+      // than quietly reopening the kept one.
+      if (msg.source === "homeland") {
+        const port = loadHomelandPort(player.expKey);
+        if (!port.ok) { ws.send(JSON.stringify({ type: "error", message: port.refusal })); return; }
+        const door = loadHomelandDoor(player.expKey);
+        if (msg.privacy !== undefined || msg.password !== undefined) {
+          const refusal = readDoorAct(msg, door);
+          if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
+          storeHomelandDoor(player.expKey, door);
+        }
+        room.hosted = { ownerKey: player.expKey, hostName: player.name, privacy: door.privacy, passwordHash: door.passwordHash, source: "homeland" };
+        room.homeland = {
+          seedId: port.seedId, tileIds: port.tileIds, baseTiles: port.baseTiles,
+          superseded: new Set<string>(), baseFed: port.seedGrowth.fedEnergy, baseLevel: port.seedGrowth.level,
+        };
+        clearRoomGround(room);
+        room.map = port.map;
+        room.seedGrowth = { ...port.seedGrowth };
+        for (const p of room.players.values()) {
+          if (p.watcher) continue;
+          p.hex = undefined; p.pos = undefined; p.target = null;
+          assignLanding(room, p);
+          ensureTenderHex(room, p);
+        }
+        refreshHostedBeacon(room);
+        tell(room, `🏠 ${player.name} opens their HOMELAND at this Table — the ground around their first seed, as it stands at home. What is won, purified, fed or lost here counts back home, for real.${port.outsideCount > 0 ? ` (The window shows the ${port.map.size} tiles around the seed; ${port.outsideCount} more tiles of the homeland lie beyond it, untouched at home.)` : ""}`);
+        sendState(room);
+        return;
+      }
+      let rec: HostedLandRecord | null = null;
+      if (msg.fresh === true) {
+        // A hunted starseed deals fresh — the kept record's
+        // DOOR is carried over (a word set for guests is not
+        // silently dropped), its ground is let go, in the
+        // open: the tale below says a new land was dealt.
+        const kept = loadHostedLand(player.expKey);
+        rec = dealHostedLand(player.expKey, player.name);
+        if (kept) { rec.privacy = kept.privacy; rec.passwordHash = kept.passwordHash; }
+      } else {
+        rec = loadHostedLand(player.expKey);
+        if (!rec) rec = dealHostedLand(player.expKey, player.name);
+      }
       // The door the act carries rules the opening; an act
       // carrying no door settings opens the land under the
       // door its record already keeps.
@@ -7267,7 +7565,7 @@ function handleConnection(ws: WebSocket): void {
         if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
       }
       rec.privacy = door.privacy; rec.passwordHash = door.passwordHash; rec.hostName = player.name;
-      room.hosted = { ownerKey: player.expKey, hostName: player.name, privacy: door.privacy, passwordHash: door.passwordHash };
+      room.hosted = { ownerKey: player.expKey, hostName: player.name, privacy: door.privacy, passwordHash: door.passwordHash, source: "tableland" };
       storeHostedLand(player.expKey, rec);
       // The ground swaps whole: the sitting's field, dark and
       // written light belong to the instanced world and are
@@ -7282,7 +7580,9 @@ function handleConnection(ws: WebSocket): void {
         ensureTenderHex(room, p);
       }
       refreshHostedBeacon(room);
-      tell(room, `🏠 ${player.name} opens their land at this Table — what is won, purified, fed or lost here now counts on ${player.name}'s land, for real.`);
+      tell(room, msg.fresh === true
+        ? `🌠 ${player.name} hunts a new starseed — a fresh table land is dealt at this Table, and the table land kept before is let go. What is won, purified, fed or lost here counts on this new land, for real.`
+        : `🏠 ${player.name} opens their land at this Table — what is won, purified, fed or lost here now counts on ${player.name}'s land, for real.`);
       sendState(room);
       return;
     }
@@ -7294,7 +7594,9 @@ function handleConnection(ws: WebSocket): void {
       if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed on this land — resolve it before the ground folds away." })); return; }
       saveHostedLand(room); // the land keeps every change, written through one last time
       const hostName = room.hosted.hostName;
+      const wasHomeland = room.hosted.source === "homeland";
       room.hosted = null;
+      room.homeland = undefined;
       room.beacon = undefined;
       room.landDirty = false;
       clearRoomGround(room);
@@ -7306,7 +7608,9 @@ function handleConnection(ws: WebSocket): void {
         assignLanding(room, p);
         ensureTenderHex(room, p);
       }
-      tell(room, `🏠 ${hostName}'s land folds away — the room stands on the instanced world again. The land keeps every change made here.`);
+      tell(room, wasHomeland
+        ? `🏠 ${hostName}'s homeland folds away — the room stands on the instanced world again. The homeland keeps every change made here, in its own record.`
+        : `🏠 ${hostName}'s land folds away — the room stands on the instanced world again. The land keeps every change made here.`);
       sendState(room);
       return;
     }
@@ -7320,7 +7624,11 @@ function handleConnection(ws: WebSocket): void {
         if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
         room.hosted.privacy = door.privacy;
         room.hosted.passwordHash = door.passwordHash;
-        saveHostedLand(room);
+        // Each ground keeps its own door: a homeland standing
+        // open writes its word to the homeland's door record;
+        // a table land writes through its land record as ever.
+        if (room.hosted.source === "homeland") storeHomelandDoor(room.hosted.ownerKey, door);
+        else saveHostedLand(room);
         tell(room, door.privacy === "password"
           ? `🚪 ${player.name} keeps their land's door by a word now — guests speak it to sit. (Seats already held keep their sitting.)`
           : `🚪 ${player.name} throws their land's door open — any Tender in the channel may sit.`);

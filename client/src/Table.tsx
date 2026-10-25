@@ -227,6 +227,11 @@ interface SharedState {
   hosted?: {
     hostName: string;
     privacy: "public" | "password";
+    /** Which ground the room stands on (the homeland port,
+     *  2026-10-25): the host's original homeland, or their
+     *  table-land record. Absent on older payloads — read as
+     *  the table land. */
+    source?: "tableland" | "homeland";
     beacon: { lit: boolean; standing: boolean; bankMinutes: number };
   } | null;
 }
@@ -425,6 +430,21 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
  *  computed from state.map's own extents (see stageBox), so the
  *  same drawing serves a radius-3 flower or a radius-5 one. */
 const TILE_SIZE = 40;
+
+/** THE BEACON BUTTON'S CHOICE, CARRIED IN (Nigel, 2026-10-25):
+ *  the main page's beacon button — standing beside "The Table"
+ *  once the Tender's first beacon is lit — offers two doors,
+ *  and the chosen one rides the door page's address:
+ *  ?land=homeland stands the room on the Tender's original
+ *  homeland; ?land=new hunts a new starseed on a fresh table
+ *  land. Read once, at the module's first breath; the room
+ *  component speaks it to the server as a beaconOpen act the
+ *  moment its seat stands (see the effect by `send`). No
+ *  parameter, no act: the room opens exactly as it ever did,
+ *  and the in-room beacon popup remains the manual door. */
+const LAND_INTENT: string | null = (() => {
+  try { return new URLSearchParams(window.location.search).get("land"); } catch { return null; }
+})();
 const SEED_TILE_ID = "0,0";
 /** The strike's reach by the striker's element — the
  *  referee's own ELEMENT_REACH (table.ts), the same table
@@ -1177,6 +1197,9 @@ export default function Table() {
   const [notesDirty, setNotesDirty] = useState(false);
   const [packDraft, setPackDraft] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** The beacon button's carried choice fires once per page
+   *  load, when this seat first stands (see LAND_INTENT). */
+  const landIntentFiredRef = useRef(false);
   const heardRef = useRef<string[]>([]);
   const lastJoinRef = useRef<Record<string, unknown> | null>(null);
   const [bindCode, setBindCode] = useState("");
@@ -1440,6 +1463,23 @@ export default function Table() {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
+
+  // THE CARRIED CHOICE, SPOKEN (the homeland port): once this
+  // seat stands in a casual room, a choice carried from the
+  // main page's beacon button is spoken to the server as the
+  // beaconOpen act it names — the homeland, or a fresh hunt.
+  // The server adjudicates (a bound Tender, a quiet room, a
+  // homeland that stands whole) and answers in its own words
+  // where it cannot: the error strip carries the refusal.
+  // Fires once; campaign rooms never hear it (their ground
+  // is the campaign's, and the server refuses lands there).
+  useEffect(() => {
+    if (!LAND_INTENT || landIntentFiredRef.current) return;
+    if (!shared || !you || shared.campaign) return;
+    landIntentFiredRef.current = true;
+    if (LAND_INTENT === "homeland") send({ type: "beaconOpen", source: "homeland" });
+    else if (LAND_INTENT === "new") send({ type: "beaconOpen", source: "tableland", fresh: true });
+  }, [shared, you]);
 
   // The release is the completion, wherever it lands: the
   // stage's own pointer-up consumes the band first when the
@@ -3725,8 +3765,12 @@ export default function Table() {
               {shared.hosted ? (
                 <>
                   <p className="beacon-line">
-                    This room stands on <strong>{shared.hosted.hostName}</strong>'s land — every change here counts on it, for real.
-                    The door is {shared.hosted.privacy === "password" ? "kept by a word" : "open to all"}.
+                    {shared.hosted.source === "homeland" ? (
+                      <>This room stands on <strong>{shared.hosted.hostName}</strong>'s HOMELAND — the ground around their first seed, as it stands at home. Every change here counts back home, for real.</>
+                    ) : (
+                      <>This room stands on <strong>{shared.hosted.hostName}</strong>'s land — every change here counts on it, for real.</>
+                    )}
+                    {" "}The door is {shared.hosted.privacy === "password" ? "kept by a word" : "open to all"}.
                   </p>
                   <h4>Protection</h4>
                   <p className="beacon-line">
