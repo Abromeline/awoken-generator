@@ -1608,7 +1608,10 @@ async function ensureOneSafeSquare(ownerKey: string, tiles?: any[]): Promise<{ e
     chosen = rows.filter(standable).sort((a: any, b: any) => ring(a) - ring(b) || a.id - b.id)[0] ?? null;
   }
   if (!chosen) return { ensured: false, tileId: null };
-  const upd = { cursed: 0, element: "neutral" as const, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS };
+  // The anchor lands ROOT (Nigel, 2026-10-25: "Make the safe hex
+  // Root too") — the purify default rules here as everywhere: no
+  // element claims this ground, so it takes the default.
+  const upd = { cursed: 0, element: "root" as const, curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS };
   await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, chosen.id));
   Object.assign(chosen, upd);
   return { ensured: true, tileId: chosen.id };
