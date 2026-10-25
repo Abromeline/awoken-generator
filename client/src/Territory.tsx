@@ -53,6 +53,7 @@ import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
+import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
 import { useEnemyArt } from "./enemyArt";
 import { FrayFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
@@ -1089,7 +1090,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     return "unaligned";
   };
-  const [castAnchor, setCastAnchor] = useState<number | null>(null);
+  // (The ward anchor state died with the two-tap ward flow — the T, Nigel 2026-10-24.)
 
   const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
   const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
@@ -1260,11 +1261,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
     return () => window.clearInterval(iv);
   }, [anyBladeFlight]);
-  /** The click on one of the wandering dark (the homeland
-   *  ground): an ORDER to the written Blade, refereed by
-   *  the server (api.looseBlade) — a plain answer rides the
-   *  refusal's own words into the notice. */
-  const looseBladeAtWanderer = async (w: { id: number; tileId: number; posQ: number; posR: number }) => {
+  /** The order to the written Blade on one of the
+   *  wandering dark, refereed by the server (api.looseBlade).
+   *  A loose that lands speaks for itself here (the flight,
+   *  the harm); a refusal is RETURNED, not shown — the
+   *  click router decides whose words answer the click (a
+   *  readied working that can take the click casts over a
+   *  held refusal; the refusal is spoken only when nothing
+   *  else took the click). */
+  const attemptLooseBlade = async (w: { id: number; tileId: number; posQ: number; posR: number }): Promise<{ loosed: boolean; refusal?: string }> => {
     try {
       const res = await api.looseBlade({ wandererId: w.id });
       const fromTile = tiles.find((t) => t.id === res.fromTileId);
@@ -1281,9 +1286,99 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         ? `The Single Blade is loosed — its blades rise and spear down from above, and the dark falls (${res.harm} harm).`
         : `The Single Blade is loosed — its blades rise and spear down from above (${res.harm} harm).`);
       void refreshTerritory();
+      return { loosed: true };
     } catch (e) {
-      showHexNotice(refusalText(e, "The blade could not answer."));
+      return { loosed: false, refusal: refusalText(e, "The blade could not answer.") };
     }
+  };
+  /** The click on one of the wandering dark with nothing
+   *  else claiming it (the homeland ground): the standing
+   *  road unchanged — an ORDER to the written Blade, and a
+   *  plain answer rides the refusal's own words into the
+   *  notice. The router's road is handleEnemyTap below. */
+  const looseBladeAtWanderer = async (w: { id: number; tileId: number; posQ: number; posR: number }) => {
+    const r = await attemptLooseBlade(w);
+    if (!r.loosed && r.refusal) showHexNotice(r.refusal);
+  };
+  /** Whether a written Blade stands armed on the land —
+   *  the router's first question on any enemy tap. */
+  const bladeStandsArmed = () => workings.some((x) => x.engine === "blade" && x.kind === "rune" && (x.charges ?? 0) > 0);
+  /** The router's naming refusal (target profiles, Nigel
+   *  2026-10-24): a click the readied working cannot take
+   *  is answered naming THE READIED WORKING and what IT
+   *  targets — never another working's name. */
+  const profileRefusal = (sp: { key: string; engine: string; kind: string; name: string; forms: Record<string, string> }): string => {
+    const formName = sp.forms[castHueFor(sp)] ?? sp.name;
+    return `${formName} is not cast on that — it targets ${targetWordsFor(sp)}.`;
+  };
+  /** The dark a tap names (target profiles): the wanderer
+   *  whose standing point lies within half a hex of the
+   *  tapped point — the measure the foe-naming casts
+   *  themselves read by (Hold Rune, Rune Shatter) — else
+   *  one filed under the tapped hex itself. */
+  const shadeUnderTap = (tile: { id: number }, pt?: { q: number; r: number } | null) => {
+    if (pt) {
+      let best: (typeof wanderers)[number] | null = null;
+      let bestD = Infinity;
+      for (const w of wanderers) {
+        const d = (Math.abs(w.posQ - pt.q) + Math.abs(w.posQ + w.posR - pt.q - pt.r) + Math.abs(w.posR - pt.r)) / 2;
+        if (d < bestD) { bestD = d; best = w; }
+      }
+      if (best && bestD <= 0.5) return best;
+    }
+    return wanderers.find((w) => w.tileId === tile.id) ?? null;
+  };
+  /** THE ENEMY CLICK (target profiles, Nigel 2026-10-24
+   *  22:20–22:23): a tap on one of the wandering dark is
+   *  routed by the profiles, in the order Nigel ruled —
+   *   1. THE BLADE'S FIRST CLICK: "a planted blade flies
+   *      on first click no matter what is readied — it
+   *      flies at the first enemy target." While a written
+   *      Blade stands armed it answers first (each loose
+   *      spends a charge, so the priority stands while
+   *      charges stand). An armed Blade that cannot reach
+   *      this dark does not spend the click: its refusal
+   *      is HELD and spoken only if nothing else takes it.
+   *   2. THE READIED WORKING takes the click when its
+   *      declared profiles take an enemy (profileAccepts);
+   *      an ENEMY-profile working is cast AT this dark —
+   *      the cast names its ground and its own standing
+   *      point, the tongue the foe-naming referees read.
+   *   3. A MISMATCH refuses naming the readied working
+   *      and what it targets (profileRefusal).
+   *   4. The Attune ability armed: it feeds GROUND, and
+   *      says so in its own name.
+   *   5. The strike order (an Awoken's attack stance
+   *      awaiting its target) takes the dark's hex, as a
+   *      tile tap there always did.
+   *   6. Nothing readied: the standing road — the loose's
+   *      own plain answer, exactly as it always was. */
+  const handleEnemyTap = async (w: { id: number; tileId: number; posQ: number; posR: number }) => {
+    if (bandJustClosed()) return;
+    let heldRefusal: string | null = null;
+    if (bladeStandsArmed()) {
+      const r = await attemptLooseBlade(w);
+      if (r.loosed) return;
+      heldRefusal = r.refusal ?? null;
+    }
+    if (castMode && castSpell) {
+      const profiles = targetProfilesFor(castSpell);
+      if (profileAccepts(profiles, "enemy")) {
+        if (profiles.includes("enemy")) void doCastMap({ tileId: w.tileId, pointQ: w.posQ, pointR: w.posR });
+        else void doCastMap({ tileId: w.tileId });
+        return;
+      }
+      showHexNotice(profileRefusal(castSpell));
+      return;
+    }
+    if (attuneElement) { showHexNotice("Attune feeds a hex of ground — tap the land to feed it, not the dark."); return; }
+    if (attackTargeting && selectedAwoken !== null) {
+      const t = tiles.find((x) => x.id === w.tileId);
+      if (t) handleHexTap(t);
+      return;
+    }
+    if (heldRefusal) { showHexNotice(heldRefusal); return; }
+    void looseBladeAtWanderer(w);
   };
   // Boss resolution recorded at victory detection (before the victory
   // screen opens), so handleBattleEnd never resolves a boss twice;
@@ -2174,7 +2269,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         pinKey: `cast-${sp.key}`,
         dragKey: `cast-${sp.key}`,
         act: () => {
-          setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
+          setCastMode(true); setCastSpellKey(sp.key); setAttuneElement(null);
           showHexNotice(locked
             ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
             : `${sp.name} readied — tap the land to cast it.`);
@@ -2305,8 +2400,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (key.startsWith("cast-")) {
       const sp = grim?.spells.find(x => x.key === key.slice(5)) ?? null;
       if (!sp) { toggleHotbar(key); return; }
-      if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); setCastAnchor(null); return; }
-      setCastMode(true); setCastSpellKey(sp.key); setCastAnchor(null); setAttuneElement(null);
+      if (castSpellKey === sp.key && castMode) { setCastSpellKey(null); setCastMode(false); return; }
+      setCastMode(true); setCastSpellKey(sp.key); setAttuneElement(null);
       showHexNotice(`${sp.name} readied — tap the land to cast it.`);
       return;
     }
@@ -2706,7 +2801,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // cancel, tapping the readied working again, readying
   // another working, or readying the Attune ability — ends
   // the run: changing workings is its one true end.
-  const endMapCastRun = () => { setCastMode(false); setCastSpellKey(null); setCastAnchor(null); setAttuneElement(null); };
+  const endMapCastRun = () => { setCastMode(false); setCastSpellKey(null); setAttuneElement(null); };
   // The mount-once Escape handler reaches the run's end
   // through this ref, kept current every render.
   const endMapCastRunRef = useRef<() => void>(() => {});
@@ -2762,7 +2857,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // mercy refund rides unchanged.
       if (res.fizzled) {
         showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working stays readied in your hand.${res.refunded ? ` The Witch's mercy returns ✦${res.refunded} of the spent energy.` : ""} Tap the land to cast it again.`);
-        setCastAnchor(null);
         await refreshWorkings();
         void refreshEnergy();
         return;
@@ -2820,11 +2914,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           : castSpell.engine === "springleaf"
           ? `${formName} takes root — a grove of ${res.radiusHexes ?? 1} hexes' glow; its burst mends ${res.burst ?? 0} HP, and ${res.saplings ?? 0} saplings follow.`
           : castSpell.engine === "blackgate"
-            ? `${formName} rises before you, facing ${res.facing ?? "the way you face"} — an impassable black wall of ${res.wallHp ?? 0} HP. The dark cannot cross its ground while it stands; only when it falls does the road open.`
+            ? (res.gateNodes != null
+              ? `${formName} rises across your aim — a black wall in a T from where you stand, ${res.gateNodes} node${res.gateNodes === 1 ? "" : "s"} of ${res.wallHp ?? 0} HP. The dark cannot cross its ground while it stands; only when it falls does the road open.`
+              : `${formName} rises before you, facing ${res.facing ?? "the way you face"} — an impassable black wall of ${res.wallHp ?? 0} HP. The dark cannot cross its ground while it stands; only when it falls does the road open.`)
           : castSpell.engine === "bulwark"
             ? `${formName} rises — ${res.shields ?? 0} shield${(res.shields ?? 0) === 1 ? "" : "s"} stand in a line across your aim, each with ${res.shieldHp ?? 0} HP. What strikes them is shoved back a tile.`
             : castSpell.kind === "ward"
-            ? `${formName} rises on the edge — the Written Light stands on your land, and the border is guarded.`
+            ? `${formName} rises across your aim — the Written Light stands in a line on your land, and the line is guarded.`
             : res.purified
               ? `${formName} springs — and the curse on that ground BREAKS. The hex is yours.`
               : res.felled
@@ -2832,7 +2928,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 : res.sprung
                   ? `${formName} springs as it is written — the dark and the curse take its harm.`
                   : `${formName} is written into the ground — it waits for the dark to stand on it.`);
-      setCastAnchor(null);
       await refreshWorkings();
       void refreshEnergy();
     } catch (e) {
@@ -2855,19 +2950,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // the working lands where the player pointed, and the
     // distance from where they stand is the only gate.
     const pointArgs = pt ? { pointQ: pt.q, pointR: pt.r } : {};
-    // BLACK GATE (Nigel, 2026-10-23 — Recovery R13): the
-    // Gate names no ground and no edge — it is cast IN
-    // FRONT OF THE CASTER in the direction they face, so
-    // the tap that fires it is only the firing: the cast
-    // carries the figure's OWN facing (tenderFacingRef,
-    // the 8-direction facing the figure strides and is
-    // drawn by) to the server whole, and the wall stands
-    // at his point stepped along it, wherever the tap
-    // happened to land. (2026-10-24: a tap carrying a
-    // point aims the Gate by the point instead — the
-    // server reads the facing from the direction of the
-    // point, the range law's own tongue.)
-    if (castSpell.engine === "blackgate") { void doCastMap(pt ? { ...pointArgs } : { facing: tenderFacingRef.current }); return; }
+    // BLACK GATE (Nigel, 2026-10-23 — Recovery R13; cast
+    // in a T, 2026-10-24): the Gate is a ward, and wards
+    // cast in a T — the tap's point is the crossbar's
+    // centre, the server lays the wall across the
+    // caster→point axis there. A tap carrying no point
+    // (a figure's tap) names its hex, whose heart stands
+    // as the point. The facing road stands only for casts
+    // that carry a facing and no ground at all.
+    if (castSpell.engine === "blackgate") { void doCastMap(pt ? { tileId: tile.id, ...pointArgs } : { tileId: tile.id }); return; }
     // The Springleaf is a binding by the book's filing, but
     // she is planted on GROUND, not cast on a body — the tap
     // casts her on her hex (Homeland Casting).
@@ -2887,17 +2978,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       return;
     }
     if (castSpell.kind === "ward") {
-      if (castAnchor === null) {
-        // WARDS STAND ANYWHERE (Nigel, 2026-10-20): any hex
-        // of his land may anchor a ward now — his Awokin
-        // need not hold it, nor he stand on it. Cursed
-        // ground is lawful too; it eats what stands on it.
-        setCastAnchor(tile.id);
-        showHexNotice("Now tap one of the glowing edges of that hex.");
-        return;
-      }
-      if (tile.id === castAnchor) { setCastAnchor(null); return; }
-      showHexNotice("Tap one of the glowing edges — or the anchor hex again to choose another.");
+      // WARDS CAST IN A T (Nigel, 2026-10-24 22:35): ONE
+      // tap aims a ward completely — the tap's point sets
+      // the ward's distance from the caster and the ward
+      // stands centred there, its line running across the
+      // caster→tap axis, its length set by the warding
+      // level (the server lays the T). The two-tap anchor
+      // and edge dance the wards once took is superseded
+      // whole; a tap carrying no point (a figure's tap)
+      // names its hex and the server reads its heart as
+      // the point.
+      void doCastMap({ tileId: tile.id, ...pointArgs });
       return;
     }
     if (castSpell.engine === "shatter") {
@@ -3023,10 +3114,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (marched) showHexNotice(`The line is taken — ${marched} on the road, spread evenly along it.`);
   };
 
-  const handleHexTap = (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
+  const handleHexTap = async (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
     if (attuneElement) { void handleAttuneTap(tile); return; }
-    if (castMode && castSpellKey) { handleCastTap(tile, pt); return; }
+    if (castMode && castSpellKey) {
+      // THE SHADE UNDER THE TAP (target profiles, Nigel
+      // 2026-10-24): a ground tap whose point names a dark
+      // thing — one within half a hex of the tapped point,
+      // the measure the foe-naming casts read by, or one
+      // filed under the tapped hex — names an ENEMY in the
+      // tap's own intent: while a written Blade stands
+      // armed it springs on that dark FIRST, no matter what
+      // is readied, and only a spring that could not answer
+      // (beyond its two-hexes reach — its refusal held
+      // silent on this road) lets the cast proceed on the
+      // same ground: casting AT a dark's ground, the Blade
+      // written beneath its feet or the Hold Rune naming
+      // it, is the standing road this preserves.
+      const shade = shadeUnderTap(tiles.find((t) => t.id === tile.id) ?? tile, pt);
+      if (shade && bladeStandsArmed()) {
+        const r = await attemptLooseBlade(shade);
+        if (r.loosed) return;
+      }
+      handleCastTap(tile, pt); return;
+    }
     if (pendingMarch) {
       // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
       // the march; this tap IS the order — fired at once, no
@@ -3882,6 +3993,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                     onClick={async (e) => {
                       e.stopPropagation();
                       if (bandJustClosed()) return; // the band's release is not a tap
+                      // THE ALLY TAP (target profiles, Nigel
+                      // 2026-10-24): while a casting flow is
+                      // armed, a tap on one of your own is an
+                      // ALLY click, routed by the readied
+                      // working's declared profiles — an
+                      // ALLY working (Heal) names HER here;
+                      // a SELF or NO TARGET working only
+                      // fires; a mismatch answers naming the
+                      // readied working. The Attune ability
+                      // takes the tap as her hex's, as the
+                      // round-four law reads a figure's tap.
+                      if (attuneElement) { handleHexTap(t); return; }
+                      if (castMode && castSpellKey) {
+                        if (castSpell) {
+                          const profiles = targetProfilesFor(castSpell);
+                          if (profileAccepts(profiles, "ally")) {
+                            if (profiles.includes("ally")) void doCastMap({ awakenedId: a.id });
+                            else void doCastMap({ tileId: t.id });
+                          } else showHexNotice(profileRefusal(castSpell));
+                        }
+                        return;
+                      }
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
                       if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch) { handleHexTap(t); return; }
@@ -4385,6 +4518,36 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const filter = `${GRIM_HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 ${5 / zoom}px ${GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
           const spName = grim?.spells.find((sp) => sp.key === w.spellKey)?.name ?? w.spellKey;
           const title = `${spName} — ${w.kind}${w.engine === "trees" ? ` · ❤${w.hp}` : ""}${w.engine === "seal" ? ` · ❤${w.hp} · ${Math.max(0, (w.nums.stops ?? 3) - w.stops)} stops left` : ""}${w.engine === "lattice" ? ` · ❤${w.hp}` : ""}${w.engine === "blade" ? ` · ${w.charges} looses left` : ""}${w.engine === "springblade" ? ` · ${w.charges} springs left` : ""}${w.pour > 0 ? ` · ${w.pour} attunement slot${w.pour === 1 ? "" : "s"} carried` : ""}`;
+          if (w.kind === "ward" && typeof (w.nums as any)?.linePx === "number") {
+            // A WARD CAST IN A T (Nigel, 2026-10-24 22:35):
+            // the crossbar drawn where it stands — centred
+            // on its cast point, running along its stored
+            // direction for its stored length — in the edge
+            // wards' own grammar of light.
+            const wt = w.tileId != null ? tiles.find((tt) => tt.id === w.tileId) : null;
+            const wn = w.nums as any;
+            const cAxial = (typeof wn.aimQ === "number" && wt) ? { q: wn.aimQ, r: wn.aimR } : (wt ? { q: wt.q, r: wt.r } : { q: w.q ?? 0, r: w.r ?? 0 });
+            const base = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(cAxial.q, cAxial.r, size); return { cx: originX + px, cy: originY + py }; })();
+            const baseAxial = wt ? { q: wt.q, r: wt.r } : cAxial;
+            const toScreen = (aq: number, ar: number) => {
+              const dp = isoOffset(aq, ar, size);
+              const dc = isoOffset(baseAxial.q, baseAxial.r, size);
+              return { x: base.cx + (dp.px - dc.px), y: base.cy + (dp.py - dc.py) };
+            };
+            const half = (Number(wn.lineLen ?? 0) || 0) / 2;
+            const e1 = toScreen(cAxial.q - wn.linePx * half, cAxial.r - wn.linePr * half);
+            const e2 = toScreen(cAxial.q + wn.linePx * half, cAxial.r + wn.linePr * half);
+            const mid = toScreen(cAxial.q, cAxial.r);
+            const frac = w.engine === "trees" ? Math.max(0, Math.min(1, w.hp / Math.max(1, w.maxHp || (w.nums.hp ?? 8)))) : w.engine === "seal" ? Math.max(0, Math.min(1, w.hp / Math.max(1, w.maxHp || 6))) : 1;
+            return (
+              <g key={w.id} opacity={(0.35 + 0.65 * frac).toFixed(2)}>
+                <title>{title}</title>
+                <line x1={e1.x} y1={e1.y} x2={e2.x} y2={e2.y} stroke="rgba(183,166,255,0.30)" strokeWidth={size * 0.13} strokeLinecap="round" />
+                <line x1={e1.x} y1={e1.y} x2={e2.x} y2={e2.y} stroke={GRIM_HUE_GLOWS[w.hue] ?? "#ffd98a"} strokeWidth={size * 0.045} strokeLinecap="round" opacity={0.85} />
+                {img && <image href={img} x={mid.x - size * 0.21} y={mid.y - size * 0.21} width={size * 0.42} height={size * 0.42} style={{ filter }} pointerEvents="none" />}
+              </g>
+            );
+          }
           if (w.kind === "ward" && w.q != null && w.r != null && w.dir != null) {
             const wt = tiles.find((tt) => tt.q === w.q && tt.r === w.r);
             const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
@@ -4477,6 +4640,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               </g>
             );
           }
+          // A RUNE'S DIAMETER, drawn (Nigel, 2026-10-24
+          // 22:37): a writing's glyph stands at the size of
+          // the footprint it was written with — the stored
+          // diameter read at a gentle scale, so a diameter-1
+          // writing stands exactly as writings have always
+          // stood and a greater one stands greater.
+          const diaScale = w.kind === "rune" ? 0.8 + 0.2 * (Number((w.nums as any)?.diameter ?? 1) || 1) : 1;
           if (w.engine === "shard") {
             // THE CROWN SHARD (Nigel, 2026-10-23 — Recovery
             // R5): at the Table its animated glyph hangs over
@@ -4488,13 +4658,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             // beneath it shows the fall's harm — the
             // collapse is the glyph's absence and the wound,
             // as the Table tells it.
+            const shardW = size * 0.68 * diaScale;
             return (
               <g key={w.id} opacity={0.95}>
                 <title>{`${title} — it hovers over this hex, waiting for a dark thing of power ${w.nums.minPower ?? 5}+ to stand beneath it; then it falls on the whole hex.`}</title>
                 <ellipse cx={drawCx} cy={drawCy + size * 0.20} rx={size * 0.30} ry={size * 0.10} fill="rgba(0,0,0,0.35)" pointerEvents="none" />
                 <g>
                   <animateTransform attributeName="transform" type="translate" values={`0 ${(-size * 0.05).toFixed(2)}; 0 ${(size * 0.05).toFixed(2)}; 0 ${(-size * 0.05).toFixed(2)}`} dur="2.6s" repeatCount="indefinite" />
-                  {img && <image href={img} x={drawCx - size * 0.34} y={drawCy - size * 0.98} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />}
+                  {img && <image href={img} x={drawCx - shardW / 2} y={drawCy - size * 0.98} width={shardW} height={shardW} style={{ filter }} pointerEvents="none" />}
                 </g>
               </g>
             );
@@ -4502,41 +4673,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           return (
             <g key={w.id} opacity={0.92}>
               <title>{title}</title>
-              {img && <image href={img} x={drawCx - size * 0.30} y={drawCy - size * 0.30} width={size * 0.60} height={size * 0.60} style={{ filter }} pointerEvents="none" />}
+              {img && <image href={img} x={drawCx - size * 0.30 * diaScale} y={drawCy - size * 0.30 * diaScale} width={size * 0.60 * diaScale} height={size * 0.60 * diaScale} style={{ filter }} pointerEvents="none" />}
             </g>
           );
         })}
       </g>
     );
-    const castEdgeLayer = castMode && castSpell?.kind === "ward" && castAnchor !== null ? (() => {
-      const t = tiles.find((tt) => tt.id === castAnchor);
-      if (!t) return null;
-      const { cx, cy } = tilePos(t);
-      const verts = hexCellVertices(cx, cy, size);
-      return (
-        <g key="cast-edges">
-          {verts.map((v, d) => {
-            const n = verts[(d + 1) % 6];
-            // BULWARK (Recovery R12) takes no edge: the tap
-            // names its AIM, not a standing place — an edge
-            // already carrying a work still aims a line of
-            // shields across itself, so nothing reads taken
-            // while Bulwark is the readied ward.
-            const taken = castSpell?.engine !== "bulwark" && (walls.some((w) => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d))
-              || workings.some((w) => w.kind === "ward" && w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d)));
-            return (
-              <g key={d}>
-                <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(183,166,255,0.8)"} strokeWidth={3 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none" />
-                {!taken && (
-                  <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(183,166,255,0.03)" strokeWidth={26 / zoom} strokeLinecap="round" style={{ cursor: "pointer" }}
-                    onClick={(e) => { e.stopPropagation(); void doCastMap({ tileId: t.id, dir: d, pointQ: t.q + WALL_DIR_DELTAS[d][0] * 0.5, pointR: t.r + WALL_DIR_DELTAS[d][1] * 0.5 }); }} />
-                )}
-              </g>
-            );
-          })}
-        </g>
-      );
-    })() : null;
+    // The ward aim layer the two-tap flow once drew (the
+    // anchor hex's glowing edges) is GONE (Nigel, 2026-10-24
+    // 22:35): one tap aims a ward completely now, in a T —
+    // there is no second tap for a layer to guide.
     const wallLayer = (
       <g key="walls">
         {walls.map(w => {
@@ -5287,15 +5433,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               <ellipse cx={cx} cy={cy + size * 0.17} rx={size * 0.3} ry={size * 0.11} fill="rgba(0,0,0,0.42)" />
               <FrayFaceSvgImage art={enemyArtData?.art} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
                 opacity={0.95} />
-              {/* THE CLICK THAT LOOSES (Nigel, 2026-10-20;
-                  re-ruled 2026-10-23 — Recovery R4): a tap
-                  on the dark itself is the order to the
-                  written Blade — the server referees it and
-                  answers plainly when no blade can reach. */}
+              {/* THE ENEMY TAP (Nigel, 2026-10-20; re-ruled
+                  2026-10-23 — Recovery R4; routed by target
+                  profiles 2026-10-24): a tap on the dark
+                  itself goes to the enemy router
+                  (handleEnemyTap) — a planted Blade springs
+                  first, then the readied working by its
+                  declared profiles — the server refereeing
+                  each road and answering plainly. */}
               <circle cx={cx} cy={cy} r={size * 0.36} fill="transparent" pointerEvents="all"
                 style={{ cursor: "pointer" }}
-                onClick={(e) => { e.stopPropagation(); void looseBladeAtWanderer(w); }}>
-                <title>Loose the Single Blade on this dark thing</title>
+                onClick={(e) => { e.stopPropagation(); void handleEnemyTap(w); }}>
+                <title>Loose the Single Blade on this dark thing, or cast your readied working at it</title>
               </circle>
               {wounded && (
                 <g>
@@ -5324,7 +5473,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {awokenElements}
           {wallLayer}
           {workingsLayer}
-          {castEdgeLayer}
+          
           {wgGuideLayer}
           {wgAttuneLayer}
           {calmLayer}

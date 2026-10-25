@@ -501,7 +501,7 @@ export function defaultGrimoire(): GrimoireState {
     engine: "blackgate",
     glyphId: null,
     cost: BLACK_GATE_COST,
-    blurb: "An impassable black wall raised in front of you, in the direction you face — all eight facings, diagonals included. Its health reads the shared 5–10 table at your cast level (5 at Lv 1, rising to 10 at Lv 9+). The dark cannot cross its ground while it stands; it may strike the Gate down, and only when the Gate falls at 0 HP does the road open. (Its price and ward filing are unruled derivations from Bulwark, flagged for Nigel's word.)",
+    blurb: "An impassable black wall raised across your aim — cast in a T from where you stand, like every ward: centred where you tap, its line running across your line of sight, its length following your cast level. Each node's health reads the shared 5–10 table at your cast level (5 at Lv 1, rising to 10 at Lv 9+). The dark cannot cross its ground while it stands; it may strike the Gate down, and only when the Gate falls at 0 HP does the road open. (Its price and ward filing are unruled derivations from Bulwark, flagged for Nigel's word.)",
     numbers: { level: 1 },
     forms: { unaligned: "Black Gate", tide: "Tide Black Gate", sky: "Sky Black Gate", stone: "Stone Black Gate", root: "Root Black Gate", fire: "Fire Black Gate" },
     builtin: true,

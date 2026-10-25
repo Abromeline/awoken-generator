@@ -3476,6 +3476,51 @@ export function homelandEdgeKeyBetween(a: { q: number; r: number }, b: { q: numb
   }
   return null;
 }
+/** Whether two segments cross (the ward line's test): a
+ *  proper crossing, or one blow's end landing ON the other
+ *  segment — a blow that reaches a victim standing at the
+ *  line still crosses the line's guard. Read in axial
+ *  space, an affine image of the ground, where crossing
+ *  tests hold as they do on the plane. */
+export function segmentsCross(
+  a: { q: number; r: number }, b: { q: number; r: number },
+  c: { q: number; r: number }, d: { q: number; r: number },
+): boolean {
+  const orient = (p: { q: number; r: number }, q2: { q: number; r: number }, r2: { q: number; r: number }): number => {
+    const v = (q2.q - p.q) * (r2.r - p.r) - (q2.r - p.r) * (r2.q - p.q);
+    return Math.abs(v) < 1e-9 ? 0 : (v > 0 ? 1 : -1);
+  };
+  const onSeg = (p: { q: number; r: number }, q2: { q: number; r: number }, r2: { q: number; r: number }): boolean =>
+    q2.q >= Math.min(p.q, r2.q) - 1e-9 && q2.q <= Math.max(p.q, r2.q) + 1e-9
+    && q2.r >= Math.min(p.r, r2.r) - 1e-9 && q2.r <= Math.max(p.r, r2.r) + 1e-9;
+  const o1 = orient(a, b, c), o2 = orient(a, b, d), o3 = orient(c, d, a), o4 = orient(c, d, b);
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSeg(a, c, b)) return true;
+  if (o2 === 0 && onSeg(a, d, b)) return true;
+  if (o3 === 0 && onSeg(c, a, d)) return true;
+  if (o4 === 0 && onSeg(c, b, d)) return true;
+  return false;
+}
+/** Whether a blow struck from `from` to `to` crosses a
+ *  LINE ward's crossbar (the T's flat top): the ward's
+ *  stored centre (its cast point), its stored unit
+ *  direction and its stored length. A ward with no length
+ *  (a one-node crossbar, the young cast) guards the point
+ *  it stands on: a blow passing within half a hex of it
+ *  is turned, the old point measure. */
+export function lineWardTurnsBlow(ward: { nums: Record<string, number> }, from: { q: number; r: number }, to: { q: number; r: number }): boolean {
+  const n = ward.nums;
+  if (typeof n.linePx !== "number" || typeof n.aimQ !== "number" || typeof n.aimR !== "number") return false;
+  const len = Number(n.lineLen ?? 0) || 0;
+  if (len <= 1e-9) {
+    const c = { q: n.aimQ, r: n.aimR };
+    return (axialDist(from, c) <= 0.5) !== (axialDist(to, c) <= 0.5);
+  }
+  const half = len / 2;
+  const a = { q: n.aimQ - n.linePx * half, r: n.aimR - n.linePr * half };
+  const b = { q: n.aimQ + n.linePx * half, r: n.aimR + n.linePr * half };
+  return segmentsCross(from, to, a, b);
+}
 /** A placement's own element for the grove's dice: the element
  *  of its strongest part (ties keep the first), read from the
  *  parts themselves as all element law is read here. */
@@ -3582,10 +3627,20 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
   // filed under the writing's tile. The tile spring stands
   // as it always has; the point widens the ground the
   // writing covers to the ground the player wrote on.
-  if (!wanderer && typeof nums.aimQ === "number" && typeof nums.aimR === "number") {
+  // THE FOOTPRINT (Nigel, 2026-10-24 22:37): the point
+  // measure is the writing's DIAMETER halved (its stored
+  // numbers, laid at the cast by the runecasting level) —
+  // at diameter 1 the radius is the same half hex it has
+  // always been; a writing laid without a point reads from
+  // its hex's own heart at the same measure.
+  if (!wanderer) {
+    const centre = (typeof nums.aimQ === "number" && typeof nums.aimR === "number")
+      ? { q: nums.aimQ, r: nums.aimR }
+      : { q: tile.q, r: tile.r };
+    const radius = Math.max(0.5, (Number(nums.diameter ?? 1) || 1) / 2);
     const cand = (sqlite.prepare("SELECT id, hp, pos_q, pos_r FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
       .find((x: any) => x.pos_q != null && x.pos_r != null
-        && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, { q: nums.aimQ, r: nums.aimR }) <= 0.5);
+        && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, centre) <= radius + 1e-9);
     if (cand) wanderer = { id: cand.id, hp: cand.hp };
   }
   const bright = !!sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey);
@@ -3636,7 +3691,22 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
     return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
   }
   if (w.engine === "shardrain") {
-    if (!wanderer && !tile.cursed) return none;
+    // THE RAIN'S AREA (Nigel, 2026-10-24 22:37): the fall
+    // covers the writing's own hex and — by the spellcasting
+    // level snapshotted at the cast (nums.areaReach) — the
+    // rings beyond it. Every dark standing in the covered
+    // ground is under the sky; at reach 0 the covered ground
+    // is the writing's hex, exactly as it has always been.
+    const areaReach = Math.max(0, Math.floor(Number(nums.areaReach ?? 0) || 0));
+    const rainFoes = (sqlite.prepare("SELECT id, hp, tile_id AS tileId, pos_q AS posQ, pos_r AS posR FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+      .filter((x: any) => {
+        if (wanderer && x.id === wanderer.id) return true;
+        let cell: { q: number; r: number } | null = null;
+        if (x.posQ != null && x.posR != null) cell = axialRound(Number(x.posQ), Number(x.posR));
+        else { const t = tiles.find((tt: any) => tt.id === x.tileId); if (t) cell = { q: t.q, r: t.r }; }
+        return cell != null && hexDistTiles(tile, { q: cell.q, r: cell.r } as any) <= areaReach;
+      });
+    if (!rainFoes.length && !tile.cursed) return none;
     // The sky opens ONCE: the pool is rolled whole — the base
     // dice plus one per attunement level snapshotted at the
     // cast — and falls on everything under the writing.
@@ -3644,7 +3714,13 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
     let pool = 0;
     for (let i = 0; i < dice; i++) pool += homelandDN(6);
     sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
-    const felled = wanderer ? harmWanderer(pool) : false;
+    let felled = false;
+    for (const x of rainFoes) {
+      const cur = x.hp == null ? HOMELAND_FRAY_HP : Number(x.hp);
+      const next = cur - pool;
+      if (next <= 0) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(x.id); felled = true; }
+      else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, x.id);
+    }
     const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, pool, w.hue) : { ground: 0, purified: false };
     return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
   }
@@ -3683,7 +3759,12 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
     // and its measure is its power as the battle engine
     // reads it (the wanderer's own power, the kind's canon
     // power behind it).
-    const reach = workingEffects(ownerKey).fallingLight ? 1 : 0;
+    // The measure (Recovery R5) widens by the writing's own
+    // DIAMETER (Nigel, 2026-10-24 22:37): each whole two
+    // units of diameter beyond the first widens the fall
+    // one ring, as Falling Light does.
+    const reach = (workingEffects(ownerKey).fallingLight ? 1 : 0)
+      + Math.max(0, Math.floor(((Number(nums.diameter ?? 1) || 1) - 1) / 2));
     const foes = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
       .filter((x: any) => {
         let cell: { q: number; r: number } | null = null;
@@ -4165,6 +4246,113 @@ export function rockWallHpForLevel(level: number): number {
 export function bulwarkShieldCountFor(castLevel: number): number {
   return Math.min(6, Math.max(1, Math.floor(Math.max(1, Math.floor(castLevel) || 1) / 2)));
 }
+/** ── THE SIZE OF A WORK FOLLOWS THE CASTER'S LEVEL IN ITS
+ *  CRAFT (Nigel, 2026-10-24 22:35–22:37 — ruled for wards,
+ *  then runes, then "binding and spellcasting too": the
+ *  general law for all four crafts): a ward's LINE LENGTH
+ *  by the warding level, a rune's DIAMETER by the
+ *  runecasting level, a binding's EXTENT by the binding
+ *  level, a spell's SIZE by the spellcasting level.
+ *  THE MEASURES, named plainly: the engine keeps ONE cast
+ *  level for a caster — the Tender level — and the warding
+ *  law already reads it AS the warding cast level (R12's
+ *  reading above: "the warding cast level is the CASTER'S
+ *  TENDER LEVEL"). No separate runecasting, binding or
+ *  spellcasting level stands anywhere in the engine —
+ *  THOSE THREE MEASURES ARE MISSING, flagged here rather
+ *  than invented: their resolvers read the Tender level
+ *  today, the same reading the warding law itself stands
+ *  on, and each resolver is ONE named function — the day
+ *  Nigel names a true per-craft level, it wires in there
+ *  and nowhere else. Every size is read AT THE CAST, as
+ *  HP and counts have always been, and stands in the
+ *  working's stored numbers or its laid nodes. */
+export const wardingCastLevelFor = (level: number): number => Math.max(1, Math.floor(level) || 1);
+export const runecastLevelFor = (level: number): number => Math.max(1, Math.floor(level) || 1);
+export const bindingCastLevelFor = (level: number): number => Math.max(1, Math.floor(level) || 1);
+export const spellcastLevelFor = (level: number): number => Math.max(1, Math.floor(level) || 1);
+/** THE WARD'S T (Nigel, 2026-10-24 22:35): "wards are a
+ *  line — the distance between the two points of that line
+ *  is locked correlated to the caster's warding level; the
+ *  distance from the caster the ward is, is set by target
+ *  click; the direction of the line is perpendicular to
+ *  the line from the caster to the cast point. Simply put,
+ *  wards cast in a T, with the caster being the bottom
+ *  point of the T and the ward being the flat top."
+ *  ONE CLICK aims a ward completely: the click point is
+ *  the crossbar's centre (in the casting reach as ever),
+ *  the crossbar runs perpendicular to the caster→click
+ *  axis there, and its LENGTH follows the warding cast
+ *  level: the crossbar holds wardLineCountFor nodes spaced
+ *  WARD_LINE_SPACING apart (the Rock Wall's own spacing),
+ *  the count on Bulwark's own formula (⌊level/2⌋, 1..6) —
+ *  so the endpoint-to-endpoint length is (count − 1) ×
+ *  0.55 axial units: Lv 3 → a point, Lv 4–5 → 0.55,
+ *  Lv 6–7 → 1.1, Lv 8–9 → 1.65, Lv 10–11 → 2.2, Lv 12+ →
+ *  2.75. */
+export const WARD_LINE_SPACING = 0.55;
+export function wardLineCountFor(castLevel: number): number { return bulwarkShieldCountFor(castLevel); }
+export function wardLineLengthFor(castLevel: number): number { return (wardLineCountFor(castLevel) - 1) * WARD_LINE_SPACING; }
+/** The crossbar's geometry: its unit direction (perpendicular
+ *  to the caster→cast-point axis; a cast point on the
+ *  caster's own ground has no axis to read, and the T
+ *  stands on the east axis), its count and its length. */
+export function wardCrossbarFor(caster: { q: number; r: number }, point: { q: number; r: number }, castLevel: number): { px: number; pr: number; count: number; length: number } {
+  let ax = point.q - caster.q, ar = point.r - caster.r;
+  const alen = Math.hypot(ax, ar);
+  if (alen < 1e-6) { ax = 1; ar = 0; } else { ax /= alen; ar /= alen; }
+  return { px: -ar, pr: ax, count: wardLineCountFor(castLevel), length: wardLineLengthFor(castLevel) };
+}
+/** The crossbar's nodes, laid evenly along it, centred on
+ *  the cast point — the standing Edge Works line behaviour
+ *  (the Rock Wall's and Bulwark's own laying). */
+export function wardLineNodesFor(cx: number, cy: number, px: number, pr: number, castLevel: number, hp: number): { q: number; r: number; hp: number; maxHp: number }[] {
+  const count = wardLineCountFor(castLevel);
+  const nodes: { q: number; r: number; hp: number; maxHp: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const off = (i - (count - 1) / 2) * WARD_LINE_SPACING;
+    nodes.push({ q: cx + px * off, r: cy + pr * off, hp, maxHp: hp });
+  }
+  return nodes;
+}
+/** A RUNE'S DIAMETER (Nigel, 2026-10-24 22:37): "diameter
+ *  of runes is also runecasting lvl." The footprint a
+ *  writing covers, in axial units, on the same count the
+ *  ward line steps by (⌊level/2⌋, 1..6) read as the
+ *  diameter itself. A spring reads a dark standing within
+ *  the footprint's RADIUS of the writing's point — at
+ *  diameter 1 the radius is 0.5, the very measure the point
+ *  springs have always read by, so a young writing covers
+ *  exactly the ground it covered before this law. The
+ *  Single Blade keeps its spring law whole (the click
+ *  looses it; its two-hexes loose reach is unchanged) —
+ *  its footprint follows this diameter in its stored
+ *  numbers and its drawn glyph, as any rune's does. */
+export function runeDiameterFor(runecastLevel: number): number { return bulwarkShieldCountFor(runecastLevel); }
+/** A BINDING'S EXTENT (Nigel, 2026-10-24 22:37): the
+ *  Springleaf's radius — the formula the grove has always
+ *  grown by ((66 + 12 per level) read through the land's
+ *  scale), now named as the binding law's one function; a
+ *  Binder's hand doubles it in bindingHealRangeFor, as it
+ *  always has. Heal carries NO extent: it mends one named
+ *  Awokin, and its reach is its range, not a size — said
+ *  plainly rather than invented for it. */
+export function bindingRadiusFor(bindingLevel: number): number {
+  return Math.max(1, Math.floor(((66 + 12 * Math.max(1, Math.floor(bindingLevel) || 1)) * 2.75) / 80));
+}
+/** A SPELL'S SIZE (Nigel, 2026-10-24 22:37), by the spell's
+ *  own geometry: Shard Rain is the book's AREA spell — the
+ *  ground its fall covers, in hex steps beyond the hex it
+ *  is written on, on the craft count's slower steps
+ *  (⌊(count−1)/2⌋: 0 through Lv 5, 1 at Lv 6–9, 2 at
+ *  Lv 10+). Bats has NO size dimension (a hunting swarm —
+ *  its bites are a count and its field is the whole land)
+ *  and Rune Shatter has NONE (its two tiles are range, and
+ *  its stream stands on the one hex it was loosed on) —
+ *  named as none rather than invented for them. */
+export function shardRainReachFor(spellcastLevel: number): number {
+  return Math.floor((bulwarkShieldCountFor(spellcastLevel) - 1) / 2);
+}
 /** BLACK GATE'S EIGHT FACINGS (Nigel, 2026-10-23 12:04 —
  *  Recovery R13): "cast IN FRONT OF THE CASTER in the
  *  direction they face — N, E, S, W AND THE DIAGONALS
@@ -4550,15 +4738,22 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     return n;
   };
   // The border wards (the Seal, the Trees) still turn a blow
-  // aimed across their edge — loaded once, written back at
-  // the end, as the old walk carried them.
+  // aimed across their line — loaded once, written back at
+  // the end, as the old walk carried them. A ward stands in
+  // one of two shapes (the T, Nigel 2026-10-24): by its
+  // crossbar, for casts since the T (its geometry in its
+  // numbers), or by its EDGE, for the casts that stood
+  // before it — each read by its own shape below.
   const wardByEdge = new Map<string, any>();
+  const wardLines: any[] = [];
+  const borderWards: any[] = [];
   let mapBright = false;
   for (const w of sqlite.prepare("SELECT id, engine, edge_key AS edgeKey, nums, hp, max_hp AS maxHp, stops FROM territory_workings WHERE owner_key = ? AND kind = 'ward'").all(ownerKey) as any[]) {
     if (w.engine === "engine") mapBright = true;
-    if ((w.engine === "seal" || w.engine === "trees") && w.edgeKey && (w.hp ?? 0) > 0) {
+    if ((w.engine === "seal" || w.engine === "trees") && (w.hp ?? 0) > 0) {
       try { w.nums = JSON.parse(w.nums ?? "{}"); } catch { w.nums = {}; }
-      wardByEdge.set(w.edgeKey, w);
+      if (typeof w.nums.linePx === "number") { wardLines.push(w); borderWards.push(w); }
+      else if (w.edgeKey) { wardByEdge.set(w.edgeKey, w); borderWards.push(w); }
     }
   }
   // ── THE THORNS, RE-HOMED (the Token Strip, Nigel
@@ -5125,14 +5320,25 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         const dmg = homelandFateMitigate(raw, victimAC, d.lvl);
         // THE WARD AT THE BORDER turns the blow as it turned
         // the chew — BEFORE the victim's own hide is reckoned:
-        // the ward is the edge's guard, and whether the blow
+        // the ward is the line's guard, and whether the blow
         // would have beaten her AC is what the ward exists to
         // make irrelevant. A Seal answers, the Trees take it.
+        // The guard is read by the ward's own shape: by EDGE
+        // for the wards that stood before the T, by the
+        // CROSSBAR for the wards cast in a T — a blow whose
+        // road from the dark's point to the victim's point
+        // crosses the line is a blow across the ward.
         const fromTile = byId.get(d.tileId); const victimTile = byId.get(victim.tileId);
         let turned = false;
         if (fromTile && victimTile) {
           const key = homelandEdgeKeyBetween(fromTile, victimTile);
-          const ward = key ? wardByEdge.get(key) : undefined;
+          let ward = key ? wardByEdge.get(key) : undefined;
+          if (!ward) {
+            for (const lw of wardLines) {
+              if (lw.spent) continue;
+              if (lineWardTurnsBlow(lw, { q: d.q, r: d.r }, { q: victim.q, r: victim.r })) { ward = lw; break; }
+            }
+          }
           if (ward && !ward.spent) {
             if (ward.engine === "seal") {
               ward.stops = (ward.stops ?? 0) + 1; ward.hp = (ward.hp ?? 0) - dmg; ward.touched = true;
@@ -5381,7 +5587,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   const beatsPassed = Math.floor(elapsed / BATTLE_BEAT_MS);
   if (beatsPassed > 0) for (const d of darks) if (!d.dead && d.pinnedBeats > 0) d.pinnedBeats = Math.max(0, d.pinnedBeats - beatsPassed);
   // The Trees regrow as the beats pass (their standing law).
-  for (const ward of wardByEdge.values()) {
+  for (const ward of borderWards) {
     if (ward.engine === "trees" && !ward.spent && beatsPassed > 0) {
       const grown = Math.min(ward.maxHp ?? ward.hp ?? 0, (ward.hp ?? 0) + (ward.nums.regrow ?? 2) * beatsPassed);
       if (grown !== ward.hp) { ward.hp = grown; ward.touched = true; }
@@ -5441,10 +5647,20 @@ async function settleHomelandWorkingAttrition(ownerKey: string, tiles: any[]): P
     if (elapsed < 1000) continue;
     let groundTiles: any[] = [];
     if (w.kind === "ward") {
-      const a = byQR.get(`${w.q},${w.r}`);
-      const d = WALL_DIRS[Number(w.dir ?? 0)] ?? [0, 0];
-      const b = byQR.get(`${Number(w.q) + d[0]},${Number(w.r) + d[1]}`);
-      groundTiles = [a, b].filter(Boolean);
+      // A ward cast in a T stands on the ground of the hex
+      // its point fell in (its filed tile); an edge ward
+      // stands on its edge's two hexes, as it always has.
+      let lineWard = false;
+      try { lineWard = typeof (JSON.parse(w.nums ?? "{}") as any).linePx === "number"; } catch { lineWard = false; }
+      if (lineWard) {
+        const t = byId.get(w.tile_id);
+        groundTiles = t ? [t] : [];
+      } else {
+        const a = byQR.get(`${w.q},${w.r}`);
+        const d = WALL_DIRS[Number(w.dir ?? 0)] ?? [0, 0];
+        const b = byQR.get(`${Number(w.q) + d[0]},${Number(w.r) + d[1]}`);
+        groundTiles = [a, b].filter(Boolean);
+      }
     } else {
       const t = byId.get(w.tile_id);
       if (t) groundTiles = [t];
@@ -10481,7 +10697,7 @@ export const handlers = {
       // doubled radius is what stands in the stored numbers
       // the settle reads (its saplings' span and glow derive
       // from it there, as they derive for every hand).
-      const radiusHexes = bindingHealRangeFor(progress.classKey, Math.max(1, Math.floor(((66 + 12 * progress.level) * 2.75) / 80)));
+      const radiusHexes = bindingHealRangeFor(progress.classKey, bindingRadiusFor(bindingCastLevelFor(progress.level)));
       const now = Date.now();
       // The raising burst: every one of his standing in the
       // glow rolls its OWN element die, as at the Table — a
@@ -10601,12 +10817,40 @@ export const handlers = {
             }
           }
         }
-        if (!step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
+        if (!step && !aimPoint && tileId == null) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
+        if (facing && !step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
         const gateCost = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
         if (!(await spendEnergy(ownerKey, gateCost))) badRequest(`Not enough energy — ${spell.name} costs ${gateCost}.`);
         const cast = homelandCastRoll(progress, spell);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: gateCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, gateCost), spellKey: spell.key };
         const wallHp = rockWallHpForLevel(progress.level);
+        // THE GATE CASTS IN A T (Nigel, 2026-10-24 22:35 —
+        // the ward law, Amendment 3): a cast carrying a
+        // tapped point — or naming a hex, whose heart stands
+        // as its point — raises the Gate as the crossbar of
+        // a T: centred on that point, running perpendicular
+        // to the caster→point axis, its nodes laid evenly
+        // along the line at the warding cast level's count,
+        // each with the shared table's HP. The FACING road
+        // below stands for casts that carry a facing and no
+        // ground at all (the API's tongue): one node, one
+        // axial unit along the facing, exactly as R13 raised
+        // it — the map's clicks all carry ground now, and
+        // take the T.
+        const gateTile = tileId != null ? castTileById.get(tileId) : null;
+        const gatePoint = aimPoint ?? (gateTile ? { q: (gateTile as any).q, r: (gateTile as any).r } : null);
+        // A facing NAMED on the cast rules the legacy road;
+        // a step merely derived from the point above does
+        // not — the point takes the T.
+        if (gatePoint && !facing) {
+          if (aimPoint) assertPointReach(); else if (gateTile) assertCastReach(gateTile);
+          const cb = wardCrossbarFor({ q: (standTile as any).q, r: (standTile as any).r }, gatePoint, wardingCastLevelFor(progress.level));
+          const nodes = wardLineNodesFor(gatePoint.q, gatePoint.r, cb.px, cb.pr, wardingCastLevelFor(progress.level), wallHp);
+          const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, 0, 'blackgate', ?, ?, ?, ?)")
+            .run(ownerKey, gatePoint.q, gatePoint.r, JSON.stringify(nodes), Date.now());
+          return { ok: true as const, id: Number(info.lastInsertRowid), tileId: gateTile ? (gateTile as any).id : standTile.id, cost: gateCost, wallHp, wallQ: gatePoint.q, wallR: gatePoint.r, gateNodes: nodes.length, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        }
+        if (!step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
         const wallQ = standTile.q + step[0], wallR = standTile.r + step[1];
         const nodes = [{ q: wallQ, r: wallR, hp: wallHp, maxHp: wallHp }];
         const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, 0, 'blackgate', ?, ?, ?, ?)")
@@ -10660,6 +10904,24 @@ export const handlers = {
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: bulwarkCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, bulwarkCost), spellKey: spell.key };
         const count = bulwarkShieldCountFor(progress.level);
         const shieldHp = rockWallHpForLevel(progress.level);
+        // BULWARK CASTS IN A T (Nigel, 2026-10-24 22:35 —
+        // the ward law): a cast carrying a tapped point
+        // raises the line as the crossbar of a T — centred
+        // on the POINT, running perpendicular to the
+        // caster→point axis, its shields laid evenly along
+        // it at the warding cast level's count (the same
+        // count law, the same spacing, the same HP table —
+        // only the aim's geometry is new). A cast carrying
+        // an edge and NO point keeps the road below — the
+        // edge's own line across its midpoint — the tongue
+        // the point-less casts have always spoken.
+        if (aimPoint && standTile) {
+          const cb = wardCrossbarFor({ q: (standTile as any).q, r: (standTile as any).r }, aimPoint, wardingCastLevelFor(progress.level));
+          const nodes = wardLineNodesFor(aimPoint.q, aimPoint.r, cb.px, cb.pr, wardingCastLevelFor(progress.level), shieldHp);
+          const info = sqlite.prepare("INSERT INTO defence_works (owner_key, placement_id, kind, anchor_q, anchor_r, nodes, created_at) VALUES (?, 0, 'bulwark', ?, ?, ?, ?)")
+            .run(ownerKey, aimPoint.q, aimPoint.r, JSON.stringify(nodes), Date.now());
+          return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: bulwarkCost, shields: nodes.length, shieldHp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        }
         const [bdq, bdr] = WALL_DIRS[effDir];
         const blen = Math.hypot(bdq, bdr) || 1;
         const fx = bdq / blen, fr = bdr / blen;
@@ -10686,15 +10948,31 @@ export const handlers = {
       // Tender. (The edge must still be free — one work
       // per edge — and the hex still his: those are the
       // land's shape, not a holding.)
-      const [dq, dr] = WALL_DIRS[effDir];
-      const nq = tile.q + dq, nr = tile.r + dr;
-      const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
-      const cq = flip ? nq : tile.q, cr = flip ? nr : tile.r, cdir = flip ? WALL_OPP[effDir] : effDir;
-      const edgeKey = `${cq},${cr},${cdir}`;
-      const wallRow = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as any;
-      if (wallRow) badRequest(`That edge already carries a ${EDGE_WORK[wallRow.kind]?.name ?? "work"} — one work per edge.`);
-      const wardRow = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND edge_key = ? AND kind = 'ward'").get(ownerKey, edgeKey) as any;
-      if (wardRow) badRequest("A ward of the Written Light already stands on that edge.");
+      // WARDS CAST IN A T (Nigel, 2026-10-24 22:35): a cast
+      // carrying a tapped POINT raises the ward as the
+      // crossbar of a T — centred on the point, running
+      // perpendicular to the caster→point axis, its length
+      // from the warding cast level (wardCrossbarFor) — and
+      // it stands on NO edge: the edge reckoning below (the
+      // canonical edge, the one-work-per-edge law) is the
+      // road of point-less casts, and of every ward already
+      // standing on the land by an edge. Both geometries
+      // stand in the one ledger, and the battle reads each
+      // by its own shape.
+      const lineCast = aimPoint != null && standTile != null;
+      let cq = aimCell ? aimCell.q : tile.q, cr = aimCell ? aimCell.r : tile.r, cdir: number | null = effDir;
+      let edgeKey: string | null = null;
+      if (!lineCast) {
+        const [dq, dr] = WALL_DIRS[effDir];
+        const nq = tile.q + dq, nr = tile.r + dr;
+        const flip = nq < tile.q || (nq === tile.q && nr < tile.r);
+        cq = flip ? nq : tile.q; cr = flip ? nr : tile.r; cdir = flip ? WALL_OPP[effDir] : effDir;
+        edgeKey = `${cq},${cr},${cdir}`;
+        const wallRow = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as any;
+        if (wallRow) badRequest(`That edge already carries a ${EDGE_WORK[wallRow.kind]?.name ?? "work"} — one work per edge.`);
+        const wardRow = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND edge_key = ? AND kind = 'ward'").get(ownerKey, edgeKey) as any;
+        if (wardRow) badRequest("A ward of the Written Light already stands on that edge.");
+      }
       if (spell.engine === "standard") {
         const flying = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'standard'").get(ownerKey) as any;
         if (flying) badRequest("One Standard per Tender — yours already flies on the map.");
@@ -10743,11 +11021,20 @@ export const handlers = {
         hp = hpForCast(spell, progress.level, slots, !!bright);
         hp += eff.wardHp + (spell.engine === "trees" ? eff.treesHp : 0);
       }
+      // THE T'S GEOMETRY RIDES THE NUMBERS (line casts):
+      // the crossbar's unit direction and its length, read
+      // by the battle (a blow across the line is turned, as
+      // a blow across the edge was) and by the view (the
+      // line drawn where it stands).
+      if (lineCast && aimPoint && standTile) {
+        const cb = wardCrossbarFor({ q: (standTile as any).q, r: (standTile as any).r }, aimPoint, wardingCastLevelFor(progress.level));
+        mapNums.linePx = cb.px; mapNums.linePr = cb.pr; mapNums.lineLen = cb.length; mapNums.lineCount = cb.count;
+      }
       const info = sqlite.prepare(`INSERT INTO territory_workings
         (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
         VALUES (?, ?, ?, 'ward', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`)
-        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, cdir, JSON.stringify(mapNums), hp, slots, hp, Date.now());
-      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey, cost: wardCost, pour: slots, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
+        .run(ownerKey, spell.key, spell.engine, hue, tileId, edgeKey, cq, cr, lineCast ? null : cdir, JSON.stringify(mapNums), hp, slots, hp, Date.now());
+      return { ok: true as const, id: Number(info.lastInsertRowid), edgeKey: edgeKey ?? undefined, line: lineCast ? { px: mapNums.linePx, pr: mapNums.linePr, len: mapNums.lineLen, count: mapNums.lineCount } : undefined, cost: wardCost, pour: slots, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
     // ── THE NEW WORKINGS (Nigel, 2026-10-22; seated
@@ -10790,13 +11077,17 @@ export const handlers = {
         // or by its free point's cell (the living battle's
         // tongue — a wanderer stands where its point stands).
         // A point cast takes the shade standing ON the point
-        // first (2026-10-24): within half a hex of where the
-        // player tapped, the nearest answers.
+        // first (2026-10-24): within the rune's radius of
+        // where the player tapped, the nearest answers — the
+        // radius is the rune's DIAMETER halved (Nigel,
+        // 2026-10-24 22:37), half a hex at diameter 1, the
+        // measure this road has always read by.
+        const holdRadius = Math.max(0.5, runeDiameterFor(runecastLevelFor(progress.level)) / 2);
         const allWanderers = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
         const target = (aimPoint
           ? allWanderers
               .filter((x: any) => x.pos_q != null && x.pos_r != null
-                && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, aimPoint) <= 0.5)
+                && axialDist({ q: Number(x.pos_q), r: Number(x.pos_r) }, aimPoint) <= holdRadius)
               .sort((a: any, b: any) => axialDist({ q: Number(a.pos_q), r: Number(a.pos_r) }, aimPoint) - axialDist({ q: Number(b.pos_q), r: Number(b.pos_r) }, aimPoint))[0]
           : undefined)
           ?? allWanderers
@@ -10940,6 +11231,11 @@ export const handlers = {
       // (the Blade answers by the distance from it), and
       // the view draws the writing where it was laid.
       if (aimPoint) { numsToStore.aimQ = aimPoint.q; numsToStore.aimR = aimPoint.r; }
+      // THE SIZE OF THE WORK (Nigel, 2026-10-24 22:37): a
+      // rune's DIAMETER by the runecasting level, snapshotted
+      // into its numbers as HP is — its springs read the
+      // footprint it was written with (runeDiameterFor).
+      if (spell.kind === "rune") numsToStore.diameter = runeDiameterFor(runecastLevelFor(progress.level));
       // The Zodiac rides the rune's stored numbers (tranche one).
       if (typeof numsToStore.power === "number") numsToStore.power += effR.runePower;
       if (typeof numsToStore.pinRounds === "number") numsToStore.pinRounds += effR.runePin;
@@ -10951,7 +11247,10 @@ export const handlers = {
           const pools = await attunementPools(ownerKey);
           lvl = attunementLevel((pools[hue] ?? 0) + (skillAttunementGrants(ownerKey)[hue] ?? 0));
         }
-        numsToStore = { ...numsToStore, rainLevel: lvl };
+        // THE RAIN'S AREA (Nigel, 2026-10-24 22:37): the
+        // ground its fall covers beyond its own hex, by the
+        // spellcasting level — snapshotted with the rest.
+        numsToStore = { ...numsToStore, rainLevel: lvl, areaReach: shardRainReachFor(spellcastLevelFor(progress.level)) };
       }
       // The Lattice holds its ground with a health rating, like
       // the holding wards; harm and snare runes carry none.
