@@ -5262,9 +5262,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // a seed still, drawn as a seed, in the dark's violet ring
     // while the dark's guard holds it.
     // THE STAGE FACES (the growth cycle, 2026-10-25): a seed
-    // wears the face of its STAGE — the Starseed keeps its
-    // standing faces (the first seed's falling-star meteor;
-    // the gold star for the starfield's fallen and held);
+    // wears the face of its STAGE — the Starseed wears the
+    // falling-star meteor, the first seed's own face, at
+    // every unrisen seat: the starfield's fallen and held,
+    // and a corrupted seed in the dark's violet ring (THE
+    // FACES PASS, Nigel 2026-10-25: "stars are still
+    // standing in the place where the meteor ui should be
+    // for the star seed" — the ⭐ glyph that stood at those
+    // seats is gone; the meteor is the seed's face);
     // the Sapling and the Beacon wear Nigel's own artwork,
     // standing on their hex. THE BEACON'S HEIGHT IS RULED
     // (2026-10-24): twice the Tender figure's height — the
@@ -5297,7 +5302,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             return (
               <g key={sd.id}>
                 <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(16,8,24,0.88)" stroke="#b04df0" strokeWidth={2.2 / zoom} />
-                <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
+                <image href={meteorGif} x={cx - size * 0.45} y={cy - size * 1.05} width={size * 0.9} height={size * 0.9} />
                 <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#d8a6ff">held by the dark</text>
               </g>
             );
@@ -5336,7 +5341,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           return (
             <g key={sd.id}>
               <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(20,14,4,0.85)" stroke={sd.state === "held" ? "#ffd700" : "#e8b64c"} strokeWidth={(sd.state === "held" ? 2.4 : 1.4) / zoom} />
-              <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
+              <image href={meteorGif} x={cx - size * 0.45} y={cy - size * 1.05} width={size * 0.9} height={size * 0.9} />
               {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Starseed · held through {sd.defenses} {sd.defenses === 1 ? "stand" : "stands"}</text>}
               {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={cy + size * 0.62} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
             </g>

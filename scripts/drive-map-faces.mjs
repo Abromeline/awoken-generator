@@ -157,6 +157,14 @@ const snapshot = () => page.evaluate(() => {
     darkLabel: texts.some(s => s.includes("held by the dark")),
     violetRings: [...document.querySelectorAll("circle")]
       .filter(c => (c.getAttribute("stroke") || "").toLowerCase() === "#b04df0").length,
+    badgeMeteors: (() => {
+      const imgs = [...document.querySelectorAll("image")]
+        .filter(im => (im.getAttribute("href") || "").includes("meteor"))
+        .map(im => { const r = im.getBoundingClientRect(); return { cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: r.width }; });
+      const circs = [...document.querySelectorAll("circle")]
+        .map(c => { const r = c.getBoundingClientRect(); return { cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: r.width }; });
+      return imgs.filter(m => circs.some(c => Math.abs(c.cx - m.cx) < 3 && Math.abs(c.cy - m.cy) < 3 && m.w / c.w > 1.2 && m.w / c.w < 1.45)).length;
+    })(),
   };
 });
 const snap = await snapshot();
@@ -175,6 +183,8 @@ if (wantSeeds) {
     snap.meteorImages >= 4, `meteors=${snap.meteorImages}`);
   ok("§SEEDS no ⭐ glyph stands anywhere on the map",
     snap.starTexts === 0, `stars=${snap.starTexts}`);
+  ok("§SEEDS each badge seed's meteor sits concentric on its ring at the first seed's measure (0.9 to the ring's 0.68)",
+    snap.badgeMeteors >= 3, `badgeMeteors=${snap.badgeMeteors}`);
   ok("§SEEDS the held seed keeps its 'held through 2 stands' label",
     snap.heldLabel, `darkLabel=${snap.darkLabel}`);
   ok("§SEEDS the corrupted seed still stands in the dark's violet ring, 'held by the dark'",
