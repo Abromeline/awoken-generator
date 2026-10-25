@@ -5183,19 +5183,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     ) : null;
-    // THE SEED-CALM ON THE MAP (Nigel, 2026-10-17): every hex
-    // a held seed's calm covers wears a soft golden ring —
-    // the second home's light lying on the land — and a
-    // cursed hex under it names the level the curse is now
-    // reckoned at: tamable.
+    // THE SEED-CALM ON THE MAP (Nigel, 2026-10-17): a cursed
+    // hex under a held seed's calm names the level the curse
+    // is now reckoned at: tamable. THE GOLD DASHED OUTLINE
+    // that once ringed every calmed hex IS REMOVED (Nigel,
+    // 2026-10-25, from his live screenshot: "what i dont
+    // want to see are the yellow doted lines") — he named
+    // the lines only, so the level's naming stays and the
+    // calm itself (the reckoning the label reports) is
+    // untouched: this layer now only speaks the level.
     const calmLayer = (
       <g key="seed-calm" pointerEvents="none">
         {tiles.filter(t => t.calmLevel != null).map(t => {
           const { cx, cy } = tilePos(t);
-          const pts = hexCellPoints(cx, cy, size, 0.94);
           return (
             <g key={t.id}>
-              <polygon points={pts} fill="rgba(240,214,140,0.07)" stroke="#f0d68c" strokeWidth={1.6 / zoom} strokeDasharray={`${5 / zoom} ${4 / zoom}`} opacity={0.9} />
               {t.cursed ? (
                 <text x={cx} y={cy + size * 1.28} textAnchor="middle" fontSize={size * 0.30} fill="#f0d68c">curse Lv {t.calmLevel}</text>
               ) : null}
