@@ -15021,8 +15021,9 @@ export const handlers = {
         .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
     }
     // HP reached 0 — the curse breaks!
-    // 35% chance: pulled into one wave of the Unraveling instead of instant purify.
-    if (Math.random() < 0.35) {
+    // 15% chance: pulled into one wave of the Unraveling instead of instant purify.
+    // (Nigel, 2026-10-25: the pull is KEPT, its chance reduced from 35% to 15%.)
+    if (Math.random() < 0.15) {
       // Don't purify yet — the wave must be beaten first.
       // Keep HP at 0 to mark it as "breaking".
       await db.update(schema.territoryTiles)
