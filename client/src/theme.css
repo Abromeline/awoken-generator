@@ -675,6 +675,37 @@ body.defeat-flash {
 }
 .wg-toggle:hover { background: rgba(184,155,94,0.2); }
 .wg-toggle.open { background: rgba(184,155,94,0.3); border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.4); }
+/* The Construction toggle (the Hex Building System, 2026-10-25) —
+   build mode's door, above the War-Grounds in the same stack,
+   the same wax family. */
+.buildmode-toggle {
+  position: fixed; right: 52px; top: 216px;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: rgba(20,20,35,0.9); border: 2px solid #b89b5e;
+  font-size: 26px; cursor: pointer; z-index: 41;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.buildmode-toggle:hover { background: rgba(184,155,94,0.2); }
+.buildmode-toggle.open { background: rgba(184,155,94,0.3); border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.4); }
+/* THE BUILD BAR (the Hex Building System, slice 1): the tool in
+   hand, seated at the map's foot clear of the hotbar, and the
+   work's spoken line beneath it. */
+.build-bar {
+  position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 24px)); z-index: 96;
+  background: rgba(10,8,16,0.96); border: 1px solid #c9a227; border-radius: 12px;
+  padding: 10px 12px; color: #f0e6cc; box-shadow: 0 10px 34px rgba(0,0,0,0.6);
+}
+.build-bar-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.build-tool {
+  background: rgba(184,155,94,0.12); color: #f0e6cc; border: 1px solid #8a6d3b;
+  border-radius: 8px; padding: 7px 10px; font-size: 13px; cursor: pointer;
+}
+.build-tool.in-hand { background: rgba(232,199,102,0.28); border-color: #ffd700; }
+.build-tool.done { margin-left: auto; }
+.build-tool-glyph { font-size: 15px; }
+.build-bar-note { margin: 8px 0 0; font-size: 13px; line-height: 1.45; }
 /* The marching layer (War-Ground, 2026-10-16): a patrolling Awoken
    bobs as it walks; the patrol bar rides the screen's foot. */
 @keyframes march-bob {
@@ -3073,7 +3104,7 @@ body.defeat-flash {
 /* — The Wax Seal: dark worked wax, pitted, swirled, grainy at
    the rim, stamped hard and melting — one drip escaping.
    Colour rides three variables; the base wax is crimson. — */
-.aspect-fab, .castle-toggle, .wg-toggle, .champion-fab, .legends-fab, .acorn-btn, .celestial-orb{
+.aspect-fab, .castle-toggle, .wg-toggle, .buildmode-toggle, .champion-fab, .legends-fab, .acorn-btn, .celestial-orb{
   --wax-base:radial-gradient(circle at 34% 28%, #8e3a28, #671f12 46%, #471209 78%, #2c0904);
   --wax-ring:rgba(30,4,0,0.62);
   --wax-drip:radial-gradient(circle at 40% 30%, #671f12, #3d0e06 75%);
@@ -3098,7 +3129,7 @@ body.defeat-flash {
 .celestial-orb{position:relative}
 .acorn-btn{display:grid; place-items:center}
 /* The stamped ring. */
-.aspect-fab::before, .castle-toggle::before, .wg-toggle::before, .champion-fab::before,
+.aspect-fab::before, .castle-toggle::before, .wg-toggle::before, .buildmode-toggle::before, .champion-fab::before,
 .legends-fab::before, .acorn-btn::before, .celestial-orb::before{
   content:""; position:absolute; inset:8px; border-radius:48% 52% 46% 54% / 54% 47% 53% 46%;
   border:1.5px solid var(--wax-ring);
@@ -3108,7 +3139,7 @@ body.defeat-flash {
 }
 .celestial-orb::before{inset:5px}
 /* The escaping drip. */
-.aspect-fab::after, .castle-toggle::after, .wg-toggle::after, .champion-fab::after,
+.aspect-fab::after, .castle-toggle::after, .wg-toggle::after, .buildmode-toggle::after, .champion-fab::after,
 .legends-fab::after, .acorn-btn::after, .celestial-orb::after{
   content:""; position:absolute; bottom:-4px; left:57%; width:13px; height:11px;
   border-radius:46% 54% 62% 38%; background:var(--wax-drip);
@@ -3117,7 +3148,7 @@ body.defeat-flash {
 }
 .celestial-orb::after{width:8px; height:7px; bottom:-3px}
 /* The glyph: fine pale line-work struck into the wax. */
-.aspect-fab svg, .castle-toggle svg, .wg-toggle svg, .champion-fab svg,
+.aspect-fab svg, .castle-toggle svg, .wg-toggle svg, .buildmode-toggle svg, .champion-fab svg,
 .legends-fab svg, .acorn-btn svg{
   width:58%; height:58%; position:relative; z-index:2;
   fill:none; stroke:#eed49e; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round;

@@ -743,6 +743,22 @@ export const territoryBuildings = sqliteTable("territory_buildings", {
   wedge: integer("wedge"),
 });
 
+// THE HEX BUILDING SYSTEM (Nigel, 2026-10-25): pieces of the
+// construction on the homeland. footprint is the piece's own
+// polygon in MAP coordinates (axial — JSON [[q, r], …]); verts
+// is the construction record it was derived from (the piece's
+// vertices in the plate plane — JSON [[x, y], …]); piece_key is
+// the piece's identity (kind + sorted vertex keys).
+export const buildPieces = sqliteTable("build_pieces", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  kind: text("kind").notNull(),
+  pieceKey: text("piece_key").notNull(),
+  verts: text("verts").notNull(),
+  footprint: text("footprint").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
 // Hall of Champions residents: one Awoken per room, freely swappable.
 export const hallResidents = sqliteTable("hall_residents", {
   id: integer("id").primaryKey({ autoIncrement: true }),

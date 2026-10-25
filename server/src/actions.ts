@@ -38,6 +38,17 @@ import { rollFellDrops, drainDropNotices, inventoryView, trySpendRuneShards } fr
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
+  matchCandidate, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
+  collisionSegments, segmentsCrossProper, type Pt,
+} from "./buildGeometry.js";
+// (Build collision is judged by the geometry module's PROPER
+// crossing test: a step is barred when it passes through a
+// wall's span, never when it merely touches a wall's end — a
+// wall on a wedge's radial edge ends at a hex's centre, and
+// the touching-counts test below, the Ward T's reckoning,
+// would bar every road into that hex. That test stays exactly
+// as it was for the reckonings built on it.)
+import {
   WORLD_MOOD_TO_PLAYLIST, playlistForMood,
   type LibraryTrack,
 } from "./musicMoods.js";
@@ -283,7 +294,7 @@ function marchCrowdOf(placements: { awakenedId: number; tileId: number; marchPat
     (Nigel) the march of settlement rides it too: no curse refusal
     stands in setMarch or the muster — cursed ground is priced
     (twice the step, the standing attrition), never barred. */
-function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number): number[] | null {
+function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number, stepBlocked?: (fx: number, fy: number, tx: number, ty: number) => boolean): number[] | null {
   const byId = new Map(tiles.map(t => [t.id, t]));
   // Roads run on the ground (z 0) over gathered land: a floating
   // isle is no road's rung, and stone still coalescing holds no
@@ -300,6 +311,10 @@ function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number; 
     for (const [dq, dr] of DIRS) {
       const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
       if (!n || prev.has(n.id)) continue;
+      // A step the caller's ground bars (a build wall across the
+      // centre line, the Hex Building System): the road goes
+      // around, the way it goes around any barred ground.
+      if (stepBlocked && stepBlocked(cur.q, cur.r, n.q, n.r)) continue;
       prev.set(n.id, cur.id);
       if (n.id === toId) {
         const road = [toId];
@@ -313,7 +328,7 @@ function findAnyRoad(tiles: { id: number; q: number; r: number; cursed: number; 
   return null;
 }
 
-function findRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number): number[] | null {
+function findRoad(tiles: { id: number; q: number; r: number; cursed: number; z?: number; buildStage?: number }[], fromId: number, toId: number, stepBlocked?: (fx: number, fy: number, tx: number, ty: number) => boolean): number[] | null {
   const byId = new Map(tiles.map(t => [t.id, t]));
   const byCoord = new Map(tiles.filter(t => (t.z ?? 0) === 0 && (t.buildStage ?? 0) !== 1).map(t => [`${t.q},${t.r}`, t]));
   const from = byId.get(fromId), to = byId.get(toId);
@@ -327,6 +342,7 @@ function findRoad(tiles: { id: number; q: number; r: number; cursed: number; z?:
     for (const [dq, dr] of DIRS) {
       const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
       if (!n || n.cursed || prev.has(n.id)) continue;
+      if (stepBlocked && stepBlocked(cur.q, cur.r, n.q, n.r)) continue;
       prev.set(n.id, cur.id);
       if (n.id === toId) {
         const road = [toId];
@@ -339,6 +355,115 @@ function findRoad(tiles: { id: number; q: number; r: number; cursed: number; z?:
   }
   return null;
 }
+// ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT") ──
+// Slice 1, the ground floor: build mode's pieces on the homeland.
+// A piece's record holds its own FOOTPRINT — a polygon in map
+// coordinates (axial), never a hex it is locked to. Hex overlap
+// and protection are DERIVED from the footprint at every read:
+// a piece is protected only while every hex beneath it is the
+// Tender's own un-cursed ground ("just protected if they are in
+// a purified hex"). Walls and doors stand on floor edges; their
+// collision is segments of the footprint's own plane — a wall's
+// whole edge, a door's two standing parts with the middle open —
+// and the field collides against those segments: the dark's walk
+// below, the march roads through buildStepBlocked, the Tender's
+// stride on the client through the same served segments' shape.
+interface BuildPieceRow {
+  id: number; kind: string; pieceKey: string;
+  verts: Pt[]; footprint: Pt[];
+}
+function loadBuildPieces(ownerKey: string): BuildPieceRow[] {
+  const rows = sqlite.prepare("SELECT id, kind, piece_key AS pieceKey, verts, footprint FROM build_pieces WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  const out: BuildPieceRow[] = [];
+  for (const r of rows) {
+    try {
+      out.push({
+        id: Number(r.id), kind: String(r.kind), pieceKey: String(r.pieceKey),
+        verts: JSON.parse(r.verts) as Pt[], footprint: JSON.parse(r.footprint) as Pt[],
+      });
+    } catch { /* a garbled row holds no ground — it is not served, blocks nothing */ }
+  }
+  return out;
+}
+
+/** The collision segments of the owner's standing build walls,
+ *  in axial coordinates (walls whole; doors with their gap open). */
+function buildWallSegments(ownerKey: string): [Pt, Pt][] {
+  const segs: [Pt, Pt][] = [];
+  for (const p of loadBuildPieces(ownerKey)) {
+    if (p.kind === "wall" || p.kind === "door") segs.push(...collisionSegments(p.kind, p.footprint));
+  }
+  return segs;
+}
+
+/** The road law for build walls: a step between two hex centres
+ *  is barred when its centre line crosses a wall segment. A door
+ *  whose gap the line threads is no bar — the gap is real. */
+function buildStepBlocked(ownerKey: string): (fx: number, fy: number, tx: number, ty: number) => boolean {
+  const segs = buildWallSegments(ownerKey);
+  if (!segs.length) return () => false;
+  return (fx, fy, tx, ty) => segs.some(([a, b]) =>
+    segmentsCrossProper([fx, fy], [tx, ty], a, b));
+}
+
+/** The hexes a footprint lies on: the hexes of its vertices, of
+ *  its edge midpoints, of its centre, and every hex whose centre
+ *  falls inside it. Overlap is derived, never stored. */
+function footprintHexes(footprint: Pt[]): { q: number; r: number }[] {
+  const seen = new Map<string, { q: number; r: number }>();
+  const put = (q: number, r: number) => seen.set(`${q},${r}`, { q, r });
+  // Axial rounding — the battle walk's own axialRound reckoning.
+  const round = (p: Pt) => axialRound(p[0], p[1]);
+  for (const v of footprint) { const h = round(v); put(h.q, h.r); }
+  for (let i = 0; i < footprint.length; i++) {
+    const a = footprint[i], b = footprint[(i + 1) % footprint.length];
+    const h = round([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+    put(h.q, h.r);
+  }
+  const c: Pt = [
+    footprint.reduce((s, v) => s + v[0], 0) / footprint.length,
+    footprint.reduce((s, v) => s + v[1], 0) / footprint.length,
+  ];
+  const hc = round(c); put(hc.q, hc.r);
+  // Centres inside the footprint, searched over its own bounds.
+  let minQ = Infinity, maxQ = -Infinity, minR = Infinity, maxR = -Infinity;
+  for (const v of footprint) {
+    minQ = Math.min(minQ, v[0]); maxQ = Math.max(maxQ, v[0]);
+    minR = Math.min(minR, v[1]); maxR = Math.max(maxR, v[1]);
+  }
+  for (let q = Math.floor(minQ); q <= Math.ceil(maxQ); q++) {
+    for (let r = Math.floor(minR); r <= Math.ceil(maxR); r++) {
+      if (pointInPolygon([q, r], footprint)) put(q, r);
+    }
+  }
+  return [...seen.values()];
+}
+
+/** Protection, derived: the piece stands protected only while
+ *  ground of the Tender's own lies beneath ALL of it and none of
+ *  that ground is cursed. A piece hanging over the void or over
+ *  cursed ground is unprotected — and the read says so. */
+function buildPieceProtected(footprint: Pt[], tilesByKey: Map<string, any>): boolean {
+  const hexes = footprintHexes(footprint);
+  if (!hexes.length) return false;
+  for (const h of hexes) {
+    const t = tilesByKey.get(`${h.q},${h.r}`);
+    if (!t || t.cursed) return false;
+  }
+  return true;
+}
+
+/** A build piece as getTerritory serves it: its record, its
+ *  footprint, and its derived protection. */
+function buildPieceView(p: BuildPieceRow, tilesByKey: Map<string, any>) {
+  return {
+    id: p.id, kind: p.kind, pieceKey: p.pieceKey,
+    verts: p.verts, footprint: p.footprint,
+    protected: buildPieceProtected(p.footprint, tilesByKey),
+  };
+}
+
 function skillsHeldBy(ownerKey: string, awakenedIds: number[]): Set<string> {
   if (awakenedIds.length === 0) return new Set();
   const marks = awakenedIds.map(() => "?").join(",");
@@ -5283,6 +5408,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     }
   };
 
+  // THE CONSTRUCTION'S WALLS (the Hex Building System, slice 1):
+  // the standing build walls' collision segments, loaded once
+  // for the whole settle — the walk below collides against the
+  // footprints themselves, never against hex occupancy.
+  const buildSegs = buildWallSegments(ownerKey);
+
   const STEP_MS = 500;
   const steps = Math.max(0, Math.ceil(elapsed / STEP_MS));
   const windowStart = now - elapsed;
@@ -5359,6 +5490,14 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (w.nodes.some(n => n.hp > 0 && axialDist({ q: nq, r: nr }, n) <= 0.55)) { blocked = true; break; }
       }
       if (blocked) continue;
+      // A build wall bars the step the same way (the Hex
+      // Building System): the dark's path is a segment on the
+      // land, and the wall is a segment on the land — where
+      // they cross, the step is not taken. A door's open
+      // middle is no segment at all, so a step threaded
+      // through the gap walks through, as it should.
+      if (buildSegs.length && buildSegs.some(([a, b]) =>
+        segmentsCrossProper([d.q, d.r], [nq, nr], a, b))) continue;
       const cell = axialRound(nq, nr);
       if (!byKey.has(`${cell.q},${cell.r}`)) continue; // no ground there: the step is not taken
       d.q = nq; d.r = nr;
@@ -8659,8 +8798,9 @@ export const handlers = {
       // below); it does not strand a follower beyond the
       // ring the Tender has walked away from.
       let slot: any = null, road: number[] | null = null;
+      const musterBlocked = buildStepBlocked(ownerKey);
       for (const s of slots) {
-        const r = findAnyRoad(tiles as any, p.tileId, s.id);
+        const r = findAnyRoad(tiles as any, p.tileId, s.id, musterBlocked);
         if (!r || r.length < 2) continue;
         if (loadOf(s.id) < 4) { slot = s; road = r; break; }
         if (!slot) { slot = s; road = r; }
@@ -9810,7 +9950,14 @@ export const handlers = {
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    // THE HEX BUILDING SYSTEM (slice 1, 2026-10-25): the
+    // construction's pieces ride the same read as the land they
+    // stand on — each with its footprint and its DERIVED
+    // protection (buildPieceProtected: every hex beneath it the
+    // Tender's own, and none of it cursed).
+    const buildTilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
+    const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey));
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -10534,6 +10681,102 @@ export const handlers = {
     const gone = sqlite.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = ?").run(ownerKey, edgeKey);
     if (!gone.changes) badRequest("No work stands on that edge.");
     return { ok: true as const, edgeKey };
+  },
+
+  // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT") ──
+  // Slice 1: lay and take away the construction's pieces. The
+  // client names a piece by its plate-plane vertices; the server
+  // RE-DERIVES the piece from the construction geometry
+  // (matchCandidate) — only a true tiling piece may persist, and
+  // its footprint is computed here, in axial map coordinates,
+  // never taken on the client's word. No hex-lock: a piece is
+  // laid where its shape falls; its only ground law is that some
+  // of the Tender's own land must lie beneath it.
+  async placeBuildPiece(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      kind: z.enum(["triangle", "square", "wall", "door"]),
+      verts: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(4),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The work needs a piece — a triangle, a square, a wall or a door, by its corners.");
+    const { kind } = parsed.data;
+    const verts = parsed.data.verts as Pt[];
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
+    const pieces = loadBuildPieces(ownerKey);
+
+    if (kind === "triangle" || kind === "square") {
+      const cand = matchCandidate(kind, verts);
+      if (!cand) badRequest("That shape is not one of the construction's pieces — the floors are the hex's own triangles and the squares that stand on their measure.");
+      const footprint = cand.verts.map(v => plateToAxial(v));
+      if (pieces.some(p => p.pieceKey === cand.key)) badRequest("That piece already stands there.");
+      // The ground law: some of the Tender's own land beneath it.
+      // (Cursed ground may be built over — the piece simply
+      // stands unprotected there; protection is derived at read.)
+      const hexes = footprintHexes(footprint);
+      if (!hexes.some(h => tilesByKey.has(`${h.q},${h.r}`))) {
+        badRequest("No land of yours lies beneath that piece — the construction stands on your ground.");
+      }
+      const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(ownerKey, kind, cand.key, JSON.stringify(cand.verts), JSON.stringify(footprint), Date.now());
+      const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey: cand.key, verts: cand.verts, footprint };
+      return { ok: true as const, piece: buildPieceView(row, tilesByKey) };
+    }
+
+    // Walls and doors stand on EDGES — of the Tender's own
+    // standing floors. The claimed edge must be a floor's edge,
+    // exactly, and carry no wall yet.
+    if (verts.length !== 2) badRequest("A wall names the two ends of its edge.");
+    const claimKey = edgeKeyOf(verts[0], verts[1]);
+    let edge: [Pt, Pt] | null = null;
+    for (const p of pieces) {
+      if (p.kind !== "triangle" && p.kind !== "square") continue;
+      for (const e of edgesOf(p.verts)) {
+        if (edgeKeyOf(e[0], e[1]) === claimKey) { edge = e; break; }
+      }
+      if (edge) break;
+    }
+    if (!edge) badRequest("No floor of yours carries that edge — walls stand on the edges of your floors.");
+    if (pieces.some(p => (p.kind === "wall" || p.kind === "door") && edgeKeyOf(p.verts[0], p.verts[1]) === claimKey)) {
+      badRequest("A wall already stands on that edge — take it down before raising another.");
+    }
+    const footprint = edge.map(v => plateToAxial(v));
+    const pieceKey = `${kind}#${claimKey}`;
+    const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(ownerKey, kind, pieceKey, JSON.stringify(edge), JSON.stringify(footprint), Date.now());
+    const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: edge, footprint };
+    return { ok: true as const, piece: buildPieceView(row, tilesByKey) };
+  },
+
+  /** Take a piece of the construction away. Removing a floor
+   *  takes down every wall that stood on its edges alone — a
+   *  wall whose edge another standing floor still carries
+   *  stands. The answer names what fell with it. */
+  async removeBuildPiece(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The taking-away names the piece.");
+    const pieces = loadBuildPieces(ownerKey);
+    const target = pieces.find(p => p.id === parsed.data.id);
+    if (!target) badRequest("That piece is not yours to take away — or it no longer stands.");
+    const removed: number[] = [target.id];
+    if (target.kind === "triangle" || target.kind === "square") {
+      const remaining = pieces.filter(p => p.id !== target.id);
+      const carriedEdges = new Set<string>();
+      for (const p of remaining) {
+        if (p.kind !== "triangle" && p.kind !== "square") continue;
+        for (const e of edgesOf(p.verts)) carriedEdges.add(edgeKeyOf(e[0], e[1]));
+      }
+      for (const e of edgesOf(target.verts)) {
+        const ek = edgeKeyOf(e[0], e[1]);
+        if (carriedEdges.has(ek)) continue;
+        const wall = remaining.find(p => (p.kind === "wall" || p.kind === "door") && edgeKeyOf(p.verts[0], p.verts[1]) === ek);
+        if (wall) removed.push(wall.id);
+      }
+    }
+    const marks = removed.map(() => "?").join(",");
+    sqlite.prepare(`DELETE FROM build_pieces WHERE owner_key = ? AND id IN (${marks})`).run(ownerKey, ...removed);
+    return { ok: true as const, removed };
   },
 
   // ── The Written Light on the land (the Grimoire, Nigel
@@ -12661,7 +12904,11 @@ export const handlers = {
     // path at all over passable land — and the road
     // graph's own exclusions (floating isles, stone
     // still gathering) are collision, not curse.
-    const road = findAnyRoad(tiles as any, placement.tileId, tileId);
+    // THE CONSTRUCTION'S WALLS bar the road (the Hex Building
+    // System): a step whose centre line crosses a standing
+    // build wall is no step — the road goes around, and only a
+    // land with no way around at all refuses the march.
+    const road = findAnyRoad(tiles as any, placement.tileId, tileId, buildStepBlocked(ownerKey));
     if (!road) badRequest("No road runs there — the ground itself bars the way.");
     const steps = road.length - 1;
     // A free point must belong to the ground it names:

@@ -36,7 +36,12 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece } from "./api";
+import {
+  candidatesNear, axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
+  pointInPolygon, pointSegmentDistance, segmentsCrossProper, collisionSegments,
+  type Candidate, type Pt,
+} from "./buildGeometry";
 import grimGlyphEngine from "./assets/glyphs/engine.png";
 import grimGlyphStandard from "./assets/glyphs/standard.png";
 import grimGlyphBeacon from "./assets/glyphs/beacon.png";
@@ -1013,6 +1018,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
   const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
+  // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT"),
+  // slice 1: the construction's pieces on this land, served by
+  // getTerritory with their footprints and derived protection;
+  // build mode's own state — the tool in hand, the ghost the
+  // scaffolding shows, and the bar's spoken line.
+  const [buildPieces, setBuildPieces] = useState<BuildPiece[]>([]);
+  const buildPiecesRef = useRef<BuildPiece[]>([]);
+  useEffect(() => { buildPiecesRef.current = buildPieces; }, [buildPieces]);
+  const [buildMode, setBuildMode] = useState(false);
+  const [buildTool, setBuildTool] = useState<"triangle" | "square" | "wall" | "door" | "remove">("triangle");
+  const buildToolRef = useRef(buildTool);
+  useEffect(() => { buildToolRef.current = buildTool; }, [buildTool]);
+  type BuildGhost =
+    | { type: "floor"; cand: Candidate }
+    | { type: "wall"; kind: "wall" | "door"; edge: [Pt, Pt] }
+    | { type: "remove"; piece: BuildPiece }
+    | null;
+  const [buildGhost, setBuildGhost] = useState<BuildGhost>(null);
+  const [buildNote, setBuildNote] = useState<string>("");
+  const buildDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
   useEffect(() => { tenderWallsRef.current = walls; }, [walls]);
   // An armed work (chosen in the radial's Binding menu) is spent the
   // moment a work action resolves into fresh walls — the laying is
@@ -1622,6 +1647,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           t = await api.getTerritory();
         }
         setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []); setElsewhere(t.elsewhere ?? []);
+        setBuildPieces(t.buildPieces ?? []);
         rememberField(t.placements);
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
@@ -1723,6 +1749,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (loopSeq !== undefined && readLoopSeqRef.current !== loopSeq) return;
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
+    setBuildPieces(refreshed.buildPieces ?? []);
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
     setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
@@ -2669,8 +2696,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const stridePx = ladderSpeedAt(SPEED, tenderStandRef.current.classKey)
         * (jumpHovering(tenderJumpRef.current, now) ? 0.25 : 1);
       const stepLen = stridePx * 0.05 * (here?.cursed ? 0.5 : 1);
-      const nx = pos.x + vx * stepLen;
-      const ny = pos.y + vy * stepLen;
+      let nx = pos.x + vx * stepLen;
+      let ny = pos.y + vy * stepLen;
       // THE TRAVERSAL LAW on the stride: a closed crossing
       // refuses the step — the body stops at the wall, the
       // ward, the tall rise, the isle's empty air — and a
@@ -2680,6 +2707,42 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         tenderTargetRef.current = null;
         setTenderFig(f => (f ? { ...f, walking: false, jh, flipU: jpose.flipU } : f));
         return;
+      }
+      // THE CONSTRUCTION'S WALLS on the stride (the Hex Building
+      // System, slice 1): a build wall is a line WITHIN the hex —
+      // the traversal law, which judges hex crossings, cannot
+      // see it. The stride's own step is a segment, the wall is
+      // a segment: where they cross, the step slides along the
+      // wall or stops at it, as at any wall. A leap clears it,
+      // as a leap clears a hex wall in the law above; a door's
+      // open middle is no segment, so the body walks through.
+      if (!jumpAirborne(tenderJumpRef.current, now)) {
+        const from: Pt = [pos.x, pos.y];
+        // No "standing on it" exemption is needed — or safe.
+        // The proper-crossing test already lets a body that
+        // stands ON a wall step off it freely (a step that
+        // starts on the line never properly crosses it), while
+        // an exemption by distance proved a hole: the stride's
+        // step is longer than any hair's breadth, so the step
+        // that would cross a wall very often STARTS within a
+        // hair of it, and exempting near walls let exactly
+        // those steps through.
+        const live = buildWallScreenSegs();
+        const hit = live.find(s => segmentsCrossProper(from, [nx, ny], s[0], s[1]));
+        if (hit) {
+          const dx = hit[1][0] - hit[0][0], dy = hit[1][1] - hit[0][1];
+          const dl = Math.hypot(dx, dy) || 1;
+          const along = (vx * dx + vy * dy) / dl;
+          const sx = (dx / dl) * along, sy = (dy / dl) * along;
+          const mx = pos.x + sx * stepLen, my = pos.y + sy * stepLen;
+          if (Math.hypot(sx, sy) > 0.05 && !live.some(s => segmentsCrossProper(from, [mx, my], s[0], s[1]))) {
+            nx = mx; ny = my;
+          } else {
+            tenderTargetRef.current = null;
+            setTenderFig(f => (f ? { ...f, walking: false, jh, flipU: jpose.flipU } : f));
+            return;
+          }
+        }
       }
       tenderWasMovingRef.current = true;
       pos.x = nx;
@@ -2755,6 +2818,125 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     } catch (e) {
       showHexNotice(e instanceof Error ? e.message : "The wall would not rise.");
     }
+  };
+
+  // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25) ─────────────────
+  // Build mode's own click scaffolding: while it stands, the map's
+  // presses belong to the construction (the capture layer in the
+  // SVG) — a drag still pans the land, a tap lays or takes away.
+  // The picking works in the PLATE plane: the click's axial point
+  // read back through the slant, candidates from the tiling
+  // itself. What the tap lays, the server re-derives and proves.
+  const pickBuildTarget = (platePt: Pt): BuildGhost => {
+    const tool = buildToolRef.current;
+    const pieces = buildPiecesRef.current;
+    if (tool === "triangle" || tool === "square") {
+      const placed = new Set(pieces.map(p => p.pieceKey));
+      const cands = candidatesNear(platePt).filter(c => c.kind === tool && !placed.has(c.key));
+      if (!cands.length) return null;
+      const containing = cands.filter(c => pointInPolygon(platePt, c.verts));
+      const pool = containing.length ? containing : cands;
+      let best: Candidate | null = null; let bestD = Infinity;
+      for (const c of pool) {
+        const cx = c.verts.reduce((s, v) => s + v[0], 0) / c.verts.length;
+        const cy = c.verts.reduce((s, v) => s + v[1], 0) / c.verts.length;
+        const d = Math.hypot(cx - platePt[0], cy - platePt[1]);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      if (!best || (!containing.length && bestD > 1.1)) return null;
+      return { type: "floor", cand: best };
+    }
+    if (tool === "wall" || tool === "door") {
+      const walled = new Set(
+        pieces.filter(p => p.kind === "wall" || p.kind === "door")
+          .map(p => edgeKeyOf(p.verts[0], p.verts[1])),
+      );
+      let best: [Pt, Pt] | null = null; let bestD = Infinity;
+      for (const p of pieces) {
+        if (p.kind !== "triangle" && p.kind !== "square") continue;
+        for (const e of edgesOf(p.verts)) {
+          if (walled.has(edgeKeyOf(e[0], e[1]))) continue;
+          const d = pointSegmentDistance(platePt, e[0], e[1]);
+          if (d < bestD) { bestD = d; best = e; }
+        }
+      }
+      if (!best || bestD > 0.32) return null;
+      return { type: "wall", kind: tool, edge: best };
+    }
+    // Take away: a wall under the hand first (it is the thinner
+    // target), then the topmost floor the point falls in.
+    for (const p of pieces) {
+      if (p.kind !== "wall" && p.kind !== "door") continue;
+      if (pointSegmentDistance(platePt, p.verts[0], p.verts[1]) <= 0.2) return { type: "remove", piece: p };
+    }
+    for (let i = pieces.length - 1; i >= 0; i--) {
+      const p = pieces[i];
+      if (p.kind !== "triangle" && p.kind !== "square") continue;
+      if (pointInPolygon(platePt, p.verts)) return { type: "remove", piece: p };
+    }
+    return null;
+  };
+
+  const buildTap = async (screenPt: { x: number; y: number }) => {
+    const axial = screenToAxial(screenPt.x, screenPt.y, pan, zoom);
+    const platePt = axialToPlate(axial.q, axial.r);
+    const target = pickBuildTarget(platePt);
+    if (!target) {
+      setBuildNote(buildToolRef.current === "wall" || buildToolRef.current === "door"
+        ? "No free edge of your floors stands there — walls rise on a floor's edge."
+        : buildToolRef.current === "remove"
+          ? "Nothing of the construction stands there to take away."
+          : "No piece of the construction fits there.");
+      return;
+    }
+    try {
+      if (target.type === "floor") {
+        const r = await api.placeBuildPiece({ kind: target.cand.kind, verts: target.cand.verts });
+        setBuildPieces(prev => [...prev, r.piece]);
+        setBuildNote(r.piece.protected
+          ? `The ${target.cand.kind} stands — protected: purified ground lies beneath all of it.`
+          : `The ${target.cand.kind} stands — UNPROTECTED: cursed ground or the void lies beneath part of it.`);
+      } else if (target.type === "wall") {
+        const r = await api.placeBuildPiece({ kind: target.kind, verts: target.edge });
+        setBuildPieces(prev => [...prev, r.piece]);
+        setBuildNote(target.kind === "door"
+          ? "The door stands — its middle is open, and the field passes through the gap."
+          : "The wall stands — the field collides against its line.");
+      } else {
+        const r = await api.removeBuildPiece({ id: target.piece.id });
+        setBuildPieces(prev => prev.filter(p => !r.removed.includes(p.id)));
+        setBuildNote(r.removed.length > 1
+          ? "Taken away — and the wall that stood on its edge alone came down with it."
+          : "Taken away.");
+      }
+      setBuildGhost(null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "The work would not stand.";
+      setBuildNote(msg);
+      showHexNotice(msg);
+    }
+  };
+
+  /** A free axial point's screen place (the stride's camera — the
+   *  same reckoning tileCenterScreen keeps for a tile's centre). */
+  const axialToScreenPt = (q: number, r: number): Pt => {
+    const size = HEX_BASE_SIZE * tenderZoomRef.current;
+    const { px, py } = isoOffset(q, r, size);
+    return [250 + px + tenderPanRef.current.x, 170 + py + tenderPanRef.current.y];
+  };
+
+  /** The build walls' collision segments in screen space, for the
+   *  stride: doors arrive as their two standing parts — the gap
+   *  is simply not a segment, so the body walks through it. */
+  const buildWallScreenSegs = (): [Pt, Pt][] => {
+    const out: [Pt, Pt][] = [];
+    for (const p of buildPiecesRef.current) {
+      if (p.kind !== "wall" && p.kind !== "door") continue;
+      for (const [a, b] of collisionSegments(p.kind, p.footprint)) {
+        out.push([axialToScreenPt(a[0], a[1]), axialToScreenPt(b[0], b[1])]);
+      }
+    }
+    return out;
   };
 
   // ── Edge works (War-Ground, Nigel 2026-10-15) ────────────────────
@@ -4771,6 +4953,91 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // anchor hex's glowing edges) is GONE (Nigel, 2026-10-24
     // 22:35): one tap aims a ward completely now, in a T —
     // there is no second tap for a layer to guide.
+    // ── THE CONSTRUCTION (the Hex Building System, slice 1) ──
+    // The pieces stand on their own FOOTPRINTS — the axial
+    // polygons the server serves — drawn through the land's own
+    // lattice (landPt, the tilePos reckoning for a free point),
+    // so they can never drift from the hexes. The faces are the
+    // PLATE GEOMETRY standing in the world's ink manner: pale
+    // stone for a square foundation, warm earth for a triangle
+    // floor; the rim speaks the derivation — gold for protected
+    // (purified ground beneath all of it), a broken rim where
+    // the curse or the void lies beneath. Walls rise one measure
+    // of the wall's own height from their edge; a door stands as
+    // its two parts, the middle open. These are standing
+    // geometry, honestly — the faces Nigel draws are his hand's,
+    // and they will wear them when they come.
+    const landPt = (q: number, r: number): { x: number; y: number } => {
+      const { px, py } = isoOffset(q, r, size);
+      return { x: originX + px, y: originY + py };
+    };
+    const polyPts = (poly: Pt[]): string =>
+      poly.map(([q, r]) => { const s = landPt(q, r); return `${s.x.toFixed(1)},${s.y.toFixed(1)}`; }).join(" ");
+    const buildFloorsLayer = (
+      <g key="build-floors" className="build-floors" pointerEvents="none">
+        {buildPieces.filter(p => p.kind === "triangle" || p.kind === "square").map(p => (
+          <polygon key={p.id} points={polyPts(p.footprint)}
+            fill={p.kind === "square" ? "rgba(216,202,170,0.34)" : "rgba(178,142,88,0.30)"}
+            stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
+            strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
+            strokeLinejoin="round" />
+        ))}
+      </g>
+    );
+    const BUILD_WALL_H = 30; // the wall's rise, in land units
+    const buildWallsLayer = (
+      <g key="build-walls" className="build-walls" pointerEvents="none">
+        {buildPieces.filter(p => p.kind === "wall" || p.kind === "door").map(p => {
+          const [fa, fb] = p.footprint;
+          const A = landPt(fa[0], fa[1]), B = landPt(fb[0], fb[1]);
+          return (
+            <g key={p.id}>
+              <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="#4a3a20" strokeWidth={1.4 / zoom} opacity={0.6} />
+              {collisionSegments(p.kind, p.footprint).map(([a, b], i) => {
+                const P = landPt(a[0], a[1]), Q = landPt(b[0], b[1]);
+                return (
+                  <g key={i}>
+                    <polygon points={`${P.x.toFixed(1)},${P.y.toFixed(1)} ${Q.x.toFixed(1)},${Q.y.toFixed(1)} ${Q.x.toFixed(1)},${(Q.y - BUILD_WALL_H).toFixed(1)} ${P.x.toFixed(1)},${(P.y - BUILD_WALL_H).toFixed(1)}`}
+                      fill="rgba(146,124,92,0.88)" stroke="#4a3a20" strokeWidth={1 / zoom} strokeLinejoin="round" />
+                    <line x1={P.x} y1={P.y - BUILD_WALL_H} x2={Q.x} y2={Q.y - BUILD_WALL_H}
+                      stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.6 / zoom} />
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+      </g>
+    );
+    // The scaffolding's ghost: the piece the hand would lay,
+    // the edge a wall would stand on (a door's ghost shows its
+    // open middle), or the piece a taking-away would fell.
+    const buildModeGhostLayer = buildMode && buildGhost ? (
+      <g key="build-ghost" pointerEvents="none">
+        {buildGhost.type === "floor" && (
+          <polygon points={polyPts(buildGhost.cand.verts.map(v => plateToAxial(v)))}
+            fill="rgba(232,199,102,0.30)" stroke="#ffe9a8" strokeWidth={1.6 / zoom}
+            strokeDasharray={`${6 / zoom} ${4 / zoom}`} strokeLinejoin="round" />
+        )}
+        {buildGhost.type === "wall" && collisionSegments(buildGhost.kind, buildGhost.edge.map(v => plateToAxial(v))).map(([a, b], i) => {
+          const P = landPt(a[0], a[1]), Q = landPt(b[0], b[1]);
+          return <line key={i} x1={P.x} y1={P.y - BUILD_WALL_H / 2} x2={Q.x} y2={Q.y - BUILD_WALL_H / 2}
+            stroke="#ffe9a8" strokeWidth={5 / zoom} opacity={0.75} strokeLinecap="round" />;
+        })}
+        {buildGhost.type === "remove" && (buildGhost.piece.kind === "wall" || buildGhost.piece.kind === "door") && (
+          <line x1={landPt(buildGhost.piece.footprint[0][0], buildGhost.piece.footprint[0][1]).x}
+            y1={landPt(buildGhost.piece.footprint[0][0], buildGhost.piece.footprint[0][1]).y - BUILD_WALL_H / 2}
+            x2={landPt(buildGhost.piece.footprint[1][0], buildGhost.piece.footprint[1][1]).x}
+            y2={landPt(buildGhost.piece.footprint[1][0], buildGhost.piece.footprint[1][1]).y - BUILD_WALL_H / 2}
+            stroke="#ff7a6b" strokeWidth={5 / zoom} opacity={0.8} strokeLinecap="round" />
+        )}
+        {buildGhost.type === "remove" && buildGhost.piece.kind !== "wall" && buildGhost.piece.kind !== "door" && (
+          <polygon points={polyPts(buildGhost.piece.footprint)}
+            fill="rgba(255,90,70,0.18)" stroke="#ff7a6b" strokeWidth={1.6 / zoom} strokeLinejoin="round" />
+        )}
+      </g>
+    ) : null;
+
     const wallLayer = (
       <g key="walls">
         {walls.map(w => {
@@ -5603,8 +5870,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {hitLayer}
         <g key="land-front" className="land-cam" transform={camTransform}>
           {buildingElements}
+          {buildFloorsLayer}
           {awokenElements}
           {wallLayer}
+          {buildWallsLayer}
           {workingsLayer}
           
           {wgGuideLayer}
@@ -5621,6 +5890,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {mistLayer}
           {targetMarker}
           {ghostLayer}
+          {buildModeGhostLayer}
         </g>
         {tenderLayer}
       </>
@@ -6847,6 +7117,48 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </g>
             );
           })}
+          {/* BUILD MODE'S OWN CLICK SCAFFOLDING (the Hex Building
+              System, slice 1): while the mode stands, this plain
+              sheet takes the map's presses for the construction —
+              a drag pans the land as ever, a tap lays or takes
+              away, the hand's hover raises the ghost. The click
+              law's other business does not run under it; leaving
+              the mode lifts the sheet whole. */}
+          {buildMode && (
+            <rect data-build-capture="1" x={0} y={0} width={500} height={340} fill="rgba(0,0,0,0)" style={{ cursor: "crosshair", touchAction: "none" }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.stopPropagation()}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                buildDragRef.current = { cx: e.clientX, cy: e.clientY, panX: pan.x, panY: pan.y, moved: false };
+                try { (e.currentTarget as unknown as { setPointerCapture: (id: number) => void }).setPointerCapture(e.pointerId); } catch { /* the drag still reads without it */ }
+              }}
+              onPointerMove={(e) => {
+                const d = buildDragRef.current;
+                if (d) {
+                  const dx = e.clientX - d.cx, dy = e.clientY - d.cy;
+                  if (Math.hypot(dx, dy) > 4) d.moved = true;
+                  if (d.moved) setPan({ x: d.panX + dx, y: d.panY + dy });
+                  return;
+                }
+                const p = svgPoint(e.clientX, e.clientY);
+                if (!p) return;
+                const axial = screenToAxial(p.x, p.y, pan, zoom);
+                setBuildGhost(pickBuildTarget(axialToPlate(axial.q, axial.r)));
+              }}
+              onPointerUp={(e) => {
+                e.stopPropagation();
+                const d = buildDragRef.current;
+                buildDragRef.current = null;
+                if (d && !d.moved) {
+                  const p = svgPoint(e.clientX, e.clientY);
+                  if (p) void buildTap(p);
+                }
+              }}
+              onPointerLeave={() => { if (!buildDragRef.current) setBuildGhost(null); }}
+            />
+          )}
         </svg>
         {/* THE TENDER CONTROLLER (Nigel, 2026-10-19): popped by
             tapping the Tender himself on a touch hand — the
@@ -7334,6 +7646,56 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       >
         <svg viewBox="0 0 32 32"><path d="M10 27 V5"/><path d="M10 6 C13.5 4.6 16.5 7 21.5 5.4 V12.4 C16.5 14 13.5 11.4 10 12.8"/><path d="M6 27 H14"/></svg>
       </button>
+
+      {/* THE CONSTRUCTION toggle (the Hex Building System,
+          Nigel 2026-10-25): build mode's door — the same wax
+          family as the War-Grounds and the castle, above them
+          in their stack. Entering it closes the building panel
+          and any open build card: the map's presses belong to
+          the construction while the mode stands. */}
+      <button
+        className={`buildmode-toggle ${buildMode ? "open" : ""}`}
+        onClick={() => {
+          const next = !buildMode;
+          setBuildMode(next);
+          if (next) {
+            setShowBuildingMenu(false);
+            setBuildSel(null);
+            setBuildNote("Choose a piece, then tap the land to lay it. Walls and doors stand on a floor's edge; a door's middle stands open. Drag pans the land, as ever.");
+          } else {
+            setBuildGhost(null);
+          }
+        }}
+        title="Build — the construction: triangle floors, square foundations, walls and doors on their edges"
+      >
+        <svg viewBox="0 0 32 32"><path d="M5 25 L12 9 L19 25 Z"/><path d="M21 25 h7 v-7 h-7 Z"/><path d="M3 25 H29"/></svg>
+      </button>
+
+      {/* THE BUILD BAR: the tool in hand and the work's spoken
+          line — every lay and taking-away answers here, with
+          the protection the ground gives the piece just laid. */}
+      {buildMode && (
+        <div className="build-bar" role="toolbar" aria-label="The construction — build tools">
+          <div className="build-bar-tools">
+            {([
+              ["triangle", "△", "Triangle floor"],
+              ["square", "▢", "Square foundation"],
+              ["wall", "▦", "Wall"],
+              ["door", "🚪", "Door wall"],
+              ["remove", "⌫", "Take away"],
+            ] as const).map(([tool, glyph, label]) => (
+              <button key={tool} type="button"
+                className={`build-tool ${buildTool === tool ? "in-hand" : ""}`}
+                aria-pressed={buildTool === tool}
+                onClick={() => { setBuildTool(tool); setBuildGhost(null); }}>
+                <span className="build-tool-glyph">{glyph}</span> {label}
+              </button>
+            ))}
+            <button type="button" className="build-tool done" onClick={() => { setBuildMode(false); setBuildGhost(null); }}>Done</button>
+          </div>
+          {buildNote && <p className="build-bar-note">{buildNote}</p>}
+        </div>
+      )}
 
       {/* Right-side building panel. THE OLD TUTORIAL STOOD
           HERE (the tutorial redo, 2026-10-23 23:23 + shape

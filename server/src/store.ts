@@ -1054,6 +1054,31 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS glyphs (
     }
   }
 }
+// THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT"):
+// pieces of the construction, laid on the homeland. A piece's
+// record holds its own FOOTPRINT — a polygon in map coordinates
+// (axial, the march verb's own) — never a hex it is locked to:
+// hex overlap is derived from the footprint at read, and
+// protection reads the purified state of the ground beneath.
+// verts holds the construction record the footprint was derived
+// from: the piece's vertices in the PLATE plane (the builder's
+// flat plan of hex-building-pieces, one measure to every shape),
+// from which the server re-derives the canonical footprint.
+// kind: 'triangle' | 'square' (floors — walked on) | 'wall' |
+// 'door' (stand on a floor's edge; walls block, a door's middle
+// two-fifths is open). piece_key is the piece's identity — its
+// kind and its sorted vertex keys — one piece per Tender, ever.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS build_pieces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  piece_key TEXT NOT NULL,
+  verts TEXT NOT NULL,
+  footprint TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(owner_key, piece_key)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_build_pieces_owner ON build_pieces (owner_key);`);
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
