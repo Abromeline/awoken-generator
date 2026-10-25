@@ -1,5 +1,5 @@
 import { sqlite } from "./store.js";
-import { liveById, type FxClause } from "./zodiacLive.js";
+import { liveById, liveHouseById, type FxClause } from "./zodiacLive.js";
 
 /**
  * THE SKILL ZODIAC'S EFFECTS — tranche one: THE WARD & RUNE
@@ -96,6 +96,39 @@ export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?:
   return base + fxSum(ownerKey, "company");
 }
 
+/** STUDY — THE DEPTH IN A HOUSE (Nigel, 2026-10-25 12:39:
+ *  "study should effect the class skill of the class the
+ *  skill housed in. that is how multiclass characters are
+ *  tailored"; commissioned the same day, "impliment it
+ *  make it so #1 make it real GO"). A Tender's Study depth
+ *  in a class's house: the sum of the study clauses on the
+ *  stars she holds that STAND in that house, houses read
+ *  off the served placement itself (liveHouseById in
+ *  zodiacLive.ts — a road star's pathway; a Heart door
+ *  opens its road's house; the Heart and the rim stand in
+ *  no house, so the rim's Study Circle deepens nothing
+ *  until the rim is given one). The class readers below
+ *  reckon her skill in a class as the base her own class
+ *  grants — with that base's own zodiac deepening stars —
+ *  PLUS her Study depth in the class's house. So study at
+ *  home deepens her own gift, and study abroad BUILDS
+ *  that class's skill in her from nothing, a point a
+ *  point: the multiclass tailoring. One helper, so every
+ *  point of use on either ground agrees. */
+export function studyDepthFor(ownerKey: string | null | undefined, house: string): number {
+  if (!ownerKey) return 0;
+  const byId = liveById();
+  const houses = liveHouseById();
+  let sum = 0;
+  for (const k of heldSkills(ownerKey)) {
+    if (houses.get(k) !== house) continue;
+    const n = byId.get(k);
+    if (!n) continue;
+    for (const c of n.fx) if (c.verb === "study") sum += c.amount;
+  }
+  return sum;
+}
+
 /** SUMMONER'S POWER (Nigel, 2026-10-21 17:13 — ruled while
  *  the wheel summoning build stood in progress): the term a
  *  Tender's summon cast rolls with, beside the gift and the
@@ -116,12 +149,16 @@ export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?:
  *       pre-Spread shape (+2 per 3 levels, +28 by 42) is
  *       struck whole — the re-curve is this build's.
  *    3. THE SAGE — +3 flat when the caster's class is Sage,
- *       read off the seat's bound class.
+ *       read off the seat's bound class. THE STUDY rides
+ *       this grant (Nigel, 2026-10-25): the caster's Study
+ *       depth in the Sage's house builds that same gift in
+ *       her, Sage or not, so the reckoning deepens where
+ *       her study stands (studyDepthFor).
  *  One helper, so the summon cast's reckoning is the only
  *  reckoning there is. */
 export function summonersPowerFor(ownerKey: string | null | undefined, tenderLevel?: number | null, classKey?: string | null): number {
   const fromLevels = Math.min(6, Math.floor(Math.max(0, tenderLevel ?? 0) / 7));
-  return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0);
+  return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0) + studyDepthFor(ownerKey, "sage");
 }
 
 /** THE COMPANY BONUSES (Nigel, 2026-10-22 12:27 — set while
@@ -152,7 +189,16 @@ export function summonersPowerFor(ownerKey: string | null | undefined, tenderLev
  *                 Second Wall's own rounding). Whether a
  *                 cast member stands is each ground's fact —
  *                 the readers below take it as given, so the
- *                 price reckoning is one reckoning. */
+ *                 price reckoning is one reckoning.
+ *  THE STUDY RIDES EVERY AMOUNT BELOW (Nigel, 2026-10-25
+ *  12:39): each reader adds the holder's Study depth in
+ *  that class's house (studyDepthFor) to the class's base —
+ *  study at home deepens the gift her class grants, study
+ *  abroad builds the class's skill in her from nothing.
+ *  The Witch's gifts carry no amount — a halving, a share,
+ *  a scope — so no Study term rides them; they stand
+ *  named in the build report for the Ancient One's word,
+ *  undeepened rather than forced. */
 export function companyAcBonusFor(classKey: string | null | undefined, ownerKey?: string | null): number {
   // THE DEEPENING STARS (the zodiac's company stars; wired
   // with the effects build, 2026-10-25): a Warden who holds
@@ -162,23 +208,43 @@ export function companyAcBonusFor(classKey: string | null | undefined, ownerKey?
   // likewise (s_a4, s_a12, s_b8: companyAcSage). The sums
   // ride only on their own class: a star deepens a base
   // the holder's class actually grants.
-  if (classKey === "warden") return 4 + fxSum(ownerKey, "companyAcWarden");
-  if (classKey === "sage") return 2 + fxSum(ownerKey, "companyAcSage");
-  return 0;
+  // THE STUDY (Nigel, 2026-10-25): her Study depth in the
+  // Warden's house, and in the Sage's, each build that
+  // class's company AC in her — Sage or Warden or neither
+  // by birth — so the one number a victim's reckoning
+  // reads is the sum of the class skills she truly holds:
+  // her own class's base (with its deepening stars) plus
+  // whatever her study has built, house by house. A
+  // starless tender reads exactly the standing bases.
+  const warden = (classKey === "warden" ? 4 + fxSum(ownerKey, "companyAcWarden") : 0) + studyDepthFor(ownerKey, "warden");
+  const sage = (classKey === "sage" ? 2 + fxSum(ownerKey, "companyAcSage") : 0) + studyDepthFor(ownerKey, "sage");
+  return warden + sage;
 }
 export function curseReliefFor(classKey: string | null | undefined, tenderLevel?: number | null, ownerKey?: string | null): number {
-  if (classKey !== "runewright") return 0;
+  // THE STUDY (Nigel, 2026-10-25): her Study depth in the
+  // Runewright's house — the wheel's deepest study bench,
+  // the door star h8 among its six — builds the relief in
+  // her whatever her class, and deepens a Runewright's own.
+  const study = studyDepthFor(ownerKey, "runewright");
+  if (classKey !== "runewright") return study;
   // THE DEEPENING STAR (r_k, THE MARK THAT SPEAKS):
   // "curse relief deepens by −1 more, beyond the base
   // formula" — relief +2 at its tier, read as the
   // companyRelief sum, on the base formula as it stands.
-  return 1 + Math.floor(Math.max(0, tenderLevel ?? 0) / 3) + fxSum(ownerKey, "companyRelief");
+  return 1 + Math.floor(Math.max(0, tenderLevel ?? 0) / 3) + fxSum(ownerKey, "companyRelief") + study;
 }
 export function bindingHealBonusFor(classKey: string | null | undefined, ownerKey?: string | null): number {
   // THE DEEPENING STARS (b_k, b_b7, b_b13): "Binding
   // healing +1 more, beyond the base +4", deepened — the
   // companyHeal sum, a Binder's alone to deepen.
-  return classKey === "binder" ? 4 + fxSum(ownerKey, "companyHeal") : 0;
+  // THE STUDY (Nigel, 2026-10-25): her Study depth in the
+  // Binder's house rides the same sum — and stands at 0
+  // for every tender on the wheel as the Ancient One has
+  // placed it, for NO Study star stands in the Binder's
+  // house (her roads carry none). The reader is ready the
+  // day one is set there; the depth is the placement's
+  // fact, not this function's invention.
+  return (classKey === "binder" ? 4 + fxSum(ownerKey, "companyHeal") : 0) + studyDepthFor(ownerKey, "binder");
 }
 /** THE SAGE'S COMPANY ATTACK, one reckoning (the base +2
  *  stood inline at the strike sites since Phase C; gathered
@@ -188,7 +254,11 @@ export function bindingHealBonusFor(classKey: string | null | undefined, ownerKe
  *  +2", deepened — the companyAbSage sum). Every other
  *  class's company strikes at the plain measure. */
 export function companyAttackBonusFor(classKey: string | null | undefined, ownerKey?: string | null): number {
-  return classKey === "sage" ? 2 + fxSum(ownerKey, "companyAbSage") : 0;
+  // THE STUDY (Nigel, 2026-10-25): her Study depth in the
+  // Sage's house builds the Sage's company attack in her,
+  // and deepens a Sage's own — the same house sum that
+  // lifts her company AC and her summon reckoning.
+  return (classKey === "sage" ? 2 + fxSum(ownerKey, "companyAbSage") : 0) + studyDepthFor(ownerKey, "sage");
 }
 /** THE WITCH'S COMPANY SCOPE STARS (wi_b8 THE HAIL'S MERCY
  *  and wi_k SONG AND STORM; their grants are scope, not

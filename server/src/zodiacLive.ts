@@ -51,19 +51,25 @@ export const FX_PALETTE: { verb: string; label: string; hint: string; hasElement
   // ── THE EFFECTS WIRING (Recovery #1, Nigel 2026-10-23
   // "1. wire and fix"): the v2 wheel's own grants, carried
   // as clauses at their deepened values (step × depth tier)
-  // and read by name at their points of use. Three of these
+  // and read by name at their points of use. Some of these
   // verbs are carried sums whose final seam is NOT yet in
   // the world, named plainly here and in the build report:
-  // "study" and "aim" wait on the Tender's CHOICE of the one
-  // school / one rune weapon (no pick, and no storage for a
-  // pick, exists anywhere yet — the sums accrue and are
-  // provable, and no reader pretends otherwise); "attuneDepth"
+  // "aim" waits on the Tender's CHOICE of the one rune
+  // weapon (no pick, and no storage for a pick, exists
+  // anywhere yet — the sum accrues and is provable, and no
+  // reader pretends otherwise); "attuneDepth"
   // waits on a ruling for what a lay's "depth" is (the
   // attunement system holds points and stages, no depth
   // measure); "lifeGiver" waits on the Life buildings
   // themselves (the buildings build). Their clauses seed
   // NOW so the day those seams land, the sums are already
-  // standing.
+  // standing. "study" stood in this carried company until
+  // Nigel's ruling of 2026-10-25 12:39 — the school it
+  // waited on was struck that morning ("tenders don't
+  // choose schools they just choose classed"), and the
+  // ruling gave it the class of its STAR'S HOUSE instead:
+  // its seam has landed, and skills.ts reads the depth
+  // (studyDepthFor) at the class gifts' points of use.
   { verb: "tenderAc", label: "Tender AC", hint: "the bare Tender's armour class, both grounds" },
   { verb: "tenderAb", label: "Tender attack bonus", hint: "the Tender's own weapon strikes, both grounds" },
   { verb: "awokinAc", label: "Awokin AC", hint: "added to a standing Awokin's toughness when the dark strikes it" },
@@ -83,7 +89,7 @@ export const FX_PALETTE: { verb: string; label: string; hint: string; hasElement
   { verb: "shieldDice", label: "Shield dice", hint: "extra shield dice in a summoned Awokin's pool — the parts' dice, rolled again in their order" },
   { verb: "hpOnKill", label: "Swallow the Heart", hint: "HP to the Tender and every standing Awokin of theirs when their side makes a kill" },
   { verb: "mercy", label: "Miscast mercy (the star)", hint: "percent of a fizzled cast's spent energy returned — the zodiac clause, not the Witch's own gift" },
-  { verb: "study", label: "Study", hint: "carried, unread — waits on the Tender's choice of the one school" },
+  { verb: "study", label: "Study", hint: "deepens the class skill of the house the star stands in — study in a class's house builds that class's skill in the holder, the multiclass tailor's measure, read at the class gifts' points of use (Nigel, 2026-10-25)" },
   { verb: "aim", label: "Aim", hint: "carried, unread — waits on the Tender's choice of the one rune weapon" },
   // ── THE COMPANY DEEPENING (the effects build's second
   // half, 2026-10-25): the class-company stars the Recovery
@@ -471,6 +477,62 @@ function carryEffectsFx(g: ZodiacGraph): boolean {
   return moved;
 }
 
+/** ── THE STUDY-TEXT PASS (2026-10-25) ─────────────────
+ *  The fx passes' sibling, for WORDS. Nigel's ruling of
+ *  2026-10-25 12:39 re-wrote the Study stars' faces (Study
+ *  deepens the class skill of the star's house; the school
+ *  the old faces named was struck that same morning), and
+ *  the seed carries the new words — but a world whose
+ *  wheel was saved before this build serves the old school
+ *  text on those faces as it stands. This pass writes the
+ *  seed's effect and grant onto exactly the stars the
+ *  seed's clause-writing gives a study clause — read from
+ *  the seed itself, never a second copy of the texts —
+ *  ONCE per world, under its own stamp, in the passes'
+ *  exact shape: only those nineteen stars' two text fields
+ *  may change; no node's name, place, roads or clauses
+ *  move; a study star absent from a saved graph is
+ *  skipped. When the stamp stands, the pass never runs
+ *  again, so a Starwright's later hand on those faces is
+ *  safe from it. */
+const STUDY_TEXT_STAMP_KEY = "zodiac.studyTextPass";
+const STUDY_TEXT_STAMP = "study-text-2026-10-25";
+/** The stars this pass may touch: every seeded star whose
+ *  clauses carry the study verb (nineteen on this wheel). */
+const STUDY_TEXT_IDS = new Set(Object.keys(SEED_FX).filter(id => (SEED_FX[id] ?? []).some(c => c.verb === "study")));
+
+function studyTextStamped(): boolean {
+  try {
+    const row = sqlite.prepare("SELECT value FROM ui_config WHERE key = ?").get(STUDY_TEXT_STAMP_KEY) as { value: string } | undefined;
+    return row?.value === STUDY_TEXT_STAMP;
+  } catch { return false; }
+}
+
+function stampStudyTextPass(): void {
+  const existing = sqlite.prepare("SELECT key FROM ui_config WHERE key = ?").get(STUDY_TEXT_STAMP_KEY);
+  if (existing) sqlite.prepare("UPDATE ui_config SET value = ?, updated_at = ? WHERE key = ?").run(STUDY_TEXT_STAMP, Date.now(), STUDY_TEXT_STAMP_KEY);
+  else sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?)").run(STUDY_TEXT_STAMP_KEY, STUDY_TEXT_STAMP, Date.now());
+}
+
+/** Write the seed's study faces onto the study stars
+ *  standing in a saved graph. Returns true when any star's
+ *  words moved. */
+function carryStudyText(g: ZodiacGraph): boolean {
+  const seedById = new Map(seedGraph().nodes.map(n => [n.id, n]));
+  let moved = false;
+  for (const n of g.nodes) {
+    if (!STUDY_TEXT_IDS.has(n.id)) continue;
+    const s = seedById.get(n.id);
+    if (!s) continue;
+    if (n.effect !== s.effect || n.grant !== s.grant) {
+      n.effect = s.effect;
+      n.grant = s.grant;
+      moved = true;
+    }
+  }
+  return moved;
+}
+
 function persist(g: ZodiacGraph): void {
   const value = JSON.stringify(g);
   const existing = sqlite.prepare("SELECT key FROM ui_config WHERE key = ?").get(CONFIG_KEY);
@@ -512,6 +574,17 @@ export function zodiacGraph(): ZodiacGraph {
             stampEffectsFxPass();
           }
         } catch { /* the graph serves as it stands */ }
+        // THE STUDY-TEXT PASS: the same surgery for words —
+        // a saved wheel from before the Study ruling gains
+        // the nineteen study stars' new faces here, once,
+        // under the study-text stamp, before the graph is
+        // first served.
+        try {
+          if (!studyTextStamped()) {
+            if (carryStudyText(cache)) persist(cache);
+            stampStudyTextPass();
+          }
+        } catch { /* the graph serves as it stands */ }
         return cache;
       }
     }
@@ -523,6 +596,7 @@ export function zodiacGraph(): ZodiacGraph {
   // for a stale one on a later boot.
   try { stampPartyFxPass(); } catch { /* the seed still serves from memory */ }
   try { stampEffectsFxPass(); } catch { /* the seed still serves from memory */ }
+  try { stampStudyTextPass(); } catch { /* the seed still serves from memory */ }
   return cache;
 }
 
@@ -534,6 +608,56 @@ export function liveAdj(): Record<string, string[]> {
   for (const n of zodiacGraph().nodes) adj[n.id] = [];
   for (const [a, b] of zodiacGraph().edges) { (adj[a] ??= []).push(b); (adj[b] ??= []).push(a); }
   return adj;
+}
+
+// ── THE HOUSES (Nigel, 2026-10-25 12:39: "study should
+// effect the class skill of the class the skill housed
+// in. that is how multiclass characters are tailored") ──
+// The class house a star STANDS in, read off the served
+// placement itself — the workshop-saved graph the game
+// serves — never off a guess:
+//   · A ROAD STAR's house is its pathway — the data's own
+//     word for "the class this star's road is tailored
+//     to" — when the pathway names one of the five.
+//   · A HEART DOOR star (the five doors among the Heart
+//     stars) stands in the house of the road it OPENS:
+//     the road's first star names the door in its own
+//     `requires`, and the door's outward edge leads to
+//     that star alone among road stars. So h8, The
+//     Runewright's Door (r_a1 requires it), stands in the
+//     Runewright's house, as h7 the Warden's, h9 the
+//     Binder's, h10 the Witch's and h11 the Sage's.
+//   · Everything else — the Heart itself, the rim ring,
+//     a star whose placement names neither — stands in
+//     NO house, and stands absent from this map. The rim's
+//     Study Circle (rim8) is the standing case: its study
+//     accrues to no class until the Ancient One gives the
+//     rim a house, and skills.ts's depth reader says so
+//     by returning nothing for it anywhere.
+// Houses follow the live graph: if the Starwright moves
+// a star onto another road, its house moves with it, for
+// this map is rebuilt from the served graph on every
+// read, exactly as liveById is.
+export const CLASS_HOUSES = ["warden", "runewright", "binder", "witch", "sage"] as const;
+export function liveHouseById(): Map<string, string> {
+  const g = zodiacGraph();
+  const byId = new Map(g.nodes.map(n => [n.id, n]));
+  const map = new Map<string, string>();
+  for (const n of g.nodes) {
+    const p = (n.pathway ?? "").trim().toLowerCase();
+    if ((CLASS_HOUSES as readonly string[]).includes(p)) { map.set(n.id, p); continue; }
+    if ((n.sector ?? "") === "heart") {
+      for (const [a, b] of g.edges) {
+        const nbId = a === n.id ? b : b === n.id ? a : null;
+        if (!nbId) continue;
+        const nb = byId.get(nbId);
+        if (!nb) continue;
+        const np = (nb.pathway ?? "").trim().toLowerCase();
+        if ((CLASS_HOUSES as readonly string[]).includes(np) && nb.requires.includes(n.id)) { map.set(n.id, np); break; }
+      }
+    }
+  }
+  return map;
 }
 
 // ── The Starwright's edits ──────────────────────────────────

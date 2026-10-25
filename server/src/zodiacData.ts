@@ -1080,7 +1080,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "heart",
   "x": 316.2,
   "y": 398.0,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -1095,7 +1095,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "Heart",
   "tier": "\u00d71 \u2014 Heart",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "h9",
@@ -1246,7 +1246,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "runewright",
   "x": 516.4,
   "y": 278.2,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -1261,7 +1261,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "LORE",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "r_a14",
@@ -1442,7 +1442,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "runewright",
   "x": 473.0,
   "y": 296.8,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -1457,7 +1457,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "LORE",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "r_a7",
@@ -1514,7 +1514,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "runewright",
   "x": 494.6,
   "y": 287.2,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -1529,7 +1529,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "LORE",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "r_b1",
@@ -1586,7 +1586,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "runewright",
   "x": 641.3,
   "y": 379.7,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -1601,7 +1601,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "VOICE",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "r_b12",
@@ -1804,7 +1804,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "runewright",
   "x": 613.2,
   "y": 335.2,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -1819,7 +1819,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "VOICE",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "r_b6",
@@ -2211,7 +2211,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "rim",
   "x": 114.6,
   "y": 605.4,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -2226,7 +2226,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "Rim",
   "tier": "\u00d73 \u2014 rim",
   "step": "ruled",
-  "grant": "Study: +3 to casting in one school of the tender's choice"
+  "grant": "Study: +3 to the class skill of the house this star stands in — the Study Circle stands on the rim, which is no class's house, and deepens nothing until the rim is given one"
  },
  {
   "id": "rim9",
@@ -2695,7 +2695,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "sage",
   "x": 144.0,
   "y": 178.7,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -2710,7 +2710,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "THE UNSEATED",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "s_b12",
@@ -2839,7 +2839,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "sage",
   "x": 143.0,
   "y": 256.0,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -2856,7 +2856,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "THE UNSEATED",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "s_b3",
@@ -2937,7 +2937,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "sage",
   "x": 140.4,
   "y": 222.8,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -2952,7 +2952,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "THE UNSEATED",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "s_b7",
@@ -3106,7 +3106,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "warden",
   "x": 295.7,
   "y": 204.1,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -3121,7 +3121,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "LAW",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "w_a11",
@@ -3326,7 +3326,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "warden",
   "x": 311.3,
   "y": 248.5,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -3341,7 +3341,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "LAW",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "w_a5",
@@ -3905,7 +3905,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 349.5,
   "y": 459.5,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -3920,7 +3920,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "MUSIC",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_a10",
@@ -3977,7 +3977,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 317.4,
   "y": 536.1,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -3992,7 +3992,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "MUSIC",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_a13",
@@ -4073,7 +4073,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 311.6,
   "y": 554.1,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -4088,7 +4088,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "MUSIC",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_a2",
@@ -4173,7 +4173,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 333.2,
   "y": 481.9,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -4188,7 +4188,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "MUSIC",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_a6",
@@ -4269,7 +4269,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 322.9,
   "y": 518.1,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -4284,7 +4284,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "MUSIC",
   "tier": "\u00d71 \u2014 first arm",
   "step": "ruled",
-  "grant": "Study: +1 to casting in one school of the tender's choice"
+  "grant": "Study: +1 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_b1",
@@ -4317,7 +4317,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 128.9,
   "y": 513.5,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -4332,7 +4332,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "WEATHER",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_b11",
@@ -4461,7 +4461,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "sector": "witch",
   "x": 81.4,
   "y": 484.1,
-  "effect": "Study: +1 to casting in one school of the tender's choice",
+  "effect": "Study: +1 to the class skill of the house this star stands in",
   "syn": "",
   "el": null,
   "att": 0,
@@ -4476,7 +4476,7 @@ export const ZODIAC_NODES: ZodiacNode[] = [
   "god": "WEATHER",
   "tier": "\u00d72 \u2014 second arm",
   "step": "ruled",
-  "grant": "Study: +2 to casting in one school of the tender's choice"
+  "grant": "Study: +2 to the class skill of the house this star stands in"
  },
  {
   "id": "wi_b2",
