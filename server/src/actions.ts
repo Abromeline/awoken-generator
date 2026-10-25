@@ -2629,6 +2629,90 @@ async function grantEventXp(
   into.set(awakenedId, entry);
 }
 
+// ── XP DIVISION (Nigel, 2026-10-24 21:35–21:40) ─────────────
+// "xp gets split between all involved on friend join" —
+// corrected within minutes: "the exp is divided though not
+// both parties receiving the same — also when awoken gain
+// from battle they also split exp divided"; the Keeper's
+// reading, adopted by his "yes build it": DIVIDED BY
+// INVOLVEMENT — the greater share to those who did more of
+// the fighting in that act. Every battle XP award the
+// homeland engine pays is now a POT of its standing total,
+// divided among the Awoken involved in the act, weighted by
+// the DAMAGE each dealt in that act's fight (the living
+// battle keeps the ledger per dark thing, in hurtDark — the
+// one door every attributed blow passes through; the
+// settlement window that fells it is the fight the ledger
+// spans). The slayer or the stood defender is simply a
+// shareholder, never the sole payee, while any other hand
+// also fought. Shares are whole XP and sum EXACTLY to the
+// pot: each share is floored, and the leftover points
+// (always fewer than the shareholders) go to the LARGEST
+// shareholder — greatest damage, ties to the greater floored
+// share, then the lower awakened id, so the table never
+// wobbles between reads. A shareholder whose floored share
+// is nothing is paid nothing. A lone involved Awoken takes
+// the pot whole, exactly as battle XP was paid before
+// division — solo acts see no change but the bookkeeping.
+/** Divide a pot of `pot` XP among shareholders weighted by
+ *  involvement (damage dealt). Returns awakenedId → share. */
+export function divideXpPot(pot: number, weights: Map<number, number>): Map<number, number> {
+  const shares = new Map<number, number>();
+  const involved = [...weights.entries()].filter(([, w]) => w > 0);
+  if (pot <= 0 || !involved.length) return shares;
+  const total = involved.reduce((s, [, w]) => s + w, 0);
+  let paid = 0;
+  for (const [id, w] of involved) {
+    const sh = Math.floor((pot * w) / total);
+    shares.set(id, sh);
+    paid += sh;
+  }
+  const leftover = pot - paid;
+  if (leftover > 0) {
+    const largest = [...involved].sort((a, b) =>
+      (b[1] - a[1]) || ((shares.get(b[0]) ?? 0) - (shares.get(a[0]) ?? 0)) || (a[0] - b[0]))[0];
+    shares.set(largest[0], (shares.get(largest[0]) ?? 0) + leftover);
+  }
+  return shares;
+}
+
+/** A Tender's share of the same act, through the same
+ *  divider: the sum of their own Awoken's shares of the pot.
+ *  When friend-join / hosted land brings two Tenders into one
+ *  battle, their portions divide by this one law and no
+ *  second mechanism — and on the one-Tender homeland the
+ *  single Tender's portion is the whole pot their side
+ *  earned, the division biting among their Awoken. */
+export function divideXpPotByOwner(
+  pot: number,
+  weights: Map<number, number>,
+  ownerOf: (awakenedId: number) => string | null
+): Map<string, number> {
+  const byOwner = new Map<string, number>();
+  for (const [id, share] of divideXpPot(pot, weights)) {
+    const owner = ownerOf(id);
+    if (owner == null) continue;
+    byOwner.set(owner, (byOwner.get(owner) ?? 0) + share);
+  }
+  return byOwner;
+}
+
+/** Pay a divided pot into the standing grant, shareholders
+ *  with a positive share only. Returns true when anyone was
+ *  paid — the caller falls back to its sole involved party
+ *  when no hand was involved at all. */
+async function grantDividedXpPot(pot: number, weights: Map<number, number>): Promise<boolean> {
+  const shares = divideXpPot(pot, weights);
+  let paid = false;
+  const scratch = new Map<number, XpGainReport>();
+  for (const [id, xp] of shares) {
+    if (xp <= 0) continue;
+    await grantEventXp(scratch, id, xp);
+    paid = true;
+  }
+  return paid;
+}
+
 // --- 2026-10-13 XP re-curve reconciliation (one-time) ---------------------
 // When xpForLevel's base dropped 100 → 20, every stored XP total suddenly
 // meant a HIGHER level (levels are derived from XP, never stored). Nobody
@@ -4210,8 +4294,16 @@ async function battleStateView(ownerKey: string): Promise<BattleStateView> {
  *  A kill struck by an Awokin's own blow also grants that
  *  Awokin its attack event XP; the written light's kills
  *  grant none, as before. Withering deaths never reach here:
- *  the light takes its own and pays nothing. */
-async function creditBattleKill(ownerKey: string, kind: string, groundElement: string | null, killerAwakenedId: number | null): Promise<void> {
+ *  the light takes its own and pays nothing.
+ *  XP DIVISION (2026-10-24): when the living battle fells
+ *  the dark it passes the fell's damage ledger as
+ *  killerXpWeights — the attack XP pot (XP_PER_ATTACK, the
+ *  felling blow's standing 10) is DIVIDED among every Awoken
+ *  who damaged the dark in that fight, the slayer a mere
+ *  shareholder. Callers off the battle (the written light's
+ *  springs) pass no weights and keep the old road whole:
+ *  the named killer alone, or none. */
+async function creditBattleKill(ownerKey: string, kind: string, groundElement: string | null, killerAwakenedId: number | null, killerXpWeights?: Map<number, number>): Promise<void> {
   const bonus = enemyArmorBonus(kind);
   if (bonus > 0) {
     sqlite.prepare("UPDATE tender_progress SET protection_bank_ms = protection_bank_ms + ? WHERE owner_key = ?")
@@ -4222,7 +4314,9 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
     }
   }
   await payFellDrip(ownerKey, groundElement);
-  if (killerAwakenedId != null) {
+  if (killerXpWeights) {
+    await grantDividedXpPot(XP_PER_ATTACK, killerXpWeights);
+  } else if (killerAwakenedId != null) {
     const scratch = new Map<number, XpGainReport>();
     await grantEventXp(scratch, killerAwakenedId, XP_PER_ATTACK);
   }
@@ -4400,6 +4494,22 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   const placementRows = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
   const fighters: Fighter[] = [];
   const xpDefensePaid = new Set<number>();
+  // XP DIVISION's ledger (Nigel, 2026-10-24): the damage
+  // each Awoken deals each dark thing, accumulated across
+  // this settlement — the fight the division weighs. Every
+  // attributed blow passes hurtDark, and hurtDark alone
+  // writes here; unattributed harm (the thorn's tick, the
+  // tower's volley, the shard's fall) involves no Awoken and
+  // buys no share. The fells divide their pots by it in
+  // fellDark; the defence pots below divide by it when the
+  // window closes.
+  const darkDamage = new Map<number, Map<number, number>>();
+  // The defence pots this window owes: a stood defence is
+  // recorded when the blow lands (the standing trigger,
+  // once a window a victim, seed Fray excepted as ever) but
+  // PAID when the window closes, by the finished ledger —
+  // until then the assault's fight is still being fought.
+  const defencePots: { victimAwakenedId: number; darkId: number }[] = [];
   for (const p of placementRows) {
     const payload = await awakenedPayloadById(p.awakenedId);
     if (!payload) continue;
@@ -4610,13 +4720,15 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     // 2026-10-24): a Fray of the first seed's rising pays
     // the HOLD'S numbers, not the open land's bounty —
     // +3✦ to its Tender, capped, for the fell (the old
-    // referee's arithmetic, made per fell here); +2 XP to
-    // the slayer whose blow felled it, where a slayer
-    // stands in the record; and the fell drizzle, lit at
-    // random as the hold's Fray always lit (payFellDrip
-    // with no ground named). No protection banks and no
-    // Shadow rolls on the seed's ground: the hold's
-    // skeleton of numbers stands untouched, and
+    // referee's arithmetic, made per fell here); a +2 XP
+    // pot for the fell — paid to the slayer alone before XP
+    // DIVISION (Nigel, 2026-10-24), now DIVIDED among every
+    // Awoken who damaged this Fray in the fight, the slayer
+    // a shareholder like any other; and the fell drizzle,
+    // lit at random as the hold's Fray always lit
+    // (payFellDrip with no ground named). No protection
+    // banks and no Shadow rolls on the seed's ground: the
+    // hold's skeleton of numbers stands untouched, and
     // creditBattleKill below remains the open land's law.
     if (d.seedRising > 0) {
       const maxEnergy = await calculateMaxEnergy(ownerKey);
@@ -4628,14 +4740,11 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
           .where(eq(schema.tenderResources.ownerKey, ownerKey));
       }
       await payFellDrip(ownerKey);
-      if (d.killer != null) {
-        const scratch = new Map<number, XpGainReport>();
-        await grantEventXp(scratch, d.killer, 2);
-      }
+      await grantDividedXpPot(2, darkDamage.get(d.id) ?? new Map());
       return;
     }
     const t = byId.get(d.tileId);
-    await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer);
+    await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer, darkDamage.get(d.id) ?? new Map());
   };
   // THE CROWN SHARD IN THE LIVING BATTLE (Nigel, 2026-10-23
   // — Recovery R5): the same reckoning springHomelandWorking
@@ -4685,7 +4794,16 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   const hurtDark = async (d: Dark, dmg: number, byAwakenedId: number | null): Promise<void> => {
     if (d.dead || dmg <= 0) return;
     d.hp -= dmg;
-    if (byAwakenedId != null) d.killer = byAwakenedId;
+    if (byAwakenedId != null) {
+      d.killer = byAwakenedId;
+      // XP DIVISION's ledger: the blow's full figure —
+      // overkill included, the same number the strike
+      // witness reports — stands to this hand's involvement
+      // in this dark's fight.
+      let ledger = darkDamage.get(d.id);
+      if (!ledger) { ledger = new Map(); darkDamage.set(d.id, ledger); }
+      ledger.set(byAwakenedId, (ledger.get(byAwakenedId) ?? 0) + dmg);
+    }
     if (d.hp <= 0) await fellDark(d);
   };
   /** THE TIDE RIDER (the Proving Ground's ruling): her
@@ -5046,7 +5164,15 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
               // the rising's end (payFirstSeedStood) — the +10
               // lands once, as the old referee paid it — so the
               // battle's struck-pay does not ride on them here.
-              if (!d.seedRising && !xpDefensePaid.has(victim.id)) { xpDefensePaid.add(victim.id); const scratch = new Map<number, XpGainReport>(); await grantEventXp(scratch, victim.awakenedId, XP_PER_DEFENSE); }
+              // XP DIVISION (2026-10-24): the stood defence is
+              // a POT now, not the victim's sole pay — the
+              // trigger stands exactly here (a landed blow, a
+              // living victim of the open land's dark, once a
+              // window), but the pot is recorded, not paid: it
+              // divides when the window closes, among the
+              // defenders engaged against this assailant, by
+              // the damage they dealt it (below).
+              if (!d.seedRising && !xpDefensePaid.has(victim.id)) { xpDefensePaid.add(victim.id); defencePots.push({ victimAwakenedId: victim.awakenedId, darkId: d.id }); }
               if (res.dissipated) { victim.dead = true; const wk = works.find(w => w.placementId === victim.id); if (wk) wk.gone = true; }
               // THORNS: a Root Awokin answers a landed blow —
               // 1 + her Root aspects, no roll on the answer.
@@ -5232,6 +5358,23 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         d.hp -= d.maxHp * 0.01 * (ring + 1) * (dt / (BATTLE_BEAT_MS / 1000));
         if (d.hp <= 0) d.dead = true; // unmade by the light: no blow beat it, nothing is paid
       }
+    }
+  }
+  // ── THE DEFENCE POTS, PAID (XP DIVISION, 2026-10-24) ──
+  // Each stood defence recorded above divides its standing
+  // 10 among the defenders engaged against that assailant,
+  // weighted by the damage they dealt it across this window
+  // — the victim's own thorns answer counts, as every
+  // attributed blow counts. Where NO Awoken damaged the
+  // assailant in the window (it struck first, and the
+  // window closed before any answer landed), the stood
+  // Awoken was the only one involved: she takes the pot
+  // whole, as a solo act always has.
+  for (const pot of defencePots) {
+    const paid = await grantDividedXpPot(XP_PER_DEFENSE, darkDamage.get(pot.darkId) ?? new Map());
+    if (!paid) {
+      const scratch = new Map<number, XpGainReport>();
+      await grantEventXp(scratch, pot.victimAwakenedId, XP_PER_DEFENSE);
     }
   }
   // Lattice pins wear by the beats that passed.

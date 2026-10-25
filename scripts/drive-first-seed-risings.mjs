@@ -22,11 +22,15 @@
 //      the fell never in the birthing read nor the priming
 //      read after it.
 //   §C THE HOLD'S NUMBERS, EXACT: one Fray, one fell —
-//      +3✦ to the purse; +2 XP to the slayer and +10 to
-//      every Awoken who stood on the seed's hex (42 in sum,
-//      one 12 and three 10s); NO protection banked, NO
-//      Shadow paid (the land's bounty does not ride here);
-//      and the next rising stands a ruled minute away.
+//      +3✦ to the purse; +10 to every Awoken who stood on
+//      the seed's hex, and the fell's +2 XP pot — DIVIDED
+//      by involvement since XP DIVISION (Nigel, 2026-10-24):
+//      one hand's blow is all the damage this 3-HP Fray ever
+//      takes in its felling window, so the pot lands whole
+//      on that hand (42 in sum, one 12 and three 10s); NO
+//      protection banked, NO Shadow paid (the land's bounty
+//      does not ride here); and the next rising stands a
+//      ruled minute away.
 //   §D THE BANK AT THE THIRD RISING: the center purifies,
 //      the pool fills to its cap (proven by the cap's own
 //      clamp: a later fell adds nothing).
@@ -97,8 +101,8 @@ console.log("§S the seams — the retired referee and the new one's joints, rea
   const bounty = actions.indexOf("await creditBattleKill", fellAt);
   check("the battle's fell path routes a rising's Fray to the hold's pay BEFORE the open land's bounty",
     fellAt > 0 && seedRoute > fellAt && bounty > seedRoute);
-  check("the hold's fell pay stands in the fell path (+3 capped, +2 XP to the slayer, the drizzle)",
-    actions.slice(seedRoute, bounty).includes("current + 3") && actions.slice(seedRoute, bounty).includes("grantEventXp(scratch, d.killer, 2)") && actions.slice(seedRoute, bounty).includes("payFellDrip(ownerKey)"));
+  check("the hold's fell pay stands in the fell path (+3 capped, the +2 XP pot divided by involvement, the drizzle)",
+    actions.slice(seedRoute, bounty).includes("current + 3") && actions.slice(seedRoute, bounty).includes("grantDividedXpPot(2,") && actions.slice(seedRoute, bounty).includes("payFellDrip(ownerKey)"));
   const answerAt = actions.indexOf("// ── THE AWOKEN ANSWER");
   const bannerAt = actions.indexOf("homelandBannerBonus(ownerKey, axialRound(f.q, f.r)", answerAt);
   const mitigateAt = actions.indexOf("homelandFateMitigate(raw, targetAC, f.level)", answerAt);
@@ -182,7 +186,7 @@ check("§B the rising was fought in ENGINE TIME: beaten, and not before the thir
 check("§B the company's strikes against the rising's Fray stand in the strike witness — the fight was seen, beat by beat",
   witnessed >= 1, `witnessed=${witnessed}`);
 const xpDelta = guards.map((id, i) => xpOf(id) - xpBefore[i]);
-check("§C the defense is paid the hold's way: +10 to every Awoken who stood, +2 more to the slayer (deltas: one 12, three 10s)",
+check("§C the defense is paid the hold's way: +10 to every Awoken who stood, and the fell's +2 pot whole to the one hand that damaged the Fray (deltas: one 12, three 10s)",
   xpDelta.reduce((a, b) => a + b, 0) === 42 && xpDelta.filter(d => d === 12).length === 1 && xpDelta.filter(d => d === 10).length === 3,
   `deltas=${xpDelta.join(",")}`);
 check("§C the fell pays the hold's +3✦ — the purse, emptied by hand before the rising, holds exactly 3",
