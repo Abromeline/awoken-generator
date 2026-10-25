@@ -230,7 +230,7 @@ export default function WarGrounds({ tile, walls, standing, tileBuildings, energ
         {seed && seed.state === "held" && (
           <div className="wg-seed held">
             <h4>⭐🏯 A held seed — Lv {seed.level}</h4>
-            <p>The bastion stands and the seed grows in its keeping. Defenses held: {seed.defenses} — every third raises its level and banks a new tile of light, for good.</p>
+            <p>The bastion stands and the seed grows in its keeping. Defenses held: {seed.defenses}. The seed grows by feeding alone — stands held never raise it.</p>
           </div>
         )}
         {seed && seed.state === "corrupted" && (

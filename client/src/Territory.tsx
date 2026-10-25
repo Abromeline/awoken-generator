@@ -5312,7 +5312,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               <g key={sd.id}>
                 <image href={art} x={cx - figW / 2} y={base - figH} width={figW} height={figH} preserveAspectRatio="xMidYMax meet" />
                 <text x={cx} y={base + size * 0.42} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">{SEED_STAGE_FACE[stage]}</text>
-                {sd.state === "held" && <text x={cx} y={base + size * 0.72} textAnchor="middle" fontSize={size * 0.22} fill="#e8cf8a">held {sd.defenses}/3</text>}
+                {sd.state === "held" && <text x={cx} y={base + size * 0.72} textAnchor="middle" fontSize={size * 0.22} fill="#e8cf8a">held through {sd.defenses} {sd.defenses === 1 ? "stand" : "stands"}</text>}
                 {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={base + size * (sd.state === "held" ? 1.0 : 0.72)} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
               </g>
             );
@@ -5335,7 +5335,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <g key={sd.id}>
               <circle cx={cx} cy={cy - size * 0.6} r={size * 0.34} fill="rgba(20,14,4,0.85)" stroke={sd.state === "held" ? "#ffd700" : "#e8b64c"} strokeWidth={(sd.state === "held" ? 2.4 : 1.4) / zoom} />
               <text x={cx} y={cy - size * 0.47} textAnchor="middle" fontSize={size * 0.36}>⭐</text>
-              {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Starseed · held {sd.defenses}/3</text>}
+              {sd.state === "held" && <text x={cx} y={cy - size * 1.08} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">Starseed · held through {sd.defenses} {sd.defenses === 1 ? "stand" : "stands"}</text>}
               {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={cy + size * 0.62} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
             </g>
           );

@@ -39,6 +39,9 @@ import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
+import { brambleFrameAt, brambleMoteFrameAt, BRAMBLE_DRAW_W, BRAMBLE_ASPECT, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE } from "./brambleFx";
+import seedSaplingArt from "./assets/starseed/sapling.png";
+import seedBeaconArt from "./assets/starseed/beacon.png";
 import { WORKING_FACE } from "./workingFaces";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import blackGateImg from "./assets/effects/black-gate.png";
@@ -97,6 +100,11 @@ interface WorkingView {
   /** THE BLACK GATE AT THE TABLE (2026-10-24): its one
    *  wall node — the point it stands at and its wounds. */
   wall?: { x: number; y: number; hp: number; maxHp: number } | null;
+  /** DEFENCE WORKS (the battle port — Twelve #1): a raised
+   *  bramble's or rockwall's nodes — points in stage px with
+   *  their own wounds; a bramble's motes carry mote, their
+   *  parent node's point, their birth and watering bank. */
+  nodes?: { x: number; y: number; hp: number; maxHp: number; mote?: 1; px?: number; py?: number; born?: number; bank?: number }[];
 }
 
 interface TableCard {
@@ -150,6 +158,9 @@ interface FieldUnitView {
   moving: boolean;
   /** FOLLOW: the standing order to trail its Tender. */
   follow?: boolean;
+  /** THE ORDERS (the battle port): attack / defense /
+   *  binding — absent reads as attack, as on the homeland. */
+  stance?: string;
   level: number | null;
   ownerKey: string;
   ownerName: string;
@@ -194,6 +205,11 @@ interface SharedState {
   bladeFlights?: { id: string; at: number; fromHex: string; fromPos?: { x: number; y: number } | null; to: { x: number; y: number } }[];
   bladeCasts?: { id: string; at: number; workingId: string; fromPos: { x: number; y: number }; to: { x: number; y: number } }[];
   battle: { active: boolean; wave: number };
+  /** THE STARSEED AT THE TABLE (the battle port): the
+   *  room's seed — its level, the stage that level wears,
+   *  the fed energy banked toward the next stage, and that
+   *  stage's fed measure while one stands. */
+  seed?: { level: number; stage: string; fedEnergy: number; nextStageAt: number | null };
   strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean }[];
   /** MANIFEST (Phase C): live copies of a Tender's weapon,
    *  orbiting their figure until they fade. */
@@ -1893,6 +1909,16 @@ export default function Table() {
       entries.push({ key: "ord-moving", sigil: "manifest", label: "On the move", locked: true } as WheelEntry);
     } else {
       entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setMarchArmed([u.cardId]); setSelUnitId(u.cardId); setNotice(`March — tap the ground ${u.name} should march to, or right-drag a line for it to stand on.`); } } as WheelEntry);
+      // THE ORDERS (the battle port — Twelve #1): her
+      // standing order, lit where it stands — Attack (strike
+      // the dark in reach), Defend (strike, and raise her
+      // bramble or rockwall when the dark comes near), Bind
+      // (mend the most-wounded of your company in reach
+      // instead of striking).
+      const stanceNow = u.stance ?? "attack";
+      entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: stanceNow === "attack", act: () => { send({ type: "setStance", cardId: u.cardId, stance: "attack" }); } } as WheelEntry);
+      entries.push({ key: "ord-defend", emoji: "🛡", label: "Defend", lit: stanceNow === "defense", act: () => { send({ type: "setStance", cardId: u.cardId, stance: "defense" }); } } as WheelEntry);
+      entries.push({ key: "ord-bind", sigil: "heal", label: "Bind", lit: stanceNow === "binding", act: () => { send({ type: "setStance", cardId: u.cardId, stance: "binding" }); } } as WheelEntry);
       const ut = tileById.get(u.hex);
       const reach = ut ? shared.map.filter(t => t.cursed && axialDist(ut, t) <= strikeReachOf(u)) : [];
       if (reach.length) entries.push({ key: "ord-strike", sigil: "sword", label: strikeArmed ? "Stay the hand" : "Strike the curse", lit: strikeArmed, act: () => { setStrikeArm(!strikeArmed); } } as WheelEntry);
@@ -2211,6 +2237,11 @@ export default function Table() {
         {tileById.get(u.hex)?.cursed && <circle className="wither-mote" cx={ax} cy={ay + 22} r={2.4} fill="#c22333" />}
         {moving && <text x={ax + 16} y={ay - 28} fontSize={9}>🚶</text>}
         {u.follow && <text x={ax - 16} y={ay - 28} fontSize={9}>👣</text>}
+        {/* THE ORDERS' MARK (the battle port): a small mark
+            for a standing order other than attack, beside the
+            follow mark — 🛡 she defends, 🕊 she binds. */}
+        {!moving && (u.stance ?? "attack") === "defense" && <text x={ax + 16} y={ay - 16} fontSize={9}>🛡</text>}
+        {!moving && (u.stance ?? "attack") === "binding" && <text x={ax + 16} y={ay - 16} fontSize={9}>🕊</text>}
         {mine && !moving && (
           <circle
             cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
@@ -2840,6 +2871,19 @@ export default function Table() {
                       <>
                         <circle className="seed-ground" cx={cx} cy={cy} r={22} />
                         <circle className="seed-bulb" cx={cx} cy={cy} r={bulbR * 1.63} />
+                        {/* THE SEED GROWN (the battle port —
+                            Twelve #1): fed past the Starseed,
+                            the seed wears its stage's face —
+                            the homeland's own art, the Sapling
+                            at a figure's height, the Beacon at
+                            twice that, as the homeland seats
+                            them. */}
+                        {shared.seed && shared.seed.level >= 2 && (
+                          <image href={shared.seed.stage === "beacon" || shared.seed.stage === "bastion" ? seedBeaconArt : seedSaplingArt}
+                            x={cx - (shared.seed.level >= 3 ? 20.5 : 12)} y={cy + 8 - (shared.seed.level >= 3 ? 80 : 40)}
+                            width={shared.seed.level >= 3 ? 41 : 24} height={shared.seed.level >= 3 ? 80 : 40}
+                            preserveAspectRatio="xMidYMax meet" pointerEvents="none" />
+                        )}
                       </>
                     )}
                     {t.landing && (
@@ -3010,6 +3054,50 @@ export default function Table() {
                           <g key={i} opacity={0.35 + 0.65 * frac}>
                             <image href={bulwarkShieldImg} x={s.x - 23} y={s.y - 24} width={46} height={48} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,217,138,0.55))" }} />
                             <text className="ts-tag" x={s.x} y={s.y + 34}>❤{s.hp}</text>
+                          </g>
+                        );
+                      })}
+                    </g>
+                  );
+                }
+                if ((w.engine === "bramble" || w.engine === "rockwall") && w.nodes) {
+                  // DEFENCE WORKS (the battle port — Twelve
+                  // #1): a defender's raised work, drawn as
+                  // the homeland draws it — the bramble's
+                  // thicket from Nigel's flipbook, growing in
+                  // frame by frame off each node's served
+                  // birth; its motes the same run at mote
+                  // scale off their own births; the rockwall
+                  // as standing stones — each node paling as
+                  // its wounds deepen.
+                  return (
+                    <g key={w.id} pointerEvents="none">
+                      {w.nodes.filter(n => n.hp > 0).map((n, i) => {
+                        const frac = Math.max(0, Math.min(1, n.hp / Math.max(1, n.maxHp)));
+                        if (w.engine === "rockwall") {
+                          return (
+                            <g key={i} opacity={0.35 + 0.65 * frac}>
+                              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.1} rx={TILE_SIZE * 0.17} ry={TILE_SIZE * 0.06} fill="rgba(0,0,0,0.4)" />
+                              <polygon points={`${n.x},${n.y - TILE_SIZE * 0.3} ${n.x + TILE_SIZE * 0.16},${n.y + TILE_SIZE * 0.08} ${n.x - TILE_SIZE * 0.16},${n.y + TILE_SIZE * 0.08}`} fill="#8d8578" stroke="#4c463c" strokeWidth={1} strokeLinejoin="round" />
+                            </g>
+                          );
+                        }
+                        if (n.mote) {
+                          return (
+                            <g key={i} opacity={0.35 + 0.65 * frac}>
+                              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.05} rx={TILE_SIZE * 0.09} ry={TILE_SIZE * 0.03} fill="rgba(0,0,0,0.4)" />
+                              <image href={brambleMoteFrameAt(nowMs, typeof n.born === "number" ? n.born : nowMs)}
+                                x={n.x + TILE_SIZE * BRAMBLE_CENTRE_OFF * BRAMBLE_MOTE_SCALE - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE / 2} y={n.y + TILE_SIZE * BRAMBLE_BASE_OFF * BRAMBLE_MOTE_SCALE - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT} width={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE} height={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT}
+                                preserveAspectRatio="xMidYMax meet" />
+                            </g>
+                          );
+                        }
+                        return (
+                          <g key={i} opacity={0.35 + 0.65 * frac}>
+                            <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.12} rx={TILE_SIZE * 0.2} ry={TILE_SIZE * 0.07} fill="rgba(0,0,0,0.4)" />
+                            <image href={brambleFrameAt(nowMs, typeof n.born === "number" ? n.born : nowMs)}
+                              x={n.x + TILE_SIZE * BRAMBLE_CENTRE_OFF - TILE_SIZE * BRAMBLE_DRAW_W / 2} y={n.y + TILE_SIZE * BRAMBLE_BASE_OFF - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_ASPECT} width={TILE_SIZE * BRAMBLE_DRAW_W} height={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_ASPECT}
+                              preserveAspectRatio="xMidYMax meet" />
                           </g>
                         );
                       })}
@@ -3240,6 +3328,15 @@ export default function Table() {
               <strong>The star-seed</strong> — fallen light, rooted in cracked ground.
               The Bastion is what the party will build around it. Cast from your
               roster onto the field; when the party stands ready, begin the Unraveling.
+              {shared.seed && (
+                <>{" "}It grows by feeding alone — company standing within two rings of it feeds it from the purse.
+                {shared.seed.level >= 3
+                  ? <> It stands a <strong>Beacon of Light</strong> — no dark is born on the ground around it.</>
+                  : shared.seed.level === 2
+                    ? <> It stands a <strong>Sapling of Light</strong> — fed {shared.seed.fedEnergy} of {shared.seed.nextStageAt} toward the Beacon.</>
+                    : <> Fed {shared.seed.fedEnergy} of {shared.seed.nextStageAt} toward the Sapling.</>}
+                </>
+              )}
             </div>
             {placing && (
               <div className="placing-bar">

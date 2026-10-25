@@ -3013,7 +3013,7 @@ export function divideXpPotByOwner(
  *  with a positive share only. Returns true when anyone was
  *  paid — the caller falls back to its sole involved party
  *  when no hand was involved at all. */
-async function grantDividedXpPot(pot: number, weights: Map<number, number>): Promise<boolean> {
+export async function grantDividedXpPot(pot: number, weights: Map<number, number>): Promise<boolean> {
   const shares = divideXpPot(pot, weights);
   let paid = false;
   const scratch = new Map<number, XpGainReport>();
@@ -12916,27 +12916,24 @@ export const handlers = {
     }
     // A HELD SEED DEFENDED (the personal bastion settlement,
     // ruled 2026-10-16): when the beaten column had come for a
-    // held seed's hex, the hold is reckoned — every third
-    // defense, the seed grows a level and an adjacent tile is
-    // BANKED FOR GOOD (purified free, the light's expansion).
+    // held seed's hex, the stand is tallied — the held seed's
+    // defenses count rises by one, and that is all it does.
+    // THE OLD ROAD IS ABOLISHED (Nigel's growth law — FEEDING
+    // IS THE ONLY LADDER, ratified 2026-10-24 19:21: a seed
+    // levels ONLY by being fed energy while her company
+    // stands near, and by no other road): the every-third-
+    // defense level and its banked neighbour tile, which the
+    // 2026-10-16 settlement carried, came out with the Table
+    // battle port (Twelve #1, 2026-10-25) — the growth build
+    // cc6a3c5 flagged that this road contradicted the law,
+    // and the port resolved it in the open: defences alone
+    // never level a seed, on either ground.
     const colRow = sqlite.prepare("SELECT target_tile_id FROM incursion_columns WHERE id = ?").get(columnId) as any;
     if (colRow?.target_tile_id != null) {
       const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND tile_id = ? AND state = 'held'").get(ownerKey, colRow.target_tile_id) as any;
       if (seed) {
         const defenses = Number(seed.defenses || 0) + 1;
-        if (defenses % 3 === 0) {
-          sqlite.prepare("UPDATE star_seeds SET defenses = ?, level = level + 1 WHERE id = ?").run(defenses, seed.id);
-          const home = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(colRow.target_tile_id) as any;
-          if (home) {
-            const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-            for (const [dq, dr] of DIRS) {
-              const n = sqlite.prepare("SELECT id FROM territory_tiles WHERE owner_key = ? AND q = ? AND r = ? AND cursed = 1").get(ownerKey, home.q + dq, home.r + dr) as any;
-              if (n) { sqlite.prepare("UPDATE territory_tiles SET cursed = 0, element = 'neutral' WHERE id = ?").run(n.id); break; }
-            }
-          }
-        } else {
-          sqlite.prepare("UPDATE star_seeds SET defenses = ? WHERE id = ?").run(defenses, seed.id);
-        }
+        sqlite.prepare("UPDATE star_seeds SET defenses = ? WHERE id = ?").run(defenses, seed.id);
       }
     }
     sqlite.prepare(`INSERT INTO tender_attention (owner_key, eye, updated_at, break_until, total_spent)

@@ -29,8 +29,9 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel } from "./actions.js";
-import { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, SEED_FEED_PER_MINUTE, SEED_FEED_REACH } from "./actions.js";
+import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+import { rollFellDrops, drainDropNotices } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, fxSum, companyAcBonusFor, companyAttackBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor, witchCompanyScopeFor, quicknessSpeedFor } from "./skills.js";
@@ -177,6 +178,16 @@ interface Player {
   maxTenderHp: number;
   /** True once this seat's Tender has fallen in the battle. */
   fallen: boolean;
+  /** THE STARSEED AT THE TABLE (the battle port — Twelve
+   *  #1, 2026-10-25): this seat's feeding credit and anchor,
+   *  reckoned exactly as the homeland's passive feeding
+   *  reckons them — credit gathers only while her company
+   *  stands within SEED_FEED_REACH of the room's seed, and
+   *  the anchor walks at every reckoning so absent time
+   *  banks nothing. Only a seat present in the room (not
+   *  stepped away) feeds at all: presence is the law. */
+  seedFeedCredit?: number;
+  seedFeedAnchorAt?: number;
   /** Second Wall (the Zodiac, tranche one): this battle's
    *  half-cost ward has been spent. Reset at every deal. */
   secondWallUsed?: boolean;
@@ -300,6 +311,15 @@ interface FieldUnit {
    *  following Awokin not already at their side musters to a
    *  formation slot around them. The rest hold their ground. */
   follow?: boolean;
+  /** THE ORDERS (the Table battle port — Twelve #1,
+   *  2026-10-25): the homeland's standing order on this
+   *  unit — "attack" (the default; absent means attack, as
+   *  on the homeland where no orders strike), "defense"
+   *  (strike and raise her defence work — bramble or
+   *  rockwall by her dominant element), or "binding" (mend
+   *  the most-wounded ally of her seat in reach instead of
+   *  striking). Set through the orders wheel (setStance). */
+  stance?: "attack" | "defense" | "binding";
   /** Has this dark thing struck yet? (War Runewright's
    *  patience, tranche one.) */
   struck?: boolean;
@@ -381,6 +401,11 @@ interface EnemyUnit {
   nextStrike?: number;
   /** Has this dark thing struck yet? (War Runewright's patience.) */
   struck?: boolean;
+  /** THE PORTED BRAMBLE (Twelve #1, 2026-10-25): seconds of
+   *  bramble underfoot accrued toward the thorn — one thorn
+   *  of harm per 2.8 s spent on the thicket's ground, as the
+   *  homeland's walk reckons it. */
+  thornAcc?: number;
 }
 
 /** A working of the Written Light on the field (Nigel, 2026-10-17:
@@ -468,6 +493,20 @@ interface Working {
    *  a Bulwark shield's; the working's hp/maxHp carry the
    *  same figure for the view. */
   wall?: { x: number; y: number; hp: number; maxHp: number } | null;
+  /** DEFENCE WORKS (the Table battle port — Twelve #1,
+   *  2026-10-25): an Awokin's raised work, ported whole from
+   *  the homeland's defence stance — engine "bramble" (a Root
+   *  defender's thicket) or "rockwall" (a Stone defender's
+   *  wall), kind "ward", sustained by the standing defender
+   *  (sustainer below) and pruned the moment she falls,
+   *  moves off her stance, or is recalled. The nodes are the
+   *  work's body, in stage pixels: true nodes carry their
+   *  point and wounds; a bramble's MOTES carry mote: 1, the
+   *  parent node's point (px/py), their birth (born) and the
+   *  watering bank (bank) the homeland's loop reckons. The
+   *  working's hp/maxHp carry the living nodes' sum, as the
+   *  homeland's defence-works ledger serves them. */
+  nodes?: { x: number; y: number; hp: number; maxHp: number; mote?: 1; px?: number; py?: number; born?: number; bank?: number }[];
   bornAt?: number;
   nextBiteAt?: number;
   bites?: number;
@@ -861,6 +900,25 @@ interface Room {
   /** PASSIVE WALLS (Phase C): when a passive ward on an edge
    *  is broken, the moment it may re-raise (edge|owner → at). */
   passiveRearm?: Map<string, number>;
+  /** THE STARSEED AT THE TABLE (the battle port — Twelve
+   *  #1, 2026-10-25): the room's seed — the centre tile's
+   *  fallen light — grows by FEEDING ONLY (Nigel's growth
+   *  law, ratified 2026-10-24): the fed energy gathered
+   *  from the seated Tenders' purses while their company
+   *  stands near, and the level the feeding has raised it
+   *  to. Level 2 purifies the seed's six neighbouring
+   *  tiles; level 3 stands the homeland's protection — no
+   *  dark is born within one ring of the seed. Nothing else
+   *  raises it: no defence, no victory, no wave. Campaign
+   *  rooms carry the growth between sittings on their saved
+   *  campaign record. */
+  seedGrowth: { level: number; fedEnergy: number };
+  /** THE FELL LEDGER (the battle port — Twelve #1): damage
+   *  each standing Awokin has dealt each dark thing, kept
+   *  off the enemy itself (a Map would not survive the state
+   *  serve) — the homeland's felling pot divides by these
+   *  weights when the dark falls. */
+  dmgBy: Map<string, Map<number, number>>;
 }
 
 const edgeKeyOf = (a: string, b: string): string => [a, b].sort().join("|");
@@ -1833,12 +1891,25 @@ function sharedState(room: Room) {
     dark: [...room.dark.values()].map(e => ({ ...e, pos: roundPos(e.pos), target: e.target ? roundPos(e.target) : null, moving: isMoving(e) })),
     workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
+    // THE STARSEED AT THE TABLE (the battle port): the
+    // room's seed and its growth by feeding — the level, the
+    // stage the level wears, the fed energy banked, and the
+    // fed measure of the next stage while one stands.
+    seed: {
+      level: room.seedGrowth.level,
+      stage: seedStageForLevel(room.seedGrowth.level),
+      fedEnergy: room.seedGrowth.fedEnergy,
+      nextStageAt: room.seedGrowth.level < 2 ? SEED_FED_FOR_LEVEL_2 : room.seedGrowth.level < 3 ? SEED_FED_FOR_LEVEL_3 : null,
+    },
     field: [...room.field.values()].map(u => ({
       hex: u.hex, cardId: u.card.id, awokenId: u.card.awokenId ?? null, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
       shield: u.shield, maxShield: u.maxShield,
       pos: roundPos(u.pos), tgt: u.target ? roundPos(u.target) : null, moving: isMoving(u),
       follow: !!u.follow,
+      // THE ORDERS (the battle port): her standing order —
+      // absent reads as attack, as on the homeland.
+      stance: u.stance ?? "attack",
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
@@ -1977,6 +2048,8 @@ async function getRoom(id: string): Promise<Room> {
       strikes: [],
       battle: { active: false, wave: 1, timer: null, ticking: false },
       roundNo: 0,
+      seedGrowth: { level: 1, fedEnergy: 0 },
+      dmgBy: new Map(),
     };
     rooms.set(id, room);
     if (campaignMode) restoreCampaignTale(room);
@@ -2209,6 +2282,29 @@ function integrate(room: Room, now: number): void {
     const standing = standingUnits(room);
     const seedCenter = TILE_CENTERS.get(SEED_TILE)!;
     for (const e of room.dark.values()) {
+      // DEFENCE WORKS (the battle port — Twelve #1):
+      // bramble ground hinders the walk. While any living
+      // node or mote of a standing bramble stands within
+      // 0.6 of a hex of the dark, its pace halves (the step
+      // below) and the thorns accrue — one harm per 2.8 s
+      // spent underfoot, as the homeland's walk reckons it.
+      // A thorn felling rides the one door with the work's
+      // owner as the felling seat and no striking Awokin —
+      // the homeland's thorn harm names no killer either;
+      // the fell ledger alone divides.
+      let onBramble: Working | null = null;
+      for (const w of room.workings) {
+        if (w.engine !== "bramble" || !w.nodes) continue;
+        if (w.nodes.some(n => n.hp > 0 && distPx(e.pos, n) <= 0.6 * 69)) { onBramble = w; break; }
+      }
+      if (onBramble) {
+        e.thornAcc = (e.thornAcc ?? 0) + dt;
+        while ((e.thornAcc ?? 0) >= 2.8 && e.hp > 0) {
+          e.thornAcc! -= 2.8;
+          e.hp -= 1;
+        }
+        if (e.hp <= 0) { fellDark(room, e, seatByKey(room, onBramble.ownerKey) ?? null); continue; }
+      }
       // THE PIN HOLDS THE FEET TOO (audit of 2026-10-20): a
       // dark the Lattice has bound "stands pinned" — the
       // book's own words — but the glide below never asked
@@ -2226,6 +2322,12 @@ function integrate(room: Room, now: number): void {
       // its own: a line of shields, in the Rock Wall's
       // working fashion, and the Rock Wall blocks.)
       if (nearestStandingWall(room, e.pos, 46)) { e.target = null; continue; }
+      // DEFENCE WORKS (the battle port): a rockwall bars
+      // the step as the homeland's wall bars it — a dark
+      // within 0.55 of a hex of a living stone goes no
+      // farther this beat; the strike pass below is where
+      // it hacks the stone down, one harm at a time.
+      if (room.workings.some(w => w.engine === "rockwall" && !!w.nodes && w.nodes.some(n => n.hp > 0 && distPx(e.pos, n) <= 0.55 * 69))) { e.target = null; continue; }
       // STEERING: the nearest standing light, if it can be clawed
       // or is nearer than the seed; otherwise the seed itself —
       // but at the gate (ring 1) it halts and assaults.
@@ -2251,7 +2353,7 @@ function integrate(room: Room, now: number): void {
       } else {
         e.target = { ...seedCenter };
       }
-      if (e.target) stepToward(e, 69 / (DARK_GAIT[e.kind] ?? 2.8), dt);
+      if (e.target) stepToward(e, (69 / (DARK_GAIT[e.kind] ?? 2.8)) * (onBramble ? 0.5 : 1), dt);
     }
   }
   for (const p of room.players.values()) {
@@ -2413,7 +2515,14 @@ function assignLanding(room: Room, player: Player): void {
 /** Where the dark is dealt: cursed ground, the rim first —
  *  the dark presses in from the instance's edge. */
 function darkGround(room: Room, count: number): string[] {
-  const cursed = [...room.map.values()].filter(t => t.cursed && !darkOn(room, t.id));
+  // THE BEACON'S PROTECTION (the battle port — Twelve #1):
+  // a seed fed to level 3 bars every birth within one ring
+  // of it — the homeland's footprint, standing here as it
+  // stands there (settleWanderers' exclusion). Every spawn
+  // door at the Table rides this ground, so the bar covers
+  // them all.
+  const guarded = room.seedGrowth.level >= 3;
+  const cursed = [...room.map.values()].filter(t => t.cursed && !darkOn(room, t.id) && !(guarded && axialDist(t.id, SEED_TILE) <= 1));
   cursed.sort((a, b) => ringOf(b.id) - ringOf(a.id) || Math.random() - 0.5);
   return cursed.slice(0, count).map(t => t.id);
 }
@@ -2686,6 +2795,13 @@ function roomPulse(room: Room): void {
   // hands the settling to runRound's clock, whose rounds
   // call sendState but never this pulse's landing.
   settleReinforcements(room);
+  // THE SEED'S FEEDING (the battle port — Twelve #1): the
+  // room's seed drinks on this pulse, in battle and out —
+  // only the seats present feed it, and only while their
+  // company stands near. In battle the round's own clock
+  // pushes the state; out of battle a changed seed pushes
+  // it below.
+  const seedChanged = settleTableSeedFeeding(room);
   if (room.battle.active) { room.witherAt = undefined; return; }
   if (![...room.players.values()].some(p => !p.watcher)) { room.witherAt = undefined; return; }
   const now = Date.now();
@@ -2699,7 +2815,7 @@ function roomPulse(room: Room): void {
   // (a swarm loosed before the wave is called still flies).
   const transient = room.workings.some(w => w.engine === "bats" || w.engine === "holdrune" || w.engine === "shatter");
   if (transient) processTransientWorkings(room, now, dtMs / 1000);
-  if (changed || attuned || transient) sendState(room);
+  if (changed || attuned || transient || seedChanged) sendState(room);
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -2744,9 +2860,42 @@ function swallowTheHeart(room: Room, seat: Player): void {
   tell(room, `Swallow the Heart — the kill feeds ${seat.name} and their standing Awokin (${amt} HP).`);
 }
 
-function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
+/** ONE DOOR FOR EVERY FELLING (the Table battle port —
+ *  Twelve #1, 2026-10-25). Every road that fells a dark
+ *  thing at this Table comes through here — an Awokin's
+ *  strike, a weapon's blow, a rune's springing, the Seal's
+ *  riposte, thorn harm on bramble ground — and the reckoning
+ *  is the homeland's, whole (the porting law: nothing
+ *  changed, nothing left out):
+ *    · THE PERSONAL TAKE, in every mode, when the felling
+ *      is a bound Tender's: Shadow matter on the homeland's
+ *      own roll (20%, paying the kind's AC bonus over 10 —
+ *      creditBattleKill's reckoning, actions.ts), the drop
+ *      table whole (f327708: rune shards 10% · items 35% ·
+ *      relics 5% · alchemy 10%, the guaranteed reagents per
+ *      fell by the kind's AC bonus, the spoken take in the
+ *      tale, the Pack behind it), and the Awokin XP pot
+ *      (XP_PER_ATTACK, 10, divided by the damage each
+ *      standing Awokin dealt the fallen — the room's fell
+ *      ledger — or to the felling Awokin alone when no
+ *      ledger stands, as the homeland's solo road pays).
+ *    · THE MODE PAYS, unchanged from the Table's own law:
+ *      campaign fells ride campaignFell; casual fells pay
+ *      the killer +3 energy, the Heart's fellHarvest on top
+ *      when the felling was her Awokin's strike
+ *      (opts.heartHarvest — the one extra the strike's own
+ *      copy of this reckoning carried), Tender EXP 2, and
+ *      the fell drip.
+ *  NOT CARRIED, named: the homeland's protection minutes.
+ *  They bank into the homeland lighthouse's own purse
+ *  (tender_progress.protection_bank_ms); the Table keeps no
+ *  lighthouse bank — its lighthouse is Twelve #2's hosted
+ *  land, not this port. */
+function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUnit: FieldUnit | null = null, opts: { heartHarvest?: boolean; slayerName?: string; unravelLine?: string } = {}): void {
   room.dark.delete(enemy.id);
-  tell(room, `The ${enemy.label} unravels!`);
+  const ledger = room.dmgBy.get(enemy.id);
+  room.dmgBy.delete(enemy.id);
+  tell(room, opts.unravelLine ?? (opts.slayerName ? `${opts.slayerName} unravels the ${enemy.label}!` : `The ${enemy.label} unravels!`));
   // The ground it held is freed by the felling (the Instance
   // Map): a cursed tile whose dark falls turns to the light —
   // as NEUTRAL ground, whatever struck the blow (Nigel,
@@ -2762,9 +2911,50 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null): void {
   // Swallow the Heart rides every felling a Tender's own
   // hand makes, campaign or free field alike.
   if (killer) swallowTheHeart(room, killer);
+  // THE PERSONAL TAKE (the port): the felling Tender's own
+  // purse, Pack and Awokin — in every mode, as the
+  // homeland's creditBattleKill pays them on every fell.
+  if (killer?.expKey) {
+    // SHADOW (the homeland's road, verbatim): the kind's
+    // AC bonus over 10, on a 20% roll, into her shadow
+    // matter. A fault here never breaks the kill.
+    const shadowBonus = enemyArmorBonus(enemy.kind);
+    if (shadowBonus > 0 && Math.random() < 0.2) {
+      try {
+        sqlite.prepare("UPDATE tender_progress SET shadow_matter = shadow_matter + ? WHERE owner_key = ?").run(shadowBonus, killer.expKey);
+      } catch { /* shadow is a purse, never a gate on the kill */ }
+    }
+    // THE DROP TABLE, WHOLE (f327708): the four rolled
+    // classes and the guaranteed reagents ride rolls the
+    // homeland's own module makes; the spoken take is
+    // drained and told in the room's tale, as the homeland
+    // tells it to the Tender. A drop fault is logged and
+    // never breaks the kill — the homeland's own wrapping.
+    try { rollFellDrops(killer.expKey, enemy.kind); }
+    catch (e) { console.error("[drops] fell drop failed:", e); }
+    for (const line of drainDropNotices(killer.expKey)) tell(room, line);
+    // AWOKIN XP: the felling pot, divided by damage where
+    // the ledger stands; the felling Awokin alone where it
+    // does not (a rune's springing, a riposte, thorn harm —
+    // the roads that name no striker carry the ledger only,
+    // as the homeland's tower volleys do).
+    if (ledger && [...ledger.values()].some(w => w > 0)) {
+      void grantDividedXpPot(XP_PER_ATTACK, ledger);
+    } else if (killerUnit && typeof killerUnit.card.awokenId === "number") {
+      void grantDividedXpPot(XP_PER_ATTACK, new Map([[killerUnit.card.awokenId, 1]]));
+    }
+  }
   if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer, groundElement); return; }
   if (killer && !killer.fallen) {
     killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
+    // The Harvest (the Heart, 2026-10-18): when YOUR Awoken
+    // fell the dark, the stars' fellHarvest clauses pay
+    // their ✦ on top of the base three — carried from the
+    // strike's own copy of this reckoning, whole.
+    if (opts.heartHarvest && killer.expKey) {
+      const hv = heartEffects(killer.expKey).harvestAmount;
+      if (hv !== 0) killer.energy = Math.max(0, Math.min(killer.maxEnergy + 10, killer.energy + hv));
+    }
     void payBattleExp(room, killer, 2, "The dark pays for its felling.");
     // THE FELL DRIP (Nigel, 2026-10-20: creatures beaten at
     // the Table drop attunement points): the killer's pools
@@ -3035,6 +3225,247 @@ function maintainPassiveWalls(room: Room, now: number): void {
   }
 }
 
+/** DEFENCE WORKS (the Table battle port — Twelve #1,
+ *  2026-10-25): the homeland's defence stance, whole. A
+ *  standing Awokin under the DEFEND order raises her work
+ *  when the dark comes within her reach + 2.5 hexes — the
+ *  homeland's engage measure — facing the nearest dark:
+ *  ROOT raises a BRAMBLE (one true node per worn part, each
+ *  node's health her own full health, standing 0.8 of a hex
+ *  ahead of her; three motes at each node's fringe, born
+ *  with the node, each mote's health the node's), STONE
+ *  raises a ROCKWALL (min(6, 3 + her level ÷ 3) stones at
+ *  the homeland's level health, one hex ahead). Nodes stand
+ *  spaced 0.55 of a hex along the line across her facing.
+ *  The work lives while she stands in defence: she falls,
+ *  is recalled, or leaves the order, and it falls with her —
+ *  the homeland's prune law. (The Table's passive edge
+ *  walls above are this room's older furniture and stand
+ *  untouched beside it.) */
+const DEFENCE_WORK_ENGAGE = 2.5;
+const WALL_HACK_DMG = 1;
+const BRAMBLE_MOTES_PER_NODE = 3;
+const BRAMBLE_MOTE_CAP = 12;
+const BRAMBLE_MOTE_FRINGE = 0.5;
+const BRAMBLE_MOTE_SPREAD_STEP = 0.55;
+const BRAMBLE_MOTE_SPREAD_COST = 10;
+
+function maintainDefenceWorks(room: Room, now: number): void {
+  // The prune: a work whose defender no longer stands in
+  // defence comes down; a work whose nodes are all dead is
+  // gone. The working's served health is its living sum.
+  room.workings = room.workings.filter(w => {
+    if (w.engine !== "bramble" && w.engine !== "rockwall") return true;
+    const unit = [...room.field.values()].find(u => unitKeyOf(u) === w.sustainer);
+    if (!unit || !unitStanding(room, unit) || (unit.stance ?? "attack") !== "defense") return false;
+    w.nodes = (w.nodes ?? []).filter(n => n.hp > 0);
+    if (w.nodes.length === 0) return false;
+    w.hp = w.nodes.reduce((a, n) => a + n.hp, 0);
+    return true;
+  });
+  // The raise.
+  for (const unit of standingUnits(room)) {
+    if ((unit.stance ?? "attack") !== "defense") continue;
+    if (isMoving(unit)) continue;
+    const el = unit.card.element;
+    if (el !== "stone" && el !== "root") continue;
+    if (room.workings.some(w => (w.engine === "bramble" || w.engine === "rockwall") && w.sustainer === unitKeyOf(unit))) continue;
+    const engagePx = ((ELEMENT_REACH[el] ?? 2) + DEFENCE_WORK_ENGAGE) * 69;
+    let near: EnemyUnit | null = null;
+    let nd = Infinity;
+    for (const e of room.dark.values()) {
+      const d = distPx(unit.pos, e.pos);
+      if (d < nd) { nd = d; near = e; }
+    }
+    if (!near || nd > engagePx) continue;
+    const fx = near.pos.x - unit.pos.x;
+    const fy = near.pos.y - unit.pos.y;
+    const fl = Math.hypot(fx, fy) || 1;
+    const dir = { x: fx / fl, y: fy / fl };
+    const perp = { x: -dir.y, y: dir.x };
+    const level = unit.card.level ?? 1;
+    const nodes: NonNullable<Working["nodes"]> = [];
+    if (el === "stone") {
+      const count = Math.min(6, 3 + Math.floor(level / 3));
+      const hpEach = rockWallHpForLevel(level);
+      const cx = unit.pos.x + dir.x * 69;
+      const cy = unit.pos.y + dir.y * 69;
+      for (let i = 0; i < count; i++) {
+        const off = (i - (count - 1) / 2) * 0.55 * 69;
+        nodes.push({ x: cx + perp.x * off, y: cy + perp.y * off, hp: hpEach, maxHp: hpEach, born: now, bank: 0 });
+      }
+    } else {
+      const count = Math.max(1, partsOf(unit.card).length || 4);
+      const hpEach = unit.maxHp;
+      const cx = unit.pos.x + dir.x * 0.8 * 69;
+      const cy = unit.pos.y + dir.y * 0.8 * 69;
+      for (let i = 0; i < count; i++) {
+        const off = (i - (count - 1) / 2) * 0.55 * 69;
+        const nx = cx + perp.x * off;
+        const ny = cy + perp.y * off;
+        nodes.push({ x: nx, y: ny, hp: hpEach, maxHp: hpEach, born: now, bank: 0 });
+        for (let k = 0; k < BRAMBLE_MOTES_PER_NODE; k++) {
+          const a = (k / BRAMBLE_MOTES_PER_NODE) * Math.PI * 2 + i * 0.9;
+          nodes.push({
+            x: nx + Math.cos(a) * BRAMBLE_MOTE_FRINGE * 69, y: ny + Math.sin(a) * BRAMBLE_MOTE_FRINGE * 69,
+            hp: hpEach, maxHp: hpEach, mote: 1, px: nx, py: ny, born: now, bank: 0,
+          });
+        }
+      }
+    }
+    const total = nodes.reduce((a, n) => a + n.hp, 0);
+    room.workings.push({
+      id: randomUUID(), kind: "ward", root: el === "root" ? "bramble" : "rockwall", engine: el === "root" ? "bramble" : "rockwall",
+      nums: {}, name: el === "root" ? "Bramble" : "Rockwall", hue: el,
+      ownerKey: unit.ownerKey, ownerName: unit.ownerName, hex: unit.hex, hexA: null, hexB: null,
+      hp: total, maxHp: total, pour: 0, stops: 0, charges: 0, sustainer: unitKeyOf(unit), nodes,
+    });
+    tell(room, el === "root"
+      ? `🌿 ${unit.card.name} raises a bramble in defence — the thicket stands while she does.`
+      : `🪨 ${unit.card.name} raises a rockwall in defence — the stones stand while she does.`);
+  }
+}
+
+/** WATERING AT THE TABLE (the battle port — Twelve #1):
+ *  the homeland's loop, whole. A Tide hand with no dark in
+ *  reach spends her ordinary strike on the nearest living
+ *  bramble mote in reach: the harm is her parts' fate dice
+ *  plus their powers (no d20, no crit — a mote has no AC),
+ *  with the standing Standard and Beacon bonuses a strike
+ *  of hers would carry; the harm BANKS on the mote, and
+ *  every full 10 banked spreads a new mote 0.55 of a hex
+ *  further along the mote's parent ray — if the ground is
+ *  there to hold it — chaining within one strike, up to 12
+ *  living motes on the work. Returns true when she watered
+ *  (her cadence is spent). The Table's field is one
+ *  alliance: any standing bramble may be watered, and the
+ *  bank and spread land in the work itself, whoever raised
+ *  it. No watchtower bonus rides — the Table keeps no
+ *  watchtowers. */
+function waterMoteAtTable(room: Room, unit: FieldUnit, now: number): boolean {
+  const reachPx = (ELEMENT_REACH[unit.card.element] ?? 2) * 69;
+  let work: Working | null = null;
+  let mote: NonNullable<Working["nodes"]>[number] | null = null;
+  let bd = Infinity;
+  for (const w of room.workings) {
+    if (w.engine !== "bramble" || !w.nodes) continue;
+    for (const n of w.nodes) {
+      if (!n.mote || n.hp <= 0) continue;
+      const d = distPx(unit.pos, n);
+      if (d <= reachPx && d < bd) { bd = d; work = w; mote = n; }
+    }
+  }
+  if (!work || !mote) return false;
+  const parts = partsOf(unit.card);
+  let raw = 0;
+  if (parts.length) {
+    for (const p of parts) raw += dN(FATE_DIE[p.element] ?? 6) + (p.power ?? 0);
+  } else {
+    raw += dN(FATE_DIE[unit.card.element] ?? 6) + (unit.card.power ?? 0);
+  }
+  const seat = seatByKey(room, unit.ownerKey);
+  const myEff = workingEffects(seat?.expKey);
+  const moteHex = nearestTileId({ x: mote.x, y: mote.y });
+  const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey &&
+    (w.hexA === moteHex || w.hexB === moteHex
+      || (myEff.bannerReach && ((w.hexA && neighborsOf(w.hexA).includes(unit.hex)) || (w.hexB && neighborsOf(w.hexB).includes(unit.hex))))));
+  const bcnWard = room.workings.find(w => {
+    if (w.engine !== "beacon") return false;
+    const oEff = workingEffects(seatByKey(room, w.ownerKey)?.expKey);
+    const rings = (oEff.brightPillar ? 1 : 0) + (oEff.fallingLight ? 1 : 0);
+    if (!beaconReach(w, rings).has(moteHex)) return false;
+    return w.ownerKey === unit.ownerKey || oEff.brightPillar;
+  });
+  raw += (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0) + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
+  mote.bank = (mote.bank ?? 0) + raw;
+  // The watering is witnessed as a strike is (the referee's
+  // witness lives inside runRound; the record is written
+  // here in its exact shape).
+  if (room.strikes.length < 40) {
+    room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos({ x: mote.x, y: mote.y }), element: "tide", side: "light", hit: true, killed: false, weapon: null });
+  }
+  const livingMotes = () => (work!.nodes ?? []).filter(n => n.mote && n.hp > 0).length;
+  while ((mote.bank ?? 0) >= BRAMBLE_MOTE_SPREAD_COST && livingMotes() < BRAMBLE_MOTE_CAP) {
+    const parent = { x: mote.px ?? unit.pos.x, y: mote.py ?? unit.pos.y };
+    let dir = { x: mote.x - parent.x, y: mote.y - parent.y };
+    let len = Math.hypot(dir.x, dir.y);
+    if (len < 1) { dir = { x: mote.x - unit.pos.x, y: mote.y - unit.pos.y }; len = Math.hypot(dir.x, dir.y); }
+    if (len < 1) break;
+    const step = BRAMBLE_MOTE_SPREAD_STEP * 69;
+    const pt = { x: mote.x + (dir.x / len) * step, y: mote.y + (dir.y / len) * step };
+    const centre = TILE_CENTERS.get(nearestTileId(pt));
+    if (!centre || distPx(pt, centre) > 69) break; // no ground there — nothing is spent
+    mote.bank -= BRAMBLE_MOTE_SPREAD_COST;
+    work.nodes!.push({ x: pt.x, y: pt.y, hp: mote.maxHp, maxHp: mote.maxHp, mote: 1, px: parent.x, py: parent.y, born: now, bank: 0 });
+  }
+  return true;
+}
+
+/** THE SEED'S FEEDING AT THE TABLE (the battle port —
+ *  Twelve #1): the homeland's passive feeding, whole.
+ *  Every seat PRESENT in the room (stepped-away seats sit
+ *  in room.away and are not reckoned — presence is the law)
+ *  whose company stands within SEED_FEED_REACH of the seed
+ *  tile feeds it from her purse — the campaign bank while a
+ *  seeded campaign lives, else her own energy, purseOf's
+ *  precedence — at SEED_FEED_PER_MINUTE, settled on the
+ *  room's pulse. The anchor walks at every reckoning and a
+ *  gap past five minutes banks nothing, exactly as the
+ *  homeland settles it; unpayable credit never banks past
+ *  a point. A rise purifies the seed's six neighbours at
+ *  level 2 (neutral ground, the homeland's birthright) and
+ *  stands the protection at level 3 — darkGround below
+ *  births nothing within one ring of a level-3 seed.
+ *  Returns true when the seed's state changed. */
+const SEED_FEED_GAP_MS = 5 * 60 * 1000;
+function settleTableSeedFeeding(room: Room): boolean {
+  const now = Date.now();
+  let changed = false;
+  for (const seat of room.players.values()) {
+    if (seat.watcher || seat.storytender) continue;
+    if (seat.seedFeedAnchorAt == null) { seat.seedFeedAnchorAt = now; seat.seedFeedCredit = seat.seedFeedCredit ?? 0; continue; }
+    const elapsed = now - seat.seedFeedAnchorAt;
+    seat.seedFeedAnchorAt = now;
+    if (elapsed <= 0 || elapsed > SEED_FEED_GAP_MS) continue;
+    const near = [...room.field.values()].some(u => u.ownerKey === seat.key && u.hp > 0 && axialDist(u.hex, SEED_TILE) <= SEED_FEED_REACH);
+    if (!near) continue;
+    let credit = (seat.seedFeedCredit ?? 0) + (elapsed / 60000) * SEED_FEED_PER_MINUTE;
+    const take = Math.min(Math.floor(credit), Math.floor(purseOf(room, seat)));
+    if (take > 0) {
+      let spent = false;
+      if (room.campaign && !room.campaign.over && room.campaign.seeded) {
+        if (room.campaign.bank >= take) { room.campaign.bank -= take; spent = true; }
+      } else if (seat.energy >= take) { seat.energy -= take; spent = true; }
+      if (spent) {
+        credit -= take;
+        room.seedGrowth.fedEnergy += take;
+        changed = true;
+        const prevLevel = room.seedGrowth.level;
+        const level = Math.max(prevLevel, seedLevelForFed(room.seedGrowth.fedEnergy));
+        if (level > prevLevel) {
+          room.seedGrowth.level = level;
+          const stage = seedStageForLevel(level);
+          tell(room, `⭐ The star-seed grows — it stands now a ${stage === "sapling" ? "Sapling" : stage === "beacon" ? "Beacon" : "Bastion"} of Light, raised by feeding alone.`);
+          // The Sapling's birthright fires whenever the
+          // rise CROSSES level 2 — a rich purse can carry a
+          // seed from Starseed to Beacon in one settling,
+          // and the ring's purification is not skipped.
+          if (prevLevel < 2 && level >= 2) {
+            for (const id of neighborsOf(SEED_TILE)) {
+              const t = room.map.get(id);
+              if (t && t.cursed) purifyTile(room, t, "neutral");
+            }
+          }
+          if (level === 3) tell(room, "⭐ The Beacon's light stands guard — no dark will be born on the ground around the seed.");
+        }
+      }
+    }
+    if (credit >= 2) credit = 1.999;
+    seat.seedFeedCredit = credit;
+  }
+  return changed;
+}
+
 // ── THE CAMPAIGN (Phase B, 2026-10-18) ───────────────────
 // The Harvest economy and the Storytender's instruments.
 // Tuning named where the design left it open (§8): the
@@ -3060,6 +3491,10 @@ function saveCampaign(room: Room): void {
       ...room.campaign,
       tale: room.tale.slice(-100),
       wave: room.battle.wave,
+      // THE STARSEED'S GROWTH rides the campaign's rest
+      // (the battle port, Twelve #1): a campaign seed fed to
+      // a stage keeps it between sittings.
+      seedGrowth: room.seedGrowth,
     };
     sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
       .run(`table.campaign.${room.id}`, JSON.stringify(snap), Date.now());
@@ -3076,6 +3511,10 @@ function loadCampaign(id: string): CampaignState {
       Object.assign(c, snap);
       delete (c as any).tale;
       delete (c as any).wave;
+      // The seed's growth is the ROOM's state, not the
+      // campaign's own body — restoreCampaignTale reads it
+      // off the same snapshot into the room.
+      delete (c as any).seedGrowth;
       c.reserve = Array.isArray(c.reserve) ? c.reserve.filter(k => k in ENEMY_STATS) : [];
     }
     // THE SEAT UNDER THE NEW LAW (Build 1): rests written
@@ -3102,6 +3541,9 @@ function restoreCampaignTale(room: Room): void {
     if (snap && !snap.over) {
       if (Array.isArray(snap.tale) && room.tale.length === 0) room.tale = snap.tale;
       if (typeof snap.wave === "number") room.battle.wave = snap.wave;
+      if (snap.seedGrowth && typeof snap.seedGrowth.level === "number" && typeof snap.seedGrowth.fedEnergy === "number") {
+        room.seedGrowth = { level: Math.max(1, Math.min(4, snap.seedGrowth.level)), fedEnergy: Math.max(0, snap.seedGrowth.fedEnergy) };
+      }
     }
   } catch {}
 }
@@ -3779,6 +4221,12 @@ async function runRound(room: Room): Promise<void> {
     // grip, and Rune Shatter's held stream, on this same tick.
     processTransientWorkings(room, now, dtSec);
     maintainPassiveWalls(room, now);
+    // DEFENCE WORKS (the battle port — Twelve #1): the
+    // defence order's raised brambles and rockwalls are
+    // maintained on this same tick — raised when the dark
+    // comes near a standing defender, pruned the moment
+    // she leaves the order or the field.
+    maintainDefenceWorks(room, now);
     // The standing strike first — under FATE (Nigel,
     // 2026-10-17): a d20 against the dark thing's AC;
     // the element and the level lend the bonus; landed harm
@@ -3840,39 +4288,24 @@ async function runRound(room: Room): Promise<void> {
         + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
       const dmg = fateMitigate(raw, target.armor, unit.card.level ?? 1);
       target.hp -= dmg;
+      // THE FELL LEDGER (the battle port): her damage is
+      // weighed for the felling pot — real Awokin only;
+      // stand-ins have no ledger body to pay.
+      if (typeof unit.card.awokenId === "number") {
+        let per = room.dmgBy.get(target.id);
+        if (!per) { per = new Map(); room.dmgBy.set(target.id, per); }
+        per.set(unit.card.awokenId, (per.get(unit.card.awokenId) ?? 0) + dmg);
+      }
       witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
       if (crit) tell(room, roll === 20
         ? `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`
         : `${unit.card.name}'s strike lands critical on a ${roll} — the blow lands true and terrible (${dmg})!`);
       if (target.hp <= 0) {
-        room.dark.delete(target.id);
-        tell(room, `${unit.card.name} unravels the ${target.label}!`);
-        // Swallow the Heart: her Awokin made the kill.
-        if (ownerSeat) swallowTheHeart(room, ownerSeat);
-        const freedTile = room.map.get(target.hex);
-        // The element the ground held as the dark fell on
-        // it, read before the freeing — the drip's element.
-        const groundElement = freedTile?.element ?? null;
-        // Freed ground is NEUTRAL ground (Nigel, 2026-10-20):
-        // the felling frees it, it does not attune it.
-        if (freedTile) purifyTile(room, freedTile, "neutral");
-        const owner = seatByKey(room, unit.ownerKey);
-        if (room.campaign && !room.campaign.over) {
-          campaignFell(room, target, owner ?? null, groundElement);
-        } else if (owner && !owner.fallen) {
-          owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3); // the harvest
-          // The Harvest (the Heart, 2026-10-18): when YOUR
-          // Awoken fell the dark, the stars' fellHarvest
-          // clauses pay their ✦ on top of the base three.
-          const hv = owner.expKey ? heartEffects(owner.expKey).harvestAmount : 0;
-          if (hv !== 0) {
-            owner.energy = Math.max(0, Math.min(owner.maxEnergy + 10, owner.energy + hv));
-          }
-          await payBattleExp(room, owner, 2, "The dark pays for its felling.");
-          // THE FELL DRIP (Nigel, 2026-10-20): the owner's
-          // pools may catch the drip, beside the harvest.
-          if (owner.expKey) void payFellDrip(owner.expKey, groundElement);
-        }
+        // ONE DOOR (the battle port): the strike's kill
+        // rides fellDark whole — this strike copy carried
+        // the Heart's fellHarvest, so it rides as an option;
+        // nothing else of the old copy remains.
+        fellDark(room, target, ownerSeat ?? null, unit, { heartHarvest: true, slayerName: unit.card.name });
       }
     };
     for (const unit of [...room.field.values()]) {
@@ -3881,9 +4314,44 @@ async function runRound(room: Room): Promise<void> {
       if (isMoving(unit)) continue; // on the move: no strikes
       if ((unit.pinnedUntil ?? 0) > now) continue; // pinned: the moments pass
       if (now < (unit.nextStrike ?? 0)) continue; // the cadence has not come round
-      if (![...room.dark.values()].some(e => distPx(unit.pos, e.pos) <= (ELEMENT_REACH[unit.card.element] ?? 2) * 69)) continue;
-      unit.nextStrike = now + lightIntervalMs(unit);
-      await strikeOnce(unit);
+      const reachPx = (ELEMENT_REACH[unit.card.element] ?? 2) * 69;
+      // THE ORDERS (the battle port — Twelve #1): a unit
+      // under BINDING spends her cadence mending, not
+      // striking — the most-wounded of her own company in
+      // reach, by her element's fate die, the homeland's
+      // stance amount exactly. No wounded ally in reach:
+      // she waits, her cadence unspent, as a striker waits
+      // with no dark in reach.
+      if ((unit.stance ?? "attack") === "binding") {
+        let ally: FieldUnit | null = null;
+        let worst = 1;
+        for (const u of room.field.values()) {
+          if (u === unit || u.ownerKey !== unit.ownerKey || u.hp <= 0 || u.hp >= u.maxHp) continue;
+          if (distPx(unit.pos, u.pos) > reachPx) continue;
+          const ratio = u.hp / u.maxHp;
+          if (ratio < worst) { worst = ratio; ally = u; }
+        }
+        if (ally) {
+          unit.nextStrike = now + lightIntervalMs(unit);
+          const amt = dN(FATE_DIE[unit.card.element] ?? 6);
+          ally.hp = Math.min(ally.maxHp, ally.hp + amt);
+          witness(unit.pos, ally.pos, unit.card.element ?? "unaligned", "light", true, false);
+        }
+        continue;
+      }
+      if ([...room.dark.values()].some(e => distPx(unit.pos, e.pos) <= reachPx)) {
+        unit.nextStrike = now + lightIntervalMs(unit);
+        await strikeOnce(unit);
+        continue;
+      }
+      // WATERING (the battle port — Twelve #1): a Tide hand
+      // with no dark in reach spends her ordinary strike on
+      // the nearest living bramble mote in reach, as the
+      // homeland's loop does — the bank and the spread ride
+      // waterMoteAtTable.
+      if (unit.card.element === "tide" && waterMoteAtTable(room, unit, now)) {
+        unit.nextStrike = now + lightIntervalMs(unit);
+      }
     }
     // THE RUNIC WEAPON STRIKES (Phase B): a Tender's wielded
     // weapon — its key read LIVE at strike time, never
@@ -4053,6 +4521,49 @@ async function runRound(room: Room): Promise<void> {
           continue;
         }
       }
+      // DEFENCE WORKS (the battle port — Twelve #1): the
+      // homeland's wall hack, at the Table's interception
+      // measure. A living rockwall stone — or a bramble
+      // MOTE — standing in the dark's face (within 0.75 of a
+      // hex, and no standing light nearer) is hacked for 1
+      // instead of a strike: the strike is spent, the node
+      // bears the harm, and a node worn to nothing hinders
+      // no more. A bramble's TRUE nodes are never hacked —
+      // they stand while their defender stands, as the
+      // homeland holds them.
+      {
+        let hackWork: Working | null = null;
+        let hackNode: NonNullable<Working["nodes"]>[number] | null = null;
+        let hackD = Infinity;
+        for (const w of room.workings) {
+          if ((w.engine !== "rockwall" && w.engine !== "bramble") || !w.nodes) continue;
+          for (const n of w.nodes) {
+            if (n.hp <= 0) continue;
+            if (w.engine === "bramble" && !n.mote) continue; // true nodes are never hacked
+            const d = distPx(enemy.pos, n);
+            if (d <= 0.75 * 69 && d < hackD) { hackD = d; hackWork = w; hackNode = n; }
+          }
+        }
+        const nearestUnitD2 = inReach.length ? Math.min(...inReach.map(u => distPx(enemy.pos, u.pos))) : Infinity;
+        if (hackWork && hackNode && hackD <= nearestUnitD2) {
+          if (now < (enemy.nextStrike ?? 0)) continue;
+          enemy.nextStrike = now + darkIntervalMs(enemy);
+          enemy.struck = true;
+          hackNode.hp -= WALL_HACK_DMG;
+          hackWork.hp = (hackWork.nodes ?? []).reduce((sum, x) => sum + Math.max(0, x.hp), 0);
+          witness({ x: hackNode.x, y: hackNode.y }, enemy.pos, hackWork.hue && hackWork.hue !== "unaligned" ? hackWork.hue : "unaligned", "dark", true, hackNode.hp <= 0);
+          if (hackNode.hp <= 0) {
+            tell(room, hackWork.engine === "rockwall"
+              ? `A stone of ${hackWork.name} is hacked through and falls — the ${enemy.label} stands in the gap.`
+              : `A mote of ${hackWork.name} is hacked down by the ${enemy.label} — the thicket thins there.`);
+            if (hackWork.engine === "rockwall" && !(hackWork.nodes ?? []).some(n => n.hp > 0)) {
+              room.workings = room.workings.filter(x => x !== hackWork);
+              tell(room, `${hackWork.name} stands no more — its last stone has fallen.`);
+            }
+          }
+          continue;
+        }
+      }
       if (inReach.length > 0) {
         if (now < (enemy.nextStrike ?? 0)) continue;
         enemy.nextStrike = now + darkIntervalMs(enemy);
@@ -4135,26 +4646,12 @@ async function runRound(room: Room): Promise<void> {
             seal.hp -= enemy.power;
             tell(room, `${seal.name} stops the ${enemy.label}'s strike cold — and answers it.`);
             if (enemy.hp <= 0) {
-              room.dark.delete(enemy.id);
-              tell(room, `The ${enemy.label} unravels on the Seal's light!`);
-              const freedTile = room.map.get(enemy.hex);
-              // The element the ground held as the dark fell
-              // on it, read before the freeing — the drip's.
-              const groundElement = freedTile?.element ?? null;
-              // Freed ground is NEUTRAL ground (Nigel,
-              // 2026-10-20): the Seal's answer frees it, it
-              // does not attune it — only the Tender attunes.
-              if (freedTile) purifyTile(room, freedTile, "neutral");
-              const owner = seatByKey(room, seal.ownerKey);
-              if (room.campaign && !room.campaign.over) {
-                campaignFell(room, enemy, owner ?? null, groundElement);
-              } else if (owner && !owner.fallen) {
-                owner.energy = Math.min(owner.maxEnergy + 10, owner.energy + 3);
-                await payBattleExp(room, owner, 2, "The dark pays for its felling.");
-                // THE FELL DRIP (Nigel, 2026-10-20): the
-                // Seal's Tender may catch the drip too.
-                if (owner.expKey) void payFellDrip(owner.expKey, groundElement);
-              }
+              // ONE DOOR (the battle port): the riposte's
+              // kill rides fellDark whole — the personal
+              // take and Swallow the Heart now ride it too,
+              // as they ride every other felling at this
+              // Table; its own unravel line is kept.
+              fellDark(room, enemy, sealSeat ?? null, null, { unravelLine: `The ${enemy.label} unravels on the Seal's light!` });
             }
             if (seal.stops >= (seal.nums.stops ?? 3)) {
               room.workings = room.workings.filter(w => w !== seal);
@@ -5114,6 +5611,41 @@ function handleConnection(ws: WebSocket): void {
     // mustering to their side whenever they arrive somewhere.
     // Hold: it keeps the ground it stands on. Only Awokin
     // ordered to follow, follow — the rest hold ground.
+    // THE ORDERS (the battle port — Twelve #1, 2026-10-25):
+    // the homeland's standing orders at the Table — attack,
+    // defend, bind — given through the orders wheel. An
+    // order costs nothing here: the Table's orders ride the
+    // wheel free, as march and follow do (the homeland's
+    // 1-energy price is a homeland-purse price, named as
+    // such in the port's report). Leaving the defence order
+    // brings her raised work down in the same act.
+    if (msg.type === "setStance") {
+      if (!player) return;
+      if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
+      if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender gives orders." })); return; }
+      const cardId = String(msg.cardId ?? "");
+      const stance = String(msg.stance ?? "");
+      if (stance !== "attack" && stance !== "defense" && stance !== "binding") {
+        ws.send(JSON.stringify({ type: "error", message: "No such order — attack, defend, or bind." }));
+        return;
+      }
+      const myKey = player.key;
+      const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
+      if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
+      if ((unit.stance ?? "attack") === stance) { sendState(room); return; }
+      unit.stance = stance;
+      if (stance !== "defense") {
+        room.workings = room.workings.filter(w => !((w.engine === "bramble" || w.engine === "rockwall") && w.sustainer === unitKeyOf(unit)));
+      }
+      tell(room, stance === "defense"
+        ? `🛡 ${unit.card.name} takes the defence order — she will strike, and raise her work against the dark.`
+        : stance === "binding"
+          ? `🕊 ${unit.card.name} takes the binding order — she will mend the most-wounded of your company in her reach.`
+          : `⚔ ${unit.card.name} takes the attack order.`);
+      sendState(room);
+      return;
+    }
+
     if (msg.type === "setFollow") {
       if (!player) return;
       if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
