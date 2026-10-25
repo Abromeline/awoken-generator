@@ -12436,10 +12436,23 @@ export const handlers = {
   async getFirstSeedEvent(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     await settleFirstSeedEvent(ownerKey);
+    // HAS A BEACON AT ALL (Nigel, 2026-10-25 19:44: "it need
+    // to actually check if a player has a beacon before
+    // telling me i cant take my land to the disc. i have
+    // two beacons"): the beacon gate's truth is not the
+    // first seed EVENT's reported level — it is whether any
+    // of her seeds STANDS at Beacon stage in star_seeds, by
+    // the same standing test the battle settle reads for a
+    // Beacon's protection: level >= 3 with state fallen,
+    // held or first. Fetched and corrupted seeds do not
+    // stand and do not count. Computed here, beside the
+    // event, so every return below carries it — a Tender
+    // with no event row left can still hold a Beacon.
+    const hasBeacon = !!sqlite.prepare("SELECT id FROM star_seeds WHERE owner_key = ? AND level >= 3 AND state IN ('fallen','held','first') LIMIT 1").get(ownerKey);
     const ev = firstSeedEventRow(ownerKey);
-    if (!ev) return { event: null };
+    if (!ev) return { event: null, hasBeacon };
     const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey) as any;
-    if (!seed) return { event: null };
+    if (!seed) return { event: null, hasBeacon };
     const tile = await db.select().from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.id, seed.tile_id)).limit(1);
     const placements = await db.select().from(schema.fieldPlacements)
@@ -12449,6 +12462,7 @@ export const handlers = {
       defenders.push({ awakenedId: p.awakenedId, hp: p.hp ?? (await placementMaxHp(p.awakenedId)), maxHp: await placementMaxHp(p.awakenedId) });
     }
     return {
+      hasBeacon,
       event: {
         seedId: seed.id,
         seedLevel: Number(seed.level ?? 1),

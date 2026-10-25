@@ -2425,18 +2425,24 @@ export function App() {
     const patrolThree = [...tenderItems].sort((a, b) => a.id - b.id).slice(0, 3);
     const firstSeedEv = firstSeedQ.data?.event ?? null;
     // THE BEACON GATE (Nigel, 2026-10-25 16:11–16:12): the
-    // beacon button beside "The Table" wakes only once the
-    // Tender's first beacon has been lit ON THE MAP — the
-    // first seed grown to Beacon on the homeland. The record
-    // that carries it is the first seed's own growth, served
-    // by the first-seed event the page already reads: its
-    // level only ever rises (feeding is its road), and the
-    // crossing lays the event done — a standing state from
-    // that lighting onward, not the lighthouse switch's
+    // beacon button beside "The Table" wakes only once a
+    // beacon has been lit ON THE MAP — a seed grown to
+    // Beacon standing on the homeland, a standing state
+    // from that lighting onward, not the lighthouse switch's
     // present flame (which a Tender may douse and relight;
-    // no ever-lit word is kept for it, and none is needed:
-    // the grown Beacon is the achievement).
-    const firstBeaconLit = !!firstSeedEv && firstSeedEv.seedLevel >= 3;
+    // the grown Beacon is the achievement). THE CHECK
+    // CORRECTED (Nigel, 2026-10-25 19:44: "it need to
+    // actually check if a player has a beacon before
+    // telling me i cant take my land to the disc. i have
+    // two beacons"): the gate first read ONLY the first
+    // seed event's reported level, so a Tender whose
+    // beacons stand — a later seed grown to Beacon, two of
+    // them — was still told to light her first beacon and
+    // shown the meteor. The gate now reads the server's
+    // hasBeacon, reckoned from her star_seeds themselves:
+    // any seed standing at Beacon stage counts, whatever
+    // the first seed's event reports.
+    const firstBeaconLit = !!firstSeedQ.data?.hasBeacon;
     const showPatrolBanner = tenderItems.length >= 20 && !!patrolTerritoryQ.data
       && (patrolTerritoryQ.data.tiles.length === 0
         || (!!firstSeedEv && !firstSeedEv.banked && firstSeedEv.state !== "done"));
