@@ -408,6 +408,23 @@ interface EnemyUnit {
   thornAcc?: number;
 }
 
+/** One of the dark as a DEAL struck it, before it stands:
+ *  the foe whole — its kind and the body the dealing door
+ *  gave it — carried by the held deal (Room.pendingDark)
+ *  until the furthest cursed ring has room for it to stand.
+ *  (Nigel, 2026-10-25: a deal that can't fit on the ring is
+ *  held and dealt in as the first foes move inward — never
+ *  placed deeper, never dropped.) */
+interface PendingDark {
+  kind: string;
+  label: string;
+  art: string | null;
+  power: number;
+  hp: number;
+  armor: number;
+  lvl: number;
+}
+
 /** A working of the Written Light on the field (Nigel, 2026-10-17:
  *  the glyphs and their functions come to the Table). WARDS stand
  *  on the edge between two hexes (hexA/hexB); RUNES are written
@@ -881,6 +898,28 @@ interface Room {
   workings: Working[];
   enemies: { name: string; label: string; note: string; art: string | null }[];
   dark: Map<string, EnemyUnit>;
+  /** THE HELD DEAL (Nigel, 2026-10-25): dark a dealing door
+   *  struck that the furthest cursed ring could not yet
+   *  hold. The referee deals it in as ring ground frees —
+   *  the first foes moving inward, or falling — and it is
+   *  never placed deeper and never dropped. In a campaign
+   *  room it rides the adjournment with the campaign's rest. */
+  pendingDark: PendingDark[];
+  /** THE ENTRY BEAT (the free field, Nigel, 2026-10-25):
+   *  the stamp the casual field's own entry pressure last
+   *  dealt at — its beats are the homeland cradle's ~45 s,
+   *  and beats missed while the field stood full or the
+   *  ring stood blocked are spent, never banked. */
+  entryAt?: number;
+  /** THE PROVOKE (Nigel, 2026-10-25 10:41): "they dont
+   *  start doing that until the tenders start attacking
+   *  the curse" — the free field's entry does not begin on
+   *  a room's opening or on any clock. This word stands
+   *  once a seated Tender's Awokin has struck the curse in
+   *  this room (the strikeCurse act); before that blow the
+   *  room stands quiet while Tenders gather, summon and
+   *  prepare, and no ambient dark is dealt at all. */
+  curseStruck?: boolean;
   battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean; lastTick?: number; beatAcc?: number };
   /** The continuous referee's strike ledger counter, and the
    *  last moment the seed-assault's warning was told. */
@@ -2092,6 +2131,7 @@ async function getRoom(id: string): Promise<Room> {
       workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
+      pendingDark: [],
       bastion: null,
       strikes: [],
       battle: { active: false, wave: 1, timer: null, ticking: false },
@@ -2792,14 +2832,25 @@ function assignLanding(room: Room, player: Player): void {
   }
 }
 
-/** Where the dark is dealt: cursed ground, the rim first —
- *  the dark presses in from the instance's edge. */
+/** Where the dark is dealt: THE FURTHEST RING OF THE CURSE,
+ *  and nowhere else (Nigel, 2026-10-25: "enemies should
+ *  always spawn at the further post ring of the curse and
+ *  slowly make their way in from there. On all tables. Not
+ *  spawning randomly in any cursed tile"). The picker reads
+ *  the greatest ring that currently holds cursed ground and
+ *  offers only that ring's free tiles — randomness may
+ *  choose among them, nowhere else. A deal that asks for
+ *  more than the ring holds gets only what the ring holds;
+ *  the rest is the dealing door's to hold (placeDark's
+ *  callers queue it in room.pendingDark), never spilled
+ *  inward to nearer cursed ground. */
 function darkGround(room: Room, count: number): string[] {
   // THE LIGHT HOLDS THE GROUND (Twelve #2): while the host's
   // lighthouse stands lit over hosted land — one bank, one
   // Shadow hoard, the whole homeland mechanism — NO dark is
-  // dealt onto it, by any door: waves, bastion calls and the
-  // storyteller's deals alike ride this one ground-picker.
+  // dealt onto it, by any door: bastion calls, the
+  // storyteller's deals and the free field's own entry alike
+  // ride this one ground-picker.
   if (hostedLightStanding(room)) return [];
   // THE BEACON'S PROTECTION (the battle port — Twelve #1):
   // a seed fed to level 3 bars every birth within one ring
@@ -2809,8 +2860,125 @@ function darkGround(room: Room, count: number): string[] {
   // them all.
   const guarded = room.seedGrowth.level >= 3;
   const cursed = [...room.map.values()].filter(t => t.cursed && !darkOn(room, t.id) && !(guarded && axialDist(t.id, SEED_TILE) <= 1));
-  cursed.sort((a, b) => ringOf(b.id) - ringOf(a.id) || Math.random() - 0.5);
-  return cursed.slice(0, count).map(t => t.id);
+  if (!cursed.length) return [];
+  const rim = Math.max(...cursed.map(t => ringOf(t.id)));
+  const ringTiles = cursed.filter(t => ringOf(t.id) === rim);
+  ringTiles.sort(() => Math.random() - 0.5);
+  return ringTiles.slice(0, count).map(t => t.id);
+}
+
+/** Stand dealt dark on the field: as many of the struck
+ *  foes as the furthest cursed ring currently holds, each
+ *  on ring ground picked by darkGround; the written ground
+ *  is then sprung under the standing dark, as the dealing
+ *  doors before this one sprang it (a sprung rune is
+ *  spent, so no ground springs twice). Returns how many
+ *  stood; the caller holds the rest (the held deal) —
+ *  placing deeper is not done here or anywhere. */
+function placeDark(room: Room, foes: PendingDark[]): number {
+  if (!foes.length) return 0;
+  const spots = darkGround(room, foes.length);
+  let placed = 0;
+  for (const hex of spots) {
+    const f = foes[placed];
+    if (!f) break;
+    const foe: EnemyUnit = {
+      id: nextDarkId(),
+      hex, kind: f.kind, label: f.label, art: f.art,
+      power: f.power, hp: f.hp, maxHp: f.hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
+      armor: f.armor, lvl: f.lvl, speedGauge: 0,
+    };
+    room.dark.set(foe.id, foe);
+    placed++;
+  }
+  if (placed > 0) for (const hex of new Set([...room.dark.values()].map(e => e.hex))) springHex(room, hex, new Set());
+  return placed;
+}
+
+/** THE HELD DEAL, DEALT IN (Nigel, 2026-10-25): "if a deal
+ *  can't fit it sends another after the first begins to
+ *  move." On the room's standing pulse the referee retries
+ *  what a deal could not place: as furthest-ring ground
+ *  frees — the first foes walking inward off it, or
+ *  falling — the next held foe steps onto the ring. Held
+ *  dark is never placed deeper and never dropped; while
+ *  the host's lighthouse stands lit, darkGround offers no
+ *  ground at all and the held deal simply waits. Foes
+ *  standing on the field means the battle is joined, as
+ *  every dealing door before this one has held. */
+function settlePendingDark(room: Room): boolean {
+  const pending = room.pendingDark ?? (room.pendingDark = []);
+  if (!pending.length) return false;
+  if (!room.battle.active && ![...room.players.values()].some(p => !p.watcher)) return false;
+  const placed = placeDark(room, pending);
+  if (placed <= 0) return false;
+  room.pendingDark = pending.slice(placed);
+  if (!room.battle.active) {
+    room.battle.active = true;
+    startBattleTimer(room);
+  }
+  return true;
+}
+
+/** THE FREE FIELD'S OWN ENTRY (Nigel, 2026-10-25: the
+ *  beginning-of-waves button is removed "and enemies just
+ *  start at intensity one like they do on homeland"; and
+ *  the same morning's refinement, 10:41: "they dont start
+ *  doing that until the tenders start attacking the
+ *  curse"). No hand begins the casual field's Unraveling,
+ *  and no clock does either: the entry begins only once
+ *  the room's Tenders have struck the curse (the PROVOKE,
+ *  room.curseStruck, struck in the strikeCurse act) —
+ *  before that blow the room stands quiet while Tenders
+ *  gather, summon and prepare. After it, while a standing
+ *  Tender sits at a free (non-campaign, no-call) table,
+ *  the dark presses in on its own — a trickle at a
+ *  time, on the homeland cradle's own measures: its ~45 s
+ *  beat (the cradle's SPAWN_BEAT_MS), its intensity-one
+ *  standing cap (8 + 2×(intensity−1), read at intensity
+ *  one: eight of the dark, no more, however long the field
+ *  stands), and every foe at its base, intensity-one body
+ *  — filed power and health, level one, the kind's own AC,
+ *  no ladder of any kind riding on it. The kinds are the
+ *  Table's own dealt mix, as the removed wave door dealt
+ *  them. Entry deals only onto the furthest cursed ring
+ *  (darkGround), and only while the ring has room: a beat
+ *  that finds the ring blocked is spent unbanked, and the
+ *  next pulse retries the moment ground frees — the held
+ *  deal's own law, spoken for the field itself. */
+const ENTRY_BEAT_MS = 45000, ENTRY_CAP = 8, ENTRY_PER_BEAT = 2;
+const ENTRY_KINDS = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
+function settleCasualEntry(room: Room, now: number): boolean {
+  if (room.campaign || room.bastion) return false;
+  // THE PROVOKE (Nigel, 2026-10-25 10:41): the dark does
+  // not begin entering until the Tenders start attacking
+  // the curse — before this room's first curse strike,
+  // no ambient dark is dealt at all, however long the
+  // room stands open.
+  if (!room.curseStruck) return false;
+  if (hostedLightStanding(room)) return false;
+  if (room.dark.size >= ENTRY_CAP) return false;
+  if (![...room.players.values()].some(p => !p.watcher && !p.fallen)) return false;
+  if (room.entryAt != null && now - room.entryAt < ENTRY_BEAT_MS) return false;
+  const fieldWasEmpty = room.dark.size === 0 && !room.battle.active;
+  const want = Math.min(ENTRY_PER_BEAT, ENTRY_CAP - room.dark.size);
+  const foes: PendingDark[] = [];
+  for (let i = 0; i < want; i++) {
+    const kind = ENTRY_KINDS[Math.floor(Math.random() * ENTRY_KINDS.length)];
+    const base = ENEMY_STATS[kind];
+    const face = room.enemies.find(e => e.name === kind);
+    foes.push({ kind, label: face?.label ?? kind, art: face?.art ?? null, power: base.power, hp: base.hp, armor: enemyACFor(kind), lvl: 1 });
+  }
+  const placed = placeDark(room, foes);
+  if (placed <= 0) return false;
+  room.entryAt = now;
+  if (!room.battle.active) {
+    room.battle.active = true;
+    room.roundNo = 0;
+    startBattleTimer(room);
+  }
+  if (fieldWasEmpty) tell(room, `The dark presses in from the curse's edge — ${placed} of the dark take the field.`);
+  return true;
 }
 
 /** The curse withers its guests (attrition, Nigel,
@@ -3082,6 +3250,15 @@ function roomPulse(room: Room): void {
   // hands the settling to runRound's clock, whose rounds
   // call sendState but never this pulse's landing.
   settleReinforcements(room);
+  // THE DEALING HAND (Nigel, 2026-10-25): the same pulse is
+  // where held deals are retried and where the free field's
+  // dark enters on its own — in battle and out, for both
+  // are the room's standing weather, not any battle's act.
+  // A placing starts the battle clock itself (placeDark's
+  // doors do), and runRound's own sendState carries the
+  // news; a pulse that placed nothing changed nothing.
+  settlePendingDark(room);
+  settleCasualEntry(room, Date.now());
   // THE SEED'S FEEDING (the battle port — Twelve #1): the
   // room's seed drinks on this pulse, in battle and out —
   // only the seats present feed it, and only while their
@@ -3812,6 +3989,10 @@ function saveCampaign(room: Room): void {
       // (the battle port, Twelve #1): a campaign seed fed to
       // a stage keeps it between sittings.
       seedGrowth: room.seedGrowth,
+      // THE HELD DEAL rides the rest beside it (2026-10-25):
+      // dark the Storytender dealt that has not yet stood
+      // is still dealt when the room opens again.
+      pendingDark: room.pendingDark ?? [],
     };
     sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
       .run(`table.campaign.${room.id}`, JSON.stringify(snap), Date.now());
@@ -3860,6 +4041,9 @@ function restoreCampaignTale(room: Room): void {
       if (typeof snap.wave === "number") room.battle.wave = snap.wave;
       if (snap.seedGrowth && typeof snap.seedGrowth.level === "number" && typeof snap.seedGrowth.fedEnergy === "number") {
         room.seedGrowth = { level: Math.max(1, Math.min(4, snap.seedGrowth.level)), fedEnergy: Math.max(0, snap.seedGrowth.fedEnergy) };
+      }
+      if (Array.isArray(snap.pendingDark)) {
+        room.pendingDark = snap.pendingDark.filter((f: any) => f && typeof f.kind === "string" && f.kind in ENEMY_STATS && typeof f.hp === "number");
       }
     }
   } catch {}
@@ -3994,6 +4178,10 @@ function endCampaign(room: Room, how: "ended" | "fallen"): void {
   c.over = how;
   endBattle(room);
   room.dark.clear();
+  // The campaign's held deal goes with its tale: dark the
+  // Storytender dealt that never stood is un-dealt by the
+  // ending, as the standing dark is cleared.
+  room.pendingDark = [];
   // The campaign's end is a battle end (build 2): fielded
   // Awokin outside their Tender's party truly dissipate.
   dissipateFieldedNonParty(room);
@@ -4219,61 +4407,35 @@ function settleShardsAndFade(room: Room): void {
   }
 }
 
-function dealWave(room: Room): void {
-  for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false; }
-  const wave = room.battle.wave;
-  const kinds = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
-  const spots = darkGround(room, 3 + (wave - 1) * 2);
-  const count = spots.length;
-  for (const hex of spots) {
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    const base = ENEMY_STATS[kind];
-    const rosterFace = room.enemies.find(e => e.name === kind);
-    const hp = base.hp + (wave - 1);
-    const foe: EnemyUnit = {
-      id: nextDarkId(),
-      hex, kind, label: rosterFace?.label ?? kind, art: rosterFace?.art ?? null,
-      power: base.power + Math.floor((wave - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
-      // The AC is read live off the kind's workshop record
-      // (base 10 + bonus); the wave scaling rides on top.
-      armor: enemyACFor(kind) + Math.floor((wave - 1) / 3), lvl: wave, speedGauge: 0,
-    };
-    room.dark.set(foe.id, foe);
-  }
-  for (const hex of spots) springHex(room, hex, new Set());
-  room.battle.active = true;
-  room.roundNo = 0;
-  tell(room, `Wave ${wave} is dealt — ${count} of the dark take the field.`);
-  startBattleTimer(room);
-}
-
 /** The column takes the field (the Columns, 2026-10-17): the
  *  roster's true kinds and numbers, at the field's far edges,
- *  with the column's own hardened power and health. */
+ *  with the column's own hardened power and health. The
+ *  edges it stands on are the furthest cursed ring's, as at
+ *  every door (Nigel, 2026-10-25): a column larger than the
+ *  ring holds is dealt in as the ring frees — its remainder
+ *  waits in the held deal, never placed deeper, never lost. */
 function dealBastion(room: Room): void {
   const b = room.bastion;
   if (!b) return;
   for (const p of room.players.values()) { p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false; }
-  const spots = darkGround(room, b.roster.reduce((s, e) => s + e.count, 0));
-  let i = 0;
+  const foes: PendingDark[] = [];
   for (const entry of b.roster) {
-    for (let n = 0; n < entry.count && i < spots.length; n++, i++) {
-      const hex = spots[i];
-      const face = room.enemies.find(e => e.name === entry.kind);
-      const foe: EnemyUnit = {
-        id: nextDarkId(),
-        hex, kind: entry.kind, label: face?.label ?? entry.kind, art: face?.art ?? null,
-        power: entry.power, hp: entry.hp, maxHp: entry.hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
-        armor: (entry as { armor?: number }).armor ?? DARK_ARMOR[entry.kind] ?? 5, lvl: b.tier, speedGauge: 0,
-      };
-      room.dark.set(foe.id, foe);
+    const face = room.enemies.find(e => e.name === entry.kind);
+    for (let n = 0; n < entry.count; n++) {
+      foes.push({
+        kind: entry.kind, label: face?.label ?? entry.kind, art: face?.art ?? null,
+        power: entry.power, hp: entry.hp,
+        armor: (entry as { armor?: number }).armor ?? DARK_ARMOR[entry.kind] ?? 5, lvl: b.tier,
+      });
     }
   }
-  for (const hex of new Set([...room.dark.values()].map(e => e.hex))) springHex(room, hex, new Set());
+  const placed = placeDark(room, foes);
+  const held = foes.length - placed;
+  if (held > 0) (room.pendingDark ?? (room.pendingDark = [])).push(...foes.slice(placed));
   room.battle.active = true;
   room.roundNo = 0;
   b.begun = true;
-  tell(room, `${b.kind === "siege" ? "The cursed bastion" : "The column"} is met — ${b.size} of the dark stand at the field's edge. ${b.ambush ? "Warned ahead, you strike with the ambush's edge (+1)." : ""} One pool binds you: ✦${b.pool}.`);
+  tell(room, `${b.kind === "siege" ? "The cursed bastion" : "The column"} is met — ${placed} of the dark stand at the field's edge${held > 0 ? `, and ${held} more wait beyond it for room to stand` : ""}. ${b.ambush ? "Warned ahead, you strike with the ambush's edge (+1)." : ""} One pool binds you: ✦${b.pool}.`);
   startBattleTimer(room);
 }
 
@@ -5119,30 +5281,53 @@ async function runRound(room: Room): Promise<void> {
     }
     // Endings.
     const seatedAlive = [...room.players.values()].filter(p => !p.watcher && !p.storytender && !p.fallen);
-    if (room.dark.size === 0 && room.battle.active) {
+    if (room.dark.size === 0 && (room.pendingDark?.length ?? 0) === 0 && room.battle.active) {
+      // THE FIELD IS BROKEN, NOT ENDED (Nigel, 2026-10-25:
+      // "Make sure the discord table doesn't have rounds
+      // that cause awoken to dissipate when all enemies are
+      // killed"). A dark-cleared moment is a WAVE BREAK, not
+      // a battle's true end: the mode reckonings below pay
+      // as they always paid, but NO fielded Awokin is swept
+      // for it — only an Awoken's fall dissipates her in
+      // battle, and the battle-end sweep now stands only at
+      // the true ends: a bastion's day decided (its own
+      // branch, below), a campaign turned home or fallen
+      // (endCampaign), and the party-down ending beneath
+      // this one, where the battle itself collapses. The
+      // branch also waits for the held deal: dark still
+      // owed to the field (room.pendingDark) means the
+      // field is not broken yet, however empty it stands.
       settleShardsAndFade(room);
       endBattle(room);
       if (room.bastion?.begun && !room.bastion.resolved) {
         tell(room, "The dark is broken at the bastion — the field breathes again.");
         for (const p of seatedAlive) await payBattleExp(room, p, 5, "A bastion held together pays together.");
         await resolveBastionVictory(room);
+        // A bastion's victory IS a true end — the call is
+        // decided and its battle is over: after the victory
+        // pays its standing survivors, fielded non-party
+        // Awokin truly dissipate, as at every true end.
+        dissipateFieldedNonParty(room);
       } else if (room.campaign) {
         tell(room, `The Unraveling is broken. The bank stands at ✦${Math.floor(room.campaign.bank)} — the Storytender may deal again, call a rest, or turn the campaign home.`);
         room.battle.wave++;
       } else {
-        tell(room, `Wave ${room.battle.wave} is broken. The field breathes again.`);
+        tell(room, "The dark is broken — the field breathes again.");
         for (const p of seatedAlive) {
           p.energy = Math.min(p.maxEnergy + 10, p.energy + 5);
-          await payBattleExp(room, p, 5, "A wave broken together pays together.");
+          await payBattleExp(room, p, 5, "A field broken together pays together.");
         }
-        room.battle.wave++;
+        // The fallen rise at the break, at half their ward
+        // — the rise the removed Begin button used to carry
+        // between waves, now the field's own, needing no
+        // hand to call it.
+        for (const p of room.players.values()) {
+          if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
+        }
       }
-      // The battle has ended (build 2): after the mode's
-      // own reckoning above, fielded non-party Awokin
-      // truly dissipate.
-      dissipateFieldedNonParty(room);
     } else if (seatedAlive.length === 0 && room.battle.active) {
       settleShardsAndFade(room);
+      let casualPartyDown = false;
       if (room.campaign && !room.campaign.over && room.field.size === 0 && room.dark.size > 0) {
         // Every Tender down, the field empty, the dark
         // standing: nothing shields the seed. It falls.
@@ -5150,16 +5335,33 @@ async function runRound(room: Room): Promise<void> {
       } else if (room.bastion?.begun && !room.bastion.resolved) {
         endBattle(room);
         await resolveBastionDefeat(room);
+        // The column's held remainder goes with its battle:
+        // a defeated call deals no second act from beyond
+        // the ring.
+        room.pendingDark = [];
       } else {
         endBattle(room);
+        if (!room.campaign) casualPartyDown = true;
         tell(room, room.campaign
           ? `The party is down. The Storytender may call a rest and raise them, or turn the campaign home.`
-          : `The dark holds the field. Wave ${room.battle.wave} stands unbroken — re-seat, recast, and begin it again.`);
+          : `The dark holds the field. The fallen rise at half their ward as it goes quiet — and the dark will find its way in again on its own.`);
       }
       room.dark.clear();
-      // The battle has ended in the dark's keeping (build
-      // 2): fielded non-party Awokin truly dissipate.
+      // The battle has ended in the dark's keeping — a TRUE
+      // END (the battle itself has collapsed, not a wave
+      // broken): fielded non-party Awokin truly dissipate,
+      // as the standing law holds at every true end.
       dissipateFieldedNonParty(room);
+      // The free field's fallen rise at half their ward as
+      // the field goes quiet — the rise the removed Begin
+      // button used to carry when no seat stood (its own
+      // law: "when no seat stands, the fallen begin it
+      // themselves and rise at half"), now the field's own.
+      if (casualPartyDown) {
+        for (const p of room.players.values()) {
+          if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
+        }
+      }
     }
     sendState(room);
   } finally {
@@ -6138,6 +6340,11 @@ function handleConnection(ws: WebSocket): void {
       // referee's own strikes set it.
       unit.nextStrike = now + lightIntervalMs(unit);
       tile.curseHp -= unit.card.power;
+      // THE PROVOKE (Nigel, 2026-10-25 10:41): the room's
+      // first curse strike is the act the dark answers —
+      // from this blow on, the free field's own entry
+      // begins (settleCasualEntry reads this word).
+      room.curseStruck = true;
       saveHostedLand(room); // HOSTED LAND (Twelve #2): the thinned curse is the land's state, kept at once
       const purified = tile.curseHp <= 0;
       // The witness: the blow flies to the TILE, on the same
@@ -7117,51 +7324,18 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
-    if (msg.type === "startWave") {
-      if (room.campaign) {
-        ws.send(JSON.stringify({ type: "error", message: "In a campaign the Storytender deals — no ladder climbs itself here." }));
-        return;
-      }
-      // THE LIGHT HOLDS (Twelve #2): no wave is dealt onto
-      // ground the host's lighthouse stands over.
-      if (hostedLightStanding(room)) {
-        ws.send(JSON.stringify({ type: "error", message: `The beacon's light holds ${room.hosted!.hostName}'s land — no dark can be dealt while it burns. Douse it, and the waves may come.` }));
-        return;
-      }
-      if (player.watcher) {
-        ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
-        return;
-      }
-      if (player.fallen) {
-        // The rise between waves lives just below — but a
-        // fallen caller could never reach it, so a room where
-        // EVERY seat has fallen was soft-locked (playtest,
-        // 2026-10-18): the tale's own advice, "re-seat, recast,
-        // and begin it again", freed no one. When no seat
-        // stands, the fallen begin it themselves and rise at
-        // half, exactly as a bastion's begin already lifts
-        // them. While any seat stands, the standing seat
-        // begins it — that law is untouched.
-        const anyStanding = [...room.players.values()].some(p => !p.watcher && !p.fallen);
-        if (anyStanding) {
-          ws.send(JSON.stringify({ type: "error", message: "Only a standing seat at the Table may begin the Unraveling." }));
-          return;
-        }
-      }
-      if (room.battle.active) {
-        ws.send(JSON.stringify({ type: "error", message: "The wave is already on the field." }));
-        return;
-      }
-      if (room.dark.size > 0) room.dark.clear();
-      // The fallen rise again between waves, at half their ward.
-      for (const p of room.players.values()) {
-        if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
-      }
-      dealWave(room);
-      tell(room, `${player.name} begins the Unraveling.`);
-      sendState(room);
-      return;
-    }
+    // THE BEGINNING-OF-WAVES DOOR IS REMOVED (Nigel,
+    // 2026-10-25: "The beginning of waves button should be
+    // removed if it isn't and enemies just start at
+    // intensity one like they do on homeland"). There is no
+    // startWave road: the free field's dark enters on its
+    // own, at intensity one, at the furthest cursed ring
+    // (settleCasualEntry), and a wave ladder climbs nowhere
+    // at the casual Table. A startWave message now meets
+    // silence, as any unbuilt word does. The fallen's rise
+    // the button used to carry stands in the endings
+    // themselves (runRound): at a broken field, and when
+    // the party is down and the field goes quiet.
 
     // CLAIM A CALL (the Columns, 2026-10-17): the host seat of a
     // standing call seats it in this room. The pool is struck
@@ -7307,30 +7481,33 @@ function handleConnection(ws: WebSocket): void {
             p.secondWallUsed = false; p.secondThreadUsed = false; p.groundRemembered = false; p.steadyUsed = false;
             if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
           }
-          const spots = darkGround(R, c.reserve.length);
           const lvl = 1 + Math.floor(c.deals / 3);
-          let placed = 0;
-          for (const kind of c.reserve) {
-            if (placed >= spots.length) break;
-            const hex = spots[placed];
+          // The deal is struck whole, at this deal's level —
+          // and it lands ONLY on the furthest cursed ring,
+          // as at every door (Nigel, 2026-10-25). What the
+          // ring cannot hold is not left in her hand and not
+          // spilled inward: it is DEALT, and waits in the
+          // held deal (room.pendingDark), stepping onto the
+          // ring as the first foes move inward or fall.
+          const foes: PendingDark[] = c.reserve.map(kind => {
             const base = ENEMY_STATS[kind];
             const face = R.enemies.find(e => e.name === kind);
-            const hp = base.hp + (lvl - 1);
-            const foe: EnemyUnit = {
-              id: nextDarkId(),
-              hex, kind, label: face?.label ?? kind, art: face?.art ?? null,
-              power: base.power + Math.floor((lvl - 1) / 3), hp, maxHp: hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
+            return {
+              kind, label: face?.label ?? kind, art: face?.art ?? null,
+              power: base.power + Math.floor((lvl - 1) / 3), hp: base.hp + (lvl - 1),
               // The AC is read live off the kind's workshop
               // record (base 10 + bonus); the level scaling
               // rides on top.
-              armor: enemyACFor(kind) + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
+              armor: enemyACFor(kind) + Math.floor((lvl - 1) / 2), lvl,
             };
-            R.dark.set(foe.id, foe);
-            placed++;
+          });
+          const placed = placeDark(R, foes);
+          const held = foes.length - placed;
+          if (held > 0) {
+            (R.pendingDark ?? (R.pendingDark = [])).push(...foes.slice(placed));
+            tell(R, `The field holds no more ground — ${held} of the dealt dark wait for room to stand.`);
           }
-          if (placed < c.reserve.length) tell(R, `The field holds no more ground — ${c.reserve.length - placed} of the dealt dark wait for room to stand.`);
-          c.reserve = c.reserve.slice(placed);
-          for (const hex of new Set([...R.dark.values()].map(e => e.hex))) springHex(R, hex, new Set());
+          c.reserve = [];
           c.deals++;
           R.battle.active = true;
           R.roundNo = 0;

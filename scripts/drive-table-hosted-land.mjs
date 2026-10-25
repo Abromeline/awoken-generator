@@ -19,11 +19,14 @@
 //      by their owners — five and five.
 //   §D THE LIGHTHOUSE IS THE WHOLE HOMELAND MECHANISM: the
 //      host lights it from the banked minutes, the light
-//      HOLDS spawns (startWave refuses in spoken words, no
-//      dark is dealt), a guest's hand cannot tend it, four
-//      minutes of burn cost exactly 1 Shadow of upkeep, the
-//      douse releases the ground — and an empty bank refuses
-//      the lighting in the homeland's own words.
+//      HOLDS spawns (no dark is dealt while it burns — the
+//      dealing door at a free table is now the field's own
+//      entry, the entry law of 2026-10-25, and the light
+//      holds it whole), a guest's hand cannot tend it,
+//      four minutes of burn cost exactly 1 Shadow of
+//      upkeep, the douse releases the ground to the entry
+//      again — and an empty bank refuses the lighting in
+//      the homeland's own words.
 //   §E THE DOOR IS THE HOST'S SETTING: a password land
 //      refuses a guest with no word and with a wrong word
 //      (the room's own spoken refusal, naming the host), and
@@ -165,10 +168,43 @@ async function summonStanding(actor, wstate, ownerName, awakenedId, unitName, tr
   }
   throw new Error("summon never landed: " + unitName + " | seat errors: " + JSON.stringify(actor.errors.slice(-3)) + " | energy: " + actor.you?.energy);
 }
-async function ensureBattle(actor, wstate, what) {
+/* Strike the curse once with the actor's standing hand —
+ * the act the dark answers (Nigel, 2026-10-25 10:41: the
+ * field's entry does not begin until the Tenders start
+ * attacking the curse). Best-effort: with no hand standing
+ * there is nothing to strike with, and the wait in
+ * ensureBattle is the section's own to fail loudly. */
+const REACH = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+async function provokeEntry(actor, wstate, ownerName) {
+  const unit = (wstate.state?.field ?? []).find(u => u.ownerName === ownerName);
+  if (!unit) return false;
+  const reach = REACH[unit.element] ?? 2;
+  const target = (wstate.state?.map ?? []).find(t => t.cursed && t.id !== "0,0" && axDist(t.id, unit.hex) <= reach);
+  if (!target) return false;
+  actor.send({ type: "strikeCurse", cardId: unit.cardId, hex: unit.hex, target: target.id });
+  await sleep(300);
+  return true;
+}
+
+async function ensureBattle(actor, wstate, what, ownerName, opts = {}) {
   if (wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0) return;
-  actor.send({ type: "startWave" });
-  const dealt = await tryWait(() => wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0, 9000);
+  // THE ENTRY LAW (2026-10-25): no word raises a battle at
+  // a free table any more — the beginning-of-waves door is
+  // removed, and the field's own entry deals the dark on
+  // its 45-second beat — but only once the curse has been
+  // struck (the 10:41 provoke). Raising a battle here is
+  // striking the curse with a standing hand, then WAITING
+  // for that beat: the wait spans a full beat and more,
+  // and returns the moment dark stands. (The staged hands
+  // of a section can fell an early trickle before this is
+  // called; the next beat is the battle it waits for.)
+  // A section whose own choreography already struck the
+  // curse (opts.provoke === false — §A's thinning strike
+  // IS host-a's provoke, struck before any battle) passes
+  // it: the helper must not lay a second strike onto the
+  // ground a section is measuring.
+  if (ownerName && opts.provoke !== false) await provokeEntry(actor, wstate, ownerName);
+  const dealt = await tryWait(() => wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0, 60000);
   if (!dealt) throw new Error("no battle dealt for " + what + " | errors: " + JSON.stringify(actor.errors.slice(-3)));
 }
 function watchRoom(roomId) {
@@ -245,7 +281,7 @@ const guestProg0 = progressOf(G.ownerKey);
 const hostInv0 = JSON.stringify(invOf(H.ownerKey));
 const guestInvQty0 = invQty(G.ownerKey);
 Math.random = () => 0.5;
-await ensureBattle(g, wstate, "§A's wave on the host's land");
+await ensureBattle(g, wstate, "§A's wave on the host's land", G.name, { provoke: false }); // §A's thinning strike above is this room's provoke — no second strike onto measured ground
 let darkHex = null;
 {
   const room = roomOf(G.ownerKey);
@@ -323,7 +359,7 @@ console.log("§C the felling pot divides BY OWNER — host and guest hands share
   const xpOf = (id) => db.prepare("SELECT experience FROM awakened WHERE id = ?").get(id)?.experience ?? 0;
   const xpH0 = xpOf(hostHandId), xpG0 = xpOf(guestHand2Id);
   Math.random = () => 0.5;
-  await ensureBattle(h, wstate, "§C's wave");
+  await ensureBattle(h, wstate, "§C's wave", H.name, { provoke: false }); // host-a's curse was struck in §A — its entry is already live; the helper only waits
   {
     // THE STAGE (a fixture sculpt, named — the port's §C2
     // choreography, across two seats): the wave is stood
@@ -380,11 +416,27 @@ console.log("§D the lighthouse at the Table is the whole homeland mechanism —
   ok("the host lights the beacon FROM THE BANK — lit and standing in the served state, the keeper's purse served with it",
     await tryWait(() => wstate.state?.hosted?.beacon?.lit === true && wstate.state?.hosted?.beacon?.standing === true, 8000),
     JSON.stringify(wstate.state?.hosted?.beacon ?? null));
-  h.send({ type: "startWave" });
-  await sleep(2500);
-  ok("while the light burns, NO DARK IS DEALT — startWave refuses in spoken words and the field stays empty",
-    h.errors.some(e => /beacon's light holds/.test(e)) && (wstate.state?.dark ?? []).length === 0 && wstate.state?.battle?.active !== true,
-    `errors=${JSON.stringify(h.errors.slice(-2))} dark=${(wstate.state?.dark ?? []).length}`);
+  // THE HOLD, RESTATED TO THE ENTRY LAW (2026-10-25): the
+  // beginning-of-waves button is gone — no startWave word
+  // exists to refuse. The dealing door at a free table is
+  // now the field's own entry, and the light's law is what
+  // it always was: NO DARK IS DEALT onto lit ground, by
+  // any door. Whatever the entry dealt before the lighting
+  // is lifted by the drive's hand (a named sculpt — the
+  // light bars deals, it does not unmake standing dark);
+  // from the lit moment the window is watched: nothing
+  // enters, and no battle is joined.
+  let roomD = roomOf(H.ownerKey);
+  if (roomD) for (const id of [...roomD.dark.keys()]) roomD.dark.delete(id);
+  await tryWait(() => wstate.state?.battle?.active !== true, 8000);
+  let heldClean = true;
+  for (let i = 0; i < 8; i++) {
+    await sleep(500);
+    if ((wstate.state?.dark ?? []).length !== 0 || wstate.state?.battle?.active === true) { heldClean = false; break; }
+  }
+  ok("while the light burns, NO DARK IS DEALT — the field's own entry is held whole: the field stays empty and no battle is joined",
+    heldClean && (wstate.state?.dark ?? []).length === 0 && wstate.state?.battle?.active !== true,
+    `dark=${(wstate.state?.dark ?? []).length} active=${wstate.state?.battle?.active}`);
   // Four minutes of burn, reckoned by the pulse's own
   // settle: the settled stamp is set back four minutes
   // (white-box — the minutes themselves are the fixture;
@@ -401,9 +453,13 @@ console.log("§D the lighthouse at the Table is the whole homeland mechanism —
   ok("the douse lands — the light goes out and its unburned minutes stay banked",
     await tryWait(() => wstate.state?.hosted?.beacon?.lit === false && progressOf(H.ownerKey).protection_bank_ms > 300000, 8000),
     `lit=${wstate.state?.hosted?.beacon?.lit} bank=${progressOf(H.ownerKey).protection_bank_ms}`);
-  h.send({ type: "startWave" });
-  ok("doused, the ground is dealt again — the hold was the light's, and it is released",
-    await tryWait(() => (wstate.state?.dark ?? []).length > 0, 12000), `dark=${(wstate.state?.dark ?? []).length}`);
+  // With the light out, the field's own entry deals again
+  // on its own beat, unpressed and untouched by any
+  // fixture: the wait spans a full beat and more (the
+  // beat's phase at the douse is the field's own, not
+  // this section's to set).
+  ok("doused, the ground is dealt again — the field's own entry returns with no hand on any door: the hold was the light's, and it is released",
+    await tryWait(() => (wstate.state?.dark ?? []).length > 0, 60000), `dark=${(wstate.state?.dark ?? []).length}`);
   g3.ws.close();
   h.ws.close();
 }
@@ -470,6 +526,37 @@ console.log("§F a seed on hosted land feeds from the GUEST's purse, by the port
   const unitHex = fieldOf(wstate4, G4.name)[0]?.hex;
   ok("the guest's company stands within the feeding reach of the host's seed (two rings)",
     !!unitHex && axDist(unitHex, "0,0") <= 2, `unit=${unitHex}`);
+  // THE ROOM IS HELD EMPTY BY THE LIGHT (the entry law of
+  // 2026-10-25, as in the port drive's §D): the field's own
+  // entry deals into every free room, and a joined battle
+  // would pay its own economy into the purses this section
+  // reads. The host lights her beacon — while it stands,
+  // no dark is dealt by any door, and the climb is read on
+  // the feeding road alone. The bank and Shadow the burn
+  // drinks are stocked white-box (named fixtures, §D's
+  // manner); the lighting and the hold are production code.
+  db.prepare("UPDATE tender_progress SET protection_bank_ms = 3600000, shadow_matter = 50 WHERE owner_key = ?").run(H4.ownerKey);
+  h4.send({ type: "beaconLight", lit: true });
+  await waitFor(() => wstate4.state?.hosted?.beacon?.lit === true && wstate4.state?.hosted?.beacon?.standing === true, "the beacon lit over the feeding room");
+  // The light bars DEALS; it does not unmake standing
+  // dark. What the entry dealt before the lighting is
+  // lifted once, by the drive's hand, in one synchronous
+  // pass (no ending reckoned, no fell struck) — from here
+  // the room stays empty by the light's law alone.
+  {
+    const room = roomOf(G4.ownerKey);
+    if (room) {
+      for (const id of [...room.dark.keys()]) room.dark.delete(id);
+      if (room.battle.timer) { clearInterval(room.battle.timer); room.battle.timer = null; }
+      room.battle.active = false;
+    }
+  }
+  // The purse baselines are read HERE — after the room is
+  // held empty: until the lift, the guest's hand was
+  // fighting the entry's dark on its own law, and a fell
+  // struck in that window pays its economy into the very
+  // purses this section reads. From the lift on, only the
+  // feeding road and the room's slow regen can move them.
   const guestEnergy0 = seatOf(wstate4, G4.name)?.energy ?? 0;
   const hostEnergy0 = seatOf(wstate4, H4.name)?.energy ?? 0;
   ok("the guest's purse holds the feed and more", guestEnergy0 >= 8, `energy=${guestEnergy0}`);
@@ -483,6 +570,11 @@ console.log("§F a seed on hosted land feeds from the GUEST's purse, by the port
   try {
     for (let stepN = 1; stepN <= 6; stepN++) {
       stubOff += 4 * 60 * 1000;
+      // No hand is needed in the loop: the lit beacon
+      // holds the room empty by law (above), so no battle
+      // can pay its economy into the purses this section
+      // reads — the feeding road under proof is the
+      // purse's, and it is not read through a battle.
       const rose = await tryWait(() => (wstate4.state?.seed?.fedEnergy ?? 0) >= stepN, 8000);
       if (!rose) { fedOk = false; break; }
     }

@@ -29,14 +29,19 @@
 //   §D THE GROWTH CYCLE: the room's seed grows BY FEEDING
 //      ONLY — whole energy walks from the purse into the
 //      seed at the homeland's pace (Date.now stepped
-//      forward in the drive's own process, the room kept
-//      battle-free so only the pulse settles it); level 2
-//      purifies the seed's six neighbours; level 3 stands.
+//      forward in the drive's own process; the room is held
+//      battle-free under the host's lit beacon — the entry
+//      law's held door — so the climb is read on the
+//      pulse's settling alone, and the purse on feeding
+//      alone); level 2 purifies the seed's six neighbours;
+//      level 3 stands.
 //      §D2 THE BEACON'S BIRTH-BAR: with the map sculpted
-//      (white-box tile flags — spawn ground is rim-first,
-//      so an unsculpted deal can never show the bar) a
-//      level-3 seed's deal NEVER lands within one ring of
-//      the seed, and the level-1 control deal does.
+//      (white-box tile flags — the furthest cursed ring
+//      made to BE the seed's own ring, the only ground a
+//      deal may take under the entry law of 2026-10-25) a
+//      level-3 seed's deal births NOTHING within its
+//      footprint — the dealt dark waits held, unborn —
+//      and the level-1 control deal stands on that ring.
 //   §E THE DEFENCE ROAD IS OUT: three beaten columns at a
 //      held seed tally three stands and change NOTHING
 //      else — the seed's level stands, the cursed neighbour
@@ -174,14 +179,37 @@ async function summonStanding(actor, wstate, ownerName, awakenedId, unitName, tr
   }
   throw new Error("summon never landed: " + unitName + " | seat errors: " + JSON.stringify(actor.errors.slice(-3)) + " | energy: " + actor.you?.energy);
 }
-async function ensureBattle(actor, wstate, what) {
+/* Strike the curse once with the actor's standing hand —
+ * the act the dark answers (Nigel, 2026-10-25 10:41: the
+ * field's entry does not begin until the Tenders start
+ * attacking the curse). Best-effort: with no hand standing
+ * there is nothing to strike with, and the wait in
+ * ensureBattle is the section's own to fail loudly. */
+const REACH = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+async function provokeEntry(actor, wstate, ownerName) {
+  const unit = (wstate.state?.field ?? []).find(u => u.ownerName === ownerName);
+  if (!unit) return false;
+  const reach = REACH[unit.element] ?? 2;
+  const target = (wstate.state?.map ?? []).find(t => t.cursed && t.id !== "0,0" && axDist(t.id, unit.hex) <= reach);
+  if (!target) return false;
+  actor.send({ type: "strikeCurse", cardId: unit.cardId, hex: unit.hex, target: target.id });
+  await sleep(300);
+  return true;
+}
+
+async function ensureBattle(actor, wstate, what, ownerName) {
   if (wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0) return;
-  actor.send({ type: "startWave" });
-  const dealt = await tryWait(() => wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0, 9000);
-  if (!dealt) {
-    actor.send({ type: "begin" });
-    await waitFor(() => wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0, what + " (begin)", 25000);
-  }
+  // THE ENTRY LAW (2026-10-25): no word raises a battle at
+  // a free table any more — the beginning-of-waves door is
+  // removed (the startWave and begin sends this helper once
+  // made are dead words now), and the field's own entry
+  // deals the dark on its 45-second beat — but only once
+  // the curse has been struck (the 10:41 provoke). Raising
+  // a battle here is striking the curse with a standing
+  // hand, then WAITING for that beat: the wait spans a
+  // full beat and more, and returns the moment dark stands.
+  if (ownerName) await provokeEntry(actor, wstate, ownerName);
+  await waitFor(() => wstate.state?.battle?.active && (wstate.state?.dark ?? []).length > 0, what, 60000);
 }
 
 function watchRoom(roomId) {
@@ -212,7 +240,7 @@ console.log("§A the engine at the Table — the dark walks, is stopped, is stru
   const unit = await summonStanding(a, wstate, A.name, kinId, "Stoneblade");
   ok("a summon lands — and its shield lies inside the sum-of-the-parts bounds (3 stone parts: three d12, 3–36)",
     unit.shield >= 3 && unit.shield <= 36 && unit.maxShield === unit.shield, `shield=${unit.shield}/${unit.maxShield}`);
-  await ensureBattle(a, wstate, "§A's wave");
+  await ensureBattle(a, wstate, "§A's wave", A.name);
   const d0 = wstate.state.dark[0];
   const p0 = { ...d0.pos };
   await sleep(1300);
@@ -231,6 +259,13 @@ console.log("§A the engine at the Table — the dark walks, is stopped, is stru
   {
     const room = roomOf(A.ownerKey);
     if (room) {
+      // The field's entry beat is pinned an hour out for
+      // this section (a named fixture): the duel under
+      // proof is one dark against one hand, and a second
+      // foe wandering in mid-duel is weather, not engine —
+      // the entry's own law is drive-table-entry's whole
+      // subject, proven there.
+      room.entryAt = Date.now() + 3600000;
       const keep = [...room.dark.values()][0];
       const blade = [...room.field.values()].find(u => u.card.name === "Stoneblade");
       if (keep && blade) {
@@ -293,7 +328,7 @@ console.log("§B the orders at the Table — defence raises the works, leaving t
   // company would shoot the dark down on its approach,
   // before the wall could ever halt it.
   await summonStanding(b, wstate, B.name, wallId, "Wallbearer");
-  await ensureBattle(b, wstate, "§B's wave");
+  await ensureBattle(b, wstate, "§B's wave", B.name);
   const wallUnit = () => fieldOf(wstate, B.name).find(u => u.name === "Wallbearer");
   const thornUnit = () => fieldOf(wstate, B.name).find(u => u.name === "Thornbearer");
 
@@ -367,7 +402,7 @@ console.log("§B the orders at the Table — defence raises the works, leaving t
 
   await summonStanding(b, wstate, B.name, thornId, "Thornbearer");
   await summonStanding(b, wstate, B.name, tideId, "Tidehand");
-  await ensureBattle(b, wstate, "§B's wave stands");
+  await ensureBattle(b, wstate, "§B's wave stands", B.name);
   b.send({ type: "setStance", cardId: thornUnit().cardId, stance: "defense" });
   const brambleStood = await tryWait(() => (wstate.state?.workings ?? []).some(w => w.engine === "bramble"), 40000);
   const bramble = (wstate.state?.workings ?? []).find(w => w.engine === "bramble");
@@ -424,7 +459,7 @@ console.log("§B the orders at the Table — defence raises the works, leaving t
   // proof starts from the thicket as raised.
   let keepId = null;
   {
-    if (!wstate.state?.battle?.active) await ensureBattle(b, wstate, "§F's wave");
+    if (!wstate.state?.battle?.active) await ensureBattle(b, wstate, "§F's wave", B.name);
     const room = roomOf(B.ownerKey);
     if (room && room.dark.size > 0) {
       const keep = [...room.dark.values()][0];
@@ -497,7 +532,7 @@ console.log("§B2 binding — the binder mends the most-wounded of her own compa
   p.send({ type: "setStance", cardId: binderUnit.cardId, stance: "binding" });
   p.send({ type: "setStance", cardId: lambUnit.cardId, stance: "binding" });
   await tryWait(() => fieldOf(wstate, P.name).find(u => u.name === "Skybinder")?.stance === "binding", 6000);
-  await ensureBattle(p, wstate, "§B2's wave");
+  await ensureBattle(p, wstate, "§B2's wave", P.name);
   // THE STAGE (a fixture sculpt, named): the wave is
   // thinned to one dark, made too tough to fall and PINNED
   // where it stands far off (the Table's own pin) — the
@@ -537,12 +572,19 @@ console.log("§B2 binding — the binder mends the most-wounded of her own compa
 console.log("§C the fell door — one door pays every felling: the drop table whole, Shadow, the spoken take, Awokin XP divided by damage");
 {
   const W = await mkTender("Port Witch", 800, "witch", "disc-port-w");
-  for (let i = 0; i < 30; i++) mkKin(W.ownerKey, W.name, `WBench ${i + 1}`, stdParts("sky", 2, 2));
+  let provokerId = 0;
+  for (let i = 0; i < 30; i++) { const id = mkKin(W.ownerKey, W.name, `WBench ${i + 1}`, stdParts("sky", 2, 2)); if (i === 0) provokerId = id; }
   const { wstate } = await watchRoom("port-c");
   const w = new Actor(); await w.join(W.tt, "port-c"); await w.waitYou("W's seat");
   await waitFor(() => !!seatOf(wstate, W.name)?.hex, "W's landing");
   const shadowBefore = db.prepare("SELECT shadow_matter FROM tender_progress WHERE owner_key = ?").get(W.ownerKey)?.shadow_matter ?? 0;
-  await ensureBattle(w, wstate, "§C's wave");
+  // A hand must stand to strike the curse (the 10:41
+  // provoke ensureBattle opens with): the bench's first
+  // hand is summoned for the blow. She stands through the
+  // section — the staged fell's take is the door's, by
+  // whichever of the witch's hands it is struck.
+  await summonStanding(w, wstate, W.name, provokerId, "WBench 1");
+  await ensureBattle(w, wstate, "§C's wave", W.name);
   // THE STAGE (a fixture sculpt, named): the swarm hunts
   // the strongest standing, so the wave is stood down to
   // ONE dark and that dark is made a Fray of 3 health —
@@ -556,6 +598,13 @@ console.log("§C the fell door — one door pays every felling: the drop table w
   {
     const room = roomOf(W.ownerKey);
     if (room) {
+      // The field's entry beat is pinned an hour out for
+      // this section (a named fixture): the fell under
+      // proof is struck on a known field, and dark
+      // wandering in mid-scene would take strikes meant
+      // for the staged foes — the entry's own law is
+      // drive-table-entry's whole subject, proven there.
+      room.entryAt = Date.now() + 3600000;
       const keep = [...room.dark.values()][0];
       for (const e of [...room.dark.values()]) if (e !== keep) room.dark.delete(e.id);
       if (keep) { keep.kind = "fray"; keep.label = "Fray"; keep.power = 1; keep.hp = 3; keep.maxHp = 3; }
@@ -581,7 +630,7 @@ console.log("§C the fell door — one door pays every felling: the drop table w
     swarmStood = false;
     for (let i = 0; i < 14 && !swarmStood; i++) {
       const d = (wstate.state?.dark ?? [])[0];
-      if (!d) { await ensureBattle(w, wstate, "§C's wave stands"); continue; }
+      if (!d) { await ensureBattle(w, wstate, "§C's wave stands", W.name); continue; }
       w.send({ type: "castRune", root: "bats", hue: "unaligned", hexes: [d.hex], pour: 0 });
       swarmStood = await tryWait(() => (wstate.state?.workings ?? []).some(x => x.engine === "bats"), 2500);
     }
@@ -640,7 +689,7 @@ console.log("§C the fell door — one door pays every felling: the drop table w
   // deals' random kinds and later waves' growing counts;
   // the division under proof is the referee's, and it is
   // the same referee here.)
-  await ensureBattle(s2, wstate2, "§C2's wave");
+  await ensureBattle(s2, wstate2, "§C2's wave", S.name);
   {
     const room = roomOf(S.ownerKey);
     if (room) {
@@ -683,6 +732,32 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
   const { wstate } = await watchRoom("port-d");
   const d = new Actor(); await d.join(D.tt, "port-d"); await d.waitYou("D's seat");
   await waitFor(() => !!seatOf(wstate, D.name)?.hex, "D's landing");
+  // THE ROOM IS HELD EMPTY BY THE LIGHT (the entry law of
+  // 2026-10-25 ended the era of naturally empty free
+  // rooms: the field's own entry deals its trickle into
+  // every free room, and a joined battle pays its own
+  // economy into the purse this section reads — a broken
+  // field pays the standing, a fell drips — so the climb
+  // can no longer be read in an open room). The host
+  // opens her land and lights its beacon BEFORE any
+  // company is summoned: opening a land swaps the room's
+  // ground whole and dismisses what stood on the old
+  // ground, so the opening must come first (the hosted
+  // drive's own order). While the light stands, no dark
+  // is dealt by any door (Twelve #2's law, proven again
+  // in drive-table-entry §6), and the room is battle-free
+  // BY LAW, as this section's premise has always
+  // required. The bank and the Shadow the burn drinks
+  // are stocked white-box for the climb's whole stepped
+  // span (named fixtures, the hosted drive's manner —
+  // the banking road itself is proven by fells
+  // elsewhere); the opening, the lighting, the hold and
+  // the burn are production code.
+  db.prepare("UPDATE tender_progress SET protection_bank_ms = 14400000, shadow_matter = 100 WHERE owner_key = ?").run(D.ownerKey);
+  d.send({ type: "beaconOpen", privacy: "public" });
+  await tryWait(() => wstate.state?.hosted?.hostName === D.name, 8000);
+  d.send({ type: "beaconLight", lit: true });
+  await waitFor(() => wstate.state?.hosted?.beacon?.lit === true && wstate.state?.hosted?.beacon?.standing === true, "the beacon lit over the climb's room");
   await summonStanding(d, wstate, D.name, kinId, "Nearhand");
   const unitHex = fieldOf(wstate, D.name)[0]?.hex;
   ok("her company stands within the feeding reach (two rings of the seed)",
@@ -693,7 +768,8 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
   // Step the clock: each +4 minutes of presence near the
   // seed gathers exactly one whole energy of credit
   // (4 × 0.25/min) — thirty steps carry the seed to the
-  // Beacon. No battle is fought in this room at all:
+  // Beacon. No fell is struck in this room at all (the
+  // entered dark is barred by the light, never fought):
   // nothing but feeding can raise it here.
   let stubOff = 0;
   Date.now = () => realNow() + stubOff;
@@ -709,15 +785,13 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
   } finally { Date.now = realNow; }
   // If the climb stalled, say WHERE (run 6 stalled at zero
   // with the purse untouched, against every isolated
-  // reading of the road): start a wave so the seat lookup
-  // can reach the room, and read the seat's own books.
+  // reading of the road). The seat lookup of the old diag
+  // rode a standing battle, and under the light there is
+  // none to ride — the diag reads what the wire carries:
+  // the served seed and the served purse.
   let diag = "";
   if (!fedOk) {
-    d.send({ type: "startWave" });
-    await tryWait(() => !!roomOf(D.ownerKey), 10000);
-    const found = partyBattleSeatFor(D.ownerKey);
-    const seat = found?.player ?? null;
-    diag = ` [diag: ws=${d.ws.readyState} seatFound=${!!found} credit=${seat?.seedFeedCredit} anchorSet=${seat?.seedFeedAnchorAt != null} growth=${JSON.stringify(found?.room?.seedGrowth)} seatEnergy=${seat?.energy} seatKey=${seat?.key} watcher=${seat?.watcher} storytender=${seat?.storytender}]`;
+    diag = ` [diag: ws=${d.ws.readyState} servedSeed=${JSON.stringify(wstate.state?.seed ?? null)} servedEnergy=${seatOf(wstate, D.name)?.energy} beacon=${JSON.stringify(wstate.state?.hosted?.beacon ?? null)}]`;
   }
   ok("feeding walks WHOLE energy from the purse into the seed, a point a step at the homeland's pace (0.25 a minute of near presence)",
     fedOk && (wstate.state?.seed?.fedEnergy ?? 0) === 30, `fed=${wstate.state?.seed?.fedEnergy}${diag}`);
@@ -735,51 +809,88 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
 
 console.log("§D2 the Beacon's birth-bar — no dark is born within one ring of a level-3 seed");
 {
-  const G = await mkTender("Port Guard", 150, "warden", "disc-port-g");
+  // RESTATED TO THE ENTRY LAW (2026-10-25): the wave door
+  // this section once dealt by is removed, and the ground
+  // law itself has changed — dark is dealt ONLY onto the
+  // furthest cursed ring, on all tables, at every door.
+  // The bar's proof therefore moves to the Storytender's
+  // deal (a door that deals on demand) on ground sculpted
+  // so the furthest cursed ring IS the seed's own ring:
+  // every tile purified but the seed's six neighbours.
   // The stage is sculpted white-box (tile curse flags and
-  // the seed's level on the room's own objects): spawn
-  // ground is chosen rim-first, so on an unsculpted map a
-  // deal can never show whether the bar stands. The sculpt
-  // lands between two real deals: wave 1 is dealt honestly
-  // (its standing battle is what lets the drive's hand
-  // reach the room at all), its dark are lifted in one
-  // synchronous pass, the map and the seed's level are set,
-  // and wave 2 is dealt by the production referee onto the
+  // the seed's level on the room's own objects), as it was
+  // before: on an unsculpted map the picker would offer
+  // the rim, and a deal there can never show whether the
+  // bar stands. The sculpt lands between two real deals:
+  // a first deal raises the room's battle (its standing
+  // battle is what lets the drive's hand reach the room at
+  // all), its dark are lifted in one synchronous pass,
+  // the map and the seed's level are set, and the second
+  // deal is struck by the production referee onto the
   // sculpted ground. The code under proof — darkGround's
-  // filter and dealWave — is the production code.
+  // picker, its Beacon filter, and placeDark — is the
+  // production code. A dev-named seat holds the
+  // Storytender's chair; the bound Tender sits as the
+  // participant whose seat the drive's hand reads.
+  const devJoin = async (name, roomId) => {
+    const c = { state: null, you: null, errors: [] };
+    c.ws = new WebSocket("ws://127.0.0.1:3951/table/ws");
+    await new Promise((res, rej) => { c.ws.onopen = res; c.ws.onerror = rej; });
+    c.ws.onmessage = (ev) => {
+      try {
+        const m = JSON.parse(String(ev.data));
+        if (m.type === "state") { c.state = m.state; if (m.you) c.you = m.you; }
+        else if (m.type === "error") c.errors.push(String(m.message ?? ""));
+      } catch { /* torn frame */ }
+    };
+    c.send = (o) => c.ws.send(JSON.stringify(o));
+    c.send({ type: "join", devName: name, room: roomId });
+    const s = realNow();
+    while (realNow() - s < 12000 && !c.you) await sleep(120);
+    return c;
+  };
   const sculpt = async (tender, roomId, level) => {
     const { wstate } = await watchRoom(roomId);
     const g = new Actor(); await g.join(tender.tt, roomId); await g.waitYou("seat in " + roomId);
     await waitFor(() => !!seatOf(wstate, tender.name)?.hex, "landing in " + roomId);
-    g.send({ type: "startWave" });
+    const st = await devJoin("Port Storytender " + level, roomId);
+    st.send({ type: "claimStoryteller" });
+    await waitFor(() => !!st.you?.storytender, "the storytender's claim in " + roomId);
+    st.send({ type: "stAdd", kind: "fray" });
+    st.send({ type: "stDeal" });
     await waitFor(() => !!roomOf(tender.ownerKey), "the standing battle in " + roomId, 20000);
     const room = roomOf(tender.ownerKey);
-    const rim = (wstate.state?.map ?? []).filter(t => axDist(t.id, "0,0") === 6).slice(0, 2).map(t => t.id);
     // One synchronous pass — no referee tick interleaves.
     for (const id of [...room.dark.keys()]) room.dark.delete(id);
     for (const t of room.map.values()) {
-      t.cursed = rim.includes(t.id) || (axDist(t.id, "0,0") === 1);
+      t.cursed = axDist(t.id, "0,0") === 1;
       if (t.cursed) t.curseHp = t.curseMaxHp;
     }
     room.seedGrowth.level = level;
     // The emptied battle ends on the referee's own tick;
-    // the next deal is wave 2 (five of the dark asked).
+    // the second deal is struck onto the sculpted ground.
     await tryWait(() => !wstate.state?.battle?.active, 8000);
-    g.send({ type: "startWave" });
-    await tryWait(() => (wstate.state?.dark ?? []).length > 0, 12000);
+    for (let i = 0; i < 4; i++) st.send({ type: "stAdd", kind: "fray" });
+    await waitFor(() => (st.you?.storytender?.reserve?.length ?? 0) === 4, "the reserve of four in " + roomId);
+    st.send({ type: "stDeal" });
+    await tryWait(() => (wstate.state?.dark ?? []).length > 0 || (room.pendingDark ?? []).length > 0, 12000);
+    await sleep(400);
     const dealt = (wstate.state?.dark ?? []).map(e => e.hex);
+    const held = (room.pendingDark ?? []).length;
+    st.ws.close();
     g.ws.close();
-    return dealt;
+    return { dealt, held };
   };
-  const guardedDeal = await sculpt(G, "port-g3", 3);
-  ok("at a level-3 seed the deal NEVER lands within one ring — of five asked, only the two rim tiles the sculpt left cursed are dealt (2 of the dark, both at the rim)",
-    guardedDeal.length === 2 && guardedDeal.every(h => axDist(h, "0,0") === 6), JSON.stringify(guardedDeal));
+  const G = await mkTender("Port Guard", 150, "warden", "disc-port-g");
+  const guardedDeal = await sculpt(G, "campaign-port-g3", 3);
+  ok("at a level-3 seed the deal NEVER lands within one ring — the furthest cursed ring is the seed's own ring, wholly inside the Beacon's footprint, so no dark is born at all: four dealt, four held unborn",
+    guardedDeal.dealt.length === 0 && guardedDeal.held === 4, JSON.stringify(guardedDeal));
   // The control room gets its OWN tender: a seat lookup by
   // owner key cannot tell two rooms' seats apart.
   const G2 = await mkTender("Port Guard Two", 150, "warden", "disc-port-g2");
-  const openDeal = await sculpt(G2, "port-g1", 1);
-  ok("the control: at a level-1 seed the same sculpt deals all five — three of them onto the seed's own ring — the bar is the Beacon's, not the map's",
-    openDeal.length === 5 && openDeal.filter(h => axDist(h, "0,0") <= 1).length === 3, JSON.stringify(openDeal));
+  const openDeal = await sculpt(G2, "campaign-port-g1", 1);
+  ok("the control: at a level-1 seed the same deal stands all four on the seed's own ring — the ground was lawful all along; the bar is the Beacon's, not the map's",
+    openDeal.dealt.length === 4 && openDeal.dealt.every(h => axDist(h, "0,0") === 1) && openDeal.held === 0, JSON.stringify(openDeal));
 }
 
 /* ══ §E THE DEFENCE ROAD IS OUT ═══════════════════════════ */

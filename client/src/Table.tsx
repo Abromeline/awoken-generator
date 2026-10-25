@@ -3457,7 +3457,9 @@ export default function Table() {
             )}
             <div className="battle-bar">
               {shared.battle.active ? (
-                <span className="battle-status">🌑 Wave {shared.battle.wave} — {shared.dark.length} of the dark stand · round {shared.round}</span>
+                <span className="battle-status">{shared.campaign
+                  ? <>🌑 Wave {shared.battle.wave} — {shared.dark.length} of the dark stand · round {shared.round}</>
+                  : <>🌑 The dark presses in — {shared.dark.length} of the dark stand · round {shared.round}</>}</span>
               ) : shared.campaign ? (
                 <>
                 <span className="battle-status">
@@ -3528,10 +3530,16 @@ export default function Table() {
                     <button className="table-btn battle-btn" disabled={callKeyInput.trim().length < 4} onClick={() => send({ type: "switchRoom", callKey: callKeyInput.trim() })}>Answer the call</button>
                   </div>
                 )}
-                {!shared.bastion && <button className="table-btn primary battle-btn" onClick={() => send({ type: "startWave" })}>⚔ Begin the Unraveling — Wave {shared.battle.wave}</button>}
+                {/* THE BEGINNING-OF-WAVES BUTTON IS REMOVED
+                    (Nigel, 2026-10-25): no hand begins the
+                    free field's Unraveling — the dark enters
+                    on its own, at intensity one, from the
+                    furthest ring of the curse, and makes its
+                    way in. There is no button here because
+                    there is nothing to begin. */}
                 </>
               ) : (
-                <span className="battle-status">The field is at rest. A seated Tender may begin the Unraveling.</span>
+                <span className="battle-status">The field is at rest — the dark finds its own way in, in its own time.</span>
               )}
             </div>
           </div>
