@@ -120,6 +120,25 @@ await sleep(2000);
 const hooksFall = consoleLines.some((l) => /Rendered more hooks|#310|room hit a fault/.test(l));
 ok("no hooks fall anywhere in the console — no #310, in either build's wording", !hooksFall,
   consoleLines.filter((l) => /hook|310|fault/i.test(l)).join(" | ").slice(0, 300));
+// THE TABLE'S SKY (Nigel, 2026-10-25): the moon-and-spires
+// scene is struck; the Negative stands still in its place
+// and his meteors fall over it.
+const sky = await page.evaluate(() => {
+  const neb = document.querySelector(".table-nebula");
+  const mets = [...document.querySelectorAll(".table-meteor")];
+  return {
+    oldScene: !!document.querySelector(".field-bg"),
+    nebula: !!neb && (getComputedStyle(neb).backgroundImage ?? "").includes("nebula-negative"),
+    nebulaAnimation: neb ? getComputedStyle(neb).animationName : "(none)",
+    meteors: mets.length,
+    meteorSrc: mets[0] ? (mets[0].getAttribute("src") ?? "") : "",
+  };
+}).catch(() => ({ oldScene: true, nebula: false, nebulaAnimation: "?", meteors: 0, meteorSrc: "" }));
+ok("the old moon-and-spires background is gone from the room", !sky.oldScene);
+ok("the second nebula — the Negative — stands as the room's ground", sky.nebula, JSON.stringify(sky));
+ok("the nebula stands STILL — no animation on its layer", sky.nebulaAnimation === "none", `animation-name: ${sky.nebulaAnimation}`);
+ok("his meteors fall over it — six instances of the meteor-rain", sky.meteors === 6 && sky.meteorSrc.includes("meteor-rain"),
+  `count=${sky.meteors} src=${sky.meteorSrc}`);
 await page.screenshot({ path: `${OUT}/room-stands.png` });
 ok("the standing room is photographed", true);
 await browser.close();

@@ -25,7 +25,8 @@ import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, tenderCast
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
 import cursedImg from "./assets/terrain-iso/cursed-v3.png";
-import battlegroundBg from "./assets/battleground-bg.jpg";
+import nebulaNegative from "./assets/nebula-negative.jpg";
+import meteorRain from "./assets/meteor-rain.gif";
 import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
@@ -482,6 +483,27 @@ function ownerColor(name: string): string {
 }
 
 const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
+
+// THE TABLE'S SKY (Nigel, 2026-10-25): the moon-and-spires
+// scene that backed the field is struck. In its place the
+// room stands under the second nebula — the Negative — held
+// STILL (its turning and breathing belong to the front
+// page's sky, not this room), with his meteors falling over
+// it: a handful of instances of the meteor-rain the
+// homeland's unrisen seeds wear, each on its own slow fall
+// (transform only — the sky costs the room nothing it can
+// feel, and no placement or readability moves for it).
+// left/width in %/px of the field wrap; dur/delay in
+// seconds, delays negative so the sky is already falling
+// at first paint.
+const TABLE_METEORS = [
+  { left: "6%", w: 54, dur: "11s", delay: "-3s", o: 0.75 },
+  { left: "22%", w: 38, dur: "14s", delay: "-9s", o: 0.55 },
+  { left: "41%", w: 66, dur: "9.5s", delay: "-5.5s", o: 0.85 },
+  { left: "63%", w: 42, dur: "12.5s", delay: "-1.5s", o: 0.6 },
+  { left: "79%", w: 58, dur: "10.5s", delay: "-7.5s", o: 0.8 },
+  { left: "92%", w: 34, dur: "15s", delay: "-11s", o: 0.5 },
+] as const;
 
 const ROSTER = [
   { name: "fray", label: "Fray", note: "Small ink splatters. Weak alone, dangerous in groups." },
@@ -2889,7 +2911,18 @@ export default function Table() {
 
         <section className="panel field-panel">
           <div className="field-wrap">
-            <img className="field-bg" src={battlegroundBg} alt="" aria-hidden="true" />
+            <div className="table-nebula" style={{ backgroundImage: `url(${nebulaNegative})` }} aria-hidden="true" />
+            <div className="table-meteors" aria-hidden="true">
+              {TABLE_METEORS.map((m, i) => (
+                <img
+                  key={i}
+                  className="table-meteor"
+                  src={meteorRain}
+                  alt=""
+                  style={{ left: m.left, width: m.w, opacity: m.o, animationDuration: m.dur, animationDelay: m.delay }}
+                />
+              ))}
+            </div>
             <div className="field-board">
             <svg
               ref={svgRef}

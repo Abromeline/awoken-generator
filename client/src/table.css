@@ -201,19 +201,6 @@ button { font-family: inherit; }
   align-items: center;
   justify-content: center;
 }
-.field-bg {
-  position: absolute;
-  inset: -4%;
-  width: 108%;
-  height: 108%;
-  object-fit: cover;
-  opacity: 0.75;
-  animation: moonDrift 90s ease-in-out infinite alternate;
-}
-@keyframes moonDrift {
-  from { transform: translate(-1.5%, -1%); }
-  to { transform: translate(1.5%, 1%); }
-}
 .field-board { position: relative; width: min(340px, 80%); margin: 0 auto; }
 .seed-ground { fill: #0d0906; stroke: #000; stroke-width: 2; }
 /* The curse's remaining corruption, numbered under its wear
@@ -588,7 +575,32 @@ button { font-family: inherit; }
   background: none; box-shadow: none; overflow: hidden; display: block;
 }
 .field-wrap { position: absolute; inset: 0; min-height: 0; border: none; border-radius: 0; display: block; overflow: hidden; }
-.field-bg { z-index: 0; opacity: 0.82; }
+/* THE TABLE'S SKY (Nigel, 2026-10-25): the moon-and-spires
+   scene (.field-bg, moonDrift and all) is struck whole. The
+   room's ground is now the second nebula — the Negative,
+   the same web copy the front page turns — held STILL:
+   no animation of any kind on this layer, no blend mode.
+   Over it, his meteors fall: six instances of the
+   meteor-rain gif, transform-animated only (compositor
+   work, no repaints, no blend modes), thin and dim enough
+   that the field and its lettering read exactly as before.
+   The board rides at z-index 2 over both; the corner pit of
+   shadow (::after, z-index 3) still caps the frame. */
+.table-nebula {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  opacity: 0.9;
+}
+.table-meteors { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.table-meteor {
+  position: absolute; top: -12%; height: auto; pointer-events: none;
+  animation-name: tableMeteorFall; animation-timing-function: linear; animation-iteration-count: infinite;
+  will-change: transform;
+}
+@keyframes tableMeteorFall {
+  from { transform: translate3d(0, -45vh, 0); }
+  to { transform: translate3d(4vw, 118vh, 0); }
+}
 /* Mycelium at the frame's edges: the dark creeps in at the
    corners and the whole field sits in a soft pit of shadow. */
 .field-wrap::after {
