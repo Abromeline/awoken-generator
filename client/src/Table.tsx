@@ -39,12 +39,13 @@ import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
+import { WORKING_FACE } from "./workingFaces";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import blackGateImg from "./assets/effects/black-gate.png";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
 import { elementPalette } from "./palette";
 
-const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, springblade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain };
+const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, springblade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain, ...WORKING_FACE };
 
 /** A spell as the Table reads it — from the Grimoire (Nigel,
  *  2026-10-17): the workshop's book is the data of record now;
@@ -546,7 +547,7 @@ export default function Table() {
       const glyph = (grimoire.glyphs as any[]).find((g) => g.id === sp.glyphId);
       out[sp.key] = {
         key: sp.key, root: sp.name, kind: sp.kind, engine: sp.engine,
-        glyph: glyph ? (glyph.imageUrl ?? (glyph.assetKey ? GLYPHS[glyph.assetKey] ?? null : null)) : null,
+        glyph: glyph ? (glyph.imageUrl ?? (glyph.assetKey ? GLYPHS[glyph.assetKey] ?? null : null)) : (GLYPHS[sp.key] ?? null),
         cost: sp.cost, blurb: sp.blurb, forms: sp.forms ?? {}, numbers: sp.numbers ?? {},
       };
     }

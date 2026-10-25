@@ -218,8 +218,9 @@ console.log("§0 the shared reckoning — one table, the eight steps, the droppe
 console.log("§A the homeland — the Gate casts in the caster's facing, at the cast level's HP, for the flagged price");
 const grimState = await call("getGrimoire", {});
 const gatePage = (grimState.spells ?? []).find((s) => s.key === "blackgate");
-ok("the book carries Black Gate as a WARD of 8 energy (kind + price the flagged UNRULED derivations from Bulwark), its glyph face owed (null — none invented)",
-  !!gatePage && gatePage.kind === "ward" && gatePage.cost === 8 && gatePage.engine === "blackgate" && gatePage.glyphId === null,
+ok("the book carries Black Gate as a WARD of 8 energy (kind + price the flagged UNRULED derivations from Bulwark), its face BOUND to its own Gate piece (Bind Them All, 2026-10-25 — the glyph record glyph-blackgate, assetKey blackgate; no drawn-rune glyph invented)",
+  !!gatePage && gatePage.kind === "ward" && gatePage.cost === 8 && gatePage.engine === "blackgate" && gatePage.glyphId === "glyph-blackgate"
+    && (grimState.glyphs ?? []).some((g) => g.id === "glyph-blackgate" && g.assetKey === "blackgate"),
   JSON.stringify(gatePage));
 
 const G = await claim("Gate Facings", 150); // Lv 3

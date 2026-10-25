@@ -45,9 +45,10 @@ import grimGlyphBlades from "./assets/glyphs/blades.png";
 import grimGlyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 import { batsFrameAt, holdRuneFrameAt } from "./workingFx";
+import { WORKING_FACE } from "./workingFaces";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import blackGateImg from "./assets/effects/black-gate.png";
-const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, springblade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil };
+const GRIM_BUNDLED: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: grimGlyphEngine, standard: grimGlyphStandard, trees: ANIMATED_GLYPH.trees, beacon: grimGlyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: grimGlyphBlade, springblade: grimGlyphBlade, blades: grimGlyphBlades, shard: ANIMATED_GLYPH.shard, coil: grimGlyphCoil, ...WORKING_FACE };
 /** The hues of the Written Light — the grimoire's filter recipes,
  *  the same as the Table's (Table.tsx). */
 const GRIM_HUE_FILTERS: Record<string, string> = {
@@ -67,7 +68,7 @@ import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
 import { useEnemyArt } from "./enemyArt";
-import { FrayFaceSvgImage } from "./EnemyFace";
+import { EnemyFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
 import tideImg from "./assets/terrain-iso/tide-v3.png";
 import skyImg from "./assets/terrain-iso/sky-v3.png";
@@ -711,6 +712,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // Awoken branch is showing; the "More" entry inside the
   // wheel advances it (deckWindow.ts clamps and wraps it).
   const [deckPage, setDeckPage] = useState(0);
+  // The working branches' window (Bind Them All,
+  // 2026-10-25): which window of six pages an open working
+  // branch shows; its More entry advances it, and changing
+  // branch returns it to the first window.
+  const [spellPage, setSpellPage] = useState(0);
   const TERRITORY_HOTBAR_KEY = "awokin-hotbar-territory";
   const [hotbarKeys, setHotbarKeys] = useState<string[]>(() => loadHotbar(TERRITORY_HOTBAR_KEY));
   const toggleHotbar = (key: string) => {
@@ -2409,7 +2415,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           : "The book holds no such pages yet."),
       }];
     }
-    return kindSpells.slice(0, 6).map(sp => {
+    // THE WINDOW (Bind Them All, 2026-10-25): a branch
+    // shows one window of six pages, walked by the More
+    // step — the wheel's own ruled answer to a full branch
+    // (the summon window, Recovery R6). The bare slice
+    // that stood here before cut a kind's seventh page
+    // off the wheel entirely: the Hold Rune and the Black
+    // Gate, seated at the book's end, stood as the
+    // seventh rune and the seventh ward and could not be
+    // readied on this ground at all — the faces bound
+    // tonight had no wheel to stand on. The window keeps
+    // the branch's six-disc fan and lets every page of
+    // the book be reached, as the deck window does.
+    const spellPageCount = Math.max(1, Math.ceil(kindSpells.length / 6));
+    const spellWnd = Math.min(spellPage, spellPageCount - 1);
+    const entries = kindSpells.slice(spellWnd * 6, spellWnd * 6 + 6).map(sp => {
       const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
       return {
         key: `cast-${sp.key}`,
@@ -2428,6 +2448,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         },
       } as WheelEntry;
     });
+    if (spellPageCount > 1) {
+      entries.push({
+        key: `spells-more-${wheelTab}`,
+        emoji: "›",
+        label: `More · ${spellWnd + 1}/${spellPageCount}`,
+        stayOpen: true,
+        act: () => { setSpellPage(p => (Math.min(p, spellPageCount - 1) + 1) % spellPageCount); },
+      } as WheelEntry);
+    }
+    return entries;
   };
   // ── THE ORDERS WHEELS' ENTRIES (Nigel, 2026-10-22 — the
   // marching-orders spec): one Awokin's wheel carries its
@@ -5494,16 +5524,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         ))}
       </g>
     );
-    // PHASE D — THE BLIND FRAY on the face: each wanderer wears
-    // the Fray's own art (Nigel's drawn face), standing in its
-    // hex on the map's clock — a slow, sightless sway, nothing
-    // like a march. Since "Fray 1" (2026-10-22) the face itself
-    // walks: the five-stride cycle loops on its own heartbeat.
-    // And since the Token Strip (2026-10-23) the cycle is the
+    // PHASE D — THE DARK ON THE FACE: each wanderer wears
+    // ITS OWN kind's face (Bind Them All, Nigel's tap
+    // 2026-10-24 23:40), standing in its hex on the map's
+    // clock — a slow, sightless sway, nothing like a march.
+    // The Fray walks: since "Fray 1" (2026-10-22) its face is
+    // the five-stride cycle looping on its own heartbeat, and
+    // since the Token Strip (2026-10-23) the cycle is its
     // standing face on this map outright — Nigel's animated
     // one, never the still workshop upload standing in its
     // place (the resolver rule lives in EnemyFace.tsx); the
-    // upload still rules the Fray on the other surfaces.
+    // upload still rules the Fray on the other surfaces. The
+    // Hollow, the Unraveler and the Tangle stand in their
+    // own bundled stills, resolved by the one resolver
+    // (enemyImgFor) the Table and the Battleground read —
+    // before this binding the map wore the Fray's walk on
+    // every kind, and their own faces stood bound only on
+    // the other grounds.
     const wanderersLayer = (
       <g key="wanderers" pointerEvents="none">
         {wanderers.map(w => {
@@ -5527,7 +5564,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           return (
             <g key={w.id}>
               <ellipse cx={cx} cy={cy + size * 0.17} rx={size * 0.3} ry={size * 0.11} fill="rgba(0,0,0,0.42)" />
-              <FrayFaceSvgImage art={enemyArtData?.art} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
+              <EnemyFaceSvgImage kind={w.kind} art={enemyArtData?.art} x={cx - wh / 2} y={cy - wh * 0.66 + sway} width={wh} height={wh}
                 opacity={0.95} />
               {/* THE ENEMY TAP (Nigel, 2026-10-20; re-ruled
                   2026-10-23 — Recovery R4; routed by target
@@ -6848,7 +6885,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           const pt = wheelClientPoint();
           if (!pt) return null;
           return (
-            <GroundWheel cx={pt.x} cy={pt.y} tab={wheelTab} onTab={setWheelTab}
+            <GroundWheel cx={pt.x} cy={pt.y} tab={wheelTab} onTab={(t) => { setWheelTab(t); setSpellPage(0); }}
               entries={buildWheelEntries()} caption={wheelCaption()}
               pinnedKeys={hotbarKeys} onTogglePin={toggleHotbar} onDropKey={dropToHotbar}
               onClose={() => setTenderRadial(null)} evenFan={wheelTab === "awoken"} />

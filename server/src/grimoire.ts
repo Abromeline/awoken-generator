@@ -160,6 +160,12 @@ const SEED_NUMBERS: Record<string, Record<string, number>> = Object.fromEntries(
   ]),
 );
 
+/** THE BOUND FACES (Nigel's tap, 2026-10-24 23:40 — "Bind
+ *  them all"): the workings whose faces the binding below
+ *  seats in the book's data. Named once, here, so the seed
+ *  and the stored-book refresh read the same list. */
+export const BOUND_FACE_KEYS = ["shardrain", "bats", "holdrune", "shatter", "bulwark", "blackgate"] as const;
+
 /** The book as it first opens: the Written Light, seated. */
 export function defaultGrimoire(): GrimoireState {
   const glyphs: GrimoireGlyph[] = [];
@@ -323,8 +329,9 @@ export function defaultGrimoire(): GrimoireState {
   // sky opens ONCE: 2d6, plus 1d6 per attunement LEVEL in the
   // spell's element (the caster's level, snapshotted at the
   // cast), rolled as ONE POOL and split between every enemy
-  // standing on the covered hexes. Its glyph is owed — one of
-  // the five undrawn roots; its rain, though, Nigel has drawn.
+  // standing on the covered hexes. Its rain Nigel has drawn
+  // — and the rain is its face now (THE BOUND FACES below):
+  // no drawn-rune glyph was invented for it.
   spells.push({
     key: "shardrain",
     name: "Shard Rain",
@@ -345,7 +352,7 @@ export function defaultGrimoire(): GrimoireState {
   // suffers no cap. A fallen quarry sends the swarm on to
   // the next strongest; only an empty field sends it home to
   // dissipate there. Its art is Nigel's own 43-frame sequence.
-  // Its glyph is owed, like Shard Rain's.
+  // Its face is a still of that swarm (THE BOUND FACES below).
   spells.push({
     key: "bats",
     name: "Bats",
@@ -365,7 +372,8 @@ export function defaultGrimoire(): GrimoireState {
   // The hold BEGINS at the crash's first strike, and the
   // crash section loops for the whole hold. Its art is
   // Nigel's own sequence, in the condensed game copy (47
-  // slots). Its glyph is owed, like Shard Rain's.
+  // slots). Its face is its own formed rune (THE BOUND
+  // FACES below).
   spells.push({
     key: "holdrune",
     name: "Hold Rune",
@@ -387,7 +395,8 @@ export function defaultGrimoire(): GrimoireState {
   // looses three pieces; HELD, the cast streams — 1 energy
   // per second, three pieces per second, each its own shot.
   // Its art is the Hold Rune's own glyph, in pieces — no new
-  // art. Its glyph is owed, like Shard Rain's.
+  // art. Its face is the greatest of those pieces (THE
+  // BOUND FACES below).
   spells.push({
     key: "shatter",
     name: "Rune Shatter",
@@ -417,9 +426,9 @@ export function defaultGrimoire(): GrimoireState {
   // HP alone — no figure's Defence stance sustains them.
   // The shield ART is Nigel's own upload (the Shield piece,
   // "Artwork 4" of his rune/ward set, 2026-10-21) — no
-  // substitute. Its GLYPH FACE is separately owed by his
-  // hand, like Shard Rain's: glyphId stands null and no
-  // glyph is invented for it. Its page takes no attunement
+  // substitute. Its FACE is that same Shield piece (THE
+  // BOUND FACES below): glyphId names the binding, and no
+  // drawn-rune glyph is invented for it. Its page takes no attunement
   // slots (it stands outside POUR_ENGINES, as the Standard,
   // the Engine and the Beacon do): its strength is the cast
   // level law Nigel ruled for it, not the slots.
@@ -474,9 +483,9 @@ export function defaultGrimoire(): GrimoireState {
   // Untitled_Artwork.png of his rune/ward set, 2026-10-21
   // — pure black carried in alpha, cropped to its drawn
   // shape as R12/R3 wired his other uploaded workings; no
-  // substitute art). Its GLYPH FACE is separately owed
-  // by his hand, like Bulwark's and Shard Rain's:
-  // glyphId stands null and no glyph is invented for it.
+  // substitute art). Its FACE is that same Gate piece
+  // (THE BOUND FACES below): glyphId names the binding,
+  // and no drawn-rune glyph is invented for it.
   // Its page takes no attunement slots (it stands
   // outside POUR_ENGINES, as Bulwark does): its strength
   // is the cast level law Nigel ruled for it.
@@ -506,6 +515,39 @@ export function defaultGrimoire(): GrimoireState {
     forms: { unaligned: "Black Gate", tide: "Tide Black Gate", sky: "Sky Black Gate", stone: "Stone Black Gate", root: "Root Black Gate", fire: "Fire Black Gate" },
     builtin: true,
   });
+  // THE BOUND FACES (Nigel's tap, 2026-10-24 23:40 — "Bind
+  // them all — the three enemy faces and the six workings'
+  // faces"): six workings whose faces stood OWED while
+  // their own art already stood bound to their casts. The
+  // book now carries the binding itself, in its own data:
+  // each of the six wears its own art as its face, through
+  // a glyph record whose assetKey names the face in the
+  // client's one binding (client/src/workingFaces.ts —
+  // Shard Rain its falling gif, Bats a still of its swarm,
+  // the Hold Rune its formed rune, Rune Shatter the
+  // greatest of its pieces, Bulwark the Shield piece, the
+  // Black Gate the Gate piece). Every surface that shows
+  // a working's face reads the book or that binding, so
+  // the association stands in one place and the book's
+  // next building inherits it whole. No drawn-rune glyph
+  // was invented for any of them; if Nigel draws glyph
+  // faces by his own hand, the workshop re-points their
+  // pages like any other page's.
+  for (const key of BOUND_FACE_KEYS) {
+    const spell = spells.find(s => s.key === key);
+    if (!spell) continue;
+    const glyphId = `glyph-${key}`;
+    glyphs.push({
+      id: glyphId,
+      name: spell.name,
+      assetKey: key,
+      imageUrl: null,
+      sort: spell.kind,
+      spellKey: key,
+      builtin: true,
+    });
+    spell.glyphId = glyphId;
+  }
   return { glyphs, spells };
 }
 
@@ -843,7 +885,9 @@ export async function attunementPools(ownerKey: string): Promise<Record<string, 
  *  grown since it was saved (the pour and health traits, Nigel
  *  2026-10-17) arrive at their defaults without touching a single
  *  tuned value, and built-in spells written since (the Springleaf)
- *  are appended by key. The workshop's next save persists both. */
+ *  are appended by key. Built-in glyphs are appended by id the
+ *  same way, and the bound faces' pages take their binding. The
+ *  workshop's next save persists all of it. */
 export async function refreshGrimoire(): Promise<GrimoireState> {
   try {
     const rows = await db.select().from(schema.uiConfig).where(eq(schema.uiConfig.key, CONFIG_KEY));
@@ -877,6 +921,26 @@ export async function refreshGrimoire(): Promise<GrimoireState> {
         for (const seedSpell of seed.spells) {
           if (seedSpell.builtin && !parsed.spells.some(s => s.key === seedSpell.key)) {
             parsed.spells.push(seedSpell);
+          }
+        }
+        // THE BOUND FACES ride into stored books the same
+        // way (2026-10-25): a book saved before the binding
+        // lacks the six glyph records and holds null where
+        // their pages' faces now stand — the records are
+        // appended by id, and a bound page still standing
+        // null takes the seed's binding. A page Nigel has
+        // since pointed at another glyph keeps his pointing
+        // (its glyphId is no longer null, and it is left
+        // exactly as he left it).
+        for (const seedGlyph of seed.glyphs) {
+          if (seedGlyph.builtin && !parsed.glyphs.some(g => g.id === seedGlyph.id)) {
+            parsed.glyphs.push(seedGlyph);
+          }
+        }
+        for (const spell of parsed.spells) {
+          if (spell.glyphId == null && (BOUND_FACE_KEYS as readonly string[]).includes(spell.key)) {
+            const seedSpell = seed.spells.find(s => s.key === spell.key);
+            if (seedSpell?.glyphId) spell.glyphId = seedSpell.glyphId;
           }
         }
         cache = parsed;

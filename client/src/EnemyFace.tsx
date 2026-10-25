@@ -21,7 +21,7 @@
  */
 import { useEffect, useState, type ImgHTMLAttributes } from "react";
 import type { EnemyArtMap } from "./api";
-import { FRAY_WALK_FRAMES, FRAY_WALK_FRAME_MS, frayWalkFrameAt } from "./enemyArt";
+import { FRAY_WALK_FRAMES, FRAY_WALK_FRAME_MS, enemyImgFor, frayWalkFrameAt } from "./enemyArt";
 
 let preloaded = false;
 /** Warm the browser's cache with the whole cycle once, so the first
@@ -74,6 +74,36 @@ export function FrayFaceSvgImage({ art: _art, x, y, width, height, opacity }: {
   useFrayWalkTick(true);
   return (
     <image href={FRAY_WALK_FRAMES[frayWalkFrameAt(Date.now())]} x={x} y={y} width={width} height={height}
+      preserveAspectRatio="xMidYMax meet" opacity={opacity} />
+  );
+}
+
+/** An enemy's face for SVG surfaces (the homeland map) —
+ *  the one kind-true binding (Bind Them All, Nigel's tap
+ *  2026-10-24 23:40). The Fray walks: its cycle is its
+ *  standing face on this map, by the Token Strip law above.
+ *  Every other kind stands in its OWN face, resolved by
+ *  enemyImgFor — the same resolver the Table and the
+ *  Battleground read: Nigel's live workshop upload when one
+ *  is live, else the bundled still (the Hollow, the
+ *  Unraveler, the Tangle — stills, drawn true; no motion
+ *  is faked for them). Before this binding the map asked
+ *  only for the Fray's face and wore it on every wanderer,
+ *  whatever its kind. */
+export function EnemyFaceSvgImage({ kind, art, x, y, width, height, opacity }: {
+  kind: string;
+  art?: EnemyArtMap | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity?: number;
+}) {
+  if (kind === "fray") {
+    return <FrayFaceSvgImage art={art} x={x} y={y} width={width} height={height} opacity={opacity} />;
+  }
+  return (
+    <image href={enemyImgFor(kind, art)} x={x} y={y} width={width} height={height}
       preserveAspectRatio="xMidYMax meet" opacity={opacity} />
   );
 }

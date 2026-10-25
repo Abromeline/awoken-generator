@@ -16,6 +16,7 @@ import glyphBladeImg from "./assets/glyphs/blade.png";
 import glyphBladesImg from "./assets/glyphs/blades.png";
 import glyphShardImg from "./assets/glyphs/shard.png";
 import glyphCoilImg from "./assets/glyphs/coil.png";
+import { WORKING_FACE } from "./workingFaces";
 
 import frayImg from "./assets/enemies/fray.png";
 import unravelerImg from "./assets/enemies/unraveler.png";
@@ -306,7 +307,7 @@ function CardBorderSection() {
   );
 }
 
-const GRIMOIRE_BUNDLED: Record<string, string> = { seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg, trees: glyphTreesImg, beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg, springblade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg, coil: glyphCoilImg };
+const GRIMOIRE_BUNDLED: Record<string, string> = { seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg, trees: glyphTreesImg, beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg, springblade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg, coil: glyphCoilImg, ...WORKING_FACE };
 const grimoireGlyphImg = (g: GrimoireGlyph): string | null => g.imageUrl ?? (g.assetKey ? GRIMOIRE_BUNDLED[g.assetKey] ?? null : null);
 const ENGINE_LABELS: Record<string, string> = {
   seal: "Seal engine — an edge-wall that stops strikes and answers them",

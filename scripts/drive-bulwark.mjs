@@ -192,8 +192,9 @@ console.log("§0 the shared reckoning — one table, the count by cast level, th
 console.log("§A the homeland — Bulwark casts through the ward door, at the cast level's count and HP");
 const grim = await call("getGrimoire", {});
 const bulwarkPage = (grim.spells ?? []).find((s) => s.key === "bulwark");
-ok("the book carries Bulwark as a WARD of 8 energy, its glyph face owed (null — none invented)",
-  !!bulwarkPage && bulwarkPage.kind === "ward" && bulwarkPage.cost === 8 && bulwarkPage.engine === "bulwark" && bulwarkPage.glyphId === null,
+ok("the book carries Bulwark as a WARD of 8 energy, its face BOUND to its own Shield piece (Bind Them All, 2026-10-25 — the glyph record glyph-bulwark, assetKey bulwark; no drawn-rune glyph invented)",
+  !!bulwarkPage && bulwarkPage.kind === "ward" && bulwarkPage.cost === 8 && bulwarkPage.engine === "bulwark" && bulwarkPage.glyphId === "glyph-bulwark"
+    && (grim.glyphs ?? []).some((g) => g.id === "glyph-bulwark" && g.assetKey === "bulwark"),
   JSON.stringify(bulwarkPage));
 
 const A = await claim("Bulwark Low", 150); // Lv 3

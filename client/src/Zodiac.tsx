@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, GRIMOIRE_POUR_ENGINES, GRIMOIRE_PAGE_SLOTS, GRIMOIRE_SLOT_COST, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
+import { WORKING_FACE } from "./workingFaces";
 import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, type WeaponKey } from "./weaponArt";
 import glyphSealImg from "./assets/glyphs/seal.png";
@@ -66,16 +67,20 @@ const ROMAN = ["0", "I", "II", "III", "IV"];
  *  bundle calls trees.png, is the SPRINGLEAF's true face,
  *  permanently, by Nigel's 2026-10-20 ruling. The Twin Trees
  *  has NO entry: its new face is owed by Nigel's hand, and
- *  glyph-05 is never lent to it. Workings with no entry and
- *  no served glyph art (Shard Rain, Bats, Hold Rune, Rune
- *  Shatter, Bulwark, Black Gate, Heal) open on an owed frame
- *  carrying the working's name-mark — never another
- *  working's face. */
+ *  glyph-05 is never lent to it. THE SIX BOUND FACES (Bind
+ *  Them All, Nigel's tap 2026-10-24 23:40) ride in from the
+ *  one binding (workingFaces.ts): Shard Rain, Bats, Hold
+ *  Rune, Rune Shatter, Bulwark and Black Gate wear their
+ *  own art here, as on every ground — the same association
+ *  the book's own data carries by glyph assetKey. Workings
+ *  with no entry and no served glyph art (Heal) open on an
+ *  owed frame carrying the working's name-mark — never
+ *  another working's face. */
 const FACE_BY_KEY: Record<string, string> = {
   seal: glyphSealImg, engine: glyphEngineImg, standard: glyphStandardImg,
   beacon: glyphBeaconImg, lattice: glyphLatticeImg, blade: glyphBladeImg,
   springblade: glyphBladeImg, blades: glyphBladesImg, shard: glyphShardImg,
-  coil: glyphCoilImg, springleaf: glyph05Img,
+  coil: glyphCoilImg, springleaf: glyph05Img, ...WORKING_FACE,
 };
 /** One page of the book: a weapon of the arsenal, or a
  *  working of the Grimoire. */
