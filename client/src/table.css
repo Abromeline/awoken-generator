@@ -937,3 +937,51 @@ button { font-family: inherit; }
 .beacon-pop .table-btn { width: 100%; margin-top: 10px; }
 .beacon-pop .door-input { width: 100%; box-sizing: border-box; }
 .table-btn.ghost { border-color: var(--ash-3); color: var(--gold-bright); opacity: 0.85; }
+
+/* ————— The seed's climb strip (2026-10-25) —————
+   The standing strip under the skybar (Nigel: "a standing
+   strip for the discord seed meeter since the goal is to
+   see how high you can make it go"). It first stood on
+   the room's bottom edge and the satchel drawer — which
+   rests half off-screen there — painted over it whole;
+   the scoreboard edge under the skybar is its home. Slim,
+   one line of the room's own furniture: the skybar's ash,
+   its own blood-deep rule below it, the threat track's
+   shape for its meter — filled gold, for this is the
+   light's climb, not the dark's. Reached stages burn
+   gold; the stage the seed stands in burns brightest;
+   the road ahead is dim. */
+.seed-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 7px 16px;
+  background: var(--ash-2);
+  border-bottom: 2px solid var(--blood-deep);
+  font-size: 13px;
+  color: var(--bone);
+}
+.seed-strip-name strong { color: var(--gold-bright); }
+.seed-strip-meter {
+  display: inline-block;
+  width: 170px;
+  height: 10px;
+  background: var(--ash);
+  border: 1px solid var(--blood);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.seed-strip-fill {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transition: width 0.8s ease;
+}
+.seed-strip-fed { color: var(--bone-dim); font-size: 12px; white-space: nowrap; }
+.seed-strip-steps { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; white-space: nowrap; }
+.seed-strip-step { color: var(--bone-dim); opacity: 0.55; }
+.seed-strip-step .seed-strip-arrow { margin-right: 7px; }
+.seed-strip-step.on { color: var(--gold); opacity: 1; }
+.seed-strip-step.now { color: var(--gold-bright); font-weight: 700; }
+.seed-strip-feed { color: var(--bone-dim); font-size: 12px; white-space: nowrap; }

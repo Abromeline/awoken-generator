@@ -2845,6 +2845,64 @@ export default function Table() {
         </span>
       </header>
 
+      {/* THE SEED'S CLIMB, ON THE ROOM'S EDGE (Nigel,
+          2026-10-25 15:23: "one more fix for discord. it
+          need the starseed growh mechnics and ui"; the
+          shape, 15:25: "i like the idea of a standing strip
+          for the discord seed meeter since the goal is t
+          osee how high you can make it go"): a slim strip
+          along the room's bottom edge, always standing,
+          riding the snapshot's own seed block — no new
+          fetch, no new payload. It names the stage, meters
+          the fed energy toward the next stage, marks the
+          climb's stages in a row with the seed's own lit,
+          and carries ONE line naming the feeding road. It
+          stands under the skybar, on the room's scoreboard
+          edge: the bottom edge belongs to the satchel
+          drawer, which rests half off-screen there and
+          covers anything laid beneath it (found by this
+          build's first screenshots — the strip stood
+          complete and was painted over); the campaign
+          centre stays open below, the party rail and the
+          tale keep their columns, and the beacon pin rides
+          the right side's middle, far from this ground. */}
+      {shared.seed && (() => {
+        const seed = shared.seed;
+        const climb = [
+          { key: "starseed", label: "Starseed", level: 1 },
+          { key: "sapling", label: "Sapling", level: 2 },
+          { key: "beacon", label: "Beacon", level: 3 },
+          { key: "bastion", label: "Bastion", level: 4 },
+        ];
+        const stageName = seed.stage === "sapling" ? "Sapling of Light"
+          : seed.stage === "beacon" ? "Beacon of Light"
+          : seed.stage === "bastion" ? "Bastion"
+          : "Starseed";
+        const atHeight = seed.nextStageAt == null;
+        const spanBase = seed.level >= 2 ? 15 : 0;
+        const meterPct = atHeight ? 100
+          : Math.max(0, Math.min(100, ((seed.fedEnergy - spanBase) / (seed.nextStageAt! - spanBase)) * 100));
+        return (
+          <footer className="seed-strip" role="region" aria-label="The star-seed's climb">
+            <span className="seed-strip-name">⭐ The star-seed stands a <strong>{stageName}</strong></span>
+            <span className="seed-strip-meter" aria-hidden="true"><span className="seed-strip-fill" style={{ width: `${meterPct}%` }} /></span>
+            <span className="seed-strip-fed">
+              {atHeight
+                ? <>fed {Math.floor(seed.fedEnergy)} — it stands at its height</>
+                : <>fed {Math.floor(seed.fedEnergy)} of {seed.nextStageAt} toward the {seed.level >= 2 ? "Beacon" : "Sapling"}</>}
+            </span>
+            <span className="seed-strip-steps" aria-hidden="true">
+              {climb.map((s, i) => (
+                <span key={s.key} className={`seed-strip-step${seed.level >= s.level ? " on" : ""}${seed.level === s.level ? " now" : ""}`}>
+                  {i > 0 && <span className="seed-strip-arrow">→</span>}{s.label}
+                </span>
+              ))}
+            </span>
+            <span className="seed-strip-feed">It feeds while a Tender stands on its hex.</span>
+          </footer>
+        );
+      })()}
+
       <main className="table-main">
         <aside className="panel party-panel">
           <h3>The Party</h3>
