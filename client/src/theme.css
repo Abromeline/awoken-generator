@@ -1660,6 +1660,26 @@ body.defeat-flash {
 .lighthouse-warn{color:#e89a7a;font-style:italic}
 .lighthouse-panel .abtn{align-self:flex-start;margin-top:2px}
 
+/* THE PACK (the drop table, 2026-10-25): the item
+   screen's homeland face, seated in the same fixed
+   column as the lighthouse panel, one seat to its left —
+   in view, bottoms aligned with the Hall tab. */
+.pack-panel{
+  position:fixed;right:492px;bottom:210px;z-index:940;width:168px;
+  background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:6px;
+  padding:8px 10px;font-size:11.5px;color:#e5cf9a;letter-spacing:0.3px;
+  display:flex;flex-direction:column;gap:4px;
+  max-height:46vh;overflow-y:auto;
+}
+.pack-head{font-size:12.5px;color:#ffd98a;letter-spacing:0.6px}
+.pack-empty{color:#b8a06a;font-style:italic}
+.pack-row{display:flex;justify-content:space-between;gap:8px}
+.pack-qty{color:#ffd98a}
+.pack-forge{border-top:1px solid rgba(138,111,53,0.5);padding-top:5px;margin-top:2px;display:flex;flex-direction:column;gap:4px}
+.pack-forge-label{color:#b8a06a;font-style:italic}
+.pack-forge-btns{display:flex;flex-wrap:wrap;gap:4px}
+.pack-el{text-transform:capitalize}
+
 .friends-btn{
   position:absolute;top:52px;right:12px;z-index:20;
   background:rgba(20,16,32,0.9);border:1px solid #6a5a8a;border-radius:6px;
@@ -2430,6 +2450,12 @@ body.defeat-flash {
   .lighthouse-panel {
     right: 88px !important;
     bottom: 140px !important;
+  }
+  /* The pack stacks above the lighthouse on small
+     screens, in the same in-view column. */
+  .pack-panel {
+    right: 88px !important;
+    bottom: 322px !important;
   }
   .applying-aspect-banner {
     font-size: 14px !important;

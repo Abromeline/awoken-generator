@@ -36,7 +36,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState } from "./api";
+import type { MapWorking, GrimoireState, PackView } from "./api";
 import grimGlyphEngine from "./assets/glyphs/engine.png";
 import grimGlyphStandard from "./assets/glyphs/standard.png";
 import grimGlyphBeacon from "./assets/glyphs/beacon.png";
@@ -556,6 +556,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // lighthouse and its ledgers, and the defence works the
   // defenders raise — all served by the territory read.
   const [battle, setBattle] = useState<{ shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }>({ shadowMatter: 0, protectionBankMs: 0, lighthouseLit: false, waveIntensity: 1 });
+  // THE PACK (the drop table, ruled 2026-10-23; built
+  // 2026-10-25): what the felled dark leaves behind,
+  // carried on the Tender's back — served by every
+  // territory read, spoken by its drained notice lines.
+  const [pack, setPack] = useState<PackView>({ stacks: [], shardCount: 0 });
   const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]>([]);
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
@@ -1633,6 +1638,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setSummoning(t.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
         setWanderers(t.wanderers ?? []);
         if (t.battle) setBattle(t.battle);
+        noteDropNotices(t);
         setDefenceWorks(t.defenceWorks ?? []);
         noteWeaponStrike(t.weaponStrike);
         notePlacementStrikes(t.strikes, t.tiles);
@@ -1708,6 +1714,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
     rememberField(refreshed.placements);
   };
+  // THE DROP TABLE'S VOICE: a territory read carries the
+  // pack's new face and the spoken lines of what the dark
+  // left behind since the last read (the server drains
+  // them once) — speak them as the land speaks its losses.
+  const noteDropNotices = (t: { pack?: PackView; dropNotices?: string[] }) => {
+    if (t.pack) setPack(t.pack);
+    const lines = t.dropNotices ?? [];
+    if (lines.length > 0) {
+      showHexNotice(lines.slice(0, 3).join(" ") + (lines.length > 3 ? " And more besides." : ""));
+    }
+  };
   const refreshTerritory = async (loopSeq?: number) => {
     const refreshed = await api.getTerritory();
     // A read the loop already gave up on (see THE READ LOOP
@@ -1721,6 +1738,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
     if (refreshed.battle) setBattle(refreshed.battle);
+    noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
     noteWeaponStrike(refreshed.weaponStrike);
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
@@ -6371,6 +6389,49 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         >
           {battle.lighthouseLit ? "Douse the light" : "Light the lighthouse"}
         </button>
+      </div>
+      {/* THE PACK — the item screen's homeland face (the
+          drop table, ruled 2026-10-23; built 2026-10-25):
+          what the felled dark leaves behind, carried on the
+          Tender's back. The shard forge stands at its foot:
+          twenty shards into one point of attunement, of the
+          element the Tender chooses. */}
+      <div className="pack-panel">
+        <div className="pack-head">🎒 The Pack</div>
+        {pack.stacks.length === 0 ? (
+          <div className="pack-empty">Empty — what the felled dark leaves behind gathers here.</div>
+        ) : (
+          pack.stacks.map((s) => (
+            <div key={s.key} className="pack-row">
+              <span>{s.name}</span>
+              <span className="pack-qty">×{s.qty}</span>
+            </div>
+          ))
+        )}
+        {pack.shardCount >= 20 && (
+          <div className="pack-forge">
+            <div className="pack-forge-label">Turn 20 shards into a point of:</div>
+            <div className="pack-forge-btns">
+              {(["root", "tide", "sky", "stone", "fire"] as const).map((el) => (
+                <button
+                  key={el}
+                  className="abtn small pack-el"
+                  onClick={async () => {
+                    try {
+                      const r = await api.convertRuneShards({ element: el });
+                      setPack(r.pack);
+                      showHexNotice(`The shards turn in your hands — a point of ${el} attunement is yours.`);
+                    } catch (e) {
+                      showHexNotice(refusalText(e, "The shards would not turn."));
+                    }
+                  }}
+                >
+                  {el}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {showFriends && <Friends onClose={() => setShowFriends(false)} hand={hand} />}
       {!legends.champion && (

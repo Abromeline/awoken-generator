@@ -34,6 +34,7 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // request time, long after both modules stand.)
 import { castModFor, partyBattleSeatFor } from "./table.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+import { rollFellDrops, drainDropNotices, inventoryView, trySpendRuneShards } from "./drops.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
@@ -4750,6 +4751,15 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
     }
   }
   await payFellDrip(ownerKey, groundElement);
+  // THE DROP TABLE (Nigel, ruled 2026-10-23; built
+  // 2026-10-25): what the felled dark leaves behind —
+  // shards, goods, relics and the guaranteed reagents —
+  // gathers in the Tender's pack, whoever's hand struck
+  // the blow, as the rest of this bounty pays. Guarded so
+  // a fault in the new ledger can never break a kill's
+  // older payments or the read that settled it; the fault
+  // is logged, never silent.
+  try { rollFellDrops(ownerKey, kind); } catch (e) { console.error("[drops] fell drop failed:", e); }
   if (killerXpWeights) {
     await grantDividedXpPot(XP_PER_ATTACK, killerXpWeights);
   } else if (killerAwakenedId != null) {
@@ -9859,7 +9869,7 @@ export const handlers = {
       summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -14611,6 +14621,32 @@ export const handlers = {
       sqlite.prepare("UPDATE tender_progress SET lighthouse_lit = 0, lighthouse_settled_at = ? WHERE owner_key = ?").run(now, ownerKey);
     }
     return z.object({ ok: z.literal(true), battle: z.object({ shadowMatter: z.number(), protectionBankMs: z.number(), lighthouseLit: z.boolean(), waveIntensity: z.number() }) }).parse({ ok: true, battle: await battleStateView(ownerKey) });
+  },
+
+  /** THE PACK (the drop table, ruled 2026-10-23; built
+   *  2026-10-25): the item screen's read — every stack the
+   *  Tender carries, named and counted. The territory read
+   *  serves the same view; this action stands for the
+   *  screen's own refreshes. */
+  async getInventory(_args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    return { pack: inventoryView(ownerKey) };
+  },
+
+  /** Twenty rune shards turn into ONE attunement point,
+   *  of an element the Tender chooses (ruled 2026-10-23
+   *  09:13). The point pays through the pools' one writer,
+   *  like every other gain — so it can birth an aspect at
+   *  the threshold, as a drip can. */
+  async convertRuneShards(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ element: z.enum(["root", "tide", "sky", "stone", "fire"]) }).safeParse(args);
+    if (!parsed.success) badRequest("Name the element the point should carry.");
+    if (!trySpendRuneShards(ownerKey)) {
+      badRequest("Twenty rune shards turn into one point of attunement — your pack holds fewer. What the dark leaves behind will gather them.");
+    }
+    await addAspectPoints(ownerKey, parsed.data.element as AttunementElement, 1);
+    return { ok: true as const, pack: inventoryView(ownerKey) };
   },
 
   async setStance(args: unknown, ctx?: ActionContext) {

@@ -340,6 +340,29 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
   displayRate: real("display_rate").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
+// THE PACK (the drop table, ruled 2026-10-23; built
+// 2026-10-25): the travelling player inventory — one row
+// per stack the Tender carries. item_key names the good
+// ("rune-shard", "pantry:<good>", "relic:<fx verb>"); the
+// pack holds 15 different stacks, a stack up to 100.
+export const tenderInventory = sqliteTable("tender_inventory", {
+  ownerKey: text("owner_key").notNull(),
+  itemKey: text("item_key").notNull(),
+  qty: integer("qty").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.itemKey] })]);
+
+// The drop table's spoken ledger: one unseen line per
+// felled enemy, drained by the next territory read so the
+// map can speak what the dark left behind, exactly once.
+export const dropNotices = sqliteTable("drop_notices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  line: text("line").notNull(),
+  seen: integer("seen").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+});
+
 // The Grimoire's attunement ledger (Nigel, 2026-10-20;
 // the slots, 2026-10-21): the filled slots of one element
 // standing in one page of the book for one Tender — a page

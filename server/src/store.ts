@@ -1029,6 +1029,21 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS aspect_attunement (
   points INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner_key, element)
 );`);
+// THE PACK + its notice ledger (the drop table, 2026-10-25)
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_inventory (
+  owner_key TEXT NOT NULL,
+  item_key TEXT NOT NULL,
+  qty INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (owner_key, item_key)
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS drop_notices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  line TEXT NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+);`);
 // Migration: attunement realized-rate columns — MUST run after the rebuild
 // migration above, which recreates the table without these columns.
 for (const col of ["lifetime_gains REAL NOT NULL DEFAULT 0", "sample_gains REAL NOT NULL DEFAULT 0", "sampled_at INTEGER", "display_rate REAL NOT NULL DEFAULT 0"]) {
