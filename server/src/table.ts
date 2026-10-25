@@ -3071,7 +3071,11 @@ function assignLanding(room: Room, player: Player): void {
     // the seat's company is built before its landing is
     // assigned, at the join.
     const first = (player.company ?? [])[0];
-    const element = first ? dominantElement(partsOf(first) as { element?: string | null }[]) : "neutral";
+    const claimed = first ? dominantElement(partsOf(first) as { element?: string | null }[]) : "neutral";
+    // A first member whose parts claim no element (or no first
+    // member at all): the landing takes the purify DEFAULT —
+    // root since Nigel's ruling, 2026-10-25; before, neutral.
+    const element = claimed === "neutral" ? "root" : claimed;
     purifyTile(room, tile, element);
     tile.landingFor = player.key;
     saveHostedLand(room);
@@ -3323,7 +3327,10 @@ function settleCurseWithering(room: Room, dtSec: number): boolean {
     changed = true;
     room.landDirty = true; // HOSTED LAND (Twelve #2): the ground-down curse is the land's loss, kept
     if (tile.curseHp <= 0) {
-      purifyTile(room, tile, "neutral");
+      // Ground down by standing pressure, claimed by no element:
+      // the DEFAULT (root since Nigel's ruling, 2026-10-25;
+      // before, neutral).
+      purifyTile(room, tile, "root");
     }
   }
   return changed;
@@ -3620,17 +3627,18 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUni
   room.dmgBy.delete(enemy.id);
   tell(room, opts.unravelLine ?? (opts.slayerName ? `${opts.slayerName} unravels the ${enemy.label}!` : `The ${enemy.label} unravels!`));
   // The ground it held is freed by the felling (the Instance
-  // Map): a cursed tile whose dark falls turns to the light —
-  // as NEUTRAL ground, whatever struck the blow (Nigel,
-  // 2026-10-20: only the Tender attunes tiles; a felling is
-  // not an attunement, so freed ground takes no element
-  // until a Tender spends one onto it — the attuneTile act).
+  // Map): a cursed tile whose dark falls turns to the light,
+  // whatever struck the blow (Nigel, 2026-10-20: only the
+  // Tender attunes tiles; a felling is not an attunement, so
+  // no element CLAIMS the freed ground — it takes the purify
+  // DEFAULT: root since Nigel's ruling, 2026-10-25; before
+  // that ruling the default was neutral).
   const tile = room.map.get(enemy.hex);
   // The element the ground held as the dark fell on it,
   // read before the freeing overwrites it — the fell drip's
   // element follows the ground (payFellDrip, actions.ts).
   const groundElement = tile?.element ?? null;
-  if (tile) purifyTile(room, tile, "neutral");
+  if (tile) purifyTile(room, tile, "root");
   // Swallow the Heart rides every felling a Tender's own
   // hand makes, campaign or free field alike.
   if (killer) swallowTheHeart(room, killer);
@@ -4193,7 +4201,7 @@ function settleTableSeedFeeding(room: Room): boolean {
     // and whether or not the draw can pay.
     if (seat.hex === SEED_TILE) {
       const seedTile = room.map.get(SEED_TILE);
-      if (seedTile?.cursed) { purifyTile(room, seedTile, "neutral"); changed = true; }
+      if (seedTile?.cursed) { purifyTile(room, seedTile, "root"); changed = true; }
     }
     if (seat.seedFeedAnchorAt == null) { seat.seedFeedAnchorAt = now; seat.seedFeedCredit = seat.seedFeedCredit ?? 0; continue; }
     const elapsed = now - seat.seedFeedAnchorAt;
@@ -4229,7 +4237,7 @@ function settleTableSeedFeeding(room: Room): boolean {
           if (prevLevel < 2 && level >= 2) {
             for (const id of neighborsOf(SEED_TILE)) {
               const t = room.map.get(id);
-              if (t && t.cursed) purifyTile(room, t, "neutral");
+              if (t && t.cursed) purifyTile(room, t, "root");
             }
           }
           if (level === 3) tell(room, "⭐ The Beacon's light stands guard — no dark will be born on the ground around the seed.");
@@ -6634,7 +6642,11 @@ function handleConnection(ws: WebSocket): void {
       if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos(TILE_CENTERS.get(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
       if (purified) {
         tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
-        purifyTile(room, tile, dominantElement(partsOf(unit.card) as { element?: string | null }[]));
+        // The striker's dominant element claims the tile; a
+        // striker whose parts claim none falls to the purify
+        // DEFAULT — root (Nigel, 2026-10-25), as at home.
+        const struckEl = dominantElement(partsOf(unit.card) as { element?: string | null }[]);
+        purifyTile(room, tile, struckEl === "neutral" ? "root" : struckEl);
       } else {
         tell(room, `⚔️ ${unit.card.name} strikes the curse — its corruption thins to ${Math.ceil(tile.curseHp)} of ${tile.curseMaxHp}.`);
       }

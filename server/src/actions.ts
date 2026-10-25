@@ -1616,9 +1616,13 @@ async function ensureOneSafeSquare(ownerKey: string, tiles?: any[]): Promise<{ e
 
 /** The element a victorious company claims land with: the dominant
  *  element of their layers, read from the parts' own records (fire
- *  never claims conquered land; a tie stays neutral). The same
- *  arithmetic the claim paths have always used, kept in one place. */
-async function dominantClaimElement(standingRows: Array<{ compositionJson: string }>): Promise<"tide" | "sky" | "stone" | "root" | "neutral"> {
+ *  never claims conquered land; a tie falls to the DEFAULT — root
+ *  since Nigel's ruling, 2026-10-25: "i hoped the default would be
+ *  root"; before that ruling the default was neutral, per the
+ *  2026-10-20 law "purifying defaults to NEUTRAL on all maps,
+ *  never air" — never-air stands). The same arithmetic the claim
+ *  paths have always used, kept in one place. */
+async function dominantClaimElement(standingRows: Array<{ compositionJson: string }>): Promise<"tide" | "sky" | "stone" | "root"> {
   const assetRows = await db.select().from(schema.layerAssets);
   const assetStats = new Map<number, AssetStats>();
   for (const assetRow of assetRows) {
@@ -1632,13 +1636,13 @@ async function dominantClaimElement(standingRows: Array<{ compositionJson: strin
       if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
     }
   }
-  let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+  let element: "tide" | "sky" | "stone" | "root" = "root";
   let maxCount = 0; let tie = false;
   for (const [el, count] of Object.entries(elementCounts)) {
     if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
     else if (count === maxCount && count > 0) { tie = true; }
   }
-  if (tie) element = "neutral";
+  if (tie) element = "root";
   return element;
 }
 
@@ -2079,11 +2083,12 @@ export function tenderStandingFeedRateFor(ownerKey: string | null | undefined, t
 }
 
 /** The purification a stage rise writes: the house's own
- *  standing shape (the neutral purify the claim, the bank
- *  and the safe-square paths write — born clean at Z1). */
+ *  standing shape (the purify the claim and the bank paths
+ *  write — born clean at Z1, at the DEFAULT element: root
+ *  since Nigel's ruling, 2026-10-25; before, neutral). */
 async function purifySeedGroundTile(tileId: number): Promise<void> {
   await db.update(schema.territoryTiles)
-    .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+    .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
     .where(eq(schema.territoryTiles.id, tileId));
 }
 
@@ -2216,7 +2221,7 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
     // not the draw can pay this settle.
     if (tenderTile != null && tenderTile.id === home.id && home.cursed) {
       await purifySeedGroundTile(home.id);
-      home.cursed = 0; home.element = "neutral"; home.curseHp = null; home.curseMaxHp = null;
+      home.cursed = 0; home.element = "root"; home.curseHp = null; home.curseMaxHp = null;
       Object.assign(home, PURIFIED_TILE_FIELDS);
     }
     if (!anchor) {
@@ -4005,7 +4010,10 @@ async function grindHomelandCurse(ownerKey: string, tile: any, harm: number, hue
     tile.curseHp = next; tile.curseMaxHp = maxHp;
     return { ground, purified: false };
   }
-  const element = (["tide", "sky", "stone", "root", "fire"] as const).includes(hue as any) ? hue : "neutral";
+  // A hue that names no element claims nothing — the tile takes
+  // the DEFAULT (root since Nigel's ruling, 2026-10-25; before,
+  // neutral). A true hue still claims the ground outright.
+  const element = (["tide", "sky", "stone", "root", "fire"] as const).includes(hue as any) ? hue : "root";
   const sparked = Math.random() < 0.05;
   await db.update(schema.territoryTiles)
     .set({ cursed: 0, element: element as any, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0, ...PURIFIED_TILE_FIELDS })
@@ -7245,7 +7253,7 @@ export const handlers = {
     const adjacent = dirs.some(([dq, dr]) => purified.has(`${tile[0].q + dq},${tile[0].r + dr}`));
     if (!adjacent) badRequest("Must be adjacent to your territory.");
     await db.update(schema.territoryTiles)
-      .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+      .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
       .where(eq(schema.territoryTiles.id, tile[0].id));
     await expandFrontier(ownerKey, tile[0].q, tile[0].r);
     return { ok: true };
@@ -7467,9 +7475,11 @@ export const handlers = {
       await grantEventXp(xpById, id, XP_PER_DEFENSE);
     }
     if (parsed.data.victory) {
-      // Purify!
+      // Purify! No element claims this ground — it takes the
+      // DEFAULT (root since Nigel's ruling, 2026-10-25; before,
+      // neutral).
       await db.update(schema.territoryTiles)
-        .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+        .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
       await expandFrontier(ownerKey, tiles[0].q, tiles[0].r);
       for (const id of parsed.data.survivorIds) {
@@ -12054,7 +12064,7 @@ export const handlers = {
           // purification shape, as the bank writes it.
           if ((spot as any).cursed) {
             await db.update(schema.territoryTiles)
-              .set({ cursed: 0, element: "neutral", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+              .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
               .where(eq(schema.territoryTiles.id, spot.id));
             (spot as any).cursed = 0;
           }
@@ -15041,13 +15051,17 @@ export const handlers = {
           const el = storedElement((layer as any).element);
           if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
         }
-        let element: "tide" | "sky" | "stone" | "root" | "neutral" = "neutral";
+        // The breaker's dominant element claims the tile; a tie
+        // (or no counted element at all) falls to the DEFAULT —
+        // root since Nigel's ruling, 2026-10-25 ("i hoped the
+        // default would be root"); before, neutral (2026-10-20).
+        let element: "tide" | "sky" | "stone" | "root" = "root";
         let maxCount = 0; let tie = false;
         for (const [el, count] of Object.entries(elementCounts)) {
           if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
           else if (count === maxCount && count > 0) { tie = true; }
         }
-        if (tie) element = "neutral";
+        if (tie) element = "root";
         // Wildfire spark: 5% chance the purified land smolders with Fire.
         // The next Awoken born from this tile gets a random Fire aspect.
         const sparked = Math.random() < 0.05;
