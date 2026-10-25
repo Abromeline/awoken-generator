@@ -271,6 +271,45 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const enemiesRef = useRef<Fighter[]>([]);
   const busyRef = useRef(false);
 
+  // ── THE ONE SNAPSHOT (the one-pass render, Nigel 2026-10-25) ──
+  // The referee reckons from these refs; the screen paints
+  // from the fighters/enemies state. The two once met only in
+  // an effect that ran AFTER the paint, so for a frame — and
+  // for every referee timeout that read in that frame — the
+  // battle being reckoned and the battle on the screen were
+  // different battles: a figure already struck from the field
+  // could still stand painted, and one already painted could
+  // be missing from the reckoning (Nigel's sighting, 2026-10-25:
+  // "the awokin disappearing now and then" in this battle).
+  // Every change to either host now goes through these two
+  // doors — the same door the wall HP already kept — which
+  // write the ref and the state in the one call, computed
+  // from the ref, so the engine and the screen can never hold
+  // different moments of the fight. The frame counter rides
+  // along for the drives: the overlay wears it, and the
+  // window keeps the census it was stamped with.
+  const bgFrameRef = useRef(0);
+  const [bgFrame, setBgFrame] = useState(0);
+  const stampBattleFrame = () => {
+    bgFrameRef.current += 1;
+    setBgFrame(bgFrameRef.current);
+    (window as any).__awokenBattleFrame = {
+      id: bgFrameRef.current,
+      fighters: fightersRef.current.filter(f => f.hp > 0).length,
+      enemies: enemiesRef.current.filter(e => e.hp > 0).length,
+    };
+  };
+  const setFightersBoth = (updater: Fighter[] | ((prev: Fighter[]) => Fighter[])) => {
+    fightersRef.current = typeof updater === "function" ? (updater as (p: Fighter[]) => Fighter[])(fightersRef.current) : updater;
+    setFighters(fightersRef.current);
+    stampBattleFrame();
+  };
+  const setEnemiesBoth = (updater: Fighter[] | ((prev: Fighter[]) => Fighter[])) => {
+    enemiesRef.current = typeof updater === "function" ? (updater as (p: Fighter[]) => Fighter[])(enemiesRef.current) : updater;
+    setEnemies(enemiesRef.current);
+    stampBattleFrame();
+  };
+
   const later = (ms: number, fn: () => void) => {
     const id = setTimeout(() => {
       timeoutsRef.current = timeoutsRef.current.filter(t => t !== id);
@@ -353,7 +392,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       // rise is read at the mark's ground).
       spawnProjectile({ fx: c.x, fy: c.y + 42, tx: c.x, ty: c.y, glyph: "🗡", color: "#ffd977", arc: true, duration: 620 });
     }
-    setEnemies(prev => prev.map(e => e.id === enemy.id ? { ...e, hp: Math.max(0, e.hp - power) } : e));
+    setEnemiesBoth(prev => prev.map(e => e.id === enemy.id ? { ...e, hp: Math.max(0, e.hp - power) } : e));
     addLog(`${grimName(chosen.w)} is loosed — its blades rise and spear down into ${enemy.name} from above (${power} harm)!`);
   };
 
@@ -364,9 +403,9 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     later(950, () => setBeams(prev => prev.filter(b => b.id !== id)));
   };
 
-  // Keep latest snapshots for mid-sequence targeting; clear timeouts on unmount.
-  useEffect(() => { fightersRef.current = fighters; }, [fighters]);
-  useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
+  // (The post-paint ref-sync effects that once stood here are
+  // gone: the Both doors above keep the refs and the state in
+  // the one snapshot, so there is nothing left to sync.)
 
   // Weather's teeth, felt live (Nigel's ruling, 2026-10-15: no
   // snapshot — the live sky applies): when the sky turns DURING the
@@ -382,10 +421,10 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     skySeenRef.current = next;
     if (!prev || !next || prev === next) return;
     if (next === "storm") {
-      setEnemies(ens => ens.map(e => e.hp > 0 && e.basePower !== undefined ? { ...e, power: Math.ceil(e.basePower * 1.5) } : e));
+      setEnemiesBoth(ens => ens.map(e => e.hp > 0 && e.basePower !== undefined ? { ...e, power: Math.ceil(e.basePower * 1.5) } : e));
       addLog("⛈️ The storm breaks over the battleground — the Unraveling surges with +50% power!");
     } else if (prev === "storm") {
-      setEnemies(ens => ens.map(e => e.basePower !== undefined ? { ...e, power: e.basePower } : e));
+      setEnemiesBoth(ens => ens.map(e => e.basePower !== undefined ? { ...e, power: e.basePower } : e));
       addLog("🌤️ The storm spends itself — the Unraveling's surge falls away.");
     } else {
       addLog(`🌙 The sky turns to ${next} over the battleground.`);
@@ -514,10 +553,8 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     // yet, so for years it fired into an empty set and Binding's
     // in-battle heal never happened at all (Law's audit, Obs. 2).
     // It lives in runBindingMend now, called between exchanges.
-    setFighters(aw);
-    setEnemies(en);
-    fightersRef.current = aw;
-    enemiesRef.current = en;
+    setFightersBoth(aw);
+    setEnemiesBoth(en);
 
     // Watchtower opening volley (Nigel, 2026-10-17): the towers no
     // longer loose arrows — each calls down a beam of searing light
@@ -540,7 +577,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const numId = `tower-${Date.now()}-${i}`;
           setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: towerDamage, crit: false }]);
           later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
-          setEnemies(prev => prev.map(e => e.id === target.id ? { ...e, hp: Math.max(0, e.hp - towerDamage) } : e));
+          setEnemiesBoth(prev => prev.map(e => e.id === target.id ? { ...e, hp: Math.max(0, e.hp - towerDamage) } : e));
           addLog(`🗼 Tower light sears ${target.name} for ${towerDamage}!`);
         });
       });
@@ -559,7 +596,9 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   const getInit = (f: Fighter) => 12 - f.power;
 
   const buildTurnOrder = () => {
-    const all = [...fighters, ...enemies].filter(f => f.hp > 0);
+    // From the referee's one snapshot (the refs), never from a
+    // possibly-older render's closure.
+    const all = [...fightersRef.current, ...enemiesRef.current].filter(f => f.hp > 0);
     all.sort((a, b) => getInit(b) - getInit(a) || Math.random() - 0.5);
     setTurnOrder(all.map(f => f.id));
     setTurnIndex(0);
@@ -619,9 +658,9 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       }
     }
     if (def.side === "en") {
-      setEnemies(prev => prev.map(e => e.id === def.id ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
+      setEnemiesBoth(prev => prev.map(e => e.id === def.id ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
     } else {
-      setFighters(prev => prev.map(f => f.id === def.id ? { ...f, hp: Math.max(0, f.hp - dmg) } : f));
+      setFightersBoth(prev => prev.map(f => f.id === def.id ? { ...f, hp: Math.max(0, f.hp - dmg) } : f));
     }
   };
 
@@ -644,7 +683,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         const scale = Math.pow(2, (rune.level ?? 1) - 1);
         if (rune.runeKind === "harm" || rune.runeKind === "meld") {
           const rd = (rune.runeKind === "harm" ? 6 : 3) * scale;
-          setEnemies(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rd) } : e));
+          setEnemiesBoth(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rd) } : e));
           const rNumId = `rune-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           setDmgNumbers(prev => [...prev, { id: rNumId, fighterId: attacker.id, dmg: rd, crit: false }]);
           later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== rNumId)));
@@ -697,7 +736,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           // Its old spring lives on in the Springing Blade
           // at the Blade spring's own power (6).
           const power = (grune.nums.power ?? (grune.engine === "springblade" ? 6 : 3)) + bright * (grune.nums.brightBonus ?? 1);
-          setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - power) } : e));
+          setEnemiesBoth(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - power) } : e));
           gst.charges--;
           if (gst.charges <= 0) gst.spent = true;
           addLog(`${grimName(grune)} springs — ${power} harm to everything dark on its ground!`);
@@ -706,7 +745,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const dests = grimCoilTiles.filter(t => t !== target.tileId && t !== attacker.tileId);
           if (dests.length) {
             const dest = dests[Math.floor(Math.random() * dests.length)];
-            setEnemies(prev => prev.map(e => e.id === attacker.id ? { ...e, tileId: dest } : e));
+            setEnemiesBoth(prev => prev.map(e => e.id === attacker.id ? { ...e, tileId: dest } : e));
             grimYieldRef.current += Math.min(grune.nums.energyCap ?? 3, grune.nums.energyPerDark ?? 1);
           }
           gst.spent = true;
@@ -729,7 +768,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
             let rem = pool - share * here.length;
             const harm = new Map<string, number>();
             for (const e of here) { harm.set(e.id, share + (rem > 0 ? (rem--, 1) : 0)); }
-            setEnemies(prev => prev.map(e => harm.has(e.id) ? { ...e, hp: Math.max(0, e.hp - (harm.get(e.id) ?? 0)) } : e));
+            setEnemiesBoth(prev => prev.map(e => harm.has(e.id) ? { ...e, hp: Math.max(0, e.hp - (harm.get(e.id) ?? 0)) } : e));
             gst.spent = true;
             addLog(`${grimName(grune)} FALLS — the sky opens: ${dice} dice (${rolls.join(" + ")}) make a pool of ${pool}, split over ${here.length} of the dark — ${share} harm each, the first in line taking the remainder!`);
           }
@@ -739,7 +778,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           const greatest = here.length ? Math.max(...here.map(e => e.power)) : 0;
           if (greatest >= (grune.nums.minPower ?? 5)) {
             const dmg = greatest * (grune.nums.multiplier ?? 2) + (grune.pour ?? 0);
-            setEnemies(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
+            setEnemiesBoth(prev => prev.map(e => (e.tileId === target.tileId || e.id === attacker.id) ? { ...e, hp: Math.max(0, e.hp - dmg) } : e));
             gst.spent = true;
             addLog(`${grimName(grune)} FALLS on the whole hex — ${dmg} harm, measured by the greatest dark standing there!`);
           }
@@ -759,7 +798,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         st.hp -= Math.max(1, attacker.power);
         if (st.stops >= (w.nums.stops ?? 3) || st.hp <= 0) st.spent = true;
         const rip = (w.nums.riposte ?? 3) + (grimBrightBg() ? (w.nums.brightBonus ?? 1) : 0);
-        setEnemies(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rip) } : e));
+        setEnemiesBoth(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rip) } : e));
         addLog(`${grimName(w)} stops ${attacker.name}'s strike cold — and answers it (${rip})!`);
         return;
       }
@@ -813,14 +852,14 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: edmg, crit: false }]);
     later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
     if (thornHit) {
-      setEnemies(ens => ens.map(e =>
+      setEnemiesBoth(ens => ens.map(e =>
         e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - thornDamage) } : e
       ));
       const tNumId = `thorn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setDmgNumbers(prev => [...prev, { id: tNumId, fighterId: attacker.id, dmg: thornDamage, crit: false }]);
       later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== tNumId)));
     }
-    setFighters(prev => prev.map(f =>
+    setFightersBoth(prev => prev.map(f =>
       f.id === target.id ? { ...f, hp: Math.max(0, f.hp - edmg) } : f
     ));
   };
@@ -878,7 +917,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     });
     if (applied <= 0) return;
     fightersRef.current = mended;
-    setFighters(mended);
+    setFightersBoth(mended);
     addLog(`✦ Binding light mends the wounded (+${applied} total)`);
   };
 
@@ -974,7 +1013,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           name: card.name, side: "aw", field: false,
           awoken: card,
         };
-        setFighters(prev => [...prev, newFighter]);
+        setFightersBoth(prev => [...prev, newFighter]);
         setDeck(prev => prev.filter((_, i) => i !== index));
         setBirthing(null);
         addLog(`${card.name} is born!`);
@@ -991,13 +1030,13 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       name: card.name, side: "aw", field: false,
       awoken: card,
     };
-    setFighters(prev => [...prev, newFighter]);
+    setFightersBoth(prev => [...prev, newFighter]);
     setDeck(prev => prev.filter((_, i) => i !== index));
     addLog(`${card.name} reinforces! (returns to hand after)`);
   };
 
   return (
-    <div className="battleground-overlay">
+    <div className="battleground-overlay" data-frame={bgFrame} data-fighters={fighters.filter(f => f.hp > 0).length} data-enemies={enemies.filter(e => e.hp > 0).length}>
       <div className="battleground-bg" style={{ backgroundImage: `url(${battlegroundBg})` }} />
       <div className="battle-fog" />
       {towerVolley && (

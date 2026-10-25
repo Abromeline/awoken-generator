@@ -123,7 +123,18 @@ insSeed.run(ownerKey, heldTile.id, "held", 2, 5, now);
 insSeed.run(ownerKey, corruptedTile.id, "corrupted", 0, 0, now);
 const colId = Number(db.prepare("INSERT INTO incursion_columns (owner_key, target_tile_id, target_kind, kind, size, power, state, origin_q, origin_r, spawned_at, arrives_at) VALUES (?, ?, 'hex', 'siege', 1, 1, 'arrived', 0, 0, ?, ?)")
   .run(ownerKey, corruptedTile.id, now, now).lastInsertRowid);
-db.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, column_id) VALUES (?, ?, 'fray', ?, ?)").run(ownerKey, corruptedTile.id, now, colId);
+// The guard's HP is set deep (the one-pass render repair,
+// 2026-10-25): this drive once passed on a stale paint —
+// the seed layer read a query snapshot taken before the
+// boot settle killed the guard and lifted the corruption,
+// and kept painting 'corrupted' for thirty seconds while
+// the world already said fallen. With the map painting
+// each moment whole, the fixture's premise must be true
+// in the world: a guard that STANDS through the boot
+// settle (which reckons up to a minute of world, walking
+// it into the first seed's company), so the settle keeps
+// the seed corrupted, as staged.
+db.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, column_id, hp) VALUES (?, ?, 'fray', ?, ?, 500)").run(ownerKey, corruptedTile.id, now, colId);
 console.log(`  staged: fallen@tile ${fallenTile.id}, held@tile ${heldTile.id}, corrupted@tile ${corruptedTile.id} (guard column ${colId})`);
 
 /* ══ OPEN THE LAND ═════════════════════════════════════ */

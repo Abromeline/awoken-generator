@@ -36,7 +36,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn } from "./api";
 import {
   candidatesNear, axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
   pointInPolygon, pointSegmentDistance, segmentsCrossProper, collisionSegments,
@@ -444,9 +444,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setFireFound(true);
         localStorage.setItem("awoken-fire-found", "1");
       }, 3000);
-      // Refresh tiles
-      const refreshed = await api.getTerritory();
-      setTiles(refreshed.tiles);
+      // Refresh the land — whole, through the one door.
+      await refreshTerritory();
       onUpdate();
     } catch (e) {
       console.error("Spark claim failed", e);
@@ -1451,6 +1450,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // it already stands there.
   const partyQ = useQuery({ queryKey: ["party"], queryFn: () => api.getParty() });
   const seedsQ = useQuery({ queryKey: ["seeds"], queryFn: () => api.getSeeds(), refetchInterval: 30000 });
+  // ── THE MAP'S ONE SNAPSHOT (the one-pass render, Nigel
+  // 2026-10-25: "im still getting a lot of flickerin on
+  // screen") ─────────────────────────────────────────────
+  // The seed layer and the incursion-columns layer once read
+  // these two queries directly — snapshots up to THIRTY
+  // SECONDS away from the ground and the figures, which ride
+  // the read loop's 2.8 s beat. A seed could wear its old
+  // stage over ground that had already turned; a column's
+  // line could outlive the battle it announced by half a
+  // minute, then jump. The map's layers now read ONLY the
+  // snapshot state below, applied whole by the one door
+  // (applyWorldSnapshot) from reads that fetch the territory,
+  // the seeds and the incursions TOGETHER. The queries
+  // themselves still serve the panels that read them (the
+  // curse-eye ledger, the War-Grounds' seed record) — panels
+  // are not the map, and the map no longer paints from them.
+  const [mapSeeds, setMapSeeds] = useState<StarSeed[]>([]);
+  const [mapColumns, setMapColumns] = useState<IncursionColumn[]>([]);
   // The First Seed's hold, polled gently — faster while waves fall.
   const firstSeedQ = useQuery({
     queryKey: ["firstSeedEvent"],
@@ -1538,6 +1555,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await api.fetchSeed({ seedId, awakenedIds });
       showHexNotice("The fetch party rides — may they come home heavy.");
       void seedsQ.refetch();
+      void refreshTerritory();
     } catch (e) { showHexNotice(refusalText(e, "The fetch could not ride.")); }
   };
   const handleHoldSeed = async (seedId: number) => {
@@ -1545,6 +1563,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await api.holdSeed({ seedId });
       showHexNotice("The bastion rises — the seed is HELD.");
       void seedsQ.refetch();
+      void refreshTerritory();
       const rb = await api.getBuildings();
       setBuildings(rb.buildings);
     } catch (e) { showHexNotice(refusalText(e, "The hold could not be raised.")); }
@@ -1638,26 +1657,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   useEffect(() => {
     (async () => {
       try {
-        let t = await api.getTerritory();
-        if (t.tiles.length === 0) {
+        let snap = await readWorldSnapshot();
+        if (snap.t.tiles.length === 0) {
           // No ground at all: sow the first seed's world (idempotent
           // on the server) and read the land again — the seed waits
           // at its cursed center from the first glance.
           await api.ensureFirstSeed().catch(() => {});
-          t = await api.getTerritory();
+          snap = await readWorldSnapshot();
         }
-        setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []); setElsewhere(t.elsewhere ?? []);
-        setBuildPieces(t.buildPieces ?? []);
-        rememberField(t.placements);
-        setWorkings(t.workings ?? []);
-        setTenderStand(t.tender ?? null);
-        setSummoning(t.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
-        setWanderers(t.wanderers ?? []);
-        if (t.battle) setBattle(t.battle);
-        noteDropNotices(t);
-        setDefenceWorks(t.defenceWorks ?? []);
-        noteWeaponStrike(t.weaponStrike);
-        notePlacementStrikes(t.strikes, t.tiles);
+        applyWorldSnapshot(snap);
       } catch (e) {
         console.error("[Territory] getTerritory failed:", e);
       } finally {
@@ -1741,12 +1749,51 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice(lines.slice(0, 3).join(" ") + (lines.length > 3 ? " And more besides." : ""));
     }
   };
-  const refreshTerritory = async (loopSeq?: number) => {
-    const refreshed = await api.getTerritory();
-    // A read the loop already gave up on (see THE READ LOOP
-    // below) lands too late to speak: a newer read has the
-    // land, and this one's older snapshot must not rewind it.
-    if (loopSeq !== undefined && readLoopSeqRef.current !== loopSeq) return;
+  // ── THE ONE DOOR (the one-pass render, Nigel 2026-10-25) ──
+  // Every read of the world — the loop's beat, the first
+  // load, and every action's refresh after it acts — comes
+  // through readWorldSnapshot, which fetches the territory,
+  // the seeds and the incursions TOGETHER, and lands through
+  // applyWorldSnapshot, which sets every slice of the map's
+  // state in the one batch. Before this door, the action
+  // handlers each applied the slices they fancied from their
+  // own reads — placements without ground, ground without
+  // the dark — and a loop read already in flight could then
+  // land and rewind the fresher slices to its older moment:
+  // the mosaic a Tender sees as figures vanishing and tiles
+  // flashing. Now a snapshot is stamped with the token of
+  // its read's beginning, and a read that lands after a
+  // NEWER snapshot has been applied is turned away whole —
+  // the loop's old sequence guard, widened to every door.
+  // The land's voices (losses, drops, strike witnesses) are
+  // spoken only by the snapshot that is applied, and each is
+  // seen-guarded, as they always were.
+  const snapshotTokenRef = useRef(0);
+  const appliedTokenRef = useRef(0);
+  const frameIdRef = useRef(0);
+  const [frameId, setFrameId] = useState(0);
+  type WorldSnapshot = {
+    token: number;
+    t: Awaited<ReturnType<typeof api.getTerritory>>;
+    seeds: StarSeed[] | null;
+    columns: IncursionColumn[] | null;
+  };
+  const readWorldSnapshot = async (): Promise<WorldSnapshot> => {
+    const token = ++snapshotTokenRef.current;
+    const [t, s, inc] = await Promise.all([
+      api.getTerritory(),
+      api.getSeeds().catch(() => null),
+      api.getIncursions().catch(() => null),
+    ]);
+    return { token, t, seeds: s ? (s.seeds ?? []) : null, columns: inc ? (inc.columns ?? []) : null };
+  };
+  /** Apply one whole snapshot. Returns false when the read
+   *  was overtaken by a newer applied snapshot — its moment
+   *  must not rewind the land. */
+  const applyWorldSnapshot = (snap: WorldSnapshot): boolean => {
+    if (snap.token < appliedTokenRef.current) return false;
+    appliedTokenRef.current = snap.token;
+    const refreshed = snap.t;
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
@@ -1761,6 +1808,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
     noteFieldLosses(refreshed);
+    if (snap.seeds) setMapSeeds(snap.seeds);
+    if (snap.columns) setMapColumns(snap.columns);
+    frameIdRef.current += 1;
+    setFrameId(frameIdRef.current);
+    // The frame's census, kept where a drive (or a curious
+    // hand in the console) can read it: the counts the map
+    // is painting from, under the frame's one number.
+    (window as any).__awokenWorldFrame = {
+      id: frameIdRef.current,
+      tiles: refreshed.tiles.length,
+      placements: refreshed.placements.length,
+      wanderers: (refreshed.wanderers ?? []).length,
+      seeds: snap.seeds ? snap.seeds.length : -1,
+      columns: snap.columns ? snap.columns.length : -1,
+    };
+    return true;
+  };
+  const refreshTerritory = async (loopSeq?: number) => {
+    const snap = await readWorldSnapshot();
+    // A read the loop already gave up on (see THE READ LOOP
+    // below) lands too late to speak: a newer read has the
+    // land, and this one's older snapshot must not rewind it.
+    if (loopSeq !== undefined && readLoopSeqRef.current !== loopSeq) return;
+    applyWorldSnapshot(snap);
   };
 
   // ── THE READ LOOP (the Token Strip, Nigel 2026-10-23) ───
@@ -2794,10 +2865,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // by the Ancient One's thumb 2026-10-16: orders relayed, nothing
   // happened — the refresh was the missing half of the loop).
   const refreshMarching = async () => {
-    const refreshed = await api.getTerritory();
-    setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
-    setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
-    setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
+    await refreshTerritory();
     onUpdate();
   };
 
@@ -2811,8 +2879,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const handlePlaceWall = async (tileId: number, dir: number) => {
     try {
       await api.placeWall({ tileId, dir });
-      const refreshed = await api.getTerritory();
-      setTiles(refreshed.tiles); setPlacements(refreshed.placements); setWalls(refreshed.walls ?? []); setElsewhere(refreshed.elsewhere ?? []);
+      await refreshTerritory();
       onUpdate();
       showHexNotice("A wall rises on the hex edge — it will take the enemy's blows first.");
     } catch (e) {
@@ -2946,9 +3013,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // be strengthened at exponential cost or taken down; skills are
   // taught through teachSkill. Every refusal speaks.
   const refreshWorks = async () => {
-    const refreshed = await api.getTerritory();
-    setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
-    setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
+    await refreshTerritory();
     onUpdate();
   };
   const WORK_NOTICE: Record<string, string> = {
@@ -3057,8 +3122,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       await api.setStance({ awakenedId, stance, maxEnergy });
       await refreshEnergy();
-      const refreshed = await api.getTerritory();
-      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
+      await refreshTerritory();
       if (stance === "attack") {
         setAttackTargeting(true);
       } else {
@@ -3082,9 +3146,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // mirrored it here is retired — the Token Strip,
       // 2026-10-23.) At 0 HP the server has already dissipated
       // the attacker back to hand.
-      const refreshed = await api.getTerritory();
-      setTiles(refreshed.tiles);
-      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
+      await refreshTerritory();
       // The blow speaks (Nigel, 2026-10-18: "a blow per order" —
       // the Attack seal is posture AND key: with targeting armed, a
       // tap on a cursed square is one strike of the warden's power
@@ -3128,8 +3190,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     try {
       await api.moveAwoken({ awakenedId: selectedAwoken, tileId });
       await refreshEnergy();
-      const refreshed = await api.getTerritory();
-      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
+      await refreshTerritory();
       setSelectedAwoken(null);
       setMoveTargeting(false);
       setTargetHexId(null);
@@ -3622,12 +3683,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   /** Refresh map + wave state from the server after a resolution. */
   const refreshAfterResolution = async () => {
     try {
-      const refreshed = await api.getTerritory();
-      setTiles(refreshed.tiles);
-      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
-      setWalls(refreshed.walls ?? []);
-      setSkills(refreshed.skills ?? []);
-      setWorkings(refreshed.workings ?? []);
+      await refreshTerritory();
     } catch (e) { console.error("Territory refresh after resolution failed", e); }
     try {
       const w = await api.getWave();
@@ -3660,9 +3716,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         if (res.purified) {
           api.birthNewbornToHand({ tileId, liberatorNames: [] }).catch(() => {});
         }
-        const refreshed = await api.getTerritory();
-        setTiles(refreshed.tiles);
-        setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
+        await refreshTerritory();
         await refreshEnergy();
         onUpdate();
       } catch (e) { console.error("Wave-pull resolve failed", e); }
@@ -3697,11 +3751,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         } catch (e) { console.error("Bonus tile claim failed", e); }
         setBonusTiles([]);
       }
-      const refreshed = await api.getTerritory();
-      setTiles(refreshed.tiles);
-      setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
-      setWalls(refreshed.walls ?? []);
-      setWorkings(refreshed.workings ?? []);
+      await refreshTerritory();
       const w = await api.getWave();
       setWave(w);
       await refreshEnergy();
@@ -5217,7 +5267,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     };
     const columnsLayer = (
       <g key="columns" pointerEvents="none">
-        {(incursionsQ.data?.columns ?? []).map(col => {
+        {mapColumns.map(col => {
           const target = tiles.find(t => t.id === col.targetTileId);
           if (!target) return null;
           const tp = tilePos(target);
@@ -5278,7 +5328,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     };
     const seedLayer = (
       <g key="seeds" pointerEvents="none">
-        {(seedsQ.data?.seeds ?? []).map(sd => {
+        {mapSeeds.map(sd => {
           const t = tiles.find(t => t.id === sd.tileId);
           if (!t) return null;
           const { cx, cy } = tilePos(t);
@@ -6893,7 +6943,13 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         setTargetHexId(null);
         clearHexConfirm();
       }}>
-        <svg ref={svgRef} viewBox="0 0 500 340" className="territory-svg" style={{ width: "100%", height: "100%" }}
+        {/* The frame stamp rides the svg root alone: the
+            land's own law (the flicker drive) is that nothing
+            inside the camera groups mutates while the camera
+            moves, and a stamp that changed with every applied
+            snapshot would break it. The root is outside the
+            land; the census on the window carries the rest. */}
+        <svg ref={svgRef} viewBox="0 0 500 340" className="territory-svg" data-frame={frameId} style={{ width: "100%", height: "100%" }}
           onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => {
             if (e.button === 2) { // Right press
