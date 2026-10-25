@@ -600,10 +600,13 @@ const TILE_CENTERS: Map<string, { x: number; y: number }> = new Map(TILE_DEFS.ma
   return [t.id, { x: px, y: py }] as [string, { x: number; y: number }];
 }));
 function distPx(a: Pt, b: Pt): number { return Math.hypot(a.x - b.x, a.y - b.y); }
-function nearestTileId(pos: Pt): string {
+/** The nearest tile of a BOARD to a point — the standard
+ *  disc unless the room's ground was dealt on a grown board
+ *  (see the board law below). */
+function nearestTileId(pos: Pt, board?: BoardDef): string {
   let best = SEED_TILE;
   let bestD = Infinity;
-  for (const [id, c] of TILE_CENTERS) {
+  for (const [id, c] of (board ?? STANDARD_BOARD).centers) {
     const d = distPx(pos, c);
     if (d < bestD) { bestD = d; best = id; }
   }
@@ -611,6 +614,78 @@ function nearestTileId(pos: Pt): string {
 }
 function roundPos(p: Pt): Pt { return { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 }; }
 const STANDABLE_TILES = TILE_DEFS.filter(t => t.id !== SEED_TILE).map(t => t.id);
+/** THE BOARDS (Nigel, ruled 2026-10-25: "if necessary the
+ *  table board grows to fit the heartland"): a board is one
+ *  dealt disc of ground — its radius, its tiles, their
+ *  centres, its standable ground. Every room stands on
+ *  exactly one board, and its map and its board swap
+ *  together. The standard board is the radius-6 disc the
+ *  instance has always been dealt on. A homeland opened
+ *  through the port whose tiles reach beyond ring 6 deals
+ *  its room a GROWN board (boardForRadius) whose radius is
+ *  the largest ring the homeland occupies, so nothing of
+ *  hers is cropped; a homeland within ring 6 deals the
+ *  standard board and the room behaves exactly as it ever
+ *  did. Fresh instance lands and table lands are always
+ *  dealt on the standard board, untouched. */
+interface BoardDef {
+  radius: number;
+  defs: TileDef[];
+  byId: Map<string, TileDef>;
+  centers: Map<string, { x: number; y: number }>;
+  standable: string[];
+}
+const STANDARD_BOARD: BoardDef = { radius: MAP_RADIUS, defs: TILE_DEFS, byId: TILE_BY_ID, centers: TILE_CENTERS, standable: STANDABLE_TILES };
+const boardCache = new Map<number, BoardDef>([[MAP_RADIUS, STANDARD_BOARD]]);
+function boardForRadius(radius: number): BoardDef {
+  const hit = boardCache.get(radius);
+  if (hit) return hit;
+  const defs: TileDef[] = [];
+  for (let q = -radius; q <= radius; q++) {
+    for (let r = -radius; r <= radius; r++) {
+      if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) > radius) continue;
+      defs.push({ id: `${q},${r}`, q, r });
+    }
+  }
+  const board: BoardDef = {
+    radius, defs,
+    byId: new Map(defs.map(t => [t.id, t])),
+    centers: new Map(defs.map(t => {
+      const { px, py } = isoOffset(t.q, t.r, TILE_SIZE);
+      return [t.id, { x: px, y: py }] as [string, { x: number; y: number }];
+    })),
+    standable: defs.filter(t => t.id !== SEED_TILE).map(t => t.id),
+  };
+  boardCache.set(radius, board);
+  return board;
+}
+/** A tile id is its own coordinates ("q,r") — read them
+ *  back without asking any one board whether it holds the
+ *  tile. Null for text that names no tile. */
+function tileCoordOf(id: string): { q: number; r: number } | null {
+  const m = /^(-?\d+),(-?\d+)$/.exec(id);
+  return m ? { q: Number(m[1]), r: Number(m[2]) } : null;
+}
+/** A tile's centre is a pure reckoning from its coordinates
+ *  (the same isoOffset every board is built by), so any
+ *  tile's centre can be answered — the standard disc's are
+ *  the standing table; a grown board's are reckoned once and
+ *  kept. Null only for text that names no tile. */
+const grownCenters = new Map<string, { x: number; y: number }>();
+function tileCenter(id: string): { x: number; y: number } | null {
+  const known = TILE_CENTERS.get(id) ?? grownCenters.get(id);
+  if (known) return known;
+  const c = tileCoordOf(id);
+  if (!c) return null;
+  const { px, py } = isoOffset(c.q, c.r, TILE_SIZE);
+  const pt = { x: px, y: py };
+  grownCenters.set(id, pt);
+  return pt;
+}
+/** The board a room's ground stands on (the standard disc
+ *  for any room that never grew — and for no room at all,
+ *  the shape the message handler holds before a seat joins). */
+function boardOf(room: Room | null | undefined): BoardDef { return room?.board ?? STANDARD_BOARD; }
 /** How many of the light may share one tile — the March law's
  *  destination capacity, carried to the Table (design §2). */
 const STACK_CAP = 4;
@@ -629,7 +704,7 @@ function curseHpForRing(ring: number): number { return 4 + 6 * ring; }
 function curseAttritionPct(ring: number): number { return 0.01 * (Math.max(0, ring) + 1); }
 function ringOf(tileId: string): number { return axialDist(tileId, SEED_TILE); }
 function axialDist(a: string, b: string): number {
-  const ta = TILE_BY_ID.get(a), tb = TILE_BY_ID.get(b);
+  const ta = tileCoordOf(a), tb = tileCoordOf(b);
   if (!ta || !tb) return 999;
   const dq = ta.q - tb.q, dr = ta.r - tb.r;
   return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
@@ -650,7 +725,7 @@ function axialDist(a: string, b: string): number {
 const HEX_PX = 69;
 function casterPointOf(player: Player): Pt | null {
   if (player.pos) return player.pos;
-  if (player.hex) return TILE_CENTERS.get(player.hex) ?? null;
+  if (player.hex) return tileCenter(player.hex) ?? null;
   return null;
 }
 /** The range gate itself: refuse in plain words when the
@@ -679,17 +754,18 @@ function pointOf(v: unknown): Pt | null {
  *  findAnyRoad, ported): at the Table the march may cross and
  *  enter the curse — the burn is the price, not a wall.
  *  Returns the tile ids, origin first, or null. */
-function findAnyRoad(fromId: string, toId: string): string[] | null {
-  if (!TILE_BY_ID.has(fromId) || !TILE_BY_ID.has(toId)) return null;
+function findAnyRoad(fromId: string, toId: string, board?: BoardDef): string[] | null {
+  const b = board ?? STANDARD_BOARD;
+  if (!b.byId.has(fromId) || !b.byId.has(toId)) return null;
   if (fromId === toId) return [fromId];
   const prev = new Map<string, string>([[fromId, fromId]]);
   const queue = [fromId];
   while (queue.length) {
     const cur = queue.shift()!;
-    const c = TILE_BY_ID.get(cur)!;
+    const c = b.byId.get(cur)!;
     for (const [dq, dr] of TILE_DIRS) {
       const nid = `${c.q + dq},${c.r + dr}`;
-      if (!TILE_BY_ID.has(nid) || prev.has(nid)) continue;
+      if (!b.byId.has(nid) || prev.has(nid)) continue;
       prev.set(nid, cur);
       if (nid === toId) {
         const road = [toId];
@@ -887,9 +963,10 @@ interface Room {
    *  of them until it folds, and writes nothing), and the
    *  seed's fed/level standing the room opened with (seed
    *  write-back is a delta against the row as it stands at
-   *  save time, never a whole-row overwrite). Tiles beyond
-   *  the radius-6 window are not the room's at all: they
-   *  stay at home, untouched by the sitting. */
+   *  save time, never a whole-row overwrite). Every tile of
+   *  the homeland stands on the room's board — the board
+   *  grows to the homeland's widest ring to hold them all
+   *  (the growing-board law at the port's header). */
   homeland?: {
     seedId: number;
     tileIds: Map<string, number>;
@@ -924,6 +1001,14 @@ interface Room {
    *  map above is keyed by UNIT (owner|card), never by tile:
    *  up to STACK_CAP of the light may share a tile. */
   map: Map<string, MapTile>;
+  /** The board the room's ground is dealt on — the standard
+   *  radius-6 disc for every room but one standing on a
+   *  homeland that outgrew the disc through the port: there
+   *  the board is grown to the largest ring the homeland
+   *  occupies (Nigel, 2026-10-25: "if necessary the table
+   *  board grows to fit the heartland"). The map and the
+   *  board always swap together, at the same doors. */
+  board: BoardDef;
   workings: Working[];
   enemies: { name: string; label: string; note: string; art: string | null }[];
   dark: Map<string, EnemyUnit>;
@@ -1013,9 +1098,9 @@ interface Room {
 const edgeKeyOf = (a: string, b: string): string => [a, b].sort().join("|");
 /** Brand Walker's question: does this working's ground —
  *  its hex, or its edge's two — touch the named hex? */
-function workingBeside(w: Working, hex: string): boolean {
+function workingBeside(w: Working, hex: string, board?: BoardDef): boolean {
   const ground = [w.hex, w.hexA, w.hexB].filter((x): x is string => !!x);
-  return ground.includes(hex) || ground.some(g => neighborsOf(g).includes(hex));
+  return ground.includes(hex) || ground.some(g => neighborsOf(g, board).includes(hex));
 }
 
 const rooms = new Map<string, Room>();
@@ -2158,6 +2243,7 @@ async function getRoom(id: string): Promise<Room> {
       hosted: null,
       field: new Map(),
       map: freshInstanceMap(campaignMode),
+      board: STANDARD_BOARD,
       workings: [],
       enemies: ENEMY_ROSTER.map(e => ({ ...e, art: art[e.name]?.url ?? null })),
       dark: new Map(),
@@ -2230,10 +2316,11 @@ async function payBattleExp(room: Room, seat: Player, amount: number, why: strin
 // battle; when the battle ends the light fades (after any
 // unfed Crown Shard has fallen where it must).
 
-function neighborsOf(hex: string): string[] {
-  const t = TILE_BY_ID.get(hex);
+function neighborsOf(hex: string, board?: BoardDef): string[] {
+  const b = board ?? STANDARD_BOARD;
+  const t = b.byId.get(hex);
   if (!t) return [];
-  return TILE_DIRS.map(([dq, dr]) => `${t.q + dq},${t.r + dr}`).filter(id => TILE_BY_ID.has(id));
+  return TILE_DIRS.map(([dq, dr]) => `${t.q + dq},${t.r + dr}`).filter(id => b.byId.has(id));
 }
 
 // ── The instance map's keepers ─────────────────────────────
@@ -2398,7 +2485,7 @@ function integrate(room: Room, now: number): void {
   }
   if (room.battle.active) {
     const standing = standingUnits(room);
-    const seedCenter = TILE_CENTERS.get(SEED_TILE)!;
+    const seedCenter = tileCenter(SEED_TILE)!;
     for (const e of room.dark.values()) {
       // DEFENCE WORKS (the battle port — Twelve #1):
       // bramble ground hinders the walk. While any living
@@ -2475,11 +2562,11 @@ function integrate(room: Room, now: number): void {
     }
   }
   for (const p of room.players.values()) {
-    if (p.pos) p.hex = nearestTileId(p.pos);
+    if (p.pos) p.hex = nearestTileId(p.pos, boardOf(room));
   }
-  for (const u of room.field.values()) u.hex = nearestTileId(u.pos);
+  for (const u of room.field.values()) u.hex = nearestTileId(u.pos, boardOf(room));
   for (const e of room.dark.values()) {
-    const hex = nearestTileId(e.pos);
+    const hex = nearestTileId(e.pos, boardOf(room));
     e.hex = hex;
     if (hex !== e.lastTile) { e.lastTile = hex; springHex(room, hex, new Set()); }
   }
@@ -2490,9 +2577,9 @@ function integrate(room: Room, now: number): void {
 function ensureTenderHex(room: Room, player: Player): void {
   if (player.watcher || player.storytender || player.hex) return;
   const landing = [...room.map.values()].find(t => t.landingFor === player.key);
-  if (landing) { player.hex = landing.id; player.pos = { ...TILE_CENTERS.get(landing.id)! }; player.target = null; return; }
+  if (landing) { player.hex = landing.id; player.pos = { ...tileCenter(landing.id)! }; player.target = null; return; }
   const any = [...room.map.values()].find(t => !t.cursed && t.id !== SEED_TILE);
-  if (any) { player.hex = any.id; player.pos = { ...TILE_CENTERS.get(any.id)! }; player.target = null; }
+  if (any) { player.hex = any.id; player.pos = { ...tileCenter(any.id)! }; player.target = null; }
 }
 /** The formation ground around a Tender: their own tile and
  *  its ring, the seed never among them — ordered so the
@@ -2500,8 +2587,8 @@ function ensureTenderHex(room: Room, player: Player): void {
  *  they came from first), emptier tiles before fuller. */
 function followSlots(room: Room, tender: Player, originId: string | null): string[] {
   if (!tender.hex) return [];
-  const cands = [tender.hex, ...neighborsOf(tender.hex)]
-    .filter((id, i, arr) => id !== SEED_TILE && TILE_BY_ID.has(id) && arr.indexOf(id) === i);
+  const cands = [tender.hex, ...neighborsOf(tender.hex, boardOf(room))]
+    .filter((id, i, arr) => id !== SEED_TILE && boardOf(room).byId.has(id) && arr.indexOf(id) === i);
   cands.sort((a, b) => {
     const da = originId ? axialDist(a, originId) : 0;
     const db = originId ? axialDist(b, originId) : 0;
@@ -2526,7 +2613,7 @@ function settleTenders(room: Room, now = Date.now()): void {
       if (axialDist(u.hex, p.hex) <= 1) continue;
       const slot = slots.find(id => id !== u.hex && unitsAt(room, id).length < STACK_CAP);
       if (!slot) break;
-      u.target = { ...TILE_CENTERS.get(slot)! };
+      u.target = { ...tileCenter(slot)! };
       u.speedPx = 110;
     }
   }
@@ -2667,18 +2754,24 @@ export function saveHostedLand(room: Room): void {
 // re-rendered: the table-land record remains the OTHER
 // choice (hunt a new starseed), untouched.
 //
-// THE WINDOW: the Table board is a radius-6 disc of 127
-// tiles centred on the seed. A Tender whose first beacon
-// stands lit — the only Tenders this door opens for, by the
-// main page's gate — holds the whole disc in their record:
-// the seed's rise purifies its ring, and the homeland's
-// frontier law mints every tile within five rings of
-// purified ground, so centre + ring purified mints all 127.
-// A record that somehow stands short of the disc is refused
-// in words, never padded with invented ground. Homeland
-// tiles BEYOND ring 6 are not the room's: they stay at
-// home, untouched by the sitting, until the growing-edges
-// design is built (it is not this build).
+// THE WINDOW, GROWN (Nigel, ruled 2026-10-25 18:23: "if
+// necessary the table board grows to fit the heartland"):
+// the board is a disc centred on the seed whose radius is
+// the largest ring the homeland occupies — the standard
+// radius-6 disc of 127 tiles when the homeland fits inside
+// it, a wider disc when it does not, so every homeland tile
+// stands on the board and none is left at home. A Tender
+// whose first beacon stands lit — the only Tenders this
+// door opens for, by the main page's gate — holds the whole
+// disc in their record: the seed's rise purifies its ring,
+// and the homeland's frontier law mints every tile within
+// five rings of purified ground, so centre + ring purified
+// mints all 127. A record that somehow stands short of that
+// WINDOW — the ring-6 disc around the seed — is refused in
+// words, never padded with invented ground. Past the window
+// her land may stand mid-growth (a partial outer rim, sown
+// as the homeland grows): that ground is dealt exactly as
+// it stands, and its partialness refuses nothing.
 //
 // ATTUNEMENT, HONESTLY: the two grounds keep different
 // books. The homeland holds ONE bank per tile (attune_points
@@ -2744,7 +2837,7 @@ function servedLandDoor(room: Room, expKey: string): { privacy: "public" | "pass
 }
 
 type HomelandPortLoad =
-  | { ok: true; map: Map<string, MapTile>; seedGrowth: { level: number; fedEnergy: number }; seedId: number; tileIds: Map<string, number>; baseTiles: Map<string, HomelandTileBase>; outsideCount: number; totalTiles: number }
+  | { ok: true; map: Map<string, MapTile>; seedGrowth: { level: number; fedEnergy: number }; seedId: number; tileIds: Map<string, number>; baseTiles: Map<string, HomelandTileBase>; outsideCount: number; totalTiles: number; radius: number }
   | { ok: false; refusal: string };
 
 /** Build the room's window onto a Tender's homeland from its
@@ -2764,14 +2857,29 @@ function loadHomelandPort(ownerKey: string): HomelandPortLoad {
   if (!seedTile) return { ok: false, refusal: "Your first seed's ground is missing from your homeland's record — step onto your land at home first, and it will stand whole." };
   const rows = sqlite.prepare("SELECT id, q, r, element, cursed, curse_hp, curse_max_hp, attune_points, attune_element FROM territory_tiles WHERE owner_key = ? AND COALESCE(z, 0) = 0").all(ownerKey) as
     { id: number; q: number; r: number; element: string | null; cursed: number; curse_hp: number | null; curse_max_hp: number | null; attune_points: number | null; attune_element: string | null }[];
-  const map = new Map<string, MapTile>();
-  const tileIds = new Map<string, number>();
-  const baseTiles = new Map<string, HomelandTileBase>();
-  let outsideCount = 0;
+  // THE BOARD GROWS TO FIT THE HEARTLAND (Nigel, 2026-10-25:
+  // "if necessary the table board grows to fit the
+  // heartland"): the board this port deals is as wide as the
+  // homeland itself — its radius is the largest ring the
+  // homeland occupies around its first seed, never smaller
+  // than the standard disc. Every homeland tile is dealt;
+  // none is counted outside, none is cropped. A homeland
+  // within ring 6 deals the standard board, exactly as the
+  // window dealt before this law.
+  let maxRing = 0;
   for (const t of rows) {
     const dq = t.q - seedTile.q, dr = t.r - seedTile.r;
     const ring = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
-    if (ring > MAP_RADIUS) { outsideCount++; continue; }
+    if (ring > maxRing) maxRing = ring;
+  }
+  const board = boardForRadius(Math.max(MAP_RADIUS, maxRing));
+  const map = new Map<string, MapTile>();
+  const tileIds = new Map<string, number>();
+  const baseTiles = new Map<string, HomelandTileBase>();
+  const outsideCount = 0;
+  for (const t of rows) {
+    const dq = t.q - seedTile.q, dr = t.r - seedTile.r;
+    const ring = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
     const id = `${dq},${dr}`;
     // The bank, projected: the pressing element's points
     // rest on the board as its pile.
@@ -2787,11 +2895,19 @@ function loadHomelandPort(ownerKey: string): HomelandPortLoad {
     tileIds.set(id, t.id);
     baseTiles.set(id, { cursed, element: t.element ?? "neutral", curseHp: cursed ? curseHp : null, curseMaxHp: cursed ? curseMaxHp : null, points: { ...points } });
   }
-  if (map.size < TILE_DEFS.length) {
-    return { ok: false, refusal: `Your homeland's rim has not all been sown — the window around your first seed stands at ${map.size} of ${TILE_DEFS.length} tiles. Step onto your land at home, and the window will stand whole.` };
+  // THE WHOLENESS THE REFUSAL GUARDS IS THE WINDOW'S: the
+  // ring-6 disc around the seed must stand complete in her
+  // record, in the standing words. Past the window her land
+  // may stand mid-growth — a partial outer rim is her land
+  // growing, not a record failing — and the grown board
+  // deals that ground exactly as it stands.
+  let windowTiles = 0;
+  for (const t of map.values()) if (Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r)) <= MAP_RADIUS) windowTiles++;
+  if (windowTiles < TILE_DEFS.length) {
+    return { ok: false, refusal: `Your homeland's rim has not all been sown — the window around your first seed stands at ${windowTiles} of ${TILE_DEFS.length} tiles. Step onto your land at home, and the window will stand whole.` };
   }
   return {
-    ok: true, map, tileIds, baseTiles, outsideCount, totalTiles: rows.length,
+    ok: true, map, tileIds, baseTiles, outsideCount, totalTiles: rows.length, radius: board.radius,
     seedId: seed.id,
     seedGrowth: { level: Math.max(1, seed.level || 1), fedEnergy: Math.max(0, seed.fed_energy || 0) },
   };
@@ -2873,6 +2989,7 @@ function saveHomelandPort(room: Room): void {
 /** Lay a land record back onto the room's board: the tiles
  *  and the seed, whole. */
 function layHostedLand(room: Room, rec: HostedLandRecord): void {
+  room.board = STANDARD_BOARD; // a table land is always dealt on the standard disc
   const map = new Map<string, MapTile>();
   for (const t of rec.tiles) {
     const base = TILE_BY_ID.get(t.id);
@@ -3137,7 +3254,7 @@ function placeDark(room: Room, foes: PendingDark[]): number {
     const foe: EnemyUnit = {
       id: nextDarkId(),
       hex, kind: f.kind, label: f.label, art: f.art,
-      power: f.power, hp: f.hp, maxHp: f.hp, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null, lastTile: hex,
+      power: f.power, hp: f.hp, maxHp: f.hp, pinnedUntil: 0, pos: { ...tileCenter(hex)! }, target: null, lastTile: hex,
       armor: f.armor, lvl: f.lvl, speedGauge: 0,
     };
     room.dark.set(foe.id, foe);
@@ -3552,13 +3669,13 @@ function engineBright(room: Room, ownerKey: string): boolean {
   return room.workings.some(w => w.engine === "engine" && w.ownerKey === ownerKey);
 }
 
-function beaconReach(w: Working, extraRings = 0): Set<string> {
+function beaconReach(w: Working, extraRings = 0, board?: BoardDef): Set<string> {
   const out = new Set<string>();
   let frontier: string[] = [];
   for (const hx of [w.hexA, w.hexB]) if (hx) { out.add(hx); frontier.push(hx); }
   for (let ring = 0; ring < 1 + extraRings; ring++) {
     const next: string[] = [];
-    for (const hx of frontier) for (const n of neighborsOf(hx)) if (!out.has(n)) { out.add(n); next.push(n); }
+    for (const hx of frontier) for (const n of neighborsOf(hx, board)) if (!out.has(n)) { out.add(n); next.push(n); }
     frontier = next;
   }
   return out;
@@ -3758,7 +3875,7 @@ function processGroves(room: Room, now: number): void {
       const sapling: Working = {
         id: randomUUID(), kind: "grove", root: mother.root, engine: "springleaf", nums: mother.nums,
         name: mother.name, hue: mother.hue, ownerKey: mother.ownerKey, ownerName: mother.ownerName,
-        hex: nearestTileId(pos), hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
+        hex: nearestTileId(pos, boardOf(room)), hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
         pos: { ...pos }, radiusPx, expiresAt: now + 20_000, lastMend: now, mother: false,
       };
       room.workings.push(sapling);
@@ -3832,7 +3949,7 @@ function strongestDark(room: Room): EnemyUnit | null {
   return best;
 }
 function fireShatterPiece(room: Room, caster: Player, from: Pt, aimHex: string): void {
-  const aim = TILE_CENTERS.get(aimHex);
+  const aim = tileCenter(aimHex);
   if (!aim) return;
   const target = [...room.dark.values()].find(e => e.hex === aimHex) ?? null;
   const bonus = castModFor(caster.classKey, caster.tenderLevel, "spell");
@@ -3944,7 +4061,7 @@ function maintainPassiveWalls(room: Room, now: number): void {
   const desired = new Map<string, { unit: FieldUnit; hexA: string; hexB: string }>();
   for (const u of standingUnits(room)) {
     if (u.card.element !== "stone" && u.card.element !== "root") continue;
-    for (const nb of neighborsOf(u.hex)) {
+    for (const nb of neighborsOf(u.hex, boardOf(room))) {
       const key = edgeKeyOf(u.hex, nb);
       if (!desired.has(key)) desired.set(key, { unit: u, hexA: u.hex, hexB: nb });
     }
@@ -4115,15 +4232,15 @@ function waterMoteAtTable(room: Room, unit: FieldUnit, now: number): boolean {
   }
   const seat = seatByKey(room, unit.ownerKey);
   const myEff = workingEffects(seat?.expKey);
-  const moteHex = nearestTileId({ x: mote.x, y: mote.y });
+  const moteHex = nearestTileId({ x: mote.x, y: mote.y }, boardOf(room));
   const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey &&
     (w.hexA === moteHex || w.hexB === moteHex
-      || (myEff.bannerReach && ((w.hexA && neighborsOf(w.hexA).includes(unit.hex)) || (w.hexB && neighborsOf(w.hexB).includes(unit.hex))))));
+      || (myEff.bannerReach && ((w.hexA && neighborsOf(w.hexA, boardOf(room)).includes(unit.hex)) || (w.hexB && neighborsOf(w.hexB, boardOf(room)).includes(unit.hex))))));
   const bcnWard = room.workings.find(w => {
     if (w.engine !== "beacon") return false;
     const oEff = workingEffects(seatByKey(room, w.ownerKey)?.expKey);
     const rings = (oEff.brightPillar ? 1 : 0) + (oEff.fallingLight ? 1 : 0);
-    if (!beaconReach(w, rings).has(moteHex)) return false;
+    if (!beaconReach(w, rings, boardOf(room)).has(moteHex)) return false;
     return w.ownerKey === unit.ownerKey || oEff.brightPillar;
   });
   raw += (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0) + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
@@ -4143,7 +4260,7 @@ function waterMoteAtTable(room: Room, unit: FieldUnit, now: number): boolean {
     if (len < 1) break;
     const step = BRAMBLE_MOTE_SPREAD_STEP * 69;
     const pt = { x: mote.x + (dir.x / len) * step, y: mote.y + (dir.y / len) * step };
-    const centre = TILE_CENTERS.get(nearestTileId(pt));
+    const centre = tileCenter(nearestTileId(pt, boardOf(room)));
     if (!centre || distPx(pt, centre) > 69) break; // no ground there — nothing is spent
     mote.bank -= BRAMBLE_MOTE_SPREAD_COST;
     work.nodes!.push({ x: pt.x, y: pt.y, hp: mote.maxHp, maxHp: mote.maxHp, mote: 1, px: parent.x, py: parent.y, born: now, bank: 0 });
@@ -4576,13 +4693,13 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     if (rune.charges <= 0) retireSprungRune(room, rune);
     else tell(room, `${rune.name} hums on, waiting for one more.`);
   } else if (rune.engine === "coil") {
-    const free = STANDABLE_TILES.filter(hx => hx !== hex && !darkOn(room, hx));
+    const free = boardOf(room).standable.filter(hx => hx !== hex && !darkOn(room, hx));
     let moved = 0;
     for (const e of darkHere) {
       if (!free.length) break;
       const spot = free.splice(Math.floor(Math.random() * free.length), 1)[0];
       e.hex = spot; // registered by id: the throw is just a new tile
-      e.pos = { ...TILE_CENTERS.get(spot)! };
+      e.pos = { ...tileCenter(spot)! };
       e.target = null;
       e.lastTile = spot;
       moved++;
@@ -4626,7 +4743,7 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
     // ground one ring wider — the fall measures, and lands
     // on, the neighbouring hexes' dark as well.
     const foes = seff.fallingLight
-      ? [...room.dark.values()].filter(e => e.hex === hex || neighborsOf(hex).includes(e.hex))
+      ? [...room.dark.values()].filter(e => e.hex === hex || neighborsOf(hex, boardOf(room)).includes(e.hex))
       : darkHere;
     const greatest = Math.max(...foes.map(e => e.power));
     if (greatest >= (rune.nums.minPower ?? 5)) {
@@ -5021,7 +5138,7 @@ async function runRound(room: Room): Promise<void> {
       const myEff = workingEffects(seatByKey(room, unit.ownerKey)?.expKey);
       const stdWard = room.workings.find(w => w.engine === "standard" && w.ownerKey === unit.ownerKey
         && (w.hexA === unit.hex || w.hexB === unit.hex
-          || (myEff.bannerReach && ((w.hexA && neighborsOf(w.hexA).includes(unit.hex)) || (w.hexB && neighborsOf(w.hexB).includes(unit.hex))))));
+          || (myEff.bannerReach && ((w.hexA && neighborsOf(w.hexA, boardOf(room)).includes(unit.hex)) || (w.hexB && neighborsOf(w.hexB, boardOf(room)).includes(unit.hex))))));
       // The Bright Pillar + Falling Light (tranche one): the
       // Beacon's reach widens a ring per gift, and a Pillar's
       // light serves the WHOLE party, not its Tender alone.
@@ -5029,7 +5146,7 @@ async function runRound(room: Room): Promise<void> {
         if (w.engine !== "beacon") return false;
         const oEff = workingEffects(seatByKey(room, w.ownerKey)?.expKey);
         const rings = (oEff.brightPillar ? 1 : 0) + (oEff.fallingLight ? 1 : 0);
-        if (!beaconReach(w, rings).has(target.hex)) return false;
+        if (!beaconReach(w, rings, boardOf(room)).has(target.hex)) return false;
         return w.ownerKey === unit.ownerKey || oEff.brightPillar;
       });
       const roll = dN(20);
@@ -5266,7 +5383,7 @@ async function runRound(room: Room): Promise<void> {
           else w.hp = (w.shields ?? []).reduce((sum, x) => sum + Math.max(0, x.hp), 0);
           const kb = Math.hypot(enemy.pos.x - s.x, enemy.pos.y - s.y);
           let ux = kb > 0 ? (enemy.pos.x - s.x) / kb : 0, uy = kb > 0 ? (enemy.pos.y - s.y) / kb : -1;
-          if (kb === 0) { const sc = TILE_CENTERS.get(SEED_TILE)!; const sl = Math.hypot(enemy.pos.x - sc.x, enemy.pos.y - sc.y) || 1; ux = (enemy.pos.x - sc.x) / sl; uy = (enemy.pos.y - sc.y) / sl; }
+          if (kb === 0) { const sc = tileCenter(SEED_TILE)!; const sl = Math.hypot(enemy.pos.x - sc.x, enemy.pos.y - sc.y) || 1; ux = (enemy.pos.x - sc.x) / sl; uy = (enemy.pos.y - sc.y) / sl; }
           enemy.pos = { x: enemy.pos.x + ux * 69, y: enemy.pos.y + uy * 69 };
           enemy.target = null;
           witness(s, enemy.pos, w.hue && w.hue !== "unaligned" ? w.hue : "unaligned", "dark", true, s.hp <= 0);
@@ -5371,7 +5488,7 @@ async function runRound(room: Room): Promise<void> {
           // lit, and wary.
           const wary = room.workings.some(w => w.hue === "fire"
             && workingEffects(seatByKey(room, w.ownerKey)?.expKey).brandWalker
-            && workingBeside(w, enemy.hex));
+            && workingBeside(w, enemy.hex, boardOf(room)));
           // FATE'S MITIGATION reads the victim's own hide: its
           // toughness plus its Tender's company AC (the
           // Warden's +4, the Sage's +2 — the Company Bonuses,
@@ -5401,7 +5518,7 @@ async function runRound(room: Room): Promise<void> {
             // splashes — the striker's hex-neighbours are
             // wounded for 1 by the ward's answering light.
             if (sealEff.warWarden) {
-              for (const nHex of neighborsOf(enemy.hex)) {
+              for (const nHex of neighborsOf(enemy.hex, boardOf(room))) {
                 const nDark = darkAt(room, nHex);
                 if (nDark && nDark !== enemy) {
                   nDark.hp -= 1;
@@ -6218,7 +6335,7 @@ function handleConnection(ws: WebSocket): void {
           return;
         }
         const rm: Room = room;
-        const cands = [player.hex, ...neighborsOf(player.hex)];
+        const cands = [player.hex, ...neighborsOf(player.hex, boardOf(room))];
         hex = cands.find(h => h !== SEED_TILE && rm.map.has(h) && unitsAt(rm, h).length < STACK_CAP) ?? null;
         if (!hex) {
           ws.send(JSON.stringify({ type: "error", message: "No ground at your side can hold them — every tile around you stands full." }));
@@ -6326,7 +6443,7 @@ function handleConnection(ws: WebSocket): void {
         // muster keeps it at its Tender's side, and it
         // strikes and is struck as the party does.
         follow: true,
-        ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, pos: { ...TILE_CENTERS.get(hex)! }, target: null,
+        ownerKey: player.key, ownerName: player.name, pinnedUntil: 0, pos: { ...tileCenter(hex)! }, target: null,
       });
       // FOLLOWING MEANS IN PARTY (Nigel, 2026-10-24): the
       // landed follower is entered in the party ledger in
@@ -6388,10 +6505,10 @@ function handleConnection(ws: WebSocket): void {
       const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
       if (!unit || unit.hex !== from) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand there." })); return; }
       if (isMoving(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is already on the march.` })); return; }
-      if (!TILE_BY_ID.has(to) || to === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The march ends on the land — never on the star-seed's tile." })); return; }
+      if (!boardOf(room).byId.has(to) || to === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The march ends on the land — never on the star-seed's tile." })); return; }
       if (to === from) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} already stands there.` })); return; }
       if (unitsAt(room, to).length >= STACK_CAP) { ws.send(JSON.stringify({ type: "error", message: `That tile stands full — ${STACK_CAP} of the light to a tile.` })); return; }
-      const road = findAnyRoad(from, to);
+      const road = findAnyRoad(from, to, boardOf(room));
       if (!road || road.length < 2) { ws.send(JSON.stringify({ type: "error", message: "No road runs there." })); return; }
       const hexes = road.length - 1;
       const cost = hexes * marchRateFor(unit.card.power);
@@ -6411,7 +6528,7 @@ function handleConnection(ws: WebSocket): void {
       const leftParty = player.expKey && unit.card.awokenId
         ? removePartyMember(player.expKey, unit.card.awokenId)
         : false;
-      unit.target = { ...TILE_CENTERS.get(to)! };
+      unit.target = { ...tileCenter(to)! };
       unit.speedPx = Math.max(34, 69 / marchSecondsPerHexFor(unit.card));
       tell(room, `🚶 ${player.name} marches ${unit.card.name} — ${hexes} hex${hexes === 1 ? "" : "es"} of road (✦${cost}).`);
       if (leftParty) tell(room, `${unit.card.name} leaves ${player.name}'s party — an Awokin under orders stands outside it.`);
@@ -6432,9 +6549,9 @@ function handleConnection(ws: WebSocket): void {
       const tx = Number(msg.tx), ty = Number(msg.ty);
       if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
       const point: Pt = { x: tx, y: ty };
-      const nearest = nearestTileId(point);
-      if (nearest === SEED_TILE && distPx(point, TILE_CENTERS.get(SEED_TILE)!) <= 69) { ws.send(JSON.stringify({ type: "error", message: "The glide ends on the land — never on the star-seed's tile." })); return; }
-      player.target = distPx(point, TILE_CENTERS.get(nearest)!) > 69 ? { ...TILE_CENTERS.get(nearest)! } : { x: tx, y: ty };
+      const nearest = nearestTileId(point, boardOf(room));
+      if (nearest === SEED_TILE && distPx(point, tileCenter(SEED_TILE)!) <= 69) { ws.send(JSON.stringify({ type: "error", message: "The glide ends on the land — never on the star-seed's tile." })); return; }
+      player.target = distPx(point, tileCenter(nearest)!) > 69 ? { ...tileCenter(nearest)! } : { x: tx, y: ty };
       sendState(room);
       return;
     }
@@ -6639,7 +6756,7 @@ function handleConnection(ws: WebSocket): void {
       const purified = tile.curseHp <= 0;
       // The witness: the blow flies to the TILE, on the same
       // ledger the referee's strikes fly by.
-      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos(TILE_CENTERS.get(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
+      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos(tileCenter(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
       if (purified) {
         tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
         // The striker's dominant element claims the tile; a
@@ -6906,13 +7023,13 @@ function handleConnection(ws: WebSocket): void {
       const grovePt: Pt | null = isSpringleaf ? (ptB ?? pointOf((msg as any).point)) : null;
       let hexA = String(msg.hexA || "");
       let hexB = String(msg.hexB || "");
-      if (ptA && ptB) { hexA = nearestTileId(ptA); hexB = nearestTileId(ptB); }
+      if (ptA && ptB) { hexA = nearestTileId(ptA, boardOf(room)); hexB = nearestTileId(ptB, boardOf(room)); }
       if (grovePt) {
-        hexB = nearestTileId(grovePt);
-        const nb = neighborsOf(hexB);
+        hexB = nearestTileId(grovePt, boardOf(room));
+        const nb = neighborsOf(hexB, boardOf(room));
         const fromPt = casterPointOf(caster);
         hexA = fromPt && nb.length
-          ? nb.reduce((best, h) => (distPx(TILE_CENTERS.get(h)!, fromPt) < distPx(TILE_CENTERS.get(best)!, fromPt) ? h : best), nb[0])
+          ? nb.reduce((best, h) => (distPx(tileCenter(h)!, fromPt) < distPx(tileCenter(best)!, fromPt) ? h : best), nb[0])
           : (nb[0] ?? hexB);
       }
       // WARDS STAND ANYWHERE (Nigel, 2026-10-20): "wards and
@@ -6934,13 +7051,13 @@ function handleConnection(ws: WebSocket): void {
         // name, read from the points after range allows it.
         // The Springleaf keeps its own reach reckoning —
         // the Binder's doubled ring, as on the homeland.
-        const aimForRange = ptB ?? grovePt ?? TILE_CENTERS.get(hexB) ?? null;
+        const aimForRange = ptB ?? grovePt ?? tileCenter(hexB) ?? null;
         if (aimForRange) {
           const rr = rangeRefusal(caster, aimForRange, isSpringleaf ? bindingHealRangeFor(caster.classKey, HOMELAND_CAST_RING) : HOMELAND_CAST_RING, def.name);
           if (rr) { ws.send(JSON.stringify({ type: "error", message: rr })); return; }
         }
       }
-      if (!isGate && !neighborsOf(hexA).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
+      if (!isGate && !neighborsOf(hexA, boardOf(room)).includes(hexB)) { ws.send(JSON.stringify({ type: "error", message: "That edge does not exist — the two tiles must share a side." })); return; }
       // BULWARK (Recovery R12) stands apart from the edge
       // law below: its line does not stand ON the edge the
       // cast names — the edge is the cast's aim (hexA the
@@ -7020,7 +7137,7 @@ function handleConnection(ws: WebSocket): void {
         room.workings.push({
           id: randomUUID(), kind: "ward", root: def.key, engine: "blackgate", nums: { ...def.numbers },
           name: def.forms[hue] ?? def.name, hue,
-          ownerKey: caster.key, ownerName: caster.name, hex: nearestTileId(wallPt), hexA: null, hexB: null,
+          ownerKey: caster.key, ownerName: caster.name, hex: nearestTileId(wallPt, boardOf(room)), hexA: null, hexB: null,
           hp: gateHp, maxHp: gateHp, pour: 0, stops: 0, charges: 0,
           pos: { ...wallPt }, wall: { x: wallPt.x, y: wallPt.y, hp: gateHp, maxHp: gateHp },
         });
@@ -7039,7 +7156,7 @@ function handleConnection(ws: WebSocket): void {
         // The grove stands where the player pointed when
         // the cast carries a point (2026-10-24); the hex
         // road stands at the named tile's heart, as ever.
-        const centre = grovePt ?? TILE_CENTERS.get(hexB);
+        const centre = grovePt ?? tileCenter(hexB);
         if (!centre) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." })); return; }
         // THE BINDER'S RANGE (Recovery R9): the grove's
         // radius is the reach its burst and mending work
@@ -7135,8 +7252,8 @@ function handleConnection(ws: WebSocket): void {
         // The line stands across the cast's aim — the two
         // tapped points when the cast carries them
         // (2026-10-24), the two hexes' hearts on the hex road.
-        const aC = ptA ?? TILE_CENTERS.get(hexA);
-        const bC = ptB ?? TILE_CENTERS.get(hexB);
+        const aC = ptA ?? tileCenter(hexA);
+        const bC = ptB ?? tileCenter(hexB);
         if (!aC || !bC) { ws.send(JSON.stringify({ type: "error", message: "That is no edge of this land." })); return; }
         const count = bulwarkShieldCountFor(caster.tenderLevel);
         const shieldHp = rockWallHpForLevel(caster.tenderLevel);
@@ -7203,7 +7320,7 @@ function handleConnection(ws: WebSocket): void {
       if (!msgPoints.length && lonePoint) msgPoints.push(lonePoint);
       let hexes: string[] = Array.isArray(msg.hexes) ? [...new Set<string>(msg.hexes.map((h: unknown) => String(h)))].slice(0, 12) : [];
       if (!hexes.length && msgPoints.length && msgPoints.every(p => !!p)) {
-        hexes = msgPoints.map(p => nearestTileId(p!));
+        hexes = msgPoints.map(p => nearestTileId(p!, boardOf(room)));
       }
       const aimPoints: (Pt | null)[] = hexes.map((_, i) => msgPoints[i] ?? null);
       if (def.engine === "blades") {
@@ -7214,7 +7331,7 @@ function handleConnection(ws: WebSocket): void {
         if (hexes.length < 1 || hexes.length > maxT) { ws.send(JSON.stringify({ type: "error", message: `${def.name} is written over one to ${maxT} hexes of ground.` })); return; }
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
-        if (!TILE_BY_ID.has(hx) || hx === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: hx === SEED_TILE ? "Runes are written on the land's ground — not on the star-seed's tile." : "That is no tile of this land." })); return; }
+        if (!boardOf(room).byId.has(hx) || hx === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: hx === SEED_TILE ? "Runes are written on the land's ground — not on the star-seed's tile." : "That is no tile of this land." })); return; }
         // The new workings are not writings on a hex — the
         // one-writing law is not theirs (Bats flies, the Hold
         // Rune hangs over its target, Shatter is a shot).
@@ -7239,7 +7356,7 @@ function handleConnection(ws: WebSocket): void {
       }
       if (def.engine !== "bats") {
         for (let i = 0; i < hexes.length; i++) {
-          const aimC = aimPoints[i] ?? TILE_CENTERS.get(hexes[i]);
+          const aimC = aimPoints[i] ?? tileCenter(hexes[i]);
           if (!aimC) continue;
           const rr = rangeRefusal(caster, aimC, HOMELAND_CAST_RING, def.name);
           if (rr) { ws.send(JSON.stringify({ type: "error", message: rr })); return; }
@@ -7263,7 +7380,7 @@ function handleConnection(ws: WebSocket): void {
       }
       if (def.engine === "shatter") {
         const fromPt = casterPointOf(caster);
-        const aimC = aimPoints[0] ?? TILE_CENTERS.get(hexes[0]);
+        const aimC = aimPoints[0] ?? tileCenter(hexes[0]);
         if (fromPt && aimC && distPx(fromPt, aimC) > 2 * HEX_PX + 1) {
           ws.send(JSON.stringify({ type: "error", message: "Beyond reach — 2 tiles is Rune Shatter's edge." })); return;
         }
@@ -7295,7 +7412,7 @@ function handleConnection(ws: WebSocket): void {
         if (runeSteadySpent) { caster.steadyUsed = true; tell(room, `${caster.name}'s first writing of the battle comes easier — Steady Attention.`); }
         const nowC = Date.now();
         if (def.engine === "bats") {
-          const from = caster.pos ?? TILE_CENTERS.get(caster.hex ?? "") ?? { x: 0, y: 0 };
+          const from = caster.pos ?? tileCenter(caster.hex ?? "") ?? { x: 0, y: 0 };
           room.workings.push({
             id: randomUUID(), kind: "spell", root: def.key, engine: "bats", nums: { ...def.numbers },
             name: def.forms[hue] ?? def.name, hue, ownerKey: caster.key, ownerName: caster.name,
@@ -7313,7 +7430,7 @@ function handleConnection(ws: WebSocket): void {
           });
           tell(room, `${caster.name} casts ${def.forms[hue] ?? def.name} — the rune forms over the ${target.label}'s head.`);
         } else {
-          const from = caster.pos ?? TILE_CENTERS.get(caster.hex ?? "") ?? { x: 0, y: 0 };
+          const from = caster.pos ?? tileCenter(caster.hex ?? "") ?? { x: 0, y: 0 };
           const aimHex = hexes[0];
           // A tap looses the three pieces, 60 ms apart on the
           // page — the referee fires them in one breath here,
@@ -7327,7 +7444,7 @@ function handleConnection(ws: WebSocket): void {
               id: randomUUID(), kind: "spell", root: def.key, engine: "shatter", nums: { ...def.numbers },
               name: def.forms[hue] ?? def.name, hue, ownerKey: caster.key, ownerName: caster.name,
               hex: aimHex, hexA: null, hexB: null, hp: 0, maxHp: 0, pour: 0, stops: 0, charges: 0,
-              pos: { ...(aimPoints[0] ?? TILE_CENTERS.get(aimHex) ?? from) },
+              pos: { ...(aimPoints[0] ?? tileCenter(aimHex) ?? from) },
               streamUntil: nowC + heldSeconds * 1000, nextChargeAt: nowC + 1000, nextPieceAt: nowC + SHATTER_STREAM_PIECE_MS,
             });
             tell(room, `${caster.name} holds Rune Shatter — the pieces stream on.`);
@@ -7416,7 +7533,7 @@ function handleConnection(ws: WebSocket): void {
           const aimPt = aimPoints[aimIdx] ?? null;
           const mark = darkAt(room, hx)
             ?? (aimPt ? [...room.dark.values()].find(e => distPx(e.pos, aimPt) <= POINT_SPRING_PX) : undefined);
-          const toPt = mark?.pos ?? aimPt ?? TILE_CENTERS.get(hx);
+          const toPt = mark?.pos ?? aimPt ?? tileCenter(hx);
           if (fromPt && toPt) {
             room.bladeCasts = [...(room.bladeCasts ?? []).filter(f => Date.now() - f.at < 3000),
               { id: randomUUID(), at: Date.now(), workingId: wNew.id, fromPos: { ...fromPt }, to: { ...toPt } }];
@@ -7543,6 +7660,7 @@ function handleConnection(ws: WebSocket): void {
         };
         clearRoomGround(room);
         room.map = port.map;
+        room.board = boardForRadius(port.radius);
         room.seedGrowth = { ...port.seedGrowth };
         for (const p of room.players.values()) {
           if (p.watcher) continue;
@@ -7551,7 +7669,7 @@ function handleConnection(ws: WebSocket): void {
           ensureTenderHex(room, p);
         }
         refreshHostedBeacon(room);
-        tell(room, `🏠 ${player.name} opens their HOMELAND at this Table — the ground around their first seed, as it stands at home. What is won, purified, fed or lost here counts back home, for real.${port.outsideCount > 0 ? ` (The window shows the ${port.map.size} tiles around the seed; ${port.outsideCount} more tiles of the homeland lie beyond it, untouched at home.)` : ""}`);
+        tell(room, `🏠 ${player.name} opens their HOMELAND at this Table — the ground around their first seed, as it stands at home. What is won, purified, fed or lost here counts back home, for real.${port.radius > MAP_RADIUS ? ` (The homeland outgrows the Table's usual board, so the board grows to fit the heartland — all ${port.map.size} tiles of it stand here.)` : ""}`);
         sendState(room);
         return;
       }
@@ -7613,6 +7731,7 @@ function handleConnection(ws: WebSocket): void {
       room.landDirty = false;
       clearRoomGround(room);
       room.map = freshInstanceMap(false);
+      room.board = STANDARD_BOARD;
       room.seedGrowth = { level: 1, fedEnergy: 0 };
       for (const p of room.players.values()) {
         if (p.watcher) continue;
