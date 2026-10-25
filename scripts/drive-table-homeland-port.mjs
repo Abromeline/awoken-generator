@@ -52,9 +52,14 @@
 //      its seed stands at level 1 fed 0, a table-land record
 //      now exists — and every homeland row stands exactly as
 //      §F left it.
-//   §H REFUSALS ARE SPOKEN: a Tender whose window stands
-//      unsown is refused in words and the room stays
-//      unhosted; an unbound seat is refused in words.
+//   §H THE SHORT RECORD OPENS, ITS HOLES FILLED AT HOME
+//      (restated to Nigel's 2026-10-25 ruling "remove the
+//      limit holes can just be filled" — this section once
+//      proved the ring-6 window refusal, which he struck):
+//      a Tender whose record stands short of its disc opens
+//      anyway, the holes minted into her own record by the
+//      loader, and the room stands on the filled disc; an
+//      unbound seat is still refused in words.
 //   §I THE MAIN PAGE, IN A REAL BROWSER: the locked Tender
 //      sees the beacon button beside The Table wearing the
 //      METEOR face; clicking it speaks Nigel's exact line
@@ -492,16 +497,39 @@ console.log("§G the hunt deals fresh — and touches nothing home");
   ok("§G AND CLOSING THE HUNT STILL TOUCHES NOTHING HOME", homeAfterPort() === HOME_SNAPSHOT);
 }
 
-/* ══ §H REFUSALS ARE SPOKEN ═══════════════════════════ */
-console.log("§H refusals are spoken — no fake ground");
+/* ══ §H THE SHORT RECORD OPENS, HOLES FILLED ══════════ */
+console.log("§H the short record opens — its holes filled at home; the unbound seat still refused");
 {
   const ROOM3 = "homeland-port-refusal";
   const { wstate: w3 } = await watchRoom(ROOM3);
+  // Lorna's record as the real road left it: her seed sown,
+  // her world short of the disc — the standing the struck
+  // gate once refused. Count it before the open.
+  const lSeedTileId = db.prepare("SELECT s.tile_id FROM star_seeds s JOIN first_seed_events e ON e.seed_id = s.id WHERE e.owner_key = ?").get(L.ownerKey).tile_id;
+  const lSeedTile = db.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(lSeedTileId);
+  const lRowsOf = () => db.prepare("SELECT q, r, element, cursed, curse_hp, curse_max_hp FROM territory_tiles WHERE owner_key = ? AND COALESCE(z, 0) = 0").all(L.ownerKey);
+  const lBefore = lRowsOf();
+  const lBeforeKeys = new Set(lBefore.map(t => `${t.q},${t.r}`));
+  const lMaxRing = Math.max(...lBefore.map(t => ringOf(t.q - lSeedTile.q, t.r - lSeedTile.r)));
+  const lRadius = Math.max(6, lMaxRing);
+  const lDisc = 1 + 3 * lRadius * (lRadius + 1);
   const lorna = new Actor(); await lorna.join(L.tt, ROOM3); await lorna.waitYou("Lorna's seat");
   lorna.send({ type: "beaconOpen", source: "homeland" });
-  const refused = await tryWait(() => lorna.errors.some(e => /not all been sown|No first seed stands/.test(e)), 10000);
-  ok("§H A WINDOW NOT YET SOWN IS REFUSED IN WORDS, and the room stays unhosted",
-    refused && !w3.state?.hosted, JSON.stringify(lorna.errors.slice(-2)));
+  await waitFor(() => w3.state?.hosted?.source === "homeland", "Lorna's room standing on her filled homeland", 15000);
+  ok("§H THE SHORT RECORD OPENS — no rim refusal stands (the gate Nigel struck speaks nowhere)",
+    w3.state?.hosted?.source === "homeland" && !lorna.errors.some(e => /not all been sown/.test(e)),
+    JSON.stringify(lorna.errors.slice(-2)));
+  const lAfter = lRowsOf();
+  const lFilled = lAfter.filter(t => !lBeforeKeys.has(`${t.q},${t.r}`));
+  ok("§H THE HOLES WERE FILLED IN HER OWN RECORD: her ground-plane rows grew from short of the disc to the whole disc, every filled tile fresh cursed ground in the frontier's birth shape",
+    lBefore.length < lDisc && lAfter.length === lDisc && lFilled.length === lDisc - lBefore.length
+    && lFilled.every(t => t.cursed === 1 && ["tide", "sky", "stone", "root", "neutral"].includes(t.element)
+      && t.curse_hp === 4 + 6 * ringOf(t.q - lSeedTile.q, t.r - lSeedTile.r) && t.curse_max_hp === t.curse_hp),
+    `before=${lBefore.length} after=${lAfter.length} disc=${lDisc} filled=${lFilled.length}`);
+  ok("§H THE ROOM STANDS ON THE FILLED DISC: the wire map holds every tile of it",
+    (w3.state?.map ?? []).length === lDisc, `wire=${w3.state?.map?.length} disc=${lDisc}`);
+  lorna.send({ type: "beaconClose" });
+  await tryWait(() => !w3.state?.hosted, 10000);
   const anon = new Actor(); await anon.joinDev("Nameless Drifter", ROOM3); await anon.waitYou("the drifter's seat");
   anon.send({ type: "beaconOpen", source: "homeland" });
   const refusedAnon = await tryWait(() => anon.errors.some(e => e.includes("A land is a Tender's record")), 10000);

@@ -41,9 +41,22 @@
 //   §E THE MID-GROWTH RIM OPENS: a third homeland stands
 //      caught mid-growth — its window whole, five tiles sown
 //      at ring 7 and the rim nowhere near a disc. It opens
-//      grown like the rest: the wholeness the port's refusal
-//      guards is the window's, and her outer ground is dealt
-//      exactly as it stands (132 tiles, bank and all).
+//      grown like the rest: there is no rim limit to refuse
+//      it; her sown rim stands exactly as it stands, and the
+//      rim's empty coordinates are holes under the same law
+//      as §G — filled fresh into her record, so the board
+//      deals the whole disc of her widest ring (169 tiles,
+//      her 132 untouched among them, bank and all). This
+//      section's count was restated when the limit fell:
+//      it once expected the 132 dealt bare.
+//   §G THE HOLES ARE FILLED (Nigel, 2026-10-25: "remove
+//      the limit holes can just be filled"): a fourth
+//      homeland stands complete to ring 6, then three
+//      ground-plane rows are struck from her record — holes
+//      inside her own extent. She opens with no refusal;
+//      the loader mints the three holes into HER record in
+//      the frontier's birth shape, every row she brought
+//      stands untouched, and the board deals the whole 127.
 //   §F THE TABLE IN A REAL BROWSER: the door page opened
 //      with ?land=homeland stands Greta's room on the grown
 //      board and Willa's on the standard one; both stand
@@ -413,6 +426,7 @@ growSeedAndRim(P);
   setTileOf(P.ownerKey)(7, 0, { cursed: 0, element: "root", curse_hp: null, curse_max_hp: null, attune_points: 4, attune_element: "sky" });
 }
 const pRows = allRowsOf(P.ownerKey);
+const pSnapshot = new Map(pRows.map(t => [`${t.q},${t.r}`, JSON.stringify(t)]));
 ok("§E Petra's record stands mid-growth: 132 rows — the 127 of the window plus 5 sown at ring 7",
   pRows.length === 132 && Math.max(...pRows.map(t => ringOf(t.q, t.r))) === 7, `rows=${pRows.length}`);
 const ROOM_P = "board-grows-petra";
@@ -420,13 +434,21 @@ const { wstate: wp } = await watchRoom(ROOM_P);
 const petra = new Actor(); await petra.join(P.tt, ROOM_P); await petra.waitYou("Petra's seat");
 petra.send({ type: "beaconOpen", source: "homeland" });
 await waitFor(() => wp.state?.hosted?.source === "homeland", "Petra's room standing on her homeland", 15000);
-ok("§E THE MID-GROWTH HOMELAND OPENS — the partial rim refuses nothing (the wholeness the refusal guards is the window's)",
+ok("§E THE MID-GROWTH HOMELAND OPENS — the partial rim refuses nothing (there is no rim limit left to refuse it)",
   wp.state?.hosted?.source === "homeland" && petra.errors.length === 0, JSON.stringify(petra.errors.slice(-2)));
-ok("§E THE TALE SPEAKS THE GROWTH over her 132 tiles",
-  petra.tale.some(t => t.includes("the board grows to fit the heartland") && t.includes("132")),
+ok("§E THE TALE SPEAKS THE GROWTH over the whole disc of her widest ring: 169 tiles",
+  petra.tale.some(t => t.includes("the board grows to fit the heartland") && t.includes("169")),
   JSON.stringify(petra.tale.slice(-3)));
+const pAfter = allRowsOf(P.ownerKey);
+const pFilled = pAfter.filter(t => !pSnapshot.has(`${t.q},${t.r}`));
+ok("§E THE RIM'S EMPTY COORDINATES WERE FILLED AT HOME, HER OWN GROUND UNTOUCHED: her record grew 132 → the whole ring-7 disc of 169, the 37 fills fresh cursed ground in the frontier's birth shape, every tile she had standing exactly as it stood",
+  pAfter.length === discCount(7) && pFilled.length === discCount(7) - 132
+  && pFilled.every(t => t.cursed === 1 && ["tide", "sky", "stone", "root", "neutral"].includes(t.element)
+    && t.curse_hp === 4 + 6 * ringOf(t.q, t.r) && t.curse_max_hp === t.curse_hp)
+  && pAfter.every(t => { const k = `${t.q},${t.r}`; return !pSnapshot.has(k) || pSnapshot.get(k) === JSON.stringify(t); }),
+  `after=${pAfter.length} filled=${pFilled.length}`);
 {
-  const rows = new Map(pRows.map(t => [`${t.q},${t.r}`, t]));
+  const rows = new Map(pAfter.map(t => [`${t.q},${t.r}`, t]));
   let mismatch = "";
   if ((wp.state.map ?? []).length !== rows.size) mismatch = `wire holds ${wp.state.map?.length} tiles, the homeland record holds ${rows.size}`;
   for (const wt of wp.state.map ?? []) {
@@ -440,7 +462,7 @@ ok("§E THE TALE SPEAKS THE GROWTH over her 132 tiles",
       mismatch = `${wt.id}: wire vs home differ`;
     }
   }
-  ok("§E EVERY TILE SHE HAS STANDS ON THE BOARD: all 132, tile for tile — the sown rim dealt exactly as it stands",
+  ok("§E EVERY TILE OF THE DISC STANDS ON THE BOARD: all 169, tile for tile — her sown rim dealt exactly as it stands, the filled rim complete around it",
     !mismatch, mismatch);
   ok("§E the rim's banked tile rests as its pile at ring 7: (7,0) holds {sky: 4}",
     JSON.stringify(wireTile(wp, "7,0")?.points ?? {}) === JSON.stringify({ sky: 4 }), JSON.stringify(wireTile(wp, "7,0")?.points));
@@ -480,6 +502,68 @@ async function tableShot(t, roomId, file) {
   console.log(`  .. screenshots kept: ${OUT}/grown-board-ring-8.png · ${OUT}/standard-board-ring-6.png`);
 }
 await browser.close();
+
+/* ══ §G THE HOLES ARE FILLED ══════════════════════════ */
+console.log("§G Holly's homeland, holes inside ring 6 — the limit removed, the holes filled at home");
+const HY = await mkTender("Holey Holly", 800, "warden", "disc-board-grows-h");
+fillers(HY, 20, "HYBench");
+await call("addToParty", { awakenedId: HY.kinIds[0] }, HY.token);
+await call("ensureFirstSeed", {}, HY.token);
+await call("getTerritory", {}, HY.token);
+completeDisc(HY, 6);
+growSeedAndRim(HY);
+// THE HOLES, DUG IN THE OPEN (named sculpt): three
+// ground-plane rows are struck from her record — at rings
+// 3, 4 and 6, inside her own extent — the short record a
+// damaged homeland carries.
+const HOLES = [[3, -1], [-4, 1], [6, -3]];
+for (const [q, r] of HOLES) db.prepare("DELETE FROM territory_tiles WHERE owner_key = ? AND q = ? AND r = ? AND COALESCE(z, 0) = 0").run(HY.ownerKey, q, r);
+const hyBefore = allRowsOf(HY.ownerKey);
+const hySnapshot = new Map(hyBefore.map(t => [`${t.q},${t.r}`, JSON.stringify(t)]));
+ok("§G Holly's record stands holed: 124 rows, the disc short by exactly the three struck tiles",
+  hyBefore.length === 124 && HOLES.every(([q, r]) => !hySnapshot.has(`${q},${r}`)), `rows=${hyBefore.length}`);
+const ROOM_H = "board-grows-holly";
+const { wstate: wh } = await watchRoom(ROOM_H);
+const holly = new Actor(); await holly.join(HY.tt, ROOM_H); await holly.waitYou("Holly's seat");
+holly.send({ type: "beaconOpen", source: "homeland" });
+await waitFor(() => wh.state?.hosted?.source === "homeland", "Holly's room standing on her homeland", 15000);
+ok("§G THE HOLED HOMELAND OPENS — no refusal speaks (Nigel: “remove the limit holes can just be filled”)",
+  wh.state?.hosted?.source === "homeland" && holly.errors.length === 0, JSON.stringify(holly.errors.slice(-2)));
+const hyAfter = allRowsOf(HY.ownerKey);
+const hyTileRow = tileRowOf(HY.ownerKey);
+ok("§G THE HOLES WERE FILLED IN HER OWN RECORD: 127 rows stand again, each struck tile reborn as fresh cursed ground in the frontier's birth shape (an element of the frontier's five, curse HP reckoned 4 + 6 per ring)",
+  hyAfter.length === 127 && HOLES.every(([q, r]) => {
+    const t = hyTileRow(q, r);
+    return t && t.cursed === 1 && ["tide", "sky", "stone", "root", "neutral"].includes(t.element)
+      && t.curse_hp === 4 + 6 * ringOf(q, r) && t.curse_max_hp === t.curse_hp;
+  }),
+  JSON.stringify(HOLES.map(([q, r]) => hyTileRow(q, r))));
+ok("§G NOTHING SHE HAD WAS TOUCHED: every row she brought stands exactly as it stood — the only new rows are the three fills",
+  hyAfter.every(t => { const k = `${t.q},${t.r}`; return !hySnapshot.has(k) || hySnapshot.get(k) === JSON.stringify(t); })
+  && hyAfter.filter(t => !hySnapshot.has(`${t.q},${t.r}`)).length === 3);
+{
+  const rows = new Map(hyAfter.map(t => [`${t.q},${t.r}`, t]));
+  let mismatch = "";
+  if ((wh.state.map ?? []).length !== rows.size) mismatch = `wire holds ${wh.state.map?.length} tiles, her filled record holds ${rows.size}`;
+  for (const wt of wh.state.map ?? []) {
+    if (mismatch) break;
+    const row = rows.get(wt.id);
+    if (!row) { mismatch = `wire tile ${wt.id} has no homeland row`; break; }
+    const pts = row.attune_element && row.attune_points > 0 ? { [row.attune_element]: row.attune_points } : {};
+    if (wt.cursed !== !!row.cursed || wt.element !== row.element
+      || wt.curseHp !== (row.cursed ? row.curse_hp : 0) || wt.curseMaxHp !== (row.cursed ? row.curse_max_hp : 0)
+      || JSON.stringify(wt.points ?? {}) !== JSON.stringify(pts)) {
+      mismatch = `${wt.id}: wire vs home differ`;
+    }
+  }
+  ok("§G THE BOARD DEALS COMPLETE: all 127 tiles stand on the wire, tile for tile against her filled record",
+    !mismatch, mismatch);
+  ok("§G a filled tile stands dealt on the board at its full ring curse: (6,-3) cursed at 40 of 40",
+    wireTile(wh, "6,-3")?.cursed === true && wireTile(wh, "6,-3")?.curseHp === 40 && wireTile(wh, "6,-3")?.curseMaxHp === 40,
+    JSON.stringify(wireTile(wh, "6,-3")));
+}
+holly.send({ type: "beaconClose" });
+await tryWait(() => !wh.state?.hosted, 8000);
 
 console.log(`\nTABLE BOARD GROWS DRIVE: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

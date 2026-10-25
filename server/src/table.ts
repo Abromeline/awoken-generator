@@ -2746,32 +2746,33 @@ export function saveHostedLand(room: Room): void {
 // THE HOMELAND PORT (Nigel, commissioned 2026-10-25 — the
 // beacon button beside "The Table" on the main page, and its
 // two choices): a casual room can stand on the host's
-// ORIGINAL HOMELAND — the radius-6 window of territory_tiles
-// around the first seed, the seed's own growth read from
-// star_seeds — with every land and seed change written back
-// into those tables. This supersedes, for this door only,
-// the 2026-10-24 note above that the homeland is not
+// ORIGINAL HOMELAND — her territory_tiles around the first
+// seed, the seed's own growth read from star_seeds — with
+// every land and seed change written back into those
+// tables. This supersedes, for this door only, the
+// 2026-10-24 note above that the homeland is not
 // re-rendered: the table-land record remains the OTHER
 // choice (hunt a new starseed), untouched.
 //
-// THE WINDOW, GROWN (Nigel, ruled 2026-10-25 18:23: "if
-// necessary the table board grows to fit the heartland"):
-// the board is a disc centred on the seed whose radius is
-// the largest ring the homeland occupies — the standard
-// radius-6 disc of 127 tiles when the homeland fits inside
-// it, a wider disc when it does not, so every homeland tile
-// stands on the board and none is left at home. A Tender
-// whose first beacon stands lit — the only Tenders this
-// door opens for, by the main page's gate — holds the whole
-// disc in their record: the seed's rise purifies its ring,
-// and the homeland's frontier law mints every tile within
-// five rings of purified ground, so centre + ring purified
-// mints all 127. A record that somehow stands short of that
-// WINDOW — the ring-6 disc around the seed — is refused in
-// words, never padded with invented ground. Past the window
-// her land may stand mid-growth (a partial outer rim, sown
-// as the homeland grows): that ground is dealt exactly as
-// it stands, and its partialness refuses nothing.
+// THE BOARD, AND NO RIM LIMIT (Nigel, ruled 2026-10-25
+// 18:23: "if necessary the table board grows to fit the
+// heartland"; and 19:14: "remove the limit holes can just
+// be filled"): the board is a disc centred on the seed
+// whose radius is the largest ring the homeland occupies —
+// the standard radius-6 disc of 127 tiles when the homeland
+// fits inside it, a wider disc when it does not, so every
+// homeland tile stands on the board and none is left at
+// home. There is NO rim limit: no completeness is demanded
+// of any ring, at any radius. A record that stands short —
+// holes inside its own extent, coordinates within the
+// dealt disc where no ground-plane row stands — is not
+// refused: the loader FILLS the holes, minting fresh
+// cursed tiles into territory_tiles in the frontier's own
+// birth shape, so the fill stands at home too and the
+// dealt board stands complete. (An earlier reading demanded
+// the ring-6 window stand whole and refused a short record
+// in words; Nigel struck the limit by the words above, and
+// that refusal is gone.)
 //
 // ATTUNEMENT, HONESTLY: the two grounds keep different
 // books. The homeland holds ONE bank per tile (attune_points
@@ -2837,15 +2838,17 @@ function servedLandDoor(room: Room, expKey: string): { privacy: "public" | "pass
 }
 
 type HomelandPortLoad =
-  | { ok: true; map: Map<string, MapTile>; seedGrowth: { level: number; fedEnergy: number }; seedId: number; tileIds: Map<string, number>; baseTiles: Map<string, HomelandTileBase>; outsideCount: number; totalTiles: number; radius: number }
+  | { ok: true; map: Map<string, MapTile>; seedGrowth: { level: number; fedEnergy: number }; seedId: number; tileIds: Map<string, number>; baseTiles: Map<string, HomelandTileBase>; outsideCount: number; totalTiles: number; radius: number; filledCount: number }
   | { ok: false; refusal: string };
 
-/** Build the room's window onto a Tender's homeland from its
- *  own tables. The homeland seed is the FIRST seed (the
+/** Build the room's board onto a Tender's homeland from
+ *  its own tables. The homeland seed is the FIRST seed (the
  *  first_seed_events row names it) — the seed the beacon
- *  gate itself is read from. Refusals are spoken, never
- *  padded: no seed, no seed tile, or a window the record
- *  does not wholly hold. */
+ *  gate itself is read from. The only refusals are a
+ *  missing seed or a missing seed tile, spoken in words; a
+ *  record standing short is filled, never refused (Nigel,
+ *  2026-10-25: "remove the limit holes can just be
+ *  filled"). */
 function loadHomelandPort(ownerKey: string): HomelandPortLoad {
   const ev = sqlite.prepare("SELECT seed_id FROM first_seed_events WHERE owner_key = ?").get(ownerKey) as { seed_id: number } | undefined;
   const seed = (ev
@@ -2864,8 +2867,8 @@ function loadHomelandPort(ownerKey: string): HomelandPortLoad {
   // homeland occupies around its first seed, never smaller
   // than the standard disc. Every homeland tile is dealt;
   // none is counted outside, none is cropped. A homeland
-  // within ring 6 deals the standard board, exactly as the
-  // window dealt before this law.
+  // within ring 6 deals the standard board, exactly as it
+  // dealt before this law.
   let maxRing = 0;
   for (const t of rows) {
     const dq = t.q - seedTile.q, dr = t.r - seedTile.r;
@@ -2873,6 +2876,38 @@ function loadHomelandPort(ownerKey: string): HomelandPortLoad {
     if (ring > maxRing) maxRing = ring;
   }
   const board = boardForRadius(Math.max(MAP_RADIUS, maxRing));
+  // HOLES ARE FILLED (Nigel, 2026-10-25: "remove the limit
+  // holes can just be filled"): every coordinate inside the
+  // dealt disc where no ground-plane row stands is minted
+  // into her homeland record NOW, in the frontier's own
+  // birth shape — a fresh cursed tile, its element drawn
+  // from the same five the frontier mint draws from
+  // (expandFrontier / ensureFrontierBuffer in actions.ts),
+  // its curse reckoned by the standing ring law this loader
+  // already falls back to for rows without stored HP. The
+  // fill is a homeland row like any other: it persists at
+  // home, joins `rows` below, and rides the same write-back
+  // as every tile she brought. filledCount reports how many
+  // were minted, so the opening can be proven whole.
+  const present = new Set(rows.map(t => `${t.q},${t.r}`));
+  const mintHole = sqlite.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, curse_hp, curse_max_hp, created_at, last_passive_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)");
+  const FRONTIER_ELEMENTS = ["tide", "sky", "stone", "root", "neutral"];
+  let filledCount = 0;
+  const nowMs = Date.now();
+  for (let dq = -board.radius; dq <= board.radius; dq++) {
+    for (let dr = -board.radius; dr <= board.radius; dr++) {
+      const ring = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
+      if (ring > board.radius) continue;
+      const q = seedTile.q + dq, r = seedTile.r + dr;
+      if (present.has(`${q},${r}`)) continue;
+      const element = FRONTIER_ELEMENTS[Math.floor(Math.random() * FRONTIER_ELEMENTS.length)];
+      const hp = curseHpForRing(ring);
+      const id = Number(mintHole.run(ownerKey, q, r, element, hp, hp, nowMs, nowMs).lastInsertRowid);
+      rows.push({ id, q, r, element, cursed: 1, curse_hp: hp, curse_max_hp: hp, attune_points: 0, attune_element: null });
+      present.add(`${q},${r}`);
+      filledCount++;
+    }
+  }
   const map = new Map<string, MapTile>();
   const tileIds = new Map<string, number>();
   const baseTiles = new Map<string, HomelandTileBase>();
@@ -2895,19 +2930,12 @@ function loadHomelandPort(ownerKey: string): HomelandPortLoad {
     tileIds.set(id, t.id);
     baseTiles.set(id, { cursed, element: t.element ?? "neutral", curseHp: cursed ? curseHp : null, curseMaxHp: cursed ? curseMaxHp : null, points: { ...points } });
   }
-  // THE WHOLENESS THE REFUSAL GUARDS IS THE WINDOW'S: the
-  // ring-6 disc around the seed must stand complete in her
-  // record, in the standing words. Past the window her land
-  // may stand mid-growth — a partial outer rim is her land
-  // growing, not a record failing — and the grown board
-  // deals that ground exactly as it stands.
-  let windowTiles = 0;
-  for (const t of map.values()) if (Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r)) <= MAP_RADIUS) windowTiles++;
-  if (windowTiles < TILE_DEFS.length) {
-    return { ok: false, refusal: `Your homeland's rim has not all been sown — the window around your first seed stands at ${windowTiles} of ${TILE_DEFS.length} tiles. Step onto your land at home, and the window will stand whole.` };
-  }
+  // No completeness is demanded of any ring (Nigel,
+  // 2026-10-25: "remove the limit holes can just be
+  // filled"): the holes were minted above, the rim stands
+  // exactly as it stands, and the board deals whole.
   return {
-    ok: true, map, tileIds, baseTiles, outsideCount, totalTiles: rows.length, radius: board.radius,
+    ok: true, map, tileIds, baseTiles, outsideCount, totalTiles: rows.length, radius: board.radius, filledCount,
     seedId: seed.id,
     seedGrowth: { level: Math.max(1, seed.level || 1), fedEnergy: Math.max(0, seed.fed_energy || 0) },
   };
