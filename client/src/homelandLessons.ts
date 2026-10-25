@@ -99,8 +99,8 @@ export const HOMELAND_LESSONS = [
   },
   {
     key: "seedfeed",
-    system: "The seed's draw (the growth cycle: feeding begins — the passive draw and the risings' first-temper defence, at the company's first stand near the first seed)",
-    text: "Stand your company by the seed — it drinks from your purse on its own, and spending stirs the dark. Risings come at the first temper only, while it feeds.",
+    system: "The seed's draw (the growth cycle: feeding begins — the Tender's own stand on the first seed's hex, and the risings' first-temper defence; the company's passive draw was struck by Nigel 2026-10-25 — feeding is the Tender on the hex alone)",
+    text: "Stand on the seed's own hex yourself — while you stand there it drinks from your purse, and spending stirs the dark. Risings come at the first temper only, while it feeds.",
   },
   {
     key: "seedsapling",

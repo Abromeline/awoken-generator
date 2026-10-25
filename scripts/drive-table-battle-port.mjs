@@ -120,6 +120,8 @@ const bodyParts = (el, power, toughness) => [["body", el, power, toughness], ["a
 
 const { issueTableToken, partyBattleSeatFor } = await import("../server/dist/table.js");
 const { rockWallHpForLevel } = await import("../server/dist/actions.js");
+const { summonersPowerFor } = await import("../server/dist/skills.js");
+const { levelForExp } = await import("../server/dist/tenderExp.js");
 async function mkTender(name, exp, classKey, discId) {
   const claim = await call("claimTender", { password: PW, tenderName: name });
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
@@ -722,13 +724,11 @@ console.log("§C the fell door — one door pays every felling: the drop table w
 }
 
 /* ══ §D THE GROWTH CYCLE ══════════════════════════════════ */
-console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks into the seed at the homeland's pace");
+console.log("§D the seed at the Table grows BY FEEDING ONLY — the Tender's own standing walks her purse into the seed");
 {
   const D = await mkTender("Port Feeder", 800, "warden", "disc-port-d");
   await widen(D);
   fillers(D, 20, "DBench"); // the bench feeds the purse: 10 + 20×2 = 50 max energy at the join
-  const kinId = mkKin(D.ownerKey, D.name, "Nearhand", bodyParts("sky", 2, 6));
-  await call("addToParty", { awakenedId: kinId }, D.token);
   const { wstate } = await watchRoom("port-d");
   const d = new Actor(); await d.join(D.tt, "port-d"); await d.waitYou("D's seat");
   await waitFor(() => !!seatOf(wstate, D.name)?.hex, "D's landing");
@@ -739,8 +739,8 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
   // economy into the purse this section reads — a broken
   // field pays the standing, a fell drips — so the climb
   // can no longer be read in an open room). The host
-  // opens her land and lights its beacon BEFORE any
-  // company is summoned: opening a land swaps the room's
+  // opens her land and lights its beacon BEFORE she takes
+  // her feeding stand: opening a land swaps the room's
   // ground whole and dismisses what stood on the old
   // ground, so the opening must come first (the hosted
   // drive's own order). While the light stands, no dark
@@ -758,25 +758,59 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
   await tryWait(() => wstate.state?.hosted?.hostName === D.name, 8000);
   d.send({ type: "beaconLight", lit: true });
   await waitFor(() => wstate.state?.hosted?.beacon?.lit === true && wstate.state?.hosted?.beacon?.standing === true, "the beacon lit over the climb's room");
-  await summonStanding(d, wstate, D.name, kinId, "Nearhand");
-  const unitHex = fieldOf(wstate, D.name)[0]?.hex;
-  ok("her company stands within the feeding reach (two rings of the seed)",
-    !!unitHex && axDist(unitHex, "0,0") <= 2, `unit=${unitHex}`);
+  // THE FEEDER IS THE TENDER HERSELF, ON THE HEX (Nigel,
+  // 2026-10-25: feeding is the Tender on the hex alone —
+  // the company draw this section once rode was struck
+  // 12:19). She takes the stand by the real glide road:
+  // the glide law refuses the seed's tile as a glide's
+  // END, so she glides to the seed's neighbour, then
+  // toward the far side, and is stopped mid-crossing
+  // (glideStop) on the seed's own tile — the tender-
+  // standing drive's choreography, and its analytic tile
+  // centres: centre(q,r) = q·ISO_E + r·ISO_SE on the
+  // Table's iso basis, exactly as that drive derives them.
+  const KD = 40 / 796;
+  const centerOfD = (id) => { const [q, r] = parseAx(id); return { x: q * 1292 * KD, y: q * 470 * KD + r * 948 * KD }; };
+  const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const myPosD = () => (d.state?.players ?? []).find(p => p.name === D.name)?.pos ?? (wstate.state?.players ?? []).find(p => p.name === D.name)?.pos;
+  const nearD = DIRS6.map(([dq, dr]) => `${dq},${dr}`).sort((a, b) => {
+    const pa = myPosD() ?? { x: 0, y: 0 };
+    return Math.hypot(centerOfD(a).x - pa.x, centerOfD(a).y - pa.y) - Math.hypot(centerOfD(b).x - pa.x, centerOfD(b).y - pa.y);
+  })[0];
+  const [nqD, nrD] = parseAx(nearD);
+  const oppD = `${-nqD},${-nrD}`;
+  d.send({ type: "glide", tx: centerOfD(nearD).x, ty: centerOfD(nearD).y });
+  await waitFor(() => seatOf(wstate, D.name)?.hex === nearD, "D's arrival at the seed's neighbour", 30000);
+  d.send({ type: "glide", tx: centerOfD(oppD).x, ty: centerOfD(oppD).y });
+  let stoppedD = false;
+  {
+    const s0 = realNow();
+    while (realNow() - s0 < 20000) {
+      const me = (d.state?.players ?? []).find(p => p.name === D.name) ?? seatOf(wstate, D.name);
+      if (me?.hex === "0,0") { d.send({ type: "glideStop" }); stoppedD = true; break; }
+      await sleep(40);
+    }
+    await sleep(800);
+  }
+  ok("the Tender's own figure stands ON the seed's tile — the only feeding stand there is (her company feeds nothing, at any distance)",
+    stoppedD && seatOf(wstate, D.name)?.hex === "0,0", `hex=${seatOf(wstate, D.name)?.hex}`);
   const energy0 = seatOf(wstate, D.name)?.energy ?? 0;
   ok("the purse she feeds from holds the seed's whole climb and more (bench-fed max energy)",
     energy0 >= 35, `energy=${energy0}`);
-  // Step the clock: each +4 minutes of presence near the
-  // seed gathers exactly one whole energy of credit
-  // (4 × 0.25/min) — thirty steps carry the seed to the
-  // Beacon. No fell is struck in this room at all (the
-  // entered dark is barred by the light, never fought):
-  // nothing but feeding can raise it here.
+  // Step the clock at HER rate: her standing rate is read
+  // off the live summoning measure (the same reader her
+  // feed rides), and each stride is sized to exactly one
+  // whole energy at it — thirty strides carry the seed
+  // to the Beacon. No fell is struck in this room at all
+  // (the entered dark is barred by the light, never
+  // fought): nothing but her feeding can raise it here.
+  const strideD = Math.round(60000 / (5 + 0.5 * summonersPowerFor(D.ownerKey, levelForExp(800), "warden"))) + 40;
   let stubOff = 0;
   Date.now = () => realNow() + stubOff;
   let fedOk = true, stage15 = null, stage30 = null;
   try {
     for (let stepN = 1; stepN <= 30; stepN++) {
-      stubOff += 4 * 60 * 1000;
+      stubOff += strideD;
       const rose = await tryWait(() => (wstate.state?.seed?.fedEnergy ?? 0) >= stepN, 8000);
       if (!rose) { fedOk = false; break; }
       if (stepN === 15) stage15 = { ...(wstate.state?.seed ?? {}) };
@@ -793,7 +827,7 @@ console.log("§D the seed at the Table grows BY FEEDING ONLY — the purse walks
   if (!fedOk) {
     diag = ` [diag: ws=${d.ws.readyState} servedSeed=${JSON.stringify(wstate.state?.seed ?? null)} servedEnergy=${seatOf(wstate, D.name)?.energy} beacon=${JSON.stringify(wstate.state?.hosted?.beacon ?? null)}]`;
   }
-  ok("feeding walks WHOLE energy from the purse into the seed, a point a step at the homeland's pace (0.25 a minute of near presence)",
+  ok("feeding walks WHOLE energy from the purse into the seed, a point a step at her own standing rate (five a minute plus her summoning step)",
     fedOk && (wstate.state?.seed?.fedEnergy ?? 0) === 30, `fed=${wstate.state?.seed?.fedEnergy}${diag}`);
   ok("at 15 fed the seed stands a SAPLING (level 2) — and its six neighbours stand PURIFIED by the rise",
     !!stage15 && stage15.level === 2 && stage15.stage === "sapling"

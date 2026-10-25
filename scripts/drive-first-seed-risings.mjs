@@ -55,10 +55,13 @@
 //      alive in hand, the purse unfilled.
 //   §H FEEDING IS THE LADDER (the growth cycle): with the
 //      risings frozen by hand, the seed drinks one whole
-//      energy per settled four minutes of the company's
-//      standing — 15 fed stands it a Sapling and its ring
-//      purifies; 30 fed stands it a Beacon, lays up the
-//      level-3 reward, and the event rests DONE.
+//      energy per settled span of the TENDER's own standing
+//      on its hex (the company's draw was struck by Nigel
+//      2026-10-25 12:19 — feeding is the Tender on the hex
+//      alone), each span wound to exactly one whole energy
+//      at her rate — 15 fed stands it a Sapling and its
+//      ring purifies; 30 fed stands it a Beacon, lays up
+//      the level-3 reward, and the event rests DONE.
 //   §I STARFALL CAPPED AND ONLINE ONLY: an absent Tender's
 //      hours never roll; while a star lies on the map the
 //      sky stays closed; taken up, the sky reopens — and
@@ -100,6 +103,8 @@ function check(name, cond, extra = "") {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 await import("../server/dist/index.js");
+const { summonersPowerFor } = await import("../server/dist/skills.js");
+const { levelForExp } = await import("../server/dist/tenderExp.js");
 await sleep(2500);
 
 const db = new Database(join(DATA_DIR, "app.db"));
@@ -317,12 +322,15 @@ db.prepare("UPDATE tender_resources SET energy = 0 WHERE owner_key = ?").run(T1.
   // 1"). The ladder is struck — the truth it now proves is
   // feeding's: three risings beaten, the risings counted
   // and banked, and the seed stands a level-1 Starseed
-  // still, because risings raise nothing; whatever little
-  // the seed drank while the company stood (§H's draw,
-  // already running) is far below the Sapling's price and
-  // moves no level. (§H feeds it in earnest and watches
-  // it climb; §S reads the struck function out of the
-  // source.)
+  // still, because risings raise nothing. (At the growth
+  // cycle's first building, the company's presence near
+  // the seed also drank a little during these sections;
+  // that draw was itself struck by Nigel 2026-10-25 12:19
+  // — feeding is the Tender on the hex alone, and she has
+  // not stood on it yet, so the ledger stands wherever
+  // the risings left it, far below the Sapling's price.
+  // §H feeds it in earnest and watches it climb; §S reads
+  // the struck function out of the source.)
   const evServedD = (await api("getFirstSeedEvent", {}, T1.token)).data.event;
   check("§D THE LADDER IS STRUCK in fact: three risings beaten and the seed still stands a level-1 Starseed — risings are not the ladder",
     !!evServedD && evServedD.seedLevel === 1 && evServedD.seedStage === "starseed" && evServedD.fedEnergy < 15,
@@ -496,14 +504,27 @@ console.log("§H tender one — the seed drinks, and feeding alone climbs it");
   const cursedBefore = ringCursed();
   check("§H the Sapling's ring stands cursed before the rise (the widening light has something to purify)", cursedBefore >= 1, `cursed=${cursedBefore}`);
   db.prepare("UPDATE tender_resources SET energy = 80 WHERE owner_key = ?").run(K);
-  // THE DRAW, wound by hand: each read is preceded by the
-  // anchor wound exactly four minutes back — one whole
-  // energy at the ruled upkeep rate (1 per 4 minutes).
+  // THE FEEDER IS THE TENDER HERSELF, ON THE HEX (Nigel,
+  // 2026-10-25: feeding is the Tender on the hex alone —
+  // the company draw struck 12:19). She takes the stand
+  // through the real movement road; her rate is read off
+  // the live summoning measure (the same reader her
+  // standing feed rides), and each wound span is sized to
+  // exactly one whole energy at that rate — a hair over
+  // one energy's worth of minutes, so the take is one,
+  // never two, and the gathering residue stays far below
+  // a whole point across the section's thirty spans.
+  r = await api("setTenderTile", { tileId: seedRow.tile_id }, T1.token);
+  check("§H the Tender takes the feeding stand on the first seed's own hex, by the real movement road",
+    r.status === 200, errText(r));
+  const progH = db.prepare("SELECT total_exp AS totalExp, class_key AS classKey FROM tender_progress WHERE owner_key = ?").get(K);
+  const rateH = 5 + 0.5 * summonersPowerFor(K, levelForExp(Number(progH?.totalExp ?? 0)), progH?.classKey);
+  const windH = Math.ceil(60000 / rateH) + 60;
   const feed = async (n) => {
     for (let i = 0; i < n; i++) {
       freezeRisings();
       stillCradle(K);
-      db.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(Date.now() - 240000, seedRow.id);
+      db.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(Date.now() - windH, seedRow.id);
       await api("getTerritory", {}, T1.token);
     }
   };

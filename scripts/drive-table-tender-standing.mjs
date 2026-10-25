@@ -4,12 +4,17 @@
 // of a starseed with your Tender begins feeding it).
 //
 // The Table's growth settlement (settleTableSeedFeeding,
-// on the room's pulse) drank while a seat's COMPANY stood
-// within two rings of the room's seed. This build adds the
-// seat's own figure: a seat whose Tender's hex IS the seed
-// tile feeds it from her own purse at HER OWN RATE — five
-// a minute (Nigel, 2026-10-25 11:42), stacking with her
-// company's standing draw in the one ledger. (The room
+// on the room's pulse) once drank while a seat's COMPANY
+// stood within two rings of the room's seed. This build
+// first added the seat's own figure as a feeder, and then
+// — Nigel's ruling of 2026-10-25 12:19, "Feeding is only
+// the Tender on the hex — strike the company draw" —
+// struck the company's draw whole: a seat whose Tender's
+// hex IS the seed tile feeds it from her own purse at HER
+// OWN RATE — five a minute (11:42) plus the summoning
+// step (11:51) — and no Awoken's presence feeds anything.
+// FEEDING IS ONLINE ONLY (12:18): a pulse window spanning
+// an absence banks nothing (§D). (The room
 // below is a campaign room only because the drive's
 // room-handle capture rides the Storytender's deal, the
 // entry drive's road; the campaign is never seeded, so
@@ -32,6 +37,12 @@
 //   §B THE CONTROL: she glides off to a tile three rings
 //      out; the same stepped span feeds nothing and the
 //      purse does not move.
+//   §D THE ABSENCE (online only): with her standing ON
+//      the tile, the clock is stepped TEN minutes in one
+//      stride — a window spanning far past the room's
+//      five-minute presence gap — and the seed banks
+//      nothing; a ten-second stride inside the law feeds
+//      again.
 //   THE ARRIVAL PURIFICATION (Nigel, 2026-10-25 11:48:
 //   "instant purification on seed hex when a tender
 //   joins so he can feed the seed without dying to the
@@ -293,7 +304,7 @@ try {
     if (!rose) { fedOk = false; break; }
   }
 } finally { Date.now = realNow; }
-ok("§A THE SEED DRANK FROM HER STANDING ALONE AT HER RATE: three twelve-second spans, three whole energy — the 5/min measure (the company's pace would need four minutes a point)",
+ok("§A THE SEED DRANK FROM HER STANDING ALONE AT HER RATE: three twelve-second spans, three whole energy — her 5/min measure exactly",
   fedOk && (wstate.state?.seed?.fedEnergy ?? 0) === fed0 + 3, `fed=${wstate.state?.seed?.fedEnergy} from=${fed0}`);
 ok("§A her purse paid exactly the drinking — and still no company of hers stands on the field",
   (seatOf(wstate, S.name)?.energy ?? -1) === energy0 - 3 && fieldOf(wstate, S.name).length === 0,
@@ -366,6 +377,38 @@ console.log("§C summoning power quickens her standing feed at the Table — exa
   ok("§C THE STEPPED RATE, EXACT: at summoning power 2, two ten-second spans pay two whole energy off her purse (5 + 0.5×2 = 6/min)",
     fedOkC && (wstate.state?.seed?.fedEnergy ?? 0) === fedC + 2 && (seatOf(wstate, S.name)?.energy ?? -1) === energyC - 2,
     `fed=${wstate.state?.seed?.fedEnergy} from=${fedC} energy=${seatOf(wstate, S.name)?.energy} from=${energyC}`);
+}
+
+/* ══ §D THE ABSENCE — ONLINE ONLY ═════════════════════ */
+console.log("§D the absence — a pulse window spanning an offline gap banks no feeding");
+{
+  // She still stands on the seed's tile (§C). One stride
+  // of TEN minutes — twice the room's five-minute
+  // presence gap — is stepped under the stubbed clock:
+  // a window spanning an absence. Her feed is an active
+  // online act (Nigel, 2026-10-25 12:18): the pulse must
+  // bank nothing across it, feet on the hex or not.
+  const fedD = wstate.state?.seed?.fedEnergy ?? 0;
+  const energyD = seatOf(wstate, S.name)?.energy ?? 0;
+  stubOff = 0;
+  Date.now = () => realNow() + stubOff;
+  try {
+    stubOff += 10 * 60 * 1000;
+    await sleep(1600);
+  } finally { Date.now = realNow; }
+  ok("§D THE ABSENCE BANKS NOTHING AT THE TABLE: across a ten-minute window the seed gained no energy and her purse did not move, though her figure stands on its hex",
+    (wstate.state?.seed?.fedEnergy ?? -1) === fedD && (seatOf(wstate, S.name)?.energy ?? -1) === energyD,
+    `fed=${wstate.state?.seed?.fedEnergy} (was ${fedD}) energy=${seatOf(wstate, S.name)?.energy} (was ${energyD})`);
+  stubOff = 0;
+  Date.now = () => realNow() + stubOff;
+  let roseD = false;
+  try {
+    stubOff += 10 * 1000; // ten seconds at 6/min = one whole energy
+    roseD = await tryWait(() => (wstate.state?.seed?.fedEnergy ?? 0) === fedD + 1, 8000);
+  } finally { Date.now = realNow; }
+  ok("§D AND THE DRAW LIVES AGAIN INSIDE THE LAW: a ten-second stride on the tile feeds one at her stepped rate",
+    roseD && (seatOf(wstate, S.name)?.energy ?? -1) === energyD - 1,
+    `fed=${wstate.state?.seed?.fedEnergy} from=${fedD} energy=${seatOf(wstate, S.name)?.energy} from=${energyD}`);
 }
 
 console.log(`\ndrive-table-tender-standing: ${pass} passed, ${fail} failed`);

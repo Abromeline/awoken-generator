@@ -4,41 +4,45 @@
 // it your energy. to begin leveling it.").
 //
 // The growth cycle's draw (settleSeedFeeding, settled on
-// the territory read) drank only while the Tender's
-// COMPANY stood within the seed's field. This build adds
-// the Tender herself as a feeder: while she stands ON a
-// living seed's own tile — her standing tile read from the
-// server's own record (tender_progress.tender_tile_id,
-// the tile the validated setTenderTile road last seated
-// her on) — that seed drinks from her purse at HER OWN
-// RATE, five energy a minute (Nigel, 2026-10-25 11:42:
-// "tenders feed rate is 5 energy per min"), under the
-// same whole-energy and five-minute presence laws and
-// the same exclusions. Her company's draw (0.25/min)
-// stands unchanged, and the two STACK into the one
-// credit ledger when both stand near.
+// the territory read) once drank while the Tender's
+// COMPANY stood within the seed's field. This build
+// first added the Tender herself as a feeder, and then —
+// Nigel's ruling of 2026-10-25 12:19, "Feeding is only
+// the Tender on the hex — strike the company draw" —
+// struck the company's draw whole: THE TENDER IS THE
+// ONLY FEEDER. While she stands ON a living seed's own
+// tile — her standing tile read from the server's own
+// record (tender_progress.tender_tile_id, the tile the
+// validated setTenderTile road last seated her on) — that
+// seed drinks from her purse at HER OWN RATE, five
+// energy a minute (11:42: "tenders feed rate is 5 energy
+// per min") plus the summoning step (11:51), under the
+// same whole-energy and presence laws and the same
+// exclusions. FEEDING IS ONLINE ONLY (12:18): a settle
+// window spanning an absence banks nothing (§5).
 //
 //   §1 THE TENDER ON THE TILE: a fallen seed with NO
 //      company anywhere near it gains exactly FIVE whole
 //      energy per wound one-minute settle while the
 //      Tender stands on its tile, paid from her purse —
-//      her 5/min measure, not the company's pace.
+//      her 5/min measure.
 //   §2 THE CONTROL: the same seed, the Tender standing
 //      elsewhere and no company near, gains NOTHING over
 //      the same wound span.
-//   §3 THE COMPANY ROAD STILL FEEDS: with the Tender
-//      beside the seed (not on it) and her summoned Awokin
-//      standing within the field, the seed drinks as it
-//      always has.
+//   §3 THE STRUCK DRAW, AS A NEGATIVE CONTROL: with the
+//      Tender beside the seed (not on it) and her summoned
+//      Awokin standing within BOTH seeds' fields — the
+//      exact stand that fed both seeds before the strike
+//      — a wound four minutes now feeds ZERO into either
+//      ledger and the purse does not move.
 //   §4 THE CURSE'S SEED DOES NOT DRINK: a corrupted seed
 //      under the Tender's own feet gains nothing and the
 //      purse does not move.
-//   §5 THE STACK: with her company still standing within
-//      the field, the Tender steps onto the tile herself —
-//      one wound minute pays five whole energy AND leaves
-//      the quarter-point residue (5.25 a minute leaves
-//      0.25 of credit in a minute) that neither feeder
-//      leaves alone: the two rates pour into one ledger.
+//   §5 THE ABSENCE (Steering: online only): with the
+//      Tender standing ON the tile, a settle window wound
+//      TEN minutes back — spanning far past the standing
+//      five-minute presence gap — banks NO feeding; the
+//      next honest wound minute feeds again.
 //   THE ARRIVAL PURIFICATION (Nigel, 2026-10-25 11:48:
 //   "instant purification on seed hex when a tender joins
 //   so he can feed the seed without dying to the
@@ -46,7 +50,8 @@
 //   purified in the very settle that first feeds it; §2
 //   asserts no purification while she stands elsewhere;
 //   §3 asserts company presence alone does not purify
-//   (the second seed drinks, its hex stays cursed); §6
+//   (the second seed stands in her company's field, its
+//   hex stays cursed); §6
 //   asserts already-purified ground is unchanged by the
 //   stand. A corrupted seed's ground is never touched —
 //   §4's span leaves it exactly as staged.
@@ -233,13 +238,15 @@ console.log("§4 the Tender stands on the corrupted seed — it does not drink")
     tileCursed(corruptedTile.id) === 1, `cursed=${tileCursed(corruptedTile.id)}`);
 }
 
-/* ── §3 THE COMPANY ROAD STILL FEEDS ────────────────── */
-console.log("§3 the company road — her Awokin within the field feeds it as it always has");
+/* ── §3 THE STRUCK DRAW — THE NEGATIVE CONTROL ──────── */
+console.log("§3 the struck draw — her company in the field, the Tender off the tile: nothing feeds");
 {
   // She stands on the common neighbour of BOTH fallen
   // seeds (two rings apart, they share neighbours) — her
   // summon lands within a ring of her, so within two
-  // rings of both seeds at once.
+  // rings of both seeds at once: the exact stand that,
+  // before Nigel struck the company draw (2026-10-25
+  // 12:19), fed both seeds a point apiece over this span.
   const beside = tiles.find(t => dist(t, fallenTile) === 1 && dist(t, fallen2Tile) === 1);
   await call("setTenderTile", { tileId: beside.id }, token);
   let placed = null;
@@ -250,40 +257,44 @@ console.log("§3 the company road — her Awokin within the field feeds it as it
   const placedTile = placed ? tiles.find(t => t.id === placed.tile_id) : null;
   ok("§3 her summoned Awokin stands within BOTH seeds' fields (within two rings of each), placed by the real summon",
     !!placedTile && dist(placedTile, fallenTile) <= 2 && dist(placedTile, fallen2Tile) <= 2, `placed=${placed?.tile_id}`);
-  ok("§3 and the Tender herself is NOT on the seed's tile this span — the company alone can feed it",
-    tenderTileId() === beside.id && beside.id !== fallenTile.id, `stand=${tenderTileId()}`);
+  ok("§3 and the Tender herself is NOT on either seed's tile this span — only her company is near",
+    tenderTileId() === beside.id && beside.id !== fallenTile.id && beside.id !== fallen2Tile.id, `stand=${tenderTileId()}`);
   const purseBefore = purse();
   wind();
   await read();
-  ok("§3 THE COMPANY ROAD STILL FEEDS AT ITS OWN RATE: one wound four-minute settle, one more energy in EACH seed's ledger, two off the purse (one per seed)",
-    seedRow(fallenSeedId).fed_energy === 11 && seedRow(fallen2SeedId).fed_energy === 1 && purse() === purseBefore - 2,
+  ok("§3 THE STRUCK DRAW FEEDS NOTHING: one wound four-minute settle with her company in both fields — both ledgers stand exactly where they stood, and the purse does not move",
+    seedRow(fallenSeedId).fed_energy === 10 && seedRow(fallen2SeedId).fed_energy === 0 && purse() === purseBefore,
     `fed=${seedRow(fallenSeedId).fed_energy}/${seedRow(fallen2SeedId).fed_energy} purse=${purse()} before=${purseBefore}`);
-  ok("§3 COMPANY PRESENCE ALONE DOES NOT PURIFY: the second seed drank from her company, yet its hex stands CURSED still — the purification answers the Tender's own stand, nothing less",
+  ok("§3 COMPANY PRESENCE ALONE DOES NOT PURIFY EITHER: the second seed stands in her company's field, yet its hex stands CURSED still — the purification answers the Tender's own stand, nothing less",
     tileCursed(fallen2Tile.id) === 1, `cursed=${tileCursed(fallen2Tile.id)}`);
   const served = (await call("getSeeds", {}, token)).seeds ?? [];
   const fallenServed = served.find(s => s.id === fallenSeedId);
-  ok("§3 the map's own serving agrees: the fallen seed reads fed 11",
-    !!fallenServed && fallenServed.fedEnergy === 11, JSON.stringify(fallenServed && { fed: fallenServed.fedEnergy }));
+  ok("§3 the map's own serving agrees: the fallen seed still reads fed 10",
+    !!fallenServed && fallenServed.fedEnergy === 10, JSON.stringify(fallenServed && { fed: fallenServed.fedEnergy }));
 }
 
-/* ── §5 THE STACK ───────────────────────────────────── */
-console.log("§5 the stack — her company in the field AND the Tender on the tile: both rates, one ledger");
+/* ── §5 THE ABSENCE — ONLINE ONLY ───────────────────── */
+console.log("§5 the absence — a settle window spanning an offline gap banks no feeding");
 {
   await call("setTenderTile", { tileId: fallenTile.id }, token);
-  const placed = db.prepare("SELECT tile_id FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, kinId);
-  const placedTile = placed ? tiles.find(t => t.id === placed.tile_id) : null;
-  ok("§5 staging: the Tender stands on the seed's tile and her company still stands within its field",
-    tenderTileId() === fallenTile.id && !!placedTile && dist(placedTile, fallenTile) <= 2,
-    `stand=${tenderTileId()} placed=${placed?.tile_id}`);
+  ok("§5 staging: the Tender stands ON the seed's tile — the one feeding stand there is",
+    tenderTileId() === fallenTile.id, `stand=${tenderTileId()}`);
   const purseBefore = purse();
+  // Wound TEN minutes back — twice the standing
+  // five-minute presence gap. The window spans an
+  // absence; an active online act does not run in
+  // absence, so the settle must bank nothing at all,
+  // even with her feet on the hex the whole "span".
+  db.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(Date.now() - 600000, fallenSeedId);
+  await read();
+  ok("§5 THE ABSENCE BANKS NOTHING: across a ten-minute window the seed gained no energy and the purse did not move, though she stands on its hex",
+    seedRow(fallenSeedId).fed_energy === 10 && purse() === purseBefore,
+    `fed=${seedRow(fallenSeedId).fed_energy} purse=${purse()} before=${purseBefore}`);
   windMinute();
   await read();
-  const row = seedRow(fallenSeedId);
-  ok("§5 THE STACK PAYS: one wound minute with both feeders pays five whole energy off the purse",
-    row.fed_energy === 16 && purse() === purseBefore - 5,
-    `fed=${row.fed_energy} purse=${purse()} before=${purseBefore}`);
-  ok("§5 AND LEAVES THE STACK'S FINGERPRINT: a quarter-point of credit stands in the ledger (5.25/min leaves 0.25 in a minute — her rate alone leaves ~0, the company's takes nothing whole in a minute)",
-    row.feed_credit > 0.2 && row.feed_credit < 0.35, `credit=${row.feed_credit}`);
+  ok("§5 AND THE DRAW LIVES AGAIN INSIDE THE LAW: the next honest wound minute on the tile feeds five, as ever",
+    seedRow(fallenSeedId).fed_energy === 15 && purse() === purseBefore - 5,
+    `fed=${seedRow(fallenSeedId).fed_energy} purse=${purse()} before=${purseBefore}`);
 }
 
 /* ── §6 CLEAN GROUND IS UNCHANGED BY THE STAND ──────── */
@@ -307,7 +318,7 @@ console.log("§6 the fallen seed's hex again — ground her arrival already puri
   ok("§6 ALREADY-PURIFIED GROUND IS UNCHANGED BY HER STAND: the hex reads exactly as it read before she stepped back onto it",
     groundBefore.cursed === 0 && JSON.stringify(groundAfter) === JSON.stringify(groundBefore),
     `before=${JSON.stringify(groundBefore)} after=${JSON.stringify(groundAfter)}`);
-  ok("§6 and the seed feeds on from the clean ground (one wound minute, her company still in the field: five whole energy more)",
+  ok("§6 and the seed feeds on from the clean ground (one wound minute of her standing: five whole energy more)",
     seedRow(fallenSeedId).fed_energy === fedBefore + 5 && purse() === purseBefore - 5,
     `fed=${seedRow(fallenSeedId).fed_energy} before=${fedBefore} purse=${purse()} before=${purseBefore}`);
 }
@@ -320,16 +331,17 @@ console.log("§7 summoning power quickens her standing feed — exactly half a p
   // the "summoner" clause at +2 in the live fx). Her
   // measure is then EXACTLY 2: the clause's 2, no level
   // step (level 6 of 7), no Sage grant (Warden). Her
-  // standing rate becomes 5 + 0.5 × 2 = 6 a minute; with
-  // her company still in the field the stack pours 6.25
-  // a minute — a wound minute takes SIX whole energy,
-  // where the unstepped stack took five (§5/§6).
+  // standing rate becomes 5 + 0.5 × 2 = 6 a minute —
+  // a wound minute takes SIX whole energy, where the
+  // unstepped rate took five (§1). (Her company still
+  // stands in the field from §3 — it pours nothing now;
+  // the six is hers alone.)
   db.prepare("INSERT INTO tender_skills (owner_key, skill_key, pool, created_at) VALUES (?, 'r_b1', 'tree', ?)").run(ownerKey, Date.now());
   const fedBefore = seedRow(fallenSeedId).fed_energy;
   const purseBefore = purse();
   windMinute();
   await read();
-  ok("§7 THE STEPPED RATE, EXACT: at summoning power 2 her wound minute on the tile takes SIX whole energy off the purse (5 + 0.5×2, the company's quarter riding the same minute)",
+  ok("§7 THE STEPPED RATE, EXACT: at summoning power 2 her wound minute on the tile takes SIX whole energy off the purse (5 + 0.5×2 — her rate alone)",
     seedRow(fallenSeedId).fed_energy === fedBefore + 6 && purse() === purseBefore - 6,
     `fed=${seedRow(fallenSeedId).fed_energy} before=${fedBefore} purse=${purse()} before=${purseBefore}`);
 }

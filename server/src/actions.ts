@@ -2038,22 +2038,18 @@ export function seedLevelForFed(fedEnergy: number): number {
   if (fed >= SEED_FED_FOR_LEVEL_2) return 2;
   return 1;
 }
-/** THE DRAW'S RATE — THE KEEPER'S READING, flagged for
- *  Nigel's strike (2026-10-24 18:18): the dictation sets
- *  the draw at "the same drain rate of the protection
- *  from shadow matter" — read as the ruled lighthouse
- *  upkeep, ONE per FOUR MINUTES (0.25 a minute, the exact
- *  figure LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE carries).
- *  The draw settles in WHOLE energy — the purse is whole
+/** THE DRAW SETTLES IN WHOLE ENERGY — the purse is whole
  *  points everywhere in this house — with the fractional
  *  pace carried in the seed's feed_credit; credit that
  *  cannot be paid is not banked beyond a point (the seed
- *  drinks only what the purse can give). */
-export const SEED_FEED_PER_MINUTE = 0.25;
-/** THE SEED'S FIELD: the ground a seed's light lies on —
- *  the same two rings the seed-calm covers (SEED_CALM_RADIUS).
- *  Company standing within it is "near the seed". */
-export const SEED_FEED_REACH = 2;
+ *  drinks only what the purse can give). The company's
+ *  passive draw (0.25 a minute for company standing
+ *  within two rings — the growth cycle's first shape of
+ *  the draw, read off the lighthouse upkeep) stood here
+ *  until Nigel struck it (2026-10-25 12:19: "Feeding is
+ *  only the Tender on the hex — strike the company
+ *  draw"); its constants went with it. What remains is
+ *  the Tender's own rate, below. */
 /** THE TENDER'S OWN STANDING RATE (Nigel, 2026-10-25
  *  11:42: "tenders feed rate is 5 energy per min"): while
  *  the Tender herself stands ON a living seed's own tile,
@@ -2075,8 +2071,9 @@ export const SEED_FEED_TENDER_PER_MINUTE = 5;
 export const SEED_FEED_TENDER_SUMMONING_STEP = 0.5;
 /** THE TENDER'S STANDING RATE, kept in this one place:
  *  her base five a minute plus the summoning step per
- *  point of her summoning power. Her company's draw does
- *  not ride this — it keeps SEED_FEED_PER_MINUTE alone. */
+ *  point of her summoning power. Nothing else rides any
+ *  rate — feeding is the Tender's act alone now (the
+ *  company draw struck, Nigel 2026-10-25 12:19). */
 export function tenderStandingFeedRateFor(ownerKey: string | null | undefined, tenderLevel?: number | null, classKey?: string | null): number {
   return SEED_FEED_TENDER_PER_MINUTE + SEED_FEED_TENDER_SUMMONING_STEP * summonersPowerFor(ownerKey, tenderLevel, classKey);
 }
@@ -2150,30 +2147,36 @@ async function applySeedStageRise(ownerKey: string, seed: any, fromLevel: number
 
 /** THE DRAW, settled on the territory read (the growth
  *  cycle): every living seed — fallen, held, the first —
- *  drinks while the Tender's company stands within its
- *  field, at the upkeep's rate, in whole energy, against
- *  the purse as it stands. The seed's level follows its
- *  fed ledger and only ever rises here; a rise is made
- *  true on the land in the same pass (applySeedStageRise).
- *  Seeds the curse holds (corrupted) and seeds already
- *  taken up (fetched) do not drink — the cycle is for the
- *  living. Presence is the read itself: the anchor walks
- *  with every settle, so an absence banks nothing.
- *  THE TENDER'S OWN STANDING (Nigel, 2026-10-25):
+ *  drinks while THE TENDER HERSELF stands on its own hex,
+ *  in whole energy, against the purse as it stands. The
+ *  seed's level follows its fed ledger and only ever
+ *  rises here; a rise is made true on the land in the
+ *  same pass (applySeedStageRise). Seeds the curse holds
+ *  (corrupted) and seeds already taken up (fetched) do
+ *  not drink — the cycle is for the living. FEEDING IS
+ *  ONLINE ONLY (Nigel, 2026-10-25 12:18: "Seed feeding
+ *  only happens online actively while the tender is on
+ *  the hex"): presence is the read itself — the anchor
+ *  walks with every settle, a span past the standing
+ *  presence gap (PROTECTION_ONLINE_GAP_MS, the measure
+ *  every presence economy in this house keeps) banks
+ *  nothing, and no settle reckons the feed across an
+ *  absence.
+ *  THE TENDER IS THE ONLY FEEDER (Nigel, 2026-10-25):
  *  "standing on the tile of a starseed with your tender
- *  begins feeding it your energy" — the Tender herself is
- *  a feeder when she stands ON the seed's own tile, by
- *  this same draw's laws (same whole-energy and presence
- *  laws, same purse, same exclusions) at HER OWN RATE —
- *  five a minute (his ruling of 11:42 the same morning)
+ *  begins feeding it your energy" (11:34) — she feeds at
+ *  HER OWN RATE, five a minute (his ruling of 11:42)
  *  plus half a point per point of her summoning power
- *  (his ruling of 11:51), stacking with her company's
- *  draw into this one ledger.
+ *  (his ruling of 11:51). The company's passive draw —
+ *  the growth cycle's first shape, company within two
+ *  rings drinking at the upkeep's rate — was STRUCK the
+ *  same morning (12:19: "Feeding is only the Tender on
+ *  the hex — strike the company draw"): no Awoken's
+ *  presence, at any distance, feeds any seed now.
  *  Her standing tile is the server's own record — the
  *  tile the validated movement road (setTenderTile) last
  *  seated her on, read here exactly as tenderStand reads
- *  it. Her company keeps the field's reach; she herself
- *  feeds only from the seed's own ground.
+ *  it.
  *  THE GROUND ANSWERS HER ARRIVAL (Nigel, 2026-10-25
  *  11:48: "instant purification on seed hex when a
  *  tender joins so he can feed the seed without dying
@@ -2192,9 +2195,6 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
   const now = Date.now();
   const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
   const byId = new Map(tiles.map(t => [t.id, t]));
-  const placements = await db.select({ tileId: schema.fieldPlacements.tileId }).from(schema.fieldPlacements)
-    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
-  const stoodTiles = placements.map(p => byId.get(p.tileId)).filter(Boolean) as any[];
   const tenderRow = sqlite.prepare("SELECT tender_tile_id AS tileId, total_exp AS totalExp, class_key AS classKey FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { tileId: number | null; totalExp: number | null; classKey: string | null } | undefined;
   const tenderTile = tenderRow?.tileId != null ? byId.get(tenderRow.tileId) : undefined;
   // Her standing rate for this reckoning (base + the
@@ -2227,29 +2227,24 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
     let credit = Number(seed.feed_credit || 0);
     let fed = Number(seed.fed_energy || 0);
     let changed = false;
-    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS && (stoodTiles.length || tenderTile)) {
-      const companyNear = stoodTiles.some(t => axialDist(t as any, home as any) <= SEED_FEED_REACH);
-      const tenderOn = tenderTile != null && tenderTile.id === home.id;
-      // THE TWO FEEDERS STACK: company in the field pours
-      // at the standing draw; the Tender on the tile pours
-      // at her own rate (base + the summoning step); both
-      // into this seed's one ledger.
-      const rate = (companyNear ? SEED_FEED_PER_MINUTE : 0) + (tenderOn ? tenderRate : 0);
-      if (rate > 0) {
-        credit += (elapsed / 60000) * rate;
-        const whole = Math.floor(credit);
-        if (whole >= 1) {
-          const purse = await getEnergyFor(ownerKey);
-          const take = Math.min(whole, Math.max(0, Math.floor(purse)));
-          if (take > 0) {
-            await spendEnergy(ownerKey, take);
-            fed += take;
-            credit -= take;
-          }
+    // THE ONE FEEDING TEST: her recorded stand IS this
+    // seed's tile, inside an online span. (Her arrival's
+    // purification above already read the same stand.)
+    const tenderOn = tenderTile != null && tenderTile.id === home.id;
+    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS && tenderOn) {
+      credit += (elapsed / 60000) * tenderRate;
+      const whole = Math.floor(credit);
+      if (whole >= 1) {
+        const purse = await getEnergyFor(ownerKey);
+        const take = Math.min(whole, Math.max(0, Math.floor(purse)));
+        if (take > 0) {
+          await spendEnergy(ownerKey, take);
+          fed += take;
+          credit -= take;
         }
-        if (credit >= 2) credit = 1.999;
-        changed = true;
       }
+      if (credit >= 2) credit = 1.999;
+      changed = true;
     }
     const levelBefore = Math.max(1, Number(seed.level || 1));
     const level = Math.max(levelBefore, seedLevelForFed(fed));
@@ -9428,9 +9423,10 @@ export const handlers = {
     // (Nigel via Wake, 2026-10-17): the hold's lazy settle.
     await settleFirstSeedEvent(ownerKey);
     // THE DRAW (the growth cycle, 2026-10-25): every living
-    // seed drinks while the company stands within its field —
-    // feeding settles here, on the field's own read, so a
-    // seed's growth is witnessed by the read that fed it.
+    // seed drinks while the Tender herself stands on its
+    // hex — feeding settles here, on the field's own read,
+    // so a seed's growth is witnessed by the read that fed
+    // it.
     await settleSeedFeeding(ownerKey);
     // Hourly binding heal: check if anything is wounded, heal if so
     await this.bindingHealTick({}, ctx);

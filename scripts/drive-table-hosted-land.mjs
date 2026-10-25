@@ -105,6 +105,8 @@ const stdParts = (el, power, toughness) => [["body", el, power, toughness], ["ar
 const bodyParts = (el, power, toughness) => [["body", el, power, toughness], ["arms", el, 0, toughness], ["head", el, 0, toughness]];
 
 const { issueTableToken, partyBattleSeatFor } = await import("../server/dist/table.js");
+const { summonersPowerFor } = await import("../server/dist/skills.js");
+const { levelForExp } = await import("../server/dist/tenderExp.js");
 async function mkTender(name, exp, classKey, discId) {
   const claim = await call("claimTender", { password: PW, tenderName: name });
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
@@ -513,8 +515,6 @@ console.log("§F a seed on hosted land feeds from the GUEST's purse, by the port
   const G4 = await mkTender("Seed Guest", 800, "warden", "disc-host-g4");
   fillers(H4, 20, "H4Bench");
   fillers(G4, 20, "G4Bench");
-  const guestKinId = mkKin(G4.ownerKey, G4.name, "Nearhand Guest", bodyParts("sky", 2, 6));
-  await call("addToParty", { awakenedId: guestKinId }, G4.token);
   const { wstate: wstate4 } = await watchRoom("host-f");
   const h4 = new Actor(); await h4.join(H4.tt, "host-f"); await h4.waitYou("the seed host's seat");
   await waitFor(() => !!seatOf(wstate4, H4.name)?.hex, "the seed host's landing");
@@ -522,10 +522,6 @@ console.log("§F a seed on hosted land feeds from the GUEST's purse, by the port
   await tryWait(() => wstate4.state?.hosted?.hostName === H4.name, 8000);
   const g4 = new Actor(); await g4.join(G4.tt, "host-f"); await g4.waitYou("the seed guest's seat");
   await waitFor(() => !!seatOf(wstate4, G4.name)?.hex, "the seed guest's landing");
-  await summonStanding(g4, wstate4, G4.name, guestKinId, "Nearhand Guest");
-  const unitHex = fieldOf(wstate4, G4.name)[0]?.hex;
-  ok("the guest's company stands within the feeding reach of the host's seed (two rings)",
-    !!unitHex && axDist(unitHex, "0,0") <= 2, `unit=${unitHex}`);
   // THE ROOM IS HELD EMPTY BY THE LIGHT (the entry law of
   // 2026-10-25, as in the port drive's §D): the field's own
   // entry deals into every free room, and a joined battle
@@ -557,19 +553,56 @@ console.log("§F a seed on hosted land feeds from the GUEST's purse, by the port
   // struck in that window pays its economy into the very
   // purses this section reads. From the lift on, only the
   // feeding road and the room's slow regen can move them.
+  // THE FEEDER IS THE GUEST'S OWN FIGURE, ON THE HEX
+  // (Nigel, 2026-10-25: feeding is the Tender on the hex
+  // alone — the company draw this section once rode was
+  // struck 12:19). She takes the stand by the real glide
+  // road: to the seed's neighbour, then toward the far
+  // side, stopped mid-crossing (glideStop) on the seed's
+  // own tile — the glide law's refusal of the seed tile
+  // as a glide's END untouched. Centres are the analytic
+  // ones the tender-standing drive derives: centre(q,r)
+  // = q·ISO_E + r·ISO_SE on the Table's iso basis.
+  const KF = 40 / 796;
+  const centerOfF = (id) => { const [q, r] = parseAx(id); return { x: q * 1292 * KF, y: q * 470 * KF + r * 948 * KF }; };
+  const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const guestPos = () => (g4.state?.players ?? []).find(p => p.name === G4.name)?.pos ?? (wstate4.state?.players ?? []).find(p => p.name === G4.name)?.pos;
+  const nearF = DIRS6.map(([dq, dr]) => `${dq},${dr}`).sort((a, b) => {
+    const pa = guestPos() ?? { x: 0, y: 0 };
+    return Math.hypot(centerOfF(a).x - pa.x, centerOfF(a).y - pa.y) - Math.hypot(centerOfF(b).x - pa.x, centerOfF(b).y - pa.y);
+  })[0];
+  const [nqF, nrF] = parseAx(nearF);
+  const oppF = `${-nqF},${-nrF}`;
+  g4.send({ type: "glide", tx: centerOfF(nearF).x, ty: centerOfF(nearF).y });
+  await waitFor(() => seatOf(wstate4, G4.name)?.hex === nearF, "the guest's arrival at the seed's neighbour", 30000);
+  g4.send({ type: "glide", tx: centerOfF(oppF).x, ty: centerOfF(oppF).y });
+  let stoppedF = false;
+  {
+    const s0 = realNow();
+    while (realNow() - s0 < 20000) {
+      const me = (g4.state?.players ?? []).find(p => p.name === G4.name) ?? seatOf(wstate4, G4.name);
+      if (me?.hex === "0,0") { g4.send({ type: "glideStop" }); stoppedF = true; break; }
+      await sleep(40);
+    }
+    await sleep(800);
+  }
+  ok("the GUEST's own figure stands ON the host's seed tile — the only feeding stand there is",
+    stoppedF && seatOf(wstate4, G4.name)?.hex === "0,0", `hex=${seatOf(wstate4, G4.name)?.hex}`);
   const guestEnergy0 = seatOf(wstate4, G4.name)?.energy ?? 0;
   const hostEnergy0 = seatOf(wstate4, H4.name)?.energy ?? 0;
   ok("the guest's purse holds the feed and more", guestEnergy0 >= 8, `energy=${guestEnergy0}`);
-  // Step the clock as the port's §D does: each +4 minutes of
-  // presence near the seed gathers one whole energy of
-  // credit from the purse of the Tender whose company
-  // stands there — here, the GUEST's.
+  // Step the clock at the GUEST's own standing rate (read
+  // off the live summoning measure, as the port's §D
+  // reads it): each stride is one whole energy of credit
+  // from the purse of the Tender who stands on the hex —
+  // here, the GUEST's.
+  const strideF = Math.round(60000 / (5 + 0.5 * summonersPowerFor(G4.ownerKey, levelForExp(800), "warden"))) + 40;
   let stubOff = 0;
   Date.now = () => realNow() + stubOff;
   let fedOk = true;
   try {
     for (let stepN = 1; stepN <= 6; stepN++) {
-      stubOff += 4 * 60 * 1000;
+      stubOff += strideF;
       // No hand is needed in the loop: the lit beacon
       // holds the room empty by law (above), so no battle
       // can pay its economy into the purses this section

@@ -3399,7 +3399,7 @@ export default function Table() {
               The Bastion is what the party will build around it. Cast from your
               roster onto the field; when the party stands ready, begin the Unraveling.
               {shared.seed && (
-                <>{" "}It grows by feeding alone — company standing within two rings of it feeds it from the purse.
+                <>{" "}It grows by feeding alone — while the Tender herself stands on its hex, it feeds from her purse.
                 {shared.seed.level >= 3
                   ? <> It stands a <strong>Beacon of Light</strong> — no dark is born on the ground around it.</>
                   : shared.seed.level === 2

@@ -6243,14 +6243,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             {ev.state === "holding" ? (
               <>
                 <p>The hold is underway. <strong>{ev.wavesCleared} rising{ev.wavesCleared === 1 ? "" : "s"} beaten</strong> · the seed stands a <strong>{({ starseed: "Starseed", sapling: "Sapling of Light", beacon: "Beacon", bastion: "Bastion" } as Record<string, string>)[ev.seedStage] ?? "Starseed"}</strong>, fed <strong>{ev.fedEnergy}{ev.nextStageAt != null ? ` of ${ev.nextStageAt}` : ""}</strong>{ev.banked ? " · banked" : ""}.{waveInSec !== null ? <> Rising {ev.nextWave} comes in <strong>{waveInSec}s</strong> — Fray ride with it.</> : ""}</p>
-                <p>The seed grows by FEEDING, never by the risings: while your company stands near it, it drinks from your purse on its own. The risings are only the defence that comes while it feeds. Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
+                <p>The seed grows by FEEDING, never by the risings: while you stand on its own hex, it drinks from your purse. The risings are only the defence that comes while it feeds. Casting never closes: send more of your hand to the seed's hex whenever you can pay their way.</p>
               </>
             ) : ev.banked ? (
-              <p>The seed is <strong>banked</strong> — the ground is yours and the company stands on it. The seed grows by FEEDING now: stand the company near it and it drinks from your purse on its own, rising through its stages. <strong>Feed it to level 3 — a full lighthouse at 30 fed — and it lays up a shining point of attunement, yours to gather.</strong></p>
+              <p>The seed is <strong>banked</strong> — the ground is yours and the company stands on it. The seed grows by FEEDING now: stand on its hex yourself and it drinks from your purse, rising through its stages. <strong>Feed it to level 3 — a full lighthouse at 30 fed — and it lays up a shining point of attunement, yours to gather.</strong></p>
             ) : (
               <>
                 <p>Send your Awokin onto the seed's hex, then begin the hold. Risings of Fray will come, one upon the next — <strong>clear three risings and the seed banks</strong>: the ground purifies under the company, and your energy pool fills to its cap. Fail before then and nothing is lost — the seed waits, and you may try again whenever you like.</p>
-                <p>The seed grows by FEEDING, never by the risings: while your company stands near it, it drinks from your purse on its own, and the risings are the defence that comes while it feeds. <strong>Feed it to level 3 — a full lighthouse at 30 fed — and it lays up a shining point of attunement, yours to gather.</strong></p>
+                <p>The seed grows by FEEDING, never by the risings: while you stand on its own hex, it drinks from your purse, and the risings are the defence that comes while it feeds. <strong>Feed it to level 3 — a full lighthouse at 30 fed — and it lays up a shining point of attunement, yours to gather.</strong></p>
               </>
             )}
             {initialPatrolIds && initialPatrolIds.length > 0 && standing.length === 0 && seedTeam.length > 0 && ev.state !== "done" && (
