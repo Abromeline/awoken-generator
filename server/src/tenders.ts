@@ -33,7 +33,7 @@ export function hashPassword(password: string): string {
   return `scrypt$${salt}$${hash}`;
 }
 
-function verifyPassword(password: string, stored: string): boolean {
+export function verifyPassword(password: string, stored: string): boolean {
   const parts = stored.split("$");
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
   const [, salt, expected] = parts;

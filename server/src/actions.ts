@@ -4762,7 +4762,7 @@ export const LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE = LIGHTHOUSE_SHADOW_UPKEEP_PER_
  *  is settled only across map-read gaps no longer than this —
  *  a longer silence is the Tender away (home screen, or
  *  gone), and away hours burn nothing. DERIVED, flagged. */
-const PROTECTION_ONLINE_GAP_MS = 5 * 60 * 1000;
+export const PROTECTION_ONLINE_GAP_MS = 5 * 60 * 1000;
 
 function axialDist(a: { q: number; r: number }, b: { q: number; r: number }): number {
   return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;

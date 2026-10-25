@@ -28,8 +28,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
-import { tenderOwnerKey } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, SEED_FEED_PER_MINUTE, SEED_FEED_REACH } from "./actions.js";
+import { tenderOwnerKey, hashPassword, verifyPassword } from "./tenders.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, SEED_FEED_PER_MINUTE, SEED_FEED_REACH, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS } from "./actions.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { rollFellDrops, drainDropNotices } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
@@ -842,6 +842,27 @@ interface Room {
   mode: "casual" | "campaign";
   campaign: CampaignState | null;
   bastion: BastionState | null;
+  /** HOSTED LAND (Nigel, ruled 2026-10-24; Twelve #2): when a
+   *  Tender opens their land at this room, the room stands ON
+   *  that land — the map, the seed and every change made here
+   *  are the host's own, written through to the land's record
+   *  as they happen, for real, both ways: what a guest's
+   *  company wins, purifies, feeds or loses here counts on
+   *  the host's land exactly as the host's own play would.
+   *  Null: the room stands on the instanced world. Campaign
+   *  rooms never host (their land is the campaign's). */
+  hosted: { ownerKey: string; hostName: string; privacy: "public" | "password"; passwordHash: string | null } | null;
+  /** The land's state changed since its record was last
+   *  written (the curse's grind, on the pulse's own roads) —
+   *  the pulse writes the record through when this stands. */
+  landDirty?: boolean;
+  /** The hosted lighthouse's served face, refreshed on the
+   *  room's pulse from the host's ONE lighthouse purse (the
+   *  homeland's tender_progress row — one bank, one Shadow
+   *  hoard across both grounds): lit is the row's own word;
+   *  standing is lit AND its keeper present at the Table,
+   *  for the light burns only across the keeper's presence. */
+  beacon?: { lit: boolean; standing: boolean; bankMs: number; shadow: number };
   strikes: Strike[];
   players: Map<WebSocket, Player>;
   /** Seats held for Tenders who stepped away (connection
@@ -1901,6 +1922,20 @@ function sharedState(room: Room) {
       fedEnergy: room.seedGrowth.fedEnergy,
       nextStageAt: room.seedGrowth.level < 2 ? SEED_FED_FOR_LEVEL_2 : room.seedGrowth.level < 3 ? SEED_FED_FOR_LEVEL_3 : null,
     },
+    // HOSTED LAND (Twelve #2): whose land this room stands
+    // on, its door, and the lighthouse's served face — the
+    // keeper's exact purse rides their own payload; here the
+    // room sees the light and the banked minutes whole.
+    // Null on the instanced world.
+    hosted: room.hosted ? {
+      hostName: room.hosted.hostName,
+      privacy: room.hosted.privacy,
+      beacon: {
+        lit: room.beacon?.lit ?? false,
+        standing: room.beacon?.standing ?? false,
+        bankMinutes: Math.floor((room.beacon?.bankMs ?? 0) / 60000),
+      },
+    } : null,
     field: [...room.field.values()].map(u => ({
       hex: u.hex, cardId: u.card.id, awokenId: u.card.awokenId ?? null, name: u.card.name, art: u.card.art ?? null, layers: u.card.layers ?? [], element: u.card.element,
       power: u.card.power, toughness: u.card.toughness, hp: u.hp, maxHp: u.maxHp,
@@ -1945,6 +1980,18 @@ function sendState(room: Room): void {
       you: player.watcher ? null : {
         key: player.key,
         name: player.name,
+        // HOSTED LAND (Twelve #2): this seat is the standing
+        // land's keeper (the light and the door answer to
+        // their hand alone); the keeper's lighthouse purse
+        // while their land stands open here; and this Tender's
+        // own door as their land's record keeps it — the
+        // beacon popup's starting shape. Unbound seats hold
+        // no land and are served none of it.
+        landHost: !!(room.hosted && player.expKey && player.expKey === room.hosted.ownerKey),
+        beaconPurse: room.hosted && player.expKey && player.expKey === room.hosted.ownerKey
+          ? { shadow: room.beacon?.shadow ?? 0, bankMinutes: Math.floor((room.beacon?.bankMs ?? 0) / 60000) }
+          : null,
+        landDoor: player.expKey ? landDoorOf(player.expKey) : null,
         company: player.company ?? [],
         // SUMMONER'S POWER, served with the seat (Nigel,
         // 2026-10-21): the wheel's summon preview shows the
@@ -2039,6 +2086,7 @@ async function getRoom(id: string): Promise<Room> {
       id, players: new Map(), away: new Map(), manifests: [], tale: [], sky: await currentSky(),
       mode: campaignMode ? "campaign" : "casual",
       campaign: campaignMode ? loadCampaign(id) : null,
+      hosted: null,
       field: new Map(),
       map: freshInstanceMap(campaignMode),
       workings: [],
@@ -2445,6 +2493,231 @@ function darkOn(room: Room, hex: string): boolean {
   return [...room.dark.values()].some(e => e.hex === hex);
 }
 
+// ════════════════════════════════════════════════════════════
+// HOSTED LAND (Nigel, ruled 2026-10-24; Twelve #2) — a host's
+// land lives at their Table: guests come to the host's land
+// and change it FOR REAL, BOTH WAYS — what a guest's company
+// wins, purifies, feeds or loses there counts on the host's
+// land exactly as the host's own play would. There is no
+// guest sandbox copy and no way back. The record rides
+// ui_config (the campaign furniture's own shelf), keyed by
+// the host's owner key:
+//
+//   table.hosted.<ownerKey> → { v, hostName, privacy,
+//   passwordHash, tiles, seedGrowth, updatedAt }
+//
+// The land is the instance shape (radius 6, 127 tiles): the
+// homeland's own territory is an unbounded frontier and is
+// NOT re-rendered — player worlds live on the Table beside
+// the instanced world (the lighthouse ruling, 2026-10-24
+// 17:19), dealt fresh the first time a land is opened.
+// ════════════════════════════════════════════════════════════
+
+interface HostedLandRecord {
+  v: 1;
+  hostName: string;
+  privacy: "public" | "password";
+  passwordHash: string | null;
+  tiles: { id: string; cursed: boolean; element: string | null; points: Record<string, number>; attuneAcc: Record<string, number>; curseHp: number; curseMaxHp: number; landingFor: string | null }[];
+  seedGrowth: { level: number; fedEnergy: number };
+  updatedAt: number;
+}
+
+function hostedLandKey(ownerKey: string): string { return `table.hosted.${ownerKey}`; }
+
+function loadHostedLand(ownerKey: string): HostedLandRecord | null {
+  try {
+    const row = db.select().from(schema.uiConfig).where(eq(schema.uiConfig.key, hostedLandKey(ownerKey))).get();
+    if (!row?.value) return null;
+    const rec = JSON.parse(row.value) as HostedLandRecord;
+    if (!rec || rec.v !== 1 || !Array.isArray(rec.tiles)) return null;
+    return rec;
+  } catch { return null; }
+}
+
+function storeHostedLand(ownerKey: string, rec: HostedLandRecord): void {
+  rec.updatedAt = Date.now();
+  const value = JSON.stringify(rec);
+  db.insert(schema.uiConfig).values({ key: hostedLandKey(ownerKey), value })
+    .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value } }).run();
+}
+
+/** Deal a brand-new land record for a Tender opening their
+ *  land for the first time — the instance shape, fresh. */
+function dealHostedLand(ownerKey: string, hostName: string): HostedLandRecord {
+  const map = freshInstanceMap(false);
+  const rec: HostedLandRecord = {
+    v: 1, hostName, privacy: "public", passwordHash: null,
+    tiles: [...map.values()].map(t => ({
+      id: t.id, cursed: t.cursed, element: t.element, points: { ...t.points },
+      attuneAcc: { ...(t.attuneAcc ?? {}) }, curseHp: t.curseHp, curseMaxHp: t.curseMaxHp, landingFor: null,
+    })),
+    seedGrowth: { level: 1, fedEnergy: 0 }, updatedAt: Date.now(),
+  };
+  storeHostedLand(ownerKey, rec);
+  return rec;
+}
+
+/** Write the room's standing land state through to its
+ *  record — the write-through law of hosted land: called at
+ *  the choke points where land changes (a tile purified, a
+ *  curse thinned, a point laid, a landing claimed), by the
+ *  room's pulse for the roads that wear the land on a clock,
+ *  and at every door act. Unhosted rooms pay nothing. */
+export function saveHostedLand(room: Room): void {
+  if (!room.hosted) return;
+  const rec: HostedLandRecord = {
+    v: 1,
+    hostName: room.hosted.hostName,
+    privacy: room.hosted.privacy,
+    passwordHash: room.hosted.passwordHash,
+    tiles: [...room.map.values()].map(t => ({
+      id: t.id, cursed: t.cursed, element: t.element, points: { ...t.points },
+      attuneAcc: { ...(t.attuneAcc ?? {}) }, curseHp: t.curseHp, curseMaxHp: t.curseMaxHp, landingFor: t.landingFor ?? null,
+    })),
+    seedGrowth: { level: room.seedGrowth.level, fedEnergy: room.seedGrowth.fedEnergy },
+    updatedAt: Date.now(),
+  };
+  storeHostedLand(room.hosted.ownerKey, rec);
+  room.landDirty = false;
+}
+
+/** Lay a land record back onto the room's board: the tiles
+ *  and the seed, whole. */
+function layHostedLand(room: Room, rec: HostedLandRecord): void {
+  const map = new Map<string, MapTile>();
+  for (const t of rec.tiles) {
+    const base = TILE_BY_ID.get(t.id);
+    if (!base) continue;
+    map.set(t.id, {
+      id: t.id, q: base.q, r: base.r, cursed: t.cursed, element: t.element,
+      points: { ...t.points }, attuneAcc: { ...t.attuneAcc },
+      curseHp: t.curseHp, curseMaxHp: t.curseMaxHp, landingFor: t.landingFor ?? null,
+    });
+  }
+  room.map = map;
+  room.seedGrowth = { level: rec.seedGrowth.level, fedEnergy: rec.seedGrowth.fedEnergy };
+}
+
+/** Dismiss a room's standing play whole — the field, the
+ *  dark, the written light — when the ground itself swaps
+ *  (a land opened or folded away). Seats, purses and the
+ *  tale stay; only the ground's furniture goes. */
+function clearRoomGround(room: Room): void {
+  for (const u of [...room.field.values()]) removeUnit(room, u);
+  room.dark.clear();
+  room.workings = [];
+  room.manifests = [];
+  room.writtenEdges?.clear();
+  room.prevWardEdges?.clear();
+  room.pendingEchoes = [];
+  room.rainFalls = [];
+  room.bladeFlights = [];
+  room.bladeCasts = [];
+  room.dmgBy.clear();
+}
+
+/** A Tender's own door, as their land's record keeps it —
+ *  the beacon popup's starting shape. A Tender who has never
+ *  opened a land holds the open door: public, no word. */
+function landDoorOf(ownerKey: string): { privacy: "public" | "password"; hasPassword: boolean } {
+  const rec = loadHostedLand(ownerKey);
+  return { privacy: rec?.privacy ?? "public", hasPassword: !!rec?.passwordHash };
+}
+
+/** The door of a hosted land (Nigel, 2026-10-24 19:05):
+ *  the table's privacy is the HOST'S SETTING — PUBLIC (anyone
+ *  may sit; the seed of "massive community worlds") or
+ *  PASSWORD, the word OUR layer checks when a guest sits,
+ *  never Discord's. Reads a beacon door act's settings onto
+ *  a privacy/hash pair; returns the room's spoken refusal
+ *  when the act cannot be honored, else null. A public door
+ *  strikes the word: open to all, no word stands. A password
+ *  door with no new word spoken keeps the word it holds. */
+function readDoorAct(msg: any, cur: { privacy: "public" | "password"; passwordHash: string | null }): string | null {
+  const privacy = msg.privacy === "password" ? "password" : "public";
+  if (privacy === "public") { cur.privacy = "public"; cur.passwordHash = null; return null; }
+  const word = typeof msg.password === "string" ? msg.password : "";
+  if (word) {
+    if (word.length < 4 || word.length > 64) return "The land's word must be between four and sixty-four letters — speak another.";
+    cur.privacy = "password"; cur.passwordHash = hashPassword(word); return null;
+  }
+  if (cur.passwordHash) { cur.privacy = "password"; return null; }
+  return "A kept land needs a word guests can speak — set the word, and the door will keep it.";
+}
+
+/** THE LIGHTHOUSE AT THE TABLE (the whole homeland mechanism,
+ *  Twelve #2): the hosted land's light is the host's ONE
+ *  homeland lighthouse — the same tender_progress row, the
+ *  same bank, the same Shadow hoard — so its upkeep is the
+ *  homeland's own reckoning (LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE:
+ *  1 Shadow per 4 minutes) and its burn is reckoned only
+ *  across the keeper's PRESENCE at this Table: the homeland
+ *  settles its burn across presence gaps no longer than five
+ *  minutes (PROTECTION_ONLINE_GAP_MS), and the Table keeps
+ *  the same measure — while the keeper is away the burn
+ *  waits, and a gap longer than five minutes burns nothing
+ *  when they return. Bank spent or fuel dry, the light
+ *  gutters out, as at home. Unlike the homeland's settle,
+ *  this one never touches wave intensity and never pushes
+ *  standing dark back: the light's Table work is the bank,
+ *  the timer and spawns held — one Tender's hand does not
+ *  end a shared room's standing battle. Refreshes the room's
+ *  served beacon face; returns true when that face changed. */
+function refreshHostedBeacon(room: Room): boolean {
+  if (!room.hosted) return false;
+  const ownerKey = room.hosted.ownerKey;
+  const hostPresent = [...room.players.values()].some(p => p.expKey === ownerKey);
+  let row: { shadowMatter: number; protectionBankMs: number; lighthouseLit: number; lighthouseSettledAt: number | null } | undefined;
+  try {
+    row = sqlite.prepare("SELECT shadow_matter AS shadowMatter, protection_bank_ms AS protectionBankMs, lighthouse_lit AS lighthouseLit, lighthouse_settled_at AS lighthouseSettledAt FROM tender_progress WHERE owner_key = ?").get(ownerKey) as typeof row;
+  } catch { row = undefined; }
+  if (!row) {
+    const face = { lit: false, standing: false, bankMs: 0, shadow: 0 };
+    const changed = JSON.stringify(room.beacon ?? null) !== JSON.stringify(face);
+    room.beacon = face;
+    return changed;
+  }
+  let lit = !!row.lighthouseLit;
+  let bankMs = Math.max(0, Math.round(row.protectionBankMs ?? 0));
+  let shadow = row.shadowMatter ?? 0;
+  if (lit && hostPresent) {
+    const now = Date.now();
+    const last = row.lighthouseSettledAt ?? now;
+    const gapMs = Math.max(0, now - last);
+    if (gapMs > 0) {
+      if (gapMs <= PROTECTION_ONLINE_GAP_MS) {
+        let burnMs = Math.min(gapMs, bankMs);
+        if (LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE > 0) {
+          const fuelMs = (shadow / LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE) * 60000;
+          burnMs = Math.floor(Math.min(burnMs, fuelMs));
+        }
+        if (burnMs > 0) {
+          bankMs -= burnMs;
+          shadow = Math.max(0, shadow - Math.floor((burnMs / 60000) * LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE));
+        }
+        if (bankMs <= 0 || shadow <= 0) lit = false; // dry: the light gutters out, as at home
+      }
+      // The reckoning rides the homeland's own columns — bank,
+      // fuel, the lit word and its stamp — and nothing else.
+      try {
+        sqlite.prepare("UPDATE tender_progress SET shadow_matter = ?, protection_bank_ms = ?, lighthouse_lit = ?, lighthouse_settled_at = ? WHERE owner_key = ?")
+          .run(shadow, bankMs, lit ? 1 : 0, now, ownerKey);
+      } catch { /* the purse outlives a missed write */ }
+    }
+  }
+  const face = { lit, standing: lit && hostPresent, bankMs, shadow };
+  const changed = JSON.stringify(room.beacon ?? null) !== JSON.stringify(face);
+  room.beacon = face;
+  return changed;
+}
+
+/** The light STANDS over this room: lit, and its keeper
+ *  present — the ground no dark may be dealt onto. */
+function hostedLightStanding(room: Room): boolean {
+  return !!(room.hosted && room.beacon?.standing);
+}
+
 /** A tile turns to the light: felled dark frees it at once,
  *  or the standing light grinds its corruption to nothing.
  *  The turn is a rebirth for the tile's point ledger too:
@@ -2460,6 +2733,12 @@ function purifyTile(room: Room, tile: MapTile, element: string): void {
   tile.attuneAcc = {};
   tile.curseHp = 0;
   tell(room, `🌿 The land turns — ${element} ground joins the light.`);
+  // HOSTED LAND (Twelve #2): a turned tile is the land's own
+  // change — written through to the host's record at once,
+  // whoever's hand turned it. This is the choke point every
+  // purify road rides (fells, landings, the grind, the seed's
+  // rise, the curse-strike), so they all persist by it.
+  saveHostedLand(room);
 }
 
 /** The element a tile's resting points make it hold: the
@@ -2489,7 +2768,7 @@ function assignLanding(room: Room, player: Player): void {
   if (player.watcher || player.storytender) return;
   if ([...room.map.values()].some(t => t.landingFor === player.key)) return;
   const claimed = [...room.map.values()].find(t => !t.cursed && t.landingFor === null && t.id !== SEED_TILE && !darkOn(room, t.id) && unitsAt(room, t.id).length === 0);
-  if (claimed) { claimed.landingFor = player.key; return; }
+  if (claimed) { claimed.landingFor = player.key; saveHostedLand(room); return; }
   for (const ring of [2, 1, 3]) {
     const taken = [...room.map.values()].filter(t => t.landingFor && t.landingFor !== player.key);
     const candidates = [...room.map.values()].filter(t => t.cursed && ringOf(t.id) === ring && !darkOn(room, t.id));
@@ -2507,6 +2786,7 @@ function assignLanding(room: Room, player: Player): void {
     const element = first ? dominantElement(partsOf(first) as { element?: string | null }[]) : "neutral";
     purifyTile(room, tile, element);
     tile.landingFor = player.key;
+    saveHostedLand(room);
     tell(room, `🌱 ${player.name}'s light takes root — a first tile of ${element} ground is theirs to stand on.`);
     return;
   }
@@ -2515,6 +2795,12 @@ function assignLanding(room: Room, player: Player): void {
 /** Where the dark is dealt: cursed ground, the rim first —
  *  the dark presses in from the instance's edge. */
 function darkGround(room: Room, count: number): string[] {
+  // THE LIGHT HOLDS THE GROUND (Twelve #2): while the host's
+  // lighthouse stands lit over hosted land — one bank, one
+  // Shadow hoard, the whole homeland mechanism — NO dark is
+  // dealt onto it, by any door: waves, bastion calls and the
+  // storyteller's deals alike ride this one ground-picker.
+  if (hostedLightStanding(room)) return [];
   // THE BEACON'S PROTECTION (the battle port — Twelve #1):
   // a seed fed to level 3 bars every birth within one ring
   // of it — the homeland's footprint, standing here as it
@@ -2619,6 +2905,7 @@ function settleCurseWithering(room: Room, dtSec: number): boolean {
     if (!tile || !tile.cursed || !g.best) continue;
     tile.curseHp -= g.dmg;
     changed = true;
+    room.landDirty = true; // HOSTED LAND (Twelve #2): the ground-down curse is the land's loss, kept
     if (tile.curseHp <= 0) {
       purifyTile(room, tile, "neutral");
     }
@@ -2802,6 +3089,13 @@ function roomPulse(room: Room): void {
   // pushes the state; out of battle a changed seed pushes
   // it below.
   const seedChanged = settleTableSeedFeeding(room);
+  // HOSTED LAND (Twelve #2): the lighthouse's burn settles
+  // on this pulse — in battle and out, for the light burns
+  // while its keeper is present either way — and the land's
+  // record is written through whenever the seed's feeding
+  // changed it (the rise itself rides purifyTile's hook).
+  const beaconChanged = refreshHostedBeacon(room);
+  if (room.hosted && seedChanged) saveHostedLand(room);
   if (room.battle.active) { room.witherAt = undefined; return; }
   if (![...room.players.values()].some(p => !p.watcher)) { room.witherAt = undefined; return; }
   const now = Date.now();
@@ -2815,7 +3109,11 @@ function roomPulse(room: Room): void {
   // (a swarm loosed before the wave is called still flies).
   const transient = room.workings.some(w => w.engine === "bats" || w.engine === "holdrune" || w.engine === "shatter");
   if (transient) processTransientWorkings(room, now, dtMs / 1000);
-  if (changed || attuned || transient || seedChanged) sendState(room);
+  // HOSTED LAND (Twelve #2): the pulse's wearing roads —
+  // standing attunement laid, the curse ground down — write
+  // the land through on the same beat they change it.
+  if (room.hosted && (attuned || room.landDirty)) saveHostedLand(room);
+  if (changed || attuned || transient || seedChanged || beaconChanged) sendState(room);
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -2942,6 +3240,25 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUni
       void grantDividedXpPot(XP_PER_ATTACK, ledger);
     } else if (killerUnit && typeof killerUnit.card.awokenId === "number") {
       void grantDividedXpPot(XP_PER_ATTACK, new Map([[killerUnit.card.awokenId, 1]]));
+    }
+  }
+  // PROTECTION BANKING AT THE TABLE (Twelve #2 — the port
+  // left the minutes uncarried for this bank): on hosted
+  // land, every fell banks the land's bounty into the HOST's
+  // lighthouse purse — the homeland's law for a kill on a
+  // Tender's land (creditBattleKill: protection minutes
+  // equal to the kind's armour bonus over 10), whoever's
+  // hand struck it. The personal take above stays the
+  // feller's own; the minutes are the land's — they are not
+  // drops, energy or Shadow, and no host cut of any guest's
+  // take is built here: none was ever ruled.
+  if (room.hosted) {
+    const bankBonus = enemyArmorBonus(enemy.kind);
+    if (bankBonus > 0) {
+      try {
+        sqlite.prepare("UPDATE tender_progress SET protection_bank_ms = protection_bank_ms + ? WHERE owner_key = ?")
+          .run(Math.round(bankBonus * 60000), room.hosted.ownerKey);
+      } catch { /* the purse outlives a missed banking */ }
     }
   }
   if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer, groundElement); return; }
@@ -4978,6 +5295,38 @@ function handleConnection(ws: WebSocket): void {
       const seatedCount = [...room.players.values()].filter(p => !p.watcher).length
         + [...room.away.values()].filter(h => !h.player.watcher).length;
       if (!watcher && seatedCount >= MAX_SEATED) watcher = true; // a full table seats no ninth tender; watchers are welcome
+      // THE LAND'S DOOR (Twelve #2; Nigel, 2026-10-24 19:05):
+      // a room standing on a kept land checks the word when a
+      // NEW seat is made — our layer's word, never Discord's —
+      // and only then: held seats reclaimed above are never
+      // asked twice for one sitting, a joiner a full table has
+      // turned to watching holds no seat and speaks no word,
+      // and the host's own seat is never asked. The refusal
+      // rides the join door's own road (joinError) with
+      // needsPassword set, so the door can ask for the word
+      // and try again — no other flow gains a gate.
+      if (!watcher && room.hosted && room.hosted.privacy === "password") {
+        let joinerKey: string | null = null;
+        if (key.startsWith("discord:")) {
+          const tid = await bindingFor(key.slice("discord:".length));
+          if (tid !== null) joinerKey = tenderOwnerKey(tid);
+        }
+        if (joinerKey !== room.hosted.ownerKey) {
+          const given = typeof (msg as { tablePassword?: unknown }).tablePassword === "string" ? (msg as { tablePassword: string }).tablePassword : "";
+          if (!given || !room.hosted.passwordHash || !verifyPassword(given, room.hosted.passwordHash)) {
+            try {
+              ws.send(JSON.stringify({
+                type: "joinError", needsPassword: true,
+                message: given
+                  ? `That is not the word ${room.hosted.hostName}'s land is kept by — the door stays shut.`
+                  : `This room stands on ${room.hosted.hostName}'s land, and its door is kept by a word. Speak the table's word to take your seat.`,
+              }));
+            } catch { /* the socket is closing */ }
+            try { ws.close(); } catch { /* already gone */ }
+            return;
+          }
+        }
+      }
       const profile = watcher ? { notes: "", inventory: [] as string[] } : await loadProfile(key, name);
       // A bound seat's wheel company is its Tender's party
       // (the strict party law), and its energy is that
@@ -5789,6 +6138,7 @@ function handleConnection(ws: WebSocket): void {
       // referee's own strikes set it.
       unit.nextStrike = now + lightIntervalMs(unit);
       tile.curseHp -= unit.card.power;
+      saveHostedLand(room); // HOSTED LAND (Twelve #2): the thinned curse is the land's state, kept at once
       const purified = tile.curseHp <= 0;
       // The witness: the blow flies to the TILE, on the same
       // ledger the referee's strikes fly by.
@@ -5893,6 +6243,7 @@ function handleConnection(ws: WebSocket): void {
       const laidTotal = laid * (1 + (player.expKey ? fxSum(player.expKey, "attunementRate") : 0));
       tile.points[element] = (tile.points[element] ?? 0) + laidTotal;
       tile.element = elementFromPoints(tile);
+      saveHostedLand(room); // HOSTED LAND (Twelve #2): points laid on the host's ground rest in the host's record
       // A working standing on the tapped ground lends the
       // tale its name — the point still rests in the tile's
       // ledger, as the tile law holds.
@@ -6638,9 +6989,143 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
+    // ════════════════════════════════════════════════════════
+    // HOSTED LAND AT THE TABLE (Twelve #2) — the beacon is the
+    // door: one small pinned button on the client's right side,
+    // and its popup carries protection and hosting alike (Nigel,
+    // 2026-10-24 19:05). Four acts ride it: open a land here,
+    // fold it away, set its door, and tend its light. Guests
+    // are their own Tenders throughout — their deck, party,
+    // purse and Pack are untouched by every act below; only
+    // the GROUND is the host's, and every change to it counts
+    // on the host's land for real, both ways.
+    // ════════════════════════════════════════════════════════
+    if (msg.type === "beaconOpen") {
+      if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers open no lands — bind your Tender at the Table, and the land is yours to open." })); return; }
+      if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "A land is a Tender's record — bind your Tender at the Table to open yours." })); return; }
+      if (room.campaign) { ws.send(JSON.stringify({ type: "error", message: "A campaign room keeps its own ground — hosted lands open at the casual Table." })); return; }
+      if (room.hosted) {
+        if (room.hosted.ownerKey === player.expKey) { sendState(room); return; } // already open: the door stands as it stands
+        ws.send(JSON.stringify({ type: "error", message: `This room already stands on ${room.hosted.hostName}'s land.` })); return;
+      }
+      if (room.battle.active || room.dark.size > 0) { ws.send(JSON.stringify({ type: "error", message: "The dark stands on this ground — a land opens in the quiet, not mid-battle. Finish the fight first." })); return; }
+      if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed in this room — the land cannot open under it. Resolve the call first." })); return; }
+      let rec = loadHostedLand(player.expKey);
+      if (!rec) rec = dealHostedLand(player.expKey, player.name);
+      // The door the act carries rules the opening; an act
+      // carrying no door settings opens the land under the
+      // door its record already keeps.
+      const door = { privacy: rec.privacy, passwordHash: rec.passwordHash };
+      if (msg.privacy !== undefined || msg.password !== undefined) {
+        const refusal = readDoorAct(msg, door);
+        if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
+      }
+      rec.privacy = door.privacy; rec.passwordHash = door.passwordHash; rec.hostName = player.name;
+      room.hosted = { ownerKey: player.expKey, hostName: player.name, privacy: door.privacy, passwordHash: door.passwordHash };
+      storeHostedLand(player.expKey, rec);
+      // The ground swaps whole: the sitting's field, dark and
+      // written light belong to the instanced world and are
+      // dismissed; every seated Tender is landed anew on the
+      // host's ground.
+      clearRoomGround(room);
+      layHostedLand(room, rec);
+      for (const p of room.players.values()) {
+        if (p.watcher) continue;
+        p.hex = undefined; p.pos = undefined; p.target = null;
+        assignLanding(room, p);
+        ensureTenderHex(room, p);
+      }
+      refreshHostedBeacon(room);
+      tell(room, `🏠 ${player.name} opens their land at this Table — what is won, purified, fed or lost here now counts on ${player.name}'s land, for real.`);
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "beaconClose") {
+      if (!room.hosted) { ws.send(JSON.stringify({ type: "error", message: "No land stands open in this room." })); return; }
+      if (player.expKey !== room.hosted.ownerKey) { ws.send(JSON.stringify({ type: "error", message: `This land is ${room.hosted.hostName}'s to fold away.` })); return; }
+      if (room.battle.active || room.dark.size > 0) { ws.send(JSON.stringify({ type: "error", message: "The dark stands on this land — the ground cannot fold away mid-battle. Finish the fight first." })); return; }
+      if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed on this land — resolve it before the ground folds away." })); return; }
+      saveHostedLand(room); // the land keeps every change, written through one last time
+      const hostName = room.hosted.hostName;
+      room.hosted = null;
+      room.beacon = undefined;
+      room.landDirty = false;
+      clearRoomGround(room);
+      room.map = freshInstanceMap(false);
+      room.seedGrowth = { level: 1, fedEnergy: 0 };
+      for (const p of room.players.values()) {
+        if (p.watcher) continue;
+        p.hex = undefined; p.pos = undefined; p.target = null;
+        assignLanding(room, p);
+        ensureTenderHex(room, p);
+      }
+      tell(room, `🏠 ${hostName}'s land folds away — the room stands on the instanced world again. The land keeps every change made here.`);
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "beaconDoor") {
+      if (!player.expKey) { ws.send(JSON.stringify({ type: "error", message: "The door is a Tender's to set — bind your Tender at the Table." })); return; }
+      if (room.hosted) {
+        if (player.expKey !== room.hosted.ownerKey) { ws.send(JSON.stringify({ type: "error", message: `The door of ${room.hosted.hostName}'s land is the host's to set.` })); return; }
+        const door = { privacy: room.hosted.privacy, passwordHash: room.hosted.passwordHash };
+        const refusal = readDoorAct(msg, door);
+        if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
+        room.hosted.privacy = door.privacy;
+        room.hosted.passwordHash = door.passwordHash;
+        saveHostedLand(room);
+        tell(room, door.privacy === "password"
+          ? `🚪 ${player.name} keeps their land's door by a word now — guests speak it to sit. (Seats already held keep their sitting.)`
+          : `🚪 ${player.name} throws their land's door open — any Tender in the channel may sit.`);
+        sendState(room);
+        return;
+      }
+      // No land open: the act sets the Tender's OWN door, kept
+      // on their land's record for the next opening.
+      let rec = loadHostedLand(player.expKey);
+      if (!rec) rec = dealHostedLand(player.expKey, player.name);
+      const door = { privacy: rec.privacy, passwordHash: rec.passwordHash };
+      const refusal = readDoorAct(msg, door);
+      if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
+      rec.privacy = door.privacy; rec.passwordHash = door.passwordHash; rec.hostName = player.name;
+      storeHostedLand(player.expKey, rec);
+      sendState(room);
+      return;
+    }
+
+    if (msg.type === "beaconLight") {
+      if (!room.hosted) { ws.send(JSON.stringify({ type: "error", message: "No lighthouse stands over the instanced world — the light keeps a hosted land. Open your land here, and light it." })); return; }
+      if (player.expKey !== room.hosted.ownerKey) { ws.send(JSON.stringify({ type: "error", message: `The light over this land is ${room.hosted.hostName}'s to tend.` })); return; }
+      refreshHostedBeacon(room); // settle the burn to this moment before the hand moves
+      const row = sqlite.prepare("SELECT protection_bank_ms AS bankMs, lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(room.hosted.ownerKey) as { bankMs: number; lit: number } | undefined;
+      if (!row) { ws.send(JSON.stringify({ type: "error", message: "Your lighthouse has no purse to burn — fell the dark on this land, and their minutes are yours." })); return; }
+      const want = msg.lit === true;
+      if (want && !row.lit) {
+        // The homeland's own refusal, in its own words: a
+        // light is lit only from a standing bank.
+        if ((row.bankMs ?? 0) <= 0) { ws.send(JSON.stringify({ type: "error", message: "The lighthouse stands dark for want of banked protection — kills buy the light. Fell the dark, and their minutes are yours to burn." })); return; }
+        sqlite.prepare("UPDATE tender_progress SET lighthouse_lit = 1, lighthouse_settled_at = ? WHERE owner_key = ?").run(Date.now(), room.hosted.ownerKey);
+        refreshHostedBeacon(room);
+        tell(room, `🕯 ${player.name} lights the beacon over their land — while it burns, no dark can be dealt here, and every minute is bought with Shadow.`);
+      } else if (!want && row.lit) {
+        sqlite.prepare("UPDATE tender_progress SET lighthouse_lit = 0, lighthouse_settled_at = ? WHERE owner_key = ?").run(Date.now(), room.hosted.ownerKey);
+        refreshHostedBeacon(room);
+        tell(room, `🕯 ${player.name} douses the beacon — its unburned minutes stay banked for the next lighting.`);
+      }
+      sendState(room);
+      return;
+    }
+
     if (msg.type === "startWave") {
       if (room.campaign) {
         ws.send(JSON.stringify({ type: "error", message: "In a campaign the Storytender deals — no ladder climbs itself here." }));
+        return;
+      }
+      // THE LIGHT HOLDS (Twelve #2): no wave is dealt onto
+      // ground the host's lighthouse stands over.
+      if (hostedLightStanding(room)) {
+        ws.send(JSON.stringify({ type: "error", message: `The beacon's light holds ${room.hosted!.hostName}'s land — no dark can be dealt while it burns. Douse it, and the waves may come.` }));
         return;
       }
       if (player.watcher) {
@@ -6771,6 +7256,9 @@ function handleConnection(ws: WebSocket): void {
       if (!room.bastion) { ws.send(JSON.stringify({ type: "error", message: "No call stands claimed in this room." })); return; }
       if (player.expKey !== room.bastion.hostKey) { ws.send(JSON.stringify({ type: "error", message: "The host begins their own call." })); return; }
       if (room.battle.active || room.bastion.begun) { ws.send(JSON.stringify({ type: "error", message: "The battle is already joined." })); return; }
+      // THE LIGHT HOLDS (Twelve #2): no call is dealt onto
+      // ground the host's lighthouse stands over.
+      if (hostedLightStanding(room)) { ws.send(JSON.stringify({ type: "error", message: `The beacon's light holds ${room.hosted!.hostName}'s land — no dark can be dealt while it burns. Douse it, and the call may come.` })); return; }
       if (room.dark.size > 0) room.dark.clear();
       for (const p of room.players.values()) {
         if (p.fallen) { p.fallen = false; p.tenderHp = Math.ceil(p.maxTenderHp / 2); }
@@ -6926,6 +7414,9 @@ function handleConnection(ws: WebSocket): void {
 
   ws.on("close", () => {
     if (room && player) {
+      // HOSTED LAND (Twelve #2): a leaving seat writes the
+      // land through — the record never trails the ground.
+      if (room.hosted) saveHostedLand(room);
       // AWAY SEATS (Nigel, 2026-10-19): a dropped connection is
       // a Tender STEPPING AWAY, not leaving. Their seat moves
       // whole into the room's held registry; only when the

@@ -218,11 +218,32 @@ interface SharedState {
     callId: number; kind: string; hostName: string; ambush: boolean;
     pool: number; poolMax: number; begun: boolean; resolved: boolean; size: number;
   } | null;
+  /** HOSTED LAND (Twelve #2): whose land this room stands on,
+   *  its door (the host's setting: public or kept by a word),
+   *  and the lighthouse's face — lit, standing (lit and its
+   *  keeper present), and the banked minutes whole. Null on
+   *  the instanced world. */
+  hosted?: {
+    hostName: string;
+    privacy: "public" | "password";
+    beacon: { lit: boolean; standing: boolean; bankMinutes: number };
+  } | null;
 }
 
 interface YouState {
   key: string;
   name: string;
+  /** HOSTED LAND (Twelve #2): this seat is the standing
+   *  land's keeper — the light and the door answer to their
+   *  hand alone. */
+  landHost?: boolean;
+  /** The keeper's lighthouse purse while their land stands
+   *  open here: their Shadow hoard and banked minutes. */
+  beaconPurse?: { shadow: number; bankMinutes: number } | null;
+  /** This Tender's own door, as their land's record keeps
+   *  it — the beacon popup's starting shape when they open
+   *  their land. Null for unbound seats. */
+  landDoor?: { privacy: "public" | "password"; hasPassword: boolean } | null;
   /** THE WHEEL'S COMPANY (Nigel, 2026-10-21 — the wheel
    *  summoning law): the members this seat can call by the
    *  action wheel's summon cast — a bound seat's party,
@@ -319,7 +340,7 @@ interface YouState {
   } | null;
 }
 
-type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error";
+type Phase = "boot" | "door" | "connecting" | "seated" | "lost" | "error" | "password";
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 
@@ -484,6 +505,15 @@ export default function Table() {
   const [phase, setPhase] = useState<Phase>("boot");
   const [bootStep, setBootStep] = useState("Waking the Table…");
   const [error, setError] = useState("");
+  // HOSTED LAND (Twelve #2): the land door's word — asked
+  // only when a kept land refuses a seat (the server's
+  // joinError carries needsPassword), and the beacon popup
+  // with its door form.
+  const [pwInput, setPwInput] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
+  const [beaconUp, setBeaconUp] = useState(false);
+  const [doorPrivacy, setDoorPrivacy] = useState<"public" | "password">("public");
+  const [doorWord, setDoorWord] = useState("");
   const [notice, setNotice] = useState("");
   const [devMode, setDevMode] = useState(false);
   const [devName, setDevName] = useState("");
@@ -1222,8 +1252,16 @@ export default function Table() {
         setYou(msg.you);
         setPhase("seated");
       } else if (msg.type === "joinError") {
-        setError(String(msg.message || "The Table would not seat you."));
-        setPhase("error");
+        // THE LAND'S DOOR (Twelve #2): a kept land's refusal
+        // asks for its word and tries the seat again — the
+        // word rides the same join, nothing else changes.
+        if (msg.needsPassword) {
+          setPwMsg(String(msg.message || "This land is kept by a word."));
+          setPhase("password");
+        } else {
+          setError(String(msg.message || "The Table would not seat you."));
+          setPhase("error");
+        }
       } else if (msg.type === "error") {
         const m = String(msg.message || "");
         setNotice(m);
@@ -1388,6 +1426,38 @@ export default function Table() {
           <h1>🕯️ The Table</h1>
           <p className="quiet">The Table is being set…</p>
           <p className="quiet" style={{ fontSize: 12, opacity: 0.75 }}>{bootStep}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "password") {
+    return (
+      <div className="table-door-wrap">
+        <div className="table-door">
+          <h1>🕯️ The Table</h1>
+          <p>{pwMsg}</p>
+          <label className="door-label" htmlFor="land-word">The table's word</label>
+          <input
+            id="land-word"
+            className="door-input"
+            type="password"
+            value={pwInput}
+            onChange={(e) => setPwInput(e.target.value)}
+            maxLength={64}
+            autoComplete="off"
+            placeholder="The word the host keeps this land by"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && lastJoinRef.current) connect({ ...lastJoinRef.current, tablePassword: pwInput });
+            }}
+          />
+          <button
+            className="table-btn"
+            onClick={() => lastJoinRef.current && connect({ ...lastJoinRef.current, tablePassword: pwInput })}
+          >
+            Speak the word and take your seat
+          </button>
+          <button className="table-btn ghost" onClick={() => window.location.reload()}>Back to the door</button>
         </div>
       </div>
     );
@@ -3516,6 +3586,111 @@ export default function Table() {
           )}
         </aside>
       </main>
+
+      {/* THE BEACON (Twelve #2): a small button pinned to the
+          right side of the room — protection and hosting open
+          from it as one popup (Nigel, 2026-10-24 19:05: "use
+          beacon ui but small, pinned/locked on right side —
+          protection + hosting as popups"). Campaign rooms keep
+          their own ground and show no beacon. */}
+      {!shared.campaign && (
+        <>
+          <button
+            type="button"
+            className={`beacon-pin${shared.hosted?.beacon.standing ? " lit" : ""}`}
+            title={shared.hosted ? `The Beacon — ${shared.hosted.hostName}'s land` : "The Beacon — open your land here"}
+            aria-label="The Beacon — protection and hosting"
+            onClick={() => {
+              setDoorPrivacy(shared.hosted?.privacy ?? you?.landDoor?.privacy ?? "public");
+              setDoorWord("");
+              setBeaconUp((v) => !v);
+            }}
+          >
+            <img src={glyphBeacon} alt="" />
+          </button>
+          {beaconUp && (
+            <div className="beacon-pop" role="dialog" aria-label="The Beacon">
+              <div className="beacon-pop-head">
+                <strong>🕯 The Beacon</strong>
+                <button type="button" className="beacon-x" aria-label="Close the beacon" onClick={() => setBeaconUp(false)}>✕</button>
+              </div>
+              {shared.hosted ? (
+                <>
+                  <p className="beacon-line">
+                    This room stands on <strong>{shared.hosted.hostName}</strong>'s land — every change here counts on it, for real.
+                    The door is {shared.hosted.privacy === "password" ? "kept by a word" : "open to all"}.
+                  </p>
+                  <h4>Protection</h4>
+                  <p className="beacon-line">
+                    {shared.hosted.beacon.lit
+                      ? shared.hosted.beacon.standing
+                        ? "The light burns over this land — no dark can be dealt while it stands."
+                        : "The light is lit, but its keeper is away — it stands over the land again when they return."
+                      : "The beacon stands dark."}
+                    {" "}Banked protection: {shared.hosted.beacon.bankMinutes} min.
+                  </p>
+                  {you?.landHost ? (
+                    <>
+                      <p className="beacon-line">
+                        Your lighthouse purse: {you.beaconPurse?.shadow ?? 0} Shadow held against the burn — upkeep is 1 Shadow per 4 minutes lit, paid from it.
+                      </p>
+                      <button type="button" className="table-btn" onClick={() => send({ type: "beaconLight", lit: !(shared.hosted?.beacon.lit ?? false) })}>
+                        {shared.hosted?.beacon.lit ? "Douse the beacon" : "Light the beacon"}
+                      </button>
+                      <h4>The door</h4>
+                      <label className="door-label" htmlFor="beacon-privacy">Who may sit on your land</label>
+                      <select id="beacon-privacy" className="door-input" value={doorPrivacy} onChange={(e) => setDoorPrivacy(e.target.value as "public" | "password")}>
+                        <option value="public">Public — any Tender in the channel may sit</option>
+                        <option value="password">Password — guests speak the table's word</option>
+                      </select>
+                      {doorPrivacy === "password" && (
+                        <>
+                          <label className="door-label" htmlFor="beacon-word">The table's word{you.landDoor?.hasPassword ? " (leave blank to keep the word it holds)" : ""}</label>
+                          <input id="beacon-word" className="door-input" type="password" value={doorWord} onChange={(e) => setDoorWord(e.target.value)} maxLength={64} autoComplete="off" placeholder="Four letters or more" />
+                        </>
+                      )}
+                      <button type="button" className="table-btn" onClick={() => send({ type: "beaconDoor", privacy: doorPrivacy, password: doorWord || undefined })}>
+                        Keep the door so
+                      </button>
+                      <button type="button" className="table-btn ghost" onClick={() => send({ type: "beaconClose" })}>
+                        Fold my land away
+                      </button>
+                    </>
+                  ) : (
+                    <p className="beacon-line quiet">The light and the door are {shared.hosted.hostName}'s to tend. You are a guest on their land — your company, purse and Pack are your own, and your fells pay you.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="beacon-line">This room stands on the instanced world — no Tender's land is open here.</p>
+                  {you?.landDoor ? (
+                    <>
+                      <h4>Open your land</h4>
+                      <p className="beacon-line">Your land takes this room's ground: guests who sit here fight its dark and change it for real, both ways — its starseed grows by whoever feeds it, and its lighthouse is your own.</p>
+                      <label className="door-label" htmlFor="beacon-privacy">Who may sit on your land</label>
+                      <select id="beacon-privacy" className="door-input" value={doorPrivacy} onChange={(e) => setDoorPrivacy(e.target.value as "public" | "password")}>
+                        <option value="public">Public — any Tender in the channel may sit</option>
+                        <option value="password">Password — guests speak the table's word</option>
+                      </select>
+                      {doorPrivacy === "password" && (
+                        <>
+                          <label className="door-label" htmlFor="beacon-word">The table's word{you.landDoor.hasPassword ? " (leave blank to keep the word it holds)" : ""}</label>
+                          <input id="beacon-word" className="door-input" type="password" value={doorWord} onChange={(e) => setDoorWord(e.target.value)} maxLength={64} autoComplete="off" placeholder="Four letters or more" />
+                        </>
+                      )}
+                      <button type="button" className="table-btn" onClick={() => send({ type: "beaconOpen", privacy: doorPrivacy, password: doorWord || undefined })}>
+                        Open my land here
+                      </button>
+                    </>
+                  ) : (
+                    <p className="beacon-line quiet">Bind your Tender at the Table, and a land of your own waits to be opened.</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       <footer className={you?.storytender ? "handzone st-zone" : you ? `handzone drawer${handUp ? " risen" : ""}` : "handzone plain"}>
         {you?.storytender ? (

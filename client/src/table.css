@@ -857,3 +857,71 @@ button { font-family: inherit; }
   display: flex; align-items: center; justify-content: center; font-size: 15px;
   background: rgba(16, 12, 8, .35);
 }
+
+/* THE BEACON (Twelve #2): a small button pinned to the right
+   side of the room, and its one popup — protection and
+   hosting together. Gold-lit while the light stands. */
+.beacon-pin {
+  position: fixed;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--blood);
+  background: var(--ash-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 7px;
+}
+.beacon-pin img { width: 100%; height: 100%; object-fit: contain; opacity: 0.75; }
+.beacon-pin.lit { border-color: var(--gold); box-shadow: 0 0 14px rgba(201, 162, 39, 0.55); }
+.beacon-pin.lit img { opacity: 1; }
+.beacon-pop {
+  position: fixed;
+  right: 66px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 61;
+  width: 308px;
+  max-width: calc(100vw - 84px);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--ash-2);
+  border: 1px solid var(--ash-3);
+  border-top: 3px solid var(--gold);
+  border-radius: 10px;
+  padding: 14px 16px 16px;
+  color: var(--gold-bright);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+}
+.beacon-pop h4 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.beacon-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 16px;
+}
+.beacon-x {
+  background: transparent;
+  border: none;
+  color: var(--gold-bright);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.beacon-line { font-size: 14px; line-height: 1.45; margin: 8px 0; }
+.beacon-line.quiet { opacity: 0.75; }
+.beacon-pop .table-btn { width: 100%; margin-top: 10px; }
+.beacon-pop .door-input { width: 100%; box-sizing: border-box; }
+.table-btn.ghost { border-color: var(--ash-3); color: var(--gold-bright); opacity: 0.85; }
