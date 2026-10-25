@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey, hashPassword, verifyPassword } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, SEED_FEED_PER_MINUTE, SEED_FEED_REACH, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, SEED_FEED_PER_MINUTE, SEED_FEED_REACH, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS } from "./actions.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { rollFellDrops, drainDropNotices } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
@@ -182,10 +182,13 @@ interface Player {
    *  #1, 2026-10-25): this seat's feeding credit and anchor,
    *  reckoned exactly as the homeland's passive feeding
    *  reckons them — credit gathers only while her company
-   *  stands within SEED_FEED_REACH of the room's seed, and
-   *  the anchor walks at every reckoning so absent time
-   *  banks nothing. Only a seat present in the room (not
-   *  stepped away) feeds at all: presence is the law. */
+   *  stands within SEED_FEED_REACH of the room's seed (or
+   *  her own figure stands ON the seed's tile — the
+   *  Tender's own standing, Nigel 2026-10-25, carried to
+   *  this ground by the both-grounds law), and the anchor
+   *  walks at every reckoning so absent time banks nothing.
+   *  Only a seat present in the room (not stepped away)
+   *  feeds at all: presence is the law. */
   seedFeedCredit?: number;
   seedFeedAnchorAt?: number;
   /** Second Wall (the Zodiac, tranche one): this battle's
@@ -3903,7 +3906,26 @@ function waterMoteAtTable(room: Room, unit: FieldUnit, now: number): boolean {
  *  tile feeds it from her purse — the campaign bank while a
  *  seeded campaign lives, else her own energy, purseOf's
  *  precedence — at SEED_FEED_PER_MINUTE, settled on the
- *  room's pulse. The anchor walks at every reckoning and a
+ *  room's pulse. THE TENDER'S OWN STANDING rides the same
+ *  road (Nigel, 2026-10-25): a seat whose own figure's hex
+ *  IS the seed tile feeds it too, at HER OWN RATE — five
+ *  a minute (his ruling of 11:42 the same morning) plus
+ *  half a point per point of her summoning power (his
+ *  ruling of 11:51) — stacking with her company's draw
+ *  into the one ledger;
+ *  her company keeps the field's reach; she herself feeds
+ *  only from the seed's own ground. THE GROUND ANSWERS
+ *  HER ARRIVAL, as on the homeland (Nigel, 2026-10-25
+ *  11:48): a seat standing on the seed's tile while that
+ *  tile is cursed purifies the tile in the same pulse —
+ *  instantly, the one hex, through purifyTile (the choke
+ *  point, so a hosted land persists the turn) — not
+ *  gated on the purse paying. (The Table's glide law
+ *  still refuses the seed's tile as a glide's END — the
+ *  movement law is untouched; the settlement honors her
+ *  standing whenever her hex is the seed's, as the
+ *  integrator derives it from where she stands.) The
+ *  anchor walks at every reckoning and a
  *  gap past five minutes banks nothing, exactly as the
  *  homeland settles it; unpayable credit never banks past
  *  a point. A rise purifies the seed's six neighbours at
@@ -3917,13 +3939,28 @@ function settleTableSeedFeeding(room: Room): boolean {
   let changed = false;
   for (const seat of room.players.values()) {
     if (seat.watcher || seat.storytender) continue;
+    // HER ARRIVAL PURIFIES THE SEED'S HEX (Nigel,
+    // 2026-10-25 11:48): a seat whose figure stands on
+    // the seed's tile turns that tile in this same pulse
+    // if it lies cursed — before the draw's reckoning,
+    // and whether or not the draw can pay.
+    if (seat.hex === SEED_TILE) {
+      const seedTile = room.map.get(SEED_TILE);
+      if (seedTile?.cursed) { purifyTile(room, seedTile, "neutral"); changed = true; }
+    }
     if (seat.seedFeedAnchorAt == null) { seat.seedFeedAnchorAt = now; seat.seedFeedCredit = seat.seedFeedCredit ?? 0; continue; }
     const elapsed = now - seat.seedFeedAnchorAt;
     seat.seedFeedAnchorAt = now;
     if (elapsed <= 0 || elapsed > SEED_FEED_GAP_MS) continue;
-    const near = [...room.field.values()].some(u => u.ownerKey === seat.key && u.hp > 0 && axialDist(u.hex, SEED_TILE) <= SEED_FEED_REACH);
-    if (!near) continue;
-    let credit = (seat.seedFeedCredit ?? 0) + (elapsed / 60000) * SEED_FEED_PER_MINUTE;
+    const companyNear = [...room.field.values()].some(u => u.ownerKey === seat.key && u.hp > 0 && axialDist(u.hex, SEED_TILE) <= SEED_FEED_REACH);
+    // THE TWO FEEDERS STACK, as on the homeland: company
+    // in the field at the standing draw, the Tender on
+    // the seed's own tile at her own rate (the homeland's
+    // one helper: base five + the summoning step on the
+    // seat's own summoning power) — one ledger.
+    const rate = (companyNear ? SEED_FEED_PER_MINUTE : 0) + (seat.hex === SEED_TILE ? tenderStandingFeedRateFor(seat.expKey, seat.tenderLevel, seat.classKey) : 0);
+    if (rate <= 0) continue;
+    let credit = (seat.seedFeedCredit ?? 0) + (elapsed / 60000) * rate;
     const take = Math.min(Math.floor(credit), Math.floor(purseOf(room, seat)));
     if (take > 0) {
       let spent = false;

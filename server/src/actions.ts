@@ -13,7 +13,7 @@ import { z } from "zod";
 import { db, blobs, schema, sqlite } from "./store.js";
 import { mysticalPieceName, birthFlavorText } from "./naming.js";
 import { creditBalance, grantCredits, spendWakeCredit, SINGLE_OWNER } from "./credits.js";
-import { awardWakeExp, getTenderProgress } from "./tenderExp.js";
+import { awardWakeExp, getTenderProgress, levelForExp } from "./tenderExp.js";
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS, PRICE_PER_WAKE_CENTS, formatUsd, DISCORD_STORIES_WEBHOOK_URL } from "./config.js";
 import { stripeReady } from "./stripe.js";
 import {
@@ -2054,6 +2054,32 @@ export const SEED_FEED_PER_MINUTE = 0.25;
  *  the same two rings the seed-calm covers (SEED_CALM_RADIUS).
  *  Company standing within it is "near the seed". */
 export const SEED_FEED_REACH = 2;
+/** THE TENDER'S OWN STANDING RATE (Nigel, 2026-10-25
+ *  11:42: "tenders feed rate is 5 energy per min"): while
+ *  the Tender herself stands ON a living seed's own tile,
+ *  that seed drinks from her purse at FIVE energy a minute
+ *  — her own faster rate, named in this one place so a
+ *  later ruling tunes it here alone. It STACKS with her
+ *  company's draw above into the same credit ledger,
+ *  under the same whole-energy, presence-gap and
+ *  credit-cap laws. */
+export const SEED_FEED_TENDER_PER_MINUTE = 5;
+/** THE SUMMONING STEP (Nigel, 2026-10-25 11:51:
+ *  "summing power increases the rate of energy fed to
+ *  starsseed by .5 per lvl"): each point of the Tender's
+ *  summoning power adds HALF an energy a minute to her
+ *  standing feed. The measure is the LIVE one her summon
+ *  cast already rolls with — summonersPowerFor: the
+ *  zodiac's "summoner" clause sum, the level spread, the
+ *  Sage's +3 — read whole, never re-derived here. */
+export const SEED_FEED_TENDER_SUMMONING_STEP = 0.5;
+/** THE TENDER'S STANDING RATE, kept in this one place:
+ *  her base five a minute plus the summoning step per
+ *  point of her summoning power. Her company's draw does
+ *  not ride this — it keeps SEED_FEED_PER_MINUTE alone. */
+export function tenderStandingFeedRateFor(ownerKey: string | null | undefined, tenderLevel?: number | null, classKey?: string | null): number {
+  return SEED_FEED_TENDER_PER_MINUTE + SEED_FEED_TENDER_SUMMONING_STEP * summonersPowerFor(ownerKey, tenderLevel, classKey);
+}
 
 /** The purification a stage rise writes: the house's own
  *  standing shape (the neutral purify the claim, the bank
@@ -2132,7 +2158,34 @@ async function applySeedStageRise(ownerKey: string, seed: any, fromLevel: number
  *  Seeds the curse holds (corrupted) and seeds already
  *  taken up (fetched) do not drink — the cycle is for the
  *  living. Presence is the read itself: the anchor walks
- *  with every settle, so an absence banks nothing. */
+ *  with every settle, so an absence banks nothing.
+ *  THE TENDER'S OWN STANDING (Nigel, 2026-10-25):
+ *  "standing on the tile of a starseed with your tender
+ *  begins feeding it your energy" — the Tender herself is
+ *  a feeder when she stands ON the seed's own tile, by
+ *  this same draw's laws (same whole-energy and presence
+ *  laws, same purse, same exclusions) at HER OWN RATE —
+ *  five a minute (his ruling of 11:42 the same morning)
+ *  plus half a point per point of her summoning power
+ *  (his ruling of 11:51), stacking with her company's
+ *  draw into this one ledger.
+ *  Her standing tile is the server's own record — the
+ *  tile the validated movement road (setTenderTile) last
+ *  seated her on, read here exactly as tenderStand reads
+ *  it. Her company keeps the field's reach; she herself
+ *  feeds only from the seed's own ground.
+ *  THE GROUND ANSWERS HER ARRIVAL (Nigel, 2026-10-25
+ *  11:48: "instant purification on seed hex when a
+ *  tender joins so he can feed the seed without dying
+ *  to the curse"): when she takes the feeding stand on
+ *  a living seed's hex and that hex is CURSED, the hex
+ *  purifies in this same settle — instantly, the seed's
+ *  one hex only, through the seed ground's standing
+ *  purify — so she can feed in safety. It is her arrival
+ *  that answers, not her purse: the purification is not
+ *  gated on the feed paying. A corrupted seed is not a
+ *  living seed and never reaches this loop at all — its
+ *  ground is untouched by the ruling. */
 async function settleSeedFeeding(ownerKey: string): Promise<void> {
   const seeds = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[];
   if (!seeds.length) return;
@@ -2142,12 +2195,29 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
   const placements = await db.select({ tileId: schema.fieldPlacements.tileId }).from(schema.fieldPlacements)
     .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
   const stoodTiles = placements.map(p => byId.get(p.tileId)).filter(Boolean) as any[];
+  const tenderRow = sqlite.prepare("SELECT tender_tile_id AS tileId, total_exp AS totalExp, class_key AS classKey FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { tileId: number | null; totalExp: number | null; classKey: string | null } | undefined;
+  const tenderTile = tenderRow?.tileId != null ? byId.get(tenderRow.tileId) : undefined;
+  // Her standing rate for this reckoning (base + the
+  // summoning step), reckoned once when she stands
+  // anywhere the read can see — the per-seed test below
+  // spends it only on the seed she actually stands on.
+  const tenderRate = tenderTile ? tenderStandingFeedRateFor(ownerKey, levelForExp(Number(tenderRow?.totalExp ?? 0)), tenderRow?.classKey) : 0;
   for (const seed of seeds) {
     const home = byId.get(seed.tile_id);
     const anchor = Number(seed.feed_anchor_at || 0);
     if (!home) {
       if (anchor !== now) sqlite.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(now, seed.id);
       continue;
+    }
+    // HER ARRIVAL PURIFIES THE SEED'S HEX (the ruling
+    // above): the moment her recorded stand IS this
+    // living seed's tile, cursed ground under it turns —
+    // before any reckoning of the draw, and whether or
+    // not the draw can pay this settle.
+    if (tenderTile != null && tenderTile.id === home.id && home.cursed) {
+      await purifySeedGroundTile(home.id);
+      home.cursed = 0; home.element = "neutral"; home.curseHp = null; home.curseMaxHp = null;
+      Object.assign(home, PURIFIED_TILE_FIELDS);
     }
     if (!anchor) {
       sqlite.prepare("UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?").run(now, seed.id);
@@ -2157,10 +2227,16 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
     let credit = Number(seed.feed_credit || 0);
     let fed = Number(seed.fed_energy || 0);
     let changed = false;
-    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS && stoodTiles.length) {
-      const near = stoodTiles.some(t => axialDist(t as any, home as any) <= SEED_FEED_REACH);
-      if (near) {
-        credit += (elapsed / 60000) * SEED_FEED_PER_MINUTE;
+    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS && (stoodTiles.length || tenderTile)) {
+      const companyNear = stoodTiles.some(t => axialDist(t as any, home as any) <= SEED_FEED_REACH);
+      const tenderOn = tenderTile != null && tenderTile.id === home.id;
+      // THE TWO FEEDERS STACK: company in the field pours
+      // at the standing draw; the Tender on the tile pours
+      // at her own rate (base + the summoning step); both
+      // into this seed's one ledger.
+      const rate = (companyNear ? SEED_FEED_PER_MINUTE : 0) + (tenderOn ? tenderRate : 0);
+      if (rate > 0) {
+        credit += (elapsed / 60000) * rate;
         const whole = Math.floor(credit);
         if (whole >= 1) {
           const purse = await getEnergyFor(ownerKey);
