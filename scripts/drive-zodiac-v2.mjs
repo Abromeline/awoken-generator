@@ -100,7 +100,7 @@ const dirty = st.nodes.filter(n => pronoun.test(n.name) || pronoun.test(n.effect
 check("no skill text reads her/his anywhere on the wheel", dirty.length === 0, dirty.map(n => n.id).join(","));
 
 let r = await api("unlockSkill", { key: "w_a1" }, token);
-check("HEART-FIRST: a road star before any Heart star is refused", r.status === 400 && errText(r).includes("Heart must beat"), `status ${r.status} ${errText(r)}`);
+check("THE RESET (2026-10-25): a road star before any star is refused on the road law alone — no Heart-first gate stands (the old 'Heart must beat' refusal is struck)", r.status === 400 && errText(r).includes("No road of held skills reaches"), `status ${r.status} ${errText(r)}`);
 r = await api("unlockSkill", { key: "heart" }, token);
 check("the centre is not bought", r.status === 400 && errText(r).includes("not bought"), `status ${r.status} ${errText(r)}`);
 
@@ -112,7 +112,7 @@ check("the Heart ring walks star by star to the Warden's door", r.status === 200
 r = await api("unlockSkill", { key: "w_a1" }, token);
 check("the Warden road opens past its door", r.status === 200 && r.data.unlocked.includes("w_a1"), `status ${r.status} ${errText(r)}`);
 r = await api("unlockSkill", { key: "w_a4" }, token);
-check("OFF-ROAD REFUSAL: w_a4 (the Written Line strand) with no predecessor held is refused", r.status === 400 && (errText(r).includes("requires") || errText(r).includes("No road")), `status ${r.status} ${errText(r)}`);
+check("OFF-ROAD REFUSAL (the Reset): w_a4 (the Written Line strand), reached by no held road, is refused — and the refusal names no predecessor, only the missing road", r.status === 400 && errText(r).includes("No road") && !errText(r).includes("requires"), `status ${r.status} ${errText(r)}`);
 
 // The connecting ring, crossed: Warden a2 by its chain, then
 // sideways — r_a2 opens on w_a2 alone (r_a1 never held), b_a2
@@ -212,7 +212,7 @@ async function walk(tk, keys) {
   let r = await walk(tk, ["h1", "h2", "h3", "h4", "h5", "h6", "h7", "w_a1", "w_a3", "w_a6", "w_a7", "w_a9", "w_a12", "w_a13", "w_a15"]);
   check("HOLD FAST STRAND: walks from its head to its tail (w_a15)", r.status === 200 && r.data.unlocked.includes("w_a15"), `status ${r.status} ${errText(r)}`);
   r = await api("unlockSkill", { key: "w_k" }, tk);
-  check("the keystone refuses mid-strand — neither tail held yet", r.status === 400 && errText(r).includes("requires"), `status ${r.status} ${errText(r)}`);
+  check("the keystone refuses mid-strand — no held road reaches it yet (the Reset: connection refuses it, not a named predecessor)", r.status === 400 && errText(r).includes("No road"), `status ${r.status} ${errText(r)}`);
   r = await walk(tk, ["w_a16", "w_k"]);
   check("THE FORK REJOINS: the Law keystone opens on the Hold Fast tail alone", r.status === 200 && r.data.unlocked.includes("w_k") && !r.data.unlocked.includes("w_a2") && r.data.tree?.spent === 18, `status ${r.status} spent ${r.data.tree?.spent} ${errText(r)}`);
 }

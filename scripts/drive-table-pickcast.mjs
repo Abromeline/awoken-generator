@@ -219,10 +219,10 @@ console.log("§A/§B the Table pick-cast — no hex named; the server lands them
 console.log("§C the control — no stars, no summon skills: the base arithmetic alone");
 {
   const c = new Actor(); await c.join(C.tt, ROOM); await c.waitYou("C's seat");
-  ok("the control seat carries only the levels grant (+2 at Lv 3)", c.you.summonersPower === 2, String(c.you.summonersPower));
+  ok("the control seat carries only the levels grant (+0 at Lv 3 — the Spread's first step stands at Lv 7)", c.you.summonersPower === 0, String(c.you.summonersPower));
   const run = await castHexless(c, { awakenedId: cKin }, 2, "Plainkin's hexless summon");
-  ok("the tale names the base arithmetic — DC 12 (10 + power 2), the levels grant +2, nothing else",
-    /against DC 12/.test(run.tale) && /summoner's power \+2/.test(run.tale), run.tale);
+  ok("the tale names the base arithmetic — DC 12 (10 + power 2), the levels grant +0, nothing else",
+    /against DC 12/.test(run.tale) && /summoner's power \+0/.test(run.tale), run.tale);
   const kin = fieldOf(C.name).find((u) => u.name === "Plainkin");
   ok("the control's hexless cast lands at its Tender's side too",
     !!kin && axDist(kin.hex, seatOf(C.name).hex) <= 1, `kin=${kin?.hex}`);

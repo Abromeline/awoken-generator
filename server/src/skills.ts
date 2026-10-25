@@ -102,19 +102,25 @@ export function companyCapFor(ownerKey: string | null | undefined, tenderLevel?:
  *  curse's −3. Three grants summed:
  *    1. THE ZODIAC CLAUSE — stars carrying a "summoner"
  *       clause add their amounts, read through fxSum like
- *       every other clause sum ("company", "party"). NO
- *       stars carry it yet — the stars arrive with the
- *       effects build; the reader stands now and returns 0
- *       cleanly until they do.
- *    2. LEVELS — +2 for every 3 tender levels, automatic:
- *       2 × ⌊tenderLevel / 3⌋, from the same level the band
- *       caps read.
+ *       every other clause sum ("company", "party"). The
+ *       stars arrived with the effects build (Recovery #1,
+ *       2026-10-23): the wheel's eight Summoner's Power
+ *       stars carry the clause at their deepened values
+ *       (the dictation's step for this family stands open;
+ *       the held reading is +1 per level, deepened like
+ *       every grant — flagged in the build report).
+ *    2. LEVELS — THE SPREAD (Nigel, 2026-10-22): the
+ *       dictation's +6 total, spread over the road — +1
+ *       per 7 tender levels, +6 in all, the whole of it
+ *       standing at level 42: min(6, ⌊level / 7⌋). The
+ *       pre-Spread shape (+2 per 3 levels, +28 by 42) is
+ *       struck whole — the re-curve is this build's.
  *    3. THE SAGE — +3 flat when the caster's class is Sage,
  *       read off the seat's bound class.
  *  One helper, so the summon cast's reckoning is the only
  *  reckoning there is. */
 export function summonersPowerFor(ownerKey: string | null | undefined, tenderLevel?: number | null, classKey?: string | null): number {
-  const fromLevels = 2 * Math.floor(Math.max(0, tenderLevel ?? 0) / 3);
+  const fromLevels = Math.min(6, Math.floor(Math.max(0, tenderLevel ?? 0) / 7));
   return fxSum(ownerKey, "summoner") + fromLevels + (classKey === "sage" ? 3 : 0);
 }
 
@@ -147,17 +153,58 @@ export function summonersPowerFor(ownerKey: string | null | undefined, tenderLev
  *                 cast member stands is each ground's fact —
  *                 the readers below take it as given, so the
  *                 price reckoning is one reckoning. */
-export function companyAcBonusFor(classKey: string | null | undefined): number {
-  if (classKey === "warden") return 4;
-  if (classKey === "sage") return 2;
+export function companyAcBonusFor(classKey: string | null | undefined, ownerKey?: string | null): number {
+  // THE DEEPENING STARS (the zodiac's company stars; wired
+  // with the effects build, 2026-10-25): a Warden who holds
+  // her company stars stands her Awokin higher still — the
+  // stars' own words, "+1 AC beyond the base +4", deepened
+  // (w_b4, w_k: companyAcWarden); a Sage's company stars
+  // likewise (s_a4, s_a12, s_b8: companyAcSage). The sums
+  // ride only on their own class: a star deepens a base
+  // the holder's class actually grants.
+  if (classKey === "warden") return 4 + fxSum(ownerKey, "companyAcWarden");
+  if (classKey === "sage") return 2 + fxSum(ownerKey, "companyAcSage");
   return 0;
 }
-export function curseReliefFor(classKey: string | null | undefined, tenderLevel?: number | null): number {
+export function curseReliefFor(classKey: string | null | undefined, tenderLevel?: number | null, ownerKey?: string | null): number {
   if (classKey !== "runewright") return 0;
-  return 1 + Math.floor(Math.max(0, tenderLevel ?? 0) / 3);
+  // THE DEEPENING STAR (r_k, THE MARK THAT SPEAKS):
+  // "curse relief deepens by −1 more, beyond the base
+  // formula" — relief +2 at its tier, read as the
+  // companyRelief sum, on the base formula as it stands.
+  return 1 + Math.floor(Math.max(0, tenderLevel ?? 0) / 3) + fxSum(ownerKey, "companyRelief");
 }
-export function bindingHealBonusFor(classKey: string | null | undefined): number {
-  return classKey === "binder" ? 4 : 0;
+export function bindingHealBonusFor(classKey: string | null | undefined, ownerKey?: string | null): number {
+  // THE DEEPENING STARS (b_k, b_b7, b_b13): "Binding
+  // healing +1 more, beyond the base +4", deepened — the
+  // companyHeal sum, a Binder's alone to deepen.
+  return classKey === "binder" ? 4 + fxSum(ownerKey, "companyHeal") : 0;
+}
+/** THE SAGE'S COMPANY ATTACK, one reckoning (the base +2
+ *  stood inline at the strike sites since Phase C; gathered
+ *  here with the effects build so its deepening has one
+ *  home): her Awokin strike at +2, deepened by her company
+ *  stars (s_a8, s_a15, s_k: "+1 attack beyond the base
+ *  +2", deepened — the companyAbSage sum). Every other
+ *  class's company strikes at the plain measure. */
+export function companyAttackBonusFor(classKey: string | null | undefined, ownerKey?: string | null): number {
+  return classKey === "sage" ? 2 + fxSum(ownerKey, "companyAbSage") : 0;
+}
+/** THE WITCH'S COMPANY SCOPE STARS (wi_b8 THE HAIL'S MERCY
+ *  and wi_k SONG AND STORM; their grants are scope, not
+ *  numbers — "the half-energy casting bonus from cast
+ *  party members also covers the Awokin the tender summons
+ *  at the Table"): a Witch holding either star reckons
+ *  ANY Awokin she has standing at the Table as a cast
+ *  party member for her company price, party member or
+ *  not. Keeper-wired in code (the stars stand in
+ *  BESPOKE_IDS), read by the Table's witchCompanyPrice.
+ *  On the homeland the star names no ground: a summoned
+ *  Awokin there follows and is of her party by the cast's
+ *  own enrolment, so the scope is already whole there. */
+export function witchCompanyScopeFor(ownerKey: string | null | undefined): boolean {
+  const h = heldSkills(ownerKey);
+  return h.has("wi_b8") || h.has("wi_k");
 }
 /** THE CLASS QUICKNESS LADDER (Nigel, 2026-10-22 04:22; the
  *  jump gap doubled 11:55 and the speed gap doubled 11:56 the
@@ -256,9 +303,11 @@ export function witchMiscastRefundFor(classKey: string | null | undefined, paid:
  *  bonus is a zodiac skill effect like any other: stars
  *  carrying an "attuneReach" clause widen the reach by
  *  their amounts, read through fxSum like every other
- *  clause sum ("company", "party", "summoner"). NO stars
- *  carry it yet — the stars arrive with the effects build;
- *  the reader stands now and returns 0 cleanly until they
+ *  clause sum ("company", "party", "summoner"). NO star
+ *  on the v2 wheel carries it (the effects build seated
+ *  every grant the wheel's texts name, and reach is not
+ *  among them); the reader stands and returns 0 cleanly
+ *  until a star does
  *  do. One helper, so every attune door's reckoning is the
  *  only reckoning there is: the doors add their ring (1) to
  *  this sum. */

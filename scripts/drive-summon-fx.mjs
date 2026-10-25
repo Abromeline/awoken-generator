@@ -148,7 +148,7 @@ const phasesOf = (log) => ({
 /* ══ §A THE HOMELAND ══════════════════════════════════════ */
 console.log("§A the homeland — the rocks come together at a landed summon");
 {
-  const S = await claimWithExp("Fx Stage", 3800); // Lv 10 — summoner's power +6
+  const S = await claimWithExp("Fx Stage", 3800); // Lv 10 — summoner's power +1 under the Spread
   const now = Date.now();
   db.prepare(`INSERT INTO tender_progress (owner_key, class_key, weapon_key, hp, weapon_next_at, updated_at)
     VALUES (?, 'warden', 'sword', 100, ?, ?) ON CONFLICT(owner_key) DO UPDATE SET class_key = 'warden', hp = 100`).run(S.ownerKey, now + 600000, now);

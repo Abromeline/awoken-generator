@@ -104,17 +104,16 @@ function reachedSet(state: SkillTreeState): Set<string> {
 }
 
 /** Why a node cannot be taken right now — the client mirror
- *  of the server's law, for display; the server judges. */
+ *  of the server's law, for display; the server judges.
+ *  THE LAW IS CONNECTION ONLY (Nigel's Reset, 2026-10-25):
+ *  no Heart-first gate, no named predecessors — a star
+ *  opens when a road of held stars reaches it from the
+ *  center, and its cost is paid. Nothing else is asked. */
 function lockReason(state: SkillTreeState, node: ZodiacNodeView, reached: Set<string>): string | null {
   const owned = new Set(state.unlocked);
   if (node.kind === "center") return "The Heart is not bought — it beats already.";
   if (owned.has(node.id)) return null;
   if (state.tree.left < node.cost) return `Costs ${node.cost} points — you hold ${state.tree.left}.`;
-  const heartHeld = state.unlocked.some(k => state.nodes.find(n => n.id === k)?.sector === "heart");
-  if (node.sector !== "heart" && !heartHeld) return "The Heart must beat before the limbs move.";
-  if (node.requires.length > 0 && !node.requires.some(req => owned.has(req))) {
-    return `Requires ${node.requires.map(req => state.nodes.find(n => n.id === req)?.name ?? req).join(" or ")} first.`;
-  }
   const adj = state.edges.filter(([a, b]) => a === node.id || b === node.id).map(([a, b]) => (a === node.id ? b : a));
   if (!adj.some(nb => reached.has(nb))) return "No held road reaches it yet.";
   return null;
@@ -566,12 +565,6 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                 <p className="zodiac-effect">{selected.effect}</p>
                 {selected.grant && selected.grant !== selected.effect && !selected.grant.startsWith("—") && <p className="zodiac-effect">{selected.grant}</p>}
                 {selected.syn && <p className="zodiac-syn">{selected.syn}</p>}
-                {selected.requires.length > 0 && (
-                  <p className="zodiac-gate">Requires: {selected.requires.map(r => {
-                    const rn = state.nodes.find(n => n.id === r);
-                    return `${state.unlocked.includes(r) ? "✓" : "✗"} ${rn?.name ?? r}`;
-                  }).join(" · ")}</p>
-                )}
                 {state.unlocked.includes(selected.id) ? (
                   <>
                     <p className="zodiac-held">Held. Its light is yours.</p>

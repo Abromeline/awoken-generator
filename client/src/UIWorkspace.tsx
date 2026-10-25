@@ -733,9 +733,9 @@ function StarwrightSection() {
               </select>
             </label>
             <label>Gate level<input type="number" min={0} max={3} value={draft.gate?.level ?? 1} disabled={!draft.gate} onChange={(e) => draft.gate && setDraft({ ...draft, gate: { ...draft.gate, level: Number(e.target.value) } })} /></label>
-            <label>Needs a heart-ring star first (anyCore)<input type="checkbox" checked={draft.anyCore} onChange={(e) => setDraft({ ...draft, anyCore: e.target.checked })} /></label>
+            <label>Heart-ring kin (anyCore — a design record only; the Reset struck every such gate, no door reads it)<input type="checkbox" checked={draft.anyCore} onChange={(e) => setDraft({ ...draft, anyCore: e.target.checked })} /></label>
           </div>
-          <label style={{ display: "block", marginTop: 8 }}>Requires first (comma-separated star ids)<input style={{ width: "100%" }} value={draft.requires.join(", ")} onChange={(e) => setDraft({ ...draft, requires: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} /></label>
+          <label style={{ display: "block", marginTop: 8 }}>Predecessors (comma-separated star ids — the design's record only; since Nigel's Reset the unlock law is connection alone, and no door enforces these)<input style={{ width: "100%" }} value={draft.requires.join(", ")} onChange={(e) => setDraft({ ...draft, requires: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} /></label>
           <label style={{ display: "block", marginTop: 8 }}>Effect — what the player reads<textarea style={{ width: "100%", minHeight: 54 }} value={draft.effect} onChange={(e) => setDraft({ ...draft, effect: e.target.value })} /></label>
           <label style={{ display: "block", marginTop: 8 }}>Synergy note<textarea style={{ width: "100%", minHeight: 40 }} value={draft.syn} onChange={(e) => setDraft({ ...draft, syn: e.target.value })} /></label>
           <h4 style={{ marginTop: 14 }}>Effect clauses — the star's true mechanics</h4>
