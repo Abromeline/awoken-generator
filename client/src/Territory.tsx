@@ -802,11 +802,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [marchNow, setMarchNow] = useState(() => Date.now());
   const anyPatrol = placements.some(p => !!p.patrolPath);
   const anyMarch = placements.some(p => !!p.marchPath);
-  useEffect(() => {
-    if (!anyPatrol && !anyMarch && patrolSettingFor === null) return;
-    const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
-    return () => window.clearInterval(iv);
-  }, [anyPatrol, anyMarch, patrolSettingFor]);
+  // Patrol and march glides ride the map's ONE clock (see
+  // THE MAP'S ONE CLOCK below, where the blade's flights
+  // are reckoned — every clock-drawn motion shares it).
   // THE SHARD'S CLOCK (the projectile repair, 2026-10-24):
   // a strike flight is drawn from this same map clock, the
   // way the weapon's flight is integrated on the map's
@@ -819,11 +817,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // SVG origin with its base opacity 0, and the Tender,
   // iPad-first, never saw a single shot.
   const anyStrikeFlight = strikeFlights.length > 0;
-  useEffect(() => {
-    if (!anyStrikeFlight) return;
-    const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
-    return () => window.clearInterval(iv);
-  }, [anyStrikeFlight]);
+  // Strike flights ride the map's ONE clock (below).
   // ── THE BRAMBLE'S BIRTHDAYS (the Bramble 1 binding,
   // 2026-10-24): a standing bramble node grows in from the
   // moment the map first sees it raised — the served nodes
@@ -868,11 +862,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (!liveKeys.has(key)) brambleBornRef.current.delete(key);
     }
   }
-  useEffect(() => {
-    if (!anyBrambleGrowing) return;
-    const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
-    return () => window.clearInterval(iv);
-  }, [anyBrambleGrowing]);
+  // Bramble growth rides the map's ONE clock (below).
   // ── THE SUMMON SEQUENCE (Nigel, 2026-10-23 — the Proving
   // Ground's theatre, ported whole; see summonFx.ts) ────────
   // A landed summon cast leaves its reckoning here; the
@@ -1028,11 +1018,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // map's own cadence so Nigel's frames play (the map is
   // otherwise a still painting at rest).
   const anyTransientFx = workings.some((w) => w.engine === "bats" || w.engine === "holdrune");
-  useEffect(() => {
-    if (!anyTransientFx) return;
-    const iv = window.setInterval(() => setMarchNow(Date.now()), 125);
-    return () => window.clearInterval(iv);
-  }, [anyTransientFx]);
+  // Transient workings' frames ride the map's ONE clock (below).
   const [grim, setGrim] = useState<GrimoireState | null>(null);
   const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
   const [castMode, setCastMode] = useState(false);
@@ -1256,11 +1242,32 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // clock ticks at the stride's 50 ms, the shard's cadence,
   // so the blade's road is walked render by render.
   const anyBladeFlight = bladeFlights.length > 0 || bladeCastFlights.length > 0;
+  // ── THE MAP'S ONE CLOCK (the summon cluster repair,
+  // 2026-10-24) ──────────────────────────────────────────
+  // Every clock-drawn motion on the land rides marchNow:
+  // patrol and march glides, strike flights, blade flights,
+  // bramble growth, the transient workings' frames. Each
+  // once kept its OWN interval waking this clock, and in a
+  // busy battle they stacked — four or five intervals
+  // re-rendering the whole map fifty times a second and
+  // more (measured in the repair drive: six to twelve
+  // thousand DOM mutations in five seconds of thick fight,
+  // against ~120 at rest) — the flashing and clipping a
+  // Tender sees when the fight gets thick. One clock now
+  // ticks at the fastest rate any live motion needs and
+  // stops when nothing moves. The cadences are unchanged:
+  // 50 ms while a flight or a growth is live (the shard's
+  // road is still walked render by render — never SMIL,
+  // which iPad Safari does not run), 125 ms for glides and
+  // standing frames. The cast pose keeps its own brief
+  // clock above, as it carries the pose's settle timeout.
+  const clockFast = anyStrikeFlight || anyBladeFlight || anyBrambleGrowing;
+  const clockSlow = anyPatrol || anyMarch || patrolSettingFor !== null || anyTransientFx;
   useEffect(() => {
-    if (!anyBladeFlight) return;
-    const iv = window.setInterval(() => setMarchNow(Date.now()), 50);
+    if (!clockFast && !clockSlow) return;
+    const iv = window.setInterval(() => setMarchNow(Date.now()), clockFast ? 50 : 125);
     return () => window.clearInterval(iv);
-  }, [anyBladeFlight]);
+  }, [clockFast, clockSlow]);
   /** The order to the written Blade on one of the
    *  wandering dark, refereed by the server (api.looseBlade).
    *  A loose that lands speaks for itself here (the flight,
@@ -1563,6 +1570,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           t = await api.getTerritory();
         }
         setTiles(t.tiles); setPlacements(t.placements); setWalls(t.walls ?? []); setSkills(t.skills ?? []); setElsewhere(t.elsewhere ?? []);
+        rememberField(t.placements);
         setWorkings(t.workings ?? []);
         setTenderStand(t.tender ?? null);
         setSummoning(t.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
@@ -1602,8 +1610,53 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount })).catch(() => {});
   }, []);
 
-  const refreshTerritory = async () => {
+  // The read loop's turn-keeping (see THE READ LOOP below):
+  // a sequence per loop read, and the moment the live one
+  // began, so a read that never settles can be given up on
+  // without a late answer rewinding the land.
+  const readLoopBusyRef = useRef(false);
+  const readLoopSeqRef = useRef(0);
+  const readLoopSinceRef = useRef(0);
+  // ── THE LAND SPEAKS ITS LOSSES (the summon cluster
+  // repair, 2026-10-24) ─────────────────────────────────
+  // A follower bitten down in the fight goes home to the
+  // hand — her placement simply stops being served, and
+  // until this watch nothing said so: from the Tender's
+  // side of the screen she had only "stopped following"
+  // and "wasn't doing anything", even after a reload.
+  // Each read remembers the field it held; when the next
+  // read misses a figure, the land speaks her fall in its
+  // standing notice. The one innocent disappearance is
+  // never mourned: a figure who arrived at the bastion
+  // stands in the elsewhere ledger as staged, and is
+  // skipped — every other road off the field (death in
+  // the battle, dispersal in a siege defeat) is a fall,
+  // and is named as one.
+  const lastFieldRef = useRef<Map<number, string>>(new Map());
+  const rememberField = (ps: FieldPlacement[]) => {
+    lastFieldRef.current = new Map(ps.map((p) => [p.awakenedId, p.name]));
+  };
+  const noteFieldLosses = (refreshed: { placements: FieldPlacement[]; elsewhere?: { name: string; where: string }[] }) => {
+    const prev = lastFieldRef.current;
+    if (prev.size > 0) {
+      const stillThere = new Set(refreshed.placements.map((p) => p.awakenedId));
+      const stagedNames = new Set((refreshed.elsewhere ?? []).filter((e) => e.where === "staged").map((e) => e.name));
+      const fallen: string[] = [];
+      for (const [id, name] of prev) {
+        if (stillThere.has(id) || stagedNames.has(name)) continue;
+        fallen.push(name);
+      }
+      if (fallen.length === 1) showHexNotice(`${fallen[0]} has fallen — she returns to your hand.`);
+      else if (fallen.length > 1) showHexNotice(`${fallen.join(", ")} have fallen — they return to your hand.`);
+    }
+    rememberField(refreshed.placements);
+  };
+  const refreshTerritory = async (loopSeq?: number) => {
     const refreshed = await api.getTerritory();
+    // A read the loop already gave up on (see THE READ LOOP
+    // below) lands too late to speak: a newer read has the
+    // land, and this one's older snapshot must not rewind it.
+    if (loopSeq !== undefined && readLoopSeqRef.current !== loopSeq) return;
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setWorkings(refreshed.workings ?? []);
@@ -1615,6 +1668,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     noteWeaponStrike(refreshed.weaponStrike);
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
+    noteFieldLosses(refreshed);
   };
 
   // ── THE READ LOOP (the Token Strip, Nigel 2026-10-23) ───
@@ -1630,14 +1684,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // makes, and what it carries back (wanderers, wounds,
   // strike witnesses) is the one real fight, witnessed.
   const HOMELAND_BATTLE_BEAT_MS = 2800;
-  const readLoopBusyRef = useRef(false);
+  // A read is given twenty seconds — far beyond any healthy
+  // read — before the loop calls it lost. The fetch beneath
+  // carries no timeout of its own, so a request that hangs
+  // (a connection dropped mid-flight) would otherwise hold
+  // the busy mark FOREVER: the land would never be read
+  // again, followers would freeze mid-march and no strike
+  // would ever land, until a reload — and the same hang
+  // after the reload would read as "reloaded and things
+  // were the same" (the summon cluster, 2026-10-24). The
+  // loop now lets a lost read go and reads again; the lost
+  // read's late answer is turned away by its sequence, and
+  // it cannot clear a newer read's turn.
+  const READ_LOOP_LOST_MS = 20000;
   useEffect(() => {
     const iv = window.setInterval(() => {
-      if (readLoopBusyRef.current) return;
+      if (readLoopBusyRef.current && Date.now() - readLoopSinceRef.current < READ_LOOP_LOST_MS) return;
+      const seq = ++readLoopSeqRef.current;
       readLoopBusyRef.current = true;
-      refreshTerritory()
+      readLoopSinceRef.current = Date.now();
+      refreshTerritory(seq)
         .catch(() => {})
-        .finally(() => { readLoopBusyRef.current = false; });
+        .finally(() => { if (readLoopSeqRef.current === seq) readLoopBusyRef.current = false; });
     }, HOMELAND_BATTLE_BEAT_MS);
     return () => window.clearInterval(iv);
     // refreshTerritory is the component's standing read; the
@@ -1645,6 +1713,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // setters and refs are the component's own throughout.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── THE WAKE IS SPOKEN (the summon cluster repair,
+  // 2026-10-24) ─────────────────────────────────────────
+  // A Tender who stands in the curse is worn down by it,
+  // beat on beat; when he falls he wakes — half-healed —
+  // at his bastion or his safe hex, which may stand clear
+  // across the land from where he fell. Nothing used to
+  // say so: the figure simply was not where the player
+  // left it, and a reload "brought him back" only because
+  // it re-centred the view. The wake is now spoken in the
+  // land's standing notice, the same voice that answers a
+  // summon, the moment a read first shows him standing
+  // again on different ground than he fell on.
+  const prevStandRef = useRef<{ tileId: number; down: boolean } | null>(null);
+  useEffect(() => {
+    const prev = prevStandRef.current;
+    const cur = tenderStand ? { tileId: tenderStand.tileId, down: !!tenderStand.down } : null;
+    prevStandRef.current = cur;
+    if (prev && cur && prev.down && !cur.down && prev.tileId !== cur.tileId) {
+      showHexNotice(placements.length > 0
+        ? "You fell in the curse. You wake where the light holds, half-healed — your company musters to you there."
+        : "You fell in the curse. You wake where the light holds, half-healed.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenderStand]);
 
   // ── THE HOMELAND LESSONS' TOUCHES (the tutorial redo,
   // Nigel 2026-10-23 23:23 + 23:33; shape law 23:37) ──────
