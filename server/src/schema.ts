@@ -340,17 +340,44 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
   displayRate: real("display_rate").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.element] })]);
 
-// THE PACK (the drop table, ruled 2026-10-23; built
+// THE INVENTORY (the drop table, ruled 2026-10-23; built
 // 2026-10-25): the travelling player inventory — one row
 // per stack the Tender carries. item_key names the good
-// ("rune-shard", "pantry:<good>", "relic:<fx verb>"); the
-// pack holds 15 different stacks, a stack up to 100.
+// ("rune-shard", "reagent:<good>", "relic:<fx verb>"); the
+// inventory holds 15 different stacks, a stack up to 100.
 export const tenderInventory = sqliteTable("tender_inventory", {
   ownerKey: text("owner_key").notNull(),
   itemKey: text("item_key").notNull(),
   qty: integer("qty").notNull().default(0),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.itemKey] })]);
+
+// THE PACK (the loot table fix, 2026-10-25): a homeland
+// Tender's unclaimed fell drops — one row per standing
+// entry: an energy sum, an element's attunement drizzle,
+// or an item stack, gathered until she clicks it into
+// her inventory, purse or pools.
+export const tenderPack = sqliteTable("tender_pack", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  kind: text("kind").notNull(),
+  itemKey: text("item_key"),
+  element: text("element"),
+  qty: real("qty").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+});
+
+// The visible moment of each homeland fell — where the
+// dark stood and what sprang out of it — drained once by
+// the next territory read so the client can fly the
+// drop faces to the Tender.
+export const dropEvents = sqliteTable("drop_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  payload: text("payload").notNull(),
+  seen: integer("seen").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().defaultNow(),
+});
 
 // The drop table's spoken ledger: one unseen line per
 // felled enemy, drained by the next territory read so the

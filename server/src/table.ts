@@ -29,9 +29,9 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey, hashPassword, verifyPassword } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, addAspectPoints, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS, type AttunementElement } from "./actions.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
-import { rollFellDrops, drainDropNotices } from "./drops.js";
+import { rollFellDrops, drainDropNotices, rollFellTake, describeDrops, dropDisplayName, addToInventory, inventoryCanHold, type FellDrop } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, fxSum, companyAcBonusFor, companyAttackBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor, witchCompanyScopeFor, quicknessSpeedFor } from "./skills.js";
@@ -1093,6 +1093,31 @@ interface Room {
    *  serve) — the homeland's felling pot divides by these
    *  weights when the dark falls. */
   dmgBy: Map<string, Map<number, number>>;
+  /** THE SHARED PACK (the loot table fix, Nigel, ruled
+   *  2026-10-25 09:48 + 18:46): what the felled dark
+   *  leaves behind at the CASUAL Table — unclaimed drops,
+   *  gathered as standing entries every seated player
+   *  can see, claimed by a click into the claimer's own
+   *  inventory, purse or pools, or GIVEN to another
+   *  seated player. The Pack lives with the room, as the
+   *  field does. Campaign rooms never fill it (their
+   *  item system is their own, ruled 19:27). */
+  pack: RoomPackEntry[];
+  /** The visible moment of each casual fell: where the
+   *  dark stood, where the nearest Tender stands, and
+   *  what sprang out — served briefly, like the rain's
+   *  falls, so clients can fly the faces. */
+  dropFx: { id: string; at: number; from: Pt; to: Pt; drops: FellDrop[] }[];
+}
+
+/** One standing entry of the room's shared Pack. */
+export interface RoomPackEntry {
+  id: string;
+  kind: "energy" | "attunement" | "item";
+  itemKey?: string;
+  element?: string;
+  name: string;
+  qty: number;
 }
 
 const edgeKeyOf = (a: string, b: string): string => [a, b].sort().join("|");
@@ -2103,6 +2128,12 @@ function sharedState(room: Room) {
     })),
     enemies: room.enemies,
     strikes: room.strikes,
+    // THE SHARED PACK (the loot table fix, 2026-10-25):
+    // the room's unclaimed drops, seen by every seat,
+    // and each casual fell's visible spring for the
+    // clients' flight.
+    pack: room.pack ?? [],
+    dropFx: (room.dropFx ?? []).filter(f => Date.now() - f.at < 3000),
     rainFalls: (room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
     bladeFlights: (room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
     bladeCasts: (room.bladeCasts ?? []).filter(f => Date.now() - f.at < 3000),
@@ -2254,6 +2285,8 @@ async function getRoom(id: string): Promise<Room> {
       roundNo: 0,
       seedGrowth: { level: 1, fedEnergy: 0 },
       dmgBy: new Map(),
+      pack: [],
+      dropFx: [],
     };
     rooms.set(id, room);
     if (campaignMode) restoreCampaignTale(room);
@@ -3806,9 +3839,15 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUni
     // drained and told in the room's tale, as the homeland
     // tells it to the Tender. A drop fault is logged and
     // never breaks the kill — the homeland's own wrapping.
-    try { rollFellDrops(killer.expKey, enemy.kind); }
-    catch (e) { console.error("[drops] fell drop failed:", e); }
-    for (const line of drainDropNotices(killer.expKey)) tell(room, line);
+    // THE LOOT TABLE FIX (2026-10-25): this silent road is
+    // now the CAMPAIGN road's alone — while a campaign
+    // runs. In a casual room (or a campaign adjourned)
+    // the take springs into the shared Pack instead.
+    if (room.campaign && !room.campaign.over) {
+      try { rollFellDrops(killer.expKey, enemy.kind); }
+      catch (e) { console.error("[drops] fell drop failed:", e); }
+      for (const line of drainDropNotices(killer.expKey)) tell(room, line);
+    }
     // AWOKIN XP: the felling pot, divided by damage where
     // the ledger stands; the felling Awokin alone where it
     // does not (a rune's springing, a riposte, thorn harm —
@@ -3840,22 +3879,99 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUni
     }
   }
   if (room.campaign && !room.campaign.over) { campaignFell(room, enemy, killer, groundElement); return; }
+  // THE SHARED TAKE (the loot table fix, Nigel, ruled
+  // 2026-10-25 18:46): on the casual field the fell's
+  // whole yield — the energy ladder (which replaces the
+  // flat silent +3 the killer took before), the drizzle
+  // when its roll falls (which replaces the killer's
+  // silent drip), and the table's goods — springs out of
+  // the dissipated dark and lands in the room's SHARED
+  // Pack, whoever struck the blow. It flies to the
+  // nearest Tender (the drop's visible moment, served
+  // with the state), and any seated player may claim an
+  // entry — or give it — by the bag. A drop fault is
+  // logged and never breaks the kill.
+  try {
+    const drops = rollFellTake(enemy.kind, groundElement);
+    if (drops.length) {
+      landRoomPack(room, drops);
+      const to = nearestTenderPoint(room, enemy.pos) ?? { ...enemy.pos };
+      room.dropFx = [...(room.dropFx ?? []).filter(f => Date.now() - f.at < 3000),
+        { id: `drop-${enemy.id}-${Date.now()}`, at: Date.now(), from: { ...enemy.pos }, to, drops }];
+      tell(room, `The felled ${enemy.label} leaves behind: ${describeDrops(drops)} — gathered in the Pack.`);
+    }
+  } catch (e) { console.error("[drops] fell drop failed:", e); }
   if (killer && !killer.fallen) {
-    killer.energy = Math.min(killer.maxEnergy + 10, killer.energy + 3);
     // The Harvest (the Heart, 2026-10-18): when YOUR Awoken
     // fell the dark, the stars' fellHarvest clauses pay
-    // their ✦ on top of the base three — carried from the
-    // strike's own copy of this reckoning, whole.
+    // their ✦ to the feller's own purse — a star clause's
+    // settlement, not a drop: it pays as it always has,
+    // whole, beside the Pack's gathered energy.
     if (opts.heartHarvest && killer.expKey) {
       const hv = heartEffects(killer.expKey).harvestAmount;
       if (hv !== 0) killer.energy = Math.max(0, Math.min(killer.maxEnergy + 10, killer.energy + hv));
     }
     void payBattleExp(room, killer, 2, "The dark pays for its felling.");
-    // THE FELL DRIP (Nigel, 2026-10-20: creatures beaten at
-    // the Table drop attunement points): the killer's pools
-    // may catch the drip, beside the energy and EXP he takes.
-    if (killer.expKey) void payFellDrip(killer.expKey, groundElement);
   }
+}
+
+/** Gather a casual fell's take into the room's shared
+ *  Pack: like drops merge into standing entries, as the
+ *  homeland pack gathers (drops.ts) — one entry per
+ *  kind of thing, its count the sum of what fell. */
+function landRoomPack(room: Room, drops: FellDrop[]): void {
+  if (!room.pack) room.pack = [];
+  for (const d of drops) {
+    const key = `pack:${d.kind}:${d.itemKey ?? d.element ?? ""}`;
+    const standing = room.pack.find(e => e.id === key);
+    if (standing) standing.qty += d.qty;
+    else room.pack.push({ id: key, kind: d.kind, itemKey: d.itemKey, element: d.element, name: dropDisplayName(d), qty: d.qty });
+  }
+}
+
+/** The standing point of the Tender nearest a place —
+ *  seated figures first, held (away) seats beside them;
+ *  watchers and the storytender are no one's nearest
+ *  Tender. The drop flies to her. */
+function nearestTenderPoint(room: Room, from: Pt): Pt | null {
+  const seated = [...room.players.values(), ...[...room.away.values()].map(h => h.player)]
+    .filter(p => !p.watcher && !p.storytender);
+  let best: Pt | null = null;
+  let bestD = Infinity;
+  for (const p of seated) {
+    const pt = casterPointOf(p);
+    if (!pt) continue;
+    const d = Math.hypot(pt.x - from.x, pt.y - from.y);
+    if (d < bestD) { bestD = d; best = pt; }
+  }
+  return best;
+}
+
+/** Land one Pack entry on a seated player (a claim, or
+ *  a gift's landing): energy into her room purse under
+ *  its standing cap, attunement through the pools' one
+ *  writer, goods into her inventory under its caps.
+ *  Returns a refusal in plain words, or null when the
+ *  entry landed whole. The landing is proven before the
+ *  entry is spent by the caller. */
+function landPackEntryOn(room: Room, target: Player, entry: RoomPackEntry): string | null {
+  if (entry.kind === "energy") {
+    if (target.energy >= target.maxEnergy + 10) return `${target.name}'s energy stands full — the orb waits in the Pack.`;
+    target.energy = Math.min(target.maxEnergy + 10, target.energy + entry.qty);
+    return null;
+  }
+  if (!target.expKey) return "That seat holds no bound Tender — bind in the game, and the Pack can pay it.";
+  if (entry.kind === "attunement") {
+    void addAspectPoints(target.expKey, (entry.element ?? "root") as AttunementElement, entry.qty);
+    return null;
+  }
+  if (!entry.itemKey) return "That drop names no good to carry.";
+  if (!inventoryCanHold(target.expKey, entry.itemKey, entry.qty)) {
+    return `${target.name}'s inventory cannot carry the ${entry.name} — a stack holds 100, and fifteen stacks are all it holds.`;
+  }
+  const r = addToInventory(target.expKey, entry.itemKey, entry.qty);
+  if (r.left > 0) return `${target.name}'s inventory cannot carry the ${entry.name}.`;
+  return null;
 }
 
 // ── GROVES AND PASSIVE WALLS (Phase C) ────────────────────
@@ -7578,6 +7694,40 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
+    // THE PACK — CLAIM AND GIVE (the loot table fix,
+    // Nigel, ruled 2026-10-25 09:48 + 18:46): a click on
+    // an entry of the room's shared Pack claims it into
+    // the clicker's own inventory, purse or pools; GIVE
+    // lands the same entry on another seated player
+    // instead. The referee holds the Pack — the claim is
+    // validated here, the entry is spent only when its
+    // landing is proven, and two clicks on one entry
+    // land it once: the second finds it gone.
+    if (msg.type === "claimPack" || msg.type === "givePack") {
+      if (!player) return;
+      const actor = player;
+      if (actor.watcher || actor.storytender) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no bag — bind in the game to take a seat, and the Pack can pay you." })); return; }
+      if (room.campaign && !room.campaign.over) { ws.send(JSON.stringify({ type: "error", message: "The Pack gathers on the free field — this room's road pays its own way." })); return; }
+      const entryId = String((msg as any).entryId ?? "");
+      const entry = (room.pack ?? []).find(e => e.id === entryId);
+      if (!entry) { ws.send(JSON.stringify({ type: "error", message: "That drop is no longer in the Pack — another hand may have claimed it." })); return; }
+      let target = actor;
+      if (msg.type === "givePack") {
+        const targetKey = String((msg as any).targetKey ?? "");
+        const found = seatByKey(room, targetKey);
+        if (!found || found.watcher || found.storytender) { ws.send(JSON.stringify({ type: "error", message: "Name a seated player to give it to." })); return; }
+        if (found === actor) { ws.send(JSON.stringify({ type: "error", message: "That drop would only come home — claim it, and it is yours." })); return; }
+        target = found;
+      }
+      const refusal = landPackEntryOn(room, target, entry);
+      if (refusal) { ws.send(JSON.stringify({ type: "error", message: refusal })); return; }
+      room.pack = room.pack.filter(e => e.id !== entry.id);
+      tell(room, msg.type === "givePack"
+        ? `${actor.name} gives the ${entry.name} to ${target.name} — the Pack is lighter by it.`
+        : `${actor.name} claims the ${entry.name} from the Pack.`);
+      sendState(room);
+      return;
+    }
     if (msg.type === "looseBlade") {
       // LOOSE THE SINGLE BLADE (Nigel, 2026-10-20, spec
       // single-blade-click-spring; re-ruled 2026-10-23 —

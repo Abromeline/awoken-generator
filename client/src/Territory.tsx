@@ -36,7 +36,8 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn, LootEntry, DropEventView } from "./api";
+import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
   candidatesNear, axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
   pointInPolygon, pointSegmentDistance, segmentsCrossProper, collisionSegments,
@@ -566,6 +567,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // carried on the Tender's back — served by every
   // territory read, spoken by its drained notice lines.
   const [pack, setPack] = useState<PackView>({ stacks: [], shardCount: 0 });
+  // THE LOOT (the loot table fix, 2026-10-25): her
+  // unclaimed drops, gathered in her own Pack until she
+  // clicks them home; the bag button that opens their
+  // panel; and the springs in flight — a fell's drops on
+  // their way from the dark's standing place to her.
+  const [loot, setLoot] = useState<LootEntry[]>([]);
+  const [bagOpen, setBagOpen] = useState(false);
+  const [dropFx, setDropFx] = useState<{ id: number; fromQ: number; fromR: number; drops: DropLike[]; born: number }[]>([]);
+  const dropFxSeq = useRef(0);
   const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]>([]);
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
@@ -1286,6 +1296,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // clock ticks at the stride's 50 ms, the shard's cadence,
   // so the blade's road is walked render by render.
   const anyBladeFlight = bladeFlights.length > 0 || bladeCastFlights.length > 0;
+  // A fell's drops in flight (the loot table fix) ride
+  // the fast clock too, for their flight's moment.
+  const anyDropFlight = dropFx.some(f => Date.now() - f.born < 1200);
   // ── THE MAP'S ONE CLOCK (the summon cluster repair,
   // 2026-10-24) ──────────────────────────────────────────
   // Every clock-drawn motion on the land rides marchNow:
@@ -1305,7 +1318,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // which iPad Safari does not run), 125 ms for glides and
   // standing frames. The cast pose keeps its own brief
   // clock above, as it carries the pose's settle timeout.
-  const clockFast = anyStrikeFlight || anyBladeFlight || anyBrambleGrowing;
+  const clockFast = anyStrikeFlight || anyBladeFlight || anyBrambleGrowing || anyDropFlight;
   const clockSlow = anyPatrol || anyMarch || patrolSettingFor !== null || anyTransientFx;
   useEffect(() => {
     if (!clockFast && !clockSlow) return;
@@ -1742,8 +1755,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // pack's new face and the spoken lines of what the dark
   // left behind since the last read (the server drains
   // them once) — speak them as the land speaks its losses.
-  const noteDropNotices = (t: { pack?: PackView; dropNotices?: string[] }) => {
+  const noteDropNotices = (t: { pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[] }) => {
     if (t.pack) setPack(t.pack);
+    if (t.loot) setLoot(t.loot);
+    // THE SPRING (the loot table fix): each drained drop
+    // event takes flight — the faces spring out of the
+    // place the dark stood and fly to the Tender (the
+    // land-front layer draws them on the march clock).
+    if (t.dropEvents && t.dropEvents.length > 0) {
+      const born = Date.now();
+      setDropFx((prev) => [
+        ...prev.filter((f) => born - f.born < 1400),
+        ...t.dropEvents!.map((ev) => ({ id: ++dropFxSeq.current, fromQ: ev.fromQ, fromR: ev.fromR, drops: ev.drops as DropLike[], born })),
+      ]);
+    }
     const lines = t.dropNotices ?? [];
     if (lines.length > 0) {
       showHexNotice(lines.slice(0, 3).join(" ") + (lines.length > 3 ? " And more besides." : ""));
@@ -5905,6 +5930,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             </g>
           );
         })}
+        {/* THE SPRING AND THE FLIGHT (the loot table fix,
+            2026-10-25): a fell's drops spring out of the
+            ground the dark stood on and fly to the Tender —
+            drawn on the map's own clock, each face a beat
+            behind the last, energy wearing its size law,
+            attunement the Root Sap at its element's hue. */}
+        {dropFx.filter(f => marchNow - f.born < 1200).map(f => {
+          const host = tiles.find(t => t.q === Math.round(f.fromQ) && t.r === Math.round(f.fromR)) ?? tiles[0];
+          const tenderTile = tenderStand ? tiles.find(t => t.id === tenderStand.tileId) : null;
+          if (!host || !tenderTile) return null;
+          const hb = tilePos(host);
+          const hd = isoOffset(f.fromQ, f.fromR, size);
+          const hc = isoOffset(host.q, host.r, size);
+          const from = { x: hb.cx + (hd.px - hc.px), y: hb.cy + (hd.py - hc.py) };
+          const tb = tilePos(tenderTile);
+          return (
+            <g key={`dropfx-${f.id}`} pointerEvents="none">
+              {f.drops.map((d, i) => {
+                const t01 = Math.max(0, Math.min(1, (marchNow - f.born - i * 110) / 800));
+                if (t01 <= 0 || t01 >= 1) return null;
+                const ease = 1 - Math.pow(1 - t01, 2);
+                const x = from.x + (tb.cx - from.x) * ease;
+                const y = from.y + (tb.cy - from.y) * ease - Math.sin(t01 * Math.PI) * size * 0.5;
+                const s = dropSize(d);
+                return <image key={i} href={faceForDrop(d)} x={x - s / 2} y={y - s / 2} width={s} height={s} opacity={0.95} style={{ filter: filterForDrop(d) }} />;
+              })}
+            </g>
+          );
+        })}
       </g>
     );
     // The land rides the camera: tile art in the back group, the
@@ -6636,19 +6690,56 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           {battle.lighthouseLit ? "Douse the light" : "Light the lighthouse"}
         </button>
       </div>
-      {/* THE PACK — the item screen's homeland face (the
-          drop table, ruled 2026-10-23; built 2026-10-25):
-          what the felled dark leaves behind, carried on the
-          Tender's back. The shard forge stands at its foot:
-          twenty shards into one point of attunement, of the
-          element the Tender chooses. */}
-      <div className="pack-panel">
-        <div className="pack-head">🎒 The Pack</div>
+      {/* THE BAG (the loot table fix, Nigel, ruled
+          2026-10-25 18:06–18:09): his Backpack stands on
+          the right side of the map — the Pack's door. Its
+          badge counts what waits unclaimed. Behind it:
+          the Pack (the felled dark's leavings, claimed by
+          a click) and her inventory beneath, with the
+          shard forge at its foot — twenty shards into one
+          point of attunement, of the element she chooses. */}
+      <button className="bag-btn" onClick={() => setBagOpen(o => !o)} title="The Pack — what the felled dark leaves behind" aria-label="The Pack">
+        <img src={BACKPACK_FACE} alt="" />
+        {loot.length > 0 && <span className="bag-badge">{loot.length}</span>}
+      </button>
+      {bagOpen && (
+      <div className="pack-panel loot-panel">
+        <div className="pack-head">🎒 The Pack
+          <button className="loot-x" onClick={() => setBagOpen(false)} aria-label="Close the Pack">✕</button>
+        </div>
+        {loot.length === 0 ? (
+          <div className="pack-empty">Nothing waits — fell the dark, and what it leaves gathers here.</div>
+        ) : (
+          loot.map((e) => (
+            <div key={e.id} className="loot-row">
+              <img className="loot-face" src={faceForDrop(e)} alt="" style={{ width: dropSize(e), height: dropSize(e), filter: filterForDrop(e) }} />
+              <span className="loot-name">{e.name}</span>
+              <span className="pack-qty">{e.kind === "attunement" ? Math.round(e.qty * 10) / 10 : `×${e.qty}`}</span>
+              <button
+                className="abtn small"
+                onClick={async () => {
+                  try {
+                    const r = await api.claimPackDrop({ entryId: e.id });
+                    setLoot(r.loot);
+                    setPack(r.pack);
+                    showHexNotice(r.line);
+                  } catch (err) {
+                    showHexNotice(refusalText(err, "The Pack would not yield it."));
+                  }
+                }}
+              >
+                Claim
+              </button>
+            </div>
+          ))
+        )}
+        <div className="loot-carried-head">Your inventory</div>
         {pack.stacks.length === 0 ? (
-          <div className="pack-empty">Empty — what the felled dark leaves behind gathers here.</div>
+          <div className="pack-empty">Empty — claim the Pack's gatherings, and they rest here.</div>
         ) : (
           pack.stacks.map((s) => (
             <div key={s.key} className="pack-row">
+              <img className="loot-face small" src={faceForDrop({ kind: "item", itemKey: s.key, qty: s.qty })} alt="" />
               <span>{s.name}</span>
               <span className="pack-qty">×{s.qty}</span>
             </div>
@@ -6679,6 +6770,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         )}
       </div>
+      )}
       {showFriends && <Friends onClose={() => setShowFriends(false)} hand={hand} />}
       {!legends.champion && (
         <button className="champion-fab" onClick={() => setShowChampionPicker(true)} title="Choose your champion">

@@ -44,6 +44,8 @@ import { brambleFrameAt, brambleMoteFrameAt, BRAMBLE_DRAW_W, BRAMBLE_ASPECT, BRA
 import seedSaplingArt from "./assets/starseed/sapling.png";
 import seedBeaconArt from "./assets/starseed/beacon.png";
 import { WORKING_FACE } from "./workingFaces";
+import { api, type PackView } from "./api";
+import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import blackGateImg from "./assets/effects/black-gate.png";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
@@ -201,6 +203,12 @@ interface SharedState {
   /** SHARD RAIN FALLS (Phase C): the moment the sky opened,
    *  and over which hexes — the drawn rain shows there. */
   rainFalls?: { id: string; at: number; hexes: string[] }[];
+  /** THE SHARED PACK (the loot table fix, 2026-10-25):
+   *  the casual room's unclaimed drops — every seat sees
+   *  them; a click claims, or gives — and each fell's
+   *  visible spring, flown to the nearest Tender. */
+  pack?: { id: string; kind: "energy" | "attunement" | "item"; itemKey?: string; element?: string; name: string; qty: number }[];
+  dropFx?: { id: string; at: number; from: { x: number; y: number }; to: { x: number; y: number }; drops: DropLike[] }[];
   /** THE SINGLE BLADE'S FLIGHTS (Recovery R4): a Blade was
    *  loosed — from its rune's hex, at the mark's point. */
   bladeFlights?: { id: string; at: number; fromHex: string; fromPos?: { x: number; y: number } | null; to: { x: number; y: number } }[];
@@ -554,6 +562,16 @@ export default function Table() {
   const [pwInput, setPwInput] = useState("");
   const [pwMsg, setPwMsg] = useState("");
   const [beaconUp, setBeaconUp] = useState(false);
+  // THE BAG (the loot table fix, 2026-10-25): the shared
+  // Pack's door on the right side, the panel it opens,
+  // my own inventory's face inside it, and the entry a
+  // Give is being aimed from.
+  const [bagUp, setBagUp] = useState(false);
+  const [myPack, setMyPack] = useState<PackView | null>(null);
+  const [giveFor, setGiveFor] = useState<string | null>(null);
+  const refreshMyPack = () => {
+    api.getInventory().then((r) => setMyPack(r.pack)).catch(() => setMyPack(null));
+  };
   const [doorPrivacy, setDoorPrivacy] = useState<"public" | "password">("public");
   const [doorWord, setDoorWord] = useState("");
   const [notice, setNotice] = useState("");
@@ -3417,6 +3435,27 @@ export default function Table() {
                   </g>
                 );
               })}
+              {/* THE SPRING AND THE FLIGHT (the loot table
+                  fix, 2026-10-25): a casual fell's take
+                  springs out of the dissipated dark and
+                  flies to the nearest Tender — each face on
+                  its own short stagger along the straight
+                  road, energy wearing its size law,
+                  attunement the Root Sap at its hue. The
+                  faces land in the shared Pack. */}
+              {(shared.dropFx ?? []).filter(f => nowMs - f.at < 1250).map(f => (
+                <g key={`dropfx-${f.id}`} pointerEvents="none">
+                  {f.drops.map((d, i) => {
+                    const t01 = Math.max(0, Math.min(1, (nowMs - f.at - i * 110) / 800));
+                    if (t01 <= 0 || t01 >= 1) return null;
+                    const ease = 1 - Math.pow(1 - t01, 2);
+                    const x = f.from.x + (f.to.x - f.from.x) * ease;
+                    const y = f.from.y + (f.to.y - f.from.y) * ease - Math.sin(t01 * Math.PI) * 26;
+                    const s = dropSize(d);
+                    return <image key={i} href={faceForDrop(d)} x={x - s / 2} y={y - s / 2} width={s} height={s} opacity={0.95} style={{ filter: filterForDrop(d) }} />;
+                  })}
+                </g>
+              ))}
               <g className="shots-layer">
                 {shots.map((shot) => {
                   const a = shot.from;
@@ -3734,6 +3773,71 @@ export default function Table() {
           )}
         </aside>
       </main>
+
+      {/* THE BAG (the loot table fix, Nigel, ruled
+          2026-10-25 18:46): the Backpack pinned on the
+          right side under the beacon — the shared Pack's
+          door. Every seat sees the Pack; a click claims an
+          entry into your own inventory, purse or pools,
+          and GIVE stands beside claim (ruled 09:48).
+          Campaign rooms keep their own road and show no
+          bag (their item system is their own, 19:27). */}
+      {!shared.campaign && (
+        <>
+          <button
+            type="button"
+            className="bag-pin"
+            title="The Pack — what the felled dark leaves behind"
+            aria-label="The Pack"
+            onClick={() => { setBagUp((v) => !v); if (!bagUp) refreshMyPack(); }}
+          >
+            <img src={BACKPACK_FACE} alt="" />
+            {(shared.pack ?? []).length > 0 && <span className="bag-pin-badge">{(shared.pack ?? []).length}</span>}
+          </button>
+          {bagUp && (
+            <div className="bag-pop" role="dialog" aria-label="The Pack">
+              <div className="beacon-pop-head">
+                <strong>🎒 The Pack</strong>
+                <button type="button" className="beacon-x" aria-label="Close the Pack" onClick={() => setBagUp(false)}>✕</button>
+              </div>
+              {(shared.pack ?? []).length === 0 ? (
+                <p className="beacon-line">Nothing waits — fell the dark, and what it leaves gathers here for every seat to see.</p>
+              ) : (
+                (shared.pack ?? []).map((e) => (
+                  <div key={e.id} className="bag-row">
+                    <img className="bag-face" src={faceForDrop(e)} alt="" style={{ width: dropSize(e), height: dropSize(e), filter: filterForDrop(e) }} />
+                    <span className="bag-name">{e.name}</span>
+                    <span className="bag-qty">{e.kind === "attunement" ? Math.round(e.qty * 10) / 10 : `×${e.qty}`}</span>
+                    <button type="button" className="table-btn" onClick={() => { send({ type: "claimPack", entryId: e.id }); window.setTimeout(refreshMyPack, 500); }}>Claim</button>
+                    <button type="button" className="table-btn" onClick={() => setGiveFor(giveFor === e.id ? null : e.id)}>Give</button>
+                    {giveFor === e.id && (
+                      <span className="bag-give">
+                        {shared.players.filter((p) => p.key !== you?.key && !p.storytender).map((p) => (
+                          <button key={p.key} type="button" className="table-btn" onClick={() => { send({ type: "givePack", entryId: e.id, targetKey: p.key }); setGiveFor(null); window.setTimeout(refreshMyPack, 500); }}>{p.name}</button>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
+              <h4>Your inventory</h4>
+              {myPack === null ? (
+                <p className="beacon-line">Bind your Tender in the game, and what you claim rests here.</p>
+              ) : myPack.stacks.length === 0 ? (
+                <p className="beacon-line">Empty — claim the Pack's gatherings, and they rest here.</p>
+              ) : (
+                myPack.stacks.map((s) => (
+                  <div key={s.key} className="bag-row">
+                    <img className="bag-face small" src={faceForDrop({ kind: "item", itemKey: s.key, qty: s.qty })} alt="" />
+                    <span className="bag-name">{s.name}</span>
+                    <span className="bag-qty">×{s.qty}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       {/* THE BEACON (Twelve #2): a small button pinned to the
           right side of the room — protection and hosting open

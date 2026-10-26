@@ -312,7 +312,21 @@ ok("the felled dark's tile stands PURIFIED on the host's land",
   `tile=${darkHex} cursed=${(wstate.state?.map ?? []).find(t => t.id === darkHex)?.cursed}`);
 const hostProg1 = progressOf(H.ownerKey);
 const guestProg1 = progressOf(G.ownerKey);
-ok("the guest's fell pays the GUEST's Pack — the guaranteed take lands in the guest's inventory",
+// THE PACK (restated for the loot table fix, 2026-10-25):
+// a casual fell no longer pays the feller's shelves
+// silently — its take stands in the room's SHARED Pack,
+// and the feller's CLICK is what lands it in her
+// inventory. The guest claims what the Pack holds; the
+// guaranteed take of her fell is among it.
+{
+  const packAtFell = wstate.state?.pack ?? [];
+  ok("the guest's fell pays the room's shared Pack — its take stands there for claiming",
+    packAtFell.some(e => e.kind === "item") && packAtFell.some(e => e.kind === "energy"),
+    `pack=${JSON.stringify(packAtFell)}`);
+  for (const e of packAtFell) g.send({ type: "claimPack", entryId: e.id });
+  await sleep(1200);
+}
+ok("the guest's claim lands the take in the GUEST's inventory",
   invQty(G.ownerKey) > guestInvQty0, `guest inv qty ${guestInvQty0} -> ${invQty(G.ownerKey)}`);
 ok("NO HOST CUT: the host's Pack is exactly as it was, and the host's Shadow does not move",
   JSON.stringify(invOf(H.ownerKey)) === hostInv0 && hostProg1.shadow_matter === hostProg0.shadow_matter,

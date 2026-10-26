@@ -4,18 +4,29 @@
 // points). Boots the real server on a scratch DATA_DIR and
 // proves, against the aspect_attunement ledger in the DB:
 //   §H HOMELAND — a Tender's weapon fells wanderers standing
-//      on FIRE-filed cursed ground: the pools gain, every
-//      point lands in FIRE (the ground's own element), in
-//      exact tenths; a second batch of fells ACCUMULATES on
-//      the first. A weaponless Tender beside living wanderers
-//      gains nothing (the no-kill control).
+//      on FIRE-filed cursed ground: the drip now rides to
+//      her Pack as a physical drop (the loot table fix,
+//      2026-10-25), and CLAIMING those drops is what lands
+//      the pools — every point in FIRE (the ground's own
+//      element), in exact tenths; a second batch of fells
+//      ACCUMULATES on the first. A weaponless Tender beside
+//      living wanderers gains nothing (the no-kill control).
 //   §T1 THE TABLE, CAMPAIGN — the Storytender deals fray; the
 //      standing Tender fells them (his written blades and his
-//      Awoken's blows): his pools gain across two batches,
-//      accumulating; a bound seat on the bench (no Awoken on
-//      the field) gains nothing.
-//   §T2 THE TABLE, CASUAL — waves are dealt and felled by the
-//      killer's side: the killer's pools gain; a seated Tender
+//      Awoken's blows): his pools gain, in exact tenths; a
+//      bound seat on the bench (no Awoken on the field)
+//      gains nothing. (The campaign road is UNCHANGED by
+//      the loot table fix — its drip still pays the pools
+//      directly; this section is that proof. One batch is
+//      the whole fixture — the campaign's bank/company
+//      ledger carries a tender's spending across rooms,
+//      so the old second batch was never independent.)
+//   §T2 THE TABLE, CASUAL — waves are dealt and felled: the
+//      take gathers in the room's SHARED Pack, seen by the
+//      witness's client too; the witness claims an item
+//      into her own inventory and a second claim of it is
+//      refused; the killer's pools gain only when he
+//      claims the attunement gatherings; a seated Tender
 //      who never takes the field gains nothing.
 // The drip's measure is Nigel's drizzle (2026-10-19): each
 // fell rolls 20% for +0.1 — so batches are sized (40 / 20 /
@@ -49,11 +60,26 @@ await import("../server/dist/index.js");
 await sleep(2500);
 
 async function call(action, args, token) {
-  const res = await fetch(`${BASE}/api/${action}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
-    body: JSON.stringify(args ?? {}),
-  });
+  // One retry on a socket reset (fixture restated,
+  // 2026-10-25 — drive-drop-table's standing shape): the
+  // scratch server is in-process, and a single reset
+  // under load must not masquerade as a failed proof. A
+  // second failure propagates and fails honestly.
+  let res;
+  try {
+    res = await fetch(`${BASE}/api/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
+      body: JSON.stringify(args ?? {}),
+    });
+  } catch {
+    await sleep(300);
+    res = await fetch(`${BASE}/api/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
+      body: JSON.stringify(args ?? {}),
+    });
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`${action} -> ${res.status}: ${JSON.stringify(data)}`);
   return data;
@@ -71,6 +97,18 @@ const poolsOf = (ownerKey) => {
   return { m, total };
 };
 const inTenths = (v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
+const qtyOfKey = (ownerKey, key) => (db.prepare("SELECT qty FROM tender_inventory WHERE owner_key = ? AND item_key = ?").get(ownerKey, key)?.qty) ?? 0;
+/** Claim every waiting homeland Pack entry for a tender
+ *  (the loot table fix: a fell's drip reaches her pools
+ *  only when she claims the drop it rode in on). A claim
+ *  a full purse or stack refuses is left standing — the
+ *  pools read what landed. */
+const claimPackFor = async (token) => {
+  const t = await call("getTerritory", {}, token);
+  for (const e of t.loot ?? []) {
+    try { await call("claimPackDrop", { entryId: e.id }, token); } catch { /* refused claims wait */ }
+  }
+};
 
 /* ── §H THE HOMELAND ────────────────────────────────────── */
 {
@@ -80,7 +118,13 @@ const inTenths = (v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
   const me = `tender:${db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id}`;
   const now = Date.now();
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 3800, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 3800").run(me, now);
-  await call("chooseClass", { classKey: "warden" }, token);
+  // The class set by hand in her record (fixture
+  // restated, 2026-10-25): the choosing gate now wants
+  // three wakes before chooseClass answers — the game's
+  // current law, and not this drive's road. The weapon
+  // choosing still rides its API (it asks only that a
+  // class stands).
+  db.prepare("UPDATE tender_progress SET class_key = 'warden' WHERE owner_key = ?").run(me);
   await call("chooseWeapon", { weaponKey: "sword" }, token);
   const tileId = new Map();
   const seedTile = (q, r, cursed, element) => {
@@ -98,7 +142,12 @@ const inTenths = (v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
   const wanderersLeft = () => db.prepare("SELECT COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ?").get(me).n;
   const keepStanding = () => db.prepare("UPDATE tender_progress SET hp = 100, down_until = NULL, wanderer_watermark = NULL WHERE owner_key = ?").run(me);
   const fellAll = async (label) => {
-    for (let i = 0; i < 10 && wanderersLeft() > 0; i++) {
+    // Forty reads of patience (fixture restated,
+    // 2026-10-25): the weapon strikes inside the settled
+    // watermark windows, and on an idle machine ten tight
+    // reads give batch 2 almost no window to strike in —
+    // the proof is the felling, not the read count.
+    for (let i = 0; i < 40 && wanderersLeft() > 0; i++) {
       keepStanding();
       db.prepare("UPDATE tender_progress SET weapon_next_at = ? WHERE owner_key = ?").run(Date.now() - 60000, me);
       await call("getTerritory", {}, token);
@@ -108,6 +157,10 @@ const inTenths = (v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
 
   seedWanderers(40);
   await fellAll("batch 1");
+  const packKinds1 = db.prepare("SELECT DISTINCT kind FROM tender_pack WHERE owner_key = ?").all(me).map(r => r.kind);
+  ok("batch 1: the weapon road's Pack holds attunement drops only (its standing skeleton of numbers)", packKinds1.every(k => k === "attunement"), JSON.stringify(packKinds1));
+  ok("batch 1: the pools stand at zero until she claims the drops", poolsOf(me).total === 0, JSON.stringify(poolsOf(me).m));
+  await claimPackFor(token);
   const p1 = poolsOf(me);
   console.log("  pools after batch 1:", JSON.stringify(p1.m));
   ok("batch 1: the pools gained from the fells", p1.total > 0, `total ${p1.total}`);
@@ -116,6 +169,7 @@ const inTenths = (v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
 
   seedWanderers(40);
   await fellAll("batch 2");
+  await claimPackFor(token);
   const p2 = poolsOf(me);
   console.log("  pools after batch 2:", JSON.stringify(p2.m));
   ok("batch 2: repeated kills ACCUMULATE on the first batch", p2.total > p1.total, `${p1.total} -> ${p2.total}`);
@@ -125,7 +179,7 @@ const inTenths = (v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6;
   const cClaim = await call("claimTender", { password: "fell-drops-password", tenderName: "Quiet Tender" });
   const cMe = `tender:${db.prepare("SELECT id FROM tenders WHERE code = ?").get(cClaim.tender.code).id}`;
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 3800, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 3800").run(cMe, Date.now());
-  await call("chooseClass", { classKey: "warden" }, cClaim.token);
+  db.prepare("UPDATE tender_progress SET class_key = 'warden' WHERE owner_key = ?").run(cMe);
   const cHeart = Number(db.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, created_at) VALUES (?, 0, 0, 'root', 0, ?)").run(cMe, Date.now()).lastInsertRowid);
   const cDark = Number(db.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, created_at) VALUES (?, 1, 0, 'fire', 1, ?)").run(cMe, Date.now()).lastInsertRowid);
   void cHeart;
@@ -169,7 +223,10 @@ async function claimBound(name, classKey) {
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim.tender.code).id;
   const ownerKey = `tender:${tenderId}`;
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 3800, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = 3800").run(ownerKey, Date.now());
-  if (classKey) await call("chooseClass", { classKey }, token);
+  // The class set by hand, as in §H (fixture restated,
+  // 2026-10-25 — the choosing gate's three-wakes law is
+  // not this drive's road).
+  if (classKey) db.prepare("UPDATE tender_progress SET class_key = ? WHERE owner_key = ?").run(classKey, ownerKey);
   return { token, ownerKey };
 }
 function seedAwokin(ownerKey, tenderName, name, element, power = 3, toughness = 3) {
@@ -292,11 +349,21 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
   console.log("§T1 table campaign — the standing fell, the bench does not");
   const B = await claimBound("Campaign Feller", "runewright");
   // The Camposts are filed at power 1 a part (power 3
-  // whole): the campaign bank (two stakes, ✦24) must fund
-  // their summon CASTS now — a cast can falter, and every
-  // attempt charges the bank (the wheel law, 2026-10-21).
+  // whole): their summon casts are paid from the
+  // campaign bank, and the bank is seeded by the seated
+  // Tenders' stakes — a seat's stake is its Table purse,
+  // and the purse counts the whole owned roster. A
+  // feller who owns nothing but his two posts stakes
+  // almost nothing, and the falter charges (every
+  // attempt charges the bank — the wheel law,
+  // 2026-10-21) can burn it before the second post is
+  // called (seen on the road, 2026-10-25). So the
+  // feller owns a bench, as §T2's feller does (fixture
+  // restated): twenty-four owned non-members deepen his
+  // stake; only the two party posts can stand.
   const camp1 = seedAwokin(B.ownerKey, "Campaign Feller", "Campost One", "root", 1, 3);
   const camp2 = seedAwokin(B.ownerKey, "Campaign Feller", "Campost Two", "root", 1, 3);
+  for (let i = 0; i < 24; i++) seedAwokin(B.ownerKey, "Campaign Feller", `Campbench ${i + 1}`, "root");
   // The strict company (2026-10-21): only party members
   // stand in the seat's company at the wheel — compose it.
   await call("addToParty", { awakenedId: camp1 }, B.token);
@@ -306,54 +373,59 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
   seedAwokin(C.ownerKey, "Campaign Bench", "Benchwarmer", "stone");
   const ttC = await bindTable({ token: C.token, discordId: "fell-c", discordName: "Campaign Bench" });
 
-  const room = "campaign-fell-drops";
-  const st = client("ST");
-  await st.join({ devName: "Drops Storytender", room });
-  // The seat is claimed in the room (Campaign Build 1) —
-  // the join no longer confers it.
-  st.send({ type: "claimStoryteller" });
-  await st.waitFor((c2) => !!c2.you?.storytender, "the drops storytender's claim", 15000);
-  const b = client("B");
-  await b.join({ authToken: ttB, room });
-  const cc = client("C");
-  await cc.join({ authToken: ttC, room });
-  const landingB = b.you.landing;
-  const companyB = b.you.company ?? [];
-  await summonOnto(b, companyB.find((cd) => cd.name === "Campost One").id, landingB);
-  await summonOnto(b, companyB.find((cd) => cd.name === "Campost Two").id, landingB);
-  ok("campaign: the feller stands two Awoken on the field", b.state.field.filter((u) => u.ownerKey === b.you.key).length === 2);
-  ok("campaign: the bench seat fields nothing", cc.state.field.filter((u) => u.ownerKey === cc.you.key).length === 0);
-
-  const dealBatch = async (n) => {
-    for (let i = 0; i < n; i++) st.send({ type: "stAdd", kind: "fray" });
-    await st.waitFor((c2) => (c2.you?.storytender?.reserve.length ?? 0) >= n, `${n} fray held in reserve`, 15000);
+  // ONE batch is the whole proof (fixture restated,
+  // 2026-10-25): the old second batch was never an
+  // independent fixture — in the same room, the first
+  // batch's casts and falters bleed the campaign bank
+  // until the bastion falls to ambient pressure before
+  // a second dealing (seen on the road: "THE BASTION
+  // FALLS" with no dark dealt); in a fresh room, the
+  // campaign's bank and company ledger still carry the
+  // first batch's spending for this tender (seen: ✦2
+  // held, Campost One already spent). What this build
+  // must prove about the campaign road — that it pays
+  // the pools DIRECTLY, as it always did — one batch
+  // proves whole. Accumulation across batches is
+  // proven on the homeland road (§H) and at the casual
+  // Table (§T2).
+  const runBatch = async (room, label) => {
+    const st = client(`ST-${label}`);
+    await st.join({ devName: "Drops Storytender", room });
+    // The seat is claimed in the room (Campaign Build 1) —
+    // the join no longer confers it.
+    st.send({ type: "claimStoryteller" });
+    await st.waitFor((c2) => !!c2.you?.storytender, "the drops storytender's claim", 15000);
+    const b = client(`B-${label}`);
+    await b.join({ authToken: ttB, room });
+    const cc = client(`C-${label}`);
+    await cc.join({ authToken: ttC, room });
+    const landingB = b.you.landing;
+    const companyB = b.you.company ?? [];
+    await summonOnto(b, companyB.find((cd) => cd.name === "Campost One").id, landingB);
+    await summonOnto(b, companyB.find((cd) => cd.name === "Campost Two").id, landingB);
+    ok(`campaign ${label}: the feller stands two Awoken on the field`, b.state.field.filter((u) => u.ownerKey === b.you.key).length === 2);
+    ok(`campaign ${label}: the bench seat fields nothing`, cc.state.field.filter((u) => u.ownerKey === cc.you.key).length === 0);
+    for (let i = 0; i < 30; i++) st.send({ type: "stAdd", kind: "fray" });
+    await st.waitFor((c2) => (c2.you?.storytender?.reserve.length ?? 0) >= 30, "30 fray held in reserve", 15000);
     st.send({ type: "stDeal" });
-    await b.waitFor((c2) => c2.state.dark.length >= n, `${n} fray dealt`, 20000);
-    return b.state.dark.length;
+    await b.waitFor((c2) => c2.state.dark.length >= 30, "30 fray dealt", 20000);
+    ok(`campaign ${label}: 30 fray dealt`, b.state.dark.length >= 30, `dealt ${b.state.dark.length}`);
+    ok(`campaign ${label}: the field is cleared by the feller's side`, await clearField(b, 240000), `${b.state.dark.length} dark remain`);
+    b.ws.close(); cc.ws.close(); st.ws.close();
   };
 
-  const dealt1 = await dealBatch(30);
-  ok(`campaign batch 1: ${dealt1} fray dealt`, dealt1 >= 30, `dealt ${dealt1}`);
-  ok("campaign batch 1: the field is cleared by the feller's side", await clearField(b, 240000), `${b.state.dark.length} dark remain`);
+  await runBatch("campaign-fell-drops", "batch 1");
   const t1 = poolsOf(B.ownerKey);
   console.log("  feller pools after batch 1:", JSON.stringify(t1.m));
   ok("campaign batch 1: the standing feller's pools gained", t1.total > 0, `total ${t1.total}`);
   ok("campaign batch 1: gains in exact tenths", inTenths(t1.total), `total ${t1.total}`);
   ok("campaign batch 1: the bench seat gained nothing", poolsOf(C.ownerKey).total === 0, JSON.stringify(poolsOf(C.ownerKey).m));
 
-  const dealt2 = await dealBatch(30);
-  ok(`campaign batch 2: ${dealt2} more fray dealt`, dealt2 >= 30, `dealt ${dealt2}`);
-  ok("campaign batch 2: the field is cleared again", await clearField(b, 240000), `${b.state.dark.length} dark remain`);
-  const t2 = poolsOf(B.ownerKey);
-  console.log("  feller pools after batch 2:", JSON.stringify(t2.m));
-  ok("campaign batch 2: repeated kills ACCUMULATE", t2.total > t1.total, `${t1.total} -> ${t2.total}`);
-  ok("campaign batch 2: the bench seat still holds nothing", poolsOf(C.ownerKey).total === 0, JSON.stringify(poolsOf(C.ownerKey).m));
-  b.ws.close(); cc.ws.close(); st.ws.close();
 }
 
 /* ── §T2 THE TABLE, CASUAL ──────────────────────────────── */
 {
-  console.log("§T2 table casual — the killer's pools catch the drip");
+  console.log("§T2 table casual — the take gathers in the shared Pack; the drip reaches the killer's pools by his claim");
   const B = await claimBound("Casual Feller", "runewright");
   const waveIds = [];
   // The posts are filed at power 2 a part (power 6 whole):
@@ -374,16 +446,18 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
   seedAwokin(C.ownerKey, "Casual Witness", "Quietstander", "stone");
   const ttC = await bindTable({ token: C.token, discordId: "fell-c2", discordName: "Casual Witness" });
 
-  // The hunt runs over TWO fresh rooms: a room's deep waves
-  // wear deepening bodies (a wave-4 Tangle wears 11) and
-  // grind long past the claim's need, and a single room's
-  // geometry can strand a camper at the seed's doorstep out
-  // of everyone's reach (probed, 2026-10-21). Two wave
-  // ladders from the bottom average that weather out. The
-  // seat's purse is its own (166 at the sit with the bench
-  // above, +3 a fell, blades at 2) — the hunt lives inside
-  // that economy: three summon casts (falters included),
-  // then blades and blows paid by the fells themselves.
+  // The hunt runs over fresh rooms as needed: a single
+  // room's geometry can strand a camper at the seed's
+  // doorstep out of everyone's reach (probed, 2026-10-21),
+  // or deal the landing a fully cursed ring with no pure
+  // ground to summon onto (seen 2026-10-25) — fresh
+  // rooms average that weather out. The seat's
+  // purse is its own (166 at the sit with the bench
+  // above, blades at 2) — and since the loot table fix
+  // the fells pay their energy as ORBS IN THE PACK, so
+  // the hunt claims them as it goes: three summon casts
+  // (falters included), then blades and blows paid by
+  // the fells themselves, through the Pack.
   // Marching is NOT used: a re-ordered unit glides and
   // strikes nothing, and a march costs 3 a hex the blades
   // need more.
@@ -395,8 +469,19 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
     await cc.join({ authToken: ttC, room });
     const landingB = b.you.landing;
     const companyB = b.you.company ?? [];
-    for (const n of ["One", "Two", "Three"]) {
-      await summonOnto(b, companyB.find((cd) => cd.name === `Wavepost ${n}`).id, landingB);
+    // A deal can strand the landing: every neighbour
+    // cursed means no pure ground to summon a first hand
+    // onto, and no hand means no curse strike to open
+    // the field (seen on the road, 2026-10-25). The
+    // section re-rolls the room — the hunt's proof does
+    // not live in any one deal.
+    try {
+      for (const n of ["One", "Two", "Three"]) {
+        await summonOnto(b, companyB.find((cd) => cd.name === `Wavepost ${n}`).id, landingB);
+      }
+    } catch {
+      b.ws.close(); cc.ws.close();
+      return { gained: 0, packSeen: 0, packSeenByWitness: 0, witnessClaim: null, attCount: 0, setupFailed: true };
     }
     ok(`casual ${room}: the feller stands three Awoken`, b.state.field.filter((u) => u.ownerKey === b.you.key).length === 3,
       `fielded ${b.state.field.filter((u) => u.ownerKey === b.you.key).length}, energy ${b.you.energy}`);
@@ -412,33 +497,94 @@ async function clearField(c, timeoutMs, reinforce = null, stopWhen = null) {
     const seen = new Set();
     const noteSeen = () => { for (const d of b.state.dark) seen.add(d.id); };
     const fellsHere = () => seen.size - b.state.dark.length;
-    const beginWave = async () => {
-      b.send({ type: "startWave" });
-      try { await b.waitFor((c2) => c2.state.battle.active && c2.state.dark.length > 0, "the wave is dealt (startWave)", 6000); }
-      catch { b.send({ type: "begin" }); await b.waitFor((c2) => c2.state.battle.active && c2.state.dark.length > 0, "the wave is dealt (begin)", 20000); }
+    // THE PROVOKE (fixture restated, 2026-10-25): the
+    // casual room has no Begin and no startWave road any
+    // more (the Table entry build, live before this one)
+    // — the dark enter on their own beat (45 s, two a
+    // beat, eight standing at most) once a standing hand
+    // strikes the curse. A Wavepost strikes it; then the
+    // hunt fells what enters, beat by beat, and the
+    // feller claims the Pack's energy orbs as they
+    // gather — the fells fund the hunt, as the game now
+    // runs. The hunt's patience is the beat's own:
+    // twenty-four fells cannot arrive faster than the
+    // entry deals them.
+    const hand = b.state.field.find((u) => u.ownerKey === b.you.key);
+    if (!hand) throw new Error("no standing hand to strike the curse");
+    const reach = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 }[hand.element] ?? 2;
+    const mark = b.state.map.find((t) => t.cursed && t.id !== "0,0" && axialDist(t.id, hand.hex) <= reach);
+    if (!mark) throw new Error("no cursed tile in reach of " + hand.hex);
+    b.send({ type: "strikeCurse", cardId: hand.cardId, hex: hand.hex, target: mark.id });
+    await b.waitFor((c2) => c2.state.battle.active && c2.state.dark.length > 0, "the dark enter on their beat", 30000);
+    noteSeen();
+    const huntStart = Date.now();
+    while (totalFells + fellsHere() < target && Date.now() - huntStart < 15 * 60 * 1000) {
+      // Claim the orbs the last fells left standing in
+      // the Pack — the hunt spends what the dark pays.
+      for (const e of (b.state.pack ?? []).filter((x) => x.kind === "energy")) b.send({ type: "claimPack", entryId: e.id });
+      await clearField(b, 100000, reinforce, () => { noteSeen(); return totalFells + fellsHere() >= target; });
       noteSeen();
-    };
-    let waves = 0;
-    while (totalFells + fellsHere() < target && waves < 4) {
-      waves++;
-      await beginWave();
-      await clearField(b, 240000, reinforce, () => { noteSeen(); return totalFells + fellsHere() >= target; });
-      noteSeen();
-      console.log(`  casual ${room} wave ${waves}: ${b.state.dark.length === 0 ? "fully felled" : "hunt moved on"} — ${fellsHere()} felled in this room, ${totalFells + fellsHere()} in the section`);
-      await sleep(500);
+      console.log(`  casual ${room}: ${fellsHere()} felled in this room, ${totalFells + fellsHere()} in the section — the beat deals on`);
+      if (totalFells + fellsHere() >= target) break;
+      try { await b.waitFor((c2) => c2.state.dark.length > 0, "the next beat's dark", 60000); noteSeen(); }
+      catch { break; }
     }
     const gained = fellsHere();
+    // THE PACK (the loot table fix): what the hunts left
+    // standing in the room's shared Pack — read off BOTH
+    // clients (the feller's and the witness's) before the
+    // room empties. The witness claims an item into her
+    // own inventory; the feller's claim of the same entry
+    // must then be refused. The feller claims the
+    // attunement gatherings — the road by which the
+    // drip now reaches his pools.
+    await sleep(500);
+    const packSeen = (b.state.pack ?? []).length;
+    const packSeenByWitness = (cc.state.pack ?? []).length;
+    let witnessClaim = null;
+    const itemEntry = (cc.state.pack ?? []).find(e => e.kind === "item" && e.itemKey && e.itemKey !== "rune-shard");
+    if (itemEntry) {
+      const before = qtyOfKey(C.ownerKey, itemEntry.itemKey);
+      cc.send({ type: "claimPack", entryId: itemEntry.id });
+      await sleep(700);
+      const errMark = b.errors.length;
+      b.send({ type: "claimPack", entryId: itemEntry.id });
+      await sleep(700);
+      witnessClaim = {
+        key: itemEntry.itemKey,
+        qty: itemEntry.qty,
+        before,
+        after: qtyOfKey(C.ownerKey, itemEntry.itemKey),
+        gone: !(cc.state.pack ?? []).some(e => e.id === itemEntry.id),
+        raceRefused: b.errors.slice(errMark).some(m => m.includes("no longer in the Pack")),
+      };
+    }
+    const attEntries = (b.state.pack ?? []).filter(e => e.kind === "attunement");
+    for (const e of attEntries) b.send({ type: "claimPack", entryId: e.id });
+    if (attEntries.length) await sleep(700);
     b.ws.close(); cc.ws.close();
-    return gained;
+    return { gained, packSeen, packSeenByWitness, witnessClaim, attCount: attEntries.length };
   };
-  totalFells += await huntRoom("table-fell-drops-a", 24);
-  if (totalFells < 24) totalFells += await huntRoom("table-fell-drops-b", 24);
+  let packSeen = 0, packSeenByWitness = 0, witnessClaim = null, attCount = 0;
+  for (const roomName of ["table-fell-drops-a", "table-fell-drops-b", "table-fell-drops-c"]) {
+    if (totalFells >= 24) break;
+    const r = await huntRoom(roomName, 24);
+    totalFells += r.gained;
+    packSeen += r.packSeen;
+    packSeenByWitness += r.packSeenByWitness;
+    witnessClaim = witnessClaim ?? r.witnessClaim;
+    attCount += r.attCount;
+  }
   ok("casual: at least 24 dark were felled by the killer's side across the two rooms", totalFells >= 24, `felled ${totalFells}`);
+  ok("casual: the fells' gatherings stood in the shared Pack", packSeen > 0, `pack entries ${packSeen}`);
+  ok("casual: the witness's client saw the same Pack", packSeenByWitness > 0, `witness saw ${packSeenByWitness}`);
+  ok("casual: the witness claimed an item into her own inventory", !!witnessClaim && witnessClaim.after === witnessClaim.before + witnessClaim.qty, JSON.stringify(witnessClaim));
+  ok("casual: the claimed entry left the Pack, and a second claim of it was refused", !!witnessClaim && witnessClaim.gone && witnessClaim.raceRefused, JSON.stringify(witnessClaim));
   const tB = poolsOf(B.ownerKey);
-  console.log("  killer pools:", JSON.stringify(tB.m));
-  ok("casual: the killer's pools gained from his fells", tB.total > 0, `total ${tB.total}`);
+  console.log("  killer pools:", JSON.stringify(tB.m), "| attunement gatherings claimed:", attCount);
+  ok("casual: the killer's pools gained — by claiming the attunement gatherings", tB.total > 0, `total ${tB.total}`);
   ok("casual: gains in exact tenths", inTenths(tB.total), `total ${tB.total}`);
-  ok("casual: the witness who never took the field gained nothing", poolsOf(C.ownerKey).total === 0, JSON.stringify(poolsOf(C.ownerKey).m));
+  ok("casual: the witness who never took the field gained no attunement", poolsOf(C.ownerKey).total === 0, JSON.stringify(poolsOf(C.ownerKey).m));
 }
 
 console.log(`\nFELL DROPS DRIVE: ${pass} passed, ${fail} failed`);

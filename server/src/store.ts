@@ -1024,6 +1024,29 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS drop_notices (
   seen INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT 0
 );`);
+// THE PACK (the loot table fix, 2026-10-25): what the
+// felled dark leaves behind on the homeland, gathered
+// unclaimed until the Tender clicks it into her own
+// inventory, purse or pools — one row per standing entry
+// (energy, an element's attunement, an item stack), and
+// the visible moment of each fell for the client's
+// spring-and-fly, drained once like the notices.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_pack (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  item_key TEXT,
+  element TEXT,
+  qty REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS drop_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+);`);
 // Migration: attunement realized-rate columns — MUST run after the rebuild
 // migration above, which recreates the table without these columns.
 for (const col of ["lifetime_gains REAL NOT NULL DEFAULT 0", "sample_gains REAL NOT NULL DEFAULT 0", "sampled_at INTEGER", "display_rate REAL NOT NULL DEFAULT 0"]) {
