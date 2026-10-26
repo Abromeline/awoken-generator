@@ -2724,6 +2724,87 @@ export default function Table() {
       ),
     });
   }
+  // ── THE STANDING THINGS OF THE ROOM, IN THE SAME PASS
+  // (Nigel, 2026-10-26 — the depth law, on this ground too):
+  // the grown seed and the standing works (the Black Gate,
+  // Bulwark's shields, the rockwall's and bramble's nodes)
+  // join `figures` here, each at its base line, so a figure
+  // behind one is covered by it and a figure before one
+  // covers it — the pass the homeland's depth build keeps.
+  // (Their drawings formerly rode the workings' map in the
+  // stage composition, in one fixed stratum over the tiles
+  // and under every figure.) The room keeps no watchtowers
+  // and no build pieces — nothing else stands here to join.
+  if (shared.seed && shared.seed.level >= 2) {
+    const c = centerOf(SEED_TILE_ID);
+    if (c) {
+      figures.push({
+        key: "seed-face", gy: c.cy + 8,
+        node: (
+          <g key="seed-face" pointerEvents="none">
+            <image href={shared.seed.stage === "beacon" || shared.seed.stage === "bastion" ? seedBeaconArt : seedSaplingArt}
+              x={c.cx - (shared.seed.level >= 3 ? 20.5 : 12)} y={c.cy + 8 - (shared.seed.level >= 3 ? 80 : 40)}
+              width={shared.seed.level >= 3 ? 41 : 24} height={shared.seed.level >= 3 ? 80 : 40}
+              preserveAspectRatio="xMidYMax meet" pointerEvents="none" />
+          </g>
+        ),
+      });
+    }
+  }
+  for (const w of shared.workings) {
+    if (w.engine === "blackgate" && w.wall) {
+      const frac = Math.max(0, Math.min(1, w.wall.hp / Math.max(1, w.wall.maxHp)));
+      figures.push({
+        key: `gate-${w.id}`, gy: w.wall.y,
+        node: (
+          <g key={`gate-${w.id}`} pointerEvents="none" opacity={0.3 + 0.7 * frac}>
+            <image href={blackGateImg} x={w.wall.x - 40} y={w.wall.y - 40} width={80} height={80} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 7px rgba(0,0,0,0.8))" }} />
+            <text className="ts-tag" x={w.wall.x} y={w.wall.y + 48}>❤{w.wall.hp}</text>
+          </g>
+        ),
+      });
+    } else if (w.engine === "bulwark" && w.shields) {
+      w.shields.filter(s => s.hp > 0).forEach((s, i) => {
+        const frac = Math.max(0, Math.min(1, s.hp / Math.max(1, s.maxHp)));
+        figures.push({
+          key: `shield-${w.id}-${i}`, gy: s.y,
+          node: (
+            <g key={`shield-${w.id}-${i}`} pointerEvents="none" opacity={0.35 + 0.65 * frac}>
+              <image href={bulwarkShieldImg} x={s.x - 23} y={s.y - 24} width={46} height={48} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,217,138,0.55))" }} />
+              <text className="ts-tag" x={s.x} y={s.y + 34}>❤{s.hp}</text>
+            </g>
+          ),
+        });
+      });
+    } else if ((w.engine === "bramble" || w.engine === "rockwall") && w.nodes) {
+      w.nodes.filter(n => n.hp > 0).forEach((n, i) => {
+        const frac = Math.max(0, Math.min(1, n.hp / Math.max(1, n.maxHp)));
+        figures.push({
+          key: `worknode-${w.id}-${i}`, gy: n.y + TILE_SIZE * 0.08,
+          node: w.engine === "rockwall" ? (
+            <g key={`worknode-${w.id}-${i}`} pointerEvents="none" opacity={0.35 + 0.65 * frac}>
+              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.1} rx={TILE_SIZE * 0.17} ry={TILE_SIZE * 0.06} fill="rgba(0,0,0,0.4)" />
+              <polygon points={`${n.x},${n.y - TILE_SIZE * 0.3} ${n.x + TILE_SIZE * 0.16},${n.y + TILE_SIZE * 0.08} ${n.x - TILE_SIZE * 0.16},${n.y + TILE_SIZE * 0.08}`} fill="#8d8578" stroke="#4c463c" strokeWidth={1} strokeLinejoin="round" />
+            </g>
+          ) : n.mote ? (
+            <g key={`worknode-${w.id}-${i}`} pointerEvents="none" opacity={0.35 + 0.65 * frac}>
+              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.05} rx={TILE_SIZE * 0.09} ry={TILE_SIZE * 0.03} fill="rgba(0,0,0,0.4)" />
+              <image href={brambleMoteFrameAt(nowMs, typeof n.born === "number" ? n.born : nowMs)}
+                x={n.x + TILE_SIZE * BRAMBLE_CENTRE_OFF * BRAMBLE_MOTE_SCALE - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE / 2} y={n.y + TILE_SIZE * BRAMBLE_BASE_OFF * BRAMBLE_MOTE_SCALE - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT} width={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE} height={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT}
+                preserveAspectRatio="xMidYMax meet" />
+            </g>
+          ) : (
+            <g key={`worknode-${w.id}-${i}`} pointerEvents="none" opacity={0.35 + 0.65 * frac}>
+              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.12} rx={TILE_SIZE * 0.2} ry={TILE_SIZE * 0.07} fill="rgba(0,0,0,0.4)" />
+              <image href={brambleFrameAt(nowMs, typeof n.born === "number" ? n.born : nowMs)}
+                x={n.x + TILE_SIZE * BRAMBLE_CENTRE_OFF - TILE_SIZE * BRAMBLE_DRAW_W / 2} y={n.y + TILE_SIZE * BRAMBLE_BASE_OFF - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_ASPECT} width={TILE_SIZE * BRAMBLE_DRAW_W} height={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_ASPECT}
+                preserveAspectRatio="xMidYMax meet" />
+            </g>
+          ),
+        });
+      });
+    }
+  }
   figures.sort((a, b) => a.gy - b.gy);
 
   // THE WHEEL'S OFFERINGS, built once for two mouths: the
@@ -3282,12 +3363,13 @@ export default function Table() {
                             at a figure's height, the Beacon at
                             twice that, as the homeland seats
                             them. */}
-                        {shared.seed && shared.seed.level >= 2 && (
-                          <image href={shared.seed.stage === "beacon" || shared.seed.stage === "bastion" ? seedBeaconArt : seedSaplingArt}
-                            x={cx - (shared.seed.level >= 3 ? 20.5 : 12)} y={cy + 8 - (shared.seed.level >= 3 ? 80 : 40)}
-                            width={shared.seed.level >= 3 ? 41 : 24} height={shared.seed.level >= 3 ? 80 : 40}
-                            preserveAspectRatio="xMidYMax meet" pointerEvents="none" />
-                        )}
+                        {/* THE SEED GROWN is drawn in the
+                            depth pass below (with `figures`):
+                            a grown seed is a standing thing,
+                            and a figure behind its base must
+                            be covered by it, as on the
+                            homeland (2026-10-26). The ground
+                            circles above stay with the tile. */}
                       </>
                     )}
                     {t.landing && (
@@ -3427,87 +3509,12 @@ export default function Table() {
                     </g>
                   );
                 }
-                if (w.engine === "blackgate" && w.wall) {
-                  // THE BLACK GATE AT THE TABLE (2026-10-24):
-                  // Nigel's own Black Gate piece standing at
-                  // its wall point, paling as its wounds
-                  // deepen, its HP worn beneath it — as the
-                  // homeland draws it, and as Bulwark's
-                  // shields are drawn beside it here.
-                  const frac = Math.max(0, Math.min(1, w.wall.hp / Math.max(1, w.wall.maxHp)));
-                  return (
-                    <g key={w.id} pointerEvents="none" opacity={0.3 + 0.7 * frac}>
-                      <image href={blackGateImg} x={w.wall.x - 40} y={w.wall.y - 40} width={80} height={80} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 7px rgba(0,0,0,0.8))" }} />
-                      <text className="ts-tag" x={w.wall.x} y={w.wall.y + 48}>❤{w.wall.hp}</text>
-                    </g>
-                  );
-                }
-                if (w.engine === "bulwark" && w.shields) {
-                  // BULWARK (Nigel, 2026-10-23 — Recovery R12):
-                  // the cast line of shields, each drawn with
-                  // his own uploaded Shield piece (the
-                  // rune/ward set's "Artwork 4") at its own
-                  // field point, paling as its wounds deepen
-                  // and wearing its HP beneath it, as the
-                  // Trees wear theirs.
-                  return (
-                    <g key={w.id} pointerEvents="none">
-                      {w.shields.filter(s => s.hp > 0).map((s, i) => {
-                        const frac = Math.max(0, Math.min(1, s.hp / Math.max(1, s.maxHp)));
-                        return (
-                          <g key={i} opacity={0.35 + 0.65 * frac}>
-                            <image href={bulwarkShieldImg} x={s.x - 23} y={s.y - 24} width={46} height={48} preserveAspectRatio="xMidYMid meet" style={{ filter: "drop-shadow(0 0 5px rgba(255,217,138,0.55))" }} />
-                            <text className="ts-tag" x={s.x} y={s.y + 34}>❤{s.hp}</text>
-                          </g>
-                        );
-                      })}
-                    </g>
-                  );
-                }
-                if ((w.engine === "bramble" || w.engine === "rockwall") && w.nodes) {
-                  // DEFENCE WORKS (the battle port — Twelve
-                  // #1): a defender's raised work, drawn as
-                  // the homeland draws it — the bramble's
-                  // thicket from Nigel's flipbook, growing in
-                  // frame by frame off each node's served
-                  // birth; its motes the same run at mote
-                  // scale off their own births; the rockwall
-                  // as standing stones — each node paling as
-                  // its wounds deepen.
-                  return (
-                    <g key={w.id} pointerEvents="none">
-                      {w.nodes.filter(n => n.hp > 0).map((n, i) => {
-                        const frac = Math.max(0, Math.min(1, n.hp / Math.max(1, n.maxHp)));
-                        if (w.engine === "rockwall") {
-                          return (
-                            <g key={i} opacity={0.35 + 0.65 * frac}>
-                              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.1} rx={TILE_SIZE * 0.17} ry={TILE_SIZE * 0.06} fill="rgba(0,0,0,0.4)" />
-                              <polygon points={`${n.x},${n.y - TILE_SIZE * 0.3} ${n.x + TILE_SIZE * 0.16},${n.y + TILE_SIZE * 0.08} ${n.x - TILE_SIZE * 0.16},${n.y + TILE_SIZE * 0.08}`} fill="#8d8578" stroke="#4c463c" strokeWidth={1} strokeLinejoin="round" />
-                            </g>
-                          );
-                        }
-                        if (n.mote) {
-                          return (
-                            <g key={i} opacity={0.35 + 0.65 * frac}>
-                              <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.05} rx={TILE_SIZE * 0.09} ry={TILE_SIZE * 0.03} fill="rgba(0,0,0,0.4)" />
-                              <image href={brambleMoteFrameAt(nowMs, typeof n.born === "number" ? n.born : nowMs)}
-                                x={n.x + TILE_SIZE * BRAMBLE_CENTRE_OFF * BRAMBLE_MOTE_SCALE - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE / 2} y={n.y + TILE_SIZE * BRAMBLE_BASE_OFF * BRAMBLE_MOTE_SCALE - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT} width={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE} height={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_MOTE_SCALE * BRAMBLE_ASPECT}
-                                preserveAspectRatio="xMidYMax meet" />
-                            </g>
-                          );
-                        }
-                        return (
-                          <g key={i} opacity={0.35 + 0.65 * frac}>
-                            <ellipse cx={n.x} cy={n.y + TILE_SIZE * 0.12} rx={TILE_SIZE * 0.2} ry={TILE_SIZE * 0.07} fill="rgba(0,0,0,0.4)" />
-                            <image href={brambleFrameAt(nowMs, typeof n.born === "number" ? n.born : nowMs)}
-                              x={n.x + TILE_SIZE * BRAMBLE_CENTRE_OFF - TILE_SIZE * BRAMBLE_DRAW_W / 2} y={n.y + TILE_SIZE * BRAMBLE_BASE_OFF - TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_ASPECT} width={TILE_SIZE * BRAMBLE_DRAW_W} height={TILE_SIZE * BRAMBLE_DRAW_W * BRAMBLE_ASPECT}
-                              preserveAspectRatio="xMidYMax meet" />
-                          </g>
-                        );
-                      })}
-                    </g>
-                  );
-                }
+                // THE STANDING WORKS (the Black Gate, Bulwark's
+                // shields, the rockwall's and bramble's nodes)
+                // are drawn in the DEPTH PASS above (with
+                // `figures`, at their base lines) — not here
+                // (2026-10-26). What remains in this map is
+                // ground writing and flown things.
                 if (w.kind === "ward" && w.hexA && w.hexB) {
                   const a = centerOf(w.hexA);
                   const b = centerOf(w.hexB);
