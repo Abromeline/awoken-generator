@@ -133,6 +133,11 @@ export interface TerritoryTile {
    *  seed's calm covers this tile — the level the curse is
    *  (or would be) reckoned at here: its ring from the seed. */
   calmLevel?: number | null;
+  /** THE LIGHTING SYSTEM (2026-10-26): this tile's light
+   *  level as the server reckons it from the standing
+   *  sources — 0 dark · 1 faint · 2 fighting. The map
+   *  renders exactly this light and computes none. */
+  light?: number;
   /** The terrain attunement bank, as getTerritory serves it: which
    *  element is pressing this tile, and how full its 10-point bank is.
    *  Both absent/null until a company or a turned shrine first pours. */

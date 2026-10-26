@@ -138,6 +138,10 @@ interface MapTileView {
   curseHp: number;
   curseMaxHp: number;
   landing: string | null;
+  /** THE LIGHTING SYSTEM (2026-10-26): this tile's light
+   *  level as the server reckons it — 0 dark · 1 faint ·
+   *  2 fighting. The field renders exactly this. */
+  light?: number;
 }
 
 interface FieldUnitView {
@@ -197,6 +201,11 @@ interface SharedState {
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
+  /** THE DM's LIGHT OVERRIDES (2026-10-26): hex → level
+   *  pairs the campaign's Storytender has set by hand.
+   *  Served in campaign rooms only; null at a casual table,
+   *  which holds no override and no hand on the light. */
+  lightOverrides?: [string, number][] | null;
   field: FieldUnitView[];
   enemies: EnemyView[];
   dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; pos: { x: number; y: number }; tgt: { x: number; y: number } | null; moving: boolean }[];
@@ -665,6 +674,14 @@ export default function Table() {
   const [stSceneText, setStSceneText] = useState("");
   const [stSceneImg, setStSceneImg] = useState("");
   const [stSkyText, setStSkyText] = useState("");
+  // THE DM's LIGHT TOOL (the Lighting System, 2026-10-26):
+  // the Storytender's armed hand on the light — a level
+  // (0 dark · 1 faint · 2 fighting) or "clear" (lift her
+  // setting from the hex). While armed, her tap on a hex
+  // sets its light by the server's stLight door; nothing
+  // else about the tap changes, and no other seat sees
+  // the tool at all.
+  const [dmLight, setDmLight] = useState<null | 0 | 1 | 2 | "clear">(null);
   // (The workshop-chosen card border dressed the hand cards
   // here until the wheel law retired the hand, 2026-10-21 —
   // the border's read and its state went with the cards it
@@ -2531,6 +2548,15 @@ export default function Table() {
   const onTileTap = (t: MapTileView, pt?: { x: number; y: number } | null) => {
     if (!you) return;
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
+    // THE DM's LIGHT TOOL (2026-10-26): while the
+    // Storytender's light hand is armed, her tap on a hex
+    // sets that hex's light — the server's door (stLight)
+    // is campaign-only and hers alone; the tap does
+    // nothing else. Disarming is the same hand set down.
+    if (you.storytender && dmLight !== null) {
+      send({ type: "stLight", hex: t.id, level: dmLight === "clear" ? null : dmLight });
+      return;
+    }
     // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built
     // 2026-10-24): the tap's own POINT rides the cast —
     // the working is written where the player pointed,
@@ -3588,7 +3614,14 @@ export default function Table() {
                     {isSeed && (
                       <>
                         <circle className="seed-ground" cx={cx} cy={cy} r={22} />
-                        <circle className="seed-bulb" cx={cx} cy={cy} r={bulbR * 1.63} />
+                        {/* THE LIGHTING SYSTEM's source law
+                            (2026-10-26): an ungrown seed gives
+                            NO light — its bulb reads as a
+                            banked charge, dim, until the seed
+                            stands grown into a beacon-class
+                            structure (Beacon or Bastion), when
+                            its glow is real light and reads so. */}
+                        <circle className={(shared.seed?.stage === "beacon" || shared.seed?.stage === "bastion") ? "seed-bulb lit" : "seed-bulb"} cx={cx} cy={cy} r={bulbR * 1.63} />
                         {/* THE SEED GROWN (the battle port —
                             Twelve #1): fed past the Starseed,
                             the seed wears its stage's face —
@@ -3634,6 +3667,43 @@ export default function Table() {
                   </g>
                 );
               })}
+              {/* THE LIGHTING SYSTEM (2026-10-26): the dusk
+                  and its pools, drawn ONLY from the light the
+                  server serves on each tile (t.light — 0 dark
+                  · 1 faint · 2 fighting); the client computes
+                  no light of its own. The wash lies over the
+                  GROUND, below the Written Light and every
+                  figure — figures are never darkened. Unlit
+                  ground wears the dusk; FAINT ground lifts a
+                  little; FIGHTING ground stands bright in a
+                  soft pool over exactly the server's hexes.
+                  Layered polygons, no filters — the homeland
+                  map's own grammar, in this stage's measure. */}
+              <g className="light-layer" pointerEvents="none">
+                {sortedTiles.map((t) => {
+                  const { cx, cy } = tileCenter(t);
+                  const level = t.light ?? 0;
+                  if (level === 2) {
+                    return (
+                      <g key={`light-${t.id}`}>
+                        <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, TILE_SIZE, 1.14)} fill="rgba(255,226,160,0.10)" stroke="none" />
+                        <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(255,238,190,0.18)" stroke="none" />
+                      </g>
+                    );
+                  }
+                  if (level === 1) {
+                    return (
+                      <g key={`light-${t.id}`}>
+                        <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(7,9,22,0.20)" stroke="none" />
+                        <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(255,240,200,0.09)" stroke="none" />
+                      </g>
+                    );
+                  }
+                  return (
+                    <polygon key={`light-${t.id}`} className="light-hex" data-light={0} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(7,9,22,0.44)" stroke="none" />
+                  );
+                })}
+              </g>
               {/* The choosing band and the drawn line, while
                   the hand is down (the orders law, 2026-10-22):
                   the band chooses the company; the line is
@@ -4439,6 +4509,20 @@ export default function Table() {
                   <input value={stSkyText} onChange={(e) => setStSkyText(e.target.value)} maxLength={160} placeholder="Name the weather over this place…" aria-label="The sky over the scene" />
                   <button className="mini-btn add" type="submit">Turn</button>
                 </form>
+                <h4>The light</h4>
+                <div className="st-actions">
+                  <button className={dmLight === 2 ? "mini-btn armed" : "mini-btn"} onClick={() => setDmLight(dmLight === 2 ? null : 2)}>☀ Fighting</button>
+                  <button className={dmLight === 1 ? "mini-btn armed" : "mini-btn"} onClick={() => setDmLight(dmLight === 1 ? null : 1)}>🕯 Faint</button>
+                  <button className={dmLight === 0 ? "mini-btn armed" : "mini-btn"} onClick={() => setDmLight(dmLight === 0 ? null : 0)}>🌑 Dark</button>
+                  <button className={dmLight === "clear" ? "mini-btn armed" : "mini-btn"} onClick={() => setDmLight(dmLight === "clear" ? null : "clear")}>↺ As the land gives</button>
+                </div>
+                <p className="quiet small">
+                  {dmLight === null
+                    ? `Arm a light, then tap a hex to set it. Fighting light keeps the cursed back and burns what stands in it, as a beacon's does; a hex you darken loses the light the land gives it. Your settings rest with the campaign.${(shared.lightOverrides?.length ?? 0) > 0 ? ` ${shared.lightOverrides!.length} hex${shared.lightOverrides!.length === 1 ? "" : "es"} set by your hand.` : ""}`
+                    : dmLight === "clear"
+                      ? "Tap a hex to lift your setting from it — its light reads as the land gives it again. Tap ↺ above to set the hand down."
+                      : `Tap a hex to set its light ${dmLight === 2 ? "fighting bright" : dmLight === 1 ? "to a faint glow" : "dark"}. Tap the lit button above to set the hand down.`}
+                </p>
               </div>
               <div className="st-col">
                 <h4>Mercy &amp; pacing</h4>

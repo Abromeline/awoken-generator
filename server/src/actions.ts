@@ -512,6 +512,176 @@ export function standingPillars(ownerKey: string): StandingPillar[] {
   return out;
 }
 
+// ── THE LIGHTING SYSTEM (Nigel's word, 2026-10-26 16:42; the
+// source law completed the same hour, 16:49) ────────────────
+// One per-tile LIGHT LEVEL, computed here from the standing
+// sources and served in the territory payload as the single
+// truth: the client renders exactly this light and computes
+// none of its own. The Table carries the same system from
+// these same constants (server/src/table.ts). Levels — the
+// numbers are the contract:
+//   0 DARK     the stage's default; the curse walks it free.
+//   1 FAINT    a glow only: it never burns and never bars.
+//   2 FIGHTING bright enough to keep cursed things back: no
+//              spawn lands on it, no wandering dark steps
+//              onto it, and a cursed being standing on it
+//              burns (below).
+export const LIGHT_DARK = 0;
+export const LIGHT_FAINT = 1;
+export const LIGHT_FIGHTING = 2;
+// THE SOURCES — the whole list (Nigel, corrected
+// 2026-10-26 17:01: "i didnt mean the tender glows i mean
+// the building do at least the ones made of light like the
+// beacon and the glowing mushrooms"):
+//   · BEACON-CLASS structures — a seed grown to the beacon
+//     or bastion stage, and the Bastion building ("a
+//     fortress of the light and a beacon for friends") —
+//     FIGHTING over their own hex and the six around it
+//     (radius 1, seven hexes): Nigel's worked example,
+//     bright enough to keep cursed things back.
+export const LIGHT_BEACON_RADIUS = 1;
+//   · THE GLOWING MUSHROOMS — the Dream Shroom growths
+//     (territory_buildings, building_type 'dream-wheat':
+//     the code's name for the mushroom; its face in the
+//     game is "Dream Shroom") — FAINT on their own hex
+//     only. First settings, named for his tuning. Faint
+//     never stacks: two glows on one hex read FAINT still,
+//     never FIGHTING (the reckoning takes the greatest
+//     single throw, and no faint throw exceeds FAINT).
+export const SHROOM_LIGHT_LEVEL = LIGHT_FAINT;
+export const SHROOM_LIGHT_RADIUS = 0;
+//   · RUNES and WARDS standing on the field — FAINT on
+//     their own hex (an edge work's own hex is the tile
+//     its record is kept under, the canonical smaller
+//     tile of its edge).
+// NOTHING ELSE gives light, anywhere: NOT the Tender (she
+// does not glow), NOT her standing Awoken, and NOT her
+// ordinary buildings — watchtowers, halls, walls and every
+// other structure not made of light stand dark. An
+// ungrown starseed and a sapling shine not at all (a seed
+// shines only once grown into a beacon-class structure),
+// terrain and its other growths give none, enemies and
+// the curse give none, and there is no ambient sky or
+// star light — the darkness is the default the made-of-
+// light things cut into. The lighthouse's banked light
+// is its own standing law and is NOT this system; it
+// stands beside it, untouched.
+// THE BURN (Nigel's numbers, 2026-10-26): a cursed being
+// standing on FIGHTING-lit ground takes 1d10 damage per
+// settled second, applied through the standing damage path
+// (hurtDark in the battle settle — the shield pool is the
+// Awoken's own law; the dark carry no shield, and every
+// unattributed harm in the engine, the thorn's tick and the
+// shard's fall, lands by that same road). A being felled by
+// the light names no killer and settles through fellDark
+// into creditBattleKill as a land-defence fell — the same
+// road the lighthouse's own kills take.
+export const LIGHT_BURN_DIE = 10;
+export const LIGHT_BURN_TICK_S = 1;
+
+/** The canonical edge key of the edge between tile (q, r)
+ *  and its neighbour across WALL_DIRS[dir] — the very form
+ *  hex_walls keeps (placeWall: the edge lives under the
+ *  lexicographically smaller of its two tiles). */
+function lightEdgeKey(q: number, r: number, dir: number): string {
+  const [dq, dr] = WALL_DIRS[dir];
+  const nq = q + dq, nr = r + dr;
+  const flip = nq < q || (nq === q && nr < r);
+  return flip ? `${nq},${nr},${WALL_OPP[dir]}` : `${q},${r},${dir}`;
+}
+
+/** THE LAND'S LIGHT, reckoned whole from the standing
+ *  records (the Lighting System): a Map of "q,r" → level
+ *  for every lit tile of the owner's land; unlit tiles are
+ *  absent and read DARK. Spread is hex to hex and judged
+ *  per edge: a WALL or WARD standing on the edge between a
+ *  throwing hex and its neighbour blocks the throw across
+ *  that edge (the edge records of hex_walls and of the cast
+ *  workings' ward rows, and the construction's wall
+ *  segments from build_pieces — a doorway's standing parts
+ *  only, its open middle no segment at all, so a throw
+ *  threaded through the gap passes, as a step does).
+ *  FAINT light throws no distance: it stands on its own
+ *  hex and spreads nowhere. */
+export function computeTileLight(ownerKey: string, tiles: { id: number; q: number; r: number }[]): Map<string, number> {
+  const light = new Map<string, number>();
+  const byId = new Map<number, { id: number; q: number; r: number }>(tiles.map(t => [t.id, t]));
+  const onLand = new Set<string>(tiles.map(t => `${t.q},${t.r}`));
+  const raise = (q: number, r: number, level: number): void => {
+    const k = `${q},${r}`;
+    if (!onLand.has(k)) return;
+    if ((light.get(k) ?? LIGHT_DARK) < level) light.set(k, level);
+  };
+  // The spread's bars, read once: standing wall and ward
+  // edges, and the construction's standing wall segments.
+  const blockedEdges = new Set<string>();
+  for (const w of sqlite.prepare("SELECT edge_key AS edgeKey FROM hex_walls WHERE owner_key = ? AND kind IN ('wall', 'ward')").all(ownerKey) as any[]) blockedEdges.add(String(w.edgeKey));
+  for (const w of sqlite.prepare("SELECT edge_key AS edgeKey FROM territory_workings WHERE owner_key = ? AND kind = 'ward' AND edge_key IS NOT NULL").all(ownerKey) as any[]) blockedEdges.add(String(w.edgeKey));
+  const buildSegs: [Pt, Pt][] = [];
+  for (const p of loadBuildPieces(ownerKey)) {
+    if (p.kind === "wall" || p.kind === "door") buildSegs.push(...collisionSegments(p.kind, p.footprint));
+  }
+  const throwBlocked = (aq: number, ar: number, bq: number, br: number): boolean => {
+    const dir = WALL_DIRS.findIndex(([dq, dr]) => aq + dq === bq && ar + dr === br);
+    if (dir >= 0 && blockedEdges.has(lightEdgeKey(aq, ar, dir))) return true;
+    if (buildSegs.length && buildSegs.some(([a, b]) => segmentsCrossProper([aq, ar], [bq, br], a, b))) return true;
+    return false;
+  };
+  /** One source's throw: its own hex at its level, and —
+   *  for a radius beyond its own hex — ring by ring outward,
+   *  each edge judged on its own: a walled edge passes
+   *  nothing, and ground a throw never reaches relays
+   *  nothing further. */
+  const castLight = (q: number, r: number, level: number, radius: number): void => {
+    if (level <= LIGHT_DARK) return;
+    raise(q, r, level);
+    let frontier: [number, number][] = [[q, r]];
+    const reached = new Set<string>([`${q},${r}`]);
+    for (let ring = 1; ring <= radius; ring++) {
+      const next: [number, number][] = [];
+      for (const [fq, fr] of frontier) {
+        for (const [dq, dr] of WALL_DIRS) {
+          const nq = fq + dq, nr = fr + dr, k = `${nq},${nr}`;
+          if (reached.has(k) || !onLand.has(k)) continue;
+          if (throwBlocked(fq, fr, nq, nr)) continue;
+          reached.add(k);
+          raise(nq, nr, level);
+          next.push([nq, nr]);
+        }
+      }
+      frontier = next;
+    }
+  };
+  // Beacon-class: seeds grown to the beacon or bastion
+  // stage and standing on the land (the cradle protection's
+  // own reckoning of a standing seed: fallen, held, first),
+  // and Bastion buildings.
+  for (const s of sqlite.prepare("SELECT tile_id AS tileId, level FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[]) {
+    const stage = seedStageForLevel(Number(s.level ?? 1));
+    if (stage !== "beacon" && stage !== "bastion") continue;
+    const t = byId.get(Number(s.tileId));
+    if (t) castLight(t.q, t.r, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS);
+  }
+  for (const b of sqlite.prepare("SELECT tile_id AS tileId, building_type AS buildingType FROM territory_buildings WHERE owner_key = ?").all(ownerKey) as any[]) {
+    const t = byId.get(Number(b.tileId));
+    if (!t) continue;
+    // Only the buildings MADE OF LIGHT give light: the
+    // Bastion (beacon-class) and the glowing Dream Shrooms.
+    // Every other structure stands dark.
+    if (b.buildingType === "bastion") castLight(t.q, t.r, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS);
+    else if (b.buildingType === "dream-wheat") castLight(t.q, t.r, SHROOM_LIGHT_LEVEL, SHROOM_LIGHT_RADIUS);
+  }
+  // Runes and wards standing on the field.
+  for (const w of sqlite.prepare("SELECT q, r FROM hex_walls WHERE owner_key = ? AND kind IN ('rune', 'ward')").all(ownerKey) as any[]) {
+    raise(Number(w.q), Number(w.r), LIGHT_FAINT);
+  }
+  for (const w of sqlite.prepare("SELECT tile_id AS tileId, q, r FROM territory_workings WHERE owner_key = ? AND kind IN ('rune', 'ward')").all(ownerKey) as any[]) {
+    if (w.q != null && w.r != null) raise(Number(w.q), Number(w.r), LIGHT_FAINT);
+    else if (w.tileId != null) { const t = byId.get(Number(w.tileId)); if (t) raise(t.q, t.r, LIGHT_FAINT); }
+  }
+  return light;
+}
+
 /** A step crosses a pillar when its line passes within the
  *  pillar's radius of the pillar's heart — the step is barred,
  *  as at a wall. */
@@ -5395,6 +5565,9 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     id: number; kind: string; tileId: number; q: number; r: number; hp: number; maxHp: number;
     power: number; lvl: number; wetUntil: number; cracked: number; lastStrikeAt: number;
     pinnedBeats: number; chewTileId: number | null; chewProgress: number; brambleCarry: number; dead: boolean; killer: number | null;
+    /** The Lighting System's burn accrual: settled seconds
+     *  stood on FIGHTING-lit ground, toward the next 1d10. */
+    lightCarry: number;
     /** The Hold Rune's grip: held until this moment (0 = free). */
     heldUntil: number;
     /** The first-seed rising this Fray rode in with (0 =
@@ -5414,7 +5587,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       wetUntil: Number(w.wetUntil) || 0, cracked: Number(w.cracked) || 0,
       lastStrikeAt: Number(w.lastStrikeAt) || 0, pinnedBeats: Number(w.pinnedBeats) || 0,
       chewTileId: w.chewTileId == null ? null : Number(w.chewTileId), chewProgress: Number(w.chewProgress) || 0,
-      brambleCarry: 0, dead: false, killer: null,
+      brambleCarry: 0, dead: false, killer: null, lightCarry: 0,
       heldUntil: Number(w.heldUntil) || 0,
       seedRising: Number(w.seedRising) || 0,
     };
@@ -5911,6 +6084,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // loaded with the walls — the walk below halts at a pillar's
   // base as it halts at a wall.
   const pillars = standingPillars(ownerKey);
+  // THE LIGHTING SYSTEM (2026-10-26): the land's light,
+  // reckoned once for the whole settle from the standing
+  // sources — the walk below never steps onto FIGHTING
+  // ground, and the burn below falls on what stands in it.
+  const lightMap = computeTileLight(ownerKey, tiles);
+  const lightAt = (q: number, r: number): number => lightMap.get(`${q},${r}`) ?? LIGHT_DARK;
 
   const STEP_MS = 500;
   const steps = Math.max(0, Math.ceil(elapsed / STEP_MS));
@@ -6003,6 +6182,17 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       if (pillars.length && stepCrossesPillar(pillars, d.q, d.r, nq, nr)) continue;
       const cell = axialRound(nq, nr);
       if (!byKey.has(`${cell.q},${cell.r}`)) continue; // no ground there: the step is not taken
+      // FIGHTING light bars the step as a wall does (the
+      // Lighting System, 2026-10-26): the dark never walks
+      // onto ground held bright — a beacon's throw, a
+      // bastion's — it halts at the light's edge and claws
+      // from the dark, as it halts at a pillar. Ground it
+      // already stands on is not re-barred by this check
+      // (the step's DESTINATION
+      // is what is judged): a dark the light rose under may
+      // still walk out of it — and burns while it stands
+      // there (the burn, below).
+      if (lightAt(cell.q, cell.r) === LIGHT_FIGHTING) continue;
       d.q = nq; d.r = nr;
       const nt = byKey.get(`${cell.q},${cell.r}`);
       if (nt && nt.id !== d.tileId) {
@@ -6016,6 +6206,28 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (thornTiles.has(nt.id)) d.heldUntil = Math.max(d.heldUntil, tNow + BATTLE_BEAT_MS);
         const bite = thornWallBites.get(nt.id);
         if (bite) await hurtDark(d, bite, null);
+      }
+    }
+    // ── THE BURN (the Lighting System, 2026-10-26) ─────
+    // A cursed being standing on FIGHTING-lit ground burns:
+    // 1d10 per settled second (LIGHT_BURN_DIE per
+    // LIGHT_BURN_TICK_S), accrued per dark as the bramble's
+    // thorn accrues beside it and landed through hurtDark —
+    // the engine's one road for harm to the dark — with no
+    // killer named: the light itself makes these fells, and
+    // fellDark pays them as land defence. FAINT light never
+    // burns. The reckoning reads the ground the walk has
+    // just dealt: a dark that fled the light this step is
+    // out of it; one the light rose under burns from its
+    // first settled second.
+    for (const d of darks) {
+      if (d.dead) continue;
+      const cell = axialRound(d.q, d.r);
+      if (lightAt(cell.q, cell.r) !== LIGHT_FIGHTING) continue;
+      d.lightCarry += dt;
+      while (d.lightCarry >= LIGHT_BURN_TICK_S && !d.dead) {
+        d.lightCarry -= LIGHT_BURN_TICK_S;
+        await hurtDark(d, 1 + Math.floor(Math.random() * LIGHT_BURN_DIE), null);
       }
     }
     // ── THE CROWN SHARD FALLS ───────────────────────────
@@ -9623,7 +9835,15 @@ export const handlers = {
             const ringOfTile = (t: any) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
             let edgeRing = -1;
             for (const t of tiles) if (t.cursed) edgeRing = Math.max(edgeRing, ringOfTile(t));
-            const view = edgeRing < 0 ? [] : tiles.filter((t: any) => t.cursed && ringOfTile(t) === edgeRing && !beaconTiles.some(b => hexDist(t, b) <= 1));
+            // THE LIGHTING SYSTEM's bar stands beside the
+            // Beacon's own (2026-10-26): no birth lands on
+            // FIGHTING-lit ground, whichever beacon-class
+            // source holds it bright — a bastion building's
+            // throw reaches ground the seed's own protection
+            // never covered. The union only ever widens the
+            // bar; the standing exclusion above is untouched.
+            const spawnLight = computeTileLight(ownerKey, tiles);
+            const view = edgeRing < 0 ? [] : tiles.filter((t: any) => t.cursed && ringOfTile(t) === edgeRing && !beaconTiles.some(b => hexDist(t, b) <= 1) && (spawnLight.get(`${t.q},${t.r}`) ?? LIGHT_DARK) !== LIGHT_FIGHTING);
             const kindPool = ["fray", "fray", "fray"];
             if (intensity >= 2) kindPool.push("hollow", "hollow");
             if (intensity >= 3) kindPool.push("unraveler", "unraveler");
@@ -10581,6 +10801,13 @@ export const handlers = {
     // Tender's own, and none of it cursed).
     const buildTilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
     const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey));
+    // THE LIGHTING SYSTEM (2026-10-26): every tile carries
+    // its light — the one reckoning, stamped here at serve
+    // time from the records as they stand, exactly as
+    // calmLevel rides beside the tiles above. The client
+    // renders this light and computes none of its own.
+    const tileLight = computeTileLight(ownerKey, tiles as any[]);
+    for (const t of tiles as any[]) (t as any).light = tileLight.get(`${t.q},${t.r}`) ?? LIGHT_DARK;
     return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 

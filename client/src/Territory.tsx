@@ -4203,25 +4203,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     };
     // Depth-sort by TILTED screen Y: further (higher on screen) drawn first.
     // This ensures front tiles always overlap back tiles, regardless of lift.
-    // Build a set of cursed tile IDs adjacent to Awoken-occupied tiles (passive aura)
-    const occupiedKeys = new Set(
-      placements.map(p => {
-        const t = tiles.find(t => t.id === p.tileId);
-        return t ? `${t.q},${t.r}` : null;
-      }).filter(Boolean)
-    );
-    const auraTiles = new Set<number>();
-    for (const t of tiles) {
-      if (!t.cursed) continue;
-      const neighbors = [
-        `${t.q+1},${t.r}`, `${t.q-1},${t.r}`,
-        `${t.q},${t.r+1}`, `${t.q},${t.r-1}`,
-        `${t.q+1},${t.r-1}`, `${t.q-1},${t.r+1}`,
-      ];
-      if (neighbors.some(n => occupiedKeys.has(n))) {
-        auraTiles.add(t.id);
-      }
-    }
+    // The old "passive aura" — a gold glow and a brightening
+    // laid on cursed tiles beside a standing Awoken — is
+    // STRUCK (the Lighting System, 2026-10-26): ground
+    // brightness is the light layer's office now, reckoned
+    // by the server from the closed list of sources made
+    // of light. An Awoken gives no light at all — not on
+    // her own hex, and nothing beside her glows for her
+    // standing there.
     const sortedTiles = [...tiles].sort((a, b) => {
       const pa = tilePos(a), pb = tilePos(b);
       return pa.cy - pb.cy;
@@ -4722,8 +4711,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {t.cursed ? (
             <image href={TERRAIN[tileKey]}
               x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-              preserveAspectRatio="xMidYMid meet"
-              style={auraTiles.has(t.id) ? { filter: `drop-shadow(0 0 ${12 / zoom}px rgba(255,215,0,0.9)) brightness(1.15)` } : undefined} />
+              preserveAspectRatio="xMidYMid meet" />
           ) : (
             /* The stack (Nigel, 2026-10-15): a purified hex is drawn
                as its trays — the growing tray at the bottom wearing
@@ -4765,8 +4753,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                           x={cx - w / 2} y={cy + drop - h / 2 + art.seatDy * h}
                           width={w} height={h}
                           opacity={mixLayerOpacity(mix?.[el])}
-                          preserveAspectRatio="xMidYMid meet"
-                          style={auraTiles.has(t.id) ? { filter: `drop-shadow(0 0 ${12 / zoom}px rgba(255,215,0,0.9)) brightness(1.15)` } : undefined} />
+                          preserveAspectRatio="xMidYMid meet" />
                       );
                     })}
                   </g>
@@ -4777,8 +4764,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   x={cx - s * 1.2106 + imgOff.dx * s}
                   y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s + drop}
                   width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-                  preserveAspectRatio="xMidYMid meet"
-                  style={i === total - 1 && auraTiles.has(t.id) ? { filter: `drop-shadow(0 0 ${12 / zoom}px rgba(255,215,0,0.9)) brightness(1.15)` } : undefined} />
+                  preserveAspectRatio="xMidYMid meet" />
               );
             })
           )}
@@ -4940,7 +4926,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 stroke="transparent"
                 style={{
                   cursor: attackTargeting ? "pointer" : "default",
-                  filter: auraTiles.has(t.id) ? "drop-shadow(0 0 6px rgba(100,255,100,0.6))" : undefined,
                   pointerEvents: "all"
                 }}
                 onMouseEnter={() => setHoverHexId(t.id)}
@@ -4956,6 +4941,47 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   const sp = svgPoint(e.clientX, e.clientY);
                   handleHexTap(t, sp ? screenToAxial(sp.x, sp.y, pan, zoom) : null);
                 }} />
+            </g>
+          );
+        })}
+      </g>
+    );
+    // THE LIGHTING SYSTEM (2026-10-26): the dusk and its
+    // pools of light, drawn ONLY from the light the server
+    // serves on each tile (t.light — 0 dark · 1 faint ·
+    // 2 fighting); the client computes no light of its own.
+    // The wash lies over the GROUND — it is seated with the
+    // terrain, below every building and figure, and figures
+    // are never darkened (the readability law: the dark must
+    // stay visible — the invisible-enemies wound governs).
+    // Unlit ground wears the dusk; FAINT ground lifts a
+    // little out of it; FIGHTING ground stands bright in a
+    // soft pool covering exactly the server's lit hexes.
+    // Layered polygons, no SVG filters, so the iPad stays
+    // smooth — the corruption glow's own grammar. The layer
+    // renders from the one-pass snapshot's tiles, like every
+    // layer here — never per frame.
+    const lightLayer = (
+      <g key="land-light" className="light-layer" pointerEvents="none">
+        {sortedTiles.map((t) => {
+          const { cx, cy } = tilePos(t);
+          const level = (t as any).light ?? 0;
+          const lift = t.cursed ? 0 : -5; // match the terrain layer's lift
+          return (
+            <g key={`light-${t.id}`} transform={`translate(0,${lift / zoom})`}>
+              {level === 2 ? (
+                <>
+                  <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, size, 1.14)} fill="rgba(255,226,160,0.10)" stroke="none" />
+                  <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, size)} fill="rgba(255,238,190,0.18)" stroke="none" />
+                </>
+              ) : level === 1 ? (
+                <>
+                  <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, size)} fill="rgba(7,9,22,0.20)" stroke="none" />
+                  <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, size)} fill="rgba(255,240,200,0.09)" stroke="none" />
+                </>
+              ) : (
+                <polygon className="light-hex" data-light={0} points={hexCellPoints(cx, cy, size)} fill="rgba(7,9,22,0.44)" stroke="none" />
+              )}
             </g>
           );
         })}
@@ -5374,7 +5400,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           if (w.kind === "ward") {
             return (
               <g key={w.edgeKey}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(150,130,255,0.35)" strokeWidth={size * 0.12} strokeLinecap="round" />
+                {/* THE LIGHTING SYSTEM (2026-10-26): the ward
+                    itself carries its faint glow — the wide
+                    soft line under its bright core, in the
+                    ink-wash language: a soft light, no neon. */}
+                <line className="edge-light-glow" x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(150,130,255,0.35)" strokeWidth={size * 0.12} strokeLinecap="round" />
                 <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={frac > 0.5 ? "#b7a6ff" : frac > 0.25 ? "#8d7bd8" : "#5d4d99"} strokeWidth={size * 0.04} strokeLinecap="round" />
               </g>
             );
@@ -5383,6 +5413,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const cxm = (x1 + x2) / 2, cym = (y1 + y2) / 2, dd = size * 0.07;
             return (
               <g key={w.edgeKey}>
+                {/* THE LIGHTING SYSTEM (2026-10-26): the rune
+                    carries its faint glow too — a soft amber
+                    bed under its dashes and diamond, the
+                    ward's own grammar of light in amber. */}
+                <line className="edge-light-glow" x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(232,161,60,0.26)" strokeWidth={size * 0.12} strokeLinecap="round" />
                 <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e8a13c" strokeWidth={size * 0.035} strokeDasharray={`${2 / zoom} ${6 / zoom}`} strokeLinecap="round" />
                 <polygon points={`${cxm},${cym - dd} ${cxm + dd},${cym} ${cxm},${cym + dd} ${cxm - dd},${cym}`} fill="#e8a13c" opacity={0.9} />
               </g>
@@ -6274,6 +6309,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
         {hitLayer}
         <g key="land-front" className="land-cam" transform={camTransform}>
+          {lightLayer}
           {buildingElements}
           {buildFloorsLayer}
           {workingsLayer}

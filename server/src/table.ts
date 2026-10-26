@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey, hashPassword, verifyPassword, tenderFromToken } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, addAspectPoints, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS, type AttunementElement } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, addAspectPoints, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS, LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS, LIGHT_BURN_DIE, LIGHT_BURN_TICK_S, type AttunementElement } from "./actions.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { rollFellDrops, drainDropNotices, rollFellTake, describeDrops, dropDisplayName, addToInventory, inventoryCanHold, type FellDrop } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
@@ -412,6 +412,11 @@ interface EnemyUnit {
    *  of harm per 2.8 s spent on the thicket's ground, as the
    *  homeland's walk reckons it. */
   thornAcc?: number;
+  /** THE LIGHTING SYSTEM (2026-10-26): seconds of settled
+   *  time stood on FIGHTING-lit ground accrued toward the
+   *  burn — one 1d10 of harm per settled second, accrued
+   *  here beside the bramble's thorn, on the same clock. */
+  lightAcc?: number;
 }
 
 /** One of the dark as a DEAL struck it, before it stands:
@@ -1088,6 +1093,18 @@ interface Room {
    *  rooms carry the growth between sittings on their saved
    *  campaign record. */
   seedGrowth: { level: number; fedEnergy: number };
+  /** THE LIGHTING SYSTEM's DM OVERRIDES (2026-10-26): a
+   *  campaign room's Storytender may set a hex's light —
+   *  dark, faint or fighting — and the override joins the
+   *  room's one light reckoning (tableLightMap) outright:
+   *  raised fighting light bars and burns like a beacon's,
+   *  and a darkened hex loses its natural light while the
+   *  override stands. Campaign rooms only — the act that
+   *  sets these is one of the Storytender's instruments,
+   *  and a casual room never holds a hand on the light.
+   *  The overrides rest with the campaign at adjournment
+   *  (saveCampaign), as the seed's growth rests. */
+  lightOverrides?: Map<string, number>;
   /** THE FELL LEDGER (the battle port — Twelve #1): damage
    *  each standing Awokin has dealt each dark thing, kept
    *  off the enemy itself (a Map would not survive the state
@@ -2098,6 +2115,10 @@ function sharedState(room: Room) {
   // remain — the room does not pretend they were never here.
   const awaySeated = [...room.away.values()].map(h => h.player).filter(p => !p.watcher);
   const awayKeys = new Set(awaySeated.map(p => p.key));
+  // THE LIGHTING SYSTEM (2026-10-26): the room's one light
+  // reckoning, stamped onto every tile as it is served —
+  // the client renders exactly this and computes none.
+  const light = tableLightMap(room);
   return {
     room: room.id,
     mode: room.mode,
@@ -2123,10 +2144,16 @@ function sharedState(room: Room) {
       points: { ...t.points },
       curseHp: Math.ceil(t.curseHp), curseMaxHp: t.curseMaxHp,
       landing: t.landingFor ? (seatByKey(room, t.landingFor)?.name ?? null) : null,
+      light: light.get(t.id) ?? LIGHT_DARK,
     })),
     dark: [...room.dark.values()].map(e => ({ ...e, pos: roundPos(e.pos), target: e.target ? roundPos(e.target) : null, moving: isMoving(e) })),
     workings: room.workings.map(w => ({ ...w })),
     battle: { active: room.battle.active, wave: room.battle.wave },
+    // THE DM's LIGHT OVERRIDES, served in a campaign room
+    // and nowhere else (2026-10-26): hex → the level the
+    // Storytender set. A casual room serves null — it holds
+    // no override and exposes no hand on the light.
+    lightOverrides: room.campaign ? [...(room.lightOverrides ?? new Map<string, number>()).entries()] : null,
     // THE STARSEED AT THE TABLE (the battle port): the
     // room's seed and its growth by feeding — the level, the
     // stage the level wears, the fed energy banked, and the
@@ -2321,6 +2348,7 @@ async function getRoom(id: string): Promise<Room> {
       battle: { active: false, wave: 1, timer: null, ticking: false },
       roundNo: 0,
       seedGrowth: { level: 1, fedEnergy: 0 },
+      lightOverrides: new Map(),
       dmgBy: new Map(),
       pack: [],
       dropFx: [],
@@ -2556,7 +2584,13 @@ function integrate(room: Room, now: number): void {
   if (room.battle.active) {
     const standing = standingUnits(room);
     const seedCenter = tileCenter(SEED_TILE)!;
+    // THE LIGHTING SYSTEM (2026-10-26): the room's light,
+    // reckoned once for this pass — the burn below falls on
+    // what stands in FIGHTING light, and the walk below
+    // never steps onto it.
+    const lightMap = tableLightMap(room);
     for (const e of room.dark.values()) {
+      const hereHex = nearestTileId(e.pos, boardOf(room));
       // DEFENCE WORKS (the battle port — Twelve #1):
       // bramble ground hinders the walk. While any living
       // node or mote of a standing bramble stands within
@@ -2579,6 +2613,24 @@ function integrate(room: Room, now: number): void {
           e.hp -= 1;
         }
         if (e.hp <= 0) { fellDark(room, e, seatByKey(room, onBramble.ownerKey) ?? null); continue; }
+      }
+      // THE BURN (the Lighting System, 2026-10-26): a dark
+      // standing on FIGHTING-lit ground takes 1d10 per
+      // settled second — accrued here beside the bramble's
+      // thorn, on this same reckoning's clock — through the
+      // engine's one damage road (its hp, as every harm to
+      // the dark lands; the shield pool is the Awoken's own
+      // law, shieldPoolFor, and the dark carry none), and a
+      // fell rides the one door with NO killer named: the
+      // light itself made it — a land-defence fell, as the
+      // homeland's light-fells settle. FAINT never burns.
+      if ((lightMap.get(hereHex) ?? LIGHT_DARK) === LIGHT_FIGHTING) {
+        e.lightAcc = (e.lightAcc ?? 0) + dt;
+        while ((e.lightAcc ?? 0) >= LIGHT_BURN_TICK_S && e.hp > 0) {
+          e.lightAcc! -= LIGHT_BURN_TICK_S;
+          e.hp -= 1 + Math.floor(Math.random() * LIGHT_BURN_DIE);
+        }
+        if (e.hp <= 0) { fellDark(room, e, null); continue; }
       }
       // THE PIN HOLDS THE FEET TOO (audit of 2026-10-20): a
       // dark the Lattice has bound "stands pinned" — the
@@ -2628,7 +2680,23 @@ function integrate(room: Room, now: number): void {
       } else {
         e.target = { ...seedCenter };
       }
-      if (e.target) stepToward(e, (69 / (DARK_GAIT[e.kind] ?? 2.8)) * (onBramble ? 0.5 : 1), dt);
+      if (e.target) {
+        const fromPos = { ...e.pos };
+        stepToward(e, (69 / (DARK_GAIT[e.kind] ?? 2.8)) * (onBramble ? 0.5 : 1), dt);
+        // FIGHTING light bars the step (the Lighting
+        // System, 2026-10-26): the dark never walks onto
+        // ground held bright — it halts at the light's
+        // edge, as it halts at a rockwall's line, and its
+        // hex does not change, so no written ground springs
+        // falsely under it. The step's DESTINATION is what
+        // is judged: a dark the light rose under may still
+        // walk out of it — and burns while it stands there.
+        const destHex = nearestTileId(e.pos, boardOf(room));
+        if (destHex !== hereHex && (lightMap.get(destHex) ?? LIGHT_DARK) === LIGHT_FIGHTING) {
+          e.pos = fromPos;
+          e.target = null;
+        }
+      }
     }
   }
   // THE SEED AS A PILLAR (Nigel, 2026-10-26 — beacons as
@@ -3361,6 +3429,91 @@ function assignLanding(room: Room, player: Player): void {
   }
 }
 
+/** THE LIGHTING SYSTEM AT THE TABLE (Nigel's word,
+ *  2026-10-26 — "i would want light on all tables"): the
+ *  same system as the homeland's, from the same constants
+ *  (actions.ts), reckoned over the room's own records: a
+ *  Map of tile id → level for every lit tile; unlit tiles
+ *  are absent and read DARK. The sources are the closed
+ *  list (Nigel, corrected 2026-10-26 17:01 — only the
+ *  things MADE OF LIGHT give light), read in the Table's
+ *  own furniture:
+ *    · the room's seed GROWN to a beacon-class stage
+ *      (seedGrowth level 3+) — FIGHTING over its hex and
+ *      the six around it (LIGHT_BEACON_RADIUS). An ungrown
+ *      seed and a sapling give NO light: a seed shines only
+ *      once grown into a beacon-class structure.
+ *    · runes standing on a hex — FAINT on that hex; wards
+ *      standing on an edge (a working's hexA/hexB) — FAINT
+ *      on the edge's first-named hex, as the homeland's ward
+ *      lights the tile its record is kept under. Defence
+ *      works (bramble, rockwall) are not of the Written
+ *      Light's rune/ward kinds and give no light, as on the
+ *      homeland, where they stand outside the rune/ward
+ *      tables entirely.
+ *  NOT sources here, as anywhere: the Tender herself (she
+ *  does not glow), her standing Awoken, and ordinary
+ *  buildings. The Table keeps NO standing tile-buildings
+ *  at all (its beacon-class structure is the grown seed
+ *  alone), so the building clause of the source law —
+ *  beacon-class and the glowing Dream Shrooms — has
+ *  nothing to read here: no bastion building stands on a
+ *  Table land, and no Dream Shroom grows on one. Stated
+ *  plainly, not silently skipped.
+ *  Spread is hex to hex and judged per edge: a WARD standing
+ *  on the edge between a throwing hex and its neighbour
+ *  blocks the throw across that edge — the Table's edge
+ *  record is the ward working's hexA/hexB pair. THE TABLE
+ *  KEEPS NO DOORWAY RECORDS: there is no gap in its edge
+ *  data for a throw to thread, and none is invented here.
+ *  Last, in a campaign room, THE DM's OVERRIDES replace the
+ *  reckoned light outright, hex by hex: raised fighting
+ *  light bars and burns exactly like a beacon's, and a
+ *  darkened hex loses its natural light while the override
+ *  stands. The room's hosted lighthouse face (room.beacon)
+ *  is its own standing law and is NOT this system. */
+function tableLightMap(room: Room): Map<string, number> {
+  const light = new Map<string, number>();
+  const raise = (id: string, level: number): void => {
+    if (!room.map.has(id)) return;
+    if ((light.get(id) ?? LIGHT_DARK) < level) light.set(id, level);
+  };
+  const edgeBlocked = (a: string, b: string): boolean => {
+    const key = edgeKeyOf(a, b);
+    return room.workings.some(w => w.kind === "ward" && w.hexA != null && w.hexB != null && edgeKeyOf(w.hexA, w.hexB) === key);
+  };
+  const castLight = (id: string, level: number, radius: number): void => {
+    if (level <= LIGHT_DARK || !room.map.has(id)) return;
+    raise(id, level);
+    let frontier = [id];
+    const reached = new Set<string>([id]);
+    for (let ring = 1; ring <= radius; ring++) {
+      const next: string[] = [];
+      for (const f of frontier) {
+        for (const nb of neighborsOf(f, boardOf(room))) {
+          if (reached.has(nb) || !room.map.has(nb)) continue;
+          if (edgeBlocked(f, nb)) continue;
+          reached.add(nb);
+          raise(nb, level);
+          next.push(nb);
+        }
+      }
+      frontier = next;
+    }
+  };
+  if (room.seedGrowth.level >= 3) castLight(SEED_TILE, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS);
+  for (const w of room.workings) {
+    if (w.kind === "rune" && w.hex) raise(w.hex, LIGHT_FAINT);
+    else if (w.kind === "ward" && w.hexA) raise(w.hexA, LIGHT_FAINT);
+  }
+  if (room.campaign && room.lightOverrides) {
+    for (const [id, level] of room.lightOverrides) {
+      if (room.map.has(id)) light.set(id, level);
+    }
+  }
+  return light;
+}
+
 /** Where the dark is dealt: THE FURTHEST RING OF THE CURSE,
  *  and nowhere else (Nigel, 2026-10-25: "enemies should
  *  always spawn at the further post ring of the curse and
@@ -3388,7 +3541,13 @@ function darkGround(room: Room, count: number): string[] {
   // door at the Table rides this ground, so the bar covers
   // them all.
   const guarded = room.seedGrowth.level >= 3;
-  const cursed = [...room.map.values()].filter(t => t.cursed && !darkOn(room, t.id) && !(guarded && axialDist(t.id, SEED_TILE) <= 1));
+  // THE LIGHTING SYSTEM's bar stands beside the Beacon's
+  // own (2026-10-26): no deal lands on FIGHTING-lit ground,
+  // whichever beacon-class source — or, in a campaign, the
+  // DM's raised hand — holds it bright. The union only
+  // widens the bar.
+  const spawnLight = tableLightMap(room);
+  const cursed = [...room.map.values()].filter(t => t.cursed && !darkOn(room, t.id) && !(guarded && axialDist(t.id, SEED_TILE) <= 1) && (spawnLight.get(t.id) ?? LIGHT_DARK) !== LIGHT_FIGHTING);
   if (!cursed.length) return [];
   const rim = Math.max(...cursed.map(t => ringOf(t.id)));
   const ringTiles = cursed.filter(t => ringOf(t.id) === rim);
@@ -4644,6 +4803,10 @@ function saveCampaign(room: Room): void {
       // dark the Storytender dealt that has not yet stood
       // is still dealt when the room opens again.
       pendingDark: room.pendingDark ?? [],
+      // THE DM's LIGHT OVERRIDES ride the rest too
+      // (2026-10-26): the light the Storytender set by hand
+      // is the campaign land's state, and rests as it does.
+      lightOverrides: room.lightOverrides ? [...room.lightOverrides.entries()] : [],
     };
     sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
       .run(`table.campaign.${room.id}`, JSON.stringify(snap), Date.now());
@@ -4695,6 +4858,11 @@ function restoreCampaignTale(room: Room): void {
       }
       if (Array.isArray(snap.pendingDark)) {
         room.pendingDark = snap.pendingDark.filter((f: any) => f && typeof f.kind === "string" && f.kind in ENEMY_STATS && typeof f.hp === "number");
+      }
+      if (Array.isArray(snap.lightOverrides)) {
+        room.lightOverrides = new Map(
+          snap.lightOverrides.filter((e: any) => Array.isArray(e) && typeof e[0] === "string" && [LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING].includes(e[1])) as [string, number][],
+        );
       }
     }
   } catch {}
@@ -8325,7 +8493,7 @@ function handleConnection(ws: WebSocket): void {
 
     // ── THE STORYTENDER'S INSTRUMENTS (campaign rooms,
     // Phase B) — and the campaign's own way home. ──
-    if (["stAdd", "stRemove", "stClear", "stDeal", "stNarrate", "stScene", "stSky", "stRest", "stRevive", "stDissipate", "stAdjourn", "stEnd"].includes(msg.type) && room.campaign) {
+    if (["stAdd", "stRemove", "stClear", "stDeal", "stNarrate", "stScene", "stSky", "stRest", "stRevive", "stDissipate", "stAdjourn", "stEnd", "stLight"].includes(msg.type) && room.campaign) {
       if (!room || !player) return;
       const R: Room = room;
       const c = R.campaign as CampaignState;
@@ -8446,6 +8614,35 @@ function handleConnection(ws: WebSocket): void {
         case "stAdjourn": {
           saveCampaign(R);
           tell(R, "The campaign is adjourned — its bank, its tale, and its reckonings rest in keeping until this room opens again.");
+          break;
+        }
+        case "stLight": {
+          // THE DM's HAND ON THE LIGHT (the Lighting
+          // System, 2026-10-26): the campaign's Storytender
+          // sets a hex's light — dark, faint or fighting —
+          // or lifts her setting from it (level null), and
+          // the override joins the room's one light
+          // reckoning: raised fighting light bars and burns
+          // exactly like a beacon's, and a darkened hex
+          // loses its natural light while the override
+          // stands. The overrides rest with the campaign at
+          // adjournment (saveCampaign), as the seed's
+          // growth and the held deal rest. This instrument
+          // is campaign-only by the gate above: a guest
+          // seat's attempt is refused there, and a casual
+          // room never reaches this switch at all.
+          const hex = String(msg.hex ?? "");
+          if (!R.map.has(hex)) { ws.send(JSON.stringify({ type: "error", message: "That is no hex of this land." })); return; }
+          R.lightOverrides ??= new Map();
+          if (msg.level == null) {
+            R.lightOverrides.delete(hex);
+            tell(R, `The Storytender lifts her hand from the light at ${hex} — it reads as the land gives it now.`);
+          } else {
+            const level = Number(msg.level);
+            if (![LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING].includes(level)) { ws.send(JSON.stringify({ type: "error", message: "Light is set dark, faint or fighting — nothing else." })); return; }
+            R.lightOverrides.set(hex, level);
+            tell(R, `The Storytender sets the light at ${hex}: ${level === LIGHT_FIGHTING ? "fighting bright" : level === LIGHT_FAINT ? "a faint glow" : "dark"}.`);
+          }
           break;
         }
         default: return;
