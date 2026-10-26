@@ -2953,7 +2953,7 @@ function loadHomelandPort(ownerKey: string): HomelandPortLoad {
   const ev = sqlite.prepare("SELECT seed_id FROM first_seed_events WHERE owner_key = ?").get(ownerKey) as { seed_id: number } | undefined;
   const seed = (ev
     ? sqlite.prepare("SELECT id, tile_id, level, fed_energy FROM star_seeds WHERE id = ? AND owner_key = ?").get(ev.seed_id, ownerKey)
-    : sqlite.prepare("SELECT id, tile_id, level, fed_energy FROM star_seeds WHERE owner_key = ? AND state = 'first' ORDER BY id LIMIT 1").get(ownerKey)
+    : sqlite.prepare("SELECT id, tile_id, level, fed_energy FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first') ORDER BY id LIMIT 1").get(ownerKey)
   ) as { id: number; tile_id: number; level: number; fed_energy: number } | undefined;
   if (!seed) return { ok: false, refusal: "No first seed stands on your homeland to carry here — wake the Awokin, go to the cursed lands, and raise your first seed there." };
   const seedTile = sqlite.prepare("SELECT id, q, r FROM territory_tiles WHERE id = ? AND owner_key = ?").get(seed.tile_id, ownerKey) as { id: number; q: number; r: number } | undefined;
@@ -3148,6 +3148,30 @@ function clearRoomGround(room: Room): void {
   room.bladeFlights = [];
   room.bladeCasts = [];
   room.dmgBy.clear();
+}
+
+/** Fold a room's standing hosted ground away, writing it
+ *  through to its kept record first — the one fold body,
+ *  shared by beaconClose and by beaconOpen's fold-and-open
+ *  (the homeland door fix): saveHostedLand writes through
+ *  for BOTH sources (tableland into its ui_config record,
+ *  homeland via saveHomelandPort), so the kept record
+ *  persists by construction before the room's ground is
+ *  let go. Returns the folded host's name and which ground
+ *  stood, for the caller's tale. Callers hold the guards. */
+function foldHostedGround(room: Room): { hostName: string; wasHomeland: boolean } {
+  saveHostedLand(room); // the land keeps every change, written through one last time
+  const hostName = room.hosted?.hostName ?? "";
+  const wasHomeland = room.hosted?.source === "homeland";
+  room.hosted = null;
+  room.homeland = undefined;
+  room.beacon = undefined;
+  room.landDirty = false;
+  clearRoomGround(room);
+  room.map = freshInstanceMap(false);
+  room.board = STANDARD_BOARD;
+  room.seedGrowth = { level: 1, fedEnergy: 0 };
+  return { hostName, wasHomeland };
 }
 
 /** A Tender's own door, as their land's record keeps it —
@@ -7990,14 +8014,30 @@ function handleConnection(ws: WebSocket): void {
       if (room.hosted) {
         if (room.hosted.ownerKey === player.expKey) {
           // Already open — unless the act asks for the OTHER
-          // ground, which is a different door, named plainly.
+          // ground. THE HOMELAND DOOR FIX: that ask now folds
+          // the standing ground and opens the other IN ONE
+          // ACT — no notice-only dead end, no added step or
+          // confirmation: the fold's own guards speak first,
+          // in the fold's own words, then the fold is told
+          // and the opening below runs as it always has.
           const wantSource = msg.source === "homeland" ? "homeland" : "tableland";
           if ((msg.source !== undefined || msg.fresh !== undefined) && wantSource !== room.hosted.source) {
-            ws.send(JSON.stringify({ type: "error", message: `This room already stands on your ${room.hosted.source === "homeland" ? "homeland" : "table land"} — fold it away before opening the other.` })); return;
+            if (room.battle.active || room.dark.size > 0) { ws.send(JSON.stringify({ type: "error", message: "The dark stands on this land — the ground cannot fold away mid-battle. Finish the fight first." })); return; }
+            if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed on this land — resolve it before the ground folds away." })); return; }
+            const folded = foldHostedGround(room);
+            tell(room, folded.wasHomeland
+              ? `🏠 ${folded.hostName}'s homeland folds away — the room stands on the instanced world again. The homeland keeps every change made here, in its own record.`
+              : `🏠 ${folded.hostName}'s land folds away — the room stands on the instanced world again. The land keeps every change made here.`);
+            // Fall through to the opening below: it re-checks
+            // its own guards and re-lands every seat on the
+            // new ground, as both open paths already do.
+          } else {
+            sendState(room); return;
           }
-          sendState(room); return;
-        } // already open: the door stands as it stands
-        ws.send(JSON.stringify({ type: "error", message: `This room already stands on ${room.hosted.hostName}'s land.` })); return;
+        } else {
+          // Another Tender's land stands: that door is theirs.
+          ws.send(JSON.stringify({ type: "error", message: `This room already stands on ${room.hosted.hostName}'s land.` })); return;
+        }
       }
       if (room.battle.active || room.dark.size > 0) { ws.send(JSON.stringify({ type: "error", message: "The dark stands on this ground — a land opens in the quiet, not mid-battle. Finish the fight first." })); return; }
       if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed in this room — the land cannot open under it. Resolve the call first." })); return; }
@@ -8087,17 +8127,7 @@ function handleConnection(ws: WebSocket): void {
       if (player.expKey !== room.hosted.ownerKey) { ws.send(JSON.stringify({ type: "error", message: `This land is ${room.hosted.hostName}'s to fold away.` })); return; }
       if (room.battle.active || room.dark.size > 0) { ws.send(JSON.stringify({ type: "error", message: "The dark stands on this land — the ground cannot fold away mid-battle. Finish the fight first." })); return; }
       if (room.bastion && !room.bastion.resolved) { ws.send(JSON.stringify({ type: "error", message: "A call stands claimed on this land — resolve it before the ground folds away." })); return; }
-      saveHostedLand(room); // the land keeps every change, written through one last time
-      const hostName = room.hosted.hostName;
-      const wasHomeland = room.hosted.source === "homeland";
-      room.hosted = null;
-      room.homeland = undefined;
-      room.beacon = undefined;
-      room.landDirty = false;
-      clearRoomGround(room);
-      room.map = freshInstanceMap(false);
-      room.board = STANDARD_BOARD;
-      room.seedGrowth = { level: 1, fedEnergy: 0 };
+      const { hostName, wasHomeland } = foldHostedGround(room);
       for (const p of room.players.values()) {
         if (p.watcher) continue;
         p.hex = undefined; p.pos = undefined; p.target = null;

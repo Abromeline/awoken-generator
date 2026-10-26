@@ -1280,6 +1280,26 @@ export default function Table() {
   /** The beacon button's carried choice fires once per page
    *  load, when this seat first stands (see LAND_INTENT). */
   const landIntentFiredRef = useRef(false);
+  /** A REFUSED INTENT RE-ARMS ON STATE CHANGE (the homeland
+   *  door fix): the signature of the room as it stood at the
+   *  last refusal of the carried choice, and whether the
+   *  choice already stands satisfied on this page load. The
+   *  served hosted face names its host by name, not owner
+   *  key; the seat's own landHost flag is the server's exact
+   *  owner check, and the signature reads the same fields
+   *  the server's open/fold guards read, kept small. */
+  const landIntentRefusedSigRef = useRef<string | null>(null);
+  const landIntentSatisfiedRef = useRef(false);
+  /** The last shared state this socket served, mirrored for
+   *  the error handler below (its closure outlives renders,
+   *  so the state variable it first captured goes stale). */
+  const sharedRef = useRef<SharedState | null>(null);
+  const landRoomSignature = (s: SharedState | null): string => [
+    s?.hosted ? `${s.hosted.hostName}:${s.hosted.source ?? "tableland"}` : "no-land",
+    s?.battle?.active ? "battle" : "quiet",
+    (s?.dark?.length ?? 0) > 0 ? "dark" : "no-dark",
+    s?.bastion && !s.bastion.resolved ? "call" : "no-call",
+  ].join("|");
   const heardRef = useRef<string[]>([]);
   const lastJoinRef = useRef<Record<string, unknown> | null>(null);
   const [bindCode, setBindCode] = useState("");
@@ -1383,6 +1403,7 @@ export default function Table() {
       let msg: any;
       try { msg = JSON.parse(String(ev.data)); } catch { return; }
       if (msg.type === "state") {
+        sharedRef.current = msg.state;
         setShared(msg.state);
         setYou(msg.you);
         setPhase("seated");
@@ -1400,6 +1421,18 @@ export default function Table() {
       } else if (msg.type === "error") {
         const m = String(msg.message || "");
         setNotice(m);
+        // A REFUSED CARRIED CHOICE RE-ARMS (the homeland door
+        // fix): while a land-intent fire stands outstanding
+        // (fired, not yet satisfied), a refusal records the
+        // room's signature as it stands now and clears the
+        // fired flag — the carried-choice effect below then
+        // re-fires on its own when a later state broadcast
+        // carries a DIFFERENT signature (the blocker gone).
+        // No timers, no retry loops, no new UI, no confirmation.
+        if (LAND_INTENT && landIntentFiredRef.current && !landIntentSatisfiedRef.current) {
+          landIntentRefusedSigRef.current = landRoomSignature(sharedRef.current);
+          landIntentFiredRef.current = false;
+        }
         // THE PURSE REFUSES THE CAST, NEVER THE READYING
         // (Nigel, 2026-10-23 23:39, corrected 23:40): a cast
         // refusal that names its price ("…costs ✦…") once
@@ -1593,11 +1626,28 @@ export default function Table() {
   // The server adjudicates (a bound Tender, a quiet room, a
   // homeland that stands whole) and answers in its own words
   // where it cannot: the error strip carries the refusal.
-  // Fires once; campaign rooms never hear it (their ground
-  // is the campaign's, and the server refuses lands there).
+  // Campaign rooms never hear it (their ground is the
+  // campaign's, and the server refuses lands there).
+  // A REFUSED INTENT RE-ARMS ON STATE CHANGE (the homeland
+  // door fix): the choice fires until it stands SATISFIED —
+  // the room standing on this seat's own ground of the
+  // intent's kind (landHost is the server's owner check) —
+  // and once satisfied it never fires again this load. A
+  // refusal (recorded by the error handler above) holds the
+  // fire only while the room's signature stands as it stood
+  // at that refusal; a broadcast whose signature differs
+  // re-fires the intent on its own, same page load.
   useEffect(() => {
-    if (!LAND_INTENT || landIntentFiredRef.current) return;
+    if (!LAND_INTENT) return;
     if (!shared || !you || shared.campaign) return;
+    const wantSource = LAND_INTENT === "homeland" ? "homeland" : LAND_INTENT === "new" ? "tableland" : null;
+    if (!wantSource) return;
+    if (shared.hosted && you.landHost === true && (shared.hosted.source ?? "tableland") === wantSource) {
+      landIntentSatisfiedRef.current = true;
+      return;
+    }
+    if (landIntentSatisfiedRef.current || landIntentFiredRef.current) return;
+    if (landIntentRefusedSigRef.current !== null && landIntentRefusedSigRef.current === landRoomSignature(shared)) return;
     landIntentFiredRef.current = true;
     if (LAND_INTENT === "homeland") send({ type: "beaconOpen", source: "homeland" });
     else if (LAND_INTENT === "new") send({ type: "beaconOpen", source: "tableland", fresh: true });
