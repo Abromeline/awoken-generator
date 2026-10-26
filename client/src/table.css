@@ -77,6 +77,68 @@ button { font-family: inherit; }
 }
 .table-btn.primary { background: var(--gold); color: #191104; font-weight: bold; }
 .table-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ————— The Discord intro door (2026-10-26) —————
+   The beginning inside the door card: the claim/sign-in forms,
+   the three-wake walk, and the Choosing's own surface (its
+   classes carried here in the Table's Ash & Ember skin, since
+   the room does not load the front page's theme). */
+.table-intro h2 { margin: 2px 0 10px; color: var(--gold-bright); font-size: 22px; }
+.table-intro .eyebrow {
+  margin: 0 0 4px; font-size: 12px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ember);
+}
+.quiet-link {
+  background: none; border: none; padding: 0; font: inherit;
+  color: var(--gold-bright); text-decoration: underline; cursor: pointer;
+}
+.intro-woken { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 6px; }
+.intro-kin { margin: 0; width: 104px; text-align: center; }
+.intro-kin img {
+  width: 104px; height: 134px; object-fit: cover; display: block;
+  border: 1px solid var(--gold); border-radius: 8px; background: var(--ash);
+}
+.intro-kin figcaption { margin-top: 6px; font-size: 12px; color: var(--bone); overflow-wrap: anywhere; }
+.intro-guide { color: var(--gold-bright); }
+.intro-kin-stats { color: var(--bone-dim); }
+/* The Choosing, seated at the door: ClassChoosing renders a
+   fixed overlay on the front page; at the door it stands inline
+   in the card instead. */
+.intro-choosing .class-choosing { position: static; background: none; padding: 0; overflow: visible; }
+.intro-choosing .class-choosing-card {
+  position: relative; background: var(--ash); border: 1px solid var(--gold);
+  border-radius: 10px; padding: 18px; color: var(--bone);
+}
+.intro-choosing .class-choosing-card h2 { margin: 2px 0 8px; color: var(--gold-bright); }
+.intro-choosing .class-choosing-close {
+  position: absolute; top: 8px; right: 12px; background: none; border: none;
+  color: var(--bone); font-size: 22px; cursor: pointer;
+}
+.intro-choosing .eyebrow {
+  margin: 0 0 4px; font-size: 12px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ember);
+}
+.intro-choosing .class-choosing-law { line-height: 1.45; }
+.intro-choosing .class-choosing-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px; margin-top: 14px;
+}
+.intro-choosing .class-card {
+  border: 1px solid var(--ash-3); border-radius: 10px; padding: 12px; background: var(--ash-2);
+}
+.intro-choosing .class-card.current { border-color: var(--gold); }
+.intro-choosing .class-card img { width: 100%; height: auto; display: block; border-radius: 6px; }
+.intro-choosing .class-card h3 { margin: 8px 0 4px; color: var(--gold-bright); font-size: 16px; }
+.intro-choosing .class-school { color: var(--bone-dim); font-size: 13px; margin: 0 0 6px; }
+.intro-choosing .class-card ul { margin: 0 0 10px; padding-left: 18px; font-size: 13px; line-height: 1.4; }
+.intro-choosing .class-choosing-error { color: #e88a7a; }
+.intro-choosing .class-choosing-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.intro-choosing .abtn {
+  min-height: 40px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--ash-3); background: var(--ash-3); color: var(--bone); font-size: 14px;
+}
+.intro-choosing .abtn.gold { border-color: var(--gold); background: var(--gold); color: #191104; font-weight: bold; }
+.intro-choosing .abtn:disabled { opacity: 0.45; cursor: default; }
 /* THE PARTY (2026-10-21): the standing marker in the unit
    bar — a member's badge, not a button. */
 .party-mark { align-self: center; padding: 4px 8px; border: 1px solid rgba(240,214,140,0.4); border-radius: 999px; color: var(--gold); font-size: 12px; white-space: nowrap; }

@@ -180,6 +180,8 @@ async function boot(): Promise<void> {
       authToken: auth.token,
       room: early.sdk.instanceId || "the-table",
       name: auth.user?.name ?? "",
+      bound: auth.bound === true,
+      tenderName: typeof auth.tenderName === "string" ? auth.tenderName : null,
     });
     await stepTimeout("Loading the room…", loadRoom());
   } catch (e) {

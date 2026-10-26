@@ -52,30 +52,19 @@ import MusicLibrary from "./MusicLibrary";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { applyElementPalette, ELEMENTS, elementPalette, useElementPalette } from "./palette";
 import { BUNDLED_TERRAIN, TERRAIN_ART_ELEMENTS, TERRAIN_ART_QUERY_KEY, useTerrainArt } from "./terrainArt";
+import { categories, canWake, compose, loadImage, pickLayerSet, toLayerAssets, toLayerRefs, type WakeLayerAsset } from "./wakeShared";
 
 export type Awoken = Awakened;
 type Face = "tender" | "workshop";
 type WorkshopView = "wake" | "pool" | "terrain" | "collection" | "compendium" | "tenders" | "tracks" | "ui-workspace" | "glyphs" | "text-colors" | "feedback" | "voice";
-type LayerAsset = { sourceId: string; serverId?: number; name: string; category: Category; rarity: Rarity; power: number | null; toughness: number | null; imageUrl: string; mimeType: string; isStarter: boolean };
+type LayerAsset = WakeLayerAsset;
 type BatchStatus = "checking" | "ready" | "invalid" | "uploading" | "done" | "error";
 type BatchFile = { id: string; file: File; previewUrl: string; status: BatchStatus; note: string };
 
-const categories: { id: Category; label: string; note: string }[] = [
-  { id: "background", label: "Background", note: "the world beneath" },
-  { id: "body", label: "Body", note: "the held matter" },
-  { id: "arms", label: "Arms", note: "reach and gesture" },
-  { id: "aspect", label: "Aspect", note: "elemental manifestation" },
-  { id: "head", label: "Head", note: "the final waking layer" },
-];
 const statCategories: Category[] = ["arms", "body", "head"];
 const rarityLabel: Record<Rarity, string> = { common: "Common", uncommon: "Uncommon", rare: "Rare", mythic: "Mythic" };
-const rarityWeight: Record<Rarity, number> = { common: 8, uncommon: 4, rare: 2, mythic: 1 };
-const firstbornWeight: Record<Rarity, number> = { common: 2, uncommon: 4, rare: 6, mythic: 4 };
-const rarityScore: Record<Rarity, number> = { common: 1, uncommon: 2, rare: 3, mythic: 4 };
 const statValues = [0, 1, 2, 3, 4, 5, 6] as const;
 
-const TEMPLATE_WIDTH = 750;
-const TEMPLATE_HEIGHT = 971;
 function mutationError(error: unknown) { return error instanceof Error ? error.message : "Something interrupted the ritual."; }
 /** A 403 from a Tender-gated action means the visitor has not claimed
  * an account yet (fix list #7: claim-first is the front door). Tender-
@@ -90,39 +79,6 @@ function invalidateStudios(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["studio"] });
   void queryClient.invalidateQueries({ queryKey: ["workshopStudio"] });
 }
-function toLayerAssets(serverAssets: Asset[]): LayerAsset[] {
-  return serverAssets.map((asset) => ({ sourceId: `db:${asset.id}`, serverId: asset.id, name: asset.name, category: asset.category, rarity: asset.rarity, power: asset.power, toughness: asset.toughness, element: asset.element ?? null, imageUrl: asset.image_url, mimeType: asset.mime_type, isStarter: false }));
-}
-function chooseWeighted(options: LayerAsset[], lucky = false) {
-  const weights = lucky ? firstbornWeight : rarityWeight;
-  const total = options.reduce((sum, item) => sum + weights[item.rarity], 0); let cursor = Math.random() * total;
-  for (const item of options) { cursor -= weights[item.rarity]; if (cursor <= 0) return item; }
-  return options[options.length - 1];
-}
-/** Gather one piece per layer, weighted by rarity (or fixed choices in the workshop). */
-/* Fire aspects are map-exclusive: only from wildfire sparks, never
-   from wakes. Whether a piece IS fire is judged by its filed element
-   (the Elements tab) alone — never by its name. A name-guessing
-   helper that once lived here was removed under that law
-   (Nigel, 2026-10-16); wakes exclude every aspect regardless. */
-
-function pickLayerSet(assets: LayerAsset[], choices?: Record<Category, string>, lucky = false): LayerAsset[] {
-  return categories.flatMap((category) => {
-    // Awoken are not born with aspects — those are earned later through binding
-    if (category.id === "aspect") return [];
-    let options = assets.filter((asset) => asset.category === category.id);
-    if (!options.length) return [];
-    const fixed = choices?.[category.id] ? options.find((asset) => asset.sourceId === choices[category.id]) : undefined;
-    const picked = fixed ?? chooseWeighted(options, lucky);
-    return picked ? [picked] : [];
-  });
-}
-function canWake(assets: LayerAsset[]) {
-  return statCategories.every((category) => assets.some((asset) => asset.category === category));
-}
-function toLayerRefs(layers: LayerAsset[]): LayerRef[] {
-  return layers.map((layer) => ({ source_id: layer.sourceId, name: layer.name, category: layer.category, rarity: layer.rarity, power: layer.power, toughness: layer.toughness }));
-}
 /** Static, gentle countdown text — no ticking timers, no nags. */
 function inAbout(iso: string | null): string {
   if (!iso) return "";
@@ -133,7 +89,6 @@ function inAbout(iso: string | null): string {
   const hours = Math.floor(minutes / 60); const rest = minutes % 60;
   return rest ? `in about ${hours}h ${rest}m` : `in about ${hours} hour${hours === 1 ? "" : "s"}`;
 }
-function loadImage(src: string) { return new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.crossOrigin = "anonymous"; image.onload = () => resolve(image); image.onerror = () => reject(new Error("One of the selected drawings could not be read.")); image.src = src; }); }
 function canvasToPng(canvas: HTMLCanvasElement) { return new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("This device could not prepare the transparent PNG.")), "image/png")); }
 async function preparePng(file: File) {
   const header = new Uint8Array(await file.slice(0, 33).arrayBuffer()); const signature = [137, 80, 78, 71, 13, 10, 26, 10];
@@ -161,35 +116,6 @@ async function checkTerrainPng(file: File) {
   const view = new DataView(header.buffer, header.byteOffset, header.byteLength); const width = view.getUint32(16); const height = view.getUint32(20);
   if (width !== 1920 || height !== 1280) return { ok: false as const, note: `${width} × ${height} — terrain art uses the shared 1920 × 1280 canvas, like the tiles you provided.` };
   return { ok: true as const, note: "1920 × 1280 PNG" };
-}
-/** Back-to-front draw order, per the artist: background, body, arms, head.
- *  "aura" keeps its slot for legacy compositions only (fix list #9) —
- *  old Awoken bearing an aura layer still draw it between arms and
- *  head; no new aura piece can be filed or chosen. */
-const LAYER_ORDER: readonly string[] = ["background", "aspect", "body", "arms", "aura", "head"];
-async function compose(layers: LayerAsset[], target?: HTMLCanvasElement | null) {
-  const canvas = target ?? document.createElement("canvas"); canvas.width = TEMPLATE_WIDTH; canvas.height = TEMPLATE_HEIGHT;
-  const context = canvas.getContext("2d"); if (!context) throw new Error("This device could not prepare the awakening canvas.");
-  const ranked = layers.filter((layer) => layer.power !== null && layer.toughness !== null);
-  const score = ranked.reduce((sum, layer) => sum + rarityScore[layer.rarity], 0); const min = ranked.length; const max = ranked.length * 4;
-  const auraOpacity = 1 / 3 + (max === min ? 0 : (score - min) / (max - min)) * (2 / 3);
-  // Draw back-to-front in the artist's order, never in whatever order the
-  // caller happened to pass. Preload every image before drawing so layers
-  // never pop in piecemeal and get buried by a late arrival.
-  const ordered = [...layers].sort((a, b) => LAYER_ORDER.indexOf(a.category) - LAYER_ORDER.indexOf(b.category));
-  const images = await Promise.all(ordered.map((layer) => loadImage(layer.imageUrl)));
-  context.fillStyle = "#f3f1ea"; context.fillRect(0, 0, 750, 971);
-  ordered.forEach((layer, index) => {
-    const image = images[index]; context.globalCompositeOperation = layer.category === "background" || layer.mimeType === "image/png" ? "source-over" : "multiply";
-    // Legacy aura layers (fix list #9) still fade in by rarity, exactly
-    // as before — the category is read as a runtime string here so old
-    // compositions keep rendering even though "aura" is no longer a
-    // choosable Category.
-    const layerCategory: string = layer.category;
-    context.globalAlpha = layerCategory === "aura" ? auraOpacity : 1; context.drawImage(image, 0, 0, 750, 971);
-  });
-  context.globalCompositeOperation = "source-over"; context.globalAlpha = 1;
-  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
 }
 function ordinal(iteration: number) {
   if (iteration === 0) return "First manifestation";
