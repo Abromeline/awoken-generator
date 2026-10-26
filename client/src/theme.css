@@ -2699,6 +2699,19 @@ body.defeat-flash {
      The refusal note stands just above the pill. */
   .beacon-switch{right:186px;bottom:231px;font-size:13px;padding:8px 12px}
   .beacon-switch-note{right:186px;bottom:283px;max-width:230px}
+  /* The homeland bag, lowered into the champion button's
+     column by the backpack build, stands over the deck
+     mark's centre at this width. Let the bag ride below
+     the header's layer here, and let the deck button's
+     label-wide clear box pass taps through except on its
+     painted mark and word (drawn as one reach, with no
+     clear gap between them): the mark's centre then
+     answers for the deck button, and the bag's centre —
+     clear of mark and word alike — still answers for
+     the bag. */
+  .bag-btn{z-index:10}
+  .deck-button{pointer-events:none;gap:0}
+  .deck-button img,.deck-button span{pointer-events:auto}
 }
 
 .tutorial-help-btn {
