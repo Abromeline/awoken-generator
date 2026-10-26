@@ -171,6 +171,7 @@ async function faceAndClick(token) {
   }, { timeout: 30000 });
   await sleep(2500);
   const src = await page.$eval(".beacon-dock .beacon-dock-face", (el) => el.getAttribute("src") || "");
+  const deckSrc = await page.$eval(".deck-button img", (el) => el.getAttribute("src") || "");
   await page.click(".beacon-dock");
   await sleep(1200);
   const choice = await page.$(".beacon-choice-panel");
@@ -178,11 +179,23 @@ async function faceAndClick(token) {
   const gateText = gate ? await page.$eval(".beacon-gate-panel", (el) => el.textContent || "") : "";
   const choiceText = choice ? await page.$eval(".beacon-choice-panel", (el) => el.textContent || "") : "";
   await page.close();
-  return { src, choice: !!choice, gate: !!gate, gateText, choiceText };
+  return { src, deckSrc, choice: !!choice, gate: !!gate, gateText, choiceText };
 }
 {
+  // FACE TRUTHS RESTATED (Nigel, 2026-10-25 23:41:
+  // "return the star beacon sprite to the front page
+  // beacon button" + "trim the button to it own edges
+  // yes but then make it bigger"): the dock tab's lit
+  // face is the STARSEED beacon sprite again (its built
+  // asset is beacon-<hash>.png), and the beacon-button
+  // mark — trimmed to its motif's own edges — now serves
+  // ONLY the terrain button (beacon-button-<hash>.png),
+  // so the tab's assertion must exclude that filename or
+  // it cannot tell the two faces apart.
   const fa = await faceAndClick(a.token);
-  ok("§A the button wears the BEACON art, not the meteor", fa.src.includes("beacon") && !fa.src.includes("meteor"), fa.src);
+  ok("§A the button wears the STARSEED BEACON sprite, not the beacon-button mark, not the meteor",
+    fa.src.includes("beacon") && !fa.src.includes("beacon-button") && !fa.src.includes("meteor"), fa.src);
+  ok("§A the terrain button serves the trimmed beacon mark", fa.deckSrc.includes("beacon-button"), fa.deckSrc);
   ok("§A the click opens the choice panel (Open my homeland reachable)", fa.choice && fa.choiceText.includes("Open my homeland"), fa.choiceText.slice(0, 120));
   ok("§A no refusal is spoken", !fa.gate, fa.gateText.slice(0, 120));
 }
