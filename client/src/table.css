@@ -876,17 +876,22 @@ button { font-family: inherit; }
 
 /* THE BAG (the loot table fix, 2026-10-25): the
    Backpack pinned on the right side under the beacon,
-   and the shared Pack panel it opens. */
+   and the shared Pack panel it opens. AMENDED 2026-10-25
+   (Nigel: "make the back pack 2 x bigger and remove the
+   red boarder"): the pin stands twice the size with NO
+   border; its anchor drops by the growth (28px, half the
+   added height) so its top edge — and its 7px clearance
+   under the beacon pin — stands exactly where it stood. */
 .bag-pin {
   position: fixed;
   right: 10px;
-  top: calc(50% + 58px);
+  top: calc(50% + 86px);
   transform: translateY(-50%);
   z-index: 60;
-  width: 46px;
-  height: 56px;
+  width: 92px;
+  height: 112px;
   border-radius: 10px;
-  border: 1px solid var(--blood);
+  border: none;
   background: var(--ash-2);
   cursor: pointer;
   padding: 3px;
@@ -899,8 +904,8 @@ button { font-family: inherit; }
 }
 .bag-pop {
   position: fixed;
-  right: 66px;
-  top: calc(50% + 58px);
+  right: 112px;
+  top: calc(50% + 86px);
   transform: translateY(-50%);
   z-index: 61;
   width: 330px;

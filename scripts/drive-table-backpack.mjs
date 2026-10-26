@@ -202,14 +202,31 @@ async function seatPage(sess, room) {
   }
 
   // The backpack: pinned at the right edge; tap opens, tap closes.
+  // AMENDED 2026-10-25 (Nigel: "make the back pack 2 x bigger and
+  // remove the red boarder"): the pin measures ~92×112, carries no
+  // border, and the beacon pin stands clear above it.
   const pin = await page.evaluate(() => {
     const el = document.querySelector(".bag-pin");
     if (!el) return { found: false };
     const r = el.getBoundingClientRect();
-    return { found: true, rightGap: Math.round(window.innerWidth - (r.left + r.width)), cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    const cs = getComputedStyle(el);
+    const beacon = document.querySelector(".beacon-pin");
+    const br = beacon ? beacon.getBoundingClientRect() : null;
+    return {
+      found: true,
+      rightGap: Math.round(window.innerWidth - (r.left + r.width)),
+      cx: r.left + r.width / 2, cy: r.top + r.height / 2,
+      w: Math.round(r.width), h: Math.round(r.height),
+      borderW: cs.borderTopWidth,
+      beaconFound: !!br,
+      beaconClearAbove: br ? br.bottom <= r.top + 1 : false,
+    };
   });
   ok("the backpack pin stands at the Table", pin.found);
   ok("the pin is LOCKED TO THE RIGHT SIDE (its right edge hugs the window's)", pin.rightGap >= 0 && pin.rightGap <= 24, `gap=${pin.rightGap}`);
+  ok("the backpack stands TWICE THE SIZE (~92×112)", pin.w >= 90 && pin.w <= 94 && pin.h >= 110 && pin.h <= 114, `${pin.w}×${pin.h}`);
+  ok("the backpack carries NO border (the red border is gone)", pin.borderW === "0px", `borderTopWidth=${pin.borderW}`);
+  ok("the beacon pin stands CLEAR ABOVE the doubled backpack (no overlap)", pin.beaconFound && pin.beaconClearAbove);
   if (pin.found) {
     await page.mouse.click(pin.cx, pin.cy);
     let popUp = true;
