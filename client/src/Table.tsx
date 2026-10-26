@@ -454,6 +454,30 @@ const TILE_SIZE = 40;
 const LAND_INTENT: string | null = (() => {
   try { return new URLSearchParams(window.location.search).get("land"); } catch { return null; }
 })();
+/** THE INVITE LINK'S ROOM, CARRIED IN (Nigel, 2026-10-26 —
+ *  "Build the invite link next"): a link a seated Tender
+ *  copies at the Table names its room in the address —
+ *  ?room=<code> — and an arrival carrying one takes the
+ *  door's ordinary seat/watch choices IN THAT ROOM instead
+ *  of the shared "the-table". The code is cleaned exactly
+ *  as the server cleans it ([a-zA-Z0-9_-], 64 at most), and
+ *  a campaign room's name is refused quietly back to the
+ *  default behaviour — the campaign door is not this
+ *  link's to name. No code, no change: the door behaves
+ *  byte for byte as it ever did. Inside Discord the SDK's
+ *  instance names the room, as it always has; this code is
+ *  the web door's ear for the link. It composes with
+ *  ?land=: both ride the address, the seat is taken in the
+ *  named room, and the carried choice fires there. */
+const ROOM_INTENT: string | null = (() => {
+  try {
+    const raw = new URLSearchParams(window.location.search).get("room");
+    if (!raw) return null;
+    const clean = raw.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    if (!clean || clean.startsWith("campaign-")) return null;
+    return clean;
+  } catch { return null; }
+})();
 const SEED_TILE_ID = "0,0";
 /** The strike's reach by the striker's element — the
  *  referee's own ELEMENT_REACH (table.ts), the same table
@@ -563,6 +587,18 @@ export default function Table() {
   const [pwInput, setPwInput] = useState("");
   const [pwMsg, setPwMsg] = useState("");
   const [beaconUp, setBeaconUp] = useState(false);
+  // THE INVITE LINK (Nigel, 2026-10-26): the room this
+  // seat stands in (named by connect, below), the link the
+  // beacon popup's invite control mints from it, and the
+  // word the control leaves after a tap — copied, shared,
+  // or shown for the hand to copy.
+  const [roomCode, setRoomCode] = useState("the-table");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteNote, setInviteNote] = useState("");
+  /** The Discord SDK this page knocked with, kept for the
+   *  invite control's Discord-side share (its own join
+   *  message for this instance). Null away from Discord. */
+  const sdkRef = useRef<DiscordSDK | null>(null);
   // THE BAG (the loot table fix, 2026-10-25): the shared
   // Pack's door on the right side, the panel it opens,
   // my own inventory's face inside it, and the entry a
@@ -1333,7 +1369,53 @@ export default function Table() {
   // fresh at the tap, the same read the binding panel makes.
   function takeWebSeat() {
     const token = window.localStorage.getItem("awoken-tender-token") ?? "";
-    connect({ tenderToken: token, room: "the-table" });
+    connect({ tenderToken: token, room: ROOM_INTENT ?? "the-table" });
+  }
+
+  /** THE INVITE LINK, MINTED (Nigel, 2026-10-26): the
+   *  Table's own address carrying this room's code — a
+   *  friend who opens it takes the door into THIS room.
+   *  The link carries the room alone; it opens no land
+   *  gate (a word-kept land still asks its word at the
+   *  seat, exactly as for any arrival). In Discord, the
+   *  control first offers Discord's own share message for
+   *  this instance (the SDK's shareLink, 2.5.0); the
+   *  copied link is the fallback whenever that road is
+   *  unavailable, dismissed, or fails — and away from
+   *  Discord the copied link is the whole road. */
+  async function copyInviteLink() {
+    const url = `${window.location.origin}/table?room=${encodeURIComponent(roomCode || "the-table")}`;
+    setInviteLink(url);
+    if (inDiscord) {
+      const sdk = sdkRef.current ?? takeTableBoot()?.sdk ?? null;
+      if (sdk) {
+        try {
+          const shared = await sdk.commands.shareLink({ message: "Come and sit at my Table — the room stands ready, and the dark with it." });
+          if (shared && shared.success) {
+            setInviteNote("Discord carries the invite now. The link below seats a friend from a plain browser, too — it is copied for the sending.");
+            try { await navigator.clipboard.writeText(url); } catch { /* the line below stands for the hand */ }
+            return;
+          }
+        } catch { /* the copied link below is the fallback */ }
+      }
+    }
+    let copied = false;
+    try { await navigator.clipboard.writeText(url); copied = true; } catch { /* the fallback below */ }
+    if (!copied) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        copied = document.execCommand("copy");
+        ta.remove();
+      } catch { copied = false; }
+    }
+    setInviteNote(copied
+      ? "The link is copied — send it to a friend, and it seats them at this Table, in this room."
+      : "The link stands below for your hand to copy — send it to a friend, and it seats them at this Table, in this room.");
   }
 
   // Spend a code at the Table (room): this seat's proven Discord
@@ -1392,6 +1474,10 @@ export default function Table() {
 
   function connect(join: Record<string, unknown>) {
     lastJoinRef.current = join;
+    // The room this seat stands in, kept where the invite
+    // control can name it (the link it mints names THIS
+    // room — a Discord seat's instance, a web seat's code).
+    setRoomCode(typeof join.room === "string" && join.room ? join.room : "the-table");
     setPhase("connecting");
     setBootStep("Taking your seat…");
     setError("");
@@ -1484,6 +1570,7 @@ export default function Table() {
       // for — the seat ticket is waiting. Take the seat directly.
       const prepared = takeTableSession();
       if (prepared) {
+        sdkRef.current = takeTableBoot()?.sdk ?? null;
         connect({ authToken: prepared.authToken, room: prepared.room });
         return;
       }
@@ -1525,6 +1612,7 @@ export default function Table() {
           reknockOnHello(sdk, readyP);
           await readyP;
         }
+        sdkRef.current = sdk;
         setBootStep("Asking Discord your name…");
         const { code } = await sdk.commands.authorize({
           client_id: clientId,
@@ -1643,6 +1731,14 @@ export default function Table() {
     const wantSource = LAND_INTENT === "homeland" ? "homeland" : LAND_INTENT === "new" ? "tableland" : null;
     if (!wantSource) return;
     if (shared.hosted && you.landHost === true && (shared.hosted.source ?? "tableland") === wantSource) {
+      // THE STALE REFUSAL CLEARS (the invite build's rider,
+      // 2026-10-26): the moment the choice stands satisfied,
+      // a refusal it met on the road leaves the notice line —
+      // a room standing on her own ground does not wear the
+      // words that refused her getting there (the wart in the
+      // homeland door fix's proof photograph). Once only, at
+      // the satisfying itself.
+      if (!landIntentSatisfiedRef.current) setNotice("");
       landIntentSatisfiedRef.current = true;
       return;
     }
@@ -1781,11 +1877,11 @@ export default function Table() {
                 <button
                   className="table-btn primary"
                   disabled={!devName.trim()}
-                  onClick={() => connect({ devName: devName.trim(), room: "the-table" })}
+                  onClick={() => connect({ devName: devName.trim(), room: ROOM_INTENT ?? "the-table" })}
                 >
                   Take your seat
                 </button>
-                <button className="table-btn" onClick={() => connect({ watch: true, name: devName.trim() || "A Watcher", room: "the-table" })}>
+                <button className="table-btn" onClick={() => connect({ watch: true, name: devName.trim() || "A Watcher", room: ROOM_INTENT ?? "the-table" })}>
                   Watch instead
                 </button>
               </div>
@@ -1888,7 +1984,7 @@ export default function Table() {
                 Open the Table from the voice channel in Discord to be named and take a seat.
                 From a plain browser you may still watch the room.
               </p>
-              <button className="table-btn" onClick={() => connect({ watch: true, name: "A Watcher", room: "the-table" })}>
+              <button className="table-btn" onClick={() => connect({ watch: true, name: "A Watcher", room: ROOM_INTENT ?? "the-table" })}>
                 Watch the Table
               </button>
             </>
@@ -4109,6 +4205,19 @@ export default function Table() {
                 <strong>🕯 The Beacon</strong>
                 <button type="button" className="beacon-x" aria-label="Close the beacon" onClick={() => setBeaconUp(false)}>✕</button>
               </div>
+              {/* THE INVITE (Nigel, 2026-10-26): the room's
+                  own address, minted here where the room's
+                  acts live — any seat at this Table may copy
+                  it, and its opener is seated in THIS room.
+                  The link names the room and nothing more:
+                  a word-kept ground still asks its word. */}
+              <h4>Invite a friend</h4>
+              <p className="beacon-line">Send a friend this link, and the door seats them at this Table — this room, as it stands.</p>
+              <button type="button" className="table-btn" onClick={() => void copyInviteLink()}>Copy invite link</button>
+              {inviteLink && (
+                <p className="beacon-line invite-link-line"><code>{inviteLink}</code></p>
+              )}
+              {inviteNote && <p className="beacon-line quiet">{inviteNote}</p>}
               {shared.hosted ? (
                 <>
                   <p className="beacon-line">
