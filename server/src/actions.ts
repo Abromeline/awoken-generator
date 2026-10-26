@@ -34,7 +34,7 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // request time, long after both modules stand.)
 import { castModFor, partyBattleSeatFor } from "./table.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
-import { rollFellDrops, drainDropNotices, inventoryView, trySpendRuneShards } from "./drops.js";
+import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, inventoryCanHold, recordDropEvent, drainDropEvents, type FellDrop } from "./drops.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
@@ -496,7 +496,7 @@ type AspectElement = "tide" | "sky" | "stone" | "root";
  *  never dealt), but a pool is a pool: the first seed's reward
  *  and the fell drizzle below may light on any of the five, and
  *  the panel shows whichever pools hold points. */
-type AttunementElement = AspectElement | "fire";
+export type AttunementElement = AspectElement | "fire";
 const ATTUNEMENT_ELEMENTS: AttunementElement[] = ["root", "tide", "sky", "stone", "fire"];
 
 /**
@@ -511,7 +511,7 @@ const ATTUNEMENT_ELEMENTS: AttunementElement[] = ["root", "tide", "sky", "stone"
  * fractional — the fell drizzle pays in tenths. Returns true when
  * an aspect spawned.
  */
-async function addAspectPoints(ownerKey: string, element: AttunementElement, amount: number): Promise<boolean> {
+export async function addAspectPoints(ownerKey: string, element: AttunementElement, amount: number): Promise<boolean> {
   const row = await db.select().from(schema.aspectAttunement)
     .where(and(
       eq(schema.aspectAttunement.ownerKey, ownerKey),
@@ -581,11 +581,35 @@ async function addAspectPoint(ownerKey: string, element: AspectElement): Promise
  *  and no live enemy stands by to pop from. */
 export async function payFellDrip(ownerKey: string, groundElement?: string | null): Promise<void> {
   if (!ownerKey) return;
-  if (Math.random() >= 0.2) return;
-  const element = groundElement && (ATTUNEMENT_ELEMENTS as string[]).includes(groundElement)
-    ? (groundElement as AttunementElement)
-    : ATTUNEMENT_ELEMENTS[Math.floor(Math.random() * ATTUNEMENT_ELEMENTS.length)];
-  await addAspectPoints(ownerKey, element, 0.1);
+  // The draw itself is the drizzle's one roll (rollDrip,
+  // drops.ts) — the same 20%, the same ground-or-chance
+  // element, the same tenth of a point, so no road can
+  // fork the measure.
+  const element = rollDrip(groundElement);
+  if (!element) return;
+  await addAspectPoints(ownerKey, element as AttunementElement, 0.1);
+}
+
+/** THE DRIP AS A DROP (the loot table fix, Nigel, ruled
+ *  2026-10-25 18:46): on the homeland's own fell roads
+ *  the drizzle no longer settles silently into the
+ *  pools — when its roll falls it springs out of the
+ *  dissipated dark as a physical drop, lands in her
+ *  Pack wearing the Root Sap face at its element's hue,
+ *  and waits for her click like everything else a fell
+ *  leaves. The measure is the drizzle's own. Roads that
+ *  stand outside the delivery (the campaign's callers,
+ *  the Table's campaign seats) keep payFellDrip above,
+ *  untouched. */
+export async function payDripAsDrop(ownerKey: string, groundElement?: string | null, fx?: { q: number; r: number }): Promise<void> {
+  if (!ownerKey) return;
+  const element = rollDrip(groundElement);
+  if (!element) return;
+  const drop: FellDrop = { kind: "attunement", element, qty: 0.1 };
+  landHomelandPack(ownerKey, [drop]);
+  if (fx && Number.isFinite(fx.q) && Number.isFinite(fx.r)) {
+    recordDropEvent(ownerKey, { at: Date.now(), fromQ: fx.q, fromR: fx.r, drops: [drop] });
+  }
 }
 
 /* ── THE BUILDING SYSTEM (Nigel, 2026-10-19) ────────────────────
@@ -4279,7 +4303,7 @@ async function settleHomelandWorkings(ownerKey: string, tiles: any[]): Promise<v
     // creditBattleKill carries all three, the drip inside it.
     if (res.felled) {
       const t = tiles.find((x: any) => x.id === r.tileId);
-      await creditBattleKill(ownerKey, String(wrow?.kind ?? "fray"), t?.element ?? null, null);
+      await creditBattleKill(ownerKey, String(wrow?.kind ?? "fray"), t?.element ?? null, null, undefined, t ? { q: Number(t.q), r: Number(t.r) } : undefined);
     }
   }
 }
@@ -4337,7 +4361,7 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
     if (next <= 0) {
       sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(w.id);
       const t = byId.get(w.tile_id);
-      await creditBattleKill(ownerKey, String(w.kind ?? "fray"), t?.element ?? null, null);
+      await creditBattleKill(ownerKey, String(w.kind ?? "fray"), t?.element ?? null, null, undefined, t ? { q: Number(t.q), r: Number(t.r) } : undefined);
       return true;
     }
     sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, w.id);
@@ -4903,9 +4927,13 @@ async function battleStateView(ownerKey: string): Promise<BattleStateView> {
 /** A kill on the Tender's land pays its bounty, whoever's
  *  hand struck it (Nigel, 2026-10-23): PROTECTION minutes
  *  equal to the kind's AC bonus above 10 bank at once; the
- *  SHADOW roll (20%) pays the same number into the hoard;
- *  the energy drip pays as it always has (payFellDrip, the
- *  live 20% — one roll, the ground's element or chance's).
+ *  SHADOW roll (20%) pays the same number into the hoard.
+ *  THE TAKE (the loot table fix, 2026-10-25): the fell's
+ *  yield — energy by kind (paid on this road for the
+ *  first time), the drizzle when its roll falls, and the
+ *  table's goods — is rolled as one take and lands in
+ *  her Pack as physical drops, nothing of it settling
+ *  silently; the take is described at the rolling, below.
  *  A kill struck by an Awokin's own blow also grants that
  *  Awokin its attack event XP; the written light's kills
  *  grant none, as before. Withering deaths never reach here:
@@ -4918,7 +4946,7 @@ async function battleStateView(ownerKey: string): Promise<BattleStateView> {
  *  shareholder. Callers off the battle (the written light's
  *  springs) pass no weights and keep the old road whole:
  *  the named killer alone, or none. */
-async function creditBattleKill(ownerKey: string, kind: string, groundElement: string | null, killerAwakenedId: number | null, killerXpWeights?: Map<number, number>): Promise<void> {
+async function creditBattleKill(ownerKey: string, kind: string, groundElement: string | null, killerAwakenedId: number | null, killerXpWeights?: Map<number, number>, fx?: { q: number; r: number }): Promise<void> {
   const bonus = enemyArmorBonus(kind);
   if (bonus > 0) {
     sqlite.prepare("UPDATE tender_progress SET protection_bank_ms = protection_bank_ms + ? WHERE owner_key = ?")
@@ -4928,16 +4956,30 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
         .run(bonus, ownerKey);
     }
   }
-  await payFellDrip(ownerKey, groundElement);
-  // THE DROP TABLE (Nigel, ruled 2026-10-23; built
-  // 2026-10-25): what the felled dark leaves behind —
-  // shards, goods, relics and the guaranteed reagents —
-  // gathers in the Tender's pack, whoever's hand struck
-  // the blow, as the rest of this bounty pays. Guarded so
-  // a fault in the new ledger can never break a kill's
-  // older payments or the read that settled it; the fault
-  // is logged, never silent.
-  try { rollFellDrops(ownerKey, kind); } catch (e) { console.error("[drops] fell drop failed:", e); }
+  // THE TAKE (the loot table fix, 2026-10-25): what the
+  // felled dark leaves behind — the energy ladder, the
+  // drizzle when it falls, shards, the twelve's goods,
+  // relics and the guaranteed reagents — is rolled as
+  // ONE take (rollFellTake, drops.ts), lands in her Pack
+  // as physical drops, and springs out of the dark on
+  // her map (the drop event the territory read drains),
+  // whoever's hand struck the blow. She claims each
+  // entry into her inventory, purse or pools by the
+  // bag. Guarded so a fault in the new ledger can never
+  // break a kill's older payments or the read that
+  // settled it; the fault is logged, never silent.
+  try {
+    const drops = rollFellTake(kind, groundElement);
+    if (drops.length) {
+      landHomelandPack(ownerKey, drops);
+      const kindName = kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : "dark";
+      sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+        .run(ownerKey, `The felled ${kindName} leaves behind: ${describeDrops(drops)} — gathered in your Pack.`, Date.now());
+      if (fx && Number.isFinite(fx.q) && Number.isFinite(fx.r)) {
+        recordDropEvent(ownerKey, { at: Date.now(), fromQ: fx.q, fromR: fx.r, drops });
+      }
+    }
+  } catch (e) { console.error("[drops] fell drop failed:", e); }
   if (killerXpWeights) {
     await grantDividedXpPot(XP_PER_ATTACK, killerXpWeights);
   } else if (killerAwakenedId != null) {
@@ -5410,12 +5452,17 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
           .set({ energy: next, updatedAt: new Date() })
           .where(eq(schema.tenderResources.ownerKey, ownerKey));
       }
-      await payFellDrip(ownerKey);
+      // The hold's drip rides the delivery too (the loot
+      // table fix): it springs out as a drop into her Pack.
+      // The hold's +3 above stays the hold's own skeleton,
+      // paid as it always was.
+      const risingTile = byId.get(d.tileId);
+      await payDripAsDrop(ownerKey, null, risingTile ? { q: Number(risingTile.q), r: Number(risingTile.r) } : undefined);
       await grantDividedXpPot(2, darkDamage.get(d.id) ?? new Map());
       return;
     }
     const t = byId.get(d.tileId);
-    await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer, darkDamage.get(d.id) ?? new Map());
+    await creditBattleKill(ownerKey, d.kind, t?.element ?? null, d.killer, darkDamage.get(d.id) ?? new Map(), t ? { q: Number(t.q), r: Number(t.r) } : undefined);
     // SWALLOW THE HEART (the zodiac's HP-on-kill star;
     // Recovery #1): a kill one of his Awokin had a hand
     // in (the killer stands named on the body) returns
@@ -9413,10 +9460,13 @@ export const handlers = {
     }
     // THE FELL DRIP: a wanderer the weapon beat pays as any
     // beaten creature pays (Nigel, 2026-10-20) — the element
-    // of the ground it fell on, or chance's choice.
+    // of the ground it fell on, or chance's choice. On this
+    // ground the drizzle lands as a physical drop in her
+    // Pack (the loot table fix, 2026-10-25), at the tile
+    // the dark fell on.
     for (const tileId of fellTiles) {
       const t = tiles.find((x: any) => x.id === tileId);
-      await payFellDrip(ownerKey, t?.element ?? null);
+      await payDripAsDrop(ownerKey, t?.element ?? null, t ? { q: Number(t.q), r: Number(t.r) } : undefined);
     }
     if (dirty) {
       sqlite.prepare("UPDATE tender_progress SET weapon_next_at = ?, weapon_strike = ? WHERE owner_key = ?")
@@ -10177,7 +10227,7 @@ export const handlers = {
     // Tender's own, and none of it cursed).
     const buildTilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
     const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey));
-    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { tiles, placements, buildings, mood, walls, skills, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -11681,7 +11731,7 @@ export const handlers = {
         }
         if (hp <= 0) {
           sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(foe.id);
-          await creditBattleKill(ownerKey, String(foe.kind ?? "fray"), tile.element ?? null, null);
+          await creditBattleKill(ownerKey, String(foe.kind ?? "fray"), tile.element ?? null, null, undefined, { q: Number(tile.q), r: Number(tile.r) });
           felledShatter = true;
         } else if (shots.some(s => s.hit)) {
           sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(hp, foe.id);
@@ -11799,8 +11849,9 @@ export const handlers = {
       const sprungNow = await springHomelandWorking(ownerKey, newId, castTiles as any[]);
       // THE FELL DRIP: if the writing's spring beat the dark
       // standing on it, the fell pays as any beaten creature
-      // pays (Nigel, 2026-10-20).
-      if (sprungNow.felled) await payFellDrip(ownerKey, tile.element ?? null);
+      // pays (Nigel, 2026-10-20) — as a physical drop in her
+      // Pack on this ground (the loot table fix, 2026-10-25).
+      if (sprungNow.felled) await payDripAsDrop(ownerKey, tile.element ?? null, { q: Number(tile.q), r: Number(tile.r) });
       return { ok: true as const, id: newId, tileId, cost: runeCost, pour: slots, hp, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, sprung: sprungNow.sprung, felled: sprungNow.felled, ground: sprungNow.ground, purified: sprungNow.purified };
     }
 
@@ -11873,7 +11924,7 @@ export const handlers = {
     const chargesLeft = (chosen.charges ?? 1) - 1;
     if (chargesLeft <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(chosen.id);
     else sqlite.prepare("UPDATE territory_workings SET charges = ? WHERE id = ?").run(chargesLeft, chosen.id);
-    if (felled) await creditBattleKill(ownerKey, String(wanderer.kind ?? "fray"), markTile.element ?? null, null);
+    if (felled) await creditBattleKill(ownerKey, String(wanderer.kind ?? "fray"), markTile.element ?? null, null, undefined, { q: Number(markTile.q), r: Number(markTile.r) });
     return { ok: true as const, loosed: true as const, workingId: Number(chosen.id), fromTileId: Number(chosen.tile_id), targetId: wandererId, harm: power, felled, chargesLeft: Math.max(0, chargesLeft) };
   },
 
@@ -14911,6 +14962,45 @@ export const handlers = {
   async getInventory(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     return { pack: inventoryView(ownerKey) };
+  },
+
+  /** CLAIM A DROP FROM HER PACK (the loot table fix,
+   *  Nigel, ruled 2026-10-25 18:46 — "click the pack and
+   *  the item goes into your inventory"): one standing
+   *  entry of her homeland Pack, clicked, lands where it
+   *  belongs — goods into the inventory under its caps,
+   *  energy into her purse under its cap, attunement
+   *  through the pools' one writer. The landing is
+   *  proven BEFORE the entry is spent: a claim her
+   *  inventory or purse cannot hold is refused in words
+   *  and the entry stands in the Pack. */
+  async claimPackDrop(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ entryId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the drop you would claim.");
+    const entry = peekHomelandPackEntry(ownerKey, parsed.data.entryId);
+    if (!entry) badRequest("That drop is no longer in your Pack — it may already have been claimed.");
+    let line = "";
+    if (entry.kind === "item") {
+      if (!entry.itemKey || !inventoryCanHold(ownerKey, entry.itemKey, entry.qty)) {
+        badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and fifteen stacks are all it holds. Make room, and it will wait in your Pack.`);
+      }
+      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+      addToInventory(ownerKey, entry.itemKey!, entry.qty);
+      line = `The ${entry.name} is yours — it rests in your inventory.`;
+    } else if (entry.kind === "energy") {
+      const maxEnergy = await calculateMaxEnergy(ownerKey);
+      const current = await getEnergyFor(ownerKey);
+      if (current >= maxEnergy) badRequest("Your energy stands full — spend some, and the orb will wait in your Pack.");
+      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+      await gainEnergy(ownerKey, entry.qty, maxEnergy);
+      line = `The orb breaks — ${entry.qty} energy is yours.`;
+    } else {
+      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+      await addAspectPoints(ownerKey, (entry.element ?? "root") as AttunementElement, entry.qty);
+      line = `The drizzle settles — ${Math.round(entry.qty * 10) / 10} points of ${entry.element} attunement join your pools.`;
+    }
+    return { ok: true as const, line, loot: homelandPackView(ownerKey), pack: inventoryView(ownerKey) };
   },
 
   /** Twenty rune shards turn into ONE attunement point,

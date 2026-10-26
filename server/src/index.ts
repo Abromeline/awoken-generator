@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { blobs, DATA_DIR } from "./store.js";
 import { handlers, reconcileXpRecurve, reconcileStatEvery3, type ActionContext, type ActionName } from "./actions.js";
+import { convertInventedStacks } from "./drops.js";
 import { stripeConfig, createCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
 import {
   claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
@@ -306,6 +307,16 @@ try {
   await reconcileStatEvery3();
 } catch (err) {
   console.error("[xp] stat-cadence reconciliation failed; will retry next boot:", err);
+}
+
+// THE CONVERSION (the loot table fix, 2026-10-25): standing stacks of the
+// invented goods become the twelve of record, counts preserved (Nigel,
+// ruled 19:04). Idempotent — once no invented key stands it does nothing.
+try {
+  const moved = convertInventedStacks();
+  if (moved.length) console.log(`[drops] converted ${moved.length} invented stack(s) to the twelve of record.`);
+} catch (err) {
+  console.error("[drops] stack conversion failed; will retry next boot:", err);
 }
 
 const port = Number(process.env.PORT ?? 3000);
