@@ -14,6 +14,7 @@ import glyphBladesImg from "./assets/glyphs/blades.png";
 import glyphShardImg from "./assets/glyphs/shard.png";
 import glyphCoilImg from "./assets/glyphs/coil.png";
 import glyph05Img from "./assets/glyphs/trees.png";
+import grimoireFrameImg from "./assets/grimoire-frame.png";
 
 /**
  * THE SKILL ZODIAC (Nigel's directive via Law, 2026-10-17):
@@ -434,6 +435,12 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
    *  (~/workspace/spellbook-design/: the UO spell-pages
    *  and index references), wearing the ruled skin: dark
    *  pages, cream text, our own runes in neutral gold.
+   *  THE FRAME (Nigel, 2026-10-25 23:13 + 23:19): the red
+   *  border and the brass corners and clasps are STRUCK;
+   *  in their place stands his own golden book frame
+   *  (assets/grimoire-frame.png, lifted layer-faithfully
+   *  from his Untitled_Artwork.psd) as the book's own
+   *  edge, the pages sitting inside its open interior.
    *  grimPage stays the folio: 0 is the chapter's index
    *  spread; folios 1..N pair into spreads (1,2), (3,4)… */
   const grimChapter = grimTab === "weapons" ? "Weapons" : grimTab === "spells" ? "Spells" : "Runes/Wards";
@@ -807,9 +814,6 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                 <div className="book" role="group" aria-label={`The Grimoire — the ${grimChapter} chapter, standing open as a book`}>
                   <button type="button" className="book-arrow" disabled={grimSpread <= 0} onClick={() => turnSpread(-1)} aria-label="Turn back a page">‹</button>
                   <div className="book-cover">
-                    <span className="book-corner tl" aria-hidden="true" /><span className="book-corner tr" aria-hidden="true" />
-                    <span className="book-corner bl" aria-hidden="true" /><span className="book-corner br" aria-hidden="true" />
-                    <span className="book-clasp left" aria-hidden="true" /><span className="book-clasp right" aria-hidden="true" />
                     <div className="book-spread">
                       {grimSpread === 0 ? (
                         <>{renderIndexLeaf("left")}{renderIndexLeaf("right")}</>
@@ -817,6 +821,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                         <>{renderLeaf("left", grimEntries[grimSpread * 2 - 2])}{renderLeaf("right", grimEntries[grimSpread * 2 - 1])}</>
                       )}
                     </div>
+                    <img className="book-golden-frame" src={grimoireFrameImg} alt="" aria-hidden="true" />
                   </div>
                   <button type="button" className="book-arrow" disabled={grimSpread >= spreadCount} onClick={() => turnSpread(1)} aria-label="Turn a page forward">›</button>
                 </div>
