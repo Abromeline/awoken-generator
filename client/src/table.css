@@ -955,6 +955,7 @@ button { font-family: inherit; }
 .bag-name { flex: 1; }
 .bag-qty { color: var(--gold); }
 .bag-give { display: flex; gap: 5px; flex-wrap: wrap; width: 100%; padding: 2px 0 4px 33px; }
+.bag-empty-row { display: flex; justify-content: flex-end; padding: 6px 0 2px; border-top: 1px solid rgba(201, 162, 39, .25); margin-top: 6px; }
 .beacon-pin.lit { border-color: var(--gold); box-shadow: 0 0 14px rgba(201, 162, 39, 0.55); }
 .beacon-pin.lit img { opacity: 1; }
 .beacon-pop {
