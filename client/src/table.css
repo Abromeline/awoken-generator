@@ -301,32 +301,26 @@ button { font-family: inherit; }
   margin-bottom: 8px;
 }
 
-/* ————— The hand & satchel ————— */
+/* ————— The hand row ————— */
 .handzone {
   border-top: 2px solid var(--blood-deep);
   background: var(--ash-2);
   padding: 12px 16px 16px;
 }
-.satchel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+/* THE HAND ROW (Nigel, 2026-10-25 — "Remove the satchel"):
+   one slim row in the room's own flow along the bottom.
+   It is never fixed over the field, so no furniture of the
+   seated player's crosses the zoom buttons' row. The bind
+   strip, when it stands, takes the row's second line. */
+.handzone.handrow {
+  display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap;
+  flex: none; padding: 6px 16px;
 }
-.satchel-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.satchel-tabs button {
-  min-height: 44px;
-  padding: 8px 14px;
-  border-radius: 8px 8px 0 0;
-  border: 1px solid var(--ash-3);
-  background: var(--ash);
-  color: var(--bone-dim);
-  cursor: pointer;
-  font-size: 13.5px;
-}
-.satchel-tabs button.active { color: var(--gold-bright); border-color: var(--gold); background: var(--ash-3); }
+.handrow-main { display: flex; align-items: center; gap: 12px; }
+.handrow-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.handrow-bound { margin: 0; }
+.handzone.handrow .notice-line { margin: 0; flex-basis: 100%; }
+.handzone.handrow .bind-strip { margin-top: 0; border-top: none; padding-top: 0; flex-basis: 100%; }
 .dice-btn {
   min-height: 44px;
   padding: 8px 16px;
@@ -564,7 +558,9 @@ button { font-family: inherit; }
    Party and the Dark are slim rails over its corners; the
    Tale is a strip at its foot; and the hand is a DRAWER that
    rests half off-screen (only its grab shows) and rises when
-   reached for. His layout law of this date supersedes the old
+   reached for — the drawer itself struck later by the
+   hand-row ruling (Nigel, 2026-10-25). His layout law of
+   this date supersedes the old
    "placement untouchable" clause for the room's frame only —
    every control keeps its face, size and behaviour. */
 .table-room { height: 100dvh; overflow: hidden; }
@@ -686,26 +682,12 @@ button { font-family: inherit; }
   bottom: 122px; z-index: 8; width: min(780px, 94%); margin: 0;
 }
 
-/* The hand drawer: rests with only its grab above the fold —
-   half off-screen, as ruled — and rises when reached for. */
-.handzone.drawer {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-  transform: translateY(calc(100% - 48px));
-  transition: transform 0.32s ease;
-  max-height: 68dvh; overflow-y: auto;
-  padding: 0 16px 16px;
-  box-shadow: 0 -14px 38px rgba(0, 0, 0, 0.6);
-}
-.handzone.drawer.risen { transform: none; }
-.hand-grab {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  width: 100%; height: 48px; padding: 0;
-  background: none; border: none; border-bottom: 1px dashed var(--ash-3);
-  color: var(--gold-bright); font-size: 13px; letter-spacing: 0.08em;
-  text-transform: uppercase; cursor: pointer; font-family: inherit;
-}
-.grab-line { display: block; width: 44px; height: 4px; border-radius: 2px; background: var(--ash-3); }
-.handzone .satchel-head { margin-top: 10px; }
+/* The hand drawer that rested half off-screen here — its
+   grab strip fixed across the room's bottom, rising when
+   reached for — was removed whole by the hand-row ruling
+   (Nigel, 2026-10-25, "Remove the satchel"); its styles
+   went with it. The row's styles stand with the hand
+   section above. */
 
 @media (max-width: 900px) {
   .party-panel, .dark-panel { width: 140px; overflow-y: auto; padding: 8px; }

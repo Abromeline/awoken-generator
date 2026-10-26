@@ -4,7 +4,7 @@
  *
  * P0 — THE EMPTY TABLE: the room itself, whole — Sky Bar, Party,
  * Battleground with the star-seed at its heart, the Dark, the private
- * tabbed satchel, the dice pop-up, the Tale, personal
+ * hand row, the dice pop-up, the Tale, personal
  * notes and the typed inventory — with named players and private test
  * companies proving the plumbing. Dealing, summoning and referee combat
  * are P1; the Storytender's Stage and Panel are P2. Nothing here
@@ -579,18 +579,17 @@ export default function Table() {
   const [devName, setDevName] = useState("");
   const [shared, setShared] = useState<SharedState | null>(null);
   const [you, setYou] = useState<YouState | null>(null);
-  // The satchel's faces (Nigel, 2026-10-22): I · Awokin
-  // (your standing) and IV · Potions & Items only — the
-  // workings faces that once stood between them (II ·
-  // Abilities, III · Spells) were the workings menu, and
-  // the menu is struck everywhere. Casting lives wholly
-  // in the wheel: right-click, branch, pick, click-cast.
-  const [tab, setTab] = useState<"I" | "IV">("I");
-  // The satchel drawer (Phase A room, Nigel 2026-10-18; the
-  // hand it once held was retired by the wheel law,
-  // 2026-10-21): the satchel rests half off-screen and rises
-  // when reached for.
-  const [handUp, setHandUp] = useState(false);
+  // THE HAND ROW (Nigel, 2026-10-25 — "Remove the satchel
+  // and put the backpack ui for inventory locked on the
+  // right side of the screen"): the bottom satchel drawer
+  // is gone, tabs and all. What it held lives on in one
+  // slim row along the room's bottom — her standing (the
+  // party and elsewhere chips), the bind strip, the dice —
+  // and inventory rides the backpack pin on the right
+  // side. The hand of cards the drawer once held was
+  // retired by the wheel law (2026-10-21); casting lives
+  // wholly in the wheel: right-click, branch, pick,
+  // click-cast.
   // CAMPAIGN doors (Phase B): the Discord door's proven name,
   // held while the opener chooses the room's nature; and the
   // doorway-test campaign key.
@@ -1689,7 +1688,7 @@ export default function Table() {
             <h4>🎲 Your Table binding code</h4>
             <p className="quiet">
               Signed in here as your Tender? Take a one-time code, then spend it at the
-              Table in Discord (the bind strip in your satchel, under Awokin) — your Discord name is
+              Table in Discord (the bind strip in the hand row along the room's bottom) — your Discord name is
               tied to this Tender, and the Table seats your real Tender from then on.
             </p>
             {bindCode ? (
@@ -3948,7 +3947,7 @@ export default function Table() {
         </>
       )}
 
-      <footer className={you?.storytender ? "handzone st-zone" : you ? `handzone drawer${handUp ? " risen" : ""}` : "handzone plain"}>
+      <footer className={you?.storytender ? "handzone st-zone" : you ? "handzone handrow" : "handzone plain"}>
         {you?.storytender ? (
           <div className="st-panel">
             <div className="st-head">
@@ -4029,106 +4028,73 @@ export default function Table() {
           </div>
         ) : you ? (
           <>
-            <button type="button" className="hand-grab" onClick={() => setHandUp(v => !v)} aria-expanded={handUp} aria-label={handUp ? "Lower your satchel" : "Raise your satchel"}>
-              <span className="grab-line" aria-hidden="true" />
-              {handUp ? "▾ your satchel" : "▴ your satchel"}
-            </button>
-            <div className="satchel-head">
-              <div className="satchel-tabs" role="tablist" aria-label="Your satchel">
-                {(["I", "IV"] as const).map((t) => (
-                  <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                    {t}{t === "I" ? " · Awokin" : " · Potions & Items"}
-                  </button>
-                ))}
-              </div>
+            {/* THE HAND ROW (Nigel, 2026-10-25 — "Remove the
+                satchel"): the drawer is gone. Her standing,
+                the bind strip and the dice live in this one
+                slim row along the room's bottom, standing in
+                the room's own flow — no furniture of hers is
+                fixed over the field, so nothing crosses the
+                zoom buttons' row. Inventory rides the
+                backpack pin on the right side. */}
+            <div className="handrow-main">
               <span className="my-energy" title="Your energy for this sitting — calculated from your whole roster by the game's law"><span className="spark-glow">✦</span> {you.energy ?? 0}<span className="my-energy-max"> / {you.maxEnergy ?? 0}</span></span>
               <span className="my-band" title="Your travelling company — how many of your Awokin may stand on the field at once. Your level widens it (three at Lv 1, four at Lv 3, the true five at Lv 6), and the Muster roads widen it further: the Escort, the Pennant, the Retinue, the Whole Muster.">⚑ {you.band ?? 0}<span className="my-energy-max"> / {you.bandCap ?? 5}</span></span>
               <button className="dice-btn" onClick={() => setDiceOpen(true)} aria-label="Open your dice">🎲 Your dice</button>
             </div>
             {notice && <p className="notice-line">{notice}</p>}
-            {tab === "I" && (
-              <>
-                {/* THE HAND IS RETIRED (Nigel, 2026-10-21 — the
-                    wheel law): no card row stands here any more.
-                    Summoning rides the action wheel's Awoken
-                    branch; this tab keeps the party's standing
-                    and the kept-back company's names. */}
-                <p className="quiet small">Summoning rides the <strong>action wheel</strong> now: open its Awoken branch, choose a member of your company, then tap ground at your side — cursed ground answers too, but while <em>you</em> stand in the curse, every cast you make takes −3.</p>
-                {(you.elsewhere ?? []).length > 0 && (
-                  <div className="hand-elsewhere">
-                    <p className="quiet small">Keeping other posts — one body stands in one place, so these are not at this Table:</p>
-                    <div className="elsewhere-row">
-                      {(you.elsewhere ?? []).map((e, i) => (
-                        <span key={`${e.name}-${i}`} className="elsewhere-chip" data-element={e.element}
-                          title={e.where === "staged"
-                            ? `${e.name} waits staged at your bastion — it stands ready there, and an instance claimed from the bastion brings it to your wheel.`
-                            : `${e.name} stands on your homeland field — it cannot also stand here. Set it home there, and it answers your wheel at your next seat.`}>
-                          {e.name} · {e.where === "staged" ? "🏯 staged at your bastion" : "🏠 on your homeland field"}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {you.partyView && (
-                  <div className="hand-party">
-                    <p className="quiet small">Your party at this Table — {you.partyView.members.length} of {you.partyView.cap} spots filled. The wheel's Awoken branch calls from this party.</p>
-                    <div className="elsewhere-row">
-                      {you.partyView.members.map((m) => (
-                        <span key={m.awakenedId} className="elsewhere-chip party-chip"
-                          title={m.standing === "field" ? `${m.name} stands on the field — a member standing when the battle ends stays standing.` : m.standing === "ready" ? `${m.name} stands in your party, ready at the wheel — call it by the summon cast.` : `${m.name} stands in your party but keeps another post — it cannot be called to this Table.`}>
-                          👣 {m.name} · {m.standing === "field" ? "⚔ on the field" : m.standing === "ready" ? "🎡 ready at the wheel" : "keeps its post"}
-                        </span>
-                      ))}
-                      {you.partyView.incoming.map((i) => {
-                        const left = Math.max(0, i.arrivesAt - Date.now());
-                        const mm = Math.floor(left / 60000);
-                        const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
-                        return (
-                          <span key={i.awakenedId} className="elsewhere-chip party-chip incoming"
-                            title={`${i.name} is on its way to your party — called in as a reinforcement; it joins when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
-                            🚶 {i.name} · on its way — {mm}:{ss} left
-                          </span>
-                        );
-                      })}
-                    </div>
-                    {shared.battle.active && you.partyView.openSpots > 0 && (
-                      <p className="quiet small">{you.partyView.openSpots} spot{you.partyView.openSpots === 1 ? "" : "s"} open. Fill one from the Party tab of your Zodiac — the fill lands at once now, even mid-battle, and costs nothing — or summon straight from the wheel's Awoken branch: any Awokin in your deck can be cast from the branch's deck window, and a landed summon follows you and stands in your party from that act.</p>
-                    )}
-                    {shared.battle.active && you.partyView.openSpots === 0 && (
-                      <p className="quiet small">Your party stands full — no spot stands open for a fill.</p>
-                    )}
-                    {!shared.battle.active && (
-                      <p className="quiet small">Between battles, fill an open spot from the Party tab of your Zodiac — there the fill lands at once, and costs nothing.</p>
-                    )}
-                  </div>
-                )}
-                {you.bound ? (
-                  <p className="quiet small">The company of <strong>{you.bound}</strong> — your party, callable from the action wheel's Awoken branch, sent to you alone.</p>
-                ) : (
-                  <div className="bind-strip">
-                    <p className="quiet small">Your company — sent to you alone. These are stand-ins: bind your Tender and your own Awokin take their places at your wheel, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
-                    <div className="bind-row">
-                      <input
-                        className="door-input"
-                        value={bindInput}
-                        onChange={(e) => setBindInput(e.target.value.toUpperCase())}
-                        maxLength={6}
-                        placeholder="Binding code"
-                        aria-label="Binding code"
-                      />
-                      <button className="table-btn primary" disabled={bindInput.trim().length < 6} onClick={() => void submitBind()}>Bind my Tender</button>
-                      {bindMsg.startsWith("Bound") && (
-                        <button className="table-btn" onClick={() => window.location.reload()}>Re-seat now</button>
-                      )}
-                    </div>
-                    {bindMsg && <p className="quiet small">{bindMsg}</p>}
-                  </div>
-                )}
-              </>
+            {(you.elsewhere ?? []).length > 0 && (
+              <div className="handrow-chips" aria-label="Keeping other posts">
+                {(you.elsewhere ?? []).map((e, i) => (
+                  <span key={`${e.name}-${i}`} className="elsewhere-chip" data-element={e.element}
+                    title={e.where === "staged"
+                      ? `${e.name} waits staged at your bastion — it stands ready there, and an instance claimed from the bastion brings it to your wheel.`
+                      : `${e.name} stands on your homeland field — it cannot also stand here. Set it home there, and it answers your wheel at your next seat.`}>
+                    {e.name} · {e.where === "staged" ? "🏯 staged at your bastion" : "🏠 on your homeland field"}
+                  </span>
+                ))}
+              </div>
             )}
-            {tab === "IV" && (
-              <div className="arts-list">
-                <p className="quiet">Potions and carried things will gather here as the world deals them. What you write down yourself rides in your packing, under the Party.</p>
+            {you.partyView && (
+              <div className="handrow-chips" aria-label="Your party at this Table">
+                {you.partyView.members.map((m) => (
+                  <span key={m.awakenedId} className="elsewhere-chip party-chip"
+                    title={m.standing === "field" ? `${m.name} stands on the field — a member standing when the battle ends stays standing.` : m.standing === "ready" ? `${m.name} stands in your party, ready at the wheel — call it by the summon cast.` : `${m.name} stands in your party but keeps another post — it cannot be called to this Table.`}>
+                    👣 {m.name} · {m.standing === "field" ? "⚔ on the field" : m.standing === "ready" ? "🎡 ready at the wheel" : "keeps its post"}
+                  </span>
+                ))}
+                {you.partyView.incoming.map((i) => {
+                  const left = Math.max(0, i.arrivesAt - Date.now());
+                  const mm = Math.floor(left / 60000);
+                  const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+                  return (
+                    <span key={i.awakenedId} className="elsewhere-chip party-chip incoming"
+                      title={`${i.name} is on its way to your party — called in as a reinforcement; it joins when the road completes, and only while the battle still stands. If the battle ends first, the ✦${i.cost} paid for its road comes back whole.`}>
+                      🚶 {i.name} · on its way — {mm}:{ss} left
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {you.bound ? (
+              <p className="quiet small handrow-bound">The company of <strong>{you.bound}</strong> — your party, callable from the action wheel's Awoken branch, sent to you alone.</p>
+            ) : (
+              <div className="bind-strip">
+                <p className="quiet small">Your company — sent to you alone. These are stand-ins: bind your Tender and your own Awokin take their places at your wheel, true faces and all. Take a code in the game (the 🎲 The Table panel at the screen's right edge), then spend it here.</p>
+                <div className="bind-row">
+                  <input
+                    className="door-input"
+                    value={bindInput}
+                    onChange={(e) => setBindInput(e.target.value.toUpperCase())}
+                    maxLength={6}
+                    placeholder="Binding code"
+                    aria-label="Binding code"
+                  />
+                  <button className="table-btn primary" disabled={bindInput.trim().length < 6} onClick={() => void submitBind()}>Bind my Tender</button>
+                  {bindMsg.startsWith("Bound") && (
+                    <button className="table-btn" onClick={() => window.location.reload()}>Re-seat now</button>
+                  )}
+                </div>
+                {bindMsg && <p className="quiet small">{bindMsg}</p>}
               </div>
             )}
           </>
