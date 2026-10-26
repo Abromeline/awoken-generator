@@ -1731,6 +1731,14 @@ export default function Table() {
     const wantSource = LAND_INTENT === "homeland" ? "homeland" : LAND_INTENT === "new" ? "tableland" : null;
     if (!wantSource) return;
     if (shared.hosted && you.landHost === true && (shared.hosted.source ?? "tableland") === wantSource) {
+      // THE STALE REFUSAL CLEARS (the invite build's rider,
+      // 2026-10-26): the moment the choice stands satisfied,
+      // a refusal it met on the road leaves the notice line —
+      // a room standing on her own ground does not wear the
+      // words that refused her getting there (the wart in the
+      // homeland door fix's proof photograph). Once only, at
+      // the satisfying itself.
+      if (!landIntentSatisfiedRef.current) setNotice("");
       landIntentSatisfiedRef.current = true;
       return;
     }
