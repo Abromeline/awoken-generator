@@ -429,7 +429,11 @@ await enterTerritory();
 await clearOverlays();
 const domCounts = () => page.evaluate(() => ({
   floors: document.querySelectorAll(".build-floors polygon").length,
-  wallFaces: document.querySelectorAll(".build-walls polygon").length,
+  // The walls' raised faces: drawn as his cut faces (an <image>
+  // per wall) since the faces build (2026-10-26); before that
+  // they were placeholder polygons. Count what stands drawn.
+  wallFaces: document.querySelectorAll(".build-walls image").length,
+  floorFaces: document.querySelectorAll(".build-floors image").length,
 }));
 const before = await domCounts();
 const apiCount = (await servedPieces()).length;
@@ -437,6 +441,9 @@ ok("§E the map draws the construction: every served floor is a polygon on the l
   before.floors === (land.buildPieces ?? []).filter(p => p.kind === "triangle" || p.kind === "square").length && before.floors > 0,
   JSON.stringify({ dom: before, api: apiCount }));
 ok("§E the walls stand drawn as raised faces", before.wallFaces >= 2, JSON.stringify(before));
+ok("§E the triangle floors wear his drawn faces (one seated image per triangle)",
+  before.floorFaces === (land.buildPieces ?? []).filter(p => p.kind === "triangle").length && before.floorFaces > 0,
+  JSON.stringify(before));
 const toggle = await page.$(".buildmode-toggle");
 ok("§E build mode's own toggle stands on the map", !!toggle);
 await toggle.click();

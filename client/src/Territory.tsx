@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
 import { WALL_STYLES } from "./wallArt";
+import { triangleFaceFor, affineFor, wallFaceFor, seatWallFace, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
@@ -5275,6 +5276,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // its two parts, the middle open. These are standing
     // geometry, honestly — the faces Nigel draws are his hand's,
     // and they will wear them when they come.
+    // THE FACES CAME (2026-10-26): his drawn faces now wear the
+    // triangles, the walls and the doors (buildingFaces.ts).
+    // The standing geometry remains for the squares — their face
+    // has not come yet — and as the rim that speaks the
+    // derivation over every face.
     const landPt = (q: number, r: number): { x: number; y: number } => {
       const { px, py } = isoOffset(q, r, size);
       return { x: originX + px, y: originY + py };
@@ -5283,13 +5289,34 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       poly.map(([q, r]) => { const s = landPt(q, r); return `${s.x.toFixed(1)},${s.y.toFixed(1)}`; }).join(" ");
     const buildFloorsLayer = (
       <g key="build-floors" className="build-floors" pointerEvents="none">
-        {buildPieces.filter(p => p.kind === "triangle" || p.kind === "square").map(p => (
-          <polygon key={p.id} points={polyPts(p.footprint)}
-            fill={p.kind === "square" ? "rgba(216,202,170,0.34)" : "rgba(178,142,88,0.30)"}
-            stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
-            strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
-            strokeLinejoin="round" />
-        ))}
+        {buildPieces.filter(p => p.kind === "triangle" || p.kind === "square").map(p => {
+          // HIS FACE: a triangle wears the wedge drawn for its
+          // orientation, seated by the exact affine of its three
+          // corners (frame triangle onto footprint), so the six
+          // wedges of one hex compose into his whole floor and
+          // can never drift from the tiling. The polygon remains
+          // as the rim over the face — and as the whole drawing
+          // for a square, whose face has not come yet.
+          const face = p.kind === "triangle" ? triangleFaceFor(p.verts) : null;
+          const matrix = face ? affineFor(face.frame, face.order.map(idx => {
+            const s = landPt(p.footprint[idx][0], p.footprint[idx][1]);
+            return [s.x, s.y] as [number, number];
+          })) : null;
+          return (
+            <g key={p.id}>
+              {face && matrix && (
+                <g transform={matrix}>
+                  <image href={face.src} x={0} y={0} width={FLOOR_FRAME_W} height={FLOOR_FRAME_H} />
+                </g>
+              )}
+              <polygon points={polyPts(p.footprint)}
+                fill={face && matrix ? "none" : p.kind === "square" ? "rgba(216,202,170,0.34)" : "rgba(178,142,88,0.30)"}
+                stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
+                strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
+                strokeLinejoin="round" />
+            </g>
+          );
+        })}
       </g>
     );
     const BUILD_WALL_H = 30; // the wall's rise, in land units
@@ -5301,20 +5328,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const buildWallNodes = buildPieces.filter(p => p.kind === "wall" || p.kind === "door").map(p => {
           const [fa, fb] = p.footprint;
           const A = landPt(fa[0], fa[1]), B = landPt(fb[0], fb[1]);
+          // HIS FACE (2026-10-26): the wall wears the face drawn
+          // for its edge's stance — the frontal pair on the long
+          // edges, the leaning twins on the slants — seated by
+          // similarity on its base line, corner to corner, at his
+          // drawn height. A door wears its arch face across the
+          // whole edge: the opening is the drawing's own
+          // transparency, while the door's collision keeps its
+          // two standing parts in collisionSegments, untouched.
+          // The ground line speaks the derivation now — gold
+          // while the ground beneath is the Tender's own.
+          const face = wallFaceFor(p.kind, A.x, A.y, B.x, B.y);
           return (
             <g key={p.id}>
-              <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="#4a3a20" strokeWidth={1.4 / zoom} opacity={0.6} />
-              {collisionSegments(p.kind, p.footprint).map(([a, b], i) => {
-                const P = landPt(a[0], a[1]), Q = landPt(b[0], b[1]);
-                return (
-                  <g key={i}>
-                    <polygon points={`${P.x.toFixed(1)},${P.y.toFixed(1)} ${Q.x.toFixed(1)},${Q.y.toFixed(1)} ${Q.x.toFixed(1)},${(Q.y - BUILD_WALL_H).toFixed(1)} ${P.x.toFixed(1)},${(P.y - BUILD_WALL_H).toFixed(1)}`}
-                      fill="rgba(146,124,92,0.88)" stroke="#4a3a20" strokeWidth={1 / zoom} strokeLinejoin="round" />
-                    <line x1={P.x} y1={P.y - BUILD_WALL_H} x2={Q.x} y2={Q.y - BUILD_WALL_H}
-                      stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.6 / zoom} />
-                  </g>
-                );
-              })}
+              <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={p.protected ? "#e8c766" : "#4a3a20"} strokeWidth={1.4 / zoom} opacity={0.6} />
+              <g transform={seatWallFace(face, A, B)}>
+                <image href={face.src} x={0} y={0} width={face.w} height={face.h} />
+              </g>
             </g>
           );
         });
