@@ -3052,19 +3052,46 @@ body.defeat-flash {
    runes in neutral gold burning in as their page opens.
    Every face stands whole within its page frame: the
    leaves size to their content and the spread grows to
-   the taller leaf — nothing is cut at a page's foot. */
-.book{display:flex;align-items:stretch;margin-top:8px}
-.book-cover{position:relative;flex:1 1 auto;min-width:0;border:1px solid rgba(216,182,106,0.55);border-radius:9px 13px 13px 9px;background:linear-gradient(150deg,#3d1810 0%,#2a110a 46%,#1c0b05 100%);box-shadow:0 3px 14px rgba(0,0,0,0.55),inset 0 0 0 2px rgba(0,0,0,0.35);padding:10px}
-.book-corner{position:absolute;width:20px;height:20px;border:2px solid #c9a44f;opacity:.9;pointer-events:none;z-index:2}
-.book-corner.tl{top:3px;left:3px;border-right:none;border-bottom:none;border-top-left-radius:8px}
-.book-corner.tr{top:3px;right:3px;border-left:none;border-bottom:none;border-top-right-radius:8px}
-.book-corner.bl{bottom:3px;left:3px;border-right:none;border-top:none;border-bottom-left-radius:8px}
-.book-corner.br{bottom:3px;right:3px;border-left:none;border-top:none;border-bottom-right-radius:8px}
-.book-clasp{position:absolute;top:50%;width:7px;height:34px;margin-top:-17px;background:linear-gradient(90deg,#8a6c2a,#e6c877 55%,#8a6c2a);border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,0.6);z-index:2}
-.book-clasp.left{left:-4px}
-.book-clasp.right{right:-4px}
-.book-spread{display:flex;align-items:stretch;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,0.55)}
-.book-leaf{flex:1 1 0;min-width:0;min-height:396px;display:flex;flex-direction:column;color:#efe3c2;padding:12px 12px 9px}
+   the taller leaf — nothing is cut at a page's foot.
+   THE GOLDEN FRAME (Nigel, 2026-10-25 23:13 + 23:19 —
+   "remember to remover the red boarder onthe brimoire
+   and it should blend nicely" / "i want this built into
+   the grimoire"): the red-brown cover, its gold border
+   line and the brass corners and clasps are STRUCK. In
+   their place stands his own golden book frame
+   (assets/grimoire-frame.png — the open book drawn as a
+   glowing cream-and-gold frame, lifted layer-faithfully
+   with true alpha from his Untitled_Artwork.psd) as the
+   book's own edge: the cover box keeps the frame's own
+   aspect (5836/6661, never stretched), the frame stands
+   OVER the spread, and the pages sit inside the frame's
+   open interior, their edges tucked just under the
+   frame's strokes (spread inset 5% at the sides, 2.8%
+   at head and foot — inside the strokes' measured inner
+   opening, which runs ~1–8% in from the edges, wavy as
+   drawn; a shallower first seating let the frame's glow
+   eat the page-edge text, seen in this build's first
+   proof and corrected before the call). Because the
+   frame fixes the book's
+   height where the leaves once grew it, a leaf's content
+   taller than its page now scrolls within the leaf —
+   nothing is ever cut at a page's foot.
+   AMENDMENT (Nigel, 2026-10-25 23:35 — "also make the
+   boarder slightly bigger"): the book's row reaches
+   2.75% of the pane's width into the card's padding on
+   each side (negative margins on .book below), so the
+   cover — and with it the frame and the spread, the
+   aspect never touched — stands ~6% larger in both
+   dimensions at every width. The spread's insets are
+   fractions of the cover, so they scale with the seat;
+   re-measured on the enlarged frame they stand as
+   before (~5% sides, ~2.8% head and foot), the pages
+   still tucked under the strokes, no page text eaten. */
+.book{display:flex;align-items:center;margin:8px -2.75% 0}
+.book-cover{position:relative;flex:1 1 auto;min-width:0;aspect-ratio:5836/6661}
+.book-golden-frame{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none}
+.book-spread{position:absolute;left:5%;right:5%;top:2.8%;bottom:2.8%;z-index:1;display:flex;align-items:stretch;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,0.55)}
+.book-leaf{flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;color:#efe3c2;padding:12px 12px 9px}
 .book-leaf.left{background:linear-gradient(252deg,#2b2114 0%,#1d150c 60%,#130c05 100%);box-shadow:inset -16px 0 24px -14px rgba(0,0,0,0.9),inset 0 0 26px rgba(0,0,0,0.5);border-right:1px solid rgba(0,0,0,0.7)}
 .book-leaf.right{background:linear-gradient(108deg,#2b2114 0%,#1d150c 60%,#130c05 100%);box-shadow:inset 16px 0 24px -14px rgba(0,0,0,0.9),inset 0 0 26px rgba(0,0,0,0.5)}
 .book-leaf-head{font-family:Georgia,'Times New Roman',serif;font-size:12.5px;letter-spacing:0.24em;text-transform:uppercase;text-align:center;color:#c8a95e;margin:0 0 4px}
@@ -3097,8 +3124,17 @@ body.defeat-flash {
 .book-mark-line{order:5;font-size:11.5px;color:#b8ab8a;margin:3px 0;line-height:1.45}
 .page-attune{order:5}
 .book-page>.attune-row,.book-page>.weapon-actions,.book-page>.weapon-nodes,.book-page>.zodiac-held{order:5}
-.book-slots{justify-content:center}
-.slot-pip{width:15px;height:15px;border-radius:50%;border:1px solid rgba(216,182,106,0.5);display:inline-block}
+/* THE ATTUNEMENT ORBS (Nigel, 2026-10-25 23:43): small
+   orbs under every working of the book — the element by
+   the orb's colour (set inline, the canonical palette),
+   its power a small glowing number over the orb, one tap
+   levelling the page in that element. The slots row and
+   the fill panel that stood here are struck. */
+.attune-orbs{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:9px 0 4px}
+.attune-orb{position:relative;width:38px;height:38px;flex:0 0 auto;border-radius:50%;border:1.5px solid;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;background:rgba(14,16,24,0.94)}
+.attune-orb svg{display:block}
+.attune-orb:disabled{cursor:default;opacity:.55}
+.attune-orb-num{position:absolute;top:-8px;right:-6px;min-width:17px;height:17px;line-height:17px;padding:0 2px;border-radius:50%;background:rgba(9,10,15,0.9);font-size:11px;font-weight:700;color:#fff6da;text-align:center;pointer-events:none}
 .book-nodes{justify-content:center}
 .book .weapon-actions{justify-content:center}
 .book .weapon-node{text-align:left;border-color:rgba(216,182,106,0.3)}
@@ -3108,7 +3144,7 @@ body.defeat-flash {
 .book-pip.here{background:rgba(216,182,106,0.9);color:#1a1409;font-weight:700;border-color:#d8b66a}
 .book-pools{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12.5px;color:#cfd3e2;margin:10px 0 0}
 .book-pools-label{color:#f0d68c;letter-spacing:0.1em;text-transform:uppercase;font-size:11px}
-@media (max-width:560px){.book-leaf{padding:10px 8px 8px;min-height:340px}.book-name{font-size:15px}.book-frame{width:94px}.book-arrow{font-size:26px;width:18px}}
+@media (max-width:560px){.book-leaf{padding:10px 8px 8px;min-height:0}.book-name{font-size:15px}.book-frame{width:94px}.book-arrow{font-size:26px;width:18px}}
 
 /* The deepen door on the front page (Nigel, 2026-10-18):
    it stands only while the attunement panel stands open —

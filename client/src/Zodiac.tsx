@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, GRIMOIRE_POUR_ENGINES, GRIMOIRE_PAGE_SLOTS, GRIMOIRE_SLOT_COST, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
+import { api, GRIMOIRE_PAGE_SLOTS, GRIMOIRE_SLOT_COST, type GrimoireSpell, type SkillTreeState, type ZodiacNodeView } from "./api";
+import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { WORKING_FACE } from "./workingFaces";
 import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, type WeaponKey } from "./weaponArt";
@@ -14,6 +15,7 @@ import glyphBladesImg from "./assets/glyphs/blades.png";
 import glyphShardImg from "./assets/glyphs/shard.png";
 import glyphCoilImg from "./assets/glyphs/coil.png";
 import glyph05Img from "./assets/glyphs/trees.png";
+import grimoireFrameImg from "./assets/grimoire-frame.png";
 
 /**
  * THE SKILL ZODIAC (Nigel's directive via Law, 2026-10-17):
@@ -44,6 +46,11 @@ const SECTOR_LABEL: Record<string, string> = {
 const EL_EMOJI: Record<string, string> = { tide: "🌊", sky: "🌬️", stone: "🪨", root: "🌿", fire: "🔥" };
 const ELEMENTS = ["root", "tide", "sky", "stone", "fire"] as const;
 type ElementKey = (typeof ELEMENTS)[number];
+/** The canonical element colours (Nigel, approved
+ *  2026-10-10 — the same five the theme's --elem-* vars
+ *  carry): an attunement orb denotes its element BY this
+ *  colour. */
+const EL_COLOR: Record<ElementKey, string> = { root: "#6a8a4e", tide: "#4e8a9b", sky: "#8d9fd6", stone: "#9c7c4c", fire: "#b8542e" };
 /** Reach law (Phase C): an attuned weapon reaches as its element
  *  reaches; unattuned, it keeps its base reach. */
 const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
@@ -189,10 +196,11 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     onSuccess: (r) => charOk(`${r.node === "manifest" ? "Manifest" : "Signature"} node taken for ${WEAPONS[r.weaponKey as WeaponKey]?.name ?? r.weaponKey} — ${r.cost} ${r.element} pts spent.`),
     onError: charFail,
   });
-  // ATTUNE A PAGE (Nigel, 2026-10-20; the slots, 2026-10-21):
-  // powering lives in the Grimoire — a page's eight slots are
-  // filled here, one element at a time at 4 points the slot,
-  // and casts on both grounds carry the filled slots of the
+  // ATTUNE A PAGE (Nigel, 2026-10-20; the slots, 2026-10-21;
+  // the ORBS, 2026-10-25): powering lives in the Grimoire —
+  // a page's eight slots are filled here, one tap on a
+  // page's element orb at a time at 4 points the slot, and
+  // casts on both grounds carry the filled slots of the
   // cast's element. The book refreshes after every fill so
   // the standing never lies.
   const attunePageM = useMutation({
@@ -271,47 +279,57 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   const wieldedKey = (exp?.weaponKey as WeaponKey | null) ?? null;
   const tenderName = studioQ.data?.tender?.tenderName ?? "Nameless Tender";
   const arsenalOf = (key: string) => exp?.arsenal.find(w => w.key === key);
-  /** The filled slots of one page, with its fill controls —
-   *  rendered wherever the page is listed (the Spells tab
-   *  and the Runes/Wards tab alike). Pages whose strength is
-   *  not bought with attunement render nothing; the tabs say
-   *  so in words instead. A fill spends 4 points of that
-   *  element's pool and stands one slot of it in the page;
-   *  a page holds eight slots in all, of whatever mix. */
+  /** THE ORBS (Nigel's annotated markup, 2026-10-25 13:24;
+   *  the form corrected 2026-10-25 23:43: "small orbs that
+   *  denote ther element by colo and thier power by a
+   *  small glowing number... clickable to lvl the
+   *  attunement"). Under EVERY working of the book stand
+   *  five small orbs — one per element, the element denoted
+   *  BY THE ORB'S COLOUR (the canonical palette; the
+   *  element's own glyph sits inside in the glyphs' gold),
+   *  its power a SMALL GLOWING NUMBER over the orb: the
+   *  page's attunement depth in that element, read from the
+   *  served ledger (pageAttunements). One tap on an orb
+   *  attunes the page one standing step deeper in that
+   *  element through the book's door (attuneGrimoirePage —
+   *  4 points of that element's pool the slot, the page's
+   *  eight slots its room, the gifts bending the laying as
+   *  they always have). A tap the door cannot honour comes
+   *  back IN THE DOOR'S WORDS — never silent, never
+   *  partial — so the orbs are not greyed by pool or room:
+   *  the door judges and the book says. (The big "Attune
+   *  root — I · 1 pt" bars of the weapon pages are the
+   *  WEAPONS' ladder, untouched; the bars he struck were
+   *  this block's old fill panel, gone with the slots row.) */
   const pageAttunementBlock = (s: GrimoireSpell) => {
-    if (!(GRIMOIRE_POUR_ENGINES as readonly string[]).includes(s.engine) || !exp) return null;
+    if (!exp) return null;
     const standing = grimoireQ.data?.pageAttunements?.[s.key] ?? {};
-    const held = ELEMENTS.filter(el => (standing[el] ?? 0) > 0);
-    const total = held.reduce((n, el) => n + (standing[el] ?? 0), 0);
-    const pips = held.flatMap(el => Array.from({ length: standing[el] ?? 0 }, () => el));
-    const slots: (ElementKey | null)[] = [...pips, ...Array.from({ length: GRIMOIRE_PAGE_SLOTS - total }, () => null)];
+    const total = ELEMENTS.reduce((n, el) => n + (standing[el] ?? 0), 0);
     return (
       <div className="page-attune">
-        <div className="attune-row book-slots" aria-label={`${s.name} attunement slots — ${total} of ${GRIMOIRE_PAGE_SLOTS} filled`}>
-          <span>Slots</span>
-          {slots.map((el, i) => el ? (
-            <span key={i} className="slot-pip lit" style={{ background: `var(--elem-${el})`, borderColor: `var(--elem-${el})` }} title={`a filled ${el} slot — casts of this page in ${el} carry it`} />
-          ) : (
-            <span key={i} className="slot-pip" title="an empty slot" />
-          ))}
-          <span>{total}/{GRIMOIRE_PAGE_SLOTS}</span>
-        </div>
-        {total === 0 && <p className="book-mark-line">All eight empty — every cast of this page goes bare.</p>}
-        {held.map(el => (
-          <p key={el} className="book-mark-line">{EL_EMOJI[el] ?? ""} {el} ×{standing[el]} — +{standing[el]} power · +{standing[el]} health on {el} casts</p>
-        ))}
-        <div className="weapon-actions" role="group" aria-label={`Fill a slot of ${s.name}`}>
+        <div className="attune-orbs" role="group" aria-label={`${s.name} attunement orbs — tap an orb to attune the page in that element`}>
           {ELEMENTS.map(el => {
-            const pool = exp.pools[el] ?? 0;
+            const depth = standing[el] ?? 0;
+            const c = EL_COLOR[el];
             return (
-              <button key={el} type="button" className="zodiac-btn" disabled={charBusy || total >= GRIMOIRE_PAGE_SLOTS || pool < GRIMOIRE_SLOT_COST}
-                onClick={() => attunePageM.mutate({ spellKey: s.key, element: el })}>
-                {EL_EMOJI[el] ?? ""} {el} — fill · {GRIMOIRE_SLOT_COST} pts (pool {fmtPts(pool)})
+              <button key={el} type="button" className={`attune-orb${depth > 0 ? " lit" : ""}`} data-element={el}
+                disabled={charBusy}
+                onClick={() => attunePageM.mutate({ spellKey: s.key, element: el })}
+                aria-label={`Attune ${s.name} in ${el} — depth ${depth}; one tap fills a ${el} slot for ${GRIMOIRE_SLOT_COST} points from your ${el} pool`}
+                title={`${el} — depth ${depth} · tap to attune (fills a slot · ${GRIMOIRE_SLOT_COST} pts from your ${el} pool)`}
+                style={{
+                  borderColor: c,
+                  background: `radial-gradient(circle at 35% 30%, ${c}73, rgba(14,16,24,0.94) 72%)`,
+                  boxShadow: `0 0 ${depth > 0 ? 12 : 7}px ${c}${depth > 0 ? "aa" : "55"}, inset 0 0 8px ${c}55`,
+                } as CSSProperties}>
+                <ElementGlyph element={el as GlyphElement} width={30} height={12} />
+                <span className="attune-orb-num" style={{ textShadow: `0 0 6px ${c}, 0 0 13px ${c}` }}>{depth}</span>
               </button>
             );
           })}
         </div>
-        {total >= GRIMOIRE_PAGE_SLOTS && <p className="book-mark-line">The page is full.</p>}
+        {total === 0 && <p className="book-mark-line">Unattuned — every cast of this page goes bare.</p>}
+        {total >= GRIMOIRE_PAGE_SLOTS && <p className="book-mark-line">The page is full — its eight slots all stand filled.</p>}
       </div>
     );
   };
@@ -389,8 +407,8 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
   };
   /** A working's page: its rune burning in in neutral gold
    *  (or the owed frame), its name, its marks, its one line,
-   *  and — for the pages that drink — its slots and their
-   *  fill doors, unchanged (attuneGrimoirePage). */
+   *  and its attunement orbs — every page carries them
+   *  (attuneGrimoirePage). */
   const renderSpellPage = (s: GrimoireSpell) => {
     const face = pageFace(s);
     return (
@@ -408,7 +426,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
         <h5 className="book-name">{s.name}</h5>
         <p className="book-marks">{s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}</p>
         {s.blurb ? <p className="book-line">{s.blurb}</p> : null}
-        {pageAttunementBlock(s) ?? (s.kind === "binding" ? <p className="book-mark-line">Binding — its strength is not bought with slots.</p> : null)}
+        {pageAttunementBlock(s)}
       </section>
     );
   };
@@ -434,6 +452,12 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
    *  (~/workspace/spellbook-design/: the UO spell-pages
    *  and index references), wearing the ruled skin: dark
    *  pages, cream text, our own runes in neutral gold.
+   *  THE FRAME (Nigel, 2026-10-25 23:13 + 23:19): the red
+   *  border and the brass corners and clasps are STRUCK;
+   *  in their place stands his own golden book frame
+   *  (assets/grimoire-frame.png, lifted layer-faithfully
+   *  from his Untitled_Artwork.psd) as the book's own
+   *  edge, the pages sitting inside its open interior.
    *  grimPage stays the folio: 0 is the chapter's index
    *  spread; folios 1..N pair into spreads (1,2), (3,4)… */
   const grimChapter = grimTab === "weapons" ? "Weapons" : grimTab === "spells" ? "Spells" : "Runes/Wards";
@@ -807,9 +831,6 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                 <div className="book" role="group" aria-label={`The Grimoire — the ${grimChapter} chapter, standing open as a book`}>
                   <button type="button" className="book-arrow" disabled={grimSpread <= 0} onClick={() => turnSpread(-1)} aria-label="Turn back a page">‹</button>
                   <div className="book-cover">
-                    <span className="book-corner tl" aria-hidden="true" /><span className="book-corner tr" aria-hidden="true" />
-                    <span className="book-corner bl" aria-hidden="true" /><span className="book-corner br" aria-hidden="true" />
-                    <span className="book-clasp left" aria-hidden="true" /><span className="book-clasp right" aria-hidden="true" />
                     <div className="book-spread">
                       {grimSpread === 0 ? (
                         <>{renderIndexLeaf("left")}{renderIndexLeaf("right")}</>
@@ -817,6 +838,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                         <>{renderLeaf("left", grimEntries[grimSpread * 2 - 2])}{renderLeaf("right", grimEntries[grimSpread * 2 - 1])}</>
                       )}
                     </div>
+                    <img className="book-golden-frame" src={grimoireFrameImg} alt="" aria-hidden="true" />
                   </div>
                   <button type="button" className="book-arrow" disabled={grimSpread >= spreadCount} onClick={() => turnSpread(1)} aria-label="Turn a page forward">›</button>
                 </div>

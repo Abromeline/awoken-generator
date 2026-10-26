@@ -25,6 +25,17 @@
 //      its own art through the gold mask; none of the six
 //      opens on the owed frame. Heal and the Twin Trees
 //      still open owed (Class B — not in Nigel's tap).
+//   §O THE ORBS (Nigel's markup, 2026-10-25 13:24; the
+//      form corrected 23:43): EVERY workings page of the
+//      book carries five small attunement orbs — one per
+//      element, a glowing number over each — and neither
+//      the struck slots row nor a fill bar stands anywhere.
+//   §F THE ORBS AT WORK: a tap on a page's orb deepens
+//      that element on that page (the served ledger and
+//      the pool agree after); a page outside the old
+//      four-page set (Bats) now attunes at the door; a
+//      refused tap (empty pool) answers in the door's
+//      words and spends nothing; a full page refuses too.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache \
 //      node scripts/drive-standin-bindings.mjs
 import { join } from "node:path";
@@ -114,6 +125,16 @@ async function call(action, args, token) {
   if (!res.ok) throw new Error(`${action} -> ${res.status}: ${JSON.stringify(data)}`);
   return data?.data ?? data;
 }
+/** The same door, unthrown: status + body, for refusals. */
+async function callRaw(action, args, token) {
+  const res = await fetch(`${BASE}/api/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
+    body: JSON.stringify(args ?? {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, body: data };
+}
 const db = new Database(join(process.env.DATA_DIR, "app.db"));
 try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* fresh-DB stand-up */ }
 
@@ -138,6 +159,9 @@ function seedAwokin(name, element) {
 }
 for (let i = 0; i < 3; i++) seedAwokin(`Binding Wake ${i + 1}`, "root");
 await call("chooseClass", { classKey: "warden" }, token);
+// §F's purse: a root pool to spend from (200 pts); every
+// other pool stands empty, for the refusal proof.
+db.prepare("INSERT INTO aspect_attunement (owner_key, element, points, updated_at) VALUES (?, 'root', 200, ?)").run(ownerKey, now);
 
 /* ══ §B THE BOOK OF RECORD ═══════════════════════════════ */
 console.log("§B the book of record — the binding in the served data");
@@ -403,6 +427,101 @@ console.log("§P the six faces in the Spellbook");
   ok("Heal still opens on the owed frame (Class B — untouched)", !!heal && heal.owed, JSON.stringify(heal));
   const trees = await openPage("Runes/Wards", "Twin Trees");
   ok("the Twin Trees still opens on the owed frame (Class B — untouched)", !!trees && trees.owed, JSON.stringify(trees));
+}
+
+/* ══ §O THE ORBS ON EVERY PAGE ══════════════════════════ */
+console.log("§O the attunement orbs — every workings page carries them");
+const rootOf = (t) => t.replace(/^The /, "").split(" — ")[0].trim();
+const readOrbs = async (name) => page.evaluate((n) => {
+  const root = (t) => t.replace(/^The /, "").split(" — ")[0].trim();
+  const leaf = [...document.querySelectorAll(".book-leaf")].find((l) => root((l.querySelector(".book-name")?.textContent || "").trim()) === root(n));
+  if (!leaf) return { found: false };
+  return {
+    found: true,
+    orbs: [...leaf.querySelectorAll(".attune-orb")].map((b) => ({ el: b.getAttribute("data-element"), num: (b.querySelector(".attune-orb-num")?.textContent || "").trim() })),
+    slotsRow: !!leaf.querySelector(".book-slots"),
+    fillBar: [...leaf.querySelectorAll("button")].some((b) => (b.textContent || "").includes("— fill ·")),
+  };
+}, name);
+const openBookPage = async (chapter, name) => {
+  await page.evaluate((c) => {
+    const b = [...document.querySelectorAll('[role="tab"]')].find((x) => x.textContent.trim() === c);
+    if (b) b.click();
+  }, chapter);
+  await sleep(700);
+  const clicked = await page.evaluate((n) => {
+    const pip = [...document.querySelectorAll(".book-pip")].find((x) => (x.getAttribute("aria-label") || "").includes(n));
+    if (pip) { pip.click(); return true; }
+    return false;
+  }, name);
+  if (!clicked) throw new Error("no book pip for " + name);
+  await sleep(700);
+  return readOrbs(name);
+};
+const chapterOf = (s) => (s.kind === "spell" || s.kind === "binding" ? "Spells" : "Runes/Wards");
+const bookNow = await call("getGrimoire", {}, token);
+const FIVE = ["root", "tide", "sky", "stone", "fire"];
+{
+  ok("the book serves its workings pages for the orb walk", bookNow.spells.length >= 17, `spells=${bookNow.spells.length}`);
+  for (const s of bookNow.spells) {
+    const r = await openBookPage(chapterOf(s), rootOf(s.name));
+    ok(`${s.name}: its page stands for the orb walk`, r.found, JSON.stringify(r));
+    if (!r.found) continue;
+    ok(`${s.name}: five orbs stand under the working — one per element`, r.orbs.length === 5 && FIVE.every((el) => r.orbs.some((o) => o.el === el)), JSON.stringify(r.orbs));
+    ok(`${s.name}: every orb carries a number — the ledger's depth (all bare at first)`, r.orbs.every((o) => o.num === "0"), JSON.stringify(r.orbs));
+    ok(`${s.name}: the struck forms are gone — no slots row, no fill bar`, !r.slotsRow && !r.fillBar, JSON.stringify(r));
+  }
+}
+
+/* ══ §F THE ORBS AT WORK ════════════════════════════════ */
+console.log("§F the orbs at work — taps deepen, refusals speak, nothing half-spends");
+const poolOf = (el) => db.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = ?").get(ownerKey, el)?.points ?? 0;
+{
+  const seal = bookNow.spells.find((s) => s.key === "seal");
+  // A BROWSER TAP on the Seal's root orb (a page of the old
+  // standing set, deepened through the new form).
+  await openBookPage(chapterOf(seal), rootOf(seal.name));
+  const leafHandle = await page.evaluateHandle((n) => {
+    const root = (t) => t.replace(/^The /, "").split(" — ")[0].trim();
+    return [...document.querySelectorAll(".book-leaf")].find((l) => root((l.querySelector(".book-name")?.textContent || "").trim()) === root(n)) ?? null;
+  }, rootOf(seal.name));
+  const leafEl = leafHandle.asElement();
+  ok("the Seal's leaf stands for the tap", !!leafEl);
+  const orb = await leafEl.$('.attune-orb[data-element="root"]');
+  ok("the Seal's root orb stands in its leaf", !!orb);
+  await orb.evaluate((e) => e.scrollIntoView({ block: "center" }));
+  await sleep(300);
+  await orb.click();
+  let after = null;
+  for (let i = 0; i < 16; i++) { await sleep(500); after = await readOrbs(rootOf(seal.name)); if (after?.orbs?.find((o) => o.el === "root")?.num === "1") break; }
+  ok("the tap deepened the Seal in root — the orb's glowing number now reads 1", after?.orbs?.find((o) => o.el === "root")?.num === "1", JSON.stringify(after?.orbs));
+  const led1 = (await call("getGrimoire", {}, token)).pageAttunements ?? {};
+  ok("the served ledger agrees: the Seal holds one root slot", led1.seal?.root === 1, JSON.stringify(led1.seal));
+  ok("the pool paid the standing price — 4 of its 200 root points", poolOf("root") === 196, `root=${poolOf("root")}`);
+
+  // A PAGE OUTSIDE THE OLD SET attunes at the door (Bats —
+  // its engine stood refused as a non-attunement page).
+  const batsR = await call("attuneGrimoirePage", { spellKey: "bats", element: "root" }, token);
+  ok("Bats attunes at the door — 4 spent, one root slot stands", batsR.spent === 4 && batsR.inElement === 1 && batsR.filled === 1, JSON.stringify(batsR));
+  const led2 = (await call("getGrimoire", {}, token)).pageAttunements ?? {};
+  ok("the served ledger agrees: Bats holds one root slot", led2.bats?.root === 1, JSON.stringify(led2.bats));
+  ok("the pool paid again — 192 root points stand", poolOf("root") === 192, `root=${poolOf("root")}`);
+
+  // A REFUSED TAP: the sky pool is empty — the door answers
+  // in its words and spends nothing.
+  const refusal = await callRaw("attuneGrimoirePage", { spellKey: "bats", element: "sky" }, token);
+  ok("the empty-pool tap is refused in the door's words", refusal.status !== 200 && String(refusal.body?.error ?? "").includes("costs 4 sky points") && String(refusal.body?.error ?? "").includes("Nothing was spent"), JSON.stringify(refusal));
+  const led3 = (await call("getGrimoire", {}, token)).pageAttunements ?? {};
+  ok("the refusal spent nothing and laid nothing", poolOf("sky") === 0 && !(led3.bats?.sky > 0), `sky=${poolOf("sky")} bats=${JSON.stringify(led3.bats)}`);
+
+  // THE PAGE'S ROOM: fill the Seal to its eight at the door,
+  // then the next tap refuses — in words, spending nothing.
+  let lastFill = null;
+  for (let i = 0; i < 7; i++) lastFill = await call("attuneGrimoirePage", { spellKey: "seal", element: "root" }, token);
+  ok("the Seal fills to its eight slots at the door", lastFill?.filled === 8, JSON.stringify(lastFill));
+  const full = await callRaw("attuneGrimoirePage", { spellKey: "seal", element: "root" }, token);
+  ok("a full page refuses in the door's words", full.status !== 200 && String(full.body?.error ?? "").includes("eight slots all stand filled"), JSON.stringify(full));
+  ok("the full-page refusal spent nothing — 164 root points stand", poolOf("root") === 164, `root=${poolOf("root")}`);
 }
 
 clearInterval(stillIv);

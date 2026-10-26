@@ -22,7 +22,7 @@ import {
   type TenderRow,
   requestPasswordReset, resetPasswordWithToken } from "./tenders.js";
 import { adoptVisitorState } from "./adopt.js";
-import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, pourLaidFor, PAGE_SLOTS, SLOT_COST, POUR_ENGINES, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
+import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, attunementPools, attunementLevel, pageAttunementsFor, pageTotalSlots, pageSlotsCastFor, pageHueFor, fillPageSlot, pourLaidFor, PAGE_SLOTS, SLOT_COST, ENGINE_KEYS, type GrimoireState, type GrimoireSpell } from "./grimoire.js";
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, fxSum, companyAcBonusFor, companyAttackBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
@@ -11798,7 +11798,7 @@ export const handlers = {
       // there when it springs. The element is the DERIVED one
       // (pageHueFor judged the Rain by these same pool bands),
       // and the band is the dice's ONE feed — the page's slots
-      // never feed the Rain (it holds none).
+      // never feed the Rain — its dice answer the bands alone.
       let numsToStore: Record<string, number> = { ...(spell.numbers ?? {}) };
       // The tapped point rides the writing (2026-10-24):
       // the spring reads it (a dark thing standing on the
@@ -13942,9 +13942,12 @@ export const handlers = {
    *  3 (hers is +2), the Binder's lays 3 (hers is ×3, her
    *  Attune gift of 2026-10-22), every other hand lays the
    *  1 it sought — capped by the page's room, as a hex's
-   *  cap stands over a tile gift. Only
-   *  pages whose strength is bought with attunement take
-   *  slots at all (the book's POUR_ENGINES). */
+   *  cap stands over a tile gift. EVERY page of the book
+   *  takes slots (Nigel's annotated markup, 2026-10-25
+   *  13:24 — the widening: until then only the holding
+   *  wards and the Crown Shard drank, under the retired
+   *  POUR_ENGINES gate), so this door's refusals are
+   *  only the page's room and the pool's purse. */
   async attuneGrimoirePage(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) badRequest("Log in first.");
     const parsed = z.object({
@@ -13957,9 +13960,6 @@ export const handlers = {
     await refreshGrimoire();
     const spell = spellByKey(spellKey);
     if (!spell) badRequest("That page is not in the book.");
-    if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) {
-      badRequest(`“${spell.name}” takes no attunement — its strength is not bought with points. Power the pages whose strength is: the holding wards and the Crown Shard.`);
-    }
     const totalNow = await pageTotalSlots(ownerKey, spellKey);
     if (totalNow >= PAGE_SLOTS) {
       badRequest(`That page's eight slots all stand filled — there is no room for another.`);
