@@ -1795,7 +1795,7 @@ export default function Table() {
               tied to this Tender, and the Table seats your real Tender from then on.
             </p>
             {bindCode ? (
-              <p className="bind-code-shown">Your code: <strong>{bindCode}</strong> — this code ties your Discord name to this Tender. Spend it in the bind strip in your satchel at the Table in Discord, and from then on the Table seats your real Tender, with your real deck. It fades in fifteen minutes and works once.</p>
+              <p className="bind-code-shown">Your code: <strong>{bindCode}</strong> — this code ties your Discord name to this Tender. Spend it in the bind strip in the hand row along the room's bottom at the Table in Discord, and from then on the Table seats your real Tender, with your real deck. It fades in fifteen minutes and works once.</p>
             ) : (
               <button className="table-btn" onClick={() => void fetchBindCode()}>Show my binding code</button>
             )}

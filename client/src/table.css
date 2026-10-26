@@ -315,7 +315,22 @@ button { font-family: inherit; }
 .handzone.handrow {
   display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap;
   flex: none; padding: 6px 16px;
+  /* The hand row hangs over the filled stage like its
+     sibling furniture (the skybar and the plain handzone
+     ride at z-index 20 over the board's 2) — without this
+     seat the fixed stage takes the row's clicks, the dice
+     button first among them. The row's own body lets
+     clicks pass through to the stage beneath (its controls
+     below take their own clicks): the row stands along a
+     bottom the stage's zoom buttons also claim, and on the
+     old board's geometry the row never covered them — the
+     pass-through keeps that peace on the filled stage. */
+  position: relative; z-index: 20;
+  pointer-events: none;
 }
+.handzone.handrow button, .handzone.handrow input,
+.handzone.handrow select, .handzone.handrow textarea,
+.handzone.handrow a { pointer-events: auto; }
 .handrow-main { display: flex; align-items: center; gap: 12px; }
 .handrow-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .handrow-bound { margin: 0; }
