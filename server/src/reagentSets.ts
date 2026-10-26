@@ -63,7 +63,18 @@
  * The counting and the spending read the caster's own
  * inventory (tender_inventory) — the one pouch. The
  * Rune Shard line reads the standing shard stack, as
- * reagentItemKey rules everywhere (drops.ts). */
+ * reagentItemKey rules everywhere (drops.ts).
+ *
+ * THE TABLE HALF (ruled 2026-10-26, Fork A, in Nigel's
+ * words: "Table: empower from my own pouch"): the same
+ * sets, the same counting and the same guarded spending
+ * serve the Table's cast doors (table.ts — castHeal,
+ * castWard, castRune) for a seat BOUND to a Tender,
+ * reading that Tender's own pouch, where Table claims
+ * already land. The room's shared Pack is never read
+ * and never consumed. An unbound seat holds no pouch and
+ * is never counted: its casts stand unempowered,
+ * exactly as they always have. */
 import { sqlite } from "./store.js";
 import { REAGENTS, reagentItemKey } from "./drops.js";
 
