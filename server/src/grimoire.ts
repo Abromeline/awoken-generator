@@ -428,10 +428,10 @@ export function defaultGrimoire(): GrimoireState {
   // "Artwork 4" of his rune/ward set, 2026-10-21) — no
   // substitute. Its FACE is that same Shield piece (THE
   // BOUND FACES below): glyphId names the binding, and no
-  // drawn-rune glyph is invented for it. Its page takes no attunement
-  // slots (it stands outside POUR_ENGINES, as the Standard,
-  // the Engine and the Beacon do): its strength is the cast
-  // level law Nigel ruled for it, not the slots.
+  // drawn-rune glyph is invented for it. Its shields' strength
+  // is the cast level law Nigel ruled for it; its page takes
+  // attunement slots like every page since the widening of
+  // 2026-10-25 (it stood outside the retired gate before).
   spells.push({
     key: "bulwark",
     name: "Bulwark",
@@ -486,9 +486,9 @@ export function defaultGrimoire(): GrimoireState {
   // substitute art). Its FACE is that same Gate piece
   // (THE BOUND FACES below): glyphId names the binding,
   // and no drawn-rune glyph is invented for it.
-  // Its page takes no attunement slots (it stands
-  // outside POUR_ENGINES, as Bulwark does): its strength
-  // is the cast level law Nigel ruled for it.
+  // Its wall's strength is the cast level law Nigel ruled
+  // for it; its page takes attunement slots like every page
+  // since the widening of 2026-10-25.
   // THE TABLE SEAM, ANSWERED (2026-10-24, under the
   // no-hex-lock law — Nigel, 2026-10-23 23:04: "make
   // sure no spell or working is hex locked — range is
@@ -591,14 +591,23 @@ export function healSpell(): GrimoireSpell | null {
 // DEPTH the book kept for one unshipped night is retired
 // in turn — no player state ever stood in it. The Attune
 // act on a tile is a different act and stands apart.)
-// Only workings whose strength is bought with attunement
-// take slots at all — the holding wards and the gated
-// Shard. Binding healing is exempt — it requires energy only.
+// EVERY PAGE TAKES ATTUNEMENT (Nigel's annotated markup,
+// 2026-10-25 13:24: "some spells dont have attunement
+// available when all should"; the form called forward
+// 2026-10-25 23:35, the orbs 23:43). Until this widening
+// only four pages drank — the holding wards (seal, trees,
+// lattice) and the gated Shard — under the retired
+// POUR_ENGINES gate; now the door, the ledger and the
+// cast readings below all open to every page of the book,
+// and a page's refusal is only the pool or the room.
 // Wards and runes that HOLD BACK enemies carry a health
 // rating grown from the book's base, the caster's Tender
 // level, and the slots the cast carries; the gated Shard's
 // slots feed its harm instead, for it holds no health.
-export const POUR_ENGINES = ["seal", "trees", "lattice", "shard"] as const;
+// SHARD RAIN KEEPS ITS OWN MEASURE (2026-10-17, standing):
+// its dice and its hue answer the pools' attunement BANDS,
+// never its page's slots — the one exception the widening
+// does not touch, carried in pageHueFor/castHuesFor below.
 
 /** A Tender's attunement LEVEL in an element (Nigel, 2026-10-17):
  *  the depth band — ten attunement points per level, L3 at 30+.
@@ -679,13 +688,13 @@ export async function fillPageSlot(ownerKey: string, spellKey: string, element: 
  *  CAST'S ELEMENT — each granting +1 power and +1 health to
  *  the working laid. Slots of other elements stand in the
  *  page but do not ride this cast. 0 for unaligned casts
- *  (no element to draw on) and for workings that take no
- *  attunement. Both grounds call this, so the reading
+ *  (no element to draw on). Every page of the book takes
+ *  attunement since the widening of 2026-10-25, so no
+ *  engine gate stands here. Both grounds call this, so the reading
  *  cannot drift. (The cast's other burden, the page's spell
  *  level, rides the cast's roll as it always has — DC =
  *  level + 10 at every door — and is counted there, once.) */
 export async function pageSlotsCastFor(ownerKey: string, spell: GrimoireSpell, hue: string): Promise<number> {
-  if (!(POUR_ENGINES as readonly string[]).includes(spell.engine)) return 0;
   if (!hue || hue === "unaligned") return 0;
   return pageElementSlots(ownerKey, spell.key, hue);
 }
@@ -728,20 +737,21 @@ function shardrainBands(pools: Record<string, number>, grants: Record<string, nu
  *  at the cast doors, on both grounds, from the page's own
  *  standing — never sent by a client, never chosen in the
  *  field: a hue riding in on a cast message or action is
- *  inert, and a smuggled one changes nothing. For the pages
- *  that take attunement (POUR_ENGINES), the standing is the
- *  page's filled SLOTS: the element holding the most slots
- *  judges the colour, and the cast then carries those slots
+ *  inert, and a smuggled one changes nothing. For every
+ *  page (the widening of 2026-10-25 — every page takes
+ *  attunement now), the standing is the page's filled
+ *  SLOTS: the element holding the most slots judges the
+ *  colour, and the cast then carries those slots
  *  (pageSlotsCastFor). No slots filled — the cast goes
  *  UNALIGNED, a bare page casting plain, which is lawful.
- *  SHARD RAIN holds no slots: its page promises dice per
- *  attunement LEVEL in the cast's element, and its level is
- *  read from the pools' bands (shardrainBands) — so the Rain
- *  is judged by the greatest BAND, and its snapshot at the
- *  doors reads that same band in the derived element: ONE
- *  feed for its dice, the pool band alone; the slots never
- *  feed the Rain. Every other page holds no attunement of
- *  any measure and casts unaligned.
+ *  SHARD RAIN keeps its own measure: its page promises dice
+ *  per attunement LEVEL in the cast's element, and its
+ *  level is read from the pools' bands (shardrainBands) —
+ *  so the Rain is judged by the greatest BAND, and its
+ *  snapshot at the doors reads that same band in the
+ *  derived element: ONE feed for its dice, the pool band
+ *  alone; its page may now hold slots like any other, but
+ *  the slots never feed the Rain.
  *  TIES: the ruling keeps the page's STANDING FORM — but
  *  the book keeps no record of a standing form (forms is a
  *  hue→name table and nothing more; the stopped hue build
@@ -750,15 +760,12 @@ function shardrainBands(pools: Record<string, number>, grants: Record<string, nu
  *  unaligned until a standing-form record is ruled. This is
  *  the build's flagged fallback, not a silent choice. */
 export async function pageHueFor(ownerKey: string, spell: GrimoireSpell): Promise<string> {
-  if ((POUR_ENGINES as readonly string[]).includes(spell.engine)) {
-    const standing = (await pageAttunementsFor(ownerKey))[spell.key] ?? {};
-    return greatestAttunedHue(standing);
-  }
   if (spell.engine === "shardrain") {
     const pools = await attunementPools(ownerKey);
     return greatestAttunedHue(shardrainBands(pools, skillAttunementGrants(ownerKey)));
   }
-  return "unaligned";
+  const standing = (await pageAttunementsFor(ownerKey))[spell.key] ?? {};
+  return greatestAttunedHue(standing);
 }
 
 /** Every page's cast colour for one Tender at once — the
@@ -772,12 +779,10 @@ export async function castHuesFor(ownerKey: string): Promise<Record<string, stri
   const grants = skillAttunementGrants(ownerKey);
   const out: Record<string, string> = {};
   for (const spell of grimoireNow().spells) {
-    if ((POUR_ENGINES as readonly string[]).includes(spell.engine)) {
-      out[spell.key] = greatestAttunedHue(atts[spell.key] ?? {});
-    } else if (spell.engine === "shardrain") {
+    if (spell.engine === "shardrain") {
       out[spell.key] = greatestAttunedHue(shardrainBands(pools, grants));
     } else {
-      out[spell.key] = "unaligned";
+      out[spell.key] = greatestAttunedHue(atts[spell.key] ?? {});
     }
   }
   return out;

@@ -7658,7 +7658,7 @@ function handleConnection(ws: WebSocket): void {
       // the caster stood under when they wrote it. The element
       // is the DERIVED one (pageHueFor judged the Rain by these
       // same pool bands), and the band is the dice's ONE feed —
-      // the page's slots never feed the Rain (it holds none).
+      // the page's slots never feed the Rain — its dice answer the bands alone.
       // An unaligned cast rolls the base dice alone.
       let rainNums: Record<string, number> = { ...def.numbers };
       // The Zodiac rides the rune's snapshot (tranche one):

@@ -3098,8 +3098,17 @@ body.defeat-flash {
 .book-mark-line{order:5;font-size:11.5px;color:#b8ab8a;margin:3px 0;line-height:1.45}
 .page-attune{order:5}
 .book-page>.attune-row,.book-page>.weapon-actions,.book-page>.weapon-nodes,.book-page>.zodiac-held{order:5}
-.book-slots{justify-content:center}
-.slot-pip{width:15px;height:15px;border-radius:50%;border:1px solid rgba(216,182,106,0.5);display:inline-block}
+/* THE ATTUNEMENT ORBS (Nigel, 2026-10-25 23:43): small
+   orbs under every working of the book — the element by
+   the orb's colour (set inline, the canonical palette),
+   its power a small glowing number over the orb, one tap
+   levelling the page in that element. The slots row and
+   the fill panel that stood here are struck. */
+.attune-orbs{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:9px 0 4px}
+.attune-orb{position:relative;width:38px;height:38px;flex:0 0 auto;border-radius:50%;border:1.5px solid;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;background:rgba(14,16,24,0.94)}
+.attune-orb svg{display:block}
+.attune-orb:disabled{cursor:default;opacity:.55}
+.attune-orb-num{position:absolute;top:-8px;right:-6px;min-width:17px;height:17px;line-height:17px;padding:0 2px;border-radius:50%;background:rgba(9,10,15,0.9);font-size:11px;font-weight:700;color:#fff6da;text-align:center;pointer-events:none}
 .book-nodes{justify-content:center}
 .book .weapon-actions{justify-content:center}
 .book .weapon-node{text-align:left;border-color:rgba(216,182,106,0.3)}

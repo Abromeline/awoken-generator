@@ -425,10 +425,9 @@ export interface GrimoireState {
    *  absent for the workshop's public read of the book. */
   pageAttunements?: Record<string, Record<string, number>>;
 }
-/** The engines whose strength is bought with attunement —
- *  the pages that can be powered in the Grimoire (the client
- *  mirror of the server's POUR_ENGINES in grimoire.ts). */
-export const GRIMOIRE_POUR_ENGINES = ["seal", "trees", "lattice", "shard"] as const;
+/** Every page of the book takes attunement (Nigel's
+ *  annotated markup, 2026-10-25 — the widening struck the
+ *  old four-engine gate whole, so no mirror of it stands). */
 /** The slots a page holds in all, and what filling one
  *  costs — the client mirror of the server's PAGE_SLOTS and
  *  SLOT_COST in grimoire.ts (Nigel, 2026-10-21). */
