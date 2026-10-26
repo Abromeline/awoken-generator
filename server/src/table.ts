@@ -34,6 +34,7 @@ import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from
 import { rollFellDrops, drainDropNotices, rollFellTake, describeDrops, dropDisplayName, addToInventory, inventoryCanHold, type FellDrop } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
+import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_EMPOWERMENT_BONUS, type ReagentEmpowerment } from "./reagentSets.js";
 import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, summonersPowerFor, attuneReachFor, fxSum, companyAcBonusFor, companyAttackBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor, witchCompanyScopeFor, quicknessSpeedFor } from "./skills.js";
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
@@ -1430,10 +1431,46 @@ function curseCastTerm(room: Room, player: Player): number {
 function signedTerm(n: number): string {
   return n < 0 ? `−${Math.abs(n)}` : `+${n}`;
 }
-function rollCast(room: Room, player: Player, def: { kind: string; name: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number; curse: number } {
+/** REAGENT EMPOWERMENT AT THE TABLE (Nigel's law,
+ * 2026-10-25 10:22; the Table half ruled 2026-10-26,
+ * Fork A, in his words: "Table: empower from my own
+ * pouch"): a cast made with the working's full reagent
+ * set in the CASTER'S OWN pouch is empowered exactly as
+ * at the homeland door — half the cast's final charged
+ * energy (rounded up), +2 on the casting roll, the set
+ * consumed the moment the cast is made, fizzle or not.
+ * The pouch is the seat's bound Tender's own
+ * tender_inventory — the very pouch Table claims land in
+ * (claimPackDrop) — counted and spent through the
+ * homeland's one reckoning (reagentSets.ts), never a
+ * forked copy. The room's shared Pack is NEVER read and
+ * NEVER consumed: the take belongs to everyone seated
+ * until it is claimed, and only claimed stores empower.
+ * An UNBOUND seat (a Discord guest with no Tender behind
+ * the seat) holds no pouch: nothing is counted for it,
+ * and its casts stand exactly as they always have —
+ * unempowered, never gated, never refused for want of
+ * reagents. And reagents never gate a Table cast for
+ * anyone: without the full set, the cast is
+ * byte-for-byte the cast it has always been. */
+export function castEmpowermentFor(player: Player, spellKey: string): ReagentEmpowerment {
+  if (!player.expKey) return { active: false, lines: [] };
+  return reagentEmpowermentFor(player.expKey, spellKey);
+}
+
+/** Spend an active empowerment's set out of the caster's
+ * own pouch. Called only at the moment a cast's charge
+ * has landed — so a cast refused before its charge
+ * (reach, caps, an empty purse) consumes nothing, as at
+ * the homeland door. */
+function spendCastEmpowerment(player: Player, empowerment: ReagentEmpowerment): void {
+  if (empowerment.active && player.expKey) consumeReagentSet(player.expKey, empowerment.lines);
+}
+
+function rollCast(room: Room, player: Player, def: { kind: string; name: string; numbers?: Record<string, number> }, bonusMod = 0): { ok: boolean; roll: number; mod: number; dc: number; curse: number } {
   const school = def.kind;
   const curse = curseCastTerm(room, player);
-  const mod = castModFor(player.classKey, player.tenderLevel, school) + curse;
+  const mod = castModFor(player.classKey, player.tenderLevel, school) + curse + bonusMod;
   const dc = (def.numbers?.level ?? 1) + 10;
   const roll = dN(20);
   const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
@@ -7122,12 +7159,19 @@ function handleConnection(ws: WebSocket): void {
         }
       }
       if (unit.hp >= unit.maxHp && unit.shield >= unit.maxShield) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands whole already — body and shield alike.` })); return; }
-      const healCost = witchCompanyPrice(room, player, healSpell()?.cost ?? 2);
+      const healDef = healSpell();
+      // REAGENT EMPOWERMENT (the Table half, Fork A): Heal
+      // carries no line of record, so its empowerment never
+      // stands — its price and roll pass through the same
+      // reckoning as every door's, inert, until a line is
+      // ruled for its page. As at the homeland door.
+      const healEmpowerment = castEmpowermentFor(player, healDef?.key ?? "heal");
+      const healCost = empoweredCastPrice(healEmpowerment, witchCompanyPrice(room, player, healDef?.cost ?? 2));
       if (!chargePurse(room, player, healCost)) { ws.send(JSON.stringify({ type: "error", message: `Heal costs ✦${healCost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` })); return; }
+      spendCastEmpowerment(player, healEmpowerment);
       // THE CASTING LAW (Phase C): Heal is a binding-school
       // cast and rolls for its standing, energy already spent.
-      const healDef = healSpell();
-      if (healDef) { const reck = rollCast(room, player, healDef); if (!reck.ok) { castUnravels(room, player, healDef.name, reck, healCost); mercyRefund(room, player, healCost); sendState(room); return; } }
+      if (healDef) { const reck = rollCast(room, player, healDef, healEmpowerment.active ? REAGENT_EMPOWERMENT_BONUS : 0); if (!reck.ok) { castUnravels(room, player, healDef.name, reck, healCost); mercyRefund(room, player, healCost); sendState(room); return; } }
       // FATE's healing dice (the skeleton, Nigel 2026-10-17):
       // the mended Awoken's own element die — stone d4, sky
       // d6, tide d8, root d12, fire d10 — rolled once per
@@ -7281,12 +7325,24 @@ function handleConnection(ws: WebSocket): void {
       // door takes no economy either, and the price is
       // UNRULED besides; no economy may quietly reprice it.
       if (!isGate) castCost = witchCompanyPrice(room, caster, castCost);
+      // REAGENT EMPOWERMENT (the Table half, Fork A): the
+      // halving reads off this door's FINAL reckoned price —
+      // after the Second Wall, Steady Attention and the
+      // Witch's company price have had their say — exactly
+      // as the homeland door reads off its final price, so
+      // both fizzle mercies below reckon against the figure
+      // actually charged. The Black Gate carries no line of
+      // record, so its filed price stands untouched here,
+      // as everywhere.
+      const empowerment = castEmpowermentFor(caster, def.key);
+      castCost = empoweredCastPrice(empowerment, castCost);
       if (purseOf(room, caster) < castCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       if (!chargePurse(room, caster, castCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${castCost} — the purse no longer holds it.` })); return; }
+      spendCastEmpowerment(caster, empowerment);
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and the working simply does not happen.
-      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck, castCost); mercyRefund(room, caster, castCost); sendState(room); return; } }
+      { const reck = rollCast(room, caster, def, empowerment.active ? REAGENT_EMPOWERMENT_BONUS : 0); if (!reck.ok) { castUnravels(room, caster, def.name, reck, castCost); mercyRefund(room, caster, castCost); sendState(room); return; } }
       if (isGate) {
         // THE BLACK GATE AT THE TABLE (built 2026-10-24,
         // under the no-hex-lock law — Nigel, 2026-10-23
@@ -7582,12 +7638,22 @@ function handleConnection(ws: WebSocket): void {
       // ward door: the rune door's final price, halved while
       // a party member she has cast stands.
       runeCost = witchCompanyPrice(room, caster, runeCost);
+      // REAGENT EMPOWERMENT (the Table half, Fork A): the
+      // halving reads off this door's final reckoned price,
+      // as at the ward door and at home. Rune Shatter's held
+      // stream is untouched by it — the stream's per-second
+      // ticks in the settle are the standing working's own
+      // reckoning, not this cast's price, exactly the
+      // homeland door's reading.
+      const empowerment = castEmpowermentFor(caster, def.key);
+      runeCost = empoweredCastPrice(empowerment, runeCost);
       if (purseOf(room, caster) < runeCost) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — ${purseName(room) === "the bank" ? `the bank holds ✦${room.campaign!.bank}` : `you hold ✦${caster.energy}`}.` })); return; }
       if (!chargePurse(room, caster, runeCost)) { ws.send(JSON.stringify({ type: "error", message: `${def.name} costs ✦${runeCost} — the purse no longer holds it.` })); return; }
+      spendCastEmpowerment(caster, empowerment);
       // THE CASTING LAW (Phase C): the roll comes after the
       // purse is charged — on a fizzle the energy is spent
       // and no writing stands.
-      { const reck = rollCast(room, caster, def); if (!reck.ok) { castUnravels(room, caster, def.name, reck, runeCost); mercyRefund(room, caster, runeCost); sendState(room); return; } }
+      { const reck = rollCast(room, caster, def, empowerment.active ? REAGENT_EMPOWERMENT_BONUS : 0); if (!reck.ok) { castUnravels(room, caster, def.name, reck, runeCost); mercyRefund(room, caster, runeCost); sendState(room); return; } }
       // ── THE NEW WORKINGS (Nigel, 2026-10-22; seated
       // 2026-10-23): they stand here, past the roll — Bats
       // loosed as a living swarm, the Hold Rune forming over

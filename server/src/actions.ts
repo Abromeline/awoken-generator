@@ -35,6 +35,7 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 import { castModFor, partyBattleSeatFor } from "./table.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, inventoryCanHold, recordDropEvent, drainDropEvents, type FellDrop } from "./drops.js";
+import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_EMPOWERMENT_BONUS } from "./reagentSets.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
@@ -3902,8 +3903,14 @@ export const HOMELAND_CAST_RING = 6;
  *  natural 1 always unravels. The modifier comes from the
  *  Table's exported reckoning itself, so a proof can read the
  *  homeland's mouth against the shared table (test61). */
-export function homelandCastRoll(progress: { classKey: string | null; level: number }, spell: { kind: string; numbers?: Record<string, number> }): { ok: boolean; roll: number; mod: number; dc: number } {
-  const mod = castModFor(progress.classKey, progress.level, spell.kind);
+export function homelandCastRoll(progress: { classKey: string | null; level: number }, spell: { kind: string; numbers?: Record<string, number> }, bonusMod = 0): { ok: boolean; roll: number; mod: number; dc: number } {
+  // The bonus rides the one reckoning: the reagent
+  // empowerment's +2 (reagentSets.ts) is the only caller
+  // that passes it — it lands in the modifier the cast
+  // answers with, so the reckoning a proof reads carries
+  // it whole. A natural 1 still unravels and a natural
+  // 20 still stands, bonus or none.
+  const mod = castModFor(progress.classKey, progress.level, spell.kind) + bonusMod;
   const dc = (spell.numbers?.level ?? 1) + 10;
   const roll = homelandDN(20);
   const ok = roll === 20 || (roll !== 1 && roll + mod >= dc);
@@ -11121,6 +11128,37 @@ export const handlers = {
     if (spell.engine === "none") badRequest(`“${spell.name}” is written in the book but not yet seated — give it an engine in the workshop before it can be cast.`);
     const progress = await getTenderProgress(ownerKey);
 
+    // REAGENT EMPOWERMENT (Nigel, 2026-10-25 10:22; wired
+    // 2026-10-25 on his live report — reagentSets.ts holds
+    // the law and its named readings): the page's line of
+    // record, counted against his own pouch ONCE, here,
+    // before any branch reckons its price. The empowerment
+    // rides every branch below the same three ways: the
+    // halving on each branch's FINAL price
+    // (empoweredCastPrice, applied where the price is
+    // reckoned — after the Witch's company price, so her
+    // fizzle refunds reckon against the charge that
+    // actually lands), the +2 on the roll
+    // (homelandCastRoll's bonus), and the set consumed the
+    // moment the cast's charge lands, through
+    // spendCastEnergy — so no branch can charge an
+    // empowered cast and leave the pouch unspent, and no
+    // cast REFUSED before its charge (reach, caps, the
+    // purse itself) ever consumes. Reagents never gate:
+    // an unempowered cast's prices, charges and rolls are
+    // exactly what they have always been.
+    const empowerment = reagentEmpowermentFor(ownerKey, spell.key);
+    const castBonus = empowerment.active ? REAGENT_EMPOWERMENT_BONUS : 0;
+    let empowermentSpent = false;
+    const spendCastEnergy = async (amount: number): Promise<boolean> => {
+      const charged = await spendEnergy(ownerKey, amount);
+      if (charged && empowerment.active && !empowermentSpent) {
+        empowermentSpent = true;
+        consumeReagentSet(ownerKey, empowerment.lines);
+      }
+      return charged;
+    };
+
     // HOMELAND CASTING (Nigel, 2026-10-20) — the common ground
     // every homeland cast now stands on. THE SILENCES: while
     // he lies fallen (Phase D) no cast of any school leaves
@@ -11212,11 +11250,11 @@ export const handlers = {
       // THE WITCH'S COMPANY PRICE (Recovery R7): while a
       // party member she has cast stands, the Heal costs her
       // half — here and at every homeland cast door below.
-      const healPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
-      if (!(await spendEnergy(ownerKey, healPrice))) badRequest(`Not enough energy — ${spell.name} costs ${healPrice}.`);
+      const healPrice = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+      if (!(await spendCastEnergy(healPrice))) badRequest(`Not enough energy — ${spell.name} costs ${healPrice}.`);
       // The roll (Homeland Casting): the purse is already
       // charged — a fizzle spends it and mends nothing.
-      const cast = homelandCastRoll(progress, spell);
+      const cast = homelandCastRoll(progress, spell, castBonus);
       if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, healPrice); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: healPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, healPrice), ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       // THE BINDER'S COMPANY (Recovery R7): Heal is a Binding
       // working — a Binder's casting of it mends +4 more.
@@ -11261,9 +11299,9 @@ export const handlers = {
       // same ring in the point's tongue.)
       assertCastReach(tile, bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
       if (aimPoint) assertPointReach(bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
-      const springleafPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
-      if (!(await spendEnergy(ownerKey, springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
-      const cast = homelandCastRoll(progress, spell);
+      const springleafPrice = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+      if (!(await spendCastEnergy(springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
+      const cast = homelandCastRoll(progress, spell, castBonus);
       if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, springleafPrice); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: springleafPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, springleafPrice), ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       // THE BINDER'S RANGE (Recovery R9): the grove's radius
       // is the reach its bursts and mending work by — a
@@ -11393,9 +11431,9 @@ export const handlers = {
         }
         if (!step && !aimPoint && tileId == null) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
         if (facing && !step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
-        const gateCost = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
-        if (!(await spendEnergy(ownerKey, gateCost))) badRequest(`Not enough energy — ${spell.name} costs ${gateCost}.`);
-        const cast = homelandCastRoll(progress, spell);
+        const gateCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+        if (!(await spendCastEnergy(gateCost))) badRequest(`Not enough energy — ${spell.name} costs ${gateCost}.`);
+        const cast = homelandCastRoll(progress, spell, castBonus);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: gateCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, gateCost), spellKey: spell.key };
         const wallHp = rockWallHpForLevel(progress.level);
         // THE GATE CASTS IN A T (Nigel, 2026-10-24 22:35 —
@@ -11472,9 +11510,9 @@ export const handlers = {
       // with placement_id 0, for no figure raises them and
       // no stance sustains them: they stand by their HP.
       if (spell.engine === "bulwark") {
-        const bulwarkCost = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
-        if (!(await spendEnergy(ownerKey, bulwarkCost))) badRequest(`Not enough energy — ${spell.name} costs ${bulwarkCost}.`);
-        const cast = homelandCastRoll(progress, spell);
+        const bulwarkCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+        if (!(await spendCastEnergy(bulwarkCost))) badRequest(`Not enough energy — ${spell.name} costs ${bulwarkCost}.`);
+        const cast = homelandCastRoll(progress, spell, castBonus);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: bulwarkCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, bulwarkCost), spellKey: spell.key };
         const count = bulwarkShieldCountFor(progress.level);
         const shieldHp = rockWallHpForLevel(progress.level);
@@ -11557,12 +11595,12 @@ export const handlers = {
       const wardBase = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
       // THE WITCH'S COMPANY PRICE (Recovery R7) rides the
       // ward door's final reckoned price, as at the Table.
-      const wardCost = await witchPriceFor(ownerKey, progress.classKey, wardBase);
-      if (!(await spendEnergy(ownerKey, wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
+      const wardCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, wardBase));
+      if (!(await spendCastEnergy(wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
       // The roll (Homeland Casting): the purse is charged
       // before it — a fizzle spends the charge alone and
       // raises nothing.
-      const cast = homelandCastRoll(progress, spell);
+      const cast = homelandCastRoll(progress, spell, castBonus);
       if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, wardCost); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: wardCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, wardCost), ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       // The cast carries the page's filled slots in its
       // element — nothing is spent here; the power was laid
@@ -11623,7 +11661,7 @@ export const handlers = {
       const nowCast = Date.now();
       // THE WITCH'S COMPANY PRICE (Recovery R7): one price
       // for the branch's three doors, reckoned once here.
-      const newWorkingPrice = await witchPriceFor(ownerKey, progress.classKey, spell.cost);
+      const newWorkingPrice = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
       if (spell.engine === "bats") {
         // The cap (Nigel, 2026-10-22): three swarms standing
         // for one caster — the Witch suffers no cap.
@@ -11632,8 +11670,8 @@ export const handlers = {
           if ((standing?.n ?? 0) >= 3) badRequest("Three swarms already hunt for you — the cap is three to a caster, and the Witch alone suffers none.");
         }
         if (!standTile) badRequest("You have no stand on this land to cast from.");
-        if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
-        const cast = homelandCastRoll(progress, spell);
+        if (!(await spendCastEnergy(newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
+        const cast = homelandCastRoll(progress, spell, castBonus);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
         const info = sqlite.prepare(`INSERT INTO territory_workings
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
@@ -11673,8 +11711,8 @@ export const handlers = {
             return cell.q === tile.q && cell.r === tile.r;
           });
         if (!target) badRequest("Hold Rune needs a shade under the tap — no dark stands on that ground.");
-        if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
-        const cast = homelandCastRoll(progress, spell);
+        if (!(await spendCastEnergy(newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
+        const cast = homelandCastRoll(progress, spell, castBonus);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
         const info = sqlite.prepare(`INSERT INTO territory_workings
           (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, stops, charges, pour, max_hp, created_at)
@@ -11698,8 +11736,8 @@ export const handlers = {
         : hexDistTiles(standTile as any, tile as any) > SHATTER_RANGE) {
         badRequest("Beyond reach — 2 tiles is Rune Shatter's edge.");
       }
-      if (!(await spendEnergy(ownerKey, newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
-      const cast = homelandCastRoll(progress, spell);
+      if (!(await spendCastEnergy(newWorkingPrice))) badRequest(`Not enough energy — ${spell.name} costs ${newWorkingPrice}.`);
+      const cast = homelandCastRoll(progress, spell, castBonus);
       if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: newWorkingPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, newWorkingPrice), spellKey: spell.key };
       const bonus = castModFor(progress.classKey, progress.level, spell.kind);
       const allFoes = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[];
@@ -11777,11 +11815,11 @@ export const handlers = {
       const runeBase = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
       // THE WITCH'S COMPANY PRICE (Recovery R7) rides the
       // rune door's final reckoned price, as at the Table.
-      const runeCost = await witchPriceFor(ownerKey, progress.classKey, runeBase);
-      if (!(await spendEnergy(ownerKey, runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
+      const runeCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, runeBase));
+      if (!(await spendCastEnergy(runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
       // The roll (Homeland Casting): charged before it — a
       // fizzle spends the charge alone and writes nothing.
-      const cast = homelandCastRoll(progress, spell);
+      const cast = homelandCastRoll(progress, spell, castBonus);
       if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, runeCost); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: runeCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, runeCost), ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
       // The cast carries the page's filled slots in its
       // element, as at the ward's raising on this ground
