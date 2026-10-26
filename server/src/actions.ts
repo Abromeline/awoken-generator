@@ -4022,8 +4022,8 @@ export function homelandFateMitigate(raw: number, armor: number, attackerLevel: 
 export const HOMELAND_FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
 /** The homeland casting reach: the Table's whole world is six
  *  rings, and the homeland reckons what the Tender can see the
- *  same way Phase D does — ring 6 of his stand (VIEW_RING in
- *  settleWanderers). A cast named beyond it is refused before
+ *  same way Phase D did — ring 6 of his stand. A cast named
+ *  beyond it is refused before
  *  any charge. */
 export const HOMELAND_CAST_RING = 6;
 /** One cast's roll on the homeland — the Table's rollCast read
@@ -9344,10 +9344,24 @@ export const handlers = {
   /** THE SPAWNING (Phase D's Blind Fray tuning, kept and
    *  re-housed by the battle engine, Nigel 2026-10-23): while
    *  the Tender is online (his map read is the world's pulse),
-   *  cursed hexes in the OUTER view of his stand — rings 3–6 —
-   *  roll on each spawn beat (~45s) to birth the dark (THE
-   *  TUNING, Nigel, 2026-10-20: 20% a beat, and nothing is
-   *  born at rings 0–2 beside him). What is born now answers
+   *  the cursed ground rolls on each spawn beat (~45s) to
+   *  birth the dark (THE TUNING, Nigel, 2026-10-20: 20% a
+   *  beat). WHERE a birth stands is the Table's law carried
+   *  home (Nigel, 2026-10-25 09:06, extended to the homeland
+   *  2026-10-25 23:41: "enemies are spawning all over the
+   *  cursed lands not starting on the outside and marching
+   *  in"): a newborn enters ONLY on the furthest cursed ring
+   *  of the homeland — the outermost ring that holds cursed
+   *  tiles, the ring measured from the heartland's centre as
+   *  the land itself measures it (max of |q|, |r|, |q+r|) —
+   *  and marches in from there under the standing battle.
+   *  Randomness may choose where on that ring a foe enters,
+   *  never a deeper tile; a beat whose births outrun the
+   *  ring's free tiles comes short — this cradle keeps no
+   *  owed-foe ledger, its beats settle as spent (an absence
+   *  is weather, not a flood), and the pressure returns on
+   *  the next beat's roll, on the ring again. What is born
+   *  now answers
    *  to the WAVE INTENSITY: its cap grows by 2 a step, its
    *  kinds deepen (Hollow steps in at 2, the Unraveler at 3,
    *  the Tangle at 4), and each stands at its wave's level —
@@ -9363,7 +9377,7 @@ export const handlers = {
    *  intensity one step hotter than the standing wave; the
    *  full reading stands at the raise itself, below. */
   async settleWanderers(ownerKey: string, tiles: any[], standTileId: number | null): Promise<{ views: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[] }> {
-    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.20, VIEW_RING = 6, BIRTH_RING = 3, CATCHUP_BEATS = 4;
+    const SPAWN_BEAT_MS = 45000, SPAWN_CHANCE = 0.20, CATCHUP_BEATS = 4;
     const now = Date.now();
     const byId = new Map<number, any>(tiles.map((t: any) => [t.id, t]));
     const hexDist = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
@@ -9412,8 +9426,9 @@ export const handlers = {
       // body deepened a point (its stored level then feeds
       // the living battle's own reckoning, as any wave's
       // level does). The step bites ONLY on births this
-      // pass makes onto cursed tiles at rings 3–6 of his
-      // stand: foes already standing keep the level they
+      // pass makes (each standing on the furthest cursed
+      // ring, as the cradle below now deals): foes already
+      // standing keep the level they
       // were born at, the spawn beat and its 20% chance are
       // untouched, and a Tender standing on the safe hex or
       // any purified ground draws the standing intensity
@@ -9451,7 +9466,19 @@ export const handlers = {
             // light has already shut this cradle whole above.)
             const beaconTiles = (sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND level >= 3 AND state IN ('fallen','held','first')").all(ownerKey) as { tile_id: number }[])
               .map(rw => byId.get(rw.tile_id)).filter(Boolean) as any[];
-            const view = tiles.filter((t: any) => { if (!t.cursed) return false; const d = hexDist(t, stand); if (d < BIRTH_RING || d > VIEW_RING) return false; return !beaconTiles.some(b => hexDist(t, b) <= 1); });
+            // THE EDGE OF THE CURSE (Nigel, 2026-10-25):
+            // births stand on the furthest cursed ring and
+            // nowhere else — the outermost ring holding
+            // cursed tiles, measured from the heartland's
+            // centre as the land itself measures rings (the
+            // ringOfTile measure kept at the workings'
+            // attrition settle). A Beacon's light still bars
+            // its own ground: the protection exclusion stands
+            // as it stood, read over the ring's tiles.
+            const ringOfTile = (t: any) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+            let edgeRing = -1;
+            for (const t of tiles) if (t.cursed) edgeRing = Math.max(edgeRing, ringOfTile(t));
+            const view = edgeRing < 0 ? [] : tiles.filter((t: any) => t.cursed && ringOfTile(t) === edgeRing && !beaconTiles.some(b => hexDist(t, b) <= 1));
             const kindPool = ["fray", "fray", "fray"];
             if (intensity >= 2) kindPool.push("hollow", "hollow");
             if (intensity >= 3) kindPool.push("unraveler", "unraveler");
