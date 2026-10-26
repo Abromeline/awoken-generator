@@ -1054,11 +1054,19 @@ export default function Table() {
   // arrows riding the same steps. Held keys sum into one
   // direction; the tender glides continuously toward a point
   // 420px that way, refreshed every 120ms while keys are held.
-  // Free, as his own walking is; ignored while placing, or
-  // while he has fallen. The wheel no longer stills him
-  // (Nigel, 2026-10-19): right-click mid-glide opens the
-  // radial, and the glide rides on under it — the menu comes
-  // to the Tender, not the Tender to the menu.
+  // Free, as his own walking is; ignored only while he has
+  // fallen. A READIED WORKING DOES NOT STILL HIM (Twelve #6 —
+  // Nigel, 2026-10-25: "casting is still causing movement to
+  // be locked"): the glide, the leap and the controller's pad
+  // all answer while a working stands readied and while a
+  // cast fires — and no cast is ever judged from a stale
+  // position: the referee reckons from where he stands when
+  // the cast fires, so walking between casts is answered by
+  // the range gate honestly, at the firing. The wheel no
+  // longer stills him (Nigel, 2026-10-19): right-click
+  // mid-glide opens the radial, and the glide rides on under
+  // it — the menu comes to the Tender, not the Tender to the
+  // menu.
   const GLIDE_STEPS: Record<string, [number, number]> = {
     KeyW: [0, -1], KeyS: [0, 1], KeyQ: [-1, 0], KeyE: [1, -1], KeyA: [-1, 1], KeyD: [1, 0],
     ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, -1],
@@ -1067,9 +1075,8 @@ export default function Table() {
   const glideTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const myPosRef = useRef<{ x: number; y: number } | null>(null);
   myPosRef.current = you && shared ? (shared.players.find(p => p.key === you.key)?.pos ?? null) : null;
-  const glideGuardRef = useRef({ placing: false, radial: false, fallen: false });
+  const glideGuardRef = useRef({ radial: false, fallen: false });
   glideGuardRef.current = {
-    placing: !!placing,
     radial: !!radial,
     fallen: !!(you && shared && shared.players.find(p => p.key === you.key)?.fallen),
   };
@@ -1081,7 +1088,7 @@ export default function Table() {
   sendGlideRef.current = () => {
     const pos = myPosRef.current;
     if (!pos || heldKeysRef.current.size === 0) return;
-    if (!you || !shared || placing) return;
+    if (!you || !shared) return;
     const me = shared.players.find(p => p.key === you.key);
     if (!me || me.fallen) return;
     let dq = 0, dr = 0;
@@ -1129,7 +1136,7 @@ export default function Table() {
         // Held, not just pressed: the Witch's hover reads the
         // holding of Space (the Ground's spaceDown).
         tableSpaceHeldRef.current = true;
-        if (!e.repeat && !glideGuardRef.current.placing && !glideGuardRef.current.fallen) {
+        if (!e.repeat && !glideGuardRef.current.fallen) {
           jumpPress(myJumpRef.current, myClassRef.current ?? "warden", Date.now());
         }
         return;
@@ -1139,7 +1146,7 @@ export default function Table() {
       e.preventDefault();
       if (e.repeat || heldKeysRef.current.has(e.code)) return;
       heldKeysRef.current.add(e.code);
-      if (glideGuardRef.current.placing || glideGuardRef.current.fallen) return;
+      if (glideGuardRef.current.fallen) return;
       sendGlideRef.current?.();
       if (!glideTimerRef.current) {
         glideTimerRef.current = setInterval(() => { sendGlideRef.current?.(); }, 120);
@@ -2924,7 +2931,7 @@ export default function Table() {
     const pos = myPosRef.current;
     if (!v || !pos || !you || !shared) return;
     const me = shared.players.find(p => p.key === you.key);
-    if (!me || me.fallen || placing) return;
+    if (!me || me.fallen) return;
     send({ type: "glide", tx: pos.x + v.x * 420, ty: pos.y + v.y * 420 });
     setSelTender(true);
   };

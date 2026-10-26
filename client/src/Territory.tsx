@@ -2064,13 +2064,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // ── THE TENDER'S GLIDE ENGINE ─────────────────────────────────
   // Mirror the live land, camera and input gates into refs the
   // engine's clocks read (the state block sits beside the zoom).
+  // CASTING DOES NOT STILL THE BODY (Twelve #6 — Nigel,
+  // 2026-10-25: "casting is still causing movement to be
+  // locked"): a readied working (castMode) is NOT among the
+  // gates here — the body walks, leaps and pad-glides while a
+  // working stands readied and while a cast fires, exactly as
+  // the Attune ability (never a gate) always allowed. The
+  // gates that stand are the armed ORDERS flows and panels,
+  // whose taps the body would otherwise answer twice.
   useEffect(() => {
     tenderTilesRef.current = tiles;
     tenderPanRef.current = pan;
     tenderZoomRef.current = zoom;
     tenderStandRef.current = tenderStand;
     tenderInputBlockedRef.current = !!(
-      castMode || moveTargeting || attackTargeting ||
+      moveTargeting || attackTargeting ||
       patrolSettingFor !== null || pendingMarch !== null ||
       showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
     );
@@ -2230,8 +2238,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   }, [tenderCamKey]);
 
   // Keys: WASD and the arrows walk the body. Text fields keep
-  // their keys, and so does every armed flow — the body answers
-  // only on open ground, only when it stands on the map at all.
+  // their keys, and so do the armed orders flows — the body
+  // answers only on open ground, only when it stands on the
+  // map at all. A readied working is not an orders flow: the
+  // body answers with a working in the hand (Twelve #6).
   useEffect(() => {
     const MOVE_KEYS = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
     const isTextTarget = (e: KeyboardEvent) => {
