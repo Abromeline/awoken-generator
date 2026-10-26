@@ -45,6 +45,7 @@ import seedSaplingArt from "./assets/starseed/sapling.png";
 import seedBeaconArt from "./assets/starseed/beacon.png";
 import { WORKING_FACE } from "./workingFaces";
 import { api, type PackView } from "./api";
+import { playElementSound } from "./elementSounds";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import blackGateImg from "./assets/effects/black-gate.png";
@@ -723,12 +724,13 @@ export default function Table() {
     const strikes = shared.strikes ?? [];
     if (!strikes.length) return;
     const now = Date.now();
-    const fresh = strikes.filter((st) => {
+    const freshStrikes = strikes.filter((st) => {
       if (typeof st.id !== "number") return false;
       if (st.id <= flownStrikeRef.current) return false;
       flownStrikeRef.current = st.id;
       return now - (st.at ?? 0) < 1600;
-    }).map((st) => ({
+    });
+    const fresh = freshStrikes.map((st) => ({
       id: ++shotIdRef.current,
       from: st.from, to: st.to,
       img: st.side === "dark" ? PROJECTILE_GIF.unaligned : ((st.element ? PROJECTILE_GIF[st.element] : undefined) ?? PROJECTILE_GIF.unaligned),
@@ -736,18 +738,72 @@ export default function Table() {
     }));
     if (!fresh.length) return;
     setShots(prev => [...prev.slice(-30), ...fresh]);
+    // THE STRIKE'S VOICE (Nigel, 2026-10-26: "add these
+    // sounds for he elemental attacks"): a flown strike
+    // sounds its element's cast as its shot is loosed, and
+    // — only if the referee's blow landed — its hit as the
+    // shot falls, on the shot's own 1500 ms. The element
+    // is the record's own: a unit's card element, a ward
+    // riposte's hue (those ride side "dark" in the record
+    // but carry the ward's hue, and sound with it). The
+    // dark's own bolts ride element "dark", weapon blows
+    // and the Shatter's piece ride null, "unaligned"
+    // strikes name no element — all of those sound
+    // nothing: the module keeps the five elements and no
+    // others. Antique strikes, marked seen above without
+    // flying, sound nothing.
+    for (const st of freshStrikes) playElementSound(st.element, "cast");
     // Removal is keyed per shot and lives outside this
     // effect's cleanup, so a state push can no longer cancel
     // a flying shot's end: each falls exactly 1500 ms after
     // it was loosed, whatever the room sends meanwhile.
-    for (const f of fresh) {
+    for (const [i, f] of fresh.entries()) {
+      const st = freshStrikes[i];
       const prior = shotTimersRef.current.get(f.id);
       if (prior) clearTimeout(prior);
       const t = setTimeout(() => {
         shotTimersRef.current.delete(f.id);
         setShots(prev => prev.filter(x => x.id !== f.id));
+        if (st?.hit) playElementSound(st.element, "hit");
       }, 1500);
       shotTimersRef.current.set(f.id, t);
+    }
+  }, [shared]);
+  // THE BLADE'S VOICE AT THE TABLE (Nigel, 2026-10-26):
+  // the Single Blade's casts and looses are served as
+  // flights, not strikes — each is sounded the first time
+  // it is seen, while it is fresh, on the strikes' own
+  // discipline (an antique flight is marked seen and
+  // stays silent). A cast flies from the caster to the
+  // written ground and sounds its hue's cast alone; a
+  // loose spears down into the dark thing it was loosed
+  // at, and its hit sounds as the flight ends (the
+  // flight's own 1000 ms). The hue is the standing
+  // working's own: a cast names its working outright; a
+  // loose names only its ground, so its hue is read from
+  // the one Blade standing there — two Blades sharing a
+  // hex (lawful since 2026-10-26) leave the loose's hue
+  // ambiguous, and it stays silent rather than guess.
+  const seenBladeCastRef = useRef(new Set<string>());
+  const seenBladeFlightRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!shared) return;
+    const now = Date.now();
+    for (const f of shared.bladeCasts ?? []) {
+      if (seenBladeCastRef.current.has(f.id)) continue;
+      seenBladeCastRef.current.add(f.id);
+      if (now - f.at > 1600) continue;
+      const w = (shared.workings ?? []).find((x) => x.id === f.workingId);
+      playElementSound(w?.hue, "cast");
+    }
+    for (const f of shared.bladeFlights ?? []) {
+      if (seenBladeFlightRef.current.has(f.id)) continue;
+      seenBladeFlightRef.current.add(f.id);
+      if (now - f.at > 1600) continue;
+      const standing = (shared.workings ?? []).filter((x) => x.engine === "blade" && x.hex === f.fromHex);
+      const hue = standing.length === 1 ? standing[0].hue : undefined;
+      playElementSound(hue, "cast");
+      if (hue) setTimeout(() => playElementSound(hue, "hit"), 1000);
     }
   }, [shared]);
   // THE MARCH (2026-10-18): a standing Awoken of mine, chosen

@@ -1342,6 +1342,7 @@ function LoreSection() {
         <p>Your first 20 wakes are free, and a welcome Awokin is already waiting when you arrive. After that, a free wake gathers every 4 hours, whenever you visit — no alarms, no streaks, no guilt. If you want more than that, $5 gathers 20 wakes, and it goes directly to keeping this hand-drawn species alive.</p>
       </aside>
       <p className="music-note">The music you hear here: “Call to Adventure”, “At Launch”, “Alchemists Tower”, “Five Armies” and “Crusade” by <a href="https://incompetech.com">Kevin MacLeod</a>, with further tracks by <a href="https://www.scottbuckley.com.au">Scott Buckley</a> — all shared under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p>
+      <p className="music-note">The elemental attack sounds are real recordings. Two are shared under Creative Commons: the thunderclap that answers a Sky hit is “Thunder” by <a href="https://commons.wikimedia.org/wiki/File:Thunder.ogg">Bidgee</a> (<a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>), and the brick impact that answers a Stone hit is by <a href="https://freesound.org/people/leonseptavaux/sounds/580242/">leonseptavaux</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>). The rest are CC0 recordings — leaves, water, wind, stone and fire, each one the real thing.</p>
       <GroveSection />
     </details>
   </section>;
