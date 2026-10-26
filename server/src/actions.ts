@@ -4958,9 +4958,9 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
   }
   // THE TAKE (the loot table fix, 2026-10-25): what the
   // felled dark leaves behind — the energy ladder, the
-  // drizzle when it falls, shards, the twelve's goods,
-  // relics and the guaranteed reagents — is rolled as
-  // ONE take (rollFellTake, drops.ts), lands in her Pack
+  // drizzle when it falls, shards, the twelve's goods
+  // and relics — is rolled as ONE take (rollFellTake,
+  // drops.ts), lands in her Pack
   // as physical drops, and springs out of the dark on
   // her map (the drop event the territory read drains),
   // whoever's hand struck the blow. She claims each

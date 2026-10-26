@@ -3780,8 +3780,9 @@ function swallowTheHeart(room: Room, seat: Player): void {
  *      own roll (20%, paying the kind's AC bonus over 10 —
  *      creditBattleKill's reckoning, actions.ts), the drop
  *      table whole (f327708: rune shards 10% · items 35% ·
- *      relics 5% · alchemy 10%, the guaranteed reagents per
- *      fell by the kind's AC bonus, the spoken take in the
+ *      relics 5% · alchemy 10% — reagents from the rolls
+ *      alone since the guarantee was struck, 2026-10-25),
+ *      the spoken take in the
  *      tale, the Pack behind it), and the Awokin XP pot
  *      (XP_PER_ATTACK, 10, divided by the damage each
  *      standing Awokin dealt the fallen — the room's fell
@@ -3834,8 +3835,8 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUni
       } catch { /* shadow is a purse, never a gate on the kill */ }
     }
     // THE DROP TABLE, WHOLE (f327708): the four rolled
-    // classes and the guaranteed reagents ride rolls the
-    // homeland's own module makes; the spoken take is
+    // classes ride rolls the homeland's own module
+    // makes; the spoken take is
     // drained and told in the room's tale, as the homeland
     // tells it to the Tender. A drop fault is logged and
     // never breaks the kill — the homeland's own wrapping.

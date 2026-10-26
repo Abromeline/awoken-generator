@@ -312,22 +312,33 @@ ok("the felled dark's tile stands PURIFIED on the host's land",
   `tile=${darkHex} cursed=${(wstate.state?.map ?? []).find(t => t.id === darkHex)?.cursed}`);
 const hostProg1 = progressOf(H.ownerKey);
 const guestProg1 = progressOf(G.ownerKey);
-// THE PACK (restated for the loot table fix, 2026-10-25):
-// a casual fell no longer pays the feller's shelves
-// silently — its take stands in the room's SHARED Pack,
-// and the feller's CLICK is what lands it in her
-// inventory. The guest claims what the Pack holds; the
-// guaranteed take of her fell is among it.
+// THE PACK (restated for the loot table fix, 2026-10-25;
+// restated again for the guarantee's striking, the same
+// night 23:43): a casual fell no longer pays the
+// feller's shelves silently — its take stands in the
+// room's SHARED Pack, and the feller's CLICK is what
+// lands it. At this fight's pinned dice (0.5) every drop
+// class misses, and since Nigel struck the guaranteed
+// reagents no reagent rides along: the take is the
+// fells' energy alone. The guest claims what the Pack
+// holds; the claim is proven by the entries leaving the
+// Pack into her own purse — the goods-claim road into a
+// claimer's own inventory is drive-fell-drops §T2's
+// proof.
+const guestEnergy0 = g.you?.energy ?? 0;
+let packIdsAtFell = [];
 {
   const packAtFell = wstate.state?.pack ?? [];
-  ok("the guest's fell pays the room's shared Pack — its take stands there for claiming",
-    packAtFell.some(e => e.kind === "item") && packAtFell.some(e => e.kind === "energy"),
+  packIdsAtFell = packAtFell.map(e => e.id);
+  ok("the guest's fell pays the room's shared Pack — its take stands there for claiming, and NO guaranteed reagent stands among it (energy alone at the pinned dice)",
+    packAtFell.length > 0 && packAtFell.every(e => e.kind === "energy"),
     `pack=${JSON.stringify(packAtFell)}`);
   for (const e of packAtFell) g.send({ type: "claimPack", entryId: e.id });
   await sleep(1200);
 }
-ok("the guest's claim lands the take in the GUEST's inventory",
-  invQty(G.ownerKey) > guestInvQty0, `guest inv qty ${guestInvQty0} -> ${invQty(G.ownerKey)}`);
+ok("the guest's claim lands the take — every entry leaves the Pack into the GUEST's own purse, and her inventory is untouched (the take held no goods)",
+  packIdsAtFell.every(id => !(wstate.state?.pack ?? []).some(e => e.id === id)) && invQty(G.ownerKey) === guestInvQty0 && (g.you?.energy ?? 0) >= guestEnergy0,
+  `pack now=${JSON.stringify(wstate.state?.pack ?? [])} · energy ${guestEnergy0} -> ${g.you?.energy} · inv qty ${guestInvQty0} -> ${invQty(G.ownerKey)}`);
 ok("NO HOST CUT: the host's Pack is exactly as it was, and the host's Shadow does not move",
   JSON.stringify(invOf(H.ownerKey)) === hostInv0 && hostProg1.shadow_matter === hostProg0.shadow_matter,
   `hostInv same=${JSON.stringify(invOf(H.ownerKey)) === hostInv0} shadow ${hostProg0.shadow_matter} -> ${hostProg1.shadow_matter}`);
