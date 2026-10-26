@@ -618,7 +618,9 @@ export async function payDripAsDrop(ownerKey: string, groundElement?: string | n
  * (1) STONE coalesces piece by piece until the ground is walkable,
  * (2) ROOT weaves it together and greens it, (3) a branch: TIDE
  * comes in as a lake, or SKY lifts the tile off the ground into a
- * floating isle — and A NEW NEUTRAL TILE IS BORN UNDERNEATH IT —
+ * floating isle — and A NEW TILE IS BORN UNDERNEATH IT (neutral
+ * when this system was written; CURSED since the terrain mixing
+ * law of 2026-10-25 — see completeBuildStage) —
  * (4) FIRE finishes: BAKE it sealed and hardened, or LOWER it a
  * level, and the deep land yields the richer pool for it.
  * Every stage fills in POURS OF 10: thirty points seal a stage.
@@ -676,43 +678,162 @@ async function aspectPoolFor(ownerKey: string, element: string): Promise<number>
     .where(and(eq(schema.aspectAttunement.ownerKey, ownerKey), eq(schema.aspectAttunement.element, element as any))).limit(1);
   return row[0]?.points ?? 0;
 }
-/** Pour pressure into a tile's bank and resolve its 10-point
- *  steps. Returns the fields to persist, or null when unmoved.
- *  WITNESS RULE (Nigel, 2026-10-15): a pour may not complete
- *  a stage in the same beat its bank (re)starts — the fresh
- *  bank caps at 9, so the seal and its countdown stand on
- *  the tile for at least one full beat before the land turns.
- *  (Before this, a heavy company flipped a hex between glances
- *  and a turned hex fell back with no visible cause.) A
- *  shrine's pour is exempt: its five-hour rhythm is its own
- *  witness. THIS IS THE ONE BANK RECKONING: the territory
- *  settle pours the standing press through it, the shrine
- *  pours through it, and the Tender's Attune act (attuneTile)
- *  pours its spent point through it — a point counts the
- *  same whichever road laid it. */
-function pourAttunementBank(tile: any, el: string, pts: number, completeStage = false): { element: string; attuneElement: string | null; attunePoints: number } | null {
-  let bankEl = tile.attuneElement as string | null;
-  let bank = tile.attunePoints ?? 0;
-  const fresh = bankEl !== el || bank <= 0;
-  if (bankEl !== el) { bankEl = el; bank = 0; }
-  bank += pts;
-  if (fresh && !completeStage && bank > 9) bank = 9;
-  let element = tile.element as string;
-  let crossed = false;
-  while (bank >= 10) {
-    if (element === el) { bank = 10; break; }
-    element = element === "neutral" ? el : "neutral";
-    bank -= 10;
-    crossed = true;
-    // One stage per beat (Nigel, 2026-10-15): a carried bank
-    // may not sprint through the neutral shore in the same
-    // answer — the crossing must be witnessed too.
-    if (!completeStage) { if (bank > 9) bank = 9; break; }
+/* ── TERRAIN MIXING (Nigel, 2026-10-25) ─────────────────────────
+ * A tile holds ALL its elements at once. The one-element bank
+ * this section held until today (pourAttunementBank — pour into
+ * a single banked element, 10 points to neutral, 10 more to the
+ * pressing element, rivals eroding the press by the net) is
+ * RETIRED by his ruling: "we had an erosion system that is no
+ * longer going to be necessary because we want the elements to
+ * be mixing and the elements mixing is now a main part of the
+ * game." Now every element presses ADDITIVELY into its own line
+ * of the tile's ledger (mix_points): the standing press, the
+ * shrine's pour and the Tender's Attune act all funnel through
+ * pressMixIntoTile, so a point counts the same whichever road
+ * laid it.
+ * FULLY ATTUNED for terrain: Tide, Root and Stone at 10 each,
+ * and Air (sky) at 10 — the matter three full, and Air full to
+ * lift (see liftTileByAir).
+ * THE LABEL: tile.element remains the land's one-element name
+ * for the systems that read a single element (the drip's
+ * flavour, the faces beneath the top tray, the building
+ * stages). Under mixing the label follows the ledger: the
+ * fullest line, once it holds a full measure (10). Below that
+ * the standing label stands — a breeze of a rival element
+ * never renames the ground, and a mixed hex keeps every point
+ * it was ever given regardless of its label. */
+const TERRAIN_MIX_ELEMENTS = ["sky", "stone", "tide", "root"] as const;
+type TerrainMixElement = (typeof TERRAIN_MIX_ELEMENTS)[number];
+type MixLedger = Record<TerrainMixElement, number>;
+/** The lift's price in Air points — the ONE place the measure
+ *  lives. STANDING ON AN OPEN PENCIL: whether the 10 Air is
+ *  SPENT on the lift or kept was asked and not yet ruled; this
+ *  build takes the spent reading (the Keeper's candidate): the
+ *  risen hex starts its next climb from what remains after each
+ *  lift. If Nigel rules otherwise, the change is this constant's
+ *  use in liftTileByAir and nothing else. */
+const MIX_LIFT_AIR_COST = 10;
+
+function emptyMixLedger(): MixLedger { return { sky: 0, stone: 0, tide: 0, root: 0 }; }
+const roundMix = (n: number) => Math.round(n * 1000) / 1000;
+
+/** A tile's mixing ledger. Read from mix_points when it stands;
+ *  SEEDED once from what the tile already holds when it does
+ *  not, so no tile loses anything in the change of law:
+ *   - its tray stack (sealed trays × 30 + the growing tray's
+ *     fill) stands to its element's line, point for point;
+ *   - a tile standing AS an element holds at least the 10 its
+ *     standing cost — a fresh-purified hex with an empty stack
+ *     still stands wholly as its element;
+ *   - its old bank (attuneElement/attunePoints) lands on that
+ *     element's line, untouched.
+ *  Cursed tiles hold nothing (their bank died with the fall,
+ *  and the fall/purify field-sets null the ledger so it
+ *  re-seeds from the clean fields). Fire and neutral standing
+ *  earn no line: fire is out of the terrain ledger, and
+ *  neutral is the shore, not an element. */
+function mixLedgerOf(tile: any): { ledger: MixLedger; seeded: boolean } {
+  if (tile.mixPoints != null && tile.mixPoints !== "") {
+    try {
+      const raw = JSON.parse(tile.mixPoints as string);
+      const ledger = emptyMixLedger();
+      for (const el of TERRAIN_MIX_ELEMENTS) ledger[el] = Math.max(0, Number(raw?.[el]) || 0);
+      return { ledger, seeded: false };
+    } catch { /* a torn ledger re-seeds from the standing fields below */ }
   }
-  if (element !== tile.element || bankEl !== (tile.attuneElement ?? null) || bank !== (tile.attunePoints ?? 0)) {
-    return { element, attuneElement: bankEl, attunePoints: bank };
+  const ledger = emptyMixLedger();
+  if (!tile.cursed) {
+    const el = tile.element as string;
+    if ((TERRAIN_MIX_ELEMENTS as readonly string[]).includes(el)) {
+      const stack = (tile.sealedTrays ?? 0) * 30 + (tile.growPoints ?? 0);
+      ledger[el as TerrainMixElement] = Math.max(10, stack);
+    }
+    const bankEl = tile.attuneElement as string | null;
+    if (bankEl && (TERRAIN_MIX_ELEMENTS as readonly string[]).includes(bankEl)) {
+      ledger[bankEl as TerrainMixElement] += tile.attunePoints ?? 0;
+    }
   }
-  return null;
+  return { ledger, seeded: true };
+}
+
+/** The tile's label under mixing: the fullest line, once it
+ *  holds a full measure (10 points); below that, the label the
+ *  tile already wears. */
+function mixLabelOf(tile: any, ledger: MixLedger): string {
+  let best: string | null = null;
+  let bestPts = 0;
+  for (const el of TERRAIN_MIX_ELEMENTS) {
+    if (ledger[el] > bestPts) { best = el; bestPts = ledger[el]; }
+  }
+  if (best && bestPts >= 10) return best;
+  return tile.element as string;
+}
+
+/** Persist a tile's ledger, with its label where the label
+ *  moved. Returns whether the label changed ("turned", for the
+ *  roads that report a turning). */
+async function persistMixLedger(tile: any, ledger: MixLedger): Promise<{ turned: boolean }> {
+  const label = mixLabelOf(tile, ledger);
+  const turned = label !== (tile.element as string);
+  tile.mixPoints = JSON.stringify({
+    sky: roundMix(ledger.sky), stone: roundMix(ledger.stone),
+    tide: roundMix(ledger.tide), root: roundMix(ledger.root),
+  });
+  tile.element = label;
+  await db.update(schema.territoryTiles).set({
+    mixPoints: tile.mixPoints, element: label,
+  } as any).where(eq(schema.territoryTiles.id, tile.id));
+  return { turned };
+}
+
+/** THE LIFT (Nigel, 2026-10-25): height belongs to Air alone —
+ *  all four textures stack within the tile's own Z, and when
+ *  the Air line reaches the lift's price the WHOLE hex rises
+ *  one Z, and a NEW CURSED hex is born on the ground it
+ *  vacated: cursed, at the vacated plane, at the curse's ring
+ *  strength. Lifts repeat — every further full measure of Air
+ *  raises the hex again, birthing another cursed hex at the
+ *  plane it leaves. The price is spent as it lifts (see
+ *  MIX_LIFT_AIR_COST's pencil note). */
+async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Promise<boolean> {
+  let lifted = false;
+  while (ledger.sky >= MIX_LIFT_AIR_COST) {
+    ledger.sky = roundMix(ledger.sky - MIX_LIFT_AIR_COST);
+    const vacatedZ = tile.z ?? 0;
+    tile.z = vacatedZ + 1;
+    const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+    const { mood } = await getWorldMood();
+    const curse = curseHpFor(ring, mood);
+    await db.insert(schema.territoryTiles).values({
+      ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 1, spark: 0,
+      hp: 10, height: 0, sealedTrays: 0, growPoints: 0, topPoints: null,
+      z: vacatedZ, buildStage: 0, curseHp: curse, curseMaxHp: curse,
+    } as any);
+    lifted = true;
+  }
+  if (lifted) {
+    await db.update(schema.territoryTiles).set({ z: tile.z } as any)
+      .where(eq(schema.territoryTiles.id, tile.id));
+  }
+  return lifted;
+}
+
+/** Press points into a tile's ledger — the ONE funnel every
+ *  road pours through now: the standing press (the settle), the
+ *  shrine's pour, the Tender's Attune act. Each element's
+ *  points land on its own line; the label follows; Air at its
+ *  measure lifts the hex. */
+async function pressMixIntoTile(ownerKey: string, tile: any, deltas: Partial<Record<TerrainMixElement, number>>): Promise<{ turned: boolean; lifted: boolean }> {
+  const { ledger } = mixLedgerOf(tile);
+  let moved = false;
+  for (const el of TERRAIN_MIX_ELEMENTS) {
+    const d = deltas[el] ?? 0;
+    if (d > 0) { ledger[el] = roundMix(ledger[el] + d); moved = true; }
+  }
+  if (!moved) return { turned: false, lifted: false };
+  const lifted = await liftTileByAir(ownerKey, tile, ledger);
+  const { turned } = await persistMixLedger(tile, ledger);
+  return { turned, lifted };
 }
 
 /** A created stage seals: its gift lands in the terrain bank and
@@ -732,14 +853,22 @@ async function completeBuildStage(ownerKey: string, tile: any): Promise<void> {
   } else if (stage === 3 && tile.buildBranch === "tide") {
     tile.element = "tide";
   } else if (stage === 3 && tile.buildBranch === "sky") {
-    // THE BORN-UNDERNEATH LAW: the tile rises into the sky as a
-    // floating isle (z 1), and a new neutral tile is born on the
-    // ground it vacated — clean, at Z1, nobody's work yet.
+    // THE BORN-UNDERNEATH LAW, AS RE-RULED (Nigel, 2026-10-25,
+    // terrain mixing law 6): the tile rises into the sky as a
+    // floating isle (z 1), and the tile born on the ground it
+    // vacated is CURSED, not neutral — fresh cursed ground at
+    // the ring's strength, the same birth the attunement lift
+    // makes (liftTileByAir). This supersedes the neutral birth
+    // this branch was written with.
     tile.element = "sky";
     tile.z = 1;
+    const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+    const { mood: skyMood } = await getWorldMood();
+    const curse = curseHpFor(ring, skyMood);
     await db.insert(schema.territoryTiles).values({
-      ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 0, spark: 0,
-      hp: 10, height: 1, sealedTrays: 0, growPoints: 0, topPoints: null, z: 0, buildStage: 0,
+      ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 1, spark: 0,
+      hp: 10, height: 0, sealedTrays: 0, growPoints: 0, topPoints: null, z: 0, buildStage: 0,
+      curseHp: curse, curseMaxHp: curse,
     } as any);
   } else if (stage === 4 && tile.buildFinish === "lower") {
     // FIRE LOWERS: the deep land yields — a pour's worth of
@@ -990,11 +1119,11 @@ const ELEMENTS_5 = ["tide", "sky", "stone", "root", "fire"] as const;
  *  trays in the dark, and purification resurrected them wearing
  *  neutral — neutral stacks, which the law forbids. */
 const FALLEN_TILE_FIELDS = {
-  attunePoints: 0, attuneElement: null,
+  attunePoints: 0, attuneElement: null, mixPoints: null,
   sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
 } as const;
 const PURIFIED_TILE_FIELDS = {
-  attunePoints: 0, attuneElement: null,
+  attunePoints: 0, attuneElement: null, mixPoints: null,
   sealedTrays: 0, growPoints: 0, topPoints: null, height: 1,
 } as const;
 type Element5 = (typeof ELEMENTS_5)[number];
@@ -9669,27 +9798,25 @@ export const handlers = {
       }
     }
     
-    // Terrain attunement — the 30-point flux (Nigel, 2026-10-14).
-    // The old dice (5% a tick to flip your own tile) are abolished.
-    // Now: the Awoken on a hex pour the full combined weight of their
+    // Terrain attunement — TERRAIN MIXING (Nigel, 2026-10-25).
+    // The Awoken on a hex pour the full combined weight of their
     // elements into that hex alone — point for point, exactly as
     // attunement counts (pieces 1 pt, aspects 1 pt per level, fire
-    // aside) — and the company's press is the NET of that weight
-    // (Nigel, 2026-10-15, the net press: the leading element minus
-    // every mismatched point, which erode it; see netPressOf below).
-    // The hex holds a
-    // 10-point bank: 10 points carry it from its element to neutral,
-    // 10 more from neutral to the pressing element, and pressure that
-    // matches its current element refills the bank — the shepherd's
-    // hold. No Awoken on the hex, no change: the land is locked in
-    // its state of flux until one is near. Surrounding tiles are NOT
-    // attuned by presence — that reach belongs to the shrine alone.
-    // AMENDED (Nigel, 2026-10-16, the day-long quest): the pour is
-    // settled by the clock, not by the reading — the press accrues
-    // at one-eighth strength per hour of standing (see THE DAY-LONG
-    // QUEST at the company loop below). The tally math itself — the
-    // net press, the 10-point bank, the witness rule — is unchanged;
-    // only its tempo is the land's now, not the glance's.
+    // aside) — and every element lands on its OWN line of the
+    // tile's ledger (see TERRAIN MIXING at pressMixIntoTile): the
+    // press is ADDITIVE by the sum of their parts, no element
+    // nets against another, and a mismatched presence erodes
+    // NOTHING — erosion is retired, and the net press this
+    // section was built on (2026-10-15) survives only where the
+    // BUILDING road still drinks by it (construction law was not
+    // re-ruled) and in the shrine's one voice. No Awoken on the
+    // hex, no change: the land rests as it stands until one is
+    // near. Surrounding tiles are NOT attuned by presence — that
+    // reach belongs to the shrine alone.
+    // THE TEMPO (Nigel, 2026-10-16, the day-long quest): the pour
+    // is settled by the clock, not by the reading — the press
+    // accrues at one-eighth strength per hour of standing (see
+    // THE DAY-LONG QUEST at the company loop below).
     try {
       const tileById = new Map(tiles.map(t => [t.id, t]));
       const elementPointsOf = async (aw: any): Promise<Record<string, number>> => {
@@ -9705,7 +9832,12 @@ export const handlers = {
         return counts;
       };
       const netPressOf = (sums: Record<string, number>): { el: string; pts: number } => {
-        // THE NET PRESS (Nigel, 2026-10-15, superseding the plain
+        // THE NET PRESS (Nigel, 2026-10-15; its TERRAIN reign
+        // ended 2026-10-25 — the terrain press is additive now,
+        // see pressMixIntoTile. This reckoning still serves the
+        // BUILDING road below, whose construction law was not
+        // re-ruled, and the shrine's one voice. What follows is
+        // its original law text. — superseding the plain
         // pooled-dominant read an hour after it was ruled): no element
         // ever contributes to a MISMATCHED attunement — it ERODES it.
         // The leading element presses at its tally MINUS every
@@ -9731,24 +9863,25 @@ export const handlers = {
         if (!leadEl || net <= 0) return { el: "", pts: 0 };
         return { el: leadEl, pts: net };
       };
-      // The bank reckoning is pourAttunementBank (module
-      // scope) — the one reckoning the standing press, the
-      // shrine, and the Tender's Attune act all pour through.
-      const pour = pourAttunementBank;
-      // Terraforming trays (Nigel, 2026-10-15): a purified hex is a
-      // STACK of trays — Z trays, cap 6. One growing tray, born at
-      // the BOTTOM of the stack, accrues the matching company's
-      // dominant tally point for point; at 30 it SEALS as the hex's
-      // element and a new growing tray is born beneath. Only the TOP
-      // tray can be hurt, and its points are its HP: a mismatched
-      // company erodes it at the same rate growth pours, and when
-      // the top tray's points reach 0 the stack drops one. When the
-      // LAST tray falls, the purification is defeated and the tile
-      // reverts to the curse (Z-1). A hex whose element flips via
-      // the bank resets to a single growing tray of the new element —
-      // one stack, one element, always. Neutral hexes neither grow
-      // nor erode (their trays wait for an element), and fire land
-      // grows no trays (fire is map-exclusive, never a stack).
+      // The ledger reckoning is pressMixIntoTile (module
+      // scope) — the one funnel the standing press, the shrine,
+      // and the Tender's Attune act all pour through.
+      // Terraforming trays (Nigel, 2026-10-15; the tray body
+      // STANDS under mixing, corrected 2026-10-25): a purified
+      // hex is a STACK of trays — Z trays, cap 6. One growing
+      // tray, born at the BOTTOM of the stack, accrues the
+      // standing company's press OF THE ELEMENT THE LAND STANDS
+      // AS (its label), point for point; at 30 it SEALS and a
+      // new growing tray is born beneath. Presence no longer
+      // wears the stack: erosion is retired (mixing law 1), so
+      // the damage road below (damageTopTray/revertToCurse)
+      // stands uncalled by presence — it remains the tile-fall
+      // machinery the open tile-HP pencil will reckon with.
+      // A change of the label no longer resets the stack: the
+      // land holds every element at once, and its trays are its
+      // form, not one element's claim. Neutral hexes do not grow
+      // (their trays wait for an element), and fire land grows
+      // no trays (fire is map-exclusive, never a stack).
       const TRAY_CAP = 6;
       const TRAY_SEAL = 30;
       const stackHeight = (t: any) => {
@@ -9809,7 +9942,7 @@ export const handlers = {
         }
         const upd = {
           cursed: 1, curseHp: curse, curseMaxHp: curse, spark: 0,
-          attunePoints: 0, attuneElement: null,
+          attunePoints: 0, attuneElement: null, mixPoints: null,
           sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
           // A created work falls with its land (the Building
           // System, 2026-10-19): the curse takes the hex back
@@ -9897,14 +10030,26 @@ export const handlers = {
       for (const [tileId, company] of byTile) {
         const tile = tileById.get(tileId);
         if (!tile || tile.cursed) continue;
-        const dom = netPressOf(await companySums(company));
-        (tile as any).attuneRatePts = dom.pts > 0 ? Math.round((dom.pts / PRESS_DIVISOR) * 100) / 100 : 0;
+        const sums = await companySums(company);
+        // The BUILDING road below still drinks by the net press
+        // (construction law was not re-ruled); the terrain press
+        // reads the raw sums, element by element.
+        const dom = netPressOf(sums);
+        // The leading line of the sums — the fullest element the
+        // company carries onto this hex right now.
+        let leadEl: TerrainMixElement = "root";
+        for (const el of TERRAIN_MIX_ELEMENTS) {
+          if ((sums[el] ?? 0) > (sums[leadEl] ?? 0)) leadEl = el;
+        }
+        const leadPts = sums[leadEl] ?? 0;
+        (tile as any).attuneRatePts = leadPts > 0 ? Math.round((leadPts / PRESS_DIVISOR) * 100) / 100 : 0;
         // The War-Grounds readout (Nigel, 2026-10-17): the hex's
-        // dominant element and the net points of it influencing
-        // the hex's attunement right now — the same net press the
-        // settle pours by, served on the tile for the label.
-        (tile as any).pressEl = dom.el || null;
-        (tile as any).pressPts = dom.pts;
+        // dominant element and the points of it influencing the
+        // hex's attunement right now — under mixing, the leading
+        // line of the same additive sums the settle pours by,
+        // served on the tile for the label.
+        (tile as any).pressEl = leadPts > 0 ? leadEl : null;
+        (tile as any).pressPts = leadPts;
         const nowMs = Date.now();
         let anchor = tile.attuneAnchorAt ? new Date(tile.attuneAnchorAt as any).getTime() : 0;
         if (!anchor) {
@@ -9945,36 +10090,37 @@ export const handlers = {
         const perStep = dom.pts / PRESS_DIVISOR;
         for (let s = 0; s < steps; s++) {
           anchor += QUEST_STEP_MS;
-          // An inert company (net of zero or less) pours nothing,
-          // but its standing still holds the clock honest.
-          if (!dom.el || perStep <= 0) continue;
+          // A company carrying no elemental weight pours
+          // nothing, but its standing still holds the clock
+          // honest.
+          if (leadPts <= 0) continue;
           if ((tile as any).baked) {
             // SEALED (the Building System, 2026-10-19): the
-            // baked cell takes no press into its bank — its
+            // baked cell takes no press into its ledger — its
             // element cannot turn, its trays cannot erode — and
             // the charge it holds radiates into its own stack:
             // its own element's company grows it twice as fast.
             if (dom.el === tile.element) await growStack(tile, perStep * 2);
             continue;
           }
-          const elementBefore = tile.element as string;
-          const upd = pour(tile, dom.el, perStep);
-          if (upd) {
-            await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, tile.id));
-            Object.assign(tile, upd);
+          // TERRAIN MIXING (Nigel, 2026-10-25): every element
+          // the company carries presses its own line of the
+          // ledger, additively — the sum of their parts, nothing
+          // netted, nothing eroded.
+          const deltas: Partial<Record<TerrainMixElement, number>> = {};
+          for (const el of TERRAIN_MIX_ELEMENTS) {
+            const pts = (sums[el] ?? 0) / PRESS_DIVISOR;
+            if (pts > 0) deltas[el] = pts;
           }
-          // Trays ride the same beat (Nigel, 2026-10-15).
-          if ((tile.element as string) !== elementBefore) {
-            // The land turned: the old stack belonged to the old
-            // element. A single growing tray of the new element
-            // remains — one stack, one element, always.
-            tile.sealedTrays = 0;
-            tile.growPoints = 0;
-            tile.topPoints = null;
-            await persistTray(tile);
-          } else if (tile.element !== "neutral" && tile.element !== "fire") {
-            if (dom.el === tile.element) await growStack(tile, perStep);
-            else await damageTopTray(tile, perStep);
+          await pressMixIntoTile(ownerKey, tile, deltas);
+          // Trays ride the same beat: the growing tray drinks
+          // the press of the element the land now stands as —
+          // the stack grows by presence, and is never worn by
+          // it (erosion is retired; a label change resets
+          // nothing).
+          const labelLaid = deltas[tile.element as TerrainMixElement] ?? 0;
+          if (labelLaid > 0 && tile.element !== "neutral" && tile.element !== "fire") {
+            await growStack(tile, labelLaid);
           }
         }
         await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(anchor) } as any)
@@ -10024,31 +10170,26 @@ export const handlers = {
           }
           let steps = Math.floor((Date.now() - anchor) / (5 * 3600 * 1000));
           let guard = 0;
+          // "Out of tune" under mixing: the hex's ledger line
+          // for the shrine's voice still holds less than a full
+          // measure (10) of it.
+          const holdsVoice = (t: any) => (mixLedgerOf(t).ledger[voice.el as TerrainMixElement] ?? 0) >= 10;
           while (steps > 0 && guard++ < 40) {
             let target: any = null;
-            if (!home.cursed && home.element !== voice.el) target = home;
+            if (!home.cursed && !holdsVoice(home)) target = home;
             else {
-              const outs = ring.slice(1).filter(t => !t.cursed && t.element !== voice.el);
+              const outs = ring.slice(1).filter(t => !t.cursed && !holdsVoice(t));
               if (outs.length) target = outs[Math.floor(Math.random() * outs.length)];
             }
             if (!target) break;
-            const shrineElBefore = target.element as string;
-            const upd = pour(target, voice.el, 10, true);
-            if (upd) {
-              await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, target.id));
-              Object.assign(target, upd);
-            }
-            // The shrine's pour feeds the land's trays as it feeds
-            // the bank (Nigel, 2026-10-15): if the pour turned the
-            // hex, its stack resets like any turning; if the hex now
-            // holds the poured element, ten points settle into its
-            // growing tray.
-            if ((target.element as string) !== shrineElBefore) {
-              target.sealedTrays = 0;
-              target.growPoints = 0;
-              target.topPoints = null;
-              await persistTray(target);
-            }
+            // The shrine's pour lands on the voice's own line of
+            // the ledger (TERRAIN MIXING): ten points, additive —
+            // and Air at its measure lifts the hex like any Air.
+            await pressMixIntoTile(ownerKey, target, { [voice.el]: 10 } as Partial<Record<TerrainMixElement, number>>);
+            // The shrine's pour feeds the land's trays as it
+            // feeds the ledger (Nigel, 2026-10-15): if the hex
+            // now stands as the poured element, ten points
+            // settle into its growing tray.
             if (!target.cursed && target.element === voice.el) {
               await growStack(target, 10);
             }
@@ -10060,7 +10201,7 @@ export const handlers = {
           }
           const nextPourSec = Math.max(0, Math.round((anchor + 5 * 3600 * 1000 - Date.now()) / 1000));
           for (const rt of ring) {
-            if (!rt.cursed && rt.element !== voice.el) (rt as any).attuneShrineNextSec = nextPourSec;
+            if (!rt.cursed && !holdsVoice(rt)) (rt as any).attuneShrineNextSec = nextPourSec;
           }
         }
       }
@@ -10155,6 +10296,33 @@ export const handlers = {
       (t as any).trayStage = t.cursed ? 1 : sealed > 0 ? 3 : grow >= 20 ? 3 : grow >= 10 ? 2 : 1;
       (t as any).topHp = t.cursed ? 0 : Math.round(sealed > 0 ? ((t as any).topPoints ?? 30) : grow);
       (t as any).stackPower = Math.round(((sealed * 30 + grow) / 10) * 10) / 10;
+      // TERRAIN MIXING, served (Nigel, 2026-10-25): the tile's
+      // per-element ledger — the map draws each element's texture
+      // at the opacity of its line (points / 10, full at 10).
+      // Cursed ground holds nothing. A standing tile whose
+      // ledger has never been written is seeded here, once, from
+      // what it already holds (mixLedgerOf) and the seeding is
+      // persisted, so the served truth and the stored truth agree.
+      if (t.cursed) {
+        (t as any).mix = { sky: 0, stone: 0, tide: 0, root: 0 };
+      } else {
+        const { ledger, seeded } = mixLedgerOf(t as any);
+        if (seeded) {
+          const label = mixLabelOf(t as any, ledger);
+          const mixJson = JSON.stringify({
+            sky: roundMix(ledger.sky), stone: roundMix(ledger.stone),
+            tide: roundMix(ledger.tide), root: roundMix(ledger.root),
+          });
+          sqlite.prepare("UPDATE territory_tiles SET mix_points = ?, element = ? WHERE id = ?")
+            .run(mixJson, label, (t as any).id);
+          (t as any).mixPoints = mixJson;
+          (t as any).element = label;
+        }
+        (t as any).mix = {
+          sky: roundMix(ledger.sky), stone: roundMix(ledger.stone),
+          tide: roundMix(ledger.tide), root: roundMix(ledger.root),
+        };
+      }
     }
     const walls = sqlite.prepare("SELECT edge_key AS edgeKey, q, r, dir, hp, max_hp AS maxHp, kind, level, rune_kind AS runeKind, style FROM hex_walls WHERE owner_key = ? ORDER BY id")
       .all(ownerKey);
@@ -10365,18 +10533,18 @@ export const handlers = {
    *  the homeland twin of the Table's attuneTile act. One
    *  point of an element leaves the Tender's pool through
    *  the pools' own door (spendAttunement) and pours into
-   *  the bank of the target tile — through
-   *  pourAttunementBank, the very reckoning the standing
-   *  press pours by, witness rule and all — so a spent
+   *  the ledger of the target tile — through
+   *  pressMixIntoTile, the very funnel the standing press
+   *  pours by (TERRAIN MIXING, 2026-10-25) — so a spent
    *  point counts exactly as a standing-laid point does,
    *  only now, and repeated spends are the "faster or
-   *  instant" road, as at the Table. If the pour turns the
-   *  tile, its tray stack resets as any turning resets it
-   *  in the settle; if the ground already holds the spent
+   *  instant" road, as at the Table. The ground keeps every
+   *  element it is given; if the ground stands as the spent
    *  element, the point also feeds the growing tray, as a
    *  matching press point does on the same beat (the tray's
    *  own seal and cap: 30 points seal a tray, six trays
-   *  stand at most).
+   *  stand at most). Fire is refused at this door — it
+   *  stands out of the terrain ledger (see below).
    *  ATTUNE IS AN ABILITY NOW (Nigel, 2026-10-21 16:37):
    *  the door is the action wheel — Ability → Attune →
    *  element → tap a tile — on every ground; the homeland's
@@ -10390,27 +10558,27 @@ export const handlers = {
    *  here, server-side, and refused in plain words beyond
    *  it. The tap may also name ground a placed RUNE or
    *  WARD of his stands on: the point pours into that
-   *  tile's bank all the same (the working's ground is the
-   *  tile's ground), and the answer names the working.
+   *  tile's ledger all the same (the working's ground is
+   *  the tile's ground), and the answer names the working.
    *  The refusals mirror the Table act where the homeland's
    *  law has equivalents: his own ground only — his
    *  territory rows are his alone, so another Tender's
    *  ground is not even in them; cursed ground refused
    *  (attunement rests only on purified land — the
    *  homeland press itself never pours into cursed ground,
-   *  and a tile's fall back to curse zeroes its bank); a
+   *  and a tile's fall back to curse empties its ledger); a
    *  work underway refused (its pours are the builder's,
-   *  ten at a time through pourBuild — a bank point there
+   *  ten at a time through pourBuild — a ledger point there
    *  would vanish into the build); baked ground refused
-   *  (the kiln sealed its bank — the settle pours nothing
+   *  (the kiln sealed its ledger — the settle pours nothing
    *  into baked ground either); and the pool enforced
    *  whole — nothing is half-spent. The bastion hex itself
    *  is NOT refused: no homeland law seals it, and a
    *  company standing there presses it like any ground —
    *  the Table's seed refusal is the Table's own law, not
-   *  the land's. Fire may be spent, as the Table act takes
-   *  all five, though no standing press ever speaks fire
-   *  and fire grows no trays. */
+   *  the land's. Fire is refused whole: it stands out of
+   *  the terrain ledger (Nigel, 2026-10-25), though the
+   *  Table act still takes all five into its own store. */
   async attuneTile(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
     const ownerKey = ownerKeyFor(ctx);
@@ -10439,13 +10607,20 @@ export const handlers = {
     }
     if (tile.cursed) badRequest("That ground is still cursed — attunement rests only on purified land. Win it first, and the ground will turn.");
     if (buildUnderway(tile)) badRequest("A work is rising on that ground — its pours are the builder's, ten at a time. Attune it when it stands finished, or stand elsewhere.");
-    if ((tile as any).baked) badRequest("That ground is baked sealed — the kiln shut its bank, and no attunement pours into it.");
+    if ((tile as any).baked) badRequest("That ground is baked sealed — the kiln shut its ledger, and no attunement pours into it.");
+    // Fire stands OUT of the terrain ledger (Nigel, 2026-10-25:
+    // no Fire texture exists in his sheet, and Fire's place on
+    // terrain is an open pencil). A Fire point has no line to
+    // land on — spending it would either vanish it or invent
+    // Fire's seat — so the door refuses it in plain words
+    // rather than take the point.
+    if (element === "fire") badRequest("Fire does not rest on the land — the terrain holds sky, stone, tide and root, and Fire's place on it is not yet ruled.");
     // THE BINDER'S GIFT (Nigel, 2026-10-22; Recovery R9):
     // one point still leaves her pool — the spend is the
     // same spend every hand makes — but what the spend LAYS
     // is reckoned by the book's one reckoning (pourLaidFor,
     // no page kind at this door): a Binder's Attune lays
-    // triple the points, into the bank and, where the ground
+    // triple the points, into the ledger and, where the ground
     // already holds the element, into the growing tray
     // alike, as each standing press point feeds both.
     const attuneProgress = await getTenderProgress(ownerKey);
@@ -10457,7 +10632,7 @@ export const handlers = {
     // — the spend stays one point; every point the lay
     // above reckons (pourLaidFor's, the Binder's triple
     // included) grants one more per rate point held, in
-    // the bank and in the tray growth below alike. (The
+    // the ledger and in the tray growth below alike. (The
     // composition — the rate multiplying the pour
     // reckoning's lay, not the spend — is this build's
     // reading of the star's own words, flagged in its
@@ -10466,7 +10641,7 @@ export const handlers = {
     const laidPoints = laid * (1 + fxSum(ownerKey, "attunementRate"));
     // A working of his standing on the target ground lends
     // the answer its name — the point pours into the tile's
-    // bank either way, as the tile law holds. A rune (or a
+    // ledger either way, as the tile law holds. A rune (or a
     // written spell) stands ON its tile; a ward stands on an
     // edge — its anchor tile, or the hex across the edge.
     let workingName: string | null = null;
@@ -10484,22 +10659,23 @@ export const handlers = {
         if (ward) workingName = spellByKey(ward.spell_key)?.name ?? ward.spell_key;
       }
     }
-    const elementBefore = tile.element as string;
-    const upd = pourAttunementBank(tile, element, laidPoints);
-    if (upd) Object.assign(tile, upd);
-    const turned = (tile.element as string) !== elementBefore;
+    // TERRAIN MIXING (Nigel, 2026-10-25): the laid points land
+    // on the spent element's own line of the tile's ledger —
+    // the same funnel the standing press pours through, so a
+    // spent point counts exactly as a standing-laid point
+    // does, only now. There is no bank and no turning, and a
+    // label change resets nothing: the ground keeps every
+    // element it is given. (Fire never reaches this line —
+    // the door refuses it above.) The answer's attune fields
+    // now read the ledger: the element laid, and the ground's
+    // hold of it after the lay.
+    const { turned } = await pressMixIntoTile(ownerKey, tile, { [element]: laidPoints } as Partial<Record<TerrainMixElement, number>>);
     let traysMoved = false;
-    if (turned) {
-      // A turning resets the stack (the settle's own habit).
-      tile.sealedTrays = 0; tile.growPoints = 0; tile.topPoints = null;
-      traysMoved = true;
-    } else if (tile.element === element && element !== "fire") {
-      // The ground already holds the spent element: the
-      // point feeds the growing tray, as a matching press
-      // point does on the settle's beat (growStack's own
-      // arithmetic: 30 points seal a tray, six stand at
-      // most; fire and neutral grow no trays — neutral
-      // never reaches this branch, its element is its own).
+    if (tile.element === element) {
+      // The ground stands as the spent element: the point
+      // also feeds the growing tray, as a matching press
+      // point does on the settle's beat (30 points seal a
+      // tray, six stand at most).
       const sealed = tile.sealedTrays ?? 0;
       if (sealed < 6) {
         let grow = (tile.growPoints ?? 0) + laidPoints;
@@ -10510,19 +10686,18 @@ export const handlers = {
         traysMoved = true;
       }
     }
-    const setFields: Record<string, unknown> = {
-      element: tile.element, attuneElement: tile.attuneElement ?? null, attunePoints: tile.attunePoints ?? 0,
-    };
     if (traysMoved) {
-      setFields.sealedTrays = tile.sealedTrays ?? 0;
-      setFields.growPoints = tile.growPoints ?? 0;
-      setFields.topPoints = tile.topPoints ?? null;
-      setFields.height = tile.cursed ? 0 : ((tile.sealedTrays ?? 0) >= 6 ? 6 : (tile.sealedTrays ?? 0) + 1);
+      await db.update(schema.territoryTiles).set({
+        sealedTrays: tile.sealedTrays ?? 0,
+        growPoints: tile.growPoints ?? 0,
+        topPoints: tile.topPoints ?? null,
+        height: tile.cursed ? 0 : ((tile.sealedTrays ?? 0) >= 6 ? 6 : (tile.sealedTrays ?? 0) + 1),
+      } as any).where(eq(schema.territoryTiles.id, tile.id));
     }
-    await db.update(schema.territoryTiles).set(setFields as any).where(eq(schema.territoryTiles.id, tile.id));
+    const hold = mixLedgerOf(tile).ledger[element as TerrainMixElement] ?? 0;
     return {
       ok: true as const, tileId: tile.id, element: tile.element as string,
-      attuneElement: (tile.attuneElement ?? null) as string | null, attunePoints: tile.attunePoints ?? 0,
+      attuneElement: element as string, attunePoints: Math.round(hold * 100) / 100,
       growPoints: tile.growPoints ?? 0, sealedTrays: tile.sealedTrays ?? 0, turned,
       working: workingName, laid,
       pool: await aspectPoolFor(ownerKey, element),
