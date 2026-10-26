@@ -8525,6 +8525,35 @@ export function registerTableRoutes(app: Express): void {
     res.json({ ok: true, tenderName: await tenderDisplayName(row.tenderId) });
   });
 
+  // THE DISCORD INTRO DOOR'S BINDING ROAD: the Discord seat
+  // token proves the Discord identity, and the Tender session
+  // token proves the Tender. Both proofs are required — a name
+  // alone binds nothing. Unlike the code road above, this road
+  // never moves a binding: a Discord identity that already
+  // stands bound, or a Tender who already stands bound to
+  // another Discord identity, is refused in plain words.
+  app.post("/api/table/bind-intro", async (req: Request, res: Response) => {
+    const token = String(req.body?.token ?? "");
+    const tenderToken = String(req.body?.tenderToken ?? "");
+    const user = authTokens.get(token);
+    if (!user) { res.status(401).json({ error: "That seat is not signed in — reopen the Table from Discord." }); return; }
+    const tender = await tenderFromToken(tenderToken).catch(() => null);
+    if (!tender) { res.status(401).json({ error: "That Tender sign-in has faded — sign in again, and the binding can be made." }); return; }
+    const boundTenderId = await bindingFor(user.id);
+    if (boundTenderId !== null) {
+      res.status(409).json({ error: "This Discord name is already bound to a Tender — the intro door never moves a binding." });
+      return;
+    }
+    const tenderBindings = await db.select().from(schema.tableBindings)
+      .where(eq(schema.tableBindings.tenderId, tender.id)).limit(1);
+    if (tenderBindings.length) {
+      res.status(409).json({ error: "That Tender is already bound to another Discord name — the intro door never moves a binding." });
+      return;
+    }
+    await db.insert(schema.tableBindings).values({ discordId: user.id, tenderId: tender.id });
+    res.json({ ok: true, bound: true, tenderName: await tenderDisplayName(tender.id) });
+  });
+
   app.post("/api/table/auth", async (req: Request, res: Response) => {
     const code = String(req.body?.code ?? "");
     if (!code) { res.status(400).json({ error: "Missing sign-in code." }); return; }
@@ -8549,7 +8578,14 @@ export function registerTableRoutes(app: Express): void {
       const user = (await userRes.json()) as { id: string; username: string; global_name?: string | null };
       const name = user.global_name || user.username;
       const token = issueTableToken({ id: String(user.id), name });
-      res.json({ token, accessToken: tok.access_token, user: { id: String(user.id), name } });
+      const boundTenderId = await bindingFor(String(user.id));
+      res.json({
+        token,
+        accessToken: tok.access_token,
+        user: { id: String(user.id), name },
+        bound: boundTenderId !== null,
+        tenderName: boundTenderId !== null ? await tenderDisplayName(boundTenderId) : null,
+      });
     } catch {
       res.status(502).json({ error: "Discord could not be reached." });
     }

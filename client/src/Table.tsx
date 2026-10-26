@@ -15,7 +15,7 @@
  * readability are the accepted prototype's, untouched.
  */
 
-import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
@@ -630,8 +630,32 @@ export default function Table() {
   // CAMPAIGN doors (Phase B): the Discord door's proven name,
   // held while the opener chooses the room's nature; and the
   // doorway-test campaign key.
-  const [authJoin, setAuthJoin] = useState<{ authToken: string; instanceId: string } | null>(null);
+  const [authJoin, setAuthJoin] = useState<{ authToken: string; instanceId: string; bound: boolean; tenderName: string | null } | null>(null);
   const [campKey, setCampKey] = useState("");
+  // THE DISCORD INTRO DOOR (2026-10-26): an UNBOUND Discord
+  // identity is offered the beginning at this door — "Begin as a
+  // new Tender" or "I already have a Tender" — alongside the
+  // standing choices, never instead of them. The intro machinery
+  // (claim form, the wake walk, the Choosing) lazy-loads only
+  // when an offer is taken: the featherweight front page never
+  // carries it, and a bound identity is never offered it.
+  const [introMode, setIntroMode] = useState<"begin" | "login" | null>(null);
+  const [IntroComp, setIntroComp] = useState<ComponentType<{
+    authToken: string; initialMode: "begin" | "login";
+    onComplete: (tenderName: string) => void; onCancel: () => void;
+  }> | null>(null);
+  const [introDoneName, setIntroDoneName] = useState<string | null>(null);
+  function openIntro(mode: "begin" | "login") {
+    setIntroMode(mode);
+    if (!IntroComp) {
+      void import("./TableIntro").then((m) => setIntroComp(() => m.default)).catch(() => setIntroMode(null));
+    }
+  }
+  function introComplete(tenderName: string) {
+    setIntroMode(null);
+    setIntroDoneName(tenderName);
+    setAuthJoin((cur) => (cur ? { ...cur, bound: true, tenderName } : cur));
+  }
   // The Stage: hidden by the viewer's own tap until a new
   // scene is set.
   const [stageHidden, setStageHidden] = useState(false);
@@ -1571,6 +1595,17 @@ export default function Table() {
       const prepared = takeTableSession();
       if (prepared) {
         sdkRef.current = takeTableBoot()?.sdk ?? null;
+        // THE INTRO DOOR (2026-10-26): a bound identity proceeds
+        // exactly as today — straight to its seat. An identity
+        // the server named UNBOUND at the exchange stops at the
+        // door instead, where the standing choices stand beside
+        // the intro offers. (A session carrying no binding answer
+        // at all proceeds as today.)
+        if (prepared.bound === false) {
+          setAuthJoin({ authToken: prepared.authToken, instanceId: prepared.room, bound: false, tenderName: null });
+          setPhase("door");
+          return;
+        }
         connect({ authToken: prepared.authToken, room: prepared.room });
         return;
       }
@@ -1640,7 +1675,12 @@ export default function Table() {
         // names the room either way, so the whole party lands
         // together whichever door they take.
         if (!cancelled) {
-          setAuthJoin({ authToken: auth.token, instanceId: sdk.instanceId || "the-table" });
+          setAuthJoin({
+            authToken: auth.token,
+            instanceId: sdk.instanceId || "the-table",
+            bound: auth.bound === true,
+            tenderName: typeof auth.tenderName === "string" ? auth.tenderName : null,
+          });
           setPhase("door");
         }
       } catch (e) {
@@ -1905,25 +1945,72 @@ export default function Table() {
               </div>
             </>
           ) : authJoin ? (
-            <>
-              <p className="quiet">
-                Discord has vouched for your name. Choose the room's nature — the whole
-                party lands together whichever door they take.
-              </p>
-              <div className="door-actions">
-                <button className="table-btn primary" onClick={() => connect({ authToken: authJoin.authToken, room: authJoin.instanceId })}>
-                  ⚔ The casual table
-                </button>
-                <button className="table-btn" onClick={() => connect({ watch: true, name: "A Watcher", room: authJoin.instanceId })}>
-                  Watch instead
-                </button>
-              </div>
-              <div className="door-actions">
-                <button className="table-btn" onClick={() => connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}` })}>
-                  📖 Campaign — take a seat
-                </button>
-              </div>
-            </>
+            introMode ? (
+              IntroComp ? (
+                <IntroComp
+                  authToken={authJoin.authToken}
+                  initialMode={introMode}
+                  onComplete={introComplete}
+                  onCancel={() => setIntroMode(null)}
+                />
+              ) : (
+                <p className="quiet">The beginning is gathering…</p>
+              )
+            ) : (
+              <>
+                {introDoneName ? (
+                  <p>
+                    You are bound as <strong>{introDoneName}</strong> — the Table will seat your
+                    real Tender. Your first three stand as your party, and seventeen welcome wakes
+                    still wait for you in the game: wake them when you will — they do not gate this seat.
+                  </p>
+                ) : authJoin.bound ? (
+                  <p className="quiet">
+                    Discord has vouched for your name, and it stands bound
+                    {authJoin.tenderName ? <> to <strong>{authJoin.tenderName}</strong></> : null} —
+                    the Table will seat your real Tender. Choose the room's nature — the whole
+                    party lands together whichever door they take.
+                  </p>
+                ) : (
+                  <p className="quiet">
+                    Discord has vouched for your name. Choose the room's nature — the whole
+                    party lands together whichever door they take.
+                  </p>
+                )}
+                <div className="door-actions">
+                  <button className="table-btn primary" onClick={() => connect({ authToken: authJoin.authToken, room: authJoin.instanceId })}>
+                    ⚔ The casual table
+                  </button>
+                  <button className="table-btn" onClick={() => connect({ watch: true, name: "A Watcher", room: authJoin.instanceId })}>
+                    Watch instead
+                  </button>
+                </div>
+                <div className="door-actions">
+                  <button className="table-btn" onClick={() => connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}` })}>
+                    📖 Campaign — take a seat
+                  </button>
+                </div>
+                {!authJoin.bound && (
+                  <>
+                    <p className="door-label">New to the Awokin — or already a Tender?</p>
+                    <p className="quiet">
+                      Your Discord name is not bound to a Tender yet. You may begin here, at this
+                      door — account first, then your first three wakes, your class and your runic
+                      weapon — or bind the Tender you already hold. The doors above stay open
+                      either way: a stand-in company seats you now, bound or not.
+                    </p>
+                    <div className="door-actions">
+                      <button className="table-btn" onClick={() => openIntro("begin")}>
+                        🌱 Begin as a new Tender
+                      </button>
+                      <button className="table-btn" onClick={() => openIntro("login")}>
+                        🔑 I already have a Tender
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )
           ) : (
             <>
               {LAND_INTENT === "homeland" && (

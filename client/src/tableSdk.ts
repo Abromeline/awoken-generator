@@ -102,6 +102,13 @@ export interface TableSession {
   authToken: string;
   room: string;
   name: string;
+  /** THE DISCORD INTRO DOOR (2026-10-26): the server's own
+   *  answer at the auth exchange — whether this Discord identity
+   *  already stands bound to a Tender, and her name when it does.
+   *  Server-verified, never client-claimed: the door offers the
+   *  intro only when this says unbound. */
+  bound?: boolean;
+  tenderName?: string | null;
 }
 
 const SESSION_SLOT = "__awokenTableSession";
