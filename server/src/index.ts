@@ -13,6 +13,7 @@ import { getFrontLessonsSeen, markFrontLessonSeen } from "./frontLessons.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
 import { registerTableRoutes, registerTableSocket, tableDoorMode } from "./table.js";
+import { registerExportDoor } from "./exportDoor.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -251,6 +252,12 @@ app.post("/api/stripe/portal", async (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, dataDir: DATA_DIR }));
+
+// THE EXPORT DOOR (2026-10-26): the Keeper's read-only road out for
+// the living world — manifest, a consistent app.db snapshot, and the
+// blob store object by object. It exists only while EXPORT_TOKEN is
+// set in the environment; unset, its routes answer 404.
+registerExportDoor(app);
 
 // THE TABLE (Discord Activity): config + sign-in routes — registered
 // before the static bundle below, whose SPA fallback would otherwise
