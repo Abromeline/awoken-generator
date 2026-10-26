@@ -2225,11 +2225,12 @@ export default function Table() {
     }
     if (placing.kind === "heal") return myUnitOn(t.id);
     if (placing.kind === "rune") {
-      // The new workings are not writings on a hex — the
-      // one-writing law is not theirs, as the referee holds.
-      const eng = defs[placing.root]?.engine;
-      if (eng === "bats" || eng === "holdrune" || eng === "shatter") return true;
-      return !shared.workings.some(w => w.kind === "rune" && w.hex === t.id);
+      // NO ONE-PER-HEX (Nigel, 2026-10-26): a hex already
+      // holding a rune stays tappable for another — the
+      // one-writing greying that stood here is struck, for
+      // the new workings and the writings alike. The
+      // referee judges the cast (range alone gates it).
+      return true;
     }
     if (!wardAnchor) return true; // WARDS STAND ANYWHERE (2026-10-20): any hex may anchor a ward.
     const anchor = tileById.get(wardAnchor);
@@ -2279,10 +2280,12 @@ export default function Table() {
           beginCast(t.id);
           return;
         }
-        if (!shared.workings.some(w => w.kind === "rune" && w.hex === t.id)) {
-          send({ type: "castRune", root: placing.root, hexes: [t.id], ...(pt ? { points: [pt] } : {}) });
-          beginCast(t.id);
-        }
+        // NO ONE-PER-HEX (Nigel, 2026-10-26): the tap casts
+        // onto the hex whether or not a rune already stands
+        // there — the silent swallow that stood here (a tap
+        // on written ground simply did nothing) is struck.
+        send({ type: "castRune", root: placing.root, hexes: [t.id], ...(pt ? { points: [pt] } : {}) });
+        beginCast(t.id);
         return;
       }
       // THE BLACK GATE (2026-10-24): one tap, no anchor —

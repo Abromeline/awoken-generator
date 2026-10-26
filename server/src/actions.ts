@@ -5269,7 +5269,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // crossbar, for casts since the T (its geometry in its
   // numbers), or by its EDGE, for the casts that stood
   // before it — each read by its own shape below.
-  const wardByEdge = new Map<string, any>();
+  // NO ONE-PER-HEX (Nigel, 2026-10-26): two cast wards may
+  // stand on ONE edge, so the border guard keeps a LIST of
+  // wards per edge, not a single ward — the first unspent
+  // of the list turns the blow, and when it is spent the
+  // next stands guard in the same settle, never masked.
+  const wardByEdge = new Map<string, any[]>();
   const wardLines: any[] = [];
   const borderWards: any[] = [];
   let mapBright = false;
@@ -5278,7 +5283,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     if ((w.engine === "seal" || w.engine === "trees") && (w.hp ?? 0) > 0) {
       try { w.nums = JSON.parse(w.nums ?? "{}"); } catch { w.nums = {}; }
       if (typeof w.nums.linePx === "number") { wardLines.push(w); borderWards.push(w); }
-      else if (w.edgeKey) { wardByEdge.set(w.edgeKey, w); borderWards.push(w); }
+      else if (w.edgeKey) { const list = wardByEdge.get(w.edgeKey) ?? []; list.push(w); wardByEdge.set(w.edgeKey, list); borderWards.push(w); }
     }
   }
   // ── THE THORNS, RE-HOMED (the Token Strip, Nigel
@@ -5903,7 +5908,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         let turned = false;
         if (fromTile && victimTile) {
           const key = homelandEdgeKeyBetween(fromTile, victimTile);
-          let ward = key ? wardByEdge.get(key) : undefined;
+          let ward = key ? (wardByEdge.get(key) ?? []).find(w => !w.spent) : undefined;
           if (!ward) {
             for (const lw of wardLines) {
               if (lw.spent) continue;
@@ -11557,9 +11562,11 @@ export const handlers = {
       // What the freedom costs stands in
       // settleHomelandWorkingAttrition: a ward on cursed
       // ground suffers the curse's attrition, like the
-      // Tender. (The edge must still be free — one work
-      // per edge — and the hex still his: those are the
-      // land's shape, not a holding.)
+      // Tender. (The edge must still be free of a BUILT
+      // edge work — the hex_walls ledger, one work per
+      // edge — and the hex still his: those are the land's
+      // shape, not a holding. A standing CAST ward bars
+      // nothing: no one-per-hex, Nigel 2026-10-26.)
       // WARDS CAST IN A T (Nigel, 2026-10-24 22:35): a cast
       // carrying a tapped POINT raises the ward as the
       // crossbar of a T — centred on the point, running
@@ -11582,8 +11589,16 @@ export const handlers = {
         edgeKey = `${cq},${cr},${cdir}`;
         const wallRow = sqlite.prepare("SELECT kind FROM hex_walls WHERE owner_key = ? AND edge_key = ?").get(ownerKey, edgeKey) as any;
         if (wallRow) badRequest(`That edge already carries a ${EDGE_WORK[wallRow.kind]?.name ?? "work"} — one work per edge.`);
-        const wardRow = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND edge_key = ? AND kind = 'ward'").get(ownerKey, edgeKey) as any;
-        if (wardRow) badRequest("A ward of the Written Light already stands on that edge.");
+        // NO ONE-PER-HEX (Nigel, 2026-10-26): the refusal
+        // that stood here — a cast ward barring a second
+        // cast ward from the same edge — is STRUCK. Two
+        // wards may stand on one edge; each keeps its own
+        // health, stops and riposte, and the battle reads
+        // them in turn (its border guard keeps a LIST per
+        // edge and takes the first unspent). The
+        // hex_walls check above stands: a BUILT edge work
+        // is the Edge Works ledger, one work per edge by
+        // its own law — not a cast working.
       }
       if (spell.engine === "standard") {
         const flying = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'standard'").get(ownerKey) as any;
@@ -11800,8 +11815,14 @@ export const handlers = {
       if (!tile) badRequest("That hex is not on your map to write upon.");
       assertCastReach(tile);
       if (aimPoint) assertPointReach();
-      const existing = sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND tile_id = ? AND kind IN ('rune', 'spell')").get(ownerKey, tileId) as any;
-      if (existing) badRequest("That ground is already written — one writing per hex.");
+      // NO ONE-PER-HEX (Nigel, 2026-10-26: "NO hexs wards
+      // or runs should be locked to one per rune"): the
+      // one-writing-per-hex refusal that stood here is
+      // STRUCK — a hex may carry many writings at once,
+      // each standing working keeping its own charges,
+      // health, upkeep and spring, exactly as the settle
+      // reckons them one by one. Range from the caster
+      // (assertCastReach above) is the only gate.
       // THE THREE BLADES ON THE MAP (the audit of 2026-10-20):
       // this branch once REFUSED the Blades outright — "planted
       // a hex at a time on the map" — so the page could never be

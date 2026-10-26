@@ -4800,8 +4800,23 @@ function endCampaign(room: Room, how: "ended" | "fallen"): void {
  *  the ground the player actually wrote on. */
 const POINT_SPRING_PX = 34;
 function springHex(room: Room, hex: string, fired: Set<string>): void {
-  const rune = room.workings.find(w => w.kind === "rune" && w.hex === hex && !fired.has(w.id));
-  if (!rune) return;
+  // NO ONE-PER-HEX (Nigel, 2026-10-26): a hex may carry
+  // many writings, so EVERY rune standing on the hex is
+  // read in turn — where this door once read only the
+  // first unfired rune, the rest were silently masked:
+  // they stood, they paid their withering, and they never
+  // sprang. The snapshot is taken at the door (a spring
+  // may spend or re-write workings as it runs); a rune
+  // already spent by an earlier spring in this same pass
+  // is passed over, and each rune springs at most once
+  // per call, as the fired set has always kept.
+  for (const rune of room.workings.filter(w => w.kind === "rune" && w.hex === hex)) {
+    if (!room.workings.includes(rune) || fired.has(rune.id)) continue;
+    springOneRune(room, hex, rune, fired);
+  }
+}
+
+function springOneRune(room: Room, hex: string, rune: Working, fired: Set<string>): void {
   const darkHere = [...room.dark.values()].filter(e => e.hex === hex
     || (!!rune.pos && distPx(e.pos, rune.pos) <= POINT_SPRING_PX));
   if (!darkHere.length) return;
@@ -4809,9 +4824,11 @@ function springHex(room: Room, hex: string, fired: Set<string>): void {
   // re-ruled 2026-10-23 — Recovery R4): engine "blade"
   // waits armed for the click (the looseBlade door), so a
   // dark thing standing on its ground springs nothing —
-  // and collects none of the spring's rewards below. One
-  // writing stands per hex, so no other rune is masked.
-  if (rune.engine === "blade") return;
+  // and collects none of the spring's rewards below. The
+  // Blade is marked read and SKIPPED, never a stopper:
+  // the writings sharing its hex still spring (no
+  // one-per-hex, Nigel 2026-10-26).
+  if (rune.engine === "blade") { fired.add(rune.id); return; }
   fired.add(rune.id);
   const caster = seatByKey(room, rune.ownerKey) ?? null;
   const seff = workingEffects(caster?.expKey);
@@ -7294,12 +7311,18 @@ function handleConnection(ws: WebSocket): void {
       // anchor, hexB the neighbour the line faces) — so no
       // edge-occupancy refusal stands over it, and it takes
       // no edge away from another ward.
-      if (!isSpringleaf && def.engine !== "bulwark") {
-        const standingEdge = room.workings.find(w => w.kind === "ward" && ((w.hexA === hexA && w.hexB === hexB) || (w.hexA === hexB && w.hexB === hexA)));
-        if (standingEdge && standingEdge.engine !== "passive") { ws.send(JSON.stringify({ type: "error", message: "A ward already stands on that edge." })); return; }
-        // A passive wall yields to a real cast ward — the cast ward wins the edge.
-        if (standingEdge) room.workings = room.workings.filter(w => w !== standingEdge);
-      }
+      // NO ONE-PER-HEX (Nigel, 2026-10-26: "NO hexs wards
+      // or runs should be locked to one per rune"): the
+      // edge refusal that stood here — a ward barring a
+      // second ward from the same edge — is STRUCK, and
+      // with it the passive wall's displacement: a cast
+      // ward no longer pushes a standing passive wall off
+      // the edge. Wards share an edge now, each keeping
+      // its own health, stops and answer; the battle reads
+      // the edge's wards in turn (the first unspent Seal,
+      // then the Trees, then the passive), as it reads
+      // them above. Bulwark never took an edge and still
+      // does not; the Springleaf was never an edge ward.
       if (def.engine === "standard" && room.workings.some(w => w.engine === "standard" && w.ownerKey === caster.key)) { ws.send(JSON.stringify({ type: "error", message: "One Standard per Tender — yours already flies." })); return; }
       // The Zodiac's workings tranche (2026-10-17): the
       // holder's skills ride the cast. Second Wall: once per
@@ -7574,11 +7597,14 @@ function handleConnection(ws: WebSocket): void {
       } else if (hexes.length !== 1) { ws.send(JSON.stringify({ type: "error", message: "That rune is written on one hex's ground." })); return; }
       for (const hx of hexes) {
         if (!boardOf(room).byId.has(hx) || hx === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: hx === SEED_TILE ? "Runes are written on the land's ground — not on the star-seed's tile." : "That is no tile of this land." })); return; }
-        // The new workings are not writings on a hex — the
-        // one-writing law is not theirs (Bats flies, the Hold
-        // Rune hangs over its target, Shatter is a shot).
-        if (def.engine !== "bats" && def.engine !== "holdrune" && def.engine !== "shatter"
-          && room.workings.some(w => w.kind === "rune" && w.hex === hx)) { ws.send(JSON.stringify({ type: "error", message: "That ground is already written — one writing per hex." })); return; }
+        // NO ONE-PER-HEX (Nigel, 2026-10-26: "NO hexs wards
+        // or runs should be locked to one per rune"): the
+        // one-writing-per-hex refusal that stood here is
+        // STRUCK for every writing — a hex may carry many
+        // runes at once, each keeping its own charges,
+        // health and spring. (Bats, the Hold Rune and
+        // Shatter were never writings on a hex and stood
+        // outside the struck law, as they still do.)
       }
       // NO HEX-LOCK — RANGE IS THE CASTING GATE (Nigel,
       // 2026-10-23 23:04): every writing this door lays is
