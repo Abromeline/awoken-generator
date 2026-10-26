@@ -3,17 +3,20 @@
 // 01:05). Boots the real server on a scratch DATA_DIR and
 // proves the table end to end:
 //   §U THE WIRED TABLE, dice set (the loot table fix,
-//      2026-10-25, rate set B) — the built drops module
-//      called with Math.random held: energy by kind
-//      (Fray 3 · Hollow 5 · Unraveler 8 · Tangle 12); the
-//      guaranteed reagents are the kind's AC bonus over
-//      10 (Fray 1 · Hollow 2 · Unraveler 3 · Tangle 5),
-//      each an independent draw on THE TWELVE of record;
-//      at 0.99 no percentage class fires; at 0 every class
-//      fires on the one table (shards 10 · items 35 ·
-//      relics 5 · bonus reagent 10 — today's rates, kept).
-//      The campaign road (rollFellDrops) pays the same
-//      table straight to the pack, as it always did.
+//      2026-10-25, rate set B; the guarantee struck the
+//      same night, 23:43 — "Stop the guaranteed reagents
+//      — rolls only") — the built drops module called with
+//      Math.random held: energy by kind (Fray 3 · Hollow 5
+//      · Unraveler 8 · Tangle 12); NO kind pays a
+//      guaranteed reagent any more — at 0.99 no percentage
+//      class fires and every kind's item take is empty;
+//      at 0 every class fires on the one table (shards 10
+//      · items 35 · relics 5 · bonus reagent 10 — today's
+//      rates, kept) and every kind pays exactly those
+//      rolls (2 reagents, a shard, a relic), no AC-bonus
+//      count riding. The campaign road (rollFellDrops)
+//      pays the same table straight to the pack, as it
+//      always did.
 //   §N CONVERSION + NOTICES ON THE REAL ROAD — seeded
 //      invented stacks (Shoal Salt, Rainwater Vial,
 //      Nightcap Spore) convert to the twelve, counts
@@ -24,9 +27,11 @@
 //   §C THE CLASSES IN THE WILD (variance-bound, honestly):
 //      120 Fray felled on the real road — the Pack gathers
 //      at least 360 energy (ambient fells only add);
-//      claiming company by company lands the guaranteed
-//      reagents plus the percentage classes' share,
-//      shards and at least one relic among them; the
+//      claiming company by company lands the rolls' goods
+//      alone (reagents ~54 over the 120 fells from the
+//      two reagent classes; the struck guarantee alone
+//      would have floored that tally at 120), shards and
+//      at least one relic among them; the
 //      pack never breaks its caps (fifteen kinds, 100 a
 //      stack — the standing shelf law); the older bounty
 //      (protection minutes) still banks.
@@ -100,36 +105,41 @@ const claimAll = async (token) => {
   Math.random = () => 0.99; // no percentage class fires (all rates ≤ 0.35); the draw = the table's last good
   const take = drops.rollFellTake("tangle", "stone");
   ok("a Tangle's take names its energy — 12", energyOf(take) === 12, `energy ${energyOf(take)}`);
-  ok("a Tangle pays exactly 5 guaranteed reagents (its AC bonus over 10)", itemsOf(take).reduce((a, i) => a + i.qty, 0) === 5, `items ${JSON.stringify(itemsOf(take))}`);
-  ok("each reagent an independent draw on the twelve (dice held: all the last good, Tidewater)", itemsOf(take).every(i => i.key === "reagent:tidewater"));
+  ok("a Tangle pays NO guaranteed reagents — at held dice its item take is empty (the guarantee is struck)", itemsOf(take).reduce((a, i) => a + i.qty, 0) === 0, `items ${JSON.stringify(itemsOf(take))}`);
   ok("no drip, shard or relic rides at these dice", !take.some(d => d.kind === "attunement") && !itemsOf(take).some(i => i.key === "rune-shard" || i.key.startsWith("relic:")));
-  ok("the take speaks plainly", drops.describeDrops(take) === "12 energy, Tidewater ×5", drops.describeDrops(take));
+  ok("the take speaks plainly", drops.describeDrops(take) === "12 energy", drops.describeDrops(take));
   ok("energy by kind: Fray 3 · Hollow 5 · Unraveler 8", energyOf(drops.rollFellTake("fray", "root")) === 3 && energyOf(drops.rollFellTake("hollow", "root")) === 5 && energyOf(drops.rollFellTake("unraveler", "root")) === 8);
-  ok("guaranteed reagents by kind: Fray 1 · Hollow 2 · Unraveler 3", itemsOf(drops.rollFellTake("fray", "root")).reduce((a, i) => a + i.qty, 0) === 1 && drops.rollItemDrops("hollow").reduce((a, i) => a + i.qty, 0) === 2 && drops.rollItemDrops("unraveler").reduce((a, i) => a + i.qty, 0) === 3);
+  ok("no kind pays a guaranteed reagent: at held dice every kind's item take is empty (Fray · Hollow · Unraveler · Tangle)", ["fray", "hollow", "unraveler", "tangle"].every(k => drops.rollItemDrops(k).reduce((a, i) => a + i.qty, 0) === 0));
 
   Math.random = () => 0; // every class fires; the draw = the first good; relic = first relic
   const take0 = drops.rollFellTake("fray", "root");
   Math.random = realRandom;
   const drip0 = take0.find(d => d.kind === "attunement");
   ok("at open dice the drip pays — a tenth of the ground's element (root)", drip0?.element === "root" && Math.abs(drip0.qty - 0.1) < 1e-9, JSON.stringify(drip0));
-  ok("one Fray pays 3 Dream Shroom (guaranteed + items + bonus reagent on the one table)", sumKey(itemsOf(take0), "reagent:dream-shroom") === 3, JSON.stringify(itemsOf(take0)));
+  ok("one Fray pays 2 Dream Shroom (items + bonus reagent rolls on the one table — no guarantee rides)", sumKey(itemsOf(take0), "reagent:dream-shroom") === 2, JSON.stringify(itemsOf(take0)));
   ok("the shard class pays exactly one rune shard", sumKey(itemsOf(take0), "rune-shard") === 1);
   ok("the relic class pays exactly one relic, named for the wheel effect it carries", sumKey(itemsOf(take0), "relic:tenderHp") === 1);
+  Math.random = () => 0;
+  const openByKind = ["fray", "hollow", "unraveler", "tangle"].map(k => itemsOf(drops.rollItemDrops(k)));
+  Math.random = realRandom;
+  ok("at open dice EVERY kind pays exactly the rolls — 2 reagents, 1 shard, 1 relic; no AC-bonus count rides (a Tangle owed 5 by the struck guarantee)",
+    openByKind.every(items => items.reduce((a, i) => a + i.qty, 0) === 4 && sumKey(items, "reagent:dream-shroom") === 2 && sumKey(items, "rune-shard") === 1 && sumKey(items, "relic:tenderHp") === 1),
+    JSON.stringify(openByKind));
 
   // The campaign road pays the same table straight to
   // the pack, as it always did (its silent settlement).
   const me = "tender:unit-drops";
   Math.random = () => 0.99;
   drops.rollFellDrops(me, "tangle");
-  ok("the campaign road pays its 5 guaranteed reagents straight in", reagentTotal(me) === 5 && qtyOf(me, "reagent:tidewater") === 5, `reagents ${reagentTotal(me)}`);
+  ok("the campaign road pays NO guaranteed reagents — at held dice its shelves gain nothing (the guarantee is struck on every road)", reagentTotal(me) === 0 && invRows(me).length === 0, `rows ${JSON.stringify(invRows(me))}`);
   const lines = drops.drainDropNotices(me);
-  ok("the campaign notice speaks the take", lines.length === 1 && lines[0].includes("Tidewater ×5"), JSON.stringify(lines[0]));
+  ok("the campaign notice speaks the empty take", lines.length === 1 && lines[0].includes("leaves nothing it can give"), JSON.stringify(lines[0]));
   ok("the ledger drains once", drops.drainDropNotices(me).length === 0);
   const me2 = "tender:unit-drops-all";
   Math.random = () => 0;
   drops.rollFellDrops(me2, "fray");
   Math.random = realRandom;
-  ok("on the campaign road one Fray at open dice pays 3 Dream Shroom, 1 shard, 1 relic", qtyOf(me2, "reagent:dream-shroom") === 3 && qtyOf(me2, "rune-shard") === 1 && qtyOf(me2, "relic:tenderHp") === 1, JSON.stringify(invRows(me2)));
+  ok("on the campaign road one Fray at open dice pays 2 Dream Shroom, 1 shard, 1 relic (the rolls alone)", qtyOf(me2, "reagent:dream-shroom") === 2 && qtyOf(me2, "rune-shard") === 1 && qtyOf(me2, "relic:tenderHp") === 1, JSON.stringify(invRows(me2)));
 
   // The invented seven can never be paid, by any road.
   const allowed = new Set([...TWELVE_SUFFIXES.map(s => `reagent:${s}`), "rune-shard"]);
@@ -140,6 +150,29 @@ const claimAll = async (token) => {
     }
   }
   ok("no fell of any kind can pay an invented good", bad === null, String(bad));
+
+  // The rolls still pay, over repeated fells (the dice
+  // free): 600 draws of the item table across the kinds.
+  // A fell shows a reagent: stack on ~38% of draws (the
+  // items class 35% + the bonus reagent 10%, less the
+  // draws that land on the shard good), a shard stack on
+  // ~13% (its class plus the reagent draws that land on
+  // it), a relic on ~5%. The bands stand many sigmas
+  // wide; the struck guarantee would have put a reagent
+  // on EVERY fell — the first band's ceiling is its
+  // grave-marker.
+  {
+    let reagentFells = 0, shardFells = 0, relicFells = 0;
+    for (let i = 0; i < 600; i++) {
+      const items = itemsOf(drops.rollItemDrops(["fray", "hollow", "unraveler", "tangle"][i % 4]));
+      if (items.some(x => x.key.startsWith("reagent:"))) reagentFells++;
+      if (items.some(x => x.key === "rune-shard")) shardFells++;
+      if (items.some(x => x.key.startsWith("relic:"))) relicFells++;
+    }
+    ok("over 600 fells the reagent classes still land — reagents on a rolls-only share of fells (never all, never none)", reagentFells > 150 && reagentFells < 340, `reagent fells ${reagentFells}`);
+    ok("over 600 fells the shard class still lands at its share", shardFells > 35 && shardFells < 130, `shard fells ${shardFells}`);
+    ok("over 600 fells the relic class still lands at its share", relicFells > 7 && relicFells < 60, `relic fells ${relicFells}`);
+  }
 }
 
 /* ── The felling harness — the LIVING BATTLE's road
@@ -243,7 +276,30 @@ async function makeFeller(name) {
   const packNow = packRows(f.me);
   const energyRow = packNow.find(r => r.kind === "energy");
   ok("the six Fray's energy waits in her Pack — 18 in one orb", energyRow?.qty === 18, JSON.stringify(packNow));
-  ok("the Pack holds at least the guaranteed reagents (6 Fray = 6)", packNow.filter(r => r.kind === "item").reduce((a, r) => a + r.qty, 0) >= 6, JSON.stringify(packNow));
+  // The Pack's goods are the rolls' alone (the guarantee
+  // struck, 2026-10-25 23:43): every good standing in the
+  // Pack was spoken in a fell's own line, at the same
+  // count — nothing arrived by any other road.
+  const spokenGoods = new Map();
+  for (const l of lines) {
+    const m = l.match(/leaves behind: (.+) — gathered in your Pack\./);
+    if (!m) continue;
+    for (const part of m[1].split(", ")) {
+      if (/^\d+ energy$/.test(part) || part.startsWith("a drizzle of")) continue;
+      let mm;
+      if (part === "a rune shard") spokenGoods.set("Rune Shard", (spokenGoods.get("Rune Shard") ?? 0) + 1);
+      else if ((mm = part.match(/^(\d+) rune shards$/))) spokenGoods.set("Rune Shard", (spokenGoods.get("Rune Shard") ?? 0) + Number(mm[1]));
+      else if ((mm = part.match(/^(.+) ×(\d+)$/))) spokenGoods.set(mm[1], (spokenGoods.get(mm[1]) ?? 0) + Number(mm[2]));
+      else if ((mm = part.match(/^a (.+)$/))) spokenGoods.set(mm[1], (spokenGoods.get(mm[1]) ?? 0) + 1);
+      else spokenGoods.set(part, (spokenGoods.get(part) ?? 0) + 1); // a lone good at count one speaks its bare name
+    }
+  }
+  const packedGoods = new Map();
+  for (const r of packNow.filter(r => r.kind === "item")) { const n = drops.itemDisplayName(r.itemKey); packedGoods.set(n, (packedGoods.get(n) ?? 0) + r.qty); }
+  ok("every good in the Pack was spoken by a fell's line — the rolls' take alone, nothing by guarantee",
+    JSON.stringify([...packedGoods].sort()) === JSON.stringify([...spokenGoods].sort()),
+    `pack ${JSON.stringify([...packedGoods])} vs spoken ${JSON.stringify([...spokenGoods])}`);
+  const packReagents = packNow.filter(r => r.kind === "item" && r.itemKey?.startsWith("reagent:")).reduce((a, r) => a + r.qty, 0);
   ok("nothing reached her shelves silently (only the converted 19 stand)", reagentTotal(f.me) === 19, `reagents ${reagentTotal(f.me)}`);
   // Her purse emptied by hand so the orb's landing reads
   // clean, and the orb claimed FIRST — before any read
@@ -256,7 +312,7 @@ async function makeFeller(name) {
   const energy = db.prepare("SELECT energy FROM tender_resources WHERE owner_key = ?").get(f.me)?.energy ?? -1;
   ok("claiming lands the orb — her purse fills from empty toward the 18", energy >= 15 && energy <= 18, `energy ${energy}`);
   await claimAll(f.token);
-  ok("claiming lands the reagents too", reagentTotal(f.me) >= 20, `reagents ${reagentTotal(f.me)}`);
+  ok("claiming lands the Pack's reagents too — her converted 19 plus exactly what the rolls left (no guarantee among them)", reagentTotal(f.me) === 19 + packReagents, `reagents ${reagentTotal(f.me)} vs 19 + ${packReagents}`);
   ok("the Pack stands empty once all is claimed", packRows(f.me).length === 0, JSON.stringify(packRows(f.me)));
   const again = await call("getTerritory", {}, f.token);
   ok("a later read speaks no drop line twice (drained)", (again.dropNotices ?? []).length === 0, JSON.stringify(again.dropNotices));
@@ -302,10 +358,13 @@ async function makeFeller(name) {
   }
   ok("all 120 Fray felled (twenty companies of six)", allFelled, `${f.left()} left in the last company`);
   ok("the Pack gathered at least 360 energy (120 Fray × 3 — ambient fells only add)", orbSeen >= 360, `orb ${orbSeen}`);
-  ok("the Pack gathered at least the 120 guaranteed reagents", goodsSeen >= 120, `gathered ${goodsSeen}`);
-  // Guaranteed: 120 reagents. Items (35%) + bonus reagent (10%) add ~54 ± 5.4;
-  // the bound below stands more than seven sigmas under the mean.
-  ok("claiming lands the reagents plus the items/bonus classes' share", claimedReagents >= 135, `reagents ${claimedReagents}`);
+  ok("the Pack gathered the rolls' goods across the 120 fells (the struck guarantee alone would have floored this at 120; the rolls' mean is ~72)", goodsSeen >= 40, `gathered ${goodsSeen}`);
+  // The rolls alone: reagents ~49 ± 6 over 120 fells (items 35% +
+  // bonus reagent 10%, less the draws that land on the shard
+  // good); the bound below stands more than three sigmas under
+  // that mean. Under the struck guarantee the same tally could
+  // never have fallen below 120 before a single roll was cast.
+  ok("claiming lands the reagents the rolls paid", claimedReagents >= 28, `reagents ${claimedReagents}`);
   ok("rune shards landed on the real road", claimedShards >= 1, `shards ${claimedShards}`);
   ok("at least one relic landed on the real road", claimedRelics >= 1, `relics ${claimedRelics}`);
   ok("the pack never breaks its caps (≤15 stacks, ≤100 each)", capsHeld);
@@ -317,7 +376,13 @@ async function makeFeller(name) {
 {
   console.log("§K a full hand refuses the claim, never the drop");
   const f = await makeFeller("Full Tender");
-  f.seedWanderers(5, "fray");
+  // Twelve Fray (fixture restated, 2026-10-25): with the
+  // guarantee struck, a handful of fells may pay no item
+  // at all — this section needs an item waiting in the
+  // Pack, and twelve fells make that a practical
+  // certainty (each fell pays an item on ~half its rolls,
+  // a non-shard good on ~44%).
+  f.seedWanderers(12, "fray");
   const seen = [];
   const done = await f.fellAll(seen);
   ok("the Fray still fall before a full hand", done, `${f.left()} left`);
@@ -326,7 +391,7 @@ async function makeFeller(name) {
   const t0 = await call("getTerritory", {}, f.token);
   const loot = t0.loot ?? [];
   const itemEntry = loot.find(e => e.kind === "item" && e.itemKey && e.itemKey !== "rune-shard");
-  ok("the drops gathered in her Pack all the same (≥5 guaranteed goods)", loot.filter(e => e.kind === "item").reduce((a, e) => a + e.qty, 0) >= 5 && !!itemEntry, JSON.stringify(loot));
+  ok("the drops gathered in her Pack all the same (the rolls' goods — an item waits to be claimed)", loot.filter(e => e.kind === "item").reduce((a, e) => a + e.qty, 0) >= 1 && !!itemEntry, JSON.stringify(loot));
   // Fill the very stack her first waiting good belongs
   // to, then click it: the claim must refuse, spoken,
   // and nothing may move.

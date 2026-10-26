@@ -30,10 +30,18 @@
  *     the casual Table paid a flat silent 3.
  *   · EVERY OTHER RATE STANDS AT TODAY'S NUMBERS (19:39):
  *     items 35% · relics 5% · rune shards 10% · the bonus
- *     reagent (alchemy) roll 10%, and the guaranteed
- *     reagents per fell by the kind's AC bonus over 10
- *     (Fray 1 · Hollow 2 · Unraveler 3 · Tangle 5), each
- *     reagent an independent roll on the twelve.
+ *     reagent (alchemy) roll 10% — each reagent an
+ *     independent roll on the twelve.
+ *   · THE GUARANTEE IS STRUCK (Nigel, 2026-10-25 23:43 —
+ *     "Stop the guaranteed reagents — rolls only", after
+ *     "items and regs are dropping way to often"): the
+ *     per-fell guaranteed reagents by the kind's AC bonus
+ *     over 10 (Fray 1 · Hollow 2 · Unraveler 3 · Tangle 5,
+ *     as the 19:39 numbers once carried them) are REMOVED
+ *     from every road that draws this table. Reagents now
+ *     come from the rolls alone — the items class and the
+ *     bonus reagent roll above. No rate changed; the
+ *     guarantee alone was removed.
  *   · ATTUNEMENT pays exactly as it always has — the
  *     drizzle: a 20% roll paying a tenth of a point, its
  *     element the ground's where the ground holds one,
@@ -79,7 +87,6 @@
  * moved with them.)
  */
 import { sqlite } from "./store.js";
-import { enemyArmorBonus } from "./enemyAC.js";
 import { FX_PALETTE } from "./zodiacLive.js";
 
 export const DROP_RATES = { shard: 0.10, items: 0.35, relic: 0.05, alchemy: 0.10 } as const;
@@ -246,16 +253,17 @@ function rollReagent(): Reagent {
 }
 
 /** The item classes of one fell, each its own roll, at
- *  the standing rates: the GUARANTEED reagents (13:18 —
- *  count = the kind's AC bonus over 10, each an
- *  independent roll on the twelve), then items 35%,
- *  the bonus reagent roll 10%, rune shards 10%,
- *  relics 5% — amounts of 1, merged by key. */
+ *  the standing rates: items 35%, the bonus reagent
+ *  roll 10%, rune shards 10%, relics 5% — amounts of 1,
+ *  merged by key. Reagents ride those two reagent
+ *  classes alone: the guaranteed reagents (13:18 —
+ *  count = the kind's AC bonus over 10) were struck by
+ *  Nigel, 2026-10-25 23:43, so the kind names no owed
+ *  count here any more and no per-fell reagent is owed. */
 export function rollItemDrops(kind: string): FellDrop[] {
+  void kind; // the kind once set the guarantee's count; the rolls are kind-blind now
   const byKey = new Map<string, number>();
   const take = (itemKey: string, qty: number): void => { byKey.set(itemKey, (byKey.get(itemKey) ?? 0) + qty); };
-  const bonus = enemyArmorBonus(kind);
-  for (let i = 0; i < bonus; i++) take(reagentItemKey(rollReagent().key), 1);
   if (Math.random() < DROP_RATES.items) take(reagentItemKey(rollReagent().key), 1);
   if (Math.random() < DROP_RATES.alchemy) take(reagentItemKey(rollReagent().key), 1);
   if (Math.random() < DROP_RATES.shard) take(RUNE_SHARD_KEY, 1);
