@@ -344,7 +344,7 @@ export const aspectAttunement = sqliteTable("aspect_attunement", {
 // 2026-10-25): the travelling player inventory — one row
 // per stack the Tender carries. item_key names the good
 // ("rune-shard", "reagent:<good>", "relic:<fx verb>"); the
-// inventory holds 15 different stacks, a stack up to 100.
+// inventory holds 30 different stacks, a stack up to 100.
 export const tenderInventory = sqliteTable("tender_inventory", {
   ownerKey: text("owner_key").notNull(),
   itemKey: text("item_key").notNull(),

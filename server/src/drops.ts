@@ -78,8 +78,10 @@
  * not this one, as before.
  *
  * THE INVENTORY (spec §7): the travelling player
- * inventory — 15 different stacks, a stack holds up to
- * 100. The caps bind what a CLAIM can carry into it; a
+ * inventory — 30 different stacks, a stack holds up to
+ * 100. (The kinds cap stood at 15 until Nigel raised
+ * it, 2026-10-26: "increase item limit to 30.")
+ * The caps bind what a CLAIM can carry into it; a
  * drop that cannot land stays in the Pack, and the claim
  * says so plainly. (Before this build the caps bound the
  * drop itself; the Pack is ground, not her back, so the
@@ -91,7 +93,7 @@ import { FX_PALETTE } from "./zodiacLive.js";
 
 export const DROP_RATES = { shard: 0.10, items: 0.35, relic: 0.05, alchemy: 0.10 } as const;
 export const INVENTORY_STACK_CAP = 100;
-export const INVENTORY_STACK_KINDS = 15;
+export const INVENTORY_STACK_KINDS = 30;
 export const SHARDS_PER_ATTUNEMENT_POINT = 20;
 export const RUNE_SHARD_KEY = "rune-shard";
 
@@ -173,7 +175,7 @@ export function inventoryView(ownerKey: string): InventoryView {
 }
 
 /** Land goods in the inventory under the ruled caps: a
- *  stack holds 100; the inventory holds 15 different
+ *  stack holds 100; the inventory holds 30 different
  *  stacks. Returns how many landed and how many could
  *  not be carried. */
 export function addToInventory(ownerKey: string, itemKey: string, qty: number): { landed: number; left: number } {

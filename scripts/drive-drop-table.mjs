@@ -32,7 +32,7 @@
 //      two reagent classes; the struck guarantee alone
 //      would have floored that tally at 120), shards and
 //      at least one relic among them; the
-//      pack never breaks its caps (fifteen kinds, 100 a
+//      pack never breaks its caps (thirty kinds, 100 a
 //      stack — the standing shelf law); the older bounty
 //      (protection minutes) still banks.
 //   §K THE FULL HAND — the DROP is never refused: it
@@ -331,7 +331,7 @@ async function makeFeller(name) {
   let allFelled = true;
   // Each company's take is claimed before the next is
   // seeded, and her shelves emptied between companies —
-  // the shelf holds fifteen kinds (the game's standing
+  // the shelf holds thirty kinds (the game's standing
   // law), and the tallies below are what the claims
   // landed. The Pack-side tallies (orb, goods) are read
   // BEFORE each claiming, so they measure the fells
@@ -353,7 +353,7 @@ async function makeFeller(name) {
     claimedRelics += invRows(f.me).filter(r => r.key.startsWith("relic:")).reduce((a, r) => a + r.qty, 0);
     claimedShards += qtyOf(f.me, "rune-shard");
     const rowsNow = invRows(f.me);
-    if (!(rowsNow.length <= 15 && rowsNow.every(r => r.qty <= 100))) capsHeld = false;
+    if (!(rowsNow.length <= 30 && rowsNow.every(r => r.qty <= 100))) capsHeld = false;
     db.prepare("DELETE FROM tender_inventory WHERE owner_key = ?").run(f.me);
   }
   ok("all 120 Fray felled (twenty companies of six)", allFelled, `${f.left()} left in the last company`);
@@ -367,7 +367,7 @@ async function makeFeller(name) {
   ok("claiming lands the reagents the rolls paid", claimedReagents >= 28, `reagents ${claimedReagents}`);
   ok("rune shards landed on the real road", claimedShards >= 1, `shards ${claimedShards}`);
   ok("at least one relic landed on the real road", claimedRelics >= 1, `relics ${claimedRelics}`);
-  ok("the pack never breaks its caps (≤15 stacks, ≤100 each)", capsHeld);
+  ok("the pack never breaks its caps (≤30 stacks, ≤100 each)", capsHeld);
   const bank = db.prepare("SELECT protection_bank_ms AS bank FROM tender_progress WHERE owner_key = ?").get(f.me)?.bank ?? 0;
   ok("the older bounty still banks (protection minutes from the same kills)", bank > 0, `bank ${bank}`);
 }

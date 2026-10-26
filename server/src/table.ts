@@ -4005,7 +4005,7 @@ function landPackEntryOn(room: Room, target: Player, entry: RoomPackEntry): stri
   }
   if (!entry.itemKey) return "That drop names no good to carry.";
   if (!inventoryCanHold(target.expKey, entry.itemKey, entry.qty)) {
-    return `${target.name}'s inventory cannot carry the ${entry.name} — a stack holds 100, and fifteen stacks are all it holds.`;
+    return `${target.name}'s inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds.`;
   }
   const r = addToInventory(target.expKey, entry.itemKey, entry.qty);
   if (r.left > 0) return `${target.name}'s inventory cannot carry the ${entry.name}.`;
