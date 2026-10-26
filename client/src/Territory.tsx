@@ -558,10 +558,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // since the homeland weapon referee (Nigel, 2026-10-20), with
   // the wound track his weapon writes on them.
   const [wanderers, setWanderers] = useState<{ id: number; tileId: number; kind: string; posQ: number; posR: number; hp?: number; maxHp?: number }[]>([]);
-  // THE REAL-TIME BATTLE's face (Nigel, 2026-10-23): the
-  // lighthouse and its ledgers, and the defence works the
-  // defenders raise — all served by the territory read.
-  const [battle, setBattle] = useState<{ shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }>({ shadowMatter: 0, protectionBankMs: 0, lighthouseLit: false, waveIntensity: 1 });
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): what the felled dark leaves behind,
   // carried on the Tender's back — served by every
@@ -1826,7 +1822,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTenderStand(refreshed.tender ?? null);
     setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
-    if (refreshed.battle) setBattle(refreshed.battle);
     noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
     noteWeaponStrike(refreshed.weaponStrike);
@@ -6652,44 +6647,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
         </div>
       )}
-      {/* THE LIGHTHOUSE (Nigel, 2026-10-23): a small golden
-          timer on the right-hand side of the screen. The bank
-          is protection bought with kills (a minute per point
-          of the felled dark's bonus above AC 10); the light
-          is lit by hand, never by default, and while it burns
-          the bank drains, Shadow Matter feeds its upkeep,
-          nothing spawns, and the waves stand pushed back at
-          intensity 1. Unlit, every weather change raises the
-          waves. */}
-      <div className={`lighthouse-panel${battle.lighthouseLit ? " lit" : ""}`}>
-        <div className="lighthouse-head">{battle.lighthouseLit ? "🔆" : "🗼"} The Lighthouse</div>
-        <div className="lighthouse-bank">
-          {battle.lighthouseLit ? "Burning" : "Banked"}: {Math.floor(battle.protectionBankMs / 60000)} min of protection
-        </div>
-        <div className="lighthouse-shadow" title="Shadow Matter — feeds upkeep, never casting">
-          ◈ {Math.floor(battle.shadowMatter)} Shadow Matter
-        </div>
-        <div className="lighthouse-waves">
-          {battle.lighthouseLit ? "The waves are pushed back" : `Wave intensity ${battle.waveIntensity}`}
-        </div>
-        {battle.lighthouseLit && battle.shadowMatter < 1 && (
-          <div className="lighthouse-warn">The hoard is empty — when the fuel is spent, the light gutters out.</div>
-        )}
-        <button
-          className="abtn small"
-          onClick={async () => {
-            try {
-              const r = await api.setLighthouse({ lit: !battle.lighthouseLit });
-              setBattle(r.battle);
-              await refreshTerritory();
-            } catch (e) {
-              showHexNotice(refusalText(e, "The lighthouse refused."));
-            }
-          }}
-        >
-          {battle.lighthouseLit ? "Douse the light" : "Light the lighthouse"}
-        </button>
-      </div>
       {/* THE BAG (the loot table fix, Nigel, ruled
           2026-10-25 18:06–18:09): his Backpack stands on
           the right side of the map — the Pack's door. Its

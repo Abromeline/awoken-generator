@@ -6,7 +6,8 @@
 // real map in a real browser:
 //   §S the seams in the sources: the ceremony's seat and
 //      its done-gate, the Beacon's ruled height in the seed
-//      layer, the lighthouse panel's new seat in the CSS.
+//      layer, the lighthouse panel struck from the CSS
+//      (restated 2026-10-26, the lighthouse-button build).
 //   §A THE CEREMONY: a fresh Tender entering the terrain
 //      with the first seed's hold unfinished is served the
 //      short story once — its words name the Awokin the
@@ -23,12 +24,16 @@
 //      Tender figure's height — the stand-in measure), and
 //      his Beacon art at the Beacon, standing TWICE the
 //      Tender figure's height on screen.
-//   §C THE LIGHTHOUSE, MOVED INTO VIEW (Nigel, 2026-10-25:
-//      "The light house button needs moved down into view
-//      by the champions hall tab"): the panel's rect stands
-//      in the viewport, beside the Champions Hall tab with
-//      their bottoms aligned; on a narrow screen it stands
-//      in view beside the champion button.
+//   §C THE LIGHTHOUSE PANEL, STRUCK (restated 2026-10-26,
+//      the lighthouse-button build; Nigel, 2026-10-26:
+//      "notice the lighthoue button is stuck there? . we
+//      need that to go away."): the panel renders NOWHERE,
+//      and the light's one switch — the beacon switch —
+//      stands in view beside the Terrain/Return button, on
+//      wide and narrow screens alike. (This section once
+//      proved the panel's seat beside the Champions Hall
+//      tab under the 2026-10-25 move-into-view ruling; the
+//      2026-10-26 ruling struck the panel whole.)
 // The stage changes are wound by hand in SQL (level writes)
 // — the feeding that earns them is drive-first-seed-risings
 // §H's proof; here the FACE answers the served stage.
@@ -79,7 +84,7 @@ try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 
 const now = Date.now();
 
 /* ── §S THE SEAMS IN THE SOURCES ──────────────────────── */
-console.log("§S the seams — the ceremony's seat, the Beacon's height, the panel's seat");
+console.log("§S the seams — the ceremony's seat, the Beacon's height, the panel struck");
 {
   const terr = readFileSync(join(process.cwd(), "client/src/Territory.tsx"), "utf8");
   const css = readFileSync(join(process.cwd(), "client/src/theme.css"), "utf8");
@@ -91,10 +96,10 @@ console.log("§S the seams — the ceremony's seat, the Beacon's height, the pan
     terr.includes('const figH = stage === "sapling" ? 62 : 124'));
   ok("§S the stage faces bind Nigel's delivered art (sapling + beacon assets)",
     terr.includes('from "./assets/starseed/sapling.png"') && terr.includes('from "./assets/starseed/beacon.png"'));
-  ok("§S the lighthouse panel's seat is FIXED beside the Champions Hall tab (right 312, bottom 210 — the tab's own bottom)",
-    /\.lighthouse-panel\{\s*position:fixed;right:312px;bottom:210px/.test(css));
-  ok("§S the fold-in carries Nigel's words in the CSS record",
-    css.includes("The light house") && css.includes("button needs moved down into view by the champions hall"));
+  ok("§S (restated 2026-10-26, the lighthouse-button build) the lighthouse panel's CSS seat is struck whole — no .lighthouse-panel rule stands anywhere in the sheet",
+    !css.includes(".lighthouse-panel"));
+  ok("§S (restated 2026-10-26) the beacon switch's seat stands in the CSS beside the deck button (fixed at its left hand), its lit stand wearing gold",
+    /\.beacon-switch\{\s*position:fixed;right:430px/.test(css) && css.includes(".beacon-switch.lit"));
 }
 
 /* ══ THE WORLD: a fresh Tender, the first seed sown, a
@@ -255,39 +260,41 @@ const beaconLabel = await page.evaluate(() =>
   [...document.querySelectorAll("text")].some((t) => t.textContent.trim() === "Beacon"));
 ok("§B the Beacon's stage name stands beneath its art", beaconLabel);
 
-/* ── §C THE LIGHTHOUSE, MOVED INTO VIEW ───────────────── */
-console.log("§C the lighthouse panel — down into view, beside the Champions Hall tab");
+/* ── §C THE LIGHTHOUSE PANEL, STRUCK (restated 2026-10-26) ── */
+console.log("§C the lighthouse panel — struck; the beacon switch beside the terrain button");
 const seat = await page.evaluate(() => {
-  const r = document.querySelector(".lighthouse-panel")?.getBoundingClientRect();
-  return r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null;
+  const p = document.querySelector(".lighthouse-panel");
+  const s = document.querySelector(".beacon-switch")?.getBoundingClientRect();
+  const d = document.querySelector(".deck-button")?.getBoundingClientRect();
+  return {
+    panel: !!p,
+    sw: s ? { left: s.left, right: s.right, top: s.top, bottom: s.bottom } : null,
+    deck: d ? { left: d.left, right: d.right, top: d.top, bottom: d.bottom } : null,
+  };
 });
-ok("§C the panel stands in view on the homeland (its rect inside the viewport)",
-  !!seat && seat.left >= 0 && seat.top >= 0 && seat.right <= 1400 && seat.bottom <= 950, JSON.stringify(seat));
-await page.click('button.champion-fab[title="Champion"]');
-await page.waitForSelector(".champion-tab", { timeout: 10000 });
-await sleep(400);
-const beside = await page.evaluate(() => {
-  const p = document.querySelector(".lighthouse-panel")?.getBoundingClientRect();
-  const t = document.querySelector(".champion-tab")?.getBoundingClientRect();
-  return p && t ? { panel: { left: p.left, right: p.right, bottom: p.bottom }, tab: { left: t.left, right: t.right, bottom: t.bottom } } : null;
-});
-ok("§C BESIDE THE CHAMPIONS HALL TAB: the panel's right edge clears the tab's left edge (side by side, never under it)",
-  !!beside && beside.panel.right <= beside.tab.left - 6, JSON.stringify(beside));
-ok("§C their bottoms align (the same seat line at the foot of the right-hand column)",
-  !!beside && Math.abs(beside.panel.bottom - beside.tab.bottom) <= 3, JSON.stringify(beside));
-await page.click('button.champion-fab[title="Champion"]');
-await sleep(400);
-// Narrow: the tab spans the width, so the panel seats beside the champion BUTTON.
+ok("§C (restated 2026-10-26) the lighthouse panel renders NOWHERE on the homeland",
+  seat.panel === false, JSON.stringify(seat));
+ok("§C (restated 2026-10-26) the beacon switch stands in view at the RETURN button's left hand (a small gap, both inside the viewport)",
+  !!seat.sw && !!seat.deck && seat.sw.left >= 0 && seat.sw.top >= 0 && seat.sw.right <= 1400 && seat.sw.bottom <= 950
+    && (seat.deck.left - seat.sw.right) >= 0 && (seat.deck.left - seat.sw.right) <= 40, JSON.stringify(seat));
+// Narrow: the panel stays nowhere and the switch stands beside the deck button still.
 await page.setViewport({ width: 500, height: 800, deviceScaleFactor: 1 });
 await enterTerritory();
 await clearReturnReports();
 const narrow = await page.evaluate(() => {
-  const p = document.querySelector(".lighthouse-panel")?.getBoundingClientRect();
-  const f = document.querySelector(".champion-fab")?.getBoundingClientRect();
-  return p && f ? { panel: { left: p.left, right: p.right, top: p.top, bottom: p.bottom }, fab: { left: f.left, bottom: f.bottom } } : null;
+  const p = document.querySelector(".lighthouse-panel");
+  const s = document.querySelector(".beacon-switch")?.getBoundingClientRect();
+  const d = document.querySelector(".deck-button img")?.getBoundingClientRect();
+  return {
+    panel: !!p,
+    sw: s ? { left: s.left, right: s.right, top: s.top, bottom: s.bottom } : null,
+    img: d ? { left: d.left, right: d.right, top: d.top, bottom: d.bottom } : null,
+  };
 });
-ok("§C on a narrow screen the panel is still in view, beside the champion button, bottoms aligned",
-  !!narrow && narrow.panel.left >= 0 && narrow.panel.right <= 500 && narrow.panel.bottom <= 800 && narrow.panel.right <= narrow.fab.left - 6 && Math.abs(narrow.panel.bottom - narrow.fab.bottom) <= 3,
+ok("§C (restated 2026-10-26) on a narrow screen the panel is still nowhere and the beacon switch stands in view at the deck mark's left hand, covering none of it",
+  !narrow.panel && !!narrow.sw && !!narrow.img && narrow.sw.left >= 0 && narrow.sw.top >= 0 && narrow.sw.right <= 500 && narrow.sw.bottom <= 800
+    && (narrow.img.left - narrow.sw.right) >= 0 && (narrow.img.left - narrow.sw.right) <= 64
+    && !(narrow.sw.left < narrow.img.right && narrow.img.left < narrow.sw.right && narrow.sw.top < narrow.img.bottom && narrow.img.top < narrow.sw.bottom),
   JSON.stringify(narrow));
 
 await browser.close();
