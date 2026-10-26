@@ -1226,6 +1226,16 @@ export default function Table() {
     }
   }
 
+  // THE WEB SEAT (the door build, 2026-10-25): the door's seat
+  // for a visitor the game already knows — the join carries the
+  // game's own session token, and the server names the Tender
+  // from it (never from a name claimed here). The token is read
+  // fresh at the tap, the same read the binding panel makes.
+  function takeWebSeat() {
+    const token = window.localStorage.getItem("awoken-tender-token") ?? "";
+    connect({ tenderToken: token, room: "the-table" });
+  }
+
   // Spend a code at the Table (room): this seat's proven Discord
   // token names who is binding; the code names the Tender. On
   // success the seat is re-taken so the real deck is dealt.
@@ -1464,6 +1474,38 @@ export default function Table() {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
 
+  // THE DOOR ASKS WHOSE NAME THIS BROWSER CARRIES (the door
+  // build, 2026-10-25): a land-carrying arrival (?land=) is a
+  // promise the main page made to a signed-in Tender — so on
+  // such an arrival the door reads the game's own session
+  // truth: whether this browser is signed in as a Tender, and
+  // whether a beacon stands in her name (Push 18's reckoning,
+  // read through the same first-seed read the main page's
+  // gate reads). The seat itself is proven again by the
+  // server at the join; this read only shapes what the door
+  // offers. Plain arrivals never ask — their door is
+  // unchanged.
+  const [webSeat, setWebSeat] = useState<{ signedIn: boolean; hasBeacon: boolean } | null>(null);
+  useEffect(() => {
+    if (!LAND_INTENT) return;
+    let cancelled = false;
+    (async () => {
+      const token = window.localStorage.getItem("awoken-tender-token") ?? "";
+      if (!token) { if (!cancelled) setWebSeat({ signedIn: false, hasBeacon: false }); return; }
+      try {
+        const res = await fetch("/api/getFirstSeedEvent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Tender-Token": token },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json().catch(() => ({}));
+        const beacon = !!(data?.hasBeacon ?? data?.data?.hasBeacon);
+        if (!cancelled) setWebSeat(res.ok ? { signedIn: true, hasBeacon: beacon } : { signedIn: false, hasBeacon: false });
+      } catch { if (!cancelled) setWebSeat({ signedIn: false, hasBeacon: false }); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // THE CARRIED CHOICE, SPOKEN (the homeland port): once this
   // seat stands in a casual room, a choice carried from the
   // main page's beacon button is spoken to the server as the
@@ -1658,6 +1700,60 @@ export default function Table() {
             </>
           ) : (
             <>
+              {LAND_INTENT === "homeland" && (
+                webSeat === null ? (
+                  <p className="quiet">The door is asking the game whose name you carry…</p>
+                ) : !webSeat.signedIn ? (
+                  <p className="quiet">
+                    You came carrying your homeland's name. Sign in as your Tender in the
+                    game first, and this door will seat you at the Table standing on your land.
+                  </p>
+                ) : webSeat.hasBeacon ? (
+                  <>
+                    <p>
+                      You came carrying your homeland's name, and your beacon stands. Take
+                      your seat, and this Table will stand on your own land — friends who
+                      sit with you fight its curse beside you.
+                    </p>
+                    <div className="door-actions">
+                      <button className="table-btn primary" onClick={() => takeWebSeat()}>
+                        🏠 Take your seat — the Table stands on your homeland
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p><strong>🌠 A starseed, not yet a beacon</strong></p>
+                    <p>You must light the beacon first! Wake the Awokin, go to the cursed lands!</p>
+                    <p className="quiet">
+                      When your beacon stands, this door will seat you at the Table on your
+                      land. Until then, the seat on your land cannot be taken — you may watch.
+                    </p>
+                  </>
+                )
+              )}
+              {LAND_INTENT === "new" && (
+                webSeat === null ? (
+                  <p className="quiet">The door is asking the game whose name you carry…</p>
+                ) : !webSeat.signedIn ? (
+                  <p className="quiet">
+                    You came to hunt a new starseed. Sign in as your Tender in the game
+                    first, and this door will seat you at a fresh-land Table.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      You came to hunt a new starseed. Take your seat, and a fresh land
+                      will be dealt at this Table for the hunt.
+                    </p>
+                    <div className="door-actions">
+                      <button className="table-btn primary" onClick={() => takeWebSeat()}>
+                        🌠 Take your seat — a fresh land for the hunt
+                      </button>
+                    </div>
+                  </>
+                )
+              )}
               <p className="quiet">
                 Open the Table from the voice channel in Discord to be named and take a seat.
                 From a plain browser you may still watch the room.
@@ -1675,7 +1771,7 @@ export default function Table() {
               tied to this Tender, and the Table seats your real Tender from then on.
             </p>
             {bindCode ? (
-              <p className="bind-code-shown">Your code: <strong>{bindCode}</strong> — it fades in fifteen minutes and works once.</p>
+              <p className="bind-code-shown">Your code: <strong>{bindCode}</strong> — this code ties your Discord name to this Tender. Spend it in the bind strip in your satchel at the Table in Discord, and from then on the Table seats your real Tender, with your real deck. It fades in fifteen minutes and works once.</p>
             ) : (
               <button className="table-btn" onClick={() => void fetchBindCode()}>Show my binding code</button>
             )}

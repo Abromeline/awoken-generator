@@ -28,7 +28,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
-import { tenderOwnerKey, hashPassword, verifyPassword } from "./tenders.js";
+import { tenderOwnerKey, hashPassword, verifyPassword, tenderFromToken } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS } from "./actions.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { rollFellDrops, drainDropNotices } from "./drops.js";
@@ -5871,6 +5871,11 @@ function handleConnection(ws: WebSocket): void {
       let key = "";
       let name = "";
       let watcher = false;
+      // A seat the server can name a Tender behind, whichever
+      // door proved her: the web seat proves her at the join
+      // itself (below); a Discord seat's binding is read where
+      // the seat is built. The bound road keys off this.
+      let seatTenderId: number | null = null;
       if (msg.watch === true) {
         watcher = true;
         key = `watch:${randomUUID()}`;
@@ -5879,6 +5884,23 @@ function handleConnection(ws: WebSocket): void {
         const user = authTokens.get(msg.authToken)!;
         key = `discord:${user.id}`;
         name = user.name.slice(0, 60);
+      } else if (typeof msg.tenderToken === "string" && msg.tenderToken) {
+        // THE WEB SEAT (the door build, 2026-10-25): a Tender
+        // signed in on the site takes her seat from the game's
+        // own session — the token is read against the session
+        // record by tenderFromToken, and the Tender it names
+        // is this seat's truth. A name the client merely
+        // claims is never a seat: this road, the Discord road
+        // and the doorway test below are the only roads that
+        // seat anyone.
+        const tender = await tenderFromToken(msg.tenderToken).catch(() => null);
+        if (!tender) {
+          fail("That sign-in has faded — sign in as your Tender in the game, then take this door again.");
+          return;
+        }
+        seatTenderId = tender.id;
+        key = `web:${tender.id}`;
+        name = (await tenderDisplayName(tender.id)) ?? tender.tenderName ?? "A Tender";
       } else if (!TABLE_CONFIGURED && typeof msg.devName === "string" && msg.devName.trim()) {
         // Doorway-test seats exist only while Discord itself is not
         // configured on the server. Once it is, a name at the Table is
@@ -5890,6 +5912,21 @@ function handleConnection(ws: WebSocket): void {
           ? "That seat needs a Discord sign-in. Reopen the Table from the voice channel, or watch instead."
           : "Give a name to take your seat.");
         return;
+      }
+      // THE CLASS GATE STANDS AT THIS DOOR TOO (the gate
+      // getTableBindCode keeps for the Discord road, in its
+      // own words): a seat that IS a Tender is a Tender's
+      // seat only once she has chosen a class. The Discord
+      // road meets the gate when its binding code is minted;
+      // the web seat carries no code, so the gate is kept
+      // here, at the join itself — the web door is no hole
+      // in it.
+      if (seatTenderId !== null) {
+        const progress = await getTenderProgress(tenderOwnerKey(seatTenderId)).catch(() => null);
+        if (!progress?.classKey) {
+          fail("The Table seats only Tenders who have chosen a class — the choosing waits on your character sheet, at Lv 3 and beyond.");
+          return;
+        }
       }
       room = await getRoom(roomId);
       room.sky = await currentSky();
@@ -5947,6 +5984,8 @@ function handleConnection(ws: WebSocket): void {
         if (key.startsWith("discord:")) {
           const tid = await bindingFor(key.slice("discord:".length));
           if (tid !== null) joinerKey = tenderOwnerKey(tid);
+        } else if (seatTenderId !== null) {
+          joinerKey = tenderOwnerKey(seatTenderId);
         }
         if (joinerKey !== room.hosted.ownerKey) {
           const given = typeof (msg as { tablePassword?: unknown }).tablePassword === "string" ? (msg as { tablePassword: string }).tablePassword : "";
@@ -5988,8 +6027,11 @@ function handleConnection(ws: WebSocket): void {
       let boundClassKey: string | null = null;
       let boundWeaponKey: string | null = null;
       let boundWeaponContract: WeaponContract | null = null;
-      if (!watcher && key.startsWith("discord:")) {
-        const tenderId = await bindingFor(key.slice("discord:".length));
+      if (!watcher) {
+        // A seat stands bound when the server can name the
+        // Tender behind it: a Discord seat by its binding, a
+        // web seat by the session that proved her at the door.
+        const tenderId = seatTenderId ?? (key.startsWith("discord:") ? await bindingFor(key.slice("discord:".length)) : null);
         if (tenderId !== null) {
           // An INSTANCE's host (Station 4) brings the staged
           // company alone as its wheel company — the bastion's
