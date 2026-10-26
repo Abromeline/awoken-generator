@@ -950,7 +950,7 @@ export default function Table() {
       if (!svg) return null;
       const rect = svg.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return null;
-      const k = Math.min(rect.width / stageBox.w, rect.height / stageBox.h);
+      const k = Math.max(rect.width / stageBox.w, rect.height / stageBox.h);
       return {
         x: rect.left + (rect.width - stageBox.w * k) / 2 + (ax * view.zoom + view.pan.x - stageBox.x) * k,
         y: rect.top + (rect.height - stageBox.h * k) / 2 + (ay * view.zoom + view.pan.y - stageBox.y) * k,
@@ -961,7 +961,7 @@ export default function Table() {
       if (!svg) return 40;
       const rect = svg.getBoundingClientRect();
       if (rect.width <= 0) return 40;
-      return 40 * view.zoom * Math.min(rect.width / stageBox.w, rect.height / stageBox.h);
+      return 40 * view.zoom * Math.max(rect.width / stageBox.w, rect.height / stageBox.h);
     };
     const nowKeys = new Set<string>();
     for (const u of shared.field) {
@@ -1846,7 +1846,11 @@ export default function Table() {
   // the tiles' base centers (lift aside, so the frame never
   // breathes as tiles purify) grown by the tile art's true
   // reach on every side, plus a small margin. Whatever
-  // radius the server deals, the whole flower fits at zoom 1.
+  // radius the server deals, this frame is the one the
+  // stage's cover fit (the svg's "slice", Nigel 2026-10-25)
+  // scales to the whole window at zoom 1 — the flower's far
+  // edges may run past the frame at extreme aspects, and
+  // the zoom and pan frame it by hand from there.
   const stageBox = (() => {
     if (!tiles.length) return { x: -100, y: -100, w: 200, h: 200, cx: 0, cy: 0 };
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -1991,7 +1995,7 @@ export default function Table() {
     d.moved = true;
     suppressTapRef.current = true;
     const rect = svgRef.current?.getBoundingClientRect();
-    const f = rect && rect.width > 0 ? stageBox.w / rect.width : 1;
+    const f = rect && rect.width > 0 ? 1 / Math.max(rect.width / stageBox.w, rect.height / stageBox.h) : 1;
     setView(v => ({ ...v, pan: { x: d.panX + dx * f, y: d.panY + dy * f } }));
   };
   /** The band's completion (the group-orders fix, 2026-10-24):
@@ -2077,8 +2081,15 @@ export default function Table() {
   const stagePointOf = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return null;
-    const vx = stageBox.x + (clientX - rect.left) * (stageBox.w / rect.width);
-    const vy = stageBox.y + (clientY - rect.top) * (stageBox.h / rect.height);
+    // THE COVER (Nigel, 2026-10-25): the stage fills the
+    // window — the frame is scaled by the LARGER of the two
+    // axis fits and centred, so a screen point unprojects
+    // through that same cover scale and centring (the
+    // centring offsets go negative on the axis the board
+    // overflows, which is the cover working as ruled).
+    const k = Math.max(rect.width / stageBox.w, rect.height / stageBox.h);
+    const vx = stageBox.x + ((clientX - rect.left) - (rect.width - stageBox.w * k) / 2) / k;
+    const vy = stageBox.y + ((clientY - rect.top) - (rect.height - stageBox.h * k) / 2) / k;
     return { x: (vx - view.pan.x) / view.zoom, y: (vy - view.pan.y) / view.zoom };
   };
   const openRadialAt = (clientX: number, clientY: number) => {
@@ -2096,7 +2107,11 @@ export default function Table() {
     if (!rect || rect.width === 0 || rect.height === 0) return null;
     const vx = pt.x * view.zoom + view.pan.x;
     const vy = pt.y * view.zoom + view.pan.y;
-    return { x: rect.left + (vx - stageBox.x) * (rect.width / stageBox.w), y: rect.top + (vy - stageBox.y) * (rect.height / stageBox.h) };
+    const k = Math.max(rect.width / stageBox.w, rect.height / stageBox.h);
+    return {
+      x: rect.left + (rect.width - stageBox.w * k) / 2 + (vx - stageBox.x) * k,
+      y: rect.top + (rect.height - stageBox.h * k) / 2 + (vy - stageBox.y) * k,
+    };
   };
 
   // The selected Awoken and its march price (the land's rate:
@@ -3122,7 +3137,7 @@ export default function Table() {
               ref={svgRef}
               className="terrain-stage"
               viewBox={`${stageBox.x} ${stageBox.y} ${stageBox.w} ${stageBox.h}`}
-              preserveAspectRatio="xMidYMid meet"
+              preserveAspectRatio="xMidYMid slice"
               role="img"
               aria-label="the instance — the terrain map, dealt fresh"
               onPointerDown={onStageDown}
