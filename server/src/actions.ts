@@ -10112,14 +10112,16 @@ export const handlers = {
             const pts = (sums[el] ?? 0) / PRESS_DIVISOR;
             if (pts > 0) deltas[el] = pts;
           }
+          const labelBefore = tile.element as string;
           await pressMixIntoTile(ownerKey, tile, deltas);
           // Trays ride the same beat: the growing tray drinks
-          // the press of the element the land now stands as —
-          // the stack grows by presence, and is never worn by
-          // it (erosion is retired; a label change resets
-          // nothing).
-          const labelLaid = deltas[tile.element as TerrainMixElement] ?? 0;
-          if (labelLaid > 0 && tile.element !== "neutral" && tile.element !== "fire") {
+          // the press of the element the land stood as when the
+          // beat began — the stack grows by presence, and is
+          // never worn by it (erosion is retired; a label change
+          // resets nothing, and the beat that changes the label
+          // grows nothing, as the turning beat never did).
+          const labelLaid = deltas[labelBefore as TerrainMixElement] ?? 0;
+          if (labelLaid > 0 && labelBefore !== "neutral" && labelBefore !== "fire" && tile.element === labelBefore) {
             await growStack(tile, labelLaid);
           }
         }
@@ -10669,9 +10671,10 @@ export const handlers = {
     // the door refuses it above.) The answer's attune fields
     // now read the ledger: the element laid, and the ground's
     // hold of it after the lay.
+    const elementBefore = tile.element as string;
     const { turned } = await pressMixIntoTile(ownerKey, tile, { [element]: laidPoints } as Partial<Record<TerrainMixElement, number>>);
     let traysMoved = false;
-    if (tile.element === element) {
+    if (elementBefore === element) {
       // The ground stands as the spent element: the point
       // also feeds the growing tray, as a matching press
       // point does on the settle's beat (30 points seal a
