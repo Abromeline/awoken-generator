@@ -15042,7 +15042,7 @@ export const handlers = {
     let line = "";
     if (entry.kind === "item") {
       if (!entry.itemKey || !inventoryCanHold(ownerKey, entry.itemKey, entry.qty)) {
-        badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and fifteen stacks are all it holds. Make room, and it will wait in your Pack.`);
+        badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in your Pack.`);
       }
       if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
       addToInventory(ownerKey, entry.itemKey!, entry.qty);
