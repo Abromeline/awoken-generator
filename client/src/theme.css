@@ -3049,8 +3049,19 @@ body.defeat-flash {
    frame fixes the book's
    height where the leaves once grew it, a leaf's content
    taller than its page now scrolls within the leaf —
-   nothing is ever cut at a page's foot. */
-.book{display:flex;align-items:center;margin-top:8px}
+   nothing is ever cut at a page's foot.
+   AMENDMENT (Nigel, 2026-10-25 23:35 — "also make the
+   boarder slightly bigger"): the book's row reaches
+   2.75% of the pane's width into the card's padding on
+   each side (negative margins on .book below), so the
+   cover — and with it the frame and the spread, the
+   aspect never touched — stands ~6% larger in both
+   dimensions at every width. The spread's insets are
+   fractions of the cover, so they scale with the seat;
+   re-measured on the enlarged frame they stand as
+   before (~5% sides, ~2.8% head and foot), the pages
+   still tucked under the strokes, no page text eaten. */
+.book{display:flex;align-items:center;margin:8px -2.75% 0}
 .book-cover{position:relative;flex:1 1 auto;min-width:0;aspect-ratio:5836/6661}
 .book-golden-frame{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none}
 .book-spread{position:absolute;left:5%;right:5%;top:2.8%;bottom:2.8%;z-index:1;display:flex;align-items:stretch;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,0.55)}
