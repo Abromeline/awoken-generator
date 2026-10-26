@@ -6,6 +6,7 @@ import FieldAwoken from "./FieldAwoken";
 import { api, type Awakened } from "./api";
 import { elementPalette } from "./palette";
 import { PROJECTILE_GIF, BEAM_GIF } from "./effects";
+import { playElementSound } from "./elementSounds";
 type FieldAsset = { sourceId: string; name: string; imageUrl: string; category: string };
 import { trackPlayer, type TrackData } from "./trackPlayer";
 import battlegroundBg from "./assets/battleground-bg.jpg";
@@ -385,12 +386,18 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     chosen.st.charges--;
     if (chosen.st.charges <= 0) chosen.st.spent = true;
     const c = fighterCenter(enemy.id);
+    // THE LOOSE'S VOICE (Nigel, 2026-10-26): the Blade
+    // rises with its hue's cast sound, and — where the
+    // flight is drawn — its hit sounds as the blades
+    // spear down, on the flight's own impact. An
+    // unaligned Blade sounds nothing.
+    playElementSound(chosen.w.hue, "cast");
     if (c) {
       // The flight: from the dark's own ground the blades
       // rise and spear down into it from above (this
       // overlay draws no rune floor to rise from — the
       // rise is read at the mark's ground).
-      spawnProjectile({ fx: c.x, fy: c.y + 42, tx: c.x, ty: c.y, glyph: "🗡", color: "#ffd977", arc: true, duration: 620 });
+      spawnProjectile({ fx: c.x, fy: c.y + 42, tx: c.x, ty: c.y, glyph: "🗡", color: "#ffd977", arc: true, duration: 620, onImpact: () => playElementSound(chosen.w.hue, "hit") });
     }
     setEnemiesBoth(prev => prev.map(e => e.id === enemy.id ? { ...e, hp: Math.max(0, e.hp - power) } : e));
     addLog(`${grimName(chosen.w)} is loosed — its blades rise and spear down into ${enemy.name} from above (${power} harm)!`);
@@ -946,9 +953,22 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         ? { glyph: ELEMENT_SHOT_GLYPH[shotEl] ?? "\u2726", color: elementPalette[shotEl] }
         : ENEMY_SHOT;
       const impact = () => {
+        // THE BLOW'S VOICE (Nigel, 2026-10-26: "add these
+        // sounds for he elemental attacks"): an Awoken's
+        // projectile sounds its dominant element's hit as
+        // it lands — in this mirror a loosed Awoken shot
+        // always lands (applyStrike below is the landing),
+        // so the hit belongs here, at the impact itself.
+        // The enemy's answering shot carries no element
+        // and sounds nothing.
+        if (atk.side === "aw") playElementSound(shotEl, "hit");
         applyStrike(atk, def);
         later(IMPACT_PAUSE_MS, () => scheduleCounter());
       };
+      // The cast sounds as the projectile is loosed (or,
+      // in the rare case its flight cannot be drawn, as
+      // the blow itself is struck).
+      if (atk.side === "aw") playElementSound(shotEl, "cast");
       if (!from || !to) { impact(); return; }
       spawnProjectile({
         fx: from.x, fy: from.y, tx: to.x, ty: to.y,

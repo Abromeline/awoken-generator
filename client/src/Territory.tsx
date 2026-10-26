@@ -71,6 +71,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
 import { useEnemyArt } from "./enemyArt";
@@ -630,6 +631,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const id = `strike-${s.id}`;
       setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", bornAt: Date.now() }]);
       setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), SHARD_FLIGHT_MS + 60);
+      // THE STRIKE'S VOICE (Nigel, 2026-10-26: "add these
+      // sounds for he elemental attacks"): the loosed
+      // strike sounds its element's cast at the flight's
+      // birth, and — only if the referee's blow landed —
+      // its hit as the shard arrives. A miss sounds no
+      // hit; a neutral blow sounds nothing at all (the
+      // module keeps the five elements and no others).
+      playElementSound(s.element, "cast");
+      if (s.hit) setTimeout(() => playElementSound(s.element, "hit"), SHARD_FLIGHT_MS);
     }
   };
   // THE WEAPON'S FLIGHT (the Proving Ground's motion, ported
@@ -1342,6 +1352,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         const dc = isoOffset(wTile.q, wTile.r, size);
         pushBladeFlight(fc.cx, fc.cy, base.cx + (dp.px - dc.px), base.cy + (dp.py - dc.py));
       }
+      // THE LOOSE'S VOICE (Nigel, 2026-10-26): the written
+      // Blade rises with its hue's cast sound, and its hit
+      // sounds as the blades spear down (the flight's own
+      // 1200 ms) — a loose always lands on the dark thing
+      // it was loosed at; the referee has already said so.
+      const bladeHue = workings.find((x) => x.engine === "blade" && x.tileId === res.fromTileId)?.hue;
+      playElementSound(bladeHue, "cast");
+      setTimeout(() => playElementSound(bladeHue, "hit"), 1200);
       showHexNotice(res.felled
         ? `The Single Blade is loosed — its blades rise and spear down from above, and the dark falls (${res.harm} harm).`
         : `The Single Blade is loosed — its blades rise and spear down from above (${res.harm} harm).`);
@@ -3316,6 +3334,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         void refreshEnergy();
         return;
       }
+      // THE CAST'S VOICE (Nigel, 2026-10-26: "add these
+      // sounds for he elemental attacks"): a standing cast
+      // sounds its hue's cast clip — the same hue the cast
+      // itself wears (castHueFor, the book's judging). A
+      // fizzle loosed nothing and sounds nothing (it
+      // returned above). Most workings land where they are
+      // written and have no impact moment; the two that
+      // strike home at a distance answer below — the
+      // Blade's flight where it was aimed at a dark thing,
+      // and the Shatter, whose pieces strike as it speaks.
+      const castEl = castHueFor(castSpell);
+      playElementSound(castEl, "cast");
+      if (castSpell.engine === "shatter" && (res.hits ?? 0) > 0) playElementSound(castEl, "hit");
       // THE SINGLE BLADE'S DELIVERY (Nigel, 2026-10-24):
       // "instead of having the blade spawn where it was
       // clicked have it fly from the caster. to the click
@@ -3355,6 +3386,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           }
         }
         pushBladeCastFlight(res.id, tenderFig.x, tenderFig.y, tx, ty);
+        // Aimed at a dark thing, the Blade's flight ends
+        // IN that thing: its element's hit sounds as the
+        // flight arrives. Written into bare ground, the
+        // cast alone sounds — the writing waits armed.
+        if (mark && markDist <= 0.6) setTimeout(() => playElementSound(castHueFor(castSpell), "hit"), BLADE_CAST_MS);
       }
       showHexNotice(castSpell.engine === "heal"
         ? `${formName} mends ${res.healed ?? 0} HP — the binding light, at your word.`
