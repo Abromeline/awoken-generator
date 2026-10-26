@@ -2631,6 +2631,36 @@ function integrate(room: Room, now: number): void {
       if (e.target) stepToward(e, (69 / (DARK_GAIT[e.kind] ?? 2.8)) * (onBramble ? 0.5 : 1), dt);
     }
   }
+  // THE SEED AS A PILLAR (Nigel, 2026-10-26 — beacons as
+  // pillars, on this ground too): once the room's seed has
+  // GROWN (Sapling and beyond), its base is a pillar's
+  // footprint — no body ends this reckoning standing inside
+  // it; each is set out to its rim, beside the trunk. The
+  // radii are PENCILS from the drawn faces the client seats
+  // (client/src/Table.tsx: the Sapling drawn 24 px wide, the
+  // Beacon 41): sapling 12 px, beacon and bastion 20 px. A
+  // Starseed (level 1) lies on the ground and pillars
+  // nothing — feeding it still means standing on its hex,
+  // and the rim of a grown seed still stands ON that hex
+  // (the hex spans 40 px), so the feeding road is unbroken.
+  // The dark is untouched in practice: its claw halt at the
+  // seed is 69 px, far outside the rim.
+  if (room.seedGrowth.level >= 2) {
+    const c = tileCenter(SEED_TILE);
+    if (c) {
+      const rim = room.seedGrowth.level >= 3 ? 20 : 12;
+      const pushOut = (e: { pos: Pt | null }) => {
+        if (!e.pos) return;
+        const d = distPx(e.pos, c);
+        if (d >= rim) return;
+        if (d < 0.001) { e.pos = { x: c.x + rim, y: c.y }; return; }
+        e.pos = { x: c.x + (e.pos.x - c.x) / d * rim, y: c.y + (e.pos.y - c.y) / d * rim };
+      };
+      for (const p of room.players.values()) pushOut(p as { pos: Pt | null });
+      for (const u of room.field.values()) pushOut(u);
+      for (const e of room.dark.values()) pushOut(e);
+    }
+  }
   for (const p of room.players.values()) {
     if (p.pos) p.hex = nearestTileId(p.pos, boardOf(room));
   }

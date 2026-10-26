@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
@@ -164,6 +164,18 @@ export const HEX_BASE_SIZE = 54;
  *  base was 36. The hexes grew for room; the buildings did not grow
  *  with them (Nigel, 2026-10-15). */
 export const BUILDING_BASE_SIZE = 36;
+/** THE PILLARS' RADII (Nigel, 2026-10-26 — beacons and towers as
+ *  pillars on the map): the client mirror of the server's registry
+ *  (server/src/actions.ts, standingPillars) — the SAME numbers, in
+ *  axial units, derived from the drawn widths of the faces: a
+ *  watchtower's face ≈31.8 land units wide, the Sapling's ≈37.5,
+ *  the Beacon's ≈64, at ≈78 land units to an axial step. PENCILS,
+ *  named for Nigel's eye. A standing thing joins the reckoning by
+ *  declaring its base point and its radius — the pieces still to
+ *  come enter by the same declaration. */
+export const PILLAR_RADIUS_TOWER = 0.20;
+export const PILLAR_RADIUS_SAPLING = 0.24;
+export const PILLAR_RADIUS_BEACON = 0.32;
 /** The eight facings as unit vectors — the weapon's hunting
  *  tips aim along the Tender's facing when no dark stands on
  *  the field (the Proving Ground's fallback, ported 2026-10-20). */
@@ -1041,6 +1053,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [buildPieces, setBuildPieces] = useState<BuildPiece[]>([]);
   const buildPiecesRef = useRef<BuildPiece[]>([]);
   useEffect(() => { buildPiecesRef.current = buildPieces; }, [buildPieces]);
+  // THE PILLARS the stride must reckon with (2026-10-26): the
+  // ref itself is declared here with the build system's refs;
+  // it is FILLED by an effect further down, once the seeds'
+  // state exists to be read (see pillarsRef's filling effect).
+  const pillarsRef = useRef<{ q: number; r: number; radius: number }[]>([]);
   const [buildMode, setBuildMode] = useState(false);
   const [buildTool, setBuildTool] = useState<"triangle" | "square" | "wall" | "door" | "remove">("triangle");
   const buildToolRef = useRef(buildTool);
@@ -1495,6 +1512,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // are not the map, and the map no longer paints from them.
   const [mapSeeds, setMapSeeds] = useState<StarSeed[]>([]);
   const [mapColumns, setMapColumns] = useState<IncursionColumn[]>([]);
+  // THE PILLARS, FILLED (2026-10-26): the land's watchtowers
+  // and grown seeds as axial base points with their radii —
+  // the client's mirror of the server's standingPillars,
+  // derived from the same served record the map already
+  // reads (the buildings list and the seed snapshot). The
+  // stride below collides against these, as it collides
+  // against the construction's walls.
+  useEffect(() => {
+    const out: { q: number; r: number; radius: number }[] = [];
+    const tileById = new Map(tiles.map(t => [t.id, t]));
+    for (const b of buildings) {
+      if (b.buildingType !== "watchtower") continue;
+      const t = tileById.get(b.tileId);
+      if (t) out.push({ q: t.q, r: t.r, radius: PILLAR_RADIUS_TOWER });
+    }
+    for (const sd of mapSeeds) {
+      if (sd.state !== "held" && sd.state !== "first") continue;
+      if (sd.stage === "starseed") continue;
+      const t = tileById.get(sd.tileId);
+      const q = sd.q ?? t?.q, r = sd.r ?? t?.r;
+      if (q == null || r == null) continue;
+      out.push({ q, r, radius: sd.stage === "sapling" ? PILLAR_RADIUS_SAPLING : PILLAR_RADIUS_BEACON });
+    }
+    pillarsRef.current = out;
+  }, [buildings, mapSeeds, tiles]);
   // The First Seed's hold, polled gently — faster while waves fall.
   const firstSeedQ = useQuery({
     queryKey: ["firstSeedEvent"],
@@ -2817,6 +2859,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const stepLen = stridePx * 0.05 * (here?.cursed ? 0.5 : 1);
       let nx = pos.x + vx * stepLen;
       let ny = pos.y + vy * stepLen;
+      // THE PILLARS on the stride (2026-10-26): a beacon's or
+      // a tower's base is a post on the land — the step is set
+      // to its rim before any other law reads it, and the
+      // body slides around the post as it keeps walking. A
+      // leap clears the post, as a leap clears a wall below.
+      if (!jumpAirborne(tenderJumpRef.current, now)) {
+        [nx, ny] = pillarAdjustedStep(pos.x, pos.y, nx, ny);
+      }
       // THE TRAVERSAL LAW on the stride: a closed crossing
       // refuses the step — the body stops at the wall, the
       // ward, the tall rise, the isle's empty air — and a
@@ -2862,6 +2912,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             return;
           }
         }
+      }
+      // The wall's slide above may have carried the step back
+      // into a pillar's base: the rim reckoning runs once more
+      // on the step as it will actually be taken.
+      if (!jumpAirborne(tenderJumpRef.current, now)) {
+        [nx, ny] = pillarAdjustedStep(pos.x, pos.y, nx, ny);
       }
       tenderWasMovingRef.current = true;
       pos.x = nx;
@@ -3052,6 +3108,44 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
     }
     return out;
+  };
+
+  /** THE PILLARS on the stride (2026-10-26): a step that would
+   *  end inside a pillar's base is set to the base's rim — the
+   *  body arrives BESIDE the post, and keeping the stride's
+   *  direction walks it around the post's curve, stride by
+   *  stride, the way a body rounds any post. The reckoning is
+   *  done in axial space (the pillars' own registry measure),
+   *  through the same screen↔axial doors the stride's other
+   *  laws use. A body already standing inside a pillar (a
+   *  tower raised where it stood) is set out to the rim by
+   *  the same step. */
+  const pillarAdjustedStep = (fx: number, fy: number, tx: number, ty: number): [number, number] => {
+    const pillars = pillarsRef.current;
+    if (!pillars.length) return [tx, ty];
+    const pan = tenderPanRef.current, zoom = tenderZoomRef.current;
+    const a = screenToAxial(tx, ty, pan, zoom);
+    let q = a.q, r = a.r;
+    for (const p of pillars) {
+      const dq = q - p.q, dr = r - p.r;
+      const d = Math.hypot(dq, dr);
+      if (d >= p.radius) continue;
+      if (d < 1e-6) {
+        // Standing on the heart itself: step out away from
+        // where the body came from (or east, at a standstill).
+        const from = screenToAxial(fx, fy, pan, zoom);
+        const bq = from.q - p.q, br = from.r - p.r;
+        const bd = Math.hypot(bq, br);
+        if (bd < 1e-6) { q = p.q + p.radius; r = p.r; }
+        else { q = p.q - (bq / bd) * p.radius; r = p.r - (br / bd) * p.radius; }
+      } else {
+        q = p.q + (dq / d) * p.radius;
+        r = p.r + (dr / d) * p.radius;
+      }
+    }
+    if (q === a.q && r === a.r) return [tx, ty];
+    const s = axialToScreenPt(q, r);
+    return [s[0], s[1]];
   };
 
   // ── Edge works (War-Ground, Nigel 2026-10-15) ────────────────────
@@ -4104,6 +4198,27 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     });
     // Entity layer: Awoken + buildings render ABOVE all terrain (Option A)
     // XYZ: entities sit on the tile top face, lifted by terrain height
+    // ── THE DEPTH PASS (Nigel, 2026-10-26 — "in matters of
+    // perspective": a character walks BEHIND a building whose
+    // base line stands above his feet, and IN FRONT of it once
+    // his feet pass its base) ────────────────────────────────
+    // Everything STANDING on the land is drawn in the order of
+    // its BASE: the screen-y of its ground anchor — a figure's
+    // feet, a building's seat, a pillar's front point. The
+    // layers below no longer paint in fixed strata; each hands
+    // its standing things to this one pass as {base anchor,
+    // drawing}, the pass sorts back-to-front, and the Tender —
+    // who rides in screen space, outside the camera groups —
+    // is seated at his own base line between the two halves:
+    // standings behind his line paint before him, standings
+    // before it paint after. A thing JOINS the pass by
+    // declaring exactly that pair (its base anchor and its
+    // drawing): the building pieces still to come — roofs,
+    // half walls, terrace steps — join by the same declaration
+    // when their slices land, and nothing in the pass changes.
+    type StandingItem = { key: string; baseY: number; node: ReactNode };
+    const standingItems: StandingItem[] = [];
+
     const buildingElements = sortedTiles.map((t) => {
       const { cx, cy } = tilePos(t);
       const s = size;
@@ -4149,7 +4264,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const isDormant = b.status === "dormant";
             const readyMs = b.readyAt ? new Date(b.readyAt).getTime() - Date.now() : 0;
             const readyMin = Math.max(0, Math.ceil(readyMs / 60000));
-            return (
+            // THE DEPTH PASS (2026-10-26): a seat building is
+            // a STANDING thing — it leaves its tile's dressing
+            // group and joins the pass at its seat (wrapped in
+            // the tile group's own lift, so it draws exactly
+            // where it always drew), returning nothing here.
+            const seatNode = (
               <g key={`b-${b.id}`} className={isBuilding ? "building-constructing" : ""}
                 onClick={async (e) => {
                   e.stopPropagation();
@@ -4226,6 +4346,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 )}
               </g>
             );
+            standingItems.push({
+              key: `standing-b-${b.id}`,
+              baseY: bpx.y + lift / zoom,
+              node: <g key={`standing-b-${b.id}`} transform={`translate(0,${lift / zoom})`}>{seatNode}</g>,
+            });
+            return null;
           })}
           {/* Dream Shrooms on their wedges: up to six to a hex,
               seated evenly at the six wedge points, each growing
@@ -5111,9 +5237,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       </g>
     );
     const BUILD_WALL_H = 30; // the wall's rise, in land units
-    const buildWallsLayer = (
-      <g key="build-walls" className="build-walls" pointerEvents="none">
-        {buildPieces.filter(p => p.kind === "wall" || p.kind === "door").map(p => {
+    // THE DEPTH PASS (2026-10-26): the construction's walls are
+    // standing things — their drawings are collected here as
+    // loose nodes and handed to the pass below (each wall's
+    // base anchor is the front point of its footprint), no
+    // longer painted as one fixed stratum.
+    const buildWallNodes = buildPieces.filter(p => p.kind === "wall" || p.kind === "door").map(p => {
           const [fa, fb] = p.footprint;
           const A = landPt(fa[0], fa[1]), B = landPt(fb[0], fb[1]);
           return (
@@ -5132,9 +5261,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               })}
             </g>
           );
-        })}
-      </g>
-    );
+        });
     // The scaffolding's ghost: the piece the hand would lay,
     // the edge a wall would stand on (a door's ghost shows its
     // open middle), or the piece a taking-away would fell.
@@ -5164,9 +5291,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       </g>
     ) : null;
 
-    const wallLayer = (
-      <g key="walls">
-        {walls.map(w => {
+    // THE DEPTH PASS (2026-10-26): the edge works' walls are
+    // standing things — collected as loose nodes for the pass
+    // (each wall's base anchor is the front end of its edge);
+    // the targeting overlay below keeps its own layer.
+    const edgeWallNodes = walls.map(w => {
           const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
           const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
           const verts = hexCellVertices(c.cx, c.cy, size);
@@ -5235,8 +5364,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={frac > 0.5 ? "#d9c68f" : frac > 0.25 ? "#b39b5e" : "#7d5f30"} strokeWidth={size * 0.075} strokeLinecap="round" />
             </g>
           );
-        })}
-        {wallTargeting && selectedAwoken !== null && (() => {
+        });
+    const wallTargetingLayer = wallTargeting && selectedAwoken !== null ? (
+      <g key="wall-targeting">
+        {(() => {
           const p = placements.find(pp => pp.awakenedId === selectedAwoken);
           const t = p ? tiles.find(tt => tt.id === p.tileId) : null;
           if (!t || t.cursed) return null;
@@ -5261,7 +5392,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           );
         })()}
       </g>
-    );
+    ) : null;
     // War-Grounds guide (Nigel, 2026-10-16): while the dock stands
     // open, every hex where a work may be laid — an Awoken standing,
     // the ground uncursed — wears a dotted outline on the map, and
@@ -5402,9 +5533,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const SEED_STAGE_FACE: Record<string, string> = {
       starseed: "Starseed", sapling: "Sapling of Light", beacon: "Beacon", bastion: "Bastion",
     };
-    const seedLayer = (
-      <g key="seeds" pointerEvents="none">
-        {mapSeeds.map(sd => {
+    // THE DEPTH PASS (2026-10-26): the seeds are standing
+    // things — collected as loose nodes for the pass (a grown
+    // seed's base anchor is its drawn base; a fallen seed
+    // sorts by its hex's heart), no longer a fixed stratum.
+    const seedNodes = mapSeeds.map(sd => {
           const t = tiles.find(t => t.id === sd.tileId);
           if (!t) return null;
           const { cx, cy } = tilePos(t);
@@ -5465,9 +5598,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={cy + size * 0.62} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
             </g>
           );
-        })}
-      </g>
-    );
+        });
     // Patrol guide: while a road is being laid, the draft road is
     // drawn dotted over the map, its waypoints numbered in order.
     const patrolGuideLayer = patrolSettingFor !== null ? (() => {
@@ -5821,9 +5952,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // of shields (Recovery R12) stands in this same layer,
     // in the same ledger: Nigel's own Shield piece at each
     // node, paling the same way.
-    const defenceWorksLayer = (
-      <g key="defence-works" pointerEvents="none">
-        {defenceWorks.map(wk => (
+    // THE DEPTH PASS (2026-10-26): the defence works' nodes
+    // are standing things — collected as loose nodes for the
+    // pass (each work sorts by its front node's base).
+    const defenceWorkNodes = defenceWorks.map(wk => (
           <g key={wk.id}>
             {wk.nodes.filter(n => n.hp > 0).map((n, i) => {
               const dp = isoOffset(n.q, n.r, size);
@@ -5914,9 +6046,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               );
             })}
           </g>
-        ))}
-      </g>
-    );
+        ));
     // PHASE D — THE DARK ON THE FACE: each wanderer wears
     // ITS OWN kind's face (Bind Them All, Nigel's tap
     // 2026-10-24 23:40), standing in its hex on the map's
@@ -5934,9 +6064,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // before this binding the map wore the Fray's walk on
     // every kind, and their own faces stood bound only on
     // the other grounds.
-    const wanderersLayer = (
-      <g key="wanderers" pointerEvents="none">
-        {wanderers.map(w => {
+    // THE DEPTH PASS (2026-10-26): the dark are standing
+    // things — collected as loose nodes for the pass (each
+    // wanderer's base anchor is the ground under its feet);
+    // the spring-and-flight below keeps its own overlay.
+    const wandererNodes = wanderers.map(w => {
           const t = tiles.find(t => t.id === w.tileId);
           if (!t) return null;
           const base = tilePos(t);
@@ -5980,7 +6112,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               )}
             </g>
           );
-        })}
+        });
+    const dropFxLayer = (
+      <g key="dropfx" pointerEvents="none">
         {/* THE SPRING AND THE FLIGHT (the loot table fix,
             2026-10-25): a fell's drops spring out of the
             ground the dark stood on and fly to the Tender —
@@ -6012,11 +6146,97 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
+    // ── THE DEPTH PASS, GATHERED (2026-10-26) ──────────────
+    // The standing things the layers above drew as fixed
+    // strata are gathered here with their base anchors — the
+    // seat buildings already stand in the pass (pushed as
+    // their tiles were dressed); the rest join now, each
+    // anchor read off the very reckoning its own drawing
+    // uses, so the sort can never drift from the picture:
+    //   · a field Awoken — the ground under its feet (fy, the
+    //     figures' own depth measure since free standing);
+    //   · an edge work's wall — the front end of its edge;
+    //   · a construction wall — the front point of its
+    //     footprint;
+    //   · a seed — a grown seed's drawn base (the hex heart
+    //     + the seat's drop), a fallen seed's hex heart;
+    //   · a wanderer — the ground under its feet;
+    //   · a defence work — its front living node's ground.
+    figureRows.forEach((row, i) => {
+      const node = awokenElements[i];
+      if (node) standingItems.push({ key: `standing-fig-${row.placement.id}`, baseY: row.fy, node });
+    });
+    walls.forEach((w, i) => {
+      const node = edgeWallNodes[i];
+      if (!node) return;
+      const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
+      const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
+      const verts = hexCellVertices(c.cx, c.cy, size);
+      standingItems.push({ key: `standing-edge-${w.edgeKey}`, baseY: Math.max(verts[w.dir][1], verts[(w.dir + 1) % 6][1]), node });
+    });
+    buildPieces.filter(p => p.kind === "wall" || p.kind === "door").forEach((p, i) => {
+      const node = buildWallNodes[i];
+      if (!node) return;
+      const A = landPt(p.footprint[0][0], p.footprint[0][1]);
+      const B = landPt(p.footprint[1][0], p.footprint[1][1]);
+      standingItems.push({ key: `standing-piece-${p.id}`, baseY: Math.max(A.y, B.y), node: <g key={`standing-piece-${p.id}`} className="build-walls" pointerEvents="none">{node}</g> });
+    });
+    mapSeeds.forEach((sd, i) => {
+      const node = seedNodes[i];
+      if (!node) return;
+      const t = tiles.find(tt => tt.id === sd.tileId);
+      if (!t) return;
+      const { cy } = tilePos(t);
+      const grown = sd.stage === "sapling" || sd.stage === "beacon" || sd.stage === "bastion";
+      standingItems.push({ key: `standing-seed-${sd.id}`, baseY: grown ? cy + size * 0.3 : cy, node: <g key={`standing-seed-${sd.id}`} pointerEvents="none">{node}</g> });
+    });
+    wanderers.forEach((w, i) => {
+      const node = wandererNodes[i];
+      if (!node) return;
+      const t = tiles.find(tt => tt.id === w.tileId);
+      if (!t) return;
+      const base = tilePos(t);
+      const dp = isoOffset(w.posQ, w.posR, size);
+      const dc = isoOffset(t.q, t.r, size);
+      standingItems.push({ key: `standing-dark-${w.id}`, baseY: base.cy + (dp.py - dc.py), node: <g key={`standing-dark-${w.id}`} pointerEvents="none">{node}</g> });
+    });
+    defenceWorks.forEach((wk, i) => {
+      const node = defenceWorkNodes[i];
+      if (!node) return;
+      let front = Number.NEGATIVE_INFINITY;
+      for (const n of wk.nodes) {
+        if (n.hp <= 0) continue;
+        const dp = isoOffset(n.q, n.r, size);
+        front = Math.max(front, originY + dp.py);
+      }
+      standingItems.push({ key: `standing-work-${wk.id}`, baseY: (front === Number.NEGATIVE_INFINITY ? 0 : front) + size * 0.08, node: <g key={`standing-work-${wk.id}`} pointerEvents="none">{node}</g> });
+    });
+    // Back to front by base line. The sort is stable: things
+    // sharing a base line keep the order the strata gave
+    // them (buildings, figures, walls, seeds, the dark,
+    // defence works), as they painted before this pass.
+    standingItems.sort((a, b) => a.baseY - b.baseY);
+    // The Tender's own base line, read back into land space
+    // through the camera transform's inverse — he paints
+    // between the standings behind his line and those before
+    // it, in the screen space where he has always ridden.
+    const tenderBaseY = tenderFig
+      ? originY + (tenderFig.y - originY - pan.y) / zoom
+      : Number.POSITIVE_INFINITY;
+    const standingsBack = standingItems.filter(it => it.baseY <= tenderBaseY);
+    const standingsFront = standingItems.filter(it => it.baseY > tenderBaseY);
+
     // The land rides the camera: tile art in the back group, the
     // screen-space hit layer at its old stacking place, every
-    // other land layer in the front group — both groups carrying
-    // the ONE camera transform — and the Tender last, in screen
-    // space, exactly where he always stood.
+    // other land layer in the front groups — both carrying the
+    // ONE camera transform. The standings paint by the DEPTH
+    // PASS (above): the ground's own dressing first (shroom
+    // wedges, build floors, the floor writings, the guides),
+    // then the standings behind the Tender's base line, then
+    // the Tender himself in screen space, then the standings
+    // before his line, then the overlays that have always
+    // ridden on top (targeting, columns, the drop flights,
+    // the guides and markers and ghosts).
     return (
       <>
         <g key="land-back" className="land-cam" transform={camTransform}>
@@ -6026,17 +6246,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         <g key="land-front" className="land-cam" transform={camTransform}>
           {buildingElements}
           {buildFloorsLayer}
-          {awokenElements}
-          {wallLayer}
-          {buildWallsLayer}
           {workingsLayer}
-          
           {wgGuideLayer}
           {wgAttuneLayer}
+          {standingsBack.map(it => it.node)}
+        </g>
+        {tenderLayer}
+        <g key="land-front-top" className="land-cam" transform={camTransform}>
+          {standingsFront.map(it => it.node)}
+          {wallTargetingLayer}
           {columnsLayer}
-          {seedLayer}
-          {wanderersLayer}
-          {defenceWorksLayer}
+          {dropFxLayer}
           {patrolGuideLayer}
           {lineLayer}
           {bandLayer}
@@ -6046,7 +6266,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {ghostLayer}
           {buildModeGhostLayer}
         </g>
-        {tenderLayer}
       </>
     );
   };

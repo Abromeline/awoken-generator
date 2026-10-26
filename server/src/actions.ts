@@ -40,7 +40,7 @@ export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
   matchCandidate, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
-  collisionSegments, segmentsCrossProper, type Pt,
+  collisionSegments, segmentsCrossProper, pointSegmentDistance, type Pt,
 } from "./buildGeometry.js";
 // (Build collision is judged by the geometry module's PROPER
 // crossing test: a step is barred when it passes through a
@@ -406,6 +406,91 @@ function buildStepBlocked(ownerKey: string): (fx: number, fy: number, tx: number
   if (!segs.length) return () => false;
   return (fx, fy, tx, ty) => segs.some(([a, b]) =>
     segmentsCrossProper([fx, fy], [tx, ty], a, b));
+}
+
+// ── PILLARS (Nigel, 2026-10-26: "consider beacons and towers
+// as pillars on the map with collision") ─────────────────────
+// A beacon and a tower are not floor dressing: each stands as
+// a PILLAR on its ground — a small round footprint at its base,
+// sized to the pillar's DRAWN base and never to the whole hex —
+// and bodies on the land reckon with it as they reckon with
+// the construction's walls: the dark's walk halts at it, a
+// march's landing is set beside it, a summon's landing is set
+// beside it, and the Tender's stride (the client's mirror of
+// this registry) slides around it. Leaps and flights pass over,
+// as they pass over walls.
+//
+// A standing thing JOINS this registry by declaring three
+// facts — where its base stands (an axial point), the radius
+// of its base, and that it blocks movement. The registry below
+// is the one door: watchtowers and grown seeds enter through
+// it today; the building pieces still to come (roofs, half
+// walls, terrace steps, the round floor's risers…) enter
+// through the same door when their slices land, declaring
+// their footprint's front point and radius, with no change to
+// the collision reckoning itself.
+//
+// THE RADII ARE PENCILS, derived from the drawn widths and
+// named for Nigel's eye: a watchtower's face is drawn ≈31.8
+// land units wide (BUILDING_BASE_SIZE 36 × displayH 2.0 /
+// hFrac 0.8874 × aspect 0.3922, client/src/Territory.tsx's
+// BUILDING_PLACE); the Beacon's face stands 124 land units
+// tall at 512/992 of that in width ≈ 64; the Sapling's ≈ 37.5.
+// One axial step measures ≈78 land units blended across the
+// map's squashed basis. Radius = half the drawn width in
+// axial: tower ≈ 0.20, sapling ≈ 0.24, beacon ≈ 0.32 (the
+// Bastion wears the Beacon's face, and keeps its measure).
+export const PILLAR_RADIUS_TOWER = 0.20;
+export const PILLAR_RADIUS_SAPLING = 0.24;
+export const PILLAR_RADIUS_BEACON = 0.32;
+
+export interface StandingPillar { q: number; r: number; radius: number; kind: "tower" | "sapling" | "beacon" }
+
+/** The land's standing pillars: every watchtower (its record
+ *  is its standing — building, active and dormant towers all
+ *  stand) and every GROWN seed (Sapling, Beacon, Bastion —
+ *  a Starseed lies on the ground and pillars nothing). */
+export function standingPillars(ownerKey: string): StandingPillar[] {
+  const out: StandingPillar[] = [];
+  const tileAt = new Map<number, { q: number; r: number }>();
+  for (const t of sqlite.prepare("SELECT id, q, r FROM territory_tiles WHERE owner_key = ?").all(ownerKey) as any[]) {
+    tileAt.set(Number(t.id), { q: Number(t.q), r: Number(t.r) });
+  }
+  for (const b of sqlite.prepare("SELECT tile_id AS tileId FROM territory_buildings WHERE owner_key = ? AND building_type = 'watchtower'").all(ownerKey) as any[]) {
+    const c = tileAt.get(Number(b.tileId));
+    if (c) out.push({ q: c.q, r: c.r, radius: PILLAR_RADIUS_TOWER, kind: "tower" });
+  }
+  for (const s of sqlite.prepare("SELECT tile_id AS tileId, level FROM star_seeds WHERE owner_key = ? AND state IN ('held', 'first')").all(ownerKey) as any[]) {
+    const stage = seedStageForLevel(Number(s.level ?? 1));
+    if (stage === "starseed") continue;
+    const c = tileAt.get(Number(s.tileId));
+    if (!c) continue;
+    out.push({ q: c.q, r: c.r, radius: stage === "sapling" ? PILLAR_RADIUS_SAPLING : PILLAR_RADIUS_BEACON, kind: stage === "sapling" ? "sapling" : "beacon" });
+  }
+  return out;
+}
+
+/** A step crosses a pillar when its line passes within the
+ *  pillar's radius of the pillar's heart — the step is barred,
+ *  as at a wall. */
+export function stepCrossesPillar(pillars: StandingPillar[], fx: number, fy: number, tx: number, ty: number): boolean {
+  return pillars.some(p => pointSegmentDistance([p.q, p.r], [fx, fy], [tx, ty]) < p.radius);
+}
+
+/** Set a landing point outside every pillar it would stand
+ *  inside: pushed straight out from the pillar's heart to its
+ *  rim — the figure lands BESIDE the pillar, never within it.
+ *  A point standing exactly on a heart is set east of it. */
+export function pillarFreePoint(pillars: StandingPillar[], q: number, r: number): { q: number; r: number } {
+  let out = { q, r };
+  for (const p of pillars) {
+    const dq = out.q - p.q, dr = out.r - p.r;
+    const d = Math.hypot(dq, dr);
+    if (d >= p.radius) continue;
+    if (d < 1e-9) { out = { q: p.q + p.radius, r: p.r }; continue; }
+    out = { q: p.q + (dq / d) * p.radius, r: p.r + (dr / d) * p.radius };
+  }
+  return out;
 }
 
 /** The hexes a footprint lies on: the hexes of its vertices, of
@@ -5780,6 +5865,10 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // for the whole settle — the walk below collides against the
   // footprints themselves, never against hex occupancy.
   const buildSegs = buildWallSegments(ownerKey);
+  // THE PILLARS (2026-10-26): the land's beacons and towers,
+  // loaded with the walls — the walk below halts at a pillar's
+  // base as it halts at a wall.
+  const pillars = standingPillars(ownerKey);
 
   const STEP_MS = 500;
   const steps = Math.max(0, Math.ceil(elapsed / STEP_MS));
@@ -5865,6 +5954,11 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // through the gap walks through, as it should.
       if (buildSegs.length && buildSegs.some(([a, b]) =>
         segmentsCrossProper([d.q, d.r], [nq, nr], a, b))) continue;
+      // A PILLAR bars the step the same way (2026-10-26): a
+      // step whose line passes through a beacon's or a tower's
+      // base is not taken — the dark halts at the pillar and
+      // chews the ground beside it, as it halts at a wall.
+      if (pillars.length && stepCrossesPillar(pillars, d.q, d.r, nq, nr)) continue;
       const cell = axialRound(nq, nr);
       if (!byKey.has(`${cell.q},${cell.r}`)) continue; // no ground there: the step is not taken
       d.q = nq; d.r = nr;
@@ -6653,10 +6747,13 @@ async function fieldFirstThreeParty(ownerKey: string, tiles: any[], standTileId:
     const landing = candidates.find(t => (load.get(t.id) ?? 0) < 4) ?? candidates[0];
     if (!landing) return;
     const shield = await rollShieldFor(r.id);
+    // THE PILLAR AT THE LANDING (2026-10-26): the first
+    // party fields beside any pillar on its ground.
+    const firstPoint = pillarFreePoint(standingPillars(ownerKey), landing.q, landing.r);
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId: r.id, tileId: landing.id,
       follow: 1,
-      posQ: landing.q, posR: landing.r,
+      posQ: firstPoint.q, posR: firstPoint.r,
       hp: await placementMaxHp(r.id),
       shield, shieldMax: shield,
     });
@@ -10933,6 +11030,7 @@ export const handlers = {
       return { ok: true as const, summoned: false as const, faltered: true as const, name: payload.name, roll, gift, summonersPower: sp, curse, dc, cost, refunded };
     }
     const bornShield = await rollShieldFor(awakenedId, ownerKey);
+    const summonPoint = pillarFreePoint(standingPillars(ownerKey), landing.q, landing.r);
     await db.insert(schema.fieldPlacements).values({
       ownerKey, awakenedId, tileId: landing.id,
       // A SUMMONED AWOKEN FOLLOWS ITS TENDER (Nigel,
@@ -10949,7 +11047,10 @@ export const handlers = {
       // 2026-10-23): the landing tile's centre — its own
       // spot on the record from its first breath, never a
       // fixed offset borrowed from the tile.
-      posQ: landing.q, posR: landing.r,
+      // THE PILLAR AT THE LANDING (2026-10-26): set beside
+      // any pillar standing on that ground, never within it.
+      posQ: summonPoint.q,
+      posR: summonPoint.r,
       hp: await placementMaxHp(awakenedId),
       // Born shielded (the shield law): the per-part dice
       // pool is rolled at the summoning itself.
@@ -12234,8 +12335,11 @@ export const handlers = {
   async settleMarches(ownerKey: string) {
     const now = Date.now();
     const rows = sqlite.prepare(
-      "SELECT id, awakened_id, follow, march_path, march_ends, march_goal FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
-    ).all(ownerKey, now) as { id: number; awakened_id: number; follow: number; march_path: string; march_ends: number; march_goal: string | null }[];
+      "SELECT id, awakened_id, follow, march_path, march_ends, march_goal, march_pos_q AS marchPosQ, march_pos_r AS marchPosR FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
+    ).all(ownerKey, now) as { id: number; awakened_id: number; follow: number; march_path: string; march_ends: number; march_goal: string | null; marchPosQ: number | null; marchPosR: number | null }[];
+    // THE PILLARS (2026-10-26): a march's landing is set
+    // beside any pillar it would stand inside (below).
+    const marchPillars = standingPillars(ownerKey);
     for (const row of rows) {
       let dest: number | null = null;
       try {
@@ -12267,8 +12371,25 @@ export const handlers = {
         // clearing in the same breath). A landed figure
         // always holds a real free position: the fixed
         // standing offsets are gone from the law.
-        sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, pos_q = COALESCE(march_pos_q, (SELECT q FROM territory_tiles WHERE id = ?)), pos_r = COALESCE(march_pos_r, (SELECT r FROM territory_tiles WHERE id = ?)), march_pos_q = NULL, march_pos_r = NULL, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
-          .run(dest, row.march_ends, dest, dest, row.id);
+        // THE PILLAR AT THE LANDING (2026-10-26): the point
+        // is read in the open and set beside any pillar it
+        // would stand inside — a march onto a tower's own
+        // hex lands its figure beside the tower, never
+        // within its base. The point read here is the very
+        // point the COALESCE below named (the march's
+        // carried point, else the destination's centre).
+        const destTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(dest) as { q: number; r: number } | undefined;
+        const rawPoint = (row.marchPosQ != null && row.marchPosR != null)
+          ? { q: Number(row.marchPosQ), r: Number(row.marchPosR) }
+          : destTile ? { q: Number(destTile.q), r: Number(destTile.r) } : null;
+        const landPoint = rawPoint && marchPillars.length ? pillarFreePoint(marchPillars, rawPoint.q, rawPoint.r) : rawPoint;
+        if (landPoint) {
+          sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, pos_q = ?, pos_r = ?, march_pos_q = NULL, march_pos_r = NULL, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
+            .run(dest, row.march_ends, landPoint.q, landPoint.r, row.id);
+        } else {
+          sqlite.prepare("UPDATE field_placements SET tile_id = ?, last_moved_at = ?, pos_q = COALESCE(march_pos_q, (SELECT q FROM territory_tiles WHERE id = ?)), pos_r = COALESCE(march_pos_r, (SELECT r FROM territory_tiles WHERE id = ?)), march_pos_q = NULL, march_pos_r = NULL, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
+            .run(dest, row.march_ends, dest, dest, row.id);
+        }
       } else {
         sqlite.prepare("UPDATE field_placements SET march_pos_q = NULL, march_pos_r = NULL, march_path = NULL, march_since = NULL, march_ends = NULL, march_goal = NULL WHERE id = ?")
           .run(row.id);
@@ -13153,7 +13274,10 @@ export const handlers = {
       // hex holds who returns; the crowd costs speed.
       sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
       const bastionTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(bastion.tileId) as { q: number; r: number } | undefined;
-      await db.insert(schema.fieldPlacements).values({ ownerKey, awakenedId, tileId: bastion.tileId, posQ: bastionTile?.q ?? 0, posR: bastionTile?.r ?? 0, hp: await placementMaxHp(awakenedId) });
+      // THE PILLAR AT THE LANDING (2026-10-26): the return
+      // stands beside any pillar on the bastion's ground.
+      const bastionPoint = pillarFreePoint(standingPillars(ownerKey), bastionTile?.q ?? 0, bastionTile?.r ?? 0);
+      await db.insert(schema.fieldPlacements).values({ ownerKey, awakenedId, tileId: bastion.tileId, posQ: bastionPoint.q, posR: bastionPoint.r, hp: await placementMaxHp(awakenedId) });
       return { ok: true, mustered: true };
     }
     sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
