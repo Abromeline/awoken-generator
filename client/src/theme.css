@@ -160,10 +160,10 @@
    2026-10-17): the TOP-RIGHT THIRD of the screen, given a
    GLOW, and LOCKED IN PLACE — fixed, it does not scroll,
    shift, or ride the header's flow. */
-.deck-button{position:fixed;top:12px;left:67%;right:auto;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:60}
-.deck-button img{width:108px;height:108px;object-fit:contain;animation:terrain-glow 2.8s ease-in-out infinite}
+.deck-button{position:fixed;top:12px;left:67%;right:auto;display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:60}
+.deck-button img{width:216px;height:216px;object-fit:contain;animation:terrain-glow 2.8s ease-in-out infinite}
 @keyframes terrain-glow{0%,100%{filter:drop-shadow(0 0 9px rgba(240,214,140,0.55)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}50%{filter:drop-shadow(0 0 22px rgba(240,214,140,0.95)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}}
-.deck-button span{font-size:13px;font-weight:600;letter-spacing:0.05em;text-shadow:0 2px 8px #000}
+.deck-button span{font-size:26px;font-weight:600;letter-spacing:0.05em;text-shadow:0 2px 8px #000}
 .decks-view{max-width:900px;margin:0 auto;padding:16px}
 .decks-view header{margin-bottom:16px}
 .deck-create{display:flex;gap:8px;margin-bottom:20px}
@@ -2621,13 +2621,21 @@ body.defeat-flash {
 @media (max-width: 768px) {
   /* Move acorn button out of the way on mobile */
   .acorn-btn { bottom: 80px; left: 16px; width: 44px; height: 44px; font-size: 22px; }
-  /* Make terrain map button smaller */
+  /* Make terrain map button smaller — superseded in size by
+     Nigel's 2026-10-25 "make 2x bigger": the phone mark now
+     stands at 40px, twice the 20px it stood at. */
   .deck-button { font-size: 12px; padding: 6px 10px; }
-  .deck-button img { width: 20px; height: 20px; }
+  .deck-button img { width: 40px; height: 40px; }
 }
 
 /* Terrain Map button — the RIGHT side of the screen (Nigel,
-   2026-10-16: moved from above the acorn on the left). */
+   2026-10-16: moved from above the acorn on the left).
+   2026-10-25 (Nigel, over the beacon-mark face's proof
+   picture: "make 2x bigger"): the button stands TWICE AS
+   BIG — every part of its box doubled (mark 108->216,
+   label 13->26, gap 2->4, padding 8px 0 -> 16px 0) from
+   this same corner anchor (right:90px, bottom:200px); it
+   grows left and up from its seat, nothing else grows. */
 .deck-button {
   position: fixed !important;
   bottom: 200px !important;
@@ -2635,6 +2643,7 @@ body.defeat-flash {
   left: auto !important;
   top: auto !important;
   z-index: 1000 !important;
+  padding: 16px 0 !important;
 }
 @media (max-width: 768px) {
   .deck-button {
@@ -2644,6 +2653,12 @@ body.defeat-flash {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
+  }
+  /* The doubling at phone width too: the standing phone
+     padding (10px 4px, from the touch-target rule on
+     .tender-tools button) doubles to 20px 8px. */
+  .tender-tools .deck-button {
+    padding: 20px 8px !important;
   }
 }
 
