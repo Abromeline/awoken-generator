@@ -458,6 +458,19 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   // the land is locked in its flux until one is near.
   attunePoints: real("attune_points").notNull().default(0),
   attuneElement: text("attune_element"),
+  // TERRAIN MIXING (Nigel, 2026-10-25): a tile holds ALL its elements
+  // at once — the per-element ledger, JSON {"sky":n,"stone":n,"tide":n,
+  // "root":n} of points (fractional: the standing press lays fractions
+  // of a point per hour). Presence presses ADDITIVELY by the sum of an
+  // Awoken's parts into each element's own line; nothing nets out and
+  // nothing erodes. NULL = not yet seeded: the ledger is seeded once
+  // from what the tile already holds (its standing element, its tray
+  // stack, its old bank — see mixLedgerOf in actions.ts), so no tile
+  // loses anything in the change of law. The old bank fields above
+  // remain as the seed's source and are written no more. Fire stands
+  // OUT of the terrain ledger: no Fire texture exists in his sheet,
+  // and Fire's place on terrain is an open pencil.
+  mixPoints: text("mix_points"),
   // The day-long quest clock (Nigel, 2026-10-16): when the standing
   // company's press was last settled on this tile. The press accrues
   // by the hour while the company stands (see the settle in
@@ -481,8 +494,10 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   // each stage filled by pours of 10 (aspect points from the
   // Tender, fast; a standing company's press, slow). z is the
   // tile's plane: 0 = the ground; 1 = a floating isle, raised by
-  // the sky branch, with a NEW NEUTRAL TILE born beneath it at
-  // z 0 (the born-underneath law). buildStage: 0 = natural tile;
+  // the sky branch, with a NEW TILE born beneath it at z 0 (the
+  // born-underneath law — neutral as first written, CURSED
+  // since the terrain mixing law of 2026-10-25, whose Air lift
+  // raises natural tiles the same way). buildStage: 0 = natural tile;
   // 1..4 = the stage now filling (coalesce/weave/branch/fire —
   // walkable once stage 1 completes); 5 = a finished work.
   // buildPoints is the fill of the stage now filling (0–30).

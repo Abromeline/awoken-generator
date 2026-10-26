@@ -138,6 +138,14 @@ export interface TerritoryTile {
    *  Both absent/null until a company or a turned shrine first pours. */
   attunePoints?: number | null;
   attuneElement?: string | null;
+  /** TERRAIN MIXING (Nigel, 2026-10-25): the tile's per-element
+   *  ledger, as getTerritory serves it — points of sky (his Air),
+   *  stone (Rock), tide (Water) and root the tile holds at once.
+   *  The map stacks his four textures on the hex's face, each at
+   *  the opacity of its line (points / 10). Cursed ground serves
+   *  all zeros; an untouched ledger stands all zeros too, and the
+   *  hex then draws its tray face as it always did. */
+  mix?: { sky: number; stone: number; tide: number; root: number } | null;
   /** Terraforming trays (Nigel, 2026-10-15): the hex's stack as the
    *  server settles it — sealed trays, the growing tray's points,
    *  the TOP tray's stage (what the tile renders) and HP, and the

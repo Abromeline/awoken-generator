@@ -415,6 +415,14 @@ if (!tileCols.some((col) => col.name === "top_points")) {
 if (!tileCols.some((col) => col.name === "attune_anchor_at")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN attune_anchor_at INTEGER`);
 }
+// TERRAIN MIXING (Nigel, 2026-10-25): the per-element ledger on
+// territory tiles — JSON points per element (sky/stone/tide/root).
+// NULL rows are seeded once from the tile's standing fields on
+// first read (mixLedgerOf in actions.ts); the column itself is
+// the whole migration — no row is rewritten by the DDL.
+if (!tileCols.some((col) => col.name === "mix_points")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN mix_points TEXT`);
+}
 // THE BUILDING SYSTEM (Nigel, 2026-10-19): the creation stages on
 // territory tiles — the tile's plane (z), the stage now filling,
 // its fill, the branch chosen at the sky/tide fork, the fire

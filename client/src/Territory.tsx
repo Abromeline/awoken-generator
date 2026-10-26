@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
-import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf } from "./terrainArt";
+import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
 import { WALL_STYLES } from "./wallArt";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
@@ -2038,8 +2038,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       await refreshTerritory();
       await fetchBuildPools();
       if (res.turned) showHexNotice(`The ground turns — it holds ${res.element} now.`);
-      else if (res.working) showHexNotice(`A ${element} point rests on your ${res.working} — its ground's bank holds ${res.attuneElement} ${Math.floor(res.attunePoints)}/10 toward turning.`);
-      else if (res.attuneElement) showHexNotice(`A ${element} point rests in that ground — its bank holds ${res.attuneElement} ${Math.floor(res.attunePoints)}/10 toward turning.`);
+      else if (res.working) showHexNotice(`A ${element} point rests on your ${res.working} — that ground now holds ${res.attunePoints} of ${res.attuneElement}, beside everything it already held.`);
+      else if (res.attuneElement) showHexNotice(`A ${element} point rests in that ground — it now holds ${res.attunePoints} of ${res.attuneElement}, beside everything it already held.`);
       else showHexNotice(`A ${element} point rests in that ground.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "The attuning was refused.";
@@ -4553,6 +4553,38 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               // and sealed trays wear stage 3.
               const stage = i === total - 1 ? stageForTile(t) : isGrowing ? trayStageOf((t as any).growPoints ?? 0) : 3;
               const drop = (total - 1 - i) * TRAY_LIFT;
+              const mix = (t as any).mix as TileMix | null | undefined;
+              if (i === total - 1 && mixStands(mix)) {
+                // THE LAYERED FACE (Nigel, 2026-10-25 — terrain
+                // mixing): the top tray's single-element face
+                // gives way to his four textures, stacked in his
+                // order (TERRAIN_LAYER_ORDER, bottom → top), each
+                // standing at the opacity of its element's ledger
+                // line — the mixture IS the face now. The trays
+                // beneath keep the stack's stepped form, and the
+                // new face carries no glass rim: the textures
+                // stand as he drew them. Each texture seats on
+                // the face's centre at the painted face's width
+                // (the standing art's measure: 1730 of its 1920).
+                const fw = s * 2.41 * (1730 / 1920);
+                return (
+                  <g key={`tray-${t.id}-${i}`}>
+                    {TERRAIN_LAYER_ORDER.map((el) => {
+                      const art = TERRAIN_LAYER_ART[el];
+                      const w = fw;
+                      const h = w * art.hPerW;
+                      return (
+                        <image key={el} href={art.src}
+                          x={cx - w / 2} y={cy + drop - h / 2 + art.seatDy * h}
+                          width={w} height={h}
+                          opacity={mixLayerOpacity(mix?.[el])}
+                          preserveAspectRatio="xMidYMid meet"
+                          style={auraTiles.has(t.id) ? { filter: `drop-shadow(0 0 ${12 / zoom}px rgba(255,215,0,0.9)) brightness(1.15)` } : undefined} />
+                      );
+                    })}
+                  </g>
+                );
+              }
               return (
                 <image key={`tray-${t.id}-${i}`} href={terrainImgFor(tileKey, stage, terrainArt)}
                   x={cx - s * 1.2106 + imgOff.dx * s}
@@ -4563,35 +4595,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               );
             })
           )}
-          {/* The turning of the land, made visible (Nigel, 2026-10-15):
-              a hex whose attunement bank is filling toward a switch
-              wears a small dark seal — the glyph of the element it is
-              about to become (◇ for the neutral shore between) — and
-              beneath it the honest estimate of the wait, from the
-              pressing company's weight or the shrine's five-hour pour. */}
-          {!t.cursed && (t as any).attuneElement && ((t as any).attunePoints ?? 0) > 0 && t.element !== (t as any).attuneElement && (() => {
-            const target = (t as any).attuneElement as string;
-            const nextStage = t.element === "neutral" ? target : "neutral";
-            const remaining = 10 - ((t as any).attunePoints ?? 0);
-            const rate = (t as any).attuneRatePts ?? 0;
-            let etaSec: number | null = null;
-            // attuneRatePts is points per HOUR (the day-long quest,
-            // 2026-10-16): the wait is the remaining points at that
-            // hourly rate.
-            if (rate > 0) etaSec = Math.ceil((remaining / rate) * 3600);
-            else if ((t as any).attuneShrineNextSec != null) etaSec = Math.max(30, (t as any).attuneShrineNextSec);
-            const eta = etaSec == null ? `${Math.floor((t as any).attunePoints ?? 0)}/10` : etaSec < 90 ? `~${etaSec}s` : etaSec < 5400 ? `~${Math.round(etaSec / 60)}m` : `~${Math.round(etaSec / 360) / 10}h`;
-            const col = nextStage === "neutral" ? "#9a958c" : (elementPalette[nextStage as keyof typeof elementPalette] ?? "#d4af6a");
-            return (
-              <g pointerEvents="none">
-                <circle cx={cx + s * 0.48} cy={cy - s * 0.52} r={s * 0.30} fill="rgba(8,6,10,0.85)" stroke={col} strokeWidth={1.6 / zoom} />
-                {nextStage === "neutral"
-                  ? <text x={cx + s * 0.48} y={cy - s * 0.40} textAnchor="middle" fontSize={s * 0.34} fill={col}>◇</text>
-                  : <g transform={`translate(${cx + s * 0.22}, ${cy - s * 0.624})`}><ElementGlyph element={nextStage as GlyphElement} color={col} width={s * 0.52} height={s * 0.208} /></g>}
-                {eta && <text x={cx + s * 0.48} y={cy + s * 0.18} textAnchor="middle" fontSize={s * 0.42} fill="#f0e6cc" stroke="rgba(0,0,0,0.9)" strokeWidth={3.4 / zoom} paintOrder="stroke">{eta}</text>}
-              </g>
-            );
-          })()}
+          {/* The turning seal stood here until 2026-10-25: a hex
+              whose bank was filling toward a switch wore the glyph
+              of the element it was about to become. Terrain mixing
+              retired it with the bank itself — the land no longer
+              turns; it accumulates, and the filling IS the face:
+              each element's texture stands at the opacity of its
+              own ledger line, in the open. */}
           {/* One info bar per hex (Nigel, 2026-10-15): the stack's
               facts ride in the tile's badge cluster — Z (its trays),
               the whole stack's power, and the top tray's HP, the

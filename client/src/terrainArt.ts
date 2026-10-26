@@ -18,6 +18,10 @@ import skyImg from "./assets/terrain-iso/sky-v3.png";
 import stoneImg from "./assets/terrain-iso/stone-v3.png";
 import rootImg from "./assets/terrain-iso/root-v3.png";
 import neutralImg from "./assets/terrain-iso/neutral-v3.png";
+import airLayerImg from "./assets/terrain-layer-air.png";
+import rockLayerImg from "./assets/terrain-layer-rock.png";
+import waterLayerImg from "./assets/terrain-layer-water.png";
+import rootLayerImg from "./assets/terrain-layer-root.png";
 
 /** The five elements that carry stage art. (Fire has no tiles of its own;
  *  cursed land keeps its bundled face — neither is uploadable here.) */
@@ -91,4 +95,63 @@ export function stageForTile(tile: StageTile): 1 | 2 | 3 {
   const pressing = tile.attuneElement ?? tile.attune_element;
   if (points == null || pressing == null) return 1;
   return 2;
+}
+
+/* ── TERRAIN MIXING — THE LAYERED FACE (Nigel, 2026-10-25) ─────
+ * His layered master (IMG_0773.psd), one texture per element,
+ * lifted layer by layer from the file as drawn — each element's
+ * own PSD layer, cropped to its own alpha bounds, never keyed
+ * or redrawn: Root from the top-left quadrant's layer, Air from
+ * the top-right, Water from the bottom-left, Rock from the
+ * bottom-right. On the map, a purified hex's face is these four
+ * textures STACKED: each layer's opacity is its element's
+ * ledger line (points / 10) — 4 points stands ~40% solid, 10
+ * full, 0 absent — so a fully attuned hex stands full and a
+ * young hex looks ghostly, still filling in. All four stack
+ * within the tile's own Z; height belongs to Air alone (the
+ * server's lift). The new face carries NO glass rim — the
+ * textures stand as he drew them. */
+
+/** Nigel's layer order for the terrain stack, bottom → top —
+ *  the ONE constant the render reads; nothing else in the
+ *  client names an order. Ruled 2026-10-25 (16:46) as Air,
+ *  Rock, Root, Tide; SUPERSEDED the same night by his tap
+ *  (23:03 — "Water under Root — tonight's typed order
+ *  stands"): Air, Rock, Water, Root on top. If his word
+ *  changes again, this list is the whole change. Keys are the
+ *  game's element names (sky = his Air, stone = his Rock,
+ *  tide = his Water). */
+export const TERRAIN_LAYER_ORDER = ["sky", "stone", "tide", "root"] as const;
+export type TerrainLayerElement = (typeof TERRAIN_LAYER_ORDER)[number];
+
+/** The four textures at native resolution, with each drawing's
+ *  height per unit width (measured from the lifted files) and
+ *  its seat: the downward shift, as a fraction of the drawing's
+ *  own height, that seats the drawing's FACE on the hex's centre
+ *  rather than its bounding-box centre. Root's island face
+ *  rides high in its drawing (its drips hang below), so Root
+ *  seats 0.15 lower; the others are centred as drawn. */
+export const TERRAIN_LAYER_ART: Record<TerrainLayerElement, { src: string; hPerW: number; seatDy: number }> = {
+  sky: { src: airLayerImg, hPerW: 1123 / 1681, seatDy: 0 },
+  stone: { src: rockLayerImg, hPerW: 957 / 1701, seatDy: 0 },
+  tide: { src: waterLayerImg, hPerW: 843 / 1268, seatDy: 0 },
+  root: { src: rootLayerImg, hPerW: 1347 / 1732, seatDy: 0.15 },
+};
+
+/** A hex's per-element ledger, as getTerritory serves it. */
+export type TileMix = Partial<Record<TerrainLayerElement, number>>;
+
+/** The opacity a layer stands at: its points of the full
+ *  measure (10). Beyond full, full — points past 10 buy the
+ *  land's other goods (Air's lift), not a second showing. */
+export function mixLayerOpacity(points: number | undefined): number {
+  return Math.max(0, Math.min(1, (points ?? 0) / 10));
+}
+
+/** Whether the hex carries any mixture at all — an untouched
+ *  ledger (a neutral hex, or an older payload) draws its tray
+ *  face as it always did. */
+export function mixStands(mix: TileMix | null | undefined): boolean {
+  if (!mix) return false;
+  return TERRAIN_LAYER_ORDER.some((el) => (mix[el] ?? 0) > 0);
 }
