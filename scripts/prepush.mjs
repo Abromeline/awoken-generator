@@ -5,8 +5,10 @@
  *   1. typecheck        client + server compile
  *   2. facade-check     no surface without machinery behind it
  *   3. schema-audit     every column the code expects is created by the DDL
- *   4. build            the server builds clean
- *   5. boot smoke       the server boots against a FRESH scratch database
+ *   4. pillar-audit     the pillar radii + drawn seats agree between the
+ *                       server registry and the client mirror
+ *   5. build            the server builds clean
+ *   6. boot smoke       the server boots against a FRESH scratch database
  *                       (every migration runs), answers health + a few
  *                       anonymous reads — then boots AGAIN against the same
  *                       database, because migrations must survive re-runs
@@ -92,6 +94,7 @@ async function bootOnce(dataDir, label) {
 run("Typecheck (client + server)", "npm", ["run", "typecheck"]);
 run("Facade check", "node", ["scripts/facade-check.mjs"]);
 run("Schema audit (DDL guarantees every column)", "node", ["scripts/schema-audit.mjs"]);
+run("Pillar audit (pillar radii + drawn seats agree on both grounds)", "node", ["scripts/pillar-audit.mjs"]);
 run("Build server", "npm", ["run", "build:server"]);
 
 step++;

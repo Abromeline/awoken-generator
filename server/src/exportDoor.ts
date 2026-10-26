@@ -22,7 +22,7 @@
 // every object by re-hashing it.
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, createReadStream, existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Express, Request, Response } from "express";
 import { DATA_DIR, sqlite } from "./store.js";
@@ -30,8 +30,13 @@ import { DATA_DIR, sqlite } from "./store.js";
 const OBJECTS_DIR = join(DATA_DIR, "blobs", "objects");
 const HASH_RE = /^[0-9a-f]{64}$/;
 
+/** The door's token floor (FLOP fix, 2026-10-26): a set-but-
+ *  short EXPORT_TOKEN is treated as UNSET — the door closes
+ *  uniformly (404), fail-closed in configuration as in auth. */
+export const EXPORT_TOKEN_MIN = 32;
+
 export function exportDoorEnabled(): boolean {
-  return (process.env.EXPORT_TOKEN ?? "").length > 0;
+  return (process.env.EXPORT_TOKEN ?? "").length >= EXPORT_TOKEN_MIN;
 }
 
 /** Digest-compared bearer check. The token itself is never logged. */
@@ -117,6 +122,20 @@ function buildManifest() {
  * 404 so the surface does not exist in any observable way.
  */
 export function registerExportDoor(app: Express): void {
+  // ORPHANED SNAPSHOTS SWEPT (FLOP fix, 2026-10-26): a door
+  // process killed mid-download leaves its snapshot temp in
+  // the data dir — a whole copy of the world sitting behind
+  // no guard but the filesystem. Every leftover is swept at
+  // registration, before this process can write one of its
+  // own; a live download's temp is never another boot's.
+  try {
+    for (const name of readdirSync(DATA_DIR)) {
+      if (name.startsWith(".export-snapshot-") && name.endsWith(".db")) {
+        rmSync(join(DATA_DIR, name), { force: true });
+      }
+    }
+  } catch { /* no data dir yet — nothing to sweep */ }
+
   const guard = (req: Request, res: Response): boolean => {
     if (!exportDoorEnabled()) {
       res.status(404).json({ error: "Not found." });
@@ -145,9 +164,19 @@ export function registerExportDoor(app: Express): void {
     const tmp = join(DATA_DIR, `.export-snapshot-${process.pid}-${randomBytes(6).toString("hex")}.db`);
     try {
       await sqlite.backup(tmp);
+      // The snapshot belongs to its owner alone while it
+      // stands (FLOP fix, 2026-10-26).
+      chmodSync(tmp, 0o600);
       const { size } = statSync(tmp);
+      // The snapshot's own hash rides with it, so the puller
+      // proves what ARRIVED against what the door SENT —
+      // against the door's word, not against the received
+      // file read back against itself (FLOP fix, 2026-10-26).
+      const hash = createHash("sha256");
+      for await (const chunk of createReadStream(tmp)) hash.update(chunk as Buffer);
       res.setHeader("Content-Type", "application/octet-stream");
       res.setHeader("Content-Length", String(size));
+      res.setHeader("X-Snapshot-Sha256", hash.digest("hex"));
       res.setHeader("Content-Disposition", 'attachment; filename="app.db"');
       const stream = createReadStream(tmp);
       stream.on("close", () => rmSync(tmp, { force: true }));

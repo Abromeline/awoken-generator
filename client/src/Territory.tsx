@@ -176,6 +176,16 @@ export const BUILDING_BASE_SIZE = 36;
 export const PILLAR_RADIUS_TOWER = 0.20;
 export const PILLAR_RADIUS_SAPLING = 0.24;
 export const PILLAR_RADIUS_BEACON = 0.32;
+/** Mirror of the server's PILLAR_SEAT_OFFSETS (server/src/
+ *  actions.ts — the seat a building is DRAWN at when its hex
+ *  is shared, in axial units): the pillar under a shared
+ *  hex's tower stands at its drawn seat, not the heart.
+ *  scripts/pillar-audit.mjs fails the push if these numbers
+ *  ever drift from the server registry's. */
+export const PILLAR_SEAT_OFFSETS = [
+  { dq: -0.2772, dr: 0.0444 },
+  { dq: 0.2772, dr: -0.2305 },
+];
 /** The eight facings as unit vectors — the weapon's hunting
  *  tips aim along the Tender's facing when no dark stands on
  *  the field (the Proving Ground's fallback, ported 2026-10-20). */
@@ -1522,10 +1532,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   useEffect(() => {
     const out: { q: number; r: number; radius: number }[] = [];
     const tileById = new Map(tiles.map(t => [t.id, t]));
+    // A shared hex's tower is drawn at its seat (the seat
+    // drawing below), so its pillar stands at the seat too —
+    // the server registry (standingPillars) computes the same
+    // seats from the same building rows, in the same order:
+    // every building on the tile but the Dream Shroom wedges.
+    const seatsByTile = new Map<number, typeof buildings>();
     for (const b of buildings) {
-      if (b.buildingType !== "watchtower") continue;
-      const t = tileById.get(b.tileId);
-      if (t) out.push({ q: t.q, r: t.r, radius: PILLAR_RADIUS_TOWER });
+      if (b.buildingType === "dream-wheat") continue;
+      const arr = seatsByTile.get(b.tileId) ?? [];
+      arr.push(b);
+      seatsByTile.set(b.tileId, arr);
+    }
+    for (const arr of seatsByTile.values()) {
+      arr.forEach((b, seatIndex) => {
+        if (b.buildingType !== "watchtower") return;
+        const t = tileById.get(b.tileId);
+        if (!t) return;
+        if (arr.length === 1) {
+          out.push({ q: t.q, r: t.r, radius: PILLAR_RADIUS_TOWER });
+        } else {
+          const off = PILLAR_SEAT_OFFSETS[seatIndex === 0 ? 0 : 1];
+          out.push({ q: t.q + off.dq, r: t.r + off.dr, radius: PILLAR_RADIUS_TOWER });
+        }
+      });
     }
     for (const sd of mapSeeds) {
       if (sd.state !== "held" && sd.state !== "first") continue;

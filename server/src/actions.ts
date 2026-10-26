@@ -444,21 +444,63 @@ export const PILLAR_RADIUS_TOWER = 0.20;
 export const PILLAR_RADIUS_SAPLING = 0.24;
 export const PILLAR_RADIUS_BEACON = 0.32;
 
+/** THE DRAWN SEAT OF A SHARED HEX (FLOP fix, 2026-10-26): a
+ *  building ALONE on its tile stands on the hex's heart, but a
+ *  pair sharing one hex is drawn at the tile's two seats —
+ *  {cx ± s·0.45, cy − s·0.35 + seatDrop} in the client's hand
+ *  (client/src/Territory.tsx, the seat drawing; seatDrop =
+ *  0.7174·(s − s·36/54)) — so a shared hex's pillar stands at
+ *  the DRAWN seat, not the heart it used to guard (the heart's
+ *  ground stood barred while the drawn tower stood aside).
+ *  These offsets are that seat point carried into axial units
+ *  through the map's own basis (E (1292, 470), SE (0, 948) per
+ *  796): seat 0, the left seat in building-id order — the order
+ *  getBuildings serves and the client draws — and seat 1, the
+ *  right (every seat past the first draws there too). The
+ *  client mirror (client/src/Territory.tsx) carries the same
+ *  numbers, and scripts/pillar-audit.mjs fails the push if the
+ *  two ever drift apart. */
+export const PILLAR_SEAT_OFFSETS = [
+  { dq: -0.2772, dr: 0.0444 },
+  { dq: 0.2772, dr: -0.2305 },
+];
+
 export interface StandingPillar { q: number; r: number; radius: number; kind: "tower" | "sapling" | "beacon" }
 
 /** The land's standing pillars: every watchtower (its record
  *  is its standing — building, active and dormant towers all
  *  stand) and every GROWN seed (Sapling, Beacon, Bastion —
- *  a Starseed lies on the ground and pillars nothing). */
+ *  a Starseed lies on the ground and pillars nothing). A
+ *  watchtower's point is its drawn seat (above): the heart
+ *  when it stands alone on its tile, its seat of the pair
+ *  when the tile is shared. Seats are counted the way the
+ *  client draws them — every building on the tile except the
+ *  Dream Shroom wedges, in building-id order. */
 export function standingPillars(ownerKey: string): StandingPillar[] {
   const out: StandingPillar[] = [];
   const tileAt = new Map<number, { q: number; r: number }>();
   for (const t of sqlite.prepare("SELECT id, q, r FROM territory_tiles WHERE owner_key = ?").all(ownerKey) as any[]) {
     tileAt.set(Number(t.id), { q: Number(t.q), r: Number(t.r) });
   }
-  for (const b of sqlite.prepare("SELECT tile_id AS tileId FROM territory_buildings WHERE owner_key = ? AND building_type = 'watchtower'").all(ownerKey) as any[]) {
-    const c = tileAt.get(Number(b.tileId));
-    if (c) out.push({ q: c.q, r: c.r, radius: PILLAR_RADIUS_TOWER, kind: "tower" });
+  const seatsByTile = new Map<number, { tileId: number; buildingType: string }[]>();
+  for (const b of sqlite.prepare("SELECT tile_id AS tileId, building_type AS buildingType FROM territory_buildings WHERE owner_key = ? ORDER BY id").all(ownerKey) as any[]) {
+    if (b.buildingType === "dream-wheat") continue;
+    const list = seatsByTile.get(Number(b.tileId)) ?? [];
+    list.push({ tileId: Number(b.tileId), buildingType: String(b.buildingType) });
+    seatsByTile.set(Number(b.tileId), list);
+  }
+  for (const list of seatsByTile.values()) {
+    list.forEach((b, seatIndex) => {
+      if (b.buildingType !== "watchtower") return;
+      const c = tileAt.get(b.tileId);
+      if (!c) return;
+      if (list.length === 1) {
+        out.push({ q: c.q, r: c.r, radius: PILLAR_RADIUS_TOWER, kind: "tower" });
+      } else {
+        const off = PILLAR_SEAT_OFFSETS[seatIndex === 0 ? 0 : 1];
+        out.push({ q: c.q + off.dq, r: c.r + off.dr, radius: PILLAR_RADIUS_TOWER, kind: "tower" });
+      }
+    });
   }
   for (const s of sqlite.prepare("SELECT tile_id AS tileId, level FROM star_seeds WHERE owner_key = ? AND state IN ('held', 'first')").all(ownerKey) as any[]) {
     const stage = seedStageForLevel(Number(s.level ?? 1));
@@ -9305,8 +9347,14 @@ export const handlers = {
         const dq = slot.q - anchor.q, dr2 = slot.r - anchor.r;
         const depth = 0.45 + 0.15 * (mustered % 3);
         const lat = ((Math.floor(mustered / 3) % 3) - 1) * 0.18;
-        const pointQ = anchor.q + dq * depth + (-dr2) * lat;
-        const pointR = anchor.r + dr2 * depth + (dq + dr2) * lat;
+        // The muster's landing is corrected against the
+        // land's pillars at the order, like every march
+        // (FLOP fix, 2026-10-26 — see setMarch).
+        const rawQ = anchor.q + dq * depth + (-dr2) * lat;
+        const rawR = anchor.r + dr2 * depth + (dq + dr2) * lat;
+        const free = pillarFreePoint(standingPillars(ownerKey), rawQ, rawR);
+        const pointQ = free.q;
+        const pointR = free.r;
         mustered++;
         await db.update(schema.fieldPlacements)
           .set({ marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(marchWeightedSeconds(road, secPerHex, (id) => !!cursedById.get(id), marchCrowdOf(placements as any[], new Set([p.awakenedId]))) * 1000), marchGoal: null, marchPosQ: pointQ, marchPosR: pointR })
@@ -13624,6 +13672,18 @@ export const handlers = {
     const seconds = marchWeightedSeconds(road, marchSecondsPerHexFor(layers, aw.experience ?? 0), (id) => !!marchCursed.get(id), marchCrowdOf(allPlacements as any[], new Set([awakenedId])));
     if (!(await spendEnergy(ownerKey, energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
     const now = Date.now();
+    // THE MARCH'S LANDING, CORRECTED AT THE ORDER (FLOP fix,
+    // 2026-10-26): a free-point march named inside a standing
+    // pillar used to store the raw point and be set out to the
+    // rim only at settlement — the figure walked INTO the
+    // drawn tower and popped aside at the landing. The stored
+    // point is corrected against the land's pillars NOW, so
+    // the walk ends at the rim all along; settlement's own
+    // correction stands unchanged as the backstop. (The walk
+    // itself is not re-routed around pillars, and patrols in
+    // transit are not pillar-checked — both stand outside
+    // this fix.)
+    const marchPoint = freePoint ? pillarFreePoint(standingPillars(ownerKey), freePoint.q, freePoint.r) : null;
     await db.update(schema.fieldPlacements).set({
       marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000), marchGoal: null,
       // The point this march will stand on (or none — the
@@ -13631,7 +13691,7 @@ export const handlers = {
       // standing point it leaves is not touched: a march is
       // answered where it began until it ends, and the
       // landing writes the new point whole.
-      marchPosQ: freePoint ? freePoint.q : null, marchPosR: freePoint ? freePoint.r : null,
+      marchPosQ: marchPoint ? marchPoint.q : null, marchPosR: marchPoint ? marchPoint.r : null,
       patrolPath: null, patrolSince: null, patrolPosQ: null, patrolPosR: null,
       // AN ORDER ENDS THE FOLLOW (the marching-orders spec,
       // Nigel 2026-10-22 — the Table's march referee has

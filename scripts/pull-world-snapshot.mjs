@@ -22,6 +22,10 @@
 // Default out-root: ~/workspace/world-snapshots (override: --out-root).
 //
 // Verification — the pull FAILS (exit 1) unless all of it holds:
+//   · the snapshot db's received bytes equal the length AND the
+//     SHA-256 the door declared for them (its Content-Length and
+//     X-Snapshot-Sha256 headers) — the door's word, checked
+//     against the arrival, never the file against itself;
 //   · every blob's SHA-256 re-computes to its own filename;
 //   · every blob's byte count equals the door's list;
 //   · the snapshot db answers PRAGMA integrity_check with "ok";
@@ -31,7 +35,7 @@
 // evidence) but the receipt says so, loudly, in its verdicts.
 
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Transform } from "node:stream";
@@ -47,6 +51,17 @@ const base = (argValue("--base") ?? "").replace(/\/$/, "");
 if (!base || !/^https?:\/\//.test(base)) {
   console.error("Usage: EXPORT_TOKEN=… node scripts/pull-world-snapshot.mjs --base <url> [--local] [--out-root <dir>]");
   process.exit(2);
+}
+// THE TOKEN TRAVELS ONLY UNDER LOCK (FLOP fix, 2026-10-26): a
+// plain-http base is refused HERE — before the token is read,
+// let alone sent. The one exception is this machine itself.
+{
+  const u = new URL(base);
+  const local = u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "::1" || u.hostname === "[::1]";
+  if (u.protocol !== "https:" && !local) {
+    console.error(`Refusing ${base} — the export token never travels over plain http. Use the https door, or a localhost address for a local pull.`);
+    process.exit(2);
+  }
 }
 const token = process.env.EXPORT_TOKEN ?? "";
 if (!token) {
@@ -83,7 +98,7 @@ async function download(url, dest, timeoutMs) {
     },
   });
   await pipeline(res.body, tap, createWriteStream(dest));
-  return { bytes, sha256: hash.digest("hex") };
+  return { bytes, sha256: hash.digest("hex"), headers: res.headers };
 }
 
 async function getJson(path) {
@@ -104,6 +119,11 @@ const dbPart = join(dir, "app.db.part");
 const dbGot = await download(`${base}/api/export/db`, dbPart, 1_800_000);
 renameSync(dbPart, join(dir, "app.db"));
 note(`  db: ${dbGot.bytes} bytes, sha256 ${dbGot.sha256}`);
+// The door's own declarations for this snapshot — the pull is
+// proven against THESE, never against the received file read
+// back against itself (FLOP fix, 2026-10-26).
+const doorDbLength = Number(dbGot.headers.get("content-length"));
+const doorDbHash = dbGot.headers.get("x-snapshot-sha256");
 
 // The blob list, then every object by its hash (small pool: per-object
 // fetches are the resumable, provable shape the door was built for).
@@ -180,7 +200,14 @@ verdicts.blobCountsMatch = objects.length === manifest.blobs.filesOnDisk && blob
 if (!verdicts.blobCountsMatch) {
   failures.push(`blob totals: pulled ${objects.length} objects / ${blobBytes} bytes; manifest says ${manifest.blobs.filesOnDisk} / ${manifest.blobs.bytesOnDisk}`);
 }
-verdicts.dbBytesMatch = statSync(join(dir, "app.db")).size === dbGot.bytes;
+verdicts.dbLengthMatchesDoor = doorDbLength === dbGot.bytes;
+if (!verdicts.dbLengthMatchesDoor) {
+  failures.push(`db length: the door declared ${doorDbLength} bytes, ${dbGot.bytes} arrived`);
+}
+verdicts.dbHashMatchesDoor = typeof doorDbHash === "string" && doorDbHash === dbGot.sha256;
+if (!verdicts.dbHashMatchesDoor) {
+  failures.push(`db hash: the door declared ${doorDbHash ?? "(no X-Snapshot-Sha256 header)"}, the received bytes hash to ${dbGot.sha256}`);
+}
 
 const receipt = {
   pulledAt: new Date().toISOString(),

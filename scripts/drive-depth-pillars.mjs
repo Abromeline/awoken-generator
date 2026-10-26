@@ -14,8 +14,15 @@
 //      a march ordered onto a watchtower's own hex, its free
 //      point named as the hex's heart, lands the figure
 //      BESIDE the tower (on the hex, at the rim, never
-//      within); the dark's walk halts at the tower's base
+//      within) — and, since the FLOP fix, its STORED point
+//      already stands at the rim the moment the order lands
+//      (item 4); the dark's walk halts at the tower's base
 //      and walks on once the tower is gone.
+//   §E THE DRAWN SEAT (FLOP fix, item 3): on a hex shared by
+//      two buildings the tower is drawn at a seat, and its
+//      pillar stands at that seat — the heart's ground is
+//      walkable again, the seat's own ground bars a landing
+//      to its rim.
 //   §C THE FACE, in a real browser on the homeland: the
 //      Tender's stride crosses the first seed's heart freely
 //      while it lies a Starseed (control); once grown to a
@@ -56,7 +63,7 @@ process.chdir(new URL("..", import.meta.url).pathname);
 const GEO = await import("../server/dist/buildGeometry.js");
 const { segmentsCrossProper, collisionSegments } = GEO;
 const ACT = await import("../server/dist/actions.js");
-const { standingPillars, stepCrossesPillar, pillarFreePoint, PILLAR_RADIUS_TOWER, PILLAR_RADIUS_BEACON } = ACT;
+const { standingPillars, stepCrossesPillar, pillarFreePoint, PILLAR_RADIUS_TOWER, PILLAR_RADIUS_BEACON, PILLAR_SEAT_OFFSETS } = ACT;
 const BASE = "http://127.0.0.1:39955";
 const PW = "depth-drive-password";
 const SHOTS = "/home/hatch/workspace/depth-pillars-proof";
@@ -203,8 +210,21 @@ if (guard) {
   let g = guard;
   if (g.tileId === towerTile.id && awayTile) g = await settleTo(awayTile.id, null);
   // The march onto the tower's hex, its free point named as
-  // the hex's very heart — the pillar's centre itself.
-  g = await settleTo(towerTile.id, [towerTile.q, towerTile.r]);
+  // the hex's very heart — the pillar's centre itself. The
+  // STORED point is read from the record the moment the
+  // order lands (FLOP fix, item 4): corrected AT THE ORDER,
+  // before settlement is forced below — the figure's walk
+  // ends at the rim all along, instead of walking into the
+  // drawn tower and popping aside at the landing.
+  await callOk("setMarch", { awakenedId: company[0], tileId: towerTile.id, posQ: towerTile.q, posR: towerTile.r }, token);
+  const storedMarch = db.prepare("SELECT march_pos_q AS q, march_pos_r AS r, march_ends AS ends FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, company[0]);
+  const dStored = storedMarch?.q != null ? Math.hypot(storedMarch.q - towerTile.q, storedMarch.r - towerTile.r) : -1;
+  ok("§B ordered onto the pillar's heart, the march's STORED point already stands at the rim — corrected at the order, not at the landing",
+    !!storedMarch && storedMarch.ends > Date.now() && dStored >= PILLAR_RADIUS_TOWER - 1e-6 && dStored <= PILLAR_RADIUS_TOWER + 0.05,
+    `stored ${JSON.stringify(storedMarch)} dist ${dStored.toFixed(3)}`);
+  db.prepare("UPDATE field_placements SET march_ends = ? WHERE owner_key = ? AND awakened_id = ?").run(Date.now() - 1000, ownerKey, company[0]);
+  land = await callOk("getTerritory", {}, token);
+  g = land.placements.find(p => p.awakenedId === company[0]);
   const dHeart = Math.hypot((g?.posQ ?? 0) - towerTile.q, (g?.posR ?? 0) - towerTile.r);
   ok("§B the march lands ON the tower's hex (the hex is not barred — the pillar is)",
     !!g && g.tileId === towerTile.id, JSON.stringify(g));
@@ -790,6 +810,60 @@ await gS.waitYou("south guest seated");
   await browser2.close();
 }
 try { host.ws.close(); gN.ws.close(); gS.ws.close(); } catch { /* already shut */ }
+
+/* ══ §E THE DRAWN SEAT (FLOP fix, item 3) ═══════════════════
+ * A hex shared by two buildings draws its tower at a seat,
+ * not the heart — so the pillar stands at the seat. Proven
+ * at the registry the world settles by: a tower seated
+ * second stands at seat 1, a tower seated first at seat 0,
+ * neither pillars the heart, the heart's ground is walkable
+ * again, and the drawn seat's own ground bars a landing to
+ * its rim. (The single-seat heart stands as §A proved it.) */
+console.log("§E the drawn seat — a shared hex's pillar stands where its tower is drawn");
+{
+  // The registry reads the DATABASE, so the seat proofs
+  // stage from it too (the `land` snapshot above is §B's —
+  // and by now the drive's own battles have cursed nearly
+  // the whole world; the registry's arithmetic does not
+  // read the curse at all). The two tiles stand clear of
+  // every standing pillar — the choreography's tower and
+  // the grown Beacon — and of each other, so no pillar's
+  // rim can reach another's ground.
+  const dbTiles = db.prepare("SELECT id, q, r FROM territory_tiles WHERE owner_key = ? ORDER BY id").all(ownerKey);
+  const clearOfPillars = (t) => (!towerTile || hexDist(t, towerTile) >= 2) && (!seedTile || hexDist(t, seedTile) >= 2);
+  const t1 = dbTiles.find((t) => clearOfPillars(t));
+  const t2 = dbTiles.find((t) => clearOfPillars(t) && t1 && t.id !== t1.id && hexDist(t, t1) >= 2);
+  ok("§E two tiles clear of every standing pillar stand for the seat proofs", !!t1 && !!t2,
+    `db tiles ${dbTiles.length}, chosen ${JSON.stringify([t1?.id, t2?.id])}`);
+  if (t1 && t2) {
+    const insB = db.prepare("INSERT INTO territory_buildings (owner_key, tile_id, building_type, status, placed_at, ready_at) VALUES (?, ?, ?, 'active', ?, ?)");
+    // Tile 1: the shrine takes the first seat, the tower the second.
+    insB.run(ownerKey, t1.id, "attunement-shrine", now - 3600000, now - 3600000);
+    insB.run(ownerKey, t1.id, "watchtower", now - 3600000, now - 3600000);
+    // Tile 2: the tower takes the first seat, the shrine the second.
+    insB.run(ownerKey, t2.id, "watchtower", now - 3600000, now - 3600000);
+    insB.run(ownerKey, t2.id, "attunement-shrine", now - 3600000, now - 3600000);
+    const pillars = standingPillars(ownerKey);
+    const atSeat = (t, off) => pillars.some(p => p.kind === "tower"
+      && Math.abs(p.q - (t.q + off.dq)) < 1e-9 && Math.abs(p.r - (t.r + off.dr)) < 1e-9
+      && Math.abs(p.radius - PILLAR_RADIUS_TOWER) < 1e-9);
+    ok("§E a tower seated SECOND stands at the right seat (heart + seat offset 1), not the heart",
+      atSeat(t1, PILLAR_SEAT_OFFSETS[1]), JSON.stringify(pillars));
+    ok("§E a tower seated FIRST stands at the left seat (heart + seat offset 0)",
+      atSeat(t2, PILLAR_SEAT_OFFSETS[0]), JSON.stringify(pillars));
+    ok("§E neither shared tower pillars the heart itself",
+      !pillars.some(p => p.kind === "tower" && ((p.q === t1.q && p.r === t1.r) || (p.q === t2.q && p.r === t2.r))),
+      JSON.stringify(pillars));
+    const heartFree = pillarFreePoint(pillars, t1.q, t1.r);
+    ok("§E the shared hex's HEART is walkable ground again — a landing named there is left untouched",
+      heartFree.q === t1.q && heartFree.r === t1.r, JSON.stringify(heartFree));
+    const seat1 = { q: t1.q + PILLAR_SEAT_OFFSETS[1].dq, r: t1.r + PILLAR_SEAT_OFFSETS[1].dr };
+    const seatFree = pillarFreePoint(pillars, seat1.q, seat1.r);
+    ok("§E a landing on the DRAWN seat is set out to that seat's rim",
+      Math.abs(Math.hypot(seatFree.q - seat1.q, seatFree.r - seat1.r) - PILLAR_RADIUS_TOWER) < 1e-6,
+      JSON.stringify(seatFree));
+  }
+}
 
 console.log(`\ndrive-depth-pillars: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

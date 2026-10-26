@@ -2645,6 +2645,14 @@ function integrate(room: Room, now: number): void {
   // (the hex spans 40 px), so the feeding road is unbroken.
   // The dark is untouched in practice: its claw halt at the
   // seed is 69 px, far outside the rim.
+  // DELIBERATELY SEPARATE FROM THE HOMELAND RADII (FLOP fix,
+  // 2026-10-26): these rims live in the Table's own pixel
+  // units, measured off the Table's own drawn faces — they
+  // are NOT the homeland registry's Sapling/Beacon radii
+  // (server/src/actions.ts, axial units) times any scale, and
+  // retuning the homeland radii does not move them. The two
+  // grounds draw their seeds at different sizes; each ground's
+  // rim follows its own drawing.
   if (room.seedGrowth.level >= 2) {
     const c = tileCenter(SEED_TILE);
     if (c) {
@@ -8580,7 +8588,28 @@ export function registerTableRoutes(app: Express): void {
       res.status(409).json({ error: "That Tender is already bound to another Discord name — the intro door never moves a binding." });
       return;
     }
-    await db.insert(schema.tableBindings).values({ discordId: user.id, tenderId: tender.id });
+    try {
+      await db.insert(schema.tableBindings).values({ discordId: user.id, tenderId: tender.id });
+    } catch {
+      // The checks above and this insert are not one breath: a
+      // twin request in the same instant can win the row first,
+      // and the UNIQUE index on tender_id (store.ts) then turns
+      // this insert away. That is a refusal, not a failure —
+      // answer with the standing 409 wordings, naming whichever
+      // side the winning row stands on; never a bare 500.
+      if ((await bindingFor(user.id)) !== null) {
+        res.status(409).json({ error: "This Discord name is already bound to a Tender — the intro door never moves a binding." });
+        return;
+      }
+      const raced = await db.select().from(schema.tableBindings)
+        .where(eq(schema.tableBindings.tenderId, tender.id)).limit(1);
+      if (raced.length) {
+        res.status(409).json({ error: "That Tender is already bound to another Discord name — the intro door never moves a binding." });
+        return;
+      }
+      res.status(500).json({ error: "The binding could not be made — try again." });
+      return;
+    }
     res.json({ ok: true, bound: true, tenderName: await tenderDisplayName(tender.id) });
   });
 

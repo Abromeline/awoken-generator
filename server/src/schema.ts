@@ -840,10 +840,13 @@ export const tableProfiles = sqliteTable("table_profiles", {
 // THE TABLE'S BINDING (2026-10-16, Nigel's word): a Discord name tied
 // to a Tender, so the Table can deal that Tender's REAL deck — their
 // own Awoken with their true card faces — instead of the P0 stand-in
-// hand. One Discord identity binds one Tender at a time.
+// hand. One Discord identity binds one Tender at a time — and, since
+// the FLOP fix (2026-10-26), one Tender binds one Discord identity:
+// tender_id carries a UNIQUE index (store.ts lays it after clearing
+// any doubled rows the old check-then-insert race let through).
 export const tableBindings = sqliteTable("table_bindings", {
   discordId: text("discord_id").primaryKey(),
-  tenderId: integer("tender_id").notNull(),
+  tenderId: integer("tender_id").notNull().unique(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 

@@ -1178,6 +1178,28 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS table_bindings (
   tender_id INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );`);
+// ONE TENDER, ONE DISCORD BINDING (FLOP fix, 2026-10-26): the
+// intro door's bind used to check both directions and then insert,
+// with nothing underneath — two binds in the same instant could
+// marry one Tender to two Discord identities. The uniqueness now
+// stands in the database itself. Laying the index must survive
+// databases the race already doubled, so the doubled rows are
+// cleared first, on every boot (a no-op once clean): the survivor
+// per Tender is the EARLIEST binding — smallest created_at, ties
+// broken by the smallest rowid — the first binding ever laid down,
+// which is the row every reader (bindingFor, the tender-side read)
+// has been resolving to all along. Later duplicates are removed.
+sqlite.exec(`DELETE FROM table_bindings
+  WHERE rowid NOT IN (
+    SELECT rowid FROM table_bindings AS b1
+    WHERE NOT EXISTS (
+      SELECT 1 FROM table_bindings AS b2
+      WHERE b2.tender_id = b1.tender_id
+        AND (b2.created_at < b1.created_at
+          OR (b2.created_at = b1.created_at AND b2.rowid < b1.rowid))
+    )
+  );`);
+sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS table_bindings_tender_unique ON table_bindings (tender_id);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS table_bind_codes (
   code TEXT PRIMARY KEY,
   tender_id INTEGER NOT NULL,

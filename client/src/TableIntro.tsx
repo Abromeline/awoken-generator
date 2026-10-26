@@ -68,7 +68,6 @@ export default function TableIntro({
   const tenderNameRef = useRef("");
   const [assets, setAssets] = useState<WakeLayerAsset[]>([]);
   const [woken, setWoken] = useState<Awakened[]>([]);
-  const [needsSeed, setNeedsSeed] = useState(false);
   const [greeterId, setGreeterId] = useState<number | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const finishStartedRef = useRef(false);
@@ -109,9 +108,29 @@ export default function TableIntro({
     const [studio, welcome] = await Promise.all([api.getStudio(), api.getWelcome()]);
     setAssets(toLayerAssets(studio.assets));
     setWoken(studio.awakened);
-    setNeedsSeed(welcome.needsSeed);
     setGreeterId(welcome.greeterId);
     return { studio, welcome };
+  }
+
+  /** The bind, told truly (FLOP fix, 2026-10-26): the claim or
+   *  the sign-in has ALREADY made the Tender and signed her in
+   *  on this device by the time the binding is asked. If the
+   *  door refuses it, the words say exactly that — she stands
+   *  created and signed in — and give the refusal's own reason;
+   *  the walk does not begin (the seat waits on the binding),
+   *  and nothing reads as a bare failure. Returns true when the
+   *  binding took. */
+  async function bindOrExplain(tenderToken: string, display: string, created: boolean): Promise<boolean> {
+    try {
+      await bindIntro(tenderToken);
+      return true;
+    } catch (err) {
+      const why = err instanceof Error ? err.message : "The binding did not take.";
+      setError(created
+        ? `${display} is created, and you are signed in as her on this device. The binding did not take: ${why}`
+        : `You are signed in as ${display} on this device. The binding did not take: ${why}`);
+      return false;
+    }
   }
 
   async function submitBegin(e: FormEvent) {
@@ -127,10 +146,10 @@ export default function TableIntro({
         ...(email.trim() ? { email: email.trim() } : {}),
       });
       storeTenderToken(res.token);
-      await bindIntro(res.token);
       const display = res.tender.tenderName ?? name.trim();
       tenderNameRef.current = display;
       setTenderName(display);
+      if (!(await bindOrExplain(res.token, display, true))) return;
       await enterBeginning();
     } catch (err) {
       fail(err, "The beginning could not be made.");
@@ -145,10 +164,10 @@ export default function TableIntro({
     try {
       const res = await api.loginTender({ identity: identity.trim(), password });
       storeTenderToken(res.token);
-      await bindIntro(res.token);
       const display = res.tender.tenderName ?? identity.trim();
       tenderNameRef.current = display;
       setTenderName(display);
+      if (!(await bindOrExplain(res.token, display, false))) return;
       await enterBeginning();
     } catch (err) {
       fail(err, "That sign-in could not be made.");
@@ -158,14 +177,22 @@ export default function TableIntro({
   /** One wake, by the front page's own hands: the greeting first
    *  (seedWelcome, the firstborn weighting, the greeter law),
    *  then saveAwoken against the welcome grant — the same
-   *  endpoints, the same shared composition. */
+   *  endpoints, the same shared composition. The seed road is
+   *  keyed on the greeter law itself — nothing woken yet in
+   *  this walk AND no greeter standing (FLOP fix, 2026-10-26):
+   *  the welcome status can arrive needsSeed=false with an
+   *  empty deck (a welcome once claimed by a greeting since
+   *  deleted), and the first wake is still the greeting's,
+   *  carrying the firstborn weighting and spending no plain
+   *  credit — the server's seedWelcome owes the seed in
+   *  exactly that state. */
   async function wakeNext() {
     if (busy) return;
     setError("");
     if (!canWake(assets)) { setError("The workshop's matter has not arrived yet — the first pieces are still gathering."); return; }
     setBusy(true);
     try {
-      if (woken.length === 0 && needsSeed) {
+      if (woken.length === 0 && greeterId == null) {
         const layers = pickLayerSet(assets, undefined, true);
         await api.seedWelcome({ layers: toLayerRefs(layers), imageBase64: await compose(layers) });
       } else {
@@ -254,6 +281,7 @@ export default function TableIntro({
           <button className="table-btn primary" disabled={busy} onClick={() => void wakeNext()}>
             {busy ? "Waking…" : `Wake your ${nextWord} Awokin`}
           </button>
+          <button className="table-btn ghost" type="button" onClick={onCancel}>Back to the door</button>
         </div>
       </div>
     );
@@ -294,6 +322,7 @@ export default function TableIntro({
         {error && <p className="error-line">{error}</p>}
         <div className="door-actions">
           <button className="table-btn primary" onClick={() => setPhase("choosing")}>Return to the choosing</button>
+          <button className="table-btn ghost" type="button" onClick={onCancel}>Back to the door</button>
         </div>
       </div>
     );

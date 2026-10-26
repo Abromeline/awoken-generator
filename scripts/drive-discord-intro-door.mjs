@@ -41,6 +41,18 @@
 //   §G THE STANDING ROADS, UNCHANGED: an unbound identity's
 //      casual seat is the stand-in company of today; watch
 //      watches.
+//   §H THE BIND REFUSAL, TOLD TRULY (FLOP fix, item 5a): a
+//      true sign-in whose binding is refused says she stands
+//      signed in on this device, and why — the walk does not
+//      begin, and nothing moves.
+//   §I THE DOOR'S EXIT (FLOP fix, item 5b): "Back to the
+//      door" stands on the wakes phase and on the choosing's
+//      pause, not only on the form.
+//   §J THE SEED-KEYED FIRST WAKE (FLOP fix, item 6): with
+//      the welcome status reading needsSeed=false, an empty
+//      deck and no greeter, the first intro wake still rides
+//      the seed road — the woken one is the greeter, and no
+//      plain wake credit is spent.
 // Run AFTER `npm run build`:
 //   PUPPETEER_CACHE_DIR=$HOME/workspace/tools-chrome/.cache node scripts/drive-discord-intro-door.mjs
 import { join } from "node:path";
@@ -482,6 +494,124 @@ console.log("§G watch and the stand-in company behave exactly as today");
   const cfg = await (await fetch(`${BASE}/api/table/config`)).json();
   ok("§G the door's config stands in its production shape here (devMode false — the dev door is another server's shape, untouched)",
     cfg.devMode === false && typeof cfg.discordClientId === "string");
+}
+
+/* ── §H THE BIND REFUSAL, TOLD TRULY (FLOP fix, item 5a) ── */
+console.log("§H a refused bind tells the truth — signed in on this device, and why the binding did not take");
+{
+  // A fresh Discord identity takes the login road as
+  // "Returning Tender" — who is BOUND already (to DISC_B,
+  // §E). Her password is true, so the sign-in itself stands;
+  // only the binding is refused. The page must say she is
+  // signed in on this device, and why the binding did not
+  // take — never a bare failure.
+  const page = await doorPage(seatFor("disc-intro-e", "Intro E on Discord", false));
+  await page.waitForSelector(".table-door", { timeout: 30000 });
+  ok("§H the login offer opens its form", await clickButtonWithText(page, "I already have a Tender"));
+  await page.waitForSelector("#intro-identity", { timeout: 20000 });
+  await page.type("#intro-identity", "Returning Tender");
+  await page.type("#intro-login-password", PW);
+  ok("§H the sign-in is spoken", await clickButtonWithText(page, "Bind my Tender and continue"));
+  ok("§H the refusal names the truth: she IS signed in on this device",
+    await waitText(page, "signed in as Returning Tender on this device"));
+  ok("§H …and it names why the binding did not take, in the door's own refusal words",
+    await waitText(page, "That Tender is already bound to another Discord name"));
+  const textH = await pageText(page);
+  ok("§H the walk did NOT begin (the form still stands — the seat waits on the binding)",
+    textH.includes("Bind my Tender and continue") && !textH.includes("Wake your first three Awokin"),
+    textH.slice(0, 300));
+  ok("§H and still NOTHING moved — Returning Tender is bound to DISC_B alone",
+    !db.prepare("SELECT * FROM table_bindings WHERE discord_id = ?").get("disc-intro-e")
+    && db.prepare("SELECT COUNT(*) AS n FROM table_bindings WHERE tender_id = ?").get(tenderB.id).n === 1);
+  await page.close();
+}
+
+/* ── §I THE DOOR'S EXIT STANDS PAST THE FORM (item 5b) ── */
+console.log("§I Back to the door — present on the wakes, and on the choosing's pause");
+{
+  const page = await doorPage(seatFor("disc-intro-f", "Intro F on Discord", false));
+  await page.waitForSelector(".table-door", { timeout: 30000 });
+  ok("§I the Begin offer opens the claim form", await clickButtonWithText(page, "Begin as a new Tender"));
+  await page.waitForSelector("#intro-name", { timeout: 20000 });
+  await page.type("#intro-name", "Exit Door Tender");
+  await page.type("#intro-password", PW);
+  await page.type("#intro-confirm", PW);
+  ok("§I the claim is spoken", await clickButtonWithText(page, "Begin as a Tender"));
+  ok("§I the waking step stands", await waitText(page, "Wake your first three Awokin"));
+  ok("§I the exit stands on the WAKES phase (Back to the door)",
+    await clickButtonWithText(page, "Back to the door"));
+  ok("§I taking the exit returns the door's standing choices",
+    await waitText(page, "The casual table"));
+  await page.close();
+
+  const page2 = await doorPage(seatFor("disc-intro-g", "Intro G on Discord", false));
+  await page2.waitForSelector(".table-door", { timeout: 30000 });
+  ok("§I the Begin offer opens the claim form (the second walk)", await clickButtonWithText(page2, "Begin as a new Tender"));
+  await page2.waitForSelector("#intro-name", { timeout: 20000 });
+  await page2.type("#intro-name", "Paused Door Tender");
+  await page2.type("#intro-password", PW);
+  await page2.type("#intro-confirm", PW);
+  ok("§I the claim is spoken", await clickButtonWithText(page2, "Begin as a Tender"));
+  ok("§I the waking step stands", await waitText(page2, "Wake your first three Awokin"));
+  for (const w of ["first", "second", "third"]) {
+    ok(`§I the ${w} wake is offered`, await clickButtonWithText(page2, `Wake your ${w} Awokin`));
+    ok(`§I the ${w} wake lands`, await waitText(page2, w === "third" ? "What manner of tender are you?" : `${["first", "second", "third"].indexOf(w) + 1} of three woken`));
+  }
+  const closedChoosing = await page2.evaluate(() => {
+    const b = document.querySelector(".class-choosing-close");
+    if (b) { b.click(); return true; }
+    return false;
+  });
+  ok("§I the Choosing is put down unfinished (its own close)", closedChoosing);
+  // The paused phase is read by its heading — the eyebrow
+  // above it ("the choosing waits") is set in capitals by
+  // the stylesheet, and innerText speaks in the rendered
+  // case, so the small line cannot be the witness.
+  ok("§I the choosing waits — the paused phase stands", await waitText(page2, "Your class and your runic weapon"));
+  const pausedText = await pageText(page2);
+  ok("§I the exit stands on the PAUSED phase too (Back to the door, beside the return)",
+    pausedText.includes("Back to the door") && pausedText.includes("Return to the choosing"),
+    pausedText.slice(0, 300));
+  await page2.close();
+}
+
+/* ── §J THE FIRST WAKE RIDES THE SEED ROAD (item 6) ──── */
+console.log("§J needsSeed false, deck empty, no greeter — the first wake is still the greeting's");
+{
+  // Sculpt the FLOP's narrow state: her welcome stands
+  // CLAIMED (welcome_claimed = 1 — as it does after a
+  // greeting was claimed and then deleted from the deck),
+  // so the served status reads needsSeed=false, yet she
+  // holds no Awoken and no greeter stands.
+  const claimJ = await call("claimTender", { password: PW, tenderName: "Seedless Tender" });
+  const tenderJ = db.prepare("SELECT * FROM tenders WHERE tender_name = ?").get("Seedless Tender");
+  const welcomeOf = async () => {
+    const res = await fetch(`${BASE}/api/welcome`, { headers: { "x-tender-token": claimJ.token } });
+    return res.json();
+  };
+  await welcomeOf(); // the first touch lays the visitor row down (granted, unclaimed)
+  db.prepare("UPDATE visitors SET welcome_claimed = 1 WHERE visitor_id = ?").run(`tender:${tenderJ.id}`);
+  const welcomeJ = await welcomeOf();
+  ok("§J the stage stands: the served welcome status reads needsSeed=false with no greeter",
+    welcomeJ.needsSeed === false && welcomeJ.greeterId === null, JSON.stringify(welcomeJ));
+  const creditsBefore = (await call("getStudio", {}, claimJ.token)).credits.balance;
+  const page = await doorPage(seatFor("disc-intro-h", "Intro H on Discord", false));
+  await page.waitForSelector(".table-door", { timeout: 30000 });
+  ok("§J the login offer opens its form", await clickButtonWithText(page, "I already have a Tender"));
+  await page.waitForSelector("#intro-identity", { timeout: 20000 });
+  await page.type("#intro-identity", "Seedless Tender");
+  await page.type("#intro-login-password", PW);
+  ok("§J the sign-in is spoken", await clickButtonWithText(page, "Bind my Tender and continue"));
+  ok("§J the waking step stands", await waitText(page, "Wake your first three Awokin"));
+  ok("§J the first wake is offered", await clickButtonWithText(page, "Wake your first Awokin"));
+  ok("§J the greeting joins (1 of three woken)", await waitText(page, "1 of three woken"));
+  const kinJ = db.prepare("SELECT * FROM awakened WHERE owner_key = ? ORDER BY id").all(`tender:${tenderJ.id}`);
+  ok("§J the woken one IS the greeter — the first wake rode the seed road, not a plain wake",
+    kinJ.length === 1 && kinJ[0].greeter === 1, JSON.stringify(kinJ.map((k) => k.greeter)));
+  const creditsAfter = (await call("getStudio", {}, claimJ.token)).credits.balance;
+  ok("§J no plain wake credit was spent on it (the welcome carried it)",
+    creditsBefore === creditsAfter, `before=${creditsBefore} after=${creditsAfter}`);
+  await page.close();
 }
 
 await browser.close().catch(() => {});

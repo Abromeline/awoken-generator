@@ -220,7 +220,21 @@ export async function getWelcomeStatus(ownerKey: string) {
  *  call returns the already-joined one instead of making another. */
 export async function seedWelcome(ownerKey: string, ownerName: string, body: unknown) {
   const { visitor } = await ensureVisitor(ownerKey);
-  if (visitor.welcomeClaimed === 1) badRequest("Your welcome has already been received.");
+  if (visitor.welcomeClaimed === 1) {
+    // THE GREETER LAW, WHOLE (FLOP fix, 2026-10-26): the
+    // welcome is spent only while its greeting STANDS. A
+    // Tender whose greeting is gone from her deck (deleted)
+    // and who holds no Awoken at all is owed the seed again —
+    // the intro door's first wake rides this road whenever no
+    // greeter stands, even when the status reads claimed.
+    // While a greeter stands, or she holds any Awoken, the
+    // welcome stays received; and the seed cannot be farmed —
+    // the moment one is gathered, a greeter stands again.
+    const greeter = await greeterIdFor(ownerKey);
+    const held = await db.select({ id: schema.awakened.id }).from(schema.awakened)
+      .where(eq(schema.awakened.ownerKey, ownerKey)).limit(1);
+    if (greeter !== null || held.length > 0) badRequest("Your welcome has already been received.");
+  }
   const existing = await pendingFor(ownerKey, "welcome");
   if (existing) {
     const payload = await waitingPayload(existing);
