@@ -1000,6 +1000,7 @@ button { font-family: inherit; }
 }
 .beacon-line { font-size: 14px; line-height: 1.45; margin: 8px 0; }
 .beacon-line.quiet { opacity: 0.75; }
+.beacon-line.invite-link-line code { word-break: break-all; font-size: 12.5px; color: var(--gold-bright); }
 .beacon-pop .table-btn { width: 100%; margin-top: 10px; }
 .beacon-pop .door-input { width: 100%; box-sizing: border-box; }
 .table-btn.ghost { border-color: var(--ash-3); color: var(--gold-bright); opacity: 0.85; }
