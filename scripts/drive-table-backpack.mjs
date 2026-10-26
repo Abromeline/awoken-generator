@@ -205,19 +205,44 @@ async function seatPage(sess, room) {
   // AMENDED 2026-10-25 (Nigel: "make the back pack 2 x bigger and
   // remove the red boarder"): the pin measures ~92×112, carries no
   // border, and the beacon pin stands clear above it.
-  const pin = await page.evaluate(() => {
+  // AMENDED AGAIN 2026-10-25 (Nigel: "if i ask to make a button
+  // from something i mean from the image. if i say put thing on
+  // the button that means make a box."): the pin is no longer a
+  // box with the picture inside — the button IS the backpack
+  // image itself: background transparent, no border, no padding,
+  // the pack's own face standing by contain on true alpha.
+  const pin = await page.evaluate(async () => {
     const el = document.querySelector(".bag-pin");
     if (!el) return { found: false };
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     const beacon = document.querySelector(".beacon-pin");
     const br = beacon ? beacon.getBoundingClientRect() : null;
+    const img = el.querySelector("img");
+    const ics = img ? getComputedStyle(img) : null;
+    // The served face on a canvas: a true-alpha face reads 0 in
+    // its corners and 255 on the pack itself.
+    let face = null;
+    if (img && img.complete && img.naturalWidth) {
+      const cv = document.createElement("canvas");
+      cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const cx2 = cv.getContext("2d");
+      cx2.drawImage(img, 0, 0);
+      const d = cx2.getImageData(0, 0, cv.width, cv.height).data;
+      let minA = 255, maxA = 0;
+      for (let i = 3; i < d.length; i += 4) { if (d[i] < minA) minA = d[i]; if (d[i] > maxA) maxA = d[i]; }
+      face = { w: cv.width, h: cv.height, cornerA: d[3], minA, maxA };
+    }
     return {
       found: true,
       rightGap: Math.round(window.innerWidth - (r.left + r.width)),
       cx: r.left + r.width / 2, cy: r.top + r.height / 2,
       w: Math.round(r.width), h: Math.round(r.height),
       borderW: cs.borderTopWidth,
+      bg: cs.backgroundColor,
+      pad: cs.paddingTop,
+      fit: ics ? ics.objectFit : null,
+      face,
       beaconFound: !!br,
       beaconClearAbove: br ? br.bottom <= r.top + 1 : false,
     };
@@ -226,6 +251,9 @@ async function seatPage(sess, room) {
   ok("the pin is LOCKED TO THE RIGHT SIDE (its right edge hugs the window's)", pin.rightGap >= 0 && pin.rightGap <= 24, `gap=${pin.rightGap}`);
   ok("the backpack stands TWICE THE SIZE (~92×112)", pin.w >= 90 && pin.w <= 94 && pin.h >= 110 && pin.h <= 114, `${pin.w}×${pin.h}`);
   ok("the backpack carries NO border (the red border is gone)", pin.borderW === "0px", `borderTopWidth=${pin.borderW}`);
+  ok("the button is the IMAGE ITSELF — no box behind it (background transparent, no padding)", pin.bg === "rgba(0, 0, 0, 0)" && pin.pad === "0px", `bg=${pin.bg} pad=${pin.pad}`);
+  ok("the pack's face stands by CONTAIN (never cropped into a frame)", pin.fit === "contain", `objectFit=${pin.fit}`);
+  ok("the served face carries TRUE ALPHA (the pack stands on nothing)", !!pin.face && pin.face.cornerA === 0 && pin.face.minA === 0 && pin.face.maxA === 255, JSON.stringify(pin.face));
   ok("the beacon pin stands CLEAR ABOVE the doubled backpack (no overlap)", pin.beaconFound && pin.beaconClearAbove);
   if (pin.found) {
     await page.mouse.click(pin.cx, pin.cy);
@@ -242,6 +270,7 @@ async function seatPage(sess, room) {
     }
   }
   await page.screenshot({ path: `${OUT}/a-seated-hand-row.png` });
+  await page.screenshot({ path: `${OUT}/table-image-button.png` });
   await page.close();
 }
 

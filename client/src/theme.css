@@ -1709,29 +1709,35 @@ body.defeat-flash {
    Pack panel it opens — unclaimed drops with their
    faces and Claim buttons, her inventory beneath.
    AMENDED 2026-10-25 (Nigel: "Double the terrain bag
-   button too."): the button stands twice the size; its
-   gold-brown border stands as it stood (only the Table
-   pin's red border was struck). At twice the size its
-   old seat (top:118) buried live furniture — the
-   compass's north/zoom buttons and the construction
-   toggle beneath it — so the button takes the first
-   clear seat down the same right edge, directly under
-   the castle toggle (top:408, the stack's own 8px gap):
-   the compass (100–260) and the whole toggle stack
-   (216–400) stand clear above it, nothing covered. */
+   button too."): the button stands twice the size.
+   AMENDED AGAIN 2026-10-25 (Nigel: "if i ask to make a
+   button from something i mean from the image."): the
+   button is the backpack image itself — no box, no
+   border, no background — the pack's own face by
+   contain on true alpha.
+   SEAT RE-RULED 2026-10-25 22:55 (Nigel: "on the
+   homeland it needs ot be lowered and lock to the
+   champions tab button."): the top-anchored seats
+   (top:118, then top:408 under the castle toggle) are
+   SUPERSEDED. The bag is bottom-anchored in the
+   champion button's own column — right:20, stacked
+   directly above .champion-fab (bottom:140 + its 56
+   + a 12 gap = bottom:208) — so bag and champion ride
+   together at any viewport height: that is the lock.
+   The Pack panel follows it down, opening to the
+   LEFT of the bag on the same bottom line. */
 .bag-btn{
-  position:fixed;right:12px;top:408px;z-index:945;width:112px;height:128px;
-  background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:8px;
-  padding:3px;cursor:pointer;
+  position:fixed;right:20px;bottom:208px;z-index:945;width:112px;height:128px;
+  background:transparent;border:none;
+  padding:0;cursor:pointer;
 }
-.bag-btn img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block}
-.bag-btn:hover{border-color:#ffd98a}
+.bag-btn img{width:100%;height:100%;object-fit:contain;display:block}
 .bag-badge{
   position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;
   background:#a33b2e;color:#ffe9c9;border:1px solid #ffd98a;border-radius:10px;
   font-size:11.5px;line-height:18px;text-align:center;padding:0 5px;
 }
-.loot-panel{right:136px;top:408px;bottom:auto;width:238px}
+.loot-panel{right:144px;bottom:208px;top:auto;width:238px}
 .loot-x{float:right;background:none;border:none;color:#b8a06a;cursor:pointer;font-size:12px;padding:0}
 .loot-x:hover{color:#ffd98a}
 .loot-row{display:flex;align-items:center;gap:7px}
