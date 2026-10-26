@@ -7770,6 +7770,28 @@ function handleConnection(ws: WebSocket): void {
       sendState(room);
       return;
     }
+
+    // EMPTY THE PACK (Nigel, ruled 2026-10-26 00:41:
+    // "Empty the pack = throw everything away"): ONE
+    // seated player's single act destroys the room's
+    // whole gathered Pack — every entry, of every kind,
+    // gone for good; nothing lands on anyone and no
+    // purse is credited. One tap, no second step and no
+    // consent of the other seats: the ruling was made
+    // knowing the Pack is shared. The room hears of it
+    // in the tale, and the emptied Pack is served to
+    // every seat at once.
+    if (msg.type === "emptyPack") {
+      if (!player) return;
+      const actor = player;
+      if (actor.watcher || actor.storytender) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no bag — bind in the game to take a seat, and the Pack can pay you." })); return; }
+      if (room.campaign && !room.campaign.over) { ws.send(JSON.stringify({ type: "error", message: "The Pack gathers on the free field — this room's road pays its own way." })); return; }
+      if (!(room.pack ?? []).length) { ws.send(JSON.stringify({ type: "error", message: "The Pack already stands empty — there is nothing to throw away." })); return; }
+      room.pack = [];
+      tell(room, `${actor.name} empties the Pack — everything gathered in it is thrown away.`);
+      sendState(room);
+      return;
+    }
     if (msg.type === "looseBlade") {
       // LOOSE THE SINGLE BLADE (Nigel, 2026-10-20, spec
       // single-blade-click-spring; re-ruled 2026-10-23 —

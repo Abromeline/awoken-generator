@@ -3938,6 +3938,16 @@ export default function Table() {
                   </div>
                 ))
               )}
+              {/* EMPTY THE PACK (Nigel, ruled 2026-10-26
+                  00:41): one tap throws the whole gathered
+                  Pack away — no second step, exactly as
+                  ruled. The button stands only while the
+                  Pack holds anything. */}
+              {(shared.pack ?? []).length > 0 && (
+                <div className="bag-empty-row">
+                  <button type="button" className="table-btn" onClick={() => send({ type: "emptyPack" })}>Empty the pack</button>
+                </div>
+              )}
               <h4>Your inventory</h4>
               {myPack === null ? (
                 <p className="beacon-line">Bind your Tender in the game, and what you claim rests here.</p>
