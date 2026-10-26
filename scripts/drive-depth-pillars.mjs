@@ -426,25 +426,72 @@ const domOrder = () => evalRetry(() => {
   const fig = svg.querySelector("g.field-drifter") ?? svg.querySelector("g.field-patroller");
   if (!tower || !beacon || !fig) return { tower: !!tower, beacon: !!beacon, fig: !!fig };
   const FOL = Node.DOCUMENT_POSITION_FOLLOWING;
-  // The DRAWN bases (rect bottoms): a sprite's foot line on
-  // screen. The settle poll below reads these, not mere
-  // existence — a figure moved in the record keeps its old
-  // drawn place until the page's placement state catches
-  // up, and an order read taken in that breath reports
-  // the position it left, not the one it was sent to.
+  // THE WITNESS IS DOCUMENT ORDER: in an SVG, later in the
+  // document is later on the brush — the figure stands
+  // BEFORE a pillar exactly when the figure's first image
+  // sits at a smaller document index than the pillar's
+  // image. (Direct inventory on this tree, 2026-10-26: at
+  // the front placement the figure's images stand at
+  // indices 98–100, the tower's at 97 — the order flips
+  // the moment the placement lands and stays.) The rect
+  // bottoms ride along as diagnostics only: as a yardstick
+  // they lied — a front figure's base sits ~1–12 px below
+  // the tower PNG's own bottom edge and bobs ±5 px on the
+  // drift, so a bottom-vs-bottom read can call a front
+  // stand "behind" forever.
+  const figImgs = [...fig.querySelectorAll("image")];
+  const figIdx = figImgs.length ? Math.min(...figImgs.map(i => imgs.indexOf(i))) : -1;
+  const towerIdx = imgs.indexOf(tower), beaconIdx = imgs.indexOf(beacon);
+  const before = (pillarEl, pillarIdx) => figIdx >= 0 && pillarIdx >= 0
+    ? figIdx < pillarIdx
+    : (fig.compareDocumentPosition(pillarEl) & FOL) !== 0;
   const baseY = (el) => { const r = el?.getBoundingClientRect(); return r ? r.bottom : null; };
+  // The figure's ground point, read back into the land's own
+  // axial units through the camera's inverse: the settle
+  // gates on the DRAWN figure standing where the record
+  // says — a stale frame still painting the figure's old
+  // stand cannot pass on index stability alone. (Direct
+  // reads on this tree, 2026-10-26: the drawn point tracks
+  // the record's (posQ, posR) within ~0.2 axial — the rect's
+  // bottom rides a breath below the anchor and bobs on the
+  // drift — while a superseded stand sits a full 1.24 away.)
+  const cam = document.querySelector(".land-cam");
+  const inv = cam?.getScreenCTM()?.inverse();
+  let figLand = null;
+  if (inv) {
+    const r = fig.getBoundingClientRect();
+    const p = new DOMPoint(r.left + r.width / 2, r.bottom).matrixTransform(inv);
+    const K = 54 / 796;
+    const aq = (p.x - 250) / (1292 * K);
+    const ar = (p.y - 170 - aq * 470 * K) / (948 * K);
+    figLand = { q: +aq.toFixed(2), r: +ar.toFixed(2) };
+  }
   return {
     tower: true, beacon: true, fig: true,
-    figBeforeTower: (fig.compareDocumentPosition(tower) & FOL) !== 0,
-    figBeforeBeacon: (fig.compareDocumentPosition(beacon) & FOL) !== 0,
+    figBeforeTower: before(tower, towerIdx),
+    figBeforeBeacon: before(beacon, beaconIdx),
+    figImgIdx: figIdx, towerImgIdx: towerIdx, beaconImgIdx: beaconIdx,
     figBaseY: baseY(fig), towerBaseY: baseY(tower), beaconBaseY: baseY(beacon),
+    figLand,
   };
 });
 async function setGuardPlace(tileId, q, r) {
-  db.prepare("UPDATE field_placements SET tile_id = ?, pos_q = ?, pos_r = ?, march_path = NULL, march_pos_q = NULL, march_pos_r = NULL, march_since = NULL, march_ends = NULL WHERE owner_key = ? AND awakened_id = ?")
+  const upd = db.prepare("UPDATE field_placements SET tile_id = ?, pos_q = ?, pos_r = ?, march_path = NULL, march_pos_q = NULL, march_pos_r = NULL, march_since = NULL, march_ends = NULL WHERE owner_key = ? AND awakened_id = ?")
     .run(tileId, q, r, ownerKey, company[0]);
+  // Three-way agreement, kept from the arbitration that
+  // settled this section (2026-10-26): the write must land
+  // (a vanished row means the guard fell — the pairs would
+  // read a ghost), and what the server serves must equal
+  // what the record holds before the page is asked to draw
+  // it. Either disagreement stops the run in plain words.
+  if (upd.changes !== 1) throw new Error(`setGuardPlace: the guard's field row is gone (update matched ${upd.changes} rows) — she fell before the place could be set`);
+  const dbRow = db.prepare("SELECT tile_id AS tileId, pos_q AS posQ, pos_r AS posR FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, company[0]);
+  if (!dbRow || dbRow.tileId !== tileId || dbRow.posQ !== q || dbRow.posR !== r) throw new Error(`setGuardPlace: the record does not hold the place just written — ${JSON.stringify(dbRow)} vs tile=${tileId} pos=${q},${r}`);
   await enterTerritory();
   await clearOverlays();
+  const served = await callOk("getTerritory", {}, token);
+  const sp = served.placements?.find(p => p.awakenedId === company[0]);
+  if (!sp || sp.tileId !== tileId || sp.posQ !== q || sp.posR !== r) throw new Error(`setGuardPlace: the served placement disagrees with the record — served ${JSON.stringify(sp ? { tileId: sp.tileId, posQ: sp.posQ, posR: sp.posR } : null)} vs record tile=${tileId} pos=${q},${r}`);
 }
 const shotStage = async (name) => {
   try {
@@ -452,57 +499,72 @@ const shotStage = async (name) => {
     if (svg) await svg.screenshot({ path: join(SHOTS, name) });
   } catch { /* a re-frame during the shot — the DOM proofs carry the section */ }
 };
-// The buildings fetch can land a breath after the world
-// snapshot, and a figure moved in the record is first
-// drawn at the place it left — so a draw-order read
-// settles only when the figure's DRAWN BASE stands on the
-// intended side of the named pillar's drawn base (behind:
-// its foot line above the pillar's; in front: below it)
-// and the read is stable — the same sight twice, a breath
-// apart. Existence alone never settles a read (hardened
-// 2026-10-26 after two runs read mid-catch-up and reported
-// the behind order for a figure already sent in front).
-const domOrderSettled = async (pillar, side) => {
+// A draw-order read settles when the DRAWN figure stands
+// where the record was just written AND the document order
+// agrees, both holding across three consecutive reads a
+// breath (~250 ms) apart, inside a generous 60 s window.
+// The ground-point gate is the arbitration's fix
+// (2026-10-26): on a quiet land the page applies a written
+// place within one read-loop beat and the order flips with
+// it (proven by direct probe), but this land is NOT quiet —
+// the stride sections wake its battle, the guard fell
+// mid-proof once, and index stability alone kept reporting
+// a stand the figure no longer held. Where the figure
+// STANDS is the record's own test: the drawn point must
+// read within 0.45 axial of the written (posQ, posR) — a
+// superseded stand sits 1.24 away, the drift's bob ~0.2.
+// The rect-bottom side of the read stays diagnostic only:
+// as a yardstick it lied (see domOrder).
+const domOrderSettled = async (pillar, side, expectQ, expectR) => {
   const orderKey = pillar === "tower" ? "figBeforeTower" : "figBeforeBeacon";
-  const baseKey = pillar === "tower" ? "towerBaseY" : "beaconBaseY";
-  const placedRight = (o) => {
-    if (!o || !o.tower || !o.beacon || !o.fig) return false;
-    if (o.figBaseY == null || o[baseKey] == null) return false;
-    return side === "behind" ? o.figBaseY < o[baseKey] : o.figBaseY > o[baseKey];
-  };
+  const expected = side === "behind";
   let ord = await domOrder();
+  let streak = 0;
   const t0 = Date.now();
-  while (Date.now() - t0 < 20000) {
-    if (placedRight(ord)) {
-      const again = (await sleep(300), await domOrder());
-      if (placedRight(again) && again[orderKey] === ord[orderKey]) return again;
-      ord = again;
+  while (Date.now() - t0 < 60000) {
+    const atPlace = !!ord?.figLand
+      && Math.abs(ord.figLand.q - expectQ) <= 0.45
+      && Math.abs(ord.figLand.r - expectR) <= 0.45;
+    if (ord && ord.tower && ord.beacon && ord.fig && ord[orderKey] === expected && atPlace) {
+      streak++;
+      if (streak >= 3) return ord;
     } else {
-      await sleep(600);
-      ord = await domOrder();
+      streak = 0;
     }
+    await sleep(250);
+    ord = await domOrder();
   }
   return ord;
 };
 {
+  // The face proofs run on a standing land, not a war: the
+  // guard's record is made fast against the dark for the
+  // length of the pairs (she fell mid-proof during the
+  // arbitration runs — her row deleted by the fall, the
+  // pair left reading a ghost), and the standing dark is
+  // cleared. A fixture act in the drive's own idiom, like
+  // the grown seed below.
+  db.prepare("UPDATE field_placements SET hp = 100000 WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, company[0]);
+  db.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(ownerKey);
+  db.prepare("UPDATE tender_progress SET battle_watermark = ? WHERE owner_key = ?").run(Date.now(), ownerKey);
   await setGuardPlace(towerTile.id, towerTile.q, towerTile.r - 0.62);
-  let ord = await domOrderSettled("tower", "behind");
+  let ord = await domOrderSettled("tower", "behind", towerTile.q, towerTile.r - 0.62);
   ok("§C the tower and the figure both stand drawn", !!ord && ord.tower && ord.fig, JSON.stringify(ord));
   ok("§C BEHIND the tower's base line, the figure is drawn BEFORE the tower (the tower covers him)",
     !!ord && ord.figBeforeTower === true, JSON.stringify(ord));
   await shotStage("homeland-figure-behind-tower.png");
   await setGuardPlace(towerTile.id, towerTile.q, towerTile.r + 0.62);
-  ord = await domOrderSettled("tower", "front");
+  ord = await domOrderSettled("tower", "front", towerTile.q, towerTile.r + 0.62);
   ok("§C IN FRONT of the tower's base, the figure is drawn AFTER the tower (he covers its foot)",
     !!ord && ord.figBeforeTower === false, JSON.stringify(ord));
   await shotStage("homeland-figure-before-tower.png");
   await setGuardPlace(seedTile.id, seedTile.q, seedTile.r - 0.62);
-  ord = await domOrderSettled("beacon", "behind");
+  ord = await domOrderSettled("beacon", "behind", seedTile.q, seedTile.r - 0.62);
   ok("§C the Beacon stands drawn, and BEHIND its base the figure is drawn BEFORE it",
     !!ord && ord.beacon && ord.figBeforeBeacon === true, JSON.stringify(ord));
   await shotStage("homeland-figure-behind-beacon.png");
   await setGuardPlace(seedTile.id, seedTile.q, seedTile.r + 0.62);
-  ord = await domOrderSettled("beacon", "front");
+  ord = await domOrderSettled("beacon", "front", seedTile.q, seedTile.r + 0.62);
   ok("§C IN FRONT of the Beacon's base, the figure is drawn AFTER it",
     !!ord && ord.figBeforeBeacon === false, JSON.stringify(ord));
   await shotStage("homeland-figure-before-beacon.png");
@@ -580,11 +642,46 @@ await waitFor(() => !host.state?.hosted, "the hosted land folds");
   db.prepare("UPDATE ui_config SET value = ? WHERE key = ?").run(JSON.stringify(rec), key);
 }
 host.send({ type: "beaconOpen", privacy: "public" });
-// The reopen's state propagation can breathe past the
-// 25 s default on a loaded machine (it timed out twice in
-// the build's proof runs while §D passed whole in another)
-// — this one wait carries 60 s.
-await waitFor(() => host.state?.hosted?.hostName === H.name && host.state?.shared?.seed?.stage === "beacon", "the room's seed stands grown (a Beacon)", 60000);
+// THE REOPEN WAIT — read at the served state's own paths.
+// The server sends the shared state whole (its
+// sharedState()): seed, hosted and tale ride at the TOP
+// level of host.state. An earlier witness read
+// state.shared.seed — a path that does not exist in the
+// served shape — so this wait timed out at ANY length,
+// in run after run, and read as a propagation stall.
+// (Harness iteration two, 2026-10-26: the two landing
+// runs died here on that path, not on slowness.) The wait
+// keeps its generous 60 s; on timeout it DUMPS what the
+// drive can see before failing, so any real stall is
+// seen, never guessed at.
+const reopened = await (async () => {
+  const s = Date.now();
+  while (Date.now() - s < 60000) {
+    const st = host.state;
+    if (st?.hosted?.hostName === H.name && st?.seed?.stage === "beacon") return true;
+    await sleep(250);
+  }
+  return false;
+})();
+if (!reopened) {
+  const st = host.state;
+  const rowNow = db.prepare("SELECT value FROM ui_config WHERE key = ?").get(`table.hosted.${H.ownerKey}`);
+  let recNow = null;
+  try { recNow = rowNow ? JSON.parse(rowNow.value) : null; } catch { /* the row's shape is itself evidence */ }
+  console.log("  §D REOPEN DUMP — 60 s without the grown seed served:");
+  console.log("    hosted, as served:", JSON.stringify(st?.hosted ?? null));
+  console.log("    seed, as served (the stage line a page would show):", JSON.stringify(st?.seed ?? null));
+  console.log("    ground, as served:", st?.hosted
+    ? `a hosted land (source ${st.hosted.source})`
+    : `no hosted land — the room stands on the instanced world (${st?.map?.length ?? 0} tiles served)`);
+  console.log("    errors the host socket heard:", JSON.stringify(host.errors), "· joinErrors:", JSON.stringify(host.joinErrors));
+  console.log("    the tale's last lines:", JSON.stringify(Array.isArray(st?.tale) ? st.tale.slice(-6).map(t => t.text) : st?.tale ?? null));
+  console.log("    the record in ui_config at this moment (seedGrowth):", JSON.stringify(recNow?.seedGrowth ?? null));
+  ok("§D the room's seed stands grown — a Beacon stands in the room", false, "reopen timed out at 60 s — the dump above is the evidence");
+  try { host.ws.close(); } catch { /* already shut */ }
+  console.log(`\ndrive-depth-pillars: ${pass} passed, ${fail} failed`);
+  process.exit(1);
+}
 ok("§D the room's seed stands grown — a Beacon stands in the room", true);
 
 const gN = new Actor();
@@ -594,18 +691,40 @@ const gS = new Actor();
 await gS.join(GS.tt, ROOM, { name: GS.name });
 await gS.waitYou("south guest seated");
 
-// §D1: the north guest glides at the seed's very heart.
+// §D1: the north guest glides THROUGH the seed's heart —
+// his road is aimed at a lawful point past the Beacon, so
+// whatever stops him is the pillar itself. (Arbitration,
+// 2026-10-26: a glide aimed AT the heart is refused in
+// words by the Table's own law — "the glide ends on the
+// land, never on the star-seed's tile" — and the guest
+// never moves; the refusal, not the pillar, was all the
+// earlier witness ever measured. Aimed through, he walks,
+// enters the seed's hex, and is held at the rim, pressing
+// against the base — proven by direct probe on this tree:
+// rest (0, 20.0), hex "0,0", still moving.)
 {
-  const meOf = (st) => st?.players?.find(p => p.key === GN.ownerKey);
+  // A seat's key on the served state is its seat key
+  // (discord:<id> / web:<id>, struck at the join) — never
+  // the Tender's owner key. Each socket's own `you`
+  // payload names its key; the guest is found by that.
+  // (An earlier witness searched for the owner key, found
+  // nobody, and its min-distance read passed on Infinity —
+  // harness iteration two, 2026-10-26.)
+  const meOf = (st) => st?.players?.find(p => p.key === gN.you?.key);
   let min = Infinity, last = null;
-  gN.send({ type: "glide", tx: 0, ty: 0 });
+  gN.errors.length = 0;
+  gN.send({ type: "glide", tx: 0, ty: -55 });
   const t0 = Date.now();
+  let rimStreak = 0;
   while (Date.now() - t0 < 30000) {
     const me = meOf(gN.state);
     if (me?.pos) { last = me; min = Math.min(min, Math.hypot(me.pos.x, me.pos.y)); }
-    if (me && !me.moving && Math.hypot(me.pos.x, me.pos.y) < 34) break;
+    if (me?.pos && Math.hypot(me.pos.x, me.pos.y) <= 22 && me.hex === "0,0") { rimStreak++; if (rimStreak >= 3) break; }
+    else rimStreak = 0;
     await sleep(150);
   }
+  ok("§D the road through the Beacon's heart stands open — no refusal answers the glide",
+    !gN.errors.some(e => e.includes("star-seed")), JSON.stringify(gN.errors));
   ok("§D gliding at the Beacon's heart, the guest never stands inside its base (min ≥ the rim, less slack)",
     min >= 18, `min ${min.toFixed(1)} rim 20`);
   ok("§D …he stands AT the rim — beside the trunk, not stopped far off",
@@ -617,13 +736,23 @@ await gS.waitYou("south guest seated");
 // south guest in front of it, read in the room's own face.
 {
   const cN = centerOfF("0,-1"), cS = centerOfF("0,1");
-  gN.send({ type: "glide", tx: cN.x, ty: cN.y });
-  gS.send({ type: "glide", tx: cS.x, ty: cS.y });
   const settled = (st, key, c) => {
     const me = st?.players?.find(p => p.key === key);
     return !!me?.pos && !me.moving && Math.hypot(me.pos.x - c.x, me.pos.y - c.y) < 8;
   };
-  await waitFor(() => settled(gN.state, GN.ownerKey, cN) && settled(gS.state, GS.ownerKey, cS), "both guests stand at their posts", 30000);
+  // The north guest rides AROUND the grown seed's base to
+  // his post: both guests land south, and the straight road
+  // north is barred at the rim (§D1's proof — a single
+  // glide at the northern post never settles; the pillar
+  // holds him pressing at the base). He glides by the
+  // eastern hex first, then west to his post — the road
+  // around a pillar is the phenomenon under proof.
+  const cE = centerOfF("1,-1");
+  gN.send({ type: "glide", tx: cE.x, ty: cE.y });
+  await waitFor(() => settled(gN.state, gN.you?.key, cE), "the north guest rides around the seed's base", 30000);
+  gN.send({ type: "glide", tx: cN.x, ty: cN.y });
+  gS.send({ type: "glide", tx: cS.x, ty: cS.y });
+  await waitFor(() => settled(gN.state, gN.you?.key, cN) && settled(gS.state, gS.you?.key, cS), "both guests stand at their posts", 30000);
   const browser2 = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--mute-audio", "--autoplay-policy=no-user-gesture-required"] });
   const tpage = await browser2.newPage();
   await tpage.setViewport({ width: 1500, height: 1000, deviceScaleFactor: 1 });
