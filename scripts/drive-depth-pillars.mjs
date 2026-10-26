@@ -426,10 +426,18 @@ const domOrder = () => evalRetry(() => {
   const fig = svg.querySelector("g.field-drifter") ?? svg.querySelector("g.field-patroller");
   if (!tower || !beacon || !fig) return { tower: !!tower, beacon: !!beacon, fig: !!fig };
   const FOL = Node.DOCUMENT_POSITION_FOLLOWING;
+  // The DRAWN bases (rect bottoms): a sprite's foot line on
+  // screen. The settle poll below reads these, not mere
+  // existence — a figure moved in the record keeps its old
+  // drawn place until the page's placement state catches
+  // up, and an order read taken in that breath reports
+  // the position it left, not the one it was sent to.
+  const baseY = (el) => { const r = el?.getBoundingClientRect(); return r ? r.bottom : null; };
   return {
     tower: true, beacon: true, fig: true,
     figBeforeTower: (fig.compareDocumentPosition(tower) & FOL) !== 0,
     figBeforeBeacon: (fig.compareDocumentPosition(beacon) & FOL) !== 0,
+    figBaseY: baseY(fig), towerBaseY: baseY(tower), beaconBaseY: baseY(beacon),
   };
 });
 async function setGuardPlace(tileId, q, r) {
@@ -445,36 +453,56 @@ const shotStage = async (name) => {
   } catch { /* a re-frame during the shot — the DOM proofs carry the section */ }
 };
 // The buildings fetch can land a breath after the world
-// snapshot; a draw-order read polls until the tower, the
-// beacon and the figure all stand drawn (or ~12 s pass).
-const domOrderSettled = async () => {
+// snapshot, and a figure moved in the record is first
+// drawn at the place it left — so a draw-order read
+// settles only when the figure's DRAWN BASE stands on the
+// intended side of the named pillar's drawn base (behind:
+// its foot line above the pillar's; in front: below it)
+// and the read is stable — the same sight twice, a breath
+// apart. Existence alone never settles a read (hardened
+// 2026-10-26 after two runs read mid-catch-up and reported
+// the behind order for a figure already sent in front).
+const domOrderSettled = async (pillar, side) => {
+  const orderKey = pillar === "tower" ? "figBeforeTower" : "figBeforeBeacon";
+  const baseKey = pillar === "tower" ? "towerBaseY" : "beaconBaseY";
+  const placedRight = (o) => {
+    if (!o || !o.tower || !o.beacon || !o.fig) return false;
+    if (o.figBaseY == null || o[baseKey] == null) return false;
+    return side === "behind" ? o.figBaseY < o[baseKey] : o.figBaseY > o[baseKey];
+  };
   let ord = await domOrder();
   const t0 = Date.now();
-  while ((!ord || !ord.tower || !ord.beacon || !ord.fig) && Date.now() - t0 < 12000) {
-    await sleep(600);
-    ord = await domOrder();
+  while (Date.now() - t0 < 20000) {
+    if (placedRight(ord)) {
+      const again = (await sleep(300), await domOrder());
+      if (placedRight(again) && again[orderKey] === ord[orderKey]) return again;
+      ord = again;
+    } else {
+      await sleep(600);
+      ord = await domOrder();
+    }
   }
   return ord;
 };
 {
   await setGuardPlace(towerTile.id, towerTile.q, towerTile.r - 0.62);
-  let ord = await domOrderSettled();
+  let ord = await domOrderSettled("tower", "behind");
   ok("§C the tower and the figure both stand drawn", !!ord && ord.tower && ord.fig, JSON.stringify(ord));
   ok("§C BEHIND the tower's base line, the figure is drawn BEFORE the tower (the tower covers him)",
     !!ord && ord.figBeforeTower === true, JSON.stringify(ord));
   await shotStage("homeland-figure-behind-tower.png");
   await setGuardPlace(towerTile.id, towerTile.q, towerTile.r + 0.62);
-  ord = await domOrderSettled();
+  ord = await domOrderSettled("tower", "front");
   ok("§C IN FRONT of the tower's base, the figure is drawn AFTER the tower (he covers its foot)",
     !!ord && ord.figBeforeTower === false, JSON.stringify(ord));
   await shotStage("homeland-figure-before-tower.png");
   await setGuardPlace(seedTile.id, seedTile.q, seedTile.r - 0.62);
-  ord = await domOrderSettled();
+  ord = await domOrderSettled("beacon", "behind");
   ok("§C the Beacon stands drawn, and BEHIND its base the figure is drawn BEFORE it",
     !!ord && ord.beacon && ord.figBeforeBeacon === true, JSON.stringify(ord));
   await shotStage("homeland-figure-behind-beacon.png");
   await setGuardPlace(seedTile.id, seedTile.q, seedTile.r + 0.62);
-  ord = await domOrderSettled();
+  ord = await domOrderSettled("beacon", "front");
   ok("§C IN FRONT of the Beacon's base, the figure is drawn AFTER it",
     !!ord && ord.figBeforeBeacon === false, JSON.stringify(ord));
   await shotStage("homeland-figure-before-beacon.png");
@@ -552,7 +580,11 @@ await waitFor(() => !host.state?.hosted, "the hosted land folds");
   db.prepare("UPDATE ui_config SET value = ? WHERE key = ?").run(JSON.stringify(rec), key);
 }
 host.send({ type: "beaconOpen", privacy: "public" });
-await waitFor(() => host.state?.hosted?.hostName === H.name && host.state?.shared?.seed?.stage === "beacon", "the room's seed stands grown (a Beacon)");
+// The reopen's state propagation can breathe past the
+// 25 s default on a loaded machine (it timed out twice in
+// the build's proof runs while §D passed whole in another)
+// — this one wait carries 60 s.
+await waitFor(() => host.state?.hosted?.hostName === H.name && host.state?.shared?.seed?.stage === "beacon", "the room's seed stands grown (a Beacon)", 60000);
 ok("§D the room's seed stands grown — a Beacon stands in the room", true);
 
 const gN = new Actor();
