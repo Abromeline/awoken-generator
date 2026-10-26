@@ -1664,37 +1664,10 @@ body.defeat-flash {
   cursor:help;
 }
 
-/* THE LIGHTHOUSE (Nigel, 2026-10-23): the small golden timer
-   on the right-hand side of the homeland screen — banked
-   protection, the shadow hoard that feeds its upkeep, and
-   the hand-lit switch itself.
-   MOVED DOWN INTO VIEW (Nigel, 2026-10-25: "The light house
-   button needs moved down into view by the champions hall
-   tab"): the panel once sat at the map's top-right, out of
-   view; it now stands FIXED at the foot of the right-hand
-   column, beside the Champions Hall tab's own seat
-   (.champion-tab: fixed, bottom 210px, right 20px, 280
-   wide) — bottoms aligned, in view. On narrow screens the
-   Hall tab goes near full-width, so the panel seats beside
-   the champion button instead (see the small-screen block). */
-.lighthouse-panel{
-  position:fixed;right:312px;bottom:210px;z-index:940;width:168px;
-  background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:6px;
-  padding:8px 10px;font-size:11.5px;color:#e5cf9a;letter-spacing:0.3px;
-  display:flex;flex-direction:column;gap:4px;
-}
-.lighthouse-panel.lit{border-color:#ffd700;box-shadow:0 0 14px rgba(255,215,0,0.35)}
-.lighthouse-head{font-size:12.5px;color:#ffd98a;letter-spacing:0.6px}
-.lighthouse-panel.lit .lighthouse-head{color:#ffd700}
-.lighthouse-shadow{color:#c9a7eb}
-.lighthouse-waves{color:#b8a06a;font-style:italic}
-.lighthouse-warn{color:#e89a7a;font-style:italic}
-.lighthouse-panel .abtn{align-self:flex-start;margin-top:2px}
 
 /* THE PACK (the drop table, 2026-10-25): the item
-   screen's homeland face, seated in the same fixed
-   column as the lighthouse panel, one seat to its left —
-   in view, bottoms aligned with the Hall tab. */
+   screen's homeland face, seated in the fixed right-hand
+   column — in view, bottoms aligned with the Hall tab. */
 .pack-panel{
   position:fixed;right:492px;bottom:210px;z-index:940;width:168px;
   background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:6px;
@@ -2516,16 +2489,8 @@ body.defeat-flash {
     max-width: 320px !important;
     right: 8px !important;
   }
-  /* The lighthouse, small screens (the move into view,
-     2026-10-25): the Hall tab spans the width here, so the
-     panel seats in view beside the champion button — the
-     tab's own opener — bottoms aligned with it. */
-  .lighthouse-panel {
-    right: 88px !important;
-    bottom: 140px !important;
-  }
-  /* The pack stacks above the lighthouse on small
-     screens, in the same in-view column. */
+  /* The pack on small screens, in the same in-view
+     column at the right. */
   .pack-panel {
     right: 88px !important;
     bottom: 322px !important;
@@ -2688,6 +2653,52 @@ body.defeat-flash {
   .tender-tools .deck-button {
     padding: 30px 12px !important;
   }
+}
+
+/* THE BEACON SWITCH (Nigel, 2026-10-26): the Lighthouse
+   panel is gone; the light's one switch stands BESIDE the
+   Terrain/Return button, in both its stands — a small
+   companion pill at the deck button's left hand, centred
+   on its mark. Its seat mirrors the deck button's own
+   anchor (bottom 200px, right 90px, mark 324 wide): the
+   pill's right edge stands 16px left of the deck button's
+   box (90 + 324 + 16 = 430), its centre on the mark's
+   centre. The lit stand wears the panel's old gold. */
+.beacon-switch{
+  position:fixed;right:430px;bottom:417px;z-index:1000;
+  display:flex;align-items:center;gap:8px;white-space:nowrap;
+  background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:999px;
+  padding:10px 16px;font-size:15px;font-weight:600;letter-spacing:0.04em;
+  color:#e5cf9a;cursor:pointer;text-shadow:0 1px 4px #000;
+}
+.beacon-switch:hover{border-color:#ffd98a}
+.beacon-switch.lit{border-color:#ffd700;box-shadow:0 0 14px rgba(255,215,0,0.35);color:#ffd98a}
+.beacon-switch:disabled{opacity:0.6;cursor:wait}
+.beacon-switch-note{
+  position:fixed;right:430px;bottom:368px;z-index:1000;max-width:300px;
+  background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:6px;
+  padding:8px 10px;font-size:12.5px;color:#e5cf9a;letter-spacing:0.3px;
+}
+@media (max-width: 768px) {
+  /* The deck button's phone box is LABEL-wide — its 39px
+     word outweighs the 60px mark (≈264px wide in the
+     Terrain Map stand, ≈198 in the RETURN stand) — and
+     the foot of the screen is already spoken for (the
+     music bar at bottom 96, right 14). So at phone width
+     the pill stands at the MARK's left hand, centred on
+     the mark itself: the mark's left edge stands at
+     (deck right 16) + (the label's overhang, (264-60)/2
+     in the wide stand) from the right — a 186px right
+     offset seats the pill 8px clear of the mark in the
+     Terrain Map stand and a short reach from it in the
+     RETURN stand, over the deck box's empty flank, never
+     on its painted parts (measured in the build's drive:
+     hit-tests at both centres). Its centre sits on the
+     mark's centre (deck bottom 140 + padding 30 + label
+     ≈47 + gap 6 + half the mark 30 ≈ 253; 253 - 22 = 231).
+     The refusal note stands just above the pill. */
+  .beacon-switch{right:186px;bottom:231px;font-size:13px;padding:8px 12px}
+  .beacon-switch-note{right:186px;bottom:283px;max-width:230px}
 }
 
 .tutorial-help-btn {
