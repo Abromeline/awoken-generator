@@ -37,12 +37,15 @@
 //       ring), and with the seed struck back to a Starseed
 //       the same walk reaches the goal hex — the light
 //       was the bar.
-//   §H7 the face, in a real browser: the light layer
-//       stands in the homeland DOM with the server's own
-//       levels on its hexes, below the standings; the
-//       rune's figure carries its glow line; a wanderer's
-//       figure wears no darkening (no filter, no wash in
-//       its group).
+//   §H7 the face, in a real browser (THE LIGHTING FACE,
+//       2026-10-27): the light layer stands in the homeland
+//       DOM with the beacon's light drawn as CONTINUOUS
+//       glow from its source — no hex-shaped light polygons
+//       anywhere (the per-hex pools were struck at Nigel's
+//       word) — and the dusk as ONE continuous wash, below
+//       the standings; the rune's figure carries its glow
+//       line; a wanderer's figure wears no darkening (no
+//       filter, no wash in its group).
 //   §T1 a campaign Table room whose seed stands grown to
 //       the Beacon (white-box level, named here) serves
 //       the seed's 7 hexes at FIGHTING in its state.
@@ -502,8 +505,9 @@ console.log("§H7 the homeland's face — the light layer in the DOM");
       const wimg = wg ? wg.querySelector("image") : null;
       return {
         layer: true,
-        lit2: layer.querySelectorAll('.light-hex[data-light="2"]').length,
-        lit0: layer.querySelectorAll('.light-hex[data-light="0"]').length,
+        glowFighting: layer.querySelectorAll('.light-glow[data-glow="fighting"]').length,
+        hexes: layer.querySelectorAll(".light-hex").length,
+        dusk: layer.querySelectorAll(".light-dusk").length,
         glow: !!document.querySelector(".edge-light-glow"),
         wanderer: !!wg,
         wandererFilter: wimg ? (wimg.style.filter ?? "") : null,
@@ -513,8 +517,9 @@ console.log("§H7 the homeland's face — the light layer in the DOM");
       };
     });
     ok("§H7 the light layer stands in the homeland DOM", dom.layer === true);
-    ok("§H7 the layer carries the server's FIGHTING hexes (data-light=2 polygons)", (dom.lit2 ?? 0) > 0, `n=${dom.lit2}`);
-    ok("§H7 the layer carries dark hexes under the dusk (data-light=0 polygons)", (dom.lit0 ?? 0) > 0, `n=${dom.lit0}`);
+    ok("§H7 the beacon's light is drawn as continuous glow from its source (.light-glow[data-glow=fighting] ellipses)", (dom.glowFighting ?? 0) > 0, `n=${dom.glowFighting}`);
+    ok("§H7 NO hex-shaped light remains — zero .light-hex polygons in the layer", dom.hexes === 0, `n=${dom.hexes}`);
+    ok("§H7 the dusk stands as ONE continuous wash (a single .light-dusk path), not per-hex shapes", dom.dusk === 1, `n=${dom.dusk}`);
     ok("§H7 the rune's figure carries its faint glow line (.edge-light-glow)", dom.glow === true);
     ok("§H7 a wanderer figure stands on the dark ground", dom.wanderer === true,
       dom.wanderer === true ? "" : `titles: ${JSON.stringify(dom.titlesSeen ?? [])}`);

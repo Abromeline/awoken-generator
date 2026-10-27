@@ -4995,47 +4995,269 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
-    // THE LIGHTING SYSTEM (2026-10-26): the dusk and its
-    // pools of light, drawn ONLY from the light the server
-    // serves on each tile (t.light — 0 dark · 1 faint ·
-    // 2 fighting); the client computes no light of its own.
-    // The wash lies over the GROUND — it is seated with the
-    // terrain, below every building and figure, and figures
-    // are never darkened (the readability law: the dark must
-    // stay visible — the invisible-enemies wound governs).
-    // Unlit ground wears the dusk; FAINT ground lifts a
-    // little out of it; FIGHTING ground stands bright in a
-    // soft pool covering exactly the server's lit hexes.
-    // Layered polygons, no SVG filters, so the iPad stays
-    // smooth — the corruption glow's own grammar. The layer
-    // renders from the one-pass snapshot's tiles, like every
-    // layer here — never per frame.
-    const lightLayer = (
-      <g key="land-light" className="light-layer" pointerEvents="none">
-        {sortedTiles.map((t) => {
+    // THE LIGHTING SYSTEM — ITS FACE (2026-10-27, THE
+    // LIGHTING FACE): the light is drawn as the dynamic
+    // light of the 3D board's example — CONTINUOUS areas
+    // radiating from the things made of light, brightest at
+    // the source and fading with distance, soft edges,
+    // neighbouring glows merging where they overlap, and
+    // soft shadow falling on the ground behind towers,
+    // walls and standing figures, away from the light that
+    // makes it (Nigel's law, 2026-10-26: light is never
+    // locked hex to hex). The per-hex pools this face
+    // replaces — a milky hexagon pasted on every lit tile,
+    // drawn twice on lifted hexes — were rejected by Nigel
+    // in play ("whatever they are i dont like em").
+    // The MECHANICS do not move: the server's per-hex
+    // reckoning (t.light — 0 dark · 1 faint · 2 fighting;
+    // the burn, the spawn and walk bars) stays the truth,
+    // and the client computes no light levels of its own.
+    // What the client derives here is only WHERE the
+    // standing sources stand — read from the same served
+    // record the server reckons from (grown seeds, the
+    // buildings list, the edge works, the written workings)
+    // — and draws their glow. The layer lies over the
+    // GROUND, seated with the terrain, below every building
+    // and figure; figures are never darkened (the
+    // readability law). No SVG filters, so the iPad stays
+    // smooth: gradients and a bounded count of shapes,
+    // rendered from the one-pass snapshot like every layer
+    // here — never per frame.
+    const lightLayer = (() => {
+      type GlowSource = { x: number; y: number; key: string };
+      const strong: GlowSource[] = []; // FIGHTING: beacon-class
+      const faint: GlowSource[] = [];  // FAINT: shrooms, runes, wards
+      const tileById = new Map(tiles.map(t => [t.id, t]));
+      // Beacon-class seeds: grown to the Beacon or the
+      // Bastion and standing on the land (the server's own
+      // reckoning: fallen, held, first — a corrupted seed's
+      // light is in the dark's hands and gives nothing).
+      for (const sd of mapSeeds) {
+        if (sd.stage !== "beacon" && sd.stage !== "bastion") continue;
+        if (sd.state !== "fallen" && sd.state !== "held" && sd.state !== "first") continue;
+        const t = tileById.get(sd.tileId);
+        if (!t) continue;
+        const { cx, cy } = tilePos(t);
+        strong.push({ x: cx, y: cy + size * 0.12, key: `seed-${sd.id}` });
+      }
+      // The buildings made of light: the Bastion (fighting)
+      // and the glowing Dream Shrooms (faint, on their hex).
+      for (const b of buildings) {
+        const t = tileById.get(b.tileId);
+        if (!t) continue;
+        if (b.buildingType !== "bastion" && b.buildingType !== "dream-wheat") continue;
+        const { cx, cy } = tilePos(t);
+        if (b.buildingType === "bastion") strong.push({ x: cx, y: cy + size * 0.12, key: `bastion-${b.id}` });
+        else faint.push({ x: cx, y: cy, key: `shroom-${b.id}` });
+      }
+      // Runes and wards standing on the field — the edge
+      // works and the Written Light workings — faint on
+      // their own hex, one glow per hex however many stand.
+      const faintHexSeen = new Set<string>();
+      const addFaintAt = (q: number, r: number, key: string) => {
+        const t = tiles.find(tt => tt.q === q && tt.r === r);
+        if (!t) return;
+        const hk = `${t.q},${t.r}`;
+        if (faintHexSeen.has(hk)) return;
+        faintHexSeen.add(hk);
+        const { cx, cy } = tilePos(t);
+        faint.push({ x: cx, y: cy, key });
+      };
+      for (const w of walls) {
+        if (w.kind === "rune" || w.kind === "ward") addFaintAt(w.q, w.r, `edge-${w.edgeKey}`);
+      }
+      for (const w of workings) {
+        if (w.kind !== "rune" && w.kind !== "ward") continue;
+        if (w.q != null && w.r != null) addFaintAt(w.q, w.r, `work-${w.id}`);
+        else if (w.tileId != null) { const t = tileById.get(w.tileId); if (t) addFaintAt(t.q, t.r, `work-${w.id}`); }
+      }
+      // THE DUSK: one continuous wash over the whole land —
+      // every tile's face as a subpath of a SINGLE path, so
+      // no hex edge can ever show inside it — with the
+      // sources' areas lifted out of it through a mask (the
+      // glow holes in the defs below): where a beacon
+      // stands the dusk is gone entirely, feathering back
+      // to full dusk at the glow's rim; a faint source lifts
+      // its own ground only part-way.
+      const duskSubpaths: string[] = [];
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const t of sortedTiles) {
+        const { cx, cy } = tilePos(t);
+        const lift = t.cursed ? 0 : -5; // the terrain layer's own seat
+        const pts = hexCellPoints(cx, cy + lift / zoom, size).split(" ");
+        duskSubpaths.push(`M${pts.join(" L")} Z`);
+        if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+      }
+      const duskPath = duskSubpaths.join(" ");
+      const maskX = minX - size * 3, maskY = minY - size * 3;
+      const maskW = (maxX - minX) + size * 6, maskH = (maxY - minY) + size * 6;
+      // SHADOWS: what stands in the light throws its shade
+      // on the ground behind it, away from the nearest
+      // strong source — towers at their drawn seats (the
+      // pillar derivation), wall runs along their segments
+      // (edge works and the construction's walls), and the
+      // standing figures (the field, the dark, the Tender).
+      // h is the caster's height in hex measures; the shade
+      // lengthens with the light's closeness.
+      type OccPoint = { kind: "point"; x: number; y: number; h: number; w: number; key: string };
+      type OccSeg = { kind: "seg"; ax: number; ay: number; bx: number; by: number; h: number; key: string };
+      const occ: (OccPoint | OccSeg)[] = [];
+      {
+        const seatsByTile = new Map<number, typeof buildings>();
+        for (const b of buildings) {
+          if (b.buildingType === "dream-wheat") continue;
+          const arr = seatsByTile.get(b.tileId) ?? [];
+          arr.push(b);
+          seatsByTile.set(b.tileId, arr);
+        }
+        const bs = size * (BUILDING_BASE_SIZE / HEX_BASE_SIZE);
+        const seatDrop = 0.7174 * (size - bs);
+        for (const [tileId, arr] of seatsByTile) {
+          const t = tileById.get(tileId);
+          if (!t) continue;
           const { cx, cy } = tilePos(t);
-          const level = (t as any).light ?? 0;
-          const lift = t.cursed ? 0 : -5; // match the terrain layer's lift
-          return (
-            <g key={`light-${t.id}`} transform={`translate(0,${lift / zoom})`}>
-              {level === 2 ? (
-                <>
-                  <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, size, 1.14)} fill="rgba(255,226,160,0.10)" stroke="none" />
-                  <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, size)} fill="rgba(255,238,190,0.18)" stroke="none" />
-                </>
-              ) : level === 1 ? (
-                <>
-                  <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, size)} fill="rgba(7,9,22,0.20)" stroke="none" />
-                  <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, size)} fill="rgba(255,240,200,0.09)" stroke="none" />
-                </>
-              ) : (
-                <polygon className="light-hex" data-light={0} points={hexCellPoints(cx, cy, size)} fill="rgba(7,9,22,0.44)" stroke="none" />
-              )}
+          arr.forEach((b, bi) => {
+            if (b.buildingType !== "watchtower") return;
+            const p = arr.length === 1 ? { x: cx, y: cy + seatDrop } : { x: cx + (bi === 0 ? -size * 0.45 : size * 0.45), y: cy - size * 0.35 + seatDrop };
+            occ.push({ kind: "point", x: p.x, y: p.y, h: 1.6, w: size * 0.30, key: `tower-${b.id}` });
+          });
+        }
+      }
+      for (const w of walls) {
+        if (w.kind !== "wall" && w.kind !== "ward") continue;
+        const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
+        const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
+        const verts = hexCellVertices(c.cx, c.cy, size);
+        const a = verts[w.dir], b = verts[(w.dir + 1) % 6];
+        occ.push({ kind: "seg", ax: a[0], ay: a[1], bx: b[0], by: b[1], h: 0.85, key: `edgewall-${w.edgeKey}` });
+      }
+      for (const p of buildPieces) {
+        if (p.kind !== "wall" && p.kind !== "door") continue;
+        // The footprint's ends in land points (landPt's own
+        // reckoning, inlined — landPt is declared further
+        // down renderGrid, past this layer).
+        const fp = (pt: [number, number]) => { const { px, py } = isoOffset(pt[0], pt[1], size); return { x: originX + px, y: originY + py }; };
+        const A = fp(p.footprint[0]);
+        const B = fp(p.footprint[1]);
+        occ.push({ kind: "seg", ax: A.x, ay: A.y, bx: B.x, by: B.y, h: 0.85, key: `piece-${p.id}` });
+      }
+      for (const row of figureRows) {
+        occ.push({ kind: "point", x: row.fx, y: row.fy, h: 0.7, w: size * 0.20, key: `fig-${row.placement.id}` });
+      }
+      for (const w of wanderers) {
+        const t = tileById.get(w.tileId);
+        if (!t) continue;
+        const base = tilePos(t);
+        const dp = isoOffset(w.posQ, w.posR, size);
+        const dc = isoOffset(t.q, t.r, size);
+        occ.push({ kind: "point", x: base.cx + (dp.px - dc.px), y: base.cy + (dp.py - dc.py), h: 0.6, w: size * 0.20, key: `dark-${w.id}` });
+      }
+      if (tenderFig) {
+        occ.push({ kind: "point", x: landX(tenderFig.x), y: landY(tenderFig.y), h: 0.7, w: size * 0.22, key: "tender" });
+      }
+      const shadowNodes: ReactNode[] = [];
+      const sweepDefs: ReactNode[] = [];
+      if (strong.length) {
+        for (const o of occ) {
+          const mx = o.kind === "point" ? o.x : (o.ax + o.bx) / 2;
+          const my = o.kind === "point" ? o.y : (o.ay + o.by) / 2;
+          let best: GlowSource | null = null, bestD = Infinity;
+          for (const s of strong) {
+            const d = Math.hypot(mx - s.x, my - s.y);
+            if (d < bestD) { bestD = d; best = s; }
+          }
+          if (!best || bestD > size * 3 || bestD < size * 0.2) continue;
+          const dx = (mx - best.x) / bestD, dy = (my - best.y) / bestD;
+          const prox = Math.max(0, 1 - bestD / (size * 3));
+          const len = o.h * size * (0.5 + 0.8 * prox);
+          if (o.kind === "point") {
+            const cxp = o.x + dx * len * 0.55, cyp = o.y + dy * len * 0.55;
+            const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+            shadowNodes.push(
+              <ellipse key={`shadow-${o.key}`} className="light-shadow" cx={cxp} cy={cyp}
+                rx={len * 0.72 + o.w * 0.5} ry={Math.max(o.w * 0.62, len * 0.20)}
+                transform={`rotate(${deg.toFixed(1)} ${cxp.toFixed(1)} ${cyp.toFixed(1)})`}
+                fill="url(#land-shadow-soft)" />,
+            );
+          } else {
+            const gid = `land-sweep-${o.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+            sweepDefs.push(
+              <linearGradient key={gid} id={gid} gradientUnits="userSpaceOnUse"
+                x1={mx} y1={my} x2={mx + dx * len} y2={my + dy * len}>
+                <stop offset="0%" stopColor="#04060e" stopOpacity={0.36} />
+                <stop offset="100%" stopColor="#04060e" stopOpacity={0} />
+              </linearGradient>,
+            );
+            shadowNodes.push(
+              <polygon key={`shadow-${o.key}`} className="light-shadow"
+                points={`${o.ax},${o.ay} ${o.bx},${o.by} ${o.bx + dx * len},${o.by + dy * len} ${o.ax + dx * len},${o.ay + dy * len}`}
+                fill={`url(#${gid})`} />,
+            );
+          }
+          if (shadowNodes.length >= 80) break;
+        }
+      }
+      return (
+        <g key="land-light" className="light-layer" pointerEvents="none">
+          <defs>
+            <radialGradient id="land-glow-strong">
+              <stop offset="0%" stopColor="#ffe9b2" stopOpacity={0.50} />
+              <stop offset="42%" stopColor="#ffd88f" stopOpacity={0.30} />
+              <stop offset="72%" stopColor="#ffc670" stopOpacity={0.13} />
+              <stop offset="100%" stopColor="#ffbe64" stopOpacity={0} />
+            </radialGradient>
+            <radialGradient id="land-glow-core">
+              <stop offset="0%" stopColor="#fff4cd" stopOpacity={0.48} />
+              <stop offset="60%" stopColor="#ffecb4" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="#ffecb4" stopOpacity={0} />
+            </radialGradient>
+            <radialGradient id="land-glow-faint">
+              <stop offset="0%" stopColor="#fff0c8" stopOpacity={0.17} />
+              <stop offset="55%" stopColor="#ffeec3" stopOpacity={0.08} />
+              <stop offset="100%" stopColor="#ffeec3" stopOpacity={0} />
+            </radialGradient>
+            <radialGradient id="land-shadow-soft">
+              <stop offset="0%" stopColor="#04060e" stopOpacity={0.42} />
+              <stop offset="60%" stopColor="#04060e" stopOpacity={0.24} />
+              <stop offset="100%" stopColor="#04060e" stopOpacity={0} />
+            </radialGradient>
+            <radialGradient id="land-dusk-hole-strong">
+              <stop offset="0%" stopColor="#000000" />
+              <stop offset="45%" stopColor="#141414" />
+              <stop offset="75%" stopColor="#6f6f6f" />
+              <stop offset="100%" stopColor="#ffffff" />
+            </radialGradient>
+            <radialGradient id="land-dusk-hole-faint">
+              <stop offset="0%" stopColor="#6a6a6a" />
+              <stop offset="70%" stopColor="#b5b5b5" />
+              <stop offset="100%" stopColor="#ffffff" />
+            </radialGradient>
+            <mask id="land-dusk-mask" maskUnits="userSpaceOnUse" x={maskX} y={maskY} width={maskW} height={maskH}>
+              <rect x={maskX} y={maskY} width={maskW} height={maskH} fill="#ffffff" />
+              {strong.map(s => (
+                <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={size * 2.0} ry={size * 2.0 * 0.55} fill="url(#land-dusk-hole-strong)" />
+              ))}
+              {faint.map(s => (
+                <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={size * 0.95} ry={size * 0.95 * 0.55} fill="url(#land-dusk-hole-faint)" />
+              ))}
+            </mask>
+            {sweepDefs}
+          </defs>
+          <path className="light-dusk" d={duskPath} fill="rgba(7,9,22,0.44)" mask="url(#land-dusk-mask)" />
+          {strong.map(s => (
+            <g key={`glow-${s.key}`}>
+              <ellipse className="light-glow" data-glow="fighting" cx={s.x} cy={s.y} rx={size * 2.15} ry={size * 2.15 * 0.55} fill="url(#land-glow-strong)" />
+              <ellipse className="light-glow" data-glow="core" cx={s.x} cy={s.y} rx={size * 0.95} ry={size * 0.95 * 0.58} fill="url(#land-glow-core)" />
             </g>
-          );
-        })}
-      </g>
-    );
+          ))}
+          {faint.map(s => (
+            <ellipse key={`glow-${s.key}`} className="light-glow" data-glow="faint" cx={s.x} cy={s.y} rx={size * 0.85} ry={size * 0.85 * 0.55} fill="url(#land-glow-faint)" />
+          ))}
+          {shadowNodes}
+        </g>
+      );
+    })();
     // THE VOID AT THE EDGE (the Building System, 2026-10-19):
     // empty hexes beside the land are the founding ground — a
     // faint dashed cell on the nothing, and a tap opens the
