@@ -2971,6 +2971,16 @@ export default function Table() {
     );
   };
 
+  // THE LIGHT FACE'S CASTERS (the Lighting Face
+  // reunification, 2026-10-27): the ground points the
+  // standing figures are drawn at, gathered as the depth
+  // pass seats them — the light layer below throws each
+  // one's shade from these very points, as the homeland's
+  // face reads its figure rows. h is the caster's height
+  // in hex measures, w its shade's width (the homeland's
+  // own measures: the field and the Tender 0.7, the dark
+  // 0.6).
+  const lightCasters: { x: number; y: number; h: number; w: number; key: string }[] = [];
   // Everyone on the stage, back to front by ground point.
   const figures: { key: string; gy: number; node: ReactNode }[] = [];
   const hexGroupCount = new Map<string, number>();
@@ -2986,11 +2996,13 @@ export default function Table() {
     // is) — a departure's poof is read from it.
     unitAnchorRef.current.set(unitKey, { x: ax, y: ay });
     figures.push({ key: `u-${u.ownerKey}-${u.cardId}`, gy: ay, node: renderUnitFigure(u, ax, ay, u.moving) });
+    lightCasters.push({ x: ax, y: ay, h: 0.7, w: TILE_SIZE * 0.20, key: `fig-${u.ownerKey}-${u.cardId}` });
   }
   for (const e of shared.dark) {
     const anchor = smoothedPos(e.id, e.pos);
     const ax = anchor.x, ay = anchor.y - 4;
     figures.push({ key: `d-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, e.moving) });
+    lightCasters.push({ x: ax, y: ay, h: 0.6, w: TILE_SIZE * 0.20, key: `dark-${e.id}` });
   }
   // ── THE TENDERS THEMSELVES, standing on the stage ──────────
   // Every seated tender has a figure: their class sprite,
@@ -3045,6 +3057,7 @@ export default function Table() {
     // THE RUNIC WEAPON floats at his side (Nigel, 2026-10-19):
     // presence only for now — its lunges land in a later phase.
     const weaponKey = (p.weaponKey ?? null) as WeaponKey | null;
+    lightCasters.push({ x: gx, y: gy, h: 0.7, w: TILE_SIZE * 0.22, key: `tender-${p.key}` });
     figures.push({
       key: `tender-${p.key}`, gy,
       node: (
@@ -3800,43 +3813,356 @@ export default function Table() {
                   </g>
                 );
               })}
-              {/* THE LIGHTING SYSTEM (2026-10-26): the dusk
-                  and its pools, drawn ONLY from the light the
-                  server serves on each tile (t.light — 0 dark
-                  · 1 faint · 2 fighting); the client computes
-                  no light of its own. The wash lies over the
-                  GROUND, below the Written Light and every
-                  figure — figures are never darkened. Unlit
-                  ground wears the dusk; FAINT ground lifts a
-                  little; FIGHTING ground stands bright in a
-                  soft pool over exactly the server's hexes.
-                  Layered polygons, no filters — the homeland
-                  map's own grammar, in this stage's measure. */}
-              <g className="light-layer" pointerEvents="none">
-                {sortedTiles.map((t) => {
+              {/* THE LIGHTING FACE, REUNIFIED (Nigel,
+                  2026-10-27: "i even told you the two systems
+                  are supposed to be the same... one is just
+                  multiplayer"): the Table's light face IS the
+                  homeland's — continuous glow radiating from
+                  the sources themselves, brightest at the
+                  source and fading with distance; the dusk as
+                  ONE continuous wash with the sources' areas
+                  lifted out of it; the wards' shade thrown
+                  from the light itself, cut out of the glow
+                  and laid back as soft shade; standing
+                  figures' shade on the ground behind them,
+                  falling away from the nearest strong light;
+                  figures never darkened. The per-hex pools
+                  that stood here — a milky hexagon pasted on
+                  every lit tile — are struck, as they were
+                  struck on the homeland (Push 40).
+                  The MECHANICS do not move: the server's
+                  per-hex reckoning (tableLightMap; t.light —
+                  0 dark · 1 faint · 2 fighting; the burn, the
+                  spawn and walk bars) stays the truth, and
+                  the client computes no light levels of its
+                  own. What the client derives is only WHERE
+                  the standing sources stand — read from the
+                  same served record the server reckons from:
+                  the room's seed grown beacon-class
+                  (FIGHTING), the Written Light's runes and
+                  wards (FAINT on their hex; a ward lights its
+                  first-named hex, as the server's raise reads
+                  w.hexA). NOT sources, as anywhere: the
+                  Tenders, their standing Awoken, the dark.
+                  What bars the light's face here is exactly
+                  what bars the server's throw: a ward's edge
+                  (tableLightMap's edgeBlocked reads ward
+                  workings alone — the Black Gate's wall is
+                  not a light blocker in the reckoning, and
+                  the face invents none). The layer lies over
+                  the GROUND, below the Written Light and
+                  every figure. No SVG filters: gradients and
+                  a bounded count of shapes, as the homeland's
+                  face keeps. */}
+              {(() => {
+                type GlowSource = { x: number; y: number; key: string };
+                const strong: GlowSource[] = []; // FIGHTING: the grown seed, the DM's raised hand
+                const faint: GlowSource[] = [];  // FAINT: runes, wards
+                const overrides = new Map<string, number>(shared.lightOverrides ?? []);
+                const strongHexSeen = new Set<string>();
+                const addStrongAt = (id: string, x: number, y: number, key: string) => {
+                  if (strongHexSeen.has(id)) return;
+                  strongHexSeen.add(id);
+                  strong.push({ x, y, key });
+                };
+                // The room's seed, grown to a beacon-class
+                // stage (level 3+): FIGHTING from its hex,
+                // seated as the homeland seats its grown
+                // seeds (the tile's heart, a breath below).
+                // An ungrown seed and a sapling give NO
+                // light (the source law, 2026-10-26).
+                const seedC = centerOf(SEED_TILE_ID);
+                if (shared.seed && shared.seed.level >= 3 && seedC && overrides.get(SEED_TILE_ID) !== 0) {
+                  addStrongAt(SEED_TILE_ID, seedC.cx, seedC.cy + TILE_SIZE * 0.12, "seed");
+                }
+                // Runes and wards standing in the room —
+                // FAINT on their hex, one glow per hex
+                // however many stand (the homeland's
+                // grammar, its faintHexSeen).
+                const faintHexSeen = new Set<string>();
+                const addFaintAt = (id: string | null, key: string) => {
+                  if (!id || overrides.get(id) === 0 || faintHexSeen.has(id)) return;
+                  const c = centerOf(id);
+                  if (!c) return;
+                  faintHexSeen.add(id);
+                  faint.push({ x: c.cx, y: c.cy, key });
+                };
+                for (const w of shared.workings) {
+                  if (w.kind === "rune") addFaintAt(w.hex, `work-${w.id}`);
+                  else if (w.kind === "ward") addFaintAt(w.hexA, `work-${w.id}`);
+                }
+                // THE DM's RAISED HAND (campaign rooms
+                // only; a casual room serves no overrides):
+                // tableLightMap replaces the reckoned light
+                // with the override outright, so a hex the
+                // Storytender raised to fighting stands
+                // here as a source of its own, and a hex
+                // she set faint glows faint. A hex she
+                // darkened is re-darkened over the glow
+                // further below (darkOverrideNodes) — the
+                // radial face's honest limit, as the
+                // homeland's dusk lift is not wall-aware.
+                for (const [id, lvl] of overrides) {
+                  if (lvl === 2) { const c = centerOf(id); if (c) addStrongAt(id, c.cx, c.cy, `dm-${id}`); }
+                  else if (lvl === 1) addFaintAt(id, `dm-${id}`);
+                }
+                // THE GLOW'S MEASURE — the homeland's own
+                // (Nigel's amendment, 2026-10-27: bigger,
+                // wider, stronger): the FIGHTING glow's rim
+                // stands ~3 hex widths from its heart, the
+                // bright core spans ~1.45, and the dusk's
+                // answering hole feathers out to ~2.9, so
+                // the two rims meet.
+                const GLOW_RX = TILE_SIZE * 3.05, GLOW_RY = GLOW_RX * 0.55;
+                const CORE_RX = TILE_SIZE * 1.45, CORE_RY = CORE_RX * 0.58;
+                const FAINT_RX = TILE_SIZE * 0.95, FAINT_RY = FAINT_RX * 0.55;
+                const HOLE_RX = TILE_SIZE * 2.9, HOLE_RY = HOLE_RX * 0.55;
+                // THE BLOCKING SEGMENTS: the edge a ward
+                // stands on — the side of its first-named
+                // hex's face that looks toward its second,
+                // read off the same face polygon the tiles
+                // are drawn with (the two painted faces
+                // share that side by the lattice's
+                // construction). The room holds no build
+                // pieces and no watchtowers; the ward edge
+                // is the only segment the server's throw
+                // knows here, and the only one the face
+                // throws shade from.
+                type BlockSeg = { ax: number; ay: number; bx: number; by: number; key: string };
+                const blockSegs: BlockSeg[] = [];
+                for (const w of shared.workings) {
+                  if (w.kind !== "ward" || !w.hexA || !w.hexB) continue;
+                  const a = centerOf(w.hexA), b = centerOf(w.hexB);
+                  if (!a || !b) continue;
+                  const verts = hexCellVertices(a.cx, a.cy, TILE_SIZE);
+                  let bestSide = -1, bestDot = -Infinity;
+                  for (let i = 0; i < verts.length; i++) {
+                    const [x1, y1] = verts[i], [x2, y2] = verts[(i + 1) % verts.length];
+                    const mx = (x1 + x2) / 2 - a.cx, my = (y1 + y2) / 2 - a.cy;
+                    const dot = mx * (b.cx - a.cx) + my * (b.cy - a.cy);
+                    if (dot > bestDot) { bestDot = dot; bestSide = i; }
+                  }
+                  if (bestSide < 0) continue;
+                  const [sax, say] = verts[bestSide], [sbx, sby] = verts[(bestSide + 1) % verts.length];
+                  blockSegs.push({ ax: sax, ay: say, bx: sbx, by: sby, key: `ward-${w.id}` });
+                }
+                if (!sortedTiles.length) return (<g className="light-layer" pointerEvents="none" />);
+                // THE DUSK: one continuous wash over the
+                // whole room — every tile's face as a
+                // subpath of a SINGLE path, so no hex edge
+                // can ever show inside it — with the
+                // sources' areas lifted out of it through
+                // a mask: where a beacon-class source
+                // stands the dusk is gone entirely,
+                // feathering back to full dusk at the
+                // glow's rim; a faint source lifts its own
+                // ground only part-way.
+                const duskSubpaths: string[] = [];
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (const t of sortedTiles) {
                   const { cx, cy } = tileCenter(t);
-                  const level = t.light ?? 0;
-                  if (level === 2) {
-                    return (
-                      <g key={`light-${t.id}`}>
-                        <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, TILE_SIZE, 1.14)} fill="rgba(255,226,160,0.10)" stroke="none" />
-                        <polygon className="light-hex" data-light={2} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(255,238,190,0.18)" stroke="none" />
-                      </g>
+                  const pts = hexCellPoints(cx, cy, TILE_SIZE).split(" ");
+                  duskSubpaths.push(`M${pts.join(" L")} Z`);
+                  if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
+                  if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+                }
+                const duskPath = duskSubpaths.join(" ");
+                const maskX = minX - TILE_SIZE * 3, maskY = minY - TILE_SIZE * 3;
+                const maskW = (maxX - minX) + TILE_SIZE * 6, maskH = (maxY - minY) + TILE_SIZE * 6;
+                // SHADOWS: what stands in the light throws
+                // its shade on the ground behind it, away
+                // from the nearest strong source — the
+                // room's standing figures (lightCasters,
+                // gathered by the depth pass at their very
+                // drawn points). h is the caster's height
+                // in hex measures; the shade lengthens
+                // with the light's closeness. FAINT sources
+                // cast no figure shadows, as on the
+                // homeland.
+                const shadowNodes: ReactNode[] = [];
+                if (strong.length) {
+                  for (const o of lightCasters) {
+                    let best: GlowSource | null = null, bestD = Infinity;
+                    for (const s of strong) {
+                      const d = Math.hypot(o.x - s.x, o.y - s.y);
+                      if (d < bestD) { bestD = d; best = s; }
+                    }
+                    if (!best || bestD > TILE_SIZE * 3 || bestD < TILE_SIZE * 0.2) continue;
+                    const dx = (o.x - best.x) / bestD, dy = (o.y - best.y) / bestD;
+                    const prox = Math.max(0, 1 - bestD / (TILE_SIZE * 3));
+                    const len = o.h * TILE_SIZE * (0.5 + 0.8 * prox);
+                    const cxp = o.x + dx * len * 0.55, cyp = o.y + dy * len * 0.55;
+                    const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+                    shadowNodes.push(
+                      <ellipse key={`shadow-${o.key}`} className="light-shadow" cx={cxp} cy={cyp}
+                        rx={len * 0.72 + o.w * 0.5} ry={Math.max(o.w * 0.62, len * 0.20)}
+                        transform={`rotate(${deg.toFixed(1)} ${cxp.toFixed(1)} ${cyp.toFixed(1)})`}
+                        fill="url(#table-shadow-soft)" />,
                     );
+                    if (shadowNodes.length >= 80) break;
                   }
-                  if (level === 1) {
-                    return (
-                      <g key={`light-${t.id}`}>
-                        <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(7,9,22,0.20)" stroke="none" />
-                        <polygon className="light-hex" data-light={1} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(255,240,200,0.09)" stroke="none" />
-                      </g>
-                    );
+                }
+                // THE WARDS BLOCK THE LIGHT (the homeland's
+                // amendment, on this seat): for every
+                // strong source, each ward edge throws a
+                // SHADOW VOLUME — the edge's two ends
+                // carried along their own rays from the
+                // source out to the glow's rim. The volume
+                // works twice: it is cut out of the
+                // source's glow (an even-odd clip: the
+                // whole plane minus the volumes — the glow
+                // does not cross the ward), and it is laid
+                // back over the ground as soft shade, so
+                // the ground the glow may not reach reads
+                // dark, feathering out at the rim. The
+                // dusk's own radial lift is not ward-aware
+                // — the shade volume carries the darkness
+                // behind the ward (an honest approximation
+                // where two sources' lights overlap: one
+                // source's shade can dim another's glow).
+                const blockNodes: ReactNode[] = [];
+                const blockDefs: ReactNode[] = [];
+                const clipDefs: ReactNode[] = [];
+                const clipIdFor = new Map<string, string>();
+                if (strong.length && blockSegs.length) {
+                  // The glow ellipse's boundary distance along a ray.
+                  const rimAt = (ux: number, uy: number) =>
+                    1 / Math.sqrt((ux / GLOW_RX) ** 2 + (uy / GLOW_RY) ** 2);
+                  const clipX = minX - TILE_SIZE * 4, clipY = minY - TILE_SIZE * 4;
+                  const clipW = (maxX - minX) + TILE_SIZE * 8, clipH = (maxY - minY) + TILE_SIZE * 8;
+                  const plane = `M${clipX.toFixed(1)} ${clipY.toFixed(1)} H${(clipX + clipW).toFixed(1)} V${(clipY + clipH).toFixed(1)} H${clipX.toFixed(1)} Z`;
+                  for (const s of strong) {
+                    const sid = s.key.replace(/[^a-zA-Z0-9_-]/g, "_");
+                    const vols: string[] = [];
+                    for (const g of blockSegs) {
+                      if (blockNodes.length + shadowNodes.length >= 128) break;
+                      const ext = (x: number, y: number) => {
+                        const vx = x - s.x, vy = y - s.y;
+                        const L = Math.hypot(vx, vy) || 1;
+                        const reach = rimAt(vx / L, vy / L) * 1.12;
+                        const d = Math.max(L, reach);
+                        return [s.x + (vx / L) * d, s.y + (vy / L) * d] as const;
+                      };
+                      const tOf = (x: number, y: number) =>
+                        Math.sqrt(((x - s.x) / GLOW_RX) ** 2 + ((y - s.y) / GLOW_RY) ** 2);
+                      const tA = tOf(g.ax, g.ay), tB = tOf(g.bx, g.by);
+                      if (Math.min(tA, tB) > 1.12 || Math.max(tA, tB) < 0.1) continue;
+                      const [ax2, ay2] = ext(g.ax, g.ay);
+                      const [bx2, by2] = ext(g.bx, g.by);
+                      const dPath = `M${g.ax.toFixed(1)} ${g.ay.toFixed(1)} L${g.bx.toFixed(1)} ${g.by.toFixed(1)} L${bx2.toFixed(1)} ${by2.toFixed(1)} L${ax2.toFixed(1)} ${ay2.toFixed(1)} Z`;
+                      vols.push(dPath);
+                      const gid = `table-block-${sid}-${g.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+                      const mx = (g.ax + g.bx) / 2, my = (g.ay + g.by) / 2;
+                      const fx = (ax2 + bx2) / 2, fy = (ay2 + by2) / 2;
+                      blockDefs.push(
+                        <linearGradient key={gid} id={gid} gradientUnits="userSpaceOnUse"
+                          x1={mx} y1={my} x2={fx} y2={fy}>
+                          <stop offset="0%" stopColor="#04060e" stopOpacity={0.52} />
+                          <stop offset="55%" stopColor="#04060e" stopOpacity={0.27} />
+                          <stop offset="100%" stopColor="#04060e" stopOpacity={0} />
+                        </linearGradient>,
+                      );
+                      blockNodes.push(
+                        <polygon key={`block-${sid}-${g.key}`} className="light-block"
+                          data-block={g.key} data-src={s.key}
+                          data-seg={`${g.ax.toFixed(1)},${g.ay.toFixed(1)},${g.bx.toFixed(1)},${g.by.toFixed(1)}`}
+                          points={`${g.ax.toFixed(1)},${g.ay.toFixed(1)} ${g.bx.toFixed(1)},${g.by.toFixed(1)} ${bx2.toFixed(1)},${by2.toFixed(1)} ${ax2.toFixed(1)},${ay2.toFixed(1)}`}
+                          fill={`url(#${gid})`} />,
+                      );
+                    }
+                    if (vols.length) {
+                      const cid = `table-clip-${sid}`;
+                      clipIdFor.set(s.key, cid);
+                      clipDefs.push(
+                        <clipPath key={cid} id={cid}>
+                          <path d={`${plane} ${vols.join(" ")}`} clipRule="evenodd" />
+                        </clipPath>,
+                      );
+                    }
                   }
-                  return (
-                    <polygon key={`light-${t.id}`} className="light-hex" data-light={0} points={hexCellPoints(cx, cy, TILE_SIZE)} fill="rgba(7,9,22,0.44)" stroke="none" />
+                }
+                // THE DM's DARKENED HEXES (campaign rooms):
+                // a hex the Storytender set dark has lost
+                // its natural light outright — where a
+                // glow could still reach it, its dusk is
+                // laid back whole over the glow, so the
+                // dark she named reads dark.
+                const darkOverrideNodes: ReactNode[] = [];
+                for (const [id, lvl] of overrides) {
+                  if (lvl !== 0) continue;
+                  const c = centerOf(id);
+                  if (!c) continue;
+                  const near = [...strong, ...faint].some(s => Math.hypot(c.cx - s.x, c.cy - s.y) < GLOW_RX * 1.2);
+                  if (!near) continue;
+                  darkOverrideNodes.push(
+                    <polygon key={`dark-${id}`} className="light-override-dark" data-light={0}
+                      points={hexCellPoints(c.cx, c.cy, TILE_SIZE)} fill="rgba(7,9,22,0.44)" stroke="none" />,
                   );
-                })}
-              </g>
+                }
+                return (
+                  <g className="light-layer" pointerEvents="none">
+                    <defs>
+                      <radialGradient id="table-glow-strong">
+                        <stop offset="0%" stopColor="#ffe9b2" stopOpacity={0.62} />
+                        <stop offset="40%" stopColor="#ffd88f" stopOpacity={0.42} />
+                        <stop offset="70%" stopColor="#ffc670" stopOpacity={0.20} />
+                        <stop offset="100%" stopColor="#ffbe64" stopOpacity={0} />
+                      </radialGradient>
+                      <radialGradient id="table-glow-core">
+                        <stop offset="0%" stopColor="#fff4cd" stopOpacity={0.60} />
+                        <stop offset="60%" stopColor="#ffecb4" stopOpacity={0.32} />
+                        <stop offset="100%" stopColor="#ffecb4" stopOpacity={0} />
+                      </radialGradient>
+                      <radialGradient id="table-glow-faint">
+                        <stop offset="0%" stopColor="#fff0c8" stopOpacity={0.19} />
+                        <stop offset="55%" stopColor="#ffeec3" stopOpacity={0.09} />
+                        <stop offset="100%" stopColor="#ffeec3" stopOpacity={0} />
+                      </radialGradient>
+                      <radialGradient id="table-shadow-soft">
+                        <stop offset="0%" stopColor="#04060e" stopOpacity={0.42} />
+                        <stop offset="60%" stopColor="#04060e" stopOpacity={0.24} />
+                        <stop offset="100%" stopColor="#04060e" stopOpacity={0} />
+                      </radialGradient>
+                      <radialGradient id="table-dusk-hole-strong">
+                        <stop offset="0%" stopColor="#000000" />
+                        <stop offset="45%" stopColor="#141414" />
+                        <stop offset="75%" stopColor="#6f6f6f" />
+                        <stop offset="100%" stopColor="#ffffff" />
+                      </radialGradient>
+                      <radialGradient id="table-dusk-hole-faint">
+                        <stop offset="0%" stopColor="#6a6a6a" />
+                        <stop offset="70%" stopColor="#b5b5b5" />
+                        <stop offset="100%" stopColor="#ffffff" />
+                      </radialGradient>
+                      <mask id="table-dusk-mask" maskUnits="userSpaceOnUse" x={maskX} y={maskY} width={maskW} height={maskH}>
+                        <rect x={maskX} y={maskY} width={maskW} height={maskH} fill="#ffffff" />
+                        {strong.map(s => (
+                          <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={HOLE_RX} ry={HOLE_RY} fill="url(#table-dusk-hole-strong)" />
+                        ))}
+                        {faint.map(s => (
+                          <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={FAINT_RX} ry={FAINT_RY} fill="url(#table-dusk-hole-faint)" />
+                        ))}
+                      </mask>
+                      {blockDefs}
+                      {clipDefs}
+                    </defs>
+                    <path className="light-dusk" d={duskPath} fill="rgba(7,9,22,0.44)" mask="url(#table-dusk-mask)" />
+                    {strong.map(s => (
+                      <g key={`glow-${s.key}`} clipPath={clipIdFor.get(s.key) ? `url(#${clipIdFor.get(s.key)})` : undefined}>
+                        <ellipse className="light-glow" data-glow="fighting" cx={s.x} cy={s.y} rx={GLOW_RX} ry={GLOW_RY} fill="url(#table-glow-strong)" />
+                        <ellipse className="light-glow" data-glow="core" cx={s.x} cy={s.y} rx={CORE_RX} ry={CORE_RY} fill="url(#table-glow-core)" />
+                      </g>
+                    ))}
+                    {faint.map(s => (
+                      <ellipse key={`glow-${s.key}`} className="light-glow" data-glow="faint" cx={s.x} cy={s.y} rx={FAINT_RX} ry={FAINT_RY} fill="url(#table-glow-faint)" />
+                    ))}
+                    {blockNodes}
+                    {darkOverrideNodes}
+                    {shadowNodes}
+                  </g>
+                );
+              })()}
+
               {/* The choosing band and the drawn line, while
                   the hand is down (the orders law, 2026-10-22):
                   the band chooses the company; the line is

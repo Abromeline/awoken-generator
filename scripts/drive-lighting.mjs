@@ -63,8 +63,13 @@
 //   §T5 a casual room serves lightOverrides null, and an
 //       stLight attempt there changes nothing.
 //   §T6 the Table's face, in a real browser: the light
-//       layer stands with FIGHTING pools, and the seed's
+//       layer stands with the seed's glow, and the seed's
 //       bulb wears its lit read at the Beacon stage.
+//       (Restated 2026-10-27 for the Lighting Face
+//       reunification: the per-hex pools this section was
+//       born reading are struck — the Table's face is the
+//       homeland's now, one dusk path and the sources'
+//       glow.)
 //
 // Run after `npm run build`:
 //   PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-lighting.mjs
@@ -798,14 +803,15 @@ console.log("§T6 the Table's face — the light layer and the lit seed");
     const bulb = document.querySelector(".seed-bulb");
     const glyph = document.querySelector(".workings-layer");
     return {
-      lit2: layer ? layer.querySelectorAll('[data-light="2"]').length : 0,
-      lit0: layer ? layer.querySelectorAll('[data-light="0"]').length : 0,
+      glowFighting: layer ? layer.querySelectorAll('[data-glow="fighting"]').length : 0,
+      duskPaths: layer ? layer.querySelectorAll('.light-dusk').length : 0,
+      hexPools: layer ? layer.querySelectorAll('.light-hex').length : 0,
       bulbLit: bulb ? bulb.classList.contains("lit") : false,
       order: layer && glyph ? (layer.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 : null,
     };
   });
-  ok("§T6 the Table's light layer stands with FIGHTING pools (data-light=2)", dom.lit2 > 0, `n=${dom.lit2}`);
-  ok("§T6 the Table's dusk stands on dark hexes (data-light=0)", dom.lit0 > 0, `n=${dom.lit0}`);
+  ok("§T6 the Table's light layer stands with a FIGHTING glow for the lit seed (the reunified face)", dom.glowFighting > 0, `n=${dom.glowFighting}`);
+  ok("§T6 the Table's dusk stands as ONE path — and ZERO hex pools remain", dom.duskPaths === 1 && dom.hexPools === 0, `dusk=${dom.duskPaths} pools=${dom.hexPools}`);
   ok("§T6 the seed's bulb wears its lit read at the Beacon stage", dom.bulbLit === true);
   await page.screenshot({ path: join(SHOTS, "table-lighting.png") }).catch(() => {});
   await browser.close();
