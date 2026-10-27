@@ -295,27 +295,37 @@ console.log("§H5 a ward cast at a point takes the edge the point names");
     res.edgeKey === "1,0,2", `edgeKey=${res.edgeKey}`);
 }
 // §H6 — the area family: the Springleaf's burst, judged from the point.
+// RESTATED 2026-10-27 (Nigel's ruling: the Grove's reach
+// quarters to 25%, fractionally — the grove mends part-way
+// into the next hexes): at Lv 3 the radius is 0.75 of a
+// hex, so this section's fixture is re-laid inside it —
+// the inside friend stands at the point (2.75, 0.35) on
+// the tile (3,0): 0.5 of ground from the planted point
+// (inside the point's glow) while his TILE stands a full
+// hex from the planted tile (2,0) — outside any
+// tile-membership reckoning at this radius. The point
+// still judges, at the quartered reach.
 console.log("§H6 the Springleaf's burst is judged from the tapped point");
 {
-  const GV = await claim("Range Grove", 150); // Lv 3 — grove radius 3 hexes
+  const GV = await claim("Range Grove", 150); // Lv 3 — grove radius 0.75 hexes (quartered 2026-10-27)
   const gTiles = seedTiles(GV.ownerKey, 6);
   await prime(GV.token);
   const inAwo = seedAwokin(GV.ownerKey, GV.name, "Glow Friend", "root", 3, 3);
-  const inPl = placeAwokin(GV.ownerKey, inAwo, gTiles.get("4,0"), 4, 0, { hp: 1 });
+  const inPl = placeAwokin(GV.ownerKey, inAwo, gTiles.get("3,0"), 2.75, 0.35, { hp: 1 });
   const outAwo = seedAwokin(GV.ownerKey, GV.name, "Far Friend", "root", 3, 3);
   const outPl = placeAwokin(GV.ownerKey, outAwo, gTiles.get("5,1"), 5, 1, { hp: 1 });
-  const P = { q: 2.3, r: 0.4 }; // the grove's point: (4,0) is 1.7 of ground away (in the glow); (5,1) is 3.3 (outside the point's glow, though the point's TILE (2,1) reaches it at exactly 3)
+  const P = { q: 2.3, r: 0.4 }; // the grove's point: the inside friend's point is 0.5 of ground away (in the glow); (5,1) is 3.3 (far outside the quartered glow)
   const { res } = await castMapUntilStands(GV.token, { spellKey: "springleaf", pointQ: P.q, pointR: P.r });
   const inHp = db.prepare("SELECT hp FROM field_placements WHERE id = ?").get(inPl)?.hp;
   const outHp = db.prepare("SELECT hp FROM field_placements WHERE id = ?").get(outPl)?.hp;
   const grove = db.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine = 'springleaf'").get(GV.ownerKey);
   const gNums = JSON.parse(grove?.nums ?? "{}");
-  ok("the friend INSIDE the point's glow was mended by the raising burst (1 HP → more)",
+  ok("the friend INSIDE the point's glow was mended by the raising burst (1 HP → more) — his point is 0.5 from the planted point though his tile stands a full hex away",
     Number(inHp) > 1, `hp=${inHp} burst=${res.burst}`);
-  ok("the friend outside the POINT's glow was NOT mended — though the grove's tile reckoning (exactly 3 from (2,1)) would have reached it: the burst is judged from where the player pointed",
+  ok("the friend outside the POINT's glow was NOT mended — the burst is judged from where the player pointed",
     Number(outHp) === 1, `hp=${outHp}`);
-  ok("the grove's row carries the planted point (aimQ/aimR) and its radius",
-    near(gNums.aimQ, P.q, 1e-9) && near(gNums.aimR, P.r, 1e-9) && Number(gNums.radiusHexes) === 3,
+  ok("the grove's row carries the planted point (aimQ/aimR) and its QUARTERED radius (Lv 3: floor((66+36)×2.75/80) = 3, × 0.25 = 0.75)",
+    near(gNums.aimQ, P.q, 1e-9) && near(gNums.aimR, P.r, 1e-9) && Number(gNums.radiusHexes) === 0.75,
     `nums=${JSON.stringify({ aimQ: gNums.aimQ, aimR: gNums.aimR, radiusHexes: gNums.radiusHexes })}`);
 }
 // §H7 — the Black Gate reads its facing from the point.

@@ -31,11 +31,13 @@
 //      13 hexes the Binder's own Heal is refused (ring 12).
 //   §F THE SPRINGLEAF'S RANGE ON THE HOMELAND: a Warden
 //      cannot plant at 8 hexes (ring 6); a Binder plants
-//      there, her grove spans radius 6 against the
-//      control's 3, and her raising burst mends an ally
-//      5 hexes from the grove's heart where the control's
-//      burst (radius 3) cannot reach an ally the same
-//      5 hexes out; at 13 hexes her planting is refused.
+//      there, her grove spans the QUARTERED radius 1.5
+//      against the control's 0.75 (Nigel's 2026-10-27
+//      ruling — the reach quarters, fractionally), and
+//      her raising burst mends an ally 1 hex from the
+//      grove's heart where the control's burst (radius
+//      0.75) cannot reach an ally the same 1 hex out; at
+//      13 hexes her planting is refused.
 //   §G AT THE TABLE: the Springleaf grove a Binder plants
 //      spans exactly twice the Warden's radiusPx; and
 //      Heal's gate — glided 7–9 hexes from her standing
@@ -251,16 +253,21 @@ async function groveTender(classKey, label) {
   const wr = await callRaw("castMapWorking", { spellKey: "springleaf", tileId: w.ids[8] }, w.T.token);
   ok("the Warden cannot plant the Springleaf at 8 hexes (ring 6)", wr.status === 400 && /ring 6/.test(JSON.stringify(wr.data)), `${wr.status} ${JSON.stringify(wr.data)}`);
   const wPlant = await castOutcome(w.T.token, { spellKey: "springleaf", tileId: w.ids[1] });
-  ok("the Warden's grove at her own ring spans radius 3 (Lv 3)", wPlant.stood?.radiusHexes === 3, JSON.stringify(wPlant.stood));
+  ok("the Warden's grove at her own ring spans the quartered radius 0.75 (Lv 3, Nigel 2026-10-27)", wPlant.stood?.radiusHexes === 0.75, JSON.stringify(wPlant.stood));
 
   const b = await groveTender("binder", "Grove Range Binder");
   const bPlant = await castOutcome(b.T.token, { spellKey: "springleaf", tileId: b.ids[8] });
   ok("the Binder plants the Springleaf at the same 8 hexes (her ring is 12)", !!bPlant.stood, JSON.stringify(bPlant));
-  ok("her grove spans radius 6 — twice the control's 3", bPlant.stood?.radiusHexes === 6, `radius=${bPlant.stood?.radiusHexes}`);
+  ok("her grove spans radius 1.5 — twice the control's quartered 0.75", bPlant.stood?.radiusHexes === 1.5, `radius=${bPlant.stood?.radiusHexes}`);
   const br = await callRaw("castMapWorking", { spellKey: "springleaf", tileId: b.ids[13] }, b.T.token);
   ok("her planting at 13 hexes is refused — beyond her doubled ring (12)", br.status === 400 && /ring 12/.test(JSON.stringify(br.data)), `${br.status} ${JSON.stringify(br.data)}`);
 
-  // The burst's reach: an ally 5 hexes from the grove's heart.
+  // The burst's reach, at the quartered measure: an ally
+  // 1 hex from the grove's heart — INSIDE the Binder's
+  // doubled quarter (1.5), OUTSIDE the Warden's quarter
+  // (0.75). (Before the 2026-10-27 quartering this same
+  // discrimination was staged 5 hexes out, inside 6 /
+  // outside 3.)
   const burstCase = async (classKey, label, groveQ, allyQ) => {
     const { T, ids } = await groveTender(classKey, label);
     const aw = seedAwokin(T.ownerKey, label, `${label} Ally`, 1, 10);
@@ -268,10 +275,10 @@ async function groveTender(classKey, label) {
     const plant = await castOutcome(T.token, { spellKey: "springleaf", tileId: ids[groveQ] });
     return { plant, hp: hpOf(pid) };
   };
-  const bb = await burstCase("binder", "Burst Binder", 8, 13); // ally 5 from the grove's heart, inside radius 6
-  ok("the Binder's raising burst mends the ally 5 hexes out (inside her doubled radius)", (bb.hp ?? 0) > 10, `hp=${bb.hp} burst=${bb.plant.stood?.burst}`);
-  const wb = await burstCase("warden", "Burst Warden", 1, 6); // ally 5 from the grove's heart, outside radius 3
-  ok("control: the Warden's burst cannot reach the ally the same 5 hexes out (hp untouched)", wb.hp === 10, `hp=${wb.hp} burst=${wb.plant.stood?.burst}`);
+  const bb = await burstCase("binder", "Burst Binder", 8, 9); // ally 1 from the grove's heart, inside radius 1.5
+  ok("the Binder's raising burst mends the ally 1 hex out (inside her doubled, quartered radius)", (bb.hp ?? 0) > 10, `hp=${bb.hp} burst=${bb.plant.stood?.burst}`);
+  const wb = await burstCase("warden", "Burst Warden", 1, 2); // ally 1 from the grove's heart, outside radius 0.75
+  ok("control: the Warden's burst cannot reach the ally the same 1 hex out (hp untouched)", wb.hp === 10, `hp=${wb.hp} burst=${wb.plant.stood?.burst}`);
 }
 
 /* ── Table harness (for §C and §G) ──────────────────────── */

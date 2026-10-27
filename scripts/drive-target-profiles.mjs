@@ -108,8 +108,8 @@ console.log("§B the reckoning — the size functions and the crossbar geometry"
   ok("Shard Rain's reach steps slower (0 through Lv 5, 1 at Lv 6–9, 2 at Lv 10+)",
     acts.shardRainReachFor(5) === 0 && acts.shardRainReachFor(6) === 1 && acts.shardRainReachFor(10) === 2,
     `5→${acts.shardRainReachFor(5)} 6→${acts.shardRainReachFor(6)} 10→${acts.shardRainReachFor(10)}`);
-  ok("the binding radius is the grove's own formula, named",
-    acts.bindingRadiusFor(6) === 4 && acts.bindingRadiusFor(3) === 3,
+  ok("the binding radius is the grove's own formula, named — QUARTERED and fractional since Nigel's 2026-10-27 ruling (Lv 6 → 1, Lv 3 → 0.75)",
+    acts.bindingRadiusFor(6) === 1 && acts.bindingRadiusFor(3) === 0.75,
     `6→${acts.bindingRadiusFor(6)} 3→${acts.bindingRadiusFor(3)}`);
   const cb = acts.wardCrossbarFor({ q: 0, r: 0 }, { q: 2, r: 0 }, 6);
   ok("the crossbar runs perpendicular to the caster→point axis (east aim → the line runs in r)",
@@ -551,8 +551,8 @@ const T6 = await claimAt("Tender Six", 800); // Lv 6: ward count 3, diameter 3, 
 }
 {
   const res = await castUntilStandsApi(T6.token, { spellKey: "springleaf", tileId: T6.tiles.get("0,0"), pointQ: 0, pointR: 0 });
-  ok("§C the Springleaf's radius reads the binding function (Lv 6 → 4, the grove's own formula)",
-    res.radiusHexes === 4, `radiusHexes=${res.radiusHexes}`);
+  ok("§C the Springleaf's radius reads the binding function, quartered (Lv 6 → 1, the grove's own formula at Nigel's 2026-10-27 measure)",
+    res.radiusHexes === 1, `radiusHexes=${res.radiusHexes}`);
 }
 
 const T3 = await claimAt("Tender Three", 150); // Lv 3: ward count 1, diameter 1, rain reach 0

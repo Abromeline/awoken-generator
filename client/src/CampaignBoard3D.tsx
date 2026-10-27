@@ -23,6 +23,7 @@
 // until his own textures arrive (the road, step 4).
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import twinTreesImg from "./assets/glyphs/trees.png";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { mergeVertices, mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
@@ -90,6 +91,15 @@ export interface BoardDarkView {
 export interface BoardWorkingView {
   id: string; kind: string; name: string; hue: string;
   hex: string | null; hexA: string | null;
+  /** GROVES (the Springleaf): the Table serves the whole
+   *  shared working — its centre in stage px, its radius
+   *  and whether it is the mother ride along (Table.tsx
+   *  passes shared.workings whole), so the board can stand
+   *  the Twin Trees and lay her ring in the scene. */
+  engine?: string;
+  pos?: { x: number; y: number } | null;
+  radiusPx?: number;
+  mother?: boolean;
 }
 export interface BoardPlayerView {
   key: string; name: string; hex: string | null;
@@ -106,6 +116,11 @@ export interface CampaignBoardApi {
     tileKinds: Record<string, string>; buildings: Record<string, string>;
     props: Record<string, string>; backdrop: string | null; propMeshes: number;
     pointLights: number; shadowLights: number;
+    /** Each standing working's form in the scene, read off
+     *  the scene itself: "twin-trees" for a grove (Nigel's
+     *  Twin Trees standing), "gem" for every other working;
+     *  and the grove ids whose ring lies in the scene. */
+    workingForms: Record<string, string>; groveRings: string[];
   };
 }
 
@@ -787,12 +802,57 @@ export default function CampaignBoard3D(props: Props) {
           return { grp, sig: "" };
         }, "", w, topYOf(pl.hex ?? "0,0"));
       }
-      // workings: a small lit mark at their hex
+      // workings: a small lit mark at their hex — except
+      // the grove, which stands as Nigel drew it.
       for (const wk of p.workings) {
         const hex = wk.hex ?? wk.hexA;
         if (!hex) continue;
         const key = `w|${wk.id}`;
         const [q, r] = hex.split(",").map(Number);
+        if (wk.kind === "grove") {
+          // THE GROVE STANDS (Nigel, 2026-10-27): the Twin
+          // Trees on the campaign board — two upright
+          // crossed planes bearing his trees.png, the
+          // board's honest standing for a drawn thing
+          // (readable from every seat's side, as the
+          // board's sprite standings are), rooted at the
+          // grove's own point when the working carries
+          // one, else its hex heart. Her ring lies ON the
+          // tile surface: the stage circle the flat
+          // grounds draw, carried point by point through
+          // stageToWorld, so the ring wears THIS scene's
+          // own projection — no true circle anywhere.
+          const w = wk.pos ? stageToWorld(wk.pos.x, wk.pos.y) : axialToWorld(q, r);
+          upsert(key, () => {
+            const grp = new THREE.Group();
+            const tw = wk.mother ? 1.25 : 0.8;
+            const th = tw * (491 / 607);
+            const mat = new THREE.MeshBasicMaterial({ map: imgTex(twinTreesImg), transparent: true, alphaTest: 0.08, side: THREE.DoubleSide });
+            for (const rotY of [0, Math.PI / 2]) {
+              const plane = new THREE.Mesh(new THREE.PlaneGeometry(tw, th), mat);
+              plane.rotation.y = rotY;
+              plane.position.y = th / 2;
+              plane.name = "grove-trees";
+              grp.add(plane);
+            }
+            if (wk.pos && wk.radiusPx) {
+              const pts: THREE.Vector3[] = [];
+              const c = stageToWorld(wk.pos.x, wk.pos.y);
+              for (let i = 0; i < 40; i++) {
+                const a = (i / 40) * Math.PI * 2;
+                const sp = stageToWorld(wk.pos.x + Math.cos(a) * wk.radiusPx, wk.pos.y + Math.sin(a) * wk.radiusPx);
+                pts.push(new THREE.Vector3(sp.x - c.x, 0.04, sp.z - c.z));
+              }
+              const ring = new THREE.LineLoop(
+                new THREE.BufferGeometry().setFromPoints(pts),
+                new THREE.LineBasicMaterial({ color: 0x7dd069, transparent: true, opacity: 0.65 }));
+              ring.name = "grove-ring";
+              grp.add(ring);
+            }
+            return { grp, sig: "" };
+          }, "", w, topYOf(hex));
+          continue;
+        }
         const w = axialToWorld(q, r);
         upsert(key, () => {
           const grp = new THREE.Group();
@@ -1097,6 +1157,11 @@ export default function CampaignBoard3D(props: Props) {
           propMeshes: propGroup.children.length,
           pointLights: pointLightsNow,
           shadowLights: shadowLightsNow,
+          workingForms: Object.fromEntries(p.workings.map((wk) => {
+            const fig = figs.get(`w|${wk.id}`);
+            return [wk.id, fig && fig.grp.getObjectByName("grove-trees") ? "twin-trees" : "gem"];
+          })),
+          groveRings: p.workings.filter((wk) => { const f = figs.get(`w|${wk.id}`); return !!f && !!f.grp.getObjectByName("grove-ring"); }).map((wk) => wk.id),
         };
       },
     };
