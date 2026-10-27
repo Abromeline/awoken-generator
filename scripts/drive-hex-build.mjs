@@ -9,6 +9,23 @@
 //      derivation itself: for every served piece, the drive
 //      re-reckons the hexes beneath its footprint from the served
 //      land and checks the served flag against the ground.
+//   §X FREE PLACEMENT + THE FOUNDATION CALCULATION (Nigel,
+//      2026-10-26): a floor at a seat that is NOT on the tiling
+//      stands there; a neighbour laid flush on its edge shares
+//      the full edge; a wall and a door stand on the free
+//      floors' edges (the door's gap passing); an overlapping
+//      placement refuses in plain words; protection reads the
+//      free footprint's own ground (pure → protected, part-
+//      cursed → unprotected); a building laid on the old tiling
+//      still stands and takes a snapped neighbour; a wall with
+//      no floor under its edge refuses (no foundation); and
+//      removing a free floor fells the wall it alone founded
+//      while the joined neighbour stands.
+//   §M THE TWO MODES, BY TAP, in a real browser: the bar's
+//      placing-mode switch stands; in FREE PLACE a floor lands
+//      exactly where the tap puts it — even within snap's reach
+//      of a standing edge, it does NOT snap; back in SNAP mode
+//      the same reach joins a floor flush to its neighbour.
 //   §D THE DARK'S WALK: a wanderer walking a straight line to
 //      pure ground is stopped by a build wall across its path —
 //      and walks on once the wall is taken away.
@@ -176,6 +193,174 @@ ok("§B removing the square takes down the wall it alone carried (both ids named
 served = await servedPieces();
 ok("§B after the taking-away, the wedge and the shoulder stand; the square and its wall are gone",
   served.length === 2 && served.every(p => p.kind === "triangle"), `${served.length} pieces`);
+
+/* ── §X FREE PLACEMENT + THE FOUNDATION CALCULATION ──────── */
+console.log("§X free placement — floors land where the tap puts them; the foundation calculation judges the structure");
+const { freePieceAt, pieceOnEdge, polygonsOverlap, matchCandidate } = GEO;
+const centroidOf = (verts) => [verts.reduce((s, v) => s + v[0], 0) / verts.length, verts.reduce((s, v) => s + v[1], 0) / verts.length];
+const nearPt2 = (a, b, tol) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= tol;
+const sharedEdgeKeys = (v1, v2) => {
+  const s2 = new Set(edgesOf(v2).map(e => edgeKeyOf(e[0], e[1])));
+  return edgesOf(v1).map(e => edgeKeyOf(e[0], e[1])).filter(k => s2.has(k));
+};
+// A free seat for a floor of `kind`: its centre over a tile's
+// plate point nudged off every lattice line, the footprint's
+// protection reading as asked, clear of everything standing,
+// and provably NOT a tiling piece.
+async function freeSeat(kind, wantProtected) {
+  const floors = (await servedPieces()).filter(p => p.kind === "triangle" || p.kind === "square");
+  for (const t of land.tiles) {
+    if (wantProtected && t.cursed) continue;
+    if (!wantProtected && !t.cursed) continue;
+    const c = axialToPlate(t.q, t.r);
+    for (const off of [[0.37, 0.41], [-0.43, 0.29], [0.31, -0.47], [-0.29, -0.39], [0.53, 0.13]]) {
+      const seat = [c[0] + off[0], c[1] + off[1]];
+      const verts = freePieceAt(kind, seat);
+      if (floors.some(p => polygonsOverlap(verts, p.verts))) continue;
+      const fp = verts.map(v => plateToAxial(v));
+      if (!footprintHexes(fp).some(h => land.tiles.some(tt => tt.q === h.q && tt.r === h.r))) continue;
+      if (expectedProtection(fp, land.tiles) !== wantProtected) continue;
+      if (matchCandidate(kind, verts)) continue;
+      return { seat, verts };
+    }
+  }
+  return null;
+}
+// Fixture ground: a purified patch on open land, so a free
+// footprint CAN lie wholly over pure ground (the sown land is
+// mostly curse). The server's derivation still judges every
+// flag from these tiles, and §B's re-reckoning stands over it.
+{
+  const disc = [[2, 0], [2, -1], [1, 0], [1, 1]];
+  const un = db.prepare("UPDATE territory_tiles SET cursed = 0 WHERE owner_key = ? AND q = ? AND r = ?");
+  for (const [q, r] of disc) un.run(ownerKey, q, r);
+  land = await callOk("getTerritory", {}, token);
+}
+const seatA = await freeSeat("triangle", true);
+ok("§X a seat stands open: off the tiling, over pure ground, clear of the standing work", !!seatA);
+let freeTri = null, snapTri = null, wallXId = null, doorXId = null, sqXId = null, unpXId = null, joinedXId = null;
+if (seatA) {
+  const lay = await callOk("placeBuildPiece", { kind: "triangle", verts: seatA.verts }, token);
+  freeTri = lay.piece;
+  ok("§X (a) a triangle floor placed at a spot that is NOT on the old tiling stands there",
+    lay.ok === true && nearPt2(centroidOf(lay.piece.verts), seatA.seat, 0.01)
+    && matchCandidate("triangle", lay.piece.verts) === null,
+    JSON.stringify(lay.piece?.verts));
+  ok("§X (e) its protection reads the ground beneath the free footprint: pure ground, protected",
+    lay.piece.protected === true && lay.piece.protected === expectedProtection(lay.piece.footprint, land.tiles));
+  // (b) the join: a second triangle flush on the first's edge.
+  const e0 = edgesOf(seatA.verts)[0];
+  const snapVerts = pieceOnEdge("triangle", e0[0], e0[1], seatA.seat);
+  const laySnap = await callOk("placeBuildPiece", { kind: "triangle", verts: snapVerts }, token);
+  snapTri = laySnap.piece;
+  ok("§X (b) a second floor laid flush on the free floor's edge shares the FULL edge — no gap, no overlap",
+    sharedEdgeKeys(laySnap.piece.verts, seatA.verts).length === 1
+    && !polygonsOverlap(laySnap.piece.verts, seatA.verts));
+  // (c) a wall on the free floor's edge; a door on the joined
+  // floor's edge, its gap passing.
+  const layWallX = await callOk("placeBuildPiece", { kind: "wall", verts: edgesOf(seatA.verts)[1] }, token);
+  wallXId = layWallX.piece.id;
+  ok("§X (c) a wall stands on the free floor's edge", layWallX.ok === true && layWallX.piece.kind === "wall");
+  const sharedK = sharedEdgeKeys(laySnap.piece.verts, seatA.verts)[0];
+  const doorEdge = edgesOf(laySnap.piece.verts).find(e => edgeKeyOf(e[0], e[1]) !== sharedK);
+  const layDoorX = await callOk("placeBuildPiece", { kind: "door", verts: doorEdge }, token);
+  doorXId = layDoorX.piece.id;
+  const dSegs = collisionSegments("door", layDoorX.piece.footprint);
+  const [da, db] = layDoorX.piece.footprint;
+  const dMid = [(da[0] + db[0]) / 2, (da[1] + db[1]) / 2];
+  const throughMid = [[dMid[0], dMid[1] - 0.4], [dMid[0], dMid[1] + 0.4]];
+  const atPart = [da[0] + (db[0] - da[0]) * 0.15, da[1] + (db[1] - da[1]) * 0.15];
+  const throughPart = [[atPart[0], atPart[1] - 0.4], [atPart[0], atPart[1] + 0.4]];
+  ok("§X (c) a doorway stands on the joined floor's edge — its open middle crosses no collision segment",
+    layDoorX.ok === true && !dSegs.some(([s, t]) => segmentsCrossProper(throughMid[0], throughMid[1], s, t)));
+  ok("§X (c) the same step at the doorway's standing part IS barred",
+    dSegs.some(([s, t]) => segmentsCrossProper(throughPart[0], throughPart[1], s, t)));
+  // (d) an overlapping placement refuses, in plain words.
+  const overlapVerts = seatA.verts.map(v => [v[0] + 0.2, v[1] + 0.1]);
+  const ov = await call("placeBuildPiece", { kind: "triangle", verts: overlapVerts }, token);
+  ok("§X (d) a floor laid across a standing piece refuses — and the refusal speaks of overlap",
+    ov.status >= 400 && JSON.stringify(ov.raw).includes("overlap"),
+    `status ${ov.status} ${JSON.stringify(ov.raw).slice(0, 160)}`);
+  // A turned shape is no kit piece, free seat or not.
+  const turned = await call("placeBuildPiece", { kind: "triangle", verts: freePieceAt("triangle", seatA.seat)
+    .map(v => { const dx = v[0] - seatA.seat[0], dy = v[1] - seatA.seat[1]; const c15 = Math.cos(0.26), s15 = Math.sin(0.26); return [seatA.seat[0] + dx * c15 - dy * s15, seatA.seat[1] + dx * s15 + dy * c15]; }) }, token);
+  ok("§X a floor turned off the kit's grain refuses (no arbitrary angles, free or not)",
+    turned.status >= 400, `status ${turned.status}`);
+}
+// A square foundation lands free too.
+const seatSq = await freeSeat("square", true);
+ok("§X a seat for a free square stands open", !!seatSq);
+if (seatSq) {
+  const laySq = await callOk("placeBuildPiece", { kind: "square", verts: seatSq.verts }, token);
+  sqXId = laySq.piece.id;
+  ok("§X a square foundation placed off the tiling stands at the tap's own seat",
+    laySq.ok === true && nearPt2(centroidOf(laySq.piece.verts), seatSq.seat, 0.01)
+    && matchCandidate("square", laySq.piece.verts) === null);
+}
+// (e) the unprotected reading over part-cursed ground.
+const seatU = await freeSeat("triangle", false);
+ok("§X a seat over cursed ground stands open for the unprotected reading", !!seatU);
+if (seatU) {
+  const layU = await callOk("placeBuildPiece", { kind: "triangle", verts: seatU.verts }, token);
+  unpXId = layU.piece.id;
+  ok("§X (e) a free floor over part-cursed ground stands UNPROTECTED — protection reads its own footprint's ground",
+    layU.piece.protected === false && layU.piece.protected === expectedProtection(layU.piece.footprint, land.tiles));
+}
+// The foundation calculation at the door.
+const noFloor = await call("placeBuildPiece", { kind: "wall", verts: [[7.3, 8.1], [8.3, 8.1]] }, token);
+ok("§X the foundation calculation: a wall with no floor under its edge refuses — it has no foundation",
+  noFloor.status >= 400, `status ${noFloor.status}`);
+// (f) a building laid on the old tiling takes a snapped neighbour.
+{
+  const floorsNow = (await servedPieces()).filter(p => p.kind === "triangle" || p.kind === "square");
+  const cnt = new Map();
+  for (const p of floorsNow) for (const e of edgesOf(p.verts)) { const k = edgeKeyOf(e[0], e[1]); cnt.set(k, (cnt.get(k) ?? 0) + 1); }
+  let joined = null;
+  for (const p of floorsNow) {
+    if (!matchCandidate(p.kind, p.verts)) continue; // only the tiling-laid buildings of old
+    for (const e of edgesOf(p.verts)) {
+      if ((cnt.get(edgeKeyOf(e[0], e[1])) ?? 0) !== 1) continue;
+      const candVerts = pieceOnEdge("triangle", e[0], e[1], centroidOf(p.verts));
+      if (floorsNow.some(q => polygonsOverlap(candVerts, q.verts))) continue;
+      const r = await call("placeBuildPiece", { kind: "triangle", verts: candVerts }, token);
+      if (r.status === 200) { joined = { piece: r.body.piece, host: p }; break; }
+    }
+    if (joined) break;
+  }
+  ok("§X (f) a building laid on the old tiling still stands and takes a snapped neighbour on its free edge",
+    !!joined && sharedEdgeKeys(joined.piece.verts, joined.host.verts).length === 1,
+    joined ? "" : "no tiling host with a clear free edge was found");
+  joinedXId = joined?.piece.id ?? null;
+}
+// The foundation calculation on the taking-away.
+if (freeTri && snapTri && wallXId) {
+  const rmFree = await callOk("removeBuildPiece", { id: freeTri.id }, token);
+  const after = await servedPieces();
+  ok("§X the foundation calculation on removal: the free floor's wall comes down with it; the joined neighbour stands",
+    rmFree.removed.includes(freeTri.id) && rmFree.removed.includes(wallXId)
+    && after.some(p => p.id === snapTri.id) && !after.some(p => p.id === wallXId),
+    JSON.stringify(rmFree.removed));
+}
+// §X tidies its own ground: the cluster comes down (the door
+// falls with its floor, by the same reckoning), the purified
+// fixture patch returns to curse, and the land is left as §B
+// left it — the later sections walk their own landscapes.
+{
+  if (snapTri) {
+    const rmSnap = await callOk("removeBuildPiece", { id: snapTri.id }, token);
+    ok("§X taking the joined floor away fells its doorway too — the reckoning names both",
+      rmSnap.removed.includes(snapTri.id) && (doorXId === null || rmSnap.removed.includes(doorXId)),
+      JSON.stringify(rmSnap.removed));
+  }
+  for (const id of [joinedXId, sqXId, unpXId]) {
+    if (id) await callOk("removeBuildPiece", { id }, token);
+  }
+  const curse = db.prepare("UPDATE territory_tiles SET cursed = 1 WHERE owner_key = ? AND q = ? AND r = ?");
+  for (const [q, r] of [[2, 0], [2, -1], [1, 0], [1, 1]]) curse.run(ownerKey, q, r);
+  const left = await servedPieces();
+  ok("§X the land is left as §B left it (the wedge and the shoulder stand; the §X work is cleared)",
+    left.length === 2 && left.every(p => p.kind === "triangle"), `${left.length} pieces`);
+}
 
 /* ── §G THE DOOR'S GAP, IN THE SHIPPED GEOMETRY ────────────── */
 console.log("§G the door's gap — the middle stands open in the collision itself");
@@ -441,9 +626,10 @@ ok("§E the map draws the construction: every served floor is a polygon on the l
   before.floors === (land.buildPieces ?? []).filter(p => p.kind === "triangle" || p.kind === "square").length && before.floors > 0,
   JSON.stringify({ dom: before, api: apiCount }));
 ok("§E the walls stand drawn as raised faces", before.wallFaces >= 2, JSON.stringify(before));
-ok("§E the triangle floors wear his drawn faces (one seated image per triangle)",
-  before.floorFaces === (land.buildPieces ?? []).filter(p => p.kind === "triangle").length && before.floorFaces > 0,
-  JSON.stringify(before));
+const tilingTris = (land.buildPieces ?? []).filter(p => p.kind === "triangle" && matchCandidate("triangle", p.verts)).length;
+ok("§E the tiling-laid triangle floors wear his drawn faces (one seated image per tiling triangle; free-laid floors wear the standing geometry until their faces' turn)",
+  before.floorFaces >= tilingTris && tilingTris > 0 && before.floorFaces > 0,
+  JSON.stringify({ ...before, tilingTris, allTris: (land.buildPieces ?? []).filter(p => p.kind === "triangle").length }));
 const toggle = await page.$(".buildmode-toggle");
 ok("§E build mode's own toggle stands on the map", !!toggle);
 await toggle.click();
@@ -676,6 +862,137 @@ console.log("§S the photograph — the far compound, panned to the middle of th
   await page.screenshot({ path: join(SHOTS, "06-compound-west-clip.png"), clip: { x: 130, y: 40, width: 1140, height: 780 } });
   const westFloors = await page.evaluate(() => document.querySelectorAll(".build-floors polygon").length);
   ok("§S the far compound stands drawn for its photograph", westFloors > 0, `${westFloors} floor polygons`);
+}
+
+/* ── §M THE TWO MODES, BY TAP ──────────────────────────────── */
+console.log("§M the two modes — free place lands exactly; snap joins; the switch is the player's");
+// §S left build mode open. The helpers: a plate point carried
+// to the screen through the land's own transform, as §E's taps.
+const plateToClient = async (plate) => {
+  const ax = plateToAxial(plate);
+  const k = 54 / 796;
+  return landClient(250 + ax[0] * 1292 * k, 170 + ax[0] * 470 * k + ax[1] * 948 * k);
+};
+const tapPlate = async (plate) => {
+  const pt = await plateToClient(plate);
+  if (!pt.onScaffold) return false;
+  await page.mouse.click(pt.x, pt.y);
+  await sleep(700);
+  return true;
+};
+const modeBtn = () => page.evaluate(() => {
+  const b = document.querySelector(".build-tool.place-mode");
+  return b ? { text: b.textContent.trim(), pressed: b.getAttribute("aria-pressed") } : null;
+});
+const clickModeBtn = () => page.evaluate(() => { document.querySelector(".build-tool.place-mode")?.click(); });
+const floorsServed = async () => (await servedPieces()).filter(p => p.kind === "triangle" || p.kind === "square");
+// A standing floor's free edge, with room on its far side: the
+// tap point `dist` out from the edge's midpoint, and the free
+// seat the tap would take there (for the mode witnesses).
+const roomDiag = { freeEdges: 0, overlap: 0, snapOverlap: 0, noLand: 0, offScaffold: 0, clear: 0 };
+async function freeEdgeRoom(dist, needSnap = false) {
+  Object.keys(roomDiag).forEach(k => { roomDiag[k] = 0; });
+  const floors = await floorsServed();
+  const cnt = new Map();
+  for (const p of floors) for (const e of edgesOf(p.verts)) { const k2 = edgeKeyOf(e[0], e[1]); cnt.set(k2, (cnt.get(k2) ?? 0) + 1); }
+  // Every workable seat is gathered; the witness taken is the
+  // one nearest the frame's centre — a seat off the frame or
+  // under the rails is no tap at all, however lawful its ground.
+  const found = [];
+  for (const p of floors) {
+    for (const e of edgesOf(p.verts)) {
+      if ((cnt.get(edgeKeyOf(e[0], e[1])) ?? 0) !== 1) continue;
+      roomDiag.freeEdges++;
+      const heart = centroidOf(p.verts);
+      const mx = (e[0][0] + e[1][0]) / 2, my = (e[0][1] + e[1][1]) / 2;
+      let nx = -(e[1][1] - e[0][1]), ny = e[1][0] - e[0][0];
+      const nl = Math.hypot(nx, ny); nx /= nl; ny /= nl;
+      if ((mx + nx - heart[0]) ** 2 + (my + ny - heart[1]) ** 2 < (mx - nx - heart[0]) ** 2 + (my - ny - heart[1]) ** 2) { nx = -nx; ny = -ny; }
+      const tap = [mx + nx * dist, my + ny * dist];
+      const freeVerts = freePieceAt("triangle", tap);
+      if (floors.some(q => polygonsOverlap(freeVerts, q.verts))) { roomDiag.overlap++; continue; }
+      if (needSnap) {
+        const snapVerts = pieceOnEdge("triangle", e[0], e[1], heart);
+        if (floors.some(q => polygonsOverlap(snapVerts, q.verts))) { roomDiag.snapOverlap++; continue; }
+      }
+      const fpHexes = footprintHexes(freeVerts.map(v => plateToAxial(v)));
+      if (!fpHexes.some(h => land.tiles.some(tt => tt.q === h.q && tt.r === h.r))) { roomDiag.noLand++; continue; }
+      const pt = await plateToClient(tap);
+      if (!pt.onScaffold) { roomDiag.offScaffold++; continue; }
+      roomDiag.clear++;
+      found.push({ host: p, edge: e, tap, freeVerts, dc: Math.hypot(pt.x - 700, pt.y - 475) });
+    }
+  }
+  found.sort((a, b) => a.dc - b.dc);
+  return found[0] ?? null;
+}
+// §M begins on a FRESH entry: the camera §S dragged is not
+// ground this section's taps can be measured on — a fresh
+// entry stands the land centred, as §F's photograph shows.
+await enterTerritory();
+await clearOverlays();
+if (!(await page.$(".build-bar"))) {
+  const tgl2 = await page.$(".buildmode-toggle");
+  if (tgl2) { await tgl2.click(); await sleep(400); }
+}
+await page.evaluate(() => { [...document.querySelectorAll(".build-tool")].find(b => b.textContent.includes("Triangle"))?.click(); });
+let mAnchor = null; // the §M work's own seat, for its photograph
+const mode0 = await modeBtn();
+ok("§M the build bar carries the placing-mode switch, standing at Snap together",
+  !!mode0 && mode0.text.includes("Snap together") && mode0.pressed === "false", JSON.stringify(mode0));
+// FREE PLACE: a tap within snap's own reach of a standing edge
+// lands EXACTLY there — it does not snap together.
+const roomFree = await freeEdgeRoom(0.68);
+ok("§M a standing edge with room beyond it stands on the land (for the free-place tap)", !!roomFree, JSON.stringify(roomDiag));
+if (roomFree) {
+  await clickModeBtn();
+  await sleep(300);
+  const mode1 = await modeBtn();
+  ok("§M the switch turns: the bar now stands at Free place",
+    !!mode1 && mode1.text.includes("Free place") && mode1.pressed === "true", JSON.stringify(mode1));
+  const beforeIds = new Set((await floorsServed()).map(p => p.id));
+  const tapped = await tapPlate(roomFree.tap);
+  const laid = (await floorsServed()).filter(p => !beforeIds.has(p.id));
+  if (laid.length === 1) mAnchor = plateToAxial(centroidOf(laid[0].verts));
+  ok("§M in free place, the tap lays the floor exactly where it fell — no snap to the neighbour's edge",
+    tapped && laid.length === 1 && nearPt2(centroidOf(laid[0].verts), roomFree.tap, 0.06)
+    && sharedEdgeKeys(laid[0].verts, roomFree.host.verts).length === 0,
+    JSON.stringify({ laid: laid.map(p => centroidOf(p.verts)), tap: roomFree.tap }));
+  await clickModeBtn();
+  await sleep(300);
+  const mode2 = await modeBtn();
+  ok("§M the switch turns back: Snap together again",
+    !!mode2 && mode2.text.includes("Snap together") && mode2.pressed === "false", JSON.stringify(mode2));
+  // SNAP MODE: the same reach now JOINS the piece to its
+  // neighbour, flush on the full edge.
+  const roomSnap = await freeEdgeRoom(0.45, true);
+  ok("§M another standing edge with room stands for the snap tap", !!roomSnap, JSON.stringify(roomDiag));
+  if (roomSnap) {
+    const beforeIds2 = new Set((await floorsServed()).map(p => p.id));
+    const tapped2 = await tapPlate(roomSnap.tap);
+    const laid2 = (await floorsServed()).filter(p => !beforeIds2.has(p.id));
+    if (laid2.length === 1) mAnchor = plateToAxial(centroidOf(laid2[0].verts));
+    ok("§M in snap mode, a tap within reach of a free edge joins the floor flush to its neighbour",
+      tapped2 && laid2.length === 1 && sharedEdgeKeys(laid2[0].verts, roomSnap.host.verts).length === 1,
+      JSON.stringify({ laid: laid2.map(p => centroidOf(p.verts)), tap: roomSnap.tap }));
+  }
+}
+// The photograph of the free work: a FRESH entry frames the
+// land centred (the camera drags this drive attempted left
+// the land off-frame twice — the fresh entry's own framing,
+// proven by §F's photograph, is the honest camera). §M's
+// pieces stand at the compound, in that frame.
+{
+  await enterTerritory();
+  await clearOverlays();
+  if (!(await page.$(".build-bar"))) {
+    const tgl3 = await page.$(".buildmode-toggle");
+    if (tgl3) { await tgl3.click(); await sleep(400); }
+  }
+  await sleep(600);
+  await page.screenshot({ path: join(SHOTS, "08-free-placement.png") });
+  ok("§M the free-built work stands drawn for its photograph",
+    (await domCounts()).floors > 0, JSON.stringify(await domCounts()));
 }
 
 await browser.close();

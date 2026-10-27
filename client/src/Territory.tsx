@@ -40,9 +40,10 @@ import WarGrounds from "./WarGrounds";
 import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn, LootEntry, DropEventView } from "./api";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
-  candidatesNear, axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
+  axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
   pointInPolygon, pointSegmentDistance, segmentsCrossProper, collisionSegments,
-  type Candidate, type Pt,
+  freePieceAt, pieceOnEdge, polygonsOverlap, matchCandidate, pieceKeyOf,
+  type Pt,
 } from "./buildGeometry";
 import grimGlyphEngine from "./assets/glyphs/engine.png";
 import grimGlyphStandard from "./assets/glyphs/standard.png";
@@ -1073,8 +1074,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [buildTool, setBuildTool] = useState<"triangle" | "square" | "wall" | "door" | "remove">("triangle");
   const buildToolRef = useRef(buildTool);
   useEffect(() => { buildToolRef.current = buildTool; }, [buildTool]);
+  // THE TWO PLACING MODES (Nigel, 2026-10-26): SNAP is the
+  // default — pieces click edge-to-edge onto the work already
+  // standing, never onto the world. FREE PLACE is the player's
+  // own switch in the bar: pieces land exactly where the tap
+  // puts them and do not snap together at all. The palette is
+  // the same in both; only the floors' seating changes.
+  const [buildPlaceMode, setBuildPlaceMode] = useState<"snap" | "free">("snap");
+  const buildPlaceModeRef = useRef(buildPlaceMode);
+  useEffect(() => { buildPlaceModeRef.current = buildPlaceMode; }, [buildPlaceMode]);
   type BuildGhost =
-    | { type: "floor"; cand: Candidate }
+    | { type: "floor"; kind: "triangle" | "square"; verts: Pt[]; snapped: boolean }
+    | { type: "blocked"; verts: Pt[] }
     | { type: "wall"; kind: "wall" | "door"; edge: [Pt, Pt] }
     | { type: "remove"; piece: BuildPiece }
     | null;
@@ -3027,26 +3038,58 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // presses belong to the construction (the capture layer in the
   // SVG) — a drag still pans the land, a tap lays or takes away.
   // The picking works in the PLATE plane: the click's axial point
-  // read back through the slant, candidates from the tiling
-  // itself. What the tap lays, the server re-derives and proves.
+  // read back through the slant. FREE PLACEMENT (Nigel,
+  // 2026-10-26): no tiling addresses a floor. In SNAP mode the
+  // tap within the catch of a standing floor's FREE edge seats
+  // the piece flush on that edge — the join made of the
+  // neighbour's own vertices. Everywhere else (and everywhere
+  // in FREE PLACE mode) the piece centres exactly on the tap, a
+  // new island allowed. A seat lying across a standing piece is
+  // refused — the ghost shows it barred, the server proves it.
+  // What the tap lays, the server re-derives and proves.
+  const SNAP_CATCH = 0.75; // plate units: the hand's reach toward a neighbour's edge
   const pickBuildTarget = (platePt: Pt): BuildGhost => {
     const tool = buildToolRef.current;
     const pieces = buildPiecesRef.current;
     if (tool === "triangle" || tool === "square") {
-      const placed = new Set(pieces.map(p => p.pieceKey));
-      const cands = candidatesNear(platePt).filter(c => c.kind === tool && !placed.has(c.key));
-      if (!cands.length) return null;
-      const containing = cands.filter(c => pointInPolygon(platePt, c.verts));
-      const pool = containing.length ? containing : cands;
-      let best: Candidate | null = null; let bestD = Infinity;
-      for (const c of pool) {
-        const cx = c.verts.reduce((s, v) => s + v[0], 0) / c.verts.length;
-        const cy = c.verts.reduce((s, v) => s + v[1], 0) / c.verts.length;
-        const d = Math.hypot(cx - platePt[0], cy - platePt[1]);
-        if (d < bestD) { bestD = d; best = c; }
+      const floors = pieces.filter(p => p.kind === "triangle" || p.kind === "square");
+      const overlaps = (verts: Pt[]) => floors.some(p => polygonsOverlap(verts, p.verts));
+      if (buildPlaceModeRef.current === "snap") {
+        // The free edges: edges exactly one floor carries — an
+        // edge two floors share is a join already made.
+        const edgeCount = new Map<string, number>();
+        for (const p of floors) {
+          for (const e of edgesOf(p.verts)) {
+            const ek = edgeKeyOf(e[0], e[1]);
+            edgeCount.set(ek, (edgeCount.get(ek) ?? 0) + 1);
+          }
+        }
+        let bestSnap: { verts: Pt[]; d: number } | null = null;
+        for (const p of floors) {
+          const heart: Pt = [
+            p.verts.reduce((s, v) => s + v[0], 0) / p.verts.length,
+            p.verts.reduce((s, v) => s + v[1], 0) / p.verts.length,
+          ];
+          for (const e of edgesOf(p.verts)) {
+            if ((edgeCount.get(edgeKeyOf(e[0], e[1])) ?? 0) !== 1) continue;
+            const d = pointSegmentDistance(platePt, e[0], e[1]);
+            if (d > SNAP_CATCH) continue;
+            let verts = pieceOnEdge(tool, e[0], e[1], heart);
+            // A snapped seat that IS a tiling piece takes the
+            // tiling's own vertex order — the faces were cut
+            // for those seats, and the record stays canonical.
+            const canon = matchCandidate(tool, verts);
+            if (canon) verts = canon.verts;
+            if (overlaps(verts)) continue;
+            if (floors.some(p2 => p2.pieceKey === pieceKeyOf(tool, verts))) continue;
+            if (!bestSnap || d < bestSnap.d) bestSnap = { verts, d };
+          }
+        }
+        if (bestSnap) return { type: "floor", kind: tool, verts: bestSnap.verts, snapped: true };
       }
-      if (!best || (!containing.length && bestD > 1.1)) return null;
-      return { type: "floor", cand: best };
+      const freeVerts = freePieceAt(tool, platePt);
+      if (overlaps(freeVerts)) return { type: "blocked", verts: freeVerts };
+      return { type: "floor", kind: tool, verts: freeVerts, snapped: false };
     }
     if (tool === "wall" || tool === "door") {
       const walled = new Set(
@@ -3091,13 +3134,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           : "No piece of the construction fits there.");
       return;
     }
+    if (target.type === "blocked") {
+      setBuildNote("That piece would lie across one already standing — pieces may not overlap.");
+      return;
+    }
     try {
       if (target.type === "floor") {
-        const r = await api.placeBuildPiece({ kind: target.cand.kind, verts: target.cand.verts });
+        const r = await api.placeBuildPiece({ kind: target.kind, verts: target.verts });
         setBuildPieces(prev => [...prev, r.piece]);
+        const joined = target.snapped ? ", joined edge to edge with the work beside it" : "";
         setBuildNote(r.piece.protected
-          ? `The ${target.cand.kind} stands — protected: purified ground lies beneath all of it.`
-          : `The ${target.cand.kind} stands — UNPROTECTED: cursed ground or the void lies beneath part of it.`);
+          ? `The ${target.kind} stands${joined} — protected: purified ground lies beneath all of it.`
+          : `The ${target.kind} stands${joined} — UNPROTECTED: cursed ground or the void lies beneath part of it.`);
       } else if (target.type === "wall") {
         const r = await api.placeBuildPiece({ kind: target.kind, verts: target.edge });
         setBuildPieces(prev => [...prev, r.piece]);
@@ -3108,7 +3156,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         const r = await api.removeBuildPiece({ id: target.piece.id });
         setBuildPieces(prev => prev.filter(p => !r.removed.includes(p.id)));
         setBuildNote(r.removed.length > 1
-          ? "Taken away — and the wall that stood on its edge alone came down with it."
+          ? "Taken away — and what stood on its foundation alone came down with it."
           : "Taken away.");
       }
       setBuildGhost(null);
@@ -5354,8 +5402,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const buildModeGhostLayer = buildMode && buildGhost ? (
       <g key="build-ghost" pointerEvents="none">
         {buildGhost.type === "floor" && (
-          <polygon points={polyPts(buildGhost.cand.verts.map(v => plateToAxial(v)))}
+          <polygon points={polyPts(buildGhost.verts.map(v => plateToAxial(v)))}
             fill="rgba(232,199,102,0.30)" stroke="#ffe9a8" strokeWidth={1.6 / zoom}
+            strokeDasharray={`${6 / zoom} ${4 / zoom}`} strokeLinejoin="round" />
+        )}
+        {buildGhost.type === "blocked" && (
+          <polygon points={polyPts(buildGhost.verts.map(v => plateToAxial(v)))}
+            fill="rgba(255,90,70,0.20)" stroke="#ff7a6b" strokeWidth={1.6 / zoom}
             strokeDasharray={`${6 / zoom} ${4 / zoom}`} strokeLinejoin="round" />
         )}
         {buildGhost.type === "wall" && collisionSegments(buildGhost.kind, buildGhost.edge.map(v => plateToAxial(v))).map(([a, b], i) => {
@@ -8136,7 +8189,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           if (next) {
             setShowBuildingMenu(false);
             setBuildSel(null);
-            setBuildNote("Choose a piece, then tap the land to lay it. Walls and doors stand on a floor's edge; a door's middle stands open. Drag pans the land, as ever.");
+            setBuildNote("Choose a piece, then tap the land to lay it — pieces snap to each other, edge to edge, never to the world; the bar's Free place switch turns the snapping off. Walls and doors stand on a floor's edge; a door's middle stands open. Drag pans the land, as ever.");
           } else {
             setBuildGhost(null);
           }
@@ -8166,6 +8219,20 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 <span className="build-tool-glyph">{glyph}</span> {label}
               </button>
             ))}
+            {/* THE PLACING MODE (Nigel, 2026-10-26): the
+                player's own switch. Snap together — pieces click
+                edge-to-edge onto the standing work, never onto
+                the world. Free place — pieces land exactly where
+                the tap puts them and do not snap together. */}
+            <button type="button"
+              className={`build-tool place-mode ${buildPlaceMode === "free" ? "in-hand" : ""}`}
+              aria-pressed={buildPlaceMode === "free"}
+              title={buildPlaceMode === "snap"
+                ? "Pieces snap to each other, edge to edge — never to the world. Tap to place freely instead: no snapping at all."
+                : "Free place: pieces land exactly where you tap and do not snap together. Tap to return to snapping pieces together."}
+              onClick={() => { setBuildPlaceMode(m => (m === "snap" ? "free" : "snap")); setBuildGhost(null); }}>
+              {buildPlaceMode === "snap" ? "🧲 Snap together" : "✥ Free place"}
+            </button>
             <button type="button" className="build-tool done" onClick={() => { setBuildMode(false); setBuildGhost(null); }}>Done</button>
           </div>
           {buildNote && <p className="build-bar-note">{buildNote}</p>}

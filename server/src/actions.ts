@@ -39,7 +39,7 @@ import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_E
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
-  matchCandidate, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
+  proveKitPiece, matchCandidate, polygonsOverlap, pieceKeyOf, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
   collisionSegments, segmentsCrossProper, pointSegmentDistance, type Pt,
 } from "./buildGeometry.js";
 // (Build collision is judged by the geometry module's PROPER
@@ -760,6 +760,70 @@ function buildPieceView(p: BuildPieceRow, tilesByKey: Map<string, any>) {
     verts: p.verts, footprint: p.footprint,
     protected: buildPieceProtected(p.footprint, tilesByKey),
   };
+}
+
+/* ── THE FOUNDATION CALCULATION (Nigel, 2026-10-26) ──────────
+ * Every piece must have foundation under it, traced through
+ * the structure to founded support. The reckoning:
+ *   · a floor or foundation rests on the GROUND — founded, and
+ *     founded support for whatever stands on it;
+ *   · a wall or door rests on the floor that carries its edge —
+ *     founded through that floor; a founded wall is itself
+ *     founded support ("connected wall foundation"), so what
+ *     rests on the wall traces through it to the ground;
+ *   · a piece resting only on UNFOUNDED support stands by the
+ *     ONE-OUT ALLOWANCE while exactly one unfounded piece
+ *     stands between it and founded support — "you can build
+ *     one ceiling out from a pillar or connected wall
+ *     foundation out but no further": a second piece beyond
+ *     founded support may not stand.
+ * The kinds shipped today — floors, foundations, walls, doors —
+ * are all founding kinds, so a standing piece here is founded
+ * or cannot stand at all, and the allowance's rank has nothing
+ * to bite on yet. The reckoning is written whole regardless:
+ * when the resting kinds arrive (ceilings above all, and the
+ * corner-post pillar as a founded support), they take their
+ * place under this same law with no new machinery. The one law
+ * governs both placement modes — snapped and free alike. */
+
+/** What a piece rests on: a wall or door rests on every
+ *  standing floor whose edges carry its own edge; a floor or
+ *  foundation rests on the ground itself. (A ceiling, when its
+ *  kind comes, will rest on the walls and floors its footprint
+ *  stands over — declared here in its turn, not before.) */
+function restsOn(p: BuildPieceRow, pieces: BuildPieceRow[]): { grounded: boolean; supporters: BuildPieceRow[] } {
+  if (p.kind === "triangle" || p.kind === "square") return { grounded: true, supporters: [] };
+  if (p.kind === "wall" || p.kind === "door") {
+    const ek = edgeKeyOf(p.verts[0], p.verts[1]);
+    const supporters = pieces.filter(q =>
+      (q.kind === "triangle" || q.kind === "square") &&
+      edgesOf(q.verts).some(e => edgeKeyOf(e[0], e[1]) === ek));
+    return { grounded: false, supporters };
+  }
+  return { grounded: false, supporters: [] };
+}
+
+/** May this piece stand among `pieces`? Founded support is
+ *  reckoned to a fixed point — the ground founds the floors,
+ *  a floor founds the walls on its edges, a founded wall
+ *  founds what rests on it. A piece outside the founded set
+ *  still stands by the one-out allowance while it rests on a
+ *  piece that itself rests on founded support (exactly one
+ *  unfounded piece between it and foundation). */
+function pieceStands(target: BuildPieceRow, pieces: BuildPieceRow[]): boolean {
+  const founded = new Set<number>();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const p of pieces) {
+      if (founded.has(p.id)) continue;
+      const { grounded, supporters } = restsOn(p, pieces);
+      if (grounded || supporters.some(s => founded.has(s.id))) { founded.add(p.id); grew = true; }
+    }
+  }
+  if (founded.has(target.id)) return true;
+  const { supporters } = restsOn(target, pieces);
+  return supporters.some(s => restsOn(s, pieces).supporters.some(t => founded.has(t.id)));
 }
 
 function skillsHeldBy(ownerKey: string, awakenedIds: number[]): Set<string> {
@@ -11559,14 +11623,18 @@ export const handlers = {
   },
 
   // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT") ──
-  // Slice 1: lay and take away the construction's pieces. The
-  // client names a piece by its plate-plane vertices; the server
-  // RE-DERIVES the piece from the construction geometry
-  // (matchCandidate) — only a true tiling piece may persist, and
-  // its footprint is computed here, in axial map coordinates,
-  // never taken on the client's word. No hex-lock: a piece is
-  // laid where its shape falls; its only ground law is that some
-  // of the Tender's own land must lie beneath it.
+  // Lay and take away the construction's pieces. FREE PLACEMENT
+  // (Nigel, 2026-10-26): no piece is addressed by hex or tiling —
+  // the client names a floor by its plate-plane vertices, laid
+  // where the tap put it (snapped flush to a neighbour's edge,
+  // or free, by the mode the player chose), and the server
+  // PROVES the claim (proveKitPiece: a true kit shape on the one
+  // measure, its grain on the kit's turnings) and refuses any
+  // footprint lying across a piece already standing. The
+  // footprint is computed here, in axial map coordinates, never
+  // taken on the client's word. The ground law stands: some of
+  // the Tender's own land must lie beneath a floor; the
+  // foundation calculation stands over every piece.
   async placeBuildPiece(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
@@ -11581,10 +11649,22 @@ export const handlers = {
     const pieces = loadBuildPieces(ownerKey);
 
     if (kind === "triangle" || kind === "square") {
-      const cand = matchCandidate(kind, verts);
-      if (!cand) badRequest("That shape is not one of the construction's pieces — the floors are the hex's own triangles and the squares that stand on their measure.");
-      const footprint = cand.verts.map(v => plateToAxial(v));
-      if (pieces.some(p => p.pieceKey === cand.key)) badRequest("That piece already stands there.");
+      const proven = proveKitPiece(kind, verts);
+      if (!proven) badRequest("That shape is not one of the construction's pieces — the floors are true triangles and squares on the one measure, their grain on the kit's own turnings.");
+      // A free seat that IS a tiling piece is recorded in the
+      // tiling's own canonical vertices — the record of a
+      // joined piece is the same record the old law kept.
+      const canon = matchCandidate(kind, proven);
+      const seatVerts = canon ? canon.verts : proven;
+      const pieceKey = canon ? canon.key : pieceKeyOf(kind, seatVerts);
+      if (pieces.some(p => p.pieceKey === pieceKey)) badRequest("That piece already stands there.");
+      // Collision, in BOTH modes (Nigel, 2026-10-26): a
+      // footprint may not lie across a piece already standing.
+      // A shared edge or corner is a join, not an overlap.
+      if (pieces.some(p => (p.kind === "triangle" || p.kind === "square") && polygonsOverlap(seatVerts, p.verts))) {
+        badRequest("That piece would lie across one already standing — pieces may not overlap.");
+      }
+      const footprint = seatVerts.map(v => plateToAxial(v));
       // The ground law: some of the Tender's own land beneath it.
       // (Cursed ground may be built over — the piece simply
       // stands unprotected there; protection is derived at read.)
@@ -11593,14 +11673,19 @@ export const handlers = {
         badRequest("No land of yours lies beneath that piece — the construction stands on your ground.");
       }
       const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(ownerKey, kind, cand.key, JSON.stringify(cand.verts), JSON.stringify(footprint), Date.now());
-      const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey: cand.key, verts: cand.verts, footprint };
+        .run(ownerKey, kind, pieceKey, JSON.stringify(seatVerts), JSON.stringify(footprint), Date.now());
+      const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: seatVerts, footprint };
       return { ok: true as const, piece: buildPieceView(row, tilesByKey) };
     }
 
     // Walls and doors stand on EDGES — of the Tender's own
-    // standing floors. The claimed edge must be a floor's edge,
-    // exactly, and carry no wall yet.
+    // standing floors, wherever those floors lie (laid on the
+    // tiling of old, snapped to a neighbour, or free). The
+    // claimed edge must be a floor's edge, exactly, and carry
+    // no wall yet: this IS the foundation calculation at the
+    // door — a wall is founded by the floor that carries its
+    // edge, and a wall with no floor under its edge has no
+    // foundation and may not stand.
     if (verts.length !== 2) badRequest("A wall names the two ends of its edge.");
     const claimKey = edgeKeyOf(verts[0], verts[1]);
     let edge: [Pt, Pt] | null = null;
@@ -11623,10 +11708,14 @@ export const handlers = {
     return { ok: true as const, piece: buildPieceView(row, tilesByKey) };
   },
 
-  /** Take a piece of the construction away. Removing a floor
-   *  takes down every wall that stood on its edges alone — a
-   *  wall whose edge another standing floor still carries
-   *  stands. The answer names what fell with it. */
+  /** Take a piece of the construction away. The FOUNDATION
+   *  CALCULATION judges the fall: whatever thereby loses its
+   *  founded support — beyond the one-out allowance — comes
+   *  down with it, reckoned to a fixed point, since one fall
+   *  can unfound what rested on it. (With today's kinds the
+   *  fall is the familiar one: a wall whose edge no standing
+   *  floor still carries comes down; a wall whose edge another
+   *  floor carries stands.) The answer names what fell. */
   async removeBuildPiece(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
@@ -11635,18 +11724,16 @@ export const handlers = {
     const target = pieces.find(p => p.id === parsed.data.id);
     if (!target) badRequest("That piece is not yours to take away — or it no longer stands.");
     const removed: number[] = [target.id];
-    if (target.kind === "triangle" || target.kind === "square") {
-      const remaining = pieces.filter(p => p.id !== target.id);
-      const carriedEdges = new Set<string>();
-      for (const p of remaining) {
-        if (p.kind !== "triangle" && p.kind !== "square") continue;
-        for (const e of edgesOf(p.verts)) carriedEdges.add(edgeKeyOf(e[0], e[1]));
-      }
-      for (const e of edgesOf(target.verts)) {
-        const ek = edgeKeyOf(e[0], e[1]);
-        if (carriedEdges.has(ek)) continue;
-        const wall = remaining.find(p => (p.kind === "wall" || p.kind === "door") && edgeKeyOf(p.verts[0], p.verts[1]) === ek);
-        if (wall) removed.push(wall.id);
+    let remaining = pieces.filter(p => p.id !== target.id);
+    let fell = true;
+    while (fell) {
+      fell = false;
+      for (const p of [...remaining]) {
+        if (!pieceStands(p, remaining)) {
+          removed.push(p.id);
+          remaining = remaining.filter(q => q.id !== p.id);
+          fell = true;
+        }
       }
     }
     const marks = removed.map(() => "?").join(",");

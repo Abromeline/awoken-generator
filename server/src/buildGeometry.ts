@@ -202,6 +202,108 @@ export function pointSegmentDistance(p: Pt, a: Pt, b: Pt): number {
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
 
+/* ── FREE PLACEMENT (Nigel, 2026-10-26 — "i dont want building
+ * lock to hexes"; his tap the same day chose the form: pieces
+ * SNAP TO EACH OTHER, never to the world) ─────────────────────
+ * The tiling above is the kit's GRAMMAR — its shapes on the one
+ * measure, its six turnings — and no longer its address book. A
+ * floor is laid where the tap puts it: centred on the tap at
+ * the kit's rest orientation, or (in snap mode) flush on a
+ * standing piece's free edge, the join made of the NEIGHBOUR'S
+ * own numbers so it can never drift. In free place there is no
+ * snapping at all. What governs a free seat is the proof below:
+ * a true kit shape, its grain on the kit's turnings, and no
+ * overlap of anything already standing. */
+
+/** A kit piece of `kind` centred on `c`, at its rest
+ *  orientation: the triangle apex-up in the plate (its base on
+ *  a hex's top-edge line), the square on the plate's axes (the
+ *  stance of the square standing on a hex's top edge). Every
+ *  other seat is this shape turned by the kit's turnings or
+ *  joined by an edge — no arbitrary angle is ever offered. */
+export function freePieceAt(kind: "triangle" | "square", c: Pt): Pt[] {
+  if (kind === "triangle") {
+    const h = SQRT3 / 2; // the triangle's height on the measure
+    return [
+      [c[0], c[1] + (2 * h) / 3],
+      [c[0] + 0.5, c[1] - h / 3],
+      [c[0] - 0.5, c[1] - h / 3],
+    ];
+  }
+  return [
+    [c[0] - 0.5, c[1] - 0.5], [c[0] + 0.5, c[1] - 0.5],
+    [c[0] + 0.5, c[1] + 0.5], [c[0] - 0.5, c[1] + 0.5],
+  ];
+}
+
+/** The piece of `kind` standing flush on the far side of the
+ *  edge (a → b): it shares the edge whole, its body on the side
+ *  AWAY from `awayFrom` (the standing piece's own heart). The
+ *  shared edge keeps the standing piece's exact vertices — a
+ *  join made of the neighbour's numbers, never the grid's. */
+export function pieceOnEdge(kind: "triangle" | "square", a: Pt, b: Pt, awayFrom: Pt): Pt[] {
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  let nx = -(b[1] - a[1]), ny = b[0] - a[0];
+  const depth = kind === "triangle" ? SQRT3 / 2 : 1;
+  const scale = depth / Math.hypot(nx, ny);
+  nx *= scale; ny *= scale;
+  const dPlus = (mx + nx - awayFrom[0]) ** 2 + (my + ny - awayFrom[1]) ** 2;
+  const dMinus = (mx - nx - awayFrom[0]) ** 2 + (my - ny - awayFrom[1]) ** 2;
+  if (dPlus < dMinus) { nx = -nx; ny = -ny; }
+  if (kind === "triangle") return [b, a, [mx + nx, my + ny]];
+  return [b, a, [a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny]];
+}
+
+/** Do two convex footprints share AREA? (Both kit shapes are
+ *  convex, so the separating-axis test decides.) Sharing an
+ *  edge or a corner is a JOIN, not an overlap: the test reads a
+ *  touch as no overlap, to a hair's tolerance for the joins'
+ *  own arithmetic. */
+export function polygonsOverlap(p: Pt[], q: Pt[]): boolean {
+  const EPS = 1e-6;
+  const axes: Pt[] = [];
+  for (const poly of [p, q]) {
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      axes.push([-(b[1] - a[1]), b[0] - a[0]]);
+    }
+  }
+  for (const ax of axes) {
+    let mnP = Infinity, mxP = -Infinity, mnQ = Infinity, mxQ = -Infinity;
+    for (const v of p) { const d = v[0] * ax[0] + v[1] * ax[1]; if (d < mnP) mnP = d; if (d > mxP) mxP = d; }
+    for (const v of q) { const d = v[0] * ax[0] + v[1] * ax[1]; if (d < mnQ) mnQ = d; if (d > mxQ) mxQ = d; }
+    if (Math.min(mxP, mxQ) - Math.max(mnP, mnQ) <= EPS) return false;
+  }
+  return true;
+}
+
+const KIT_TOL = 0.01;
+/** Prove a claimed floor is a true kit piece at its free seat:
+ *  the kind's own shape on the one measure (the equilateral
+ *  triangle of side 1; the square of side 1), every edge's
+ *  grain on the kit's turnings (a multiple of 30° — the hex's
+ *  edges and their normals, nothing else). Returns the
+ *  vertices rounded for the record, or null: an invented or
+ *  arbitrarily turned shape may not persist, any more than a
+ *  tiling stranger could before. The server's placement law. */
+export function proveKitPiece(kind: string, verts: Pt[]): Pt[] | null {
+  if (kind !== "triangle" && kind !== "square") return null;
+  if (!Array.isArray(verts) || verts.length !== (kind === "triangle" ? 3 : 4)) return null;
+  for (const v of verts) {
+    if (!Array.isArray(v) || v.length !== 2 || !Number.isFinite(v[0]) || !Number.isFinite(v[1])) return null;
+  }
+  const side = (a: Pt, b: Pt) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  for (let i = 0; i < verts.length; i++) {
+    const a = verts[i], b = verts[(i + 1) % verts.length];
+    if (Math.abs(side(a, b) - 1) > KIT_TOL) return null;
+    let deg = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+    deg = ((deg % 30) + 30) % 30;
+    if (Math.min(deg, 30 - deg) > 1) return null;
+  }
+  if (kind === "square" && Math.abs(side(verts[0], verts[2]) - Math.SQRT2) > KIT_TOL * 2) return null;
+  return verts.map(v => [Math.round(v[0] * 1e6) / 1e6, Math.round(v[1] * 1e6) / 1e6] as Pt);
+}
+
 /** THE DOOR'S GAP: a door wall's collision is its edge with the
  *  middle two-fifths OPEN — two standing parts, [0, 0.3] and
  *  [0.7, 1] of the edge. The gap is real at every level of the
