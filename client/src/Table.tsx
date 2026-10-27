@@ -15,7 +15,7 @@
  * readability are the accepted prototype's, untouched.
  */
 
-import { useEffect, useRef, useState, type ComponentType, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, lazy, Suspense, type ComponentType, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { reknockOnHello, takeTableBoot, takeTableSession } from "./tableSdk";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
@@ -51,6 +51,9 @@ import bulwarkShieldImg from "./assets/effects/bulwark-shield.png";
 import blackGateImg from "./assets/effects/black-gate.png";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
 import { elementPalette } from "./palette";
+import StorytellerConsole, { type StTool, type StRadialState } from "./StorytellerConsole";
+import type { CampaignBoardApi, BoardTileView } from "./CampaignBoard3D";
+const CampaignBoard3D = lazy(() => import("./CampaignBoard3D"));
 
 const GLYPHS: Record<string, string> = { seal: ANIMATED_GLYPH.seal, engine: glyphEngine, standard: glyphStandard, trees: ANIMATED_GLYPH.trees, beacon: glyphBeacon, lattice: ANIMATED_GLYPH.lattice, blade: glyphBlade, springblade: glyphBlade, blades: glyphBlades, shard: ANIMATED_GLYPH.shard, coil: glyphCoil, shardrain: ANIMATED_GLYPH.shardrain, ...WORKING_FACE };
 
@@ -197,7 +200,7 @@ interface SharedState {
   sky: { mood: string; description: string; endsAt: string | null };
   round: number;
   threat: number;
-  players: { key: string; name: string; companyCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null; weaponLevel?: number; weaponElement?: string | null; weaponDepth?: number; weaponManifest?: boolean; weaponSignature?: boolean }[];
+  players: { key: string; name: string; companyCount: number; energy: number; maxEnergy: number; tenderHp: number; maxTenderHp: number; fallen: boolean; storytender?: boolean; hex: string | null; pos: { x: number; y: number } | null; tgt: { x: number; y: number } | null; moving: boolean; weaponKills?: number; castAt?: number; away?: boolean; classKey?: string | null; weaponKey?: string | null; weaponLevel?: number; weaponElement?: string | null; weaponDepth?: number; weaponManifest?: boolean; weaponSignature?: boolean; ac?: number }[];
   watcherCount: number;
   tale: { at: number; text: string }[];
   map: MapTileView[];
@@ -206,6 +209,16 @@ interface SharedState {
    *  Served in campaign rooms only; null at a casual table,
    *  which holds no override and no hand on the light. */
   lightOverrides?: [string, number][] | null;
+  /** THE LAID LAND (Build 2): hex → pool tile and hex →
+   *  building piece, the board's backdrop, the veils, the
+   *  storyteller's props and her pool — campaign rooms
+   *  only; null at a casual table. */
+  tile3d?: [string, string][] | null;
+  bld3d?: [string, string][] | null;
+  props3d?: [string, string][] | null;
+  backdrop?: string | null;
+  veils?: Record<string, number> | null;
+  propsPool?: { key: string; name: string; objText: string }[] | null;
   field: FieldUnitView[];
   enemies: EnemyView[];
   dark: { id: string; hex: string; kind: string; label: string; art: string | null; power: number; hp: number; maxHp: number; pinnedUntil: number; armor?: number; lvl?: number; pos: { x: number; y: number }; tgt: { x: number; y: number } | null; moving: boolean }[];
@@ -353,6 +366,10 @@ interface YouState {
   /** The instance tile this Tender's landing purified. */
   landing?: string | null;
   /** The Storytender's private instruments (her eyes only). */
+  /** THE VEIL ON THIS SEAT (Build 2): how far the
+   *  Storytender's slider has faded this screen — worn as
+   *  a black veil over the field, 0 clear to 1 blacked out. */
+  veil?: number;
   storytender?: {
     reserve: string[];
     reserveThreat: number;
@@ -361,6 +378,8 @@ interface YouState {
     bank: number;
     seeded: boolean;
     over: string | null;
+    /** THE DICE BOX (Build 2): her last cast, hers alone. */
+    dice?: { sides: number; count: number; faces: number[]; total: number; at: number } | null;
   } | null;
 }
 
@@ -701,6 +720,14 @@ export default function Table() {
   // else about the tap changes, and no other seat sees
   // the tool at all.
   const [dmLight, setDmLight] = useState<null | 0 | 1 | 2 | "clear">(null);
+  // THE CAMPAIGN BOARD + CONSOLE (Build 2): the
+  // storyteller's armed laying hand (a tile, a building
+  // piece, a foe, a prop — armed in her console, laid by a
+  // tap on the 3D board), her radial where it stands, and
+  // the board's own API (projection for the wheel, zoom).
+  const [stTool, setStTool] = useState<StTool>(null);
+  const [stRadial, setStRadial] = useState<StRadialState | null>(null);
+  const boardApiRef = useRef<CampaignBoardApi | null>(null);
   // (The workshop-chosen card border dressed the hand cards
   // here until the wheel law retired the hand, 2026-10-21 —
   // the border's read and its state went with the cards it
@@ -2159,6 +2186,13 @@ export default function Table() {
   // the clock — the client keeps no second map.
   const tiles = shared.map ?? [];
   const tileById = new Map(tiles.map(t => [t.id, t]));
+  // THE CAMPAIGN BOARD (Build 2): a campaign room's map is
+  // the 3D board, for every seat; a casual room's flat
+  // stage stands exactly as it did. The console stands
+  // only for the storyteller and those she opened the
+  // panel to (the visibility law).
+  const campaignBoard = !!shared.campaign;
+  const consoleVisible = campaignBoard && !!you && (!!you.storytender || (shared.campaign?.panelAccess ?? []).includes(you.key));
   const tileCenter = (t: MapTileView): { cx: number; cy: number } => tilePos(t.q, t.r, t.cursed);
   const centerOf = (id: string): { cx: number; cy: number } | null => {
     const t = tileById.get(id);
@@ -2453,7 +2487,12 @@ export default function Table() {
    *  radial state keeps is projected back out for its DOM. */
   const stageToClient = (pt: { x: number; y: number }): { x: number; y: number } | null => {
     const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      // THE 3D BOARD'S PROJECTION (Build 2): in a campaign
+      // room the flat stage is not mounted — the wheel's
+      // bloom point comes off the board's own camera.
+      return boardApiRef.current?.projectStagePoint(pt) ?? null;
+    }
     const vx = pt.x * view.zoom + view.pan.x;
     const vy = pt.y * view.zoom + view.pan.y;
     const k = Math.max(rect.width / stageBox.w, rect.height / stageBox.h);
@@ -2744,6 +2783,47 @@ export default function Table() {
   // A tap on one of my own figures chooses it for orders —
   // unless the Written Light is being placed, when the tap
   // belongs to the tile beneath it, as it always did.
+  // ── THE 3D BOARD'S HANDS (Build 2) ──────────────────
+  // A campaign room's board picks hexes exactly as the
+  // flat stage does: the same stage point rides out of the
+  // pick, and the tender's tap runs the ONE onTileTap —
+  // the cast, the march, the summon land where the 3D hex
+  // was picked, through the same server doors (the first
+  // law: the full current kit, on the board). The
+  // storyteller's armed laying hand drinks first on her
+  // board, as her light hand does on the flat face.
+  const canBuildBoard = !!shared?.campaign && !!you && (!!you.storytender || (shared.campaign.panelAccess ?? []).includes(you.key));
+  const onBoardHexTap = (tile: BoardTileView, stagePt: { x: number; y: number }) => {
+    // A tap sets down any storyteller wheel standing —
+    // including one a jammed renderer raised in error
+    // over what the press's own length says was a tap.
+    setStRadial(null);
+    if (stTool && canBuildBoard) {
+      if (stTool.kind === "terrain") send({ type: "stTile", hex: tile.id, ground: stTool.key });
+      else if (stTool.kind === "building") send({ type: "stTile", hex: tile.id, building: stTool.key });
+      else if (stTool.kind === "curse") send({ type: "stTile", hex: tile.id, ground: "curse" });
+      else if (stTool.kind === "foe") send({ type: "stPlaceFoe", hex: tile.id, kind: stTool.key });
+      else if (stTool.kind === "prop") send({ type: "stProp", hex: tile.id, prop: stTool.key });
+      else if (stTool.kind === "propclear") send({ type: "stProp", hex: tile.id, prop: null });
+      return;
+    }
+    const t = tileById.get(tile.id);
+    if (t) onTileTap(t, stagePt);
+  };
+  const onBoardHexContext = (tile: BoardTileView, clientX: number, clientY: number, stagePt: { x: number; y: number }) => {
+    // The storyteller's radial (Build 2): on her board the
+    // right hand — click or long-press — raises the laying
+    // wheel over the hex, not the tender's wheel.
+    if (canBuildBoard) { setStRadial({ hex: tile.id, clientX, clientY }); return; }
+    if (Date.now() - lineJustDrawnRef.current < 500) return;
+    if (Date.now() - rightDragAt.current < 500) return;
+    if (placing) { unloadCast(); return; }
+    if (!you) return;
+    if (!shared.players.some(p => p.key === you.key && p.hex)) return;
+    setWheelTab(t => (t === "weapon" ? "ability" : t));
+    setRadial(stagePt);
+  };
+
   const onUnitTap = (u: FieldUnitView, clientX?: number, clientY?: number) => {
     if (suppressTapRef.current) return; // the tail of a pan-drag, not a tap
     if (placing) {
@@ -3508,6 +3588,7 @@ export default function Table() {
       })()}
 
       <main className="table-main">
+        {!consoleVisible && (
         <aside className="panel party-panel">
           <h3>The Party</h3>
           {shared.players.length === 0 && <p className="quiet">No Tenders seated yet.</p>}
@@ -3570,6 +3651,7 @@ export default function Table() {
             </details>
           )}
         </aside>
+        )}
 
         <section className="panel field-panel">
           <div className="field-wrap">
@@ -3586,6 +3668,27 @@ export default function Table() {
               ))}
             </div>
             <div className="field-board">
+            {campaignBoard ? (
+              <Suspense fallback={<div className="campaign-board-veil">Raising the board…</div>}>
+                <CampaignBoard3D
+                  tiles={shared.map}
+                  tile3d={Object.fromEntries(shared.tile3d ?? [])}
+                  bld3d={Object.fromEntries(shared.bld3d ?? [])}
+                  props3d={Object.fromEntries(shared.props3d ?? [])}
+                  propsPool={shared.propsPool ?? []}
+                  backdrop={shared.backdrop ?? null}
+                  seed={shared.seed ?? null}
+                  field={shared.field}
+                  dark={shared.dark}
+                  workings={shared.workings}
+                  players={shared.players}
+                  canBuild={canBuildBoard}
+                  onHexTap={onBoardHexTap}
+                  onHexContext={onBoardHexContext}
+                  apiRef={boardApiRef}
+                />
+              </Suspense>
+            ) : (
             <svg
               ref={svgRef}
               className="terrain-stage"
@@ -3993,12 +4096,30 @@ export default function Table() {
               </g>
             </g>
             </svg>
+            )}
             <div className="stage-view-btns">
-              <button type="button" onClick={() => zoomBy(1.3)} aria-label="Zoom the map in">+</button>
-              <button type="button" onClick={() => zoomBy(1 / 1.3)} aria-label="Zoom the map out">−</button>
-              <button type="button" onClick={() => setView({ zoom: 1, pan: { x: 0, y: 0 } })} aria-label="Reset the map view">⌂</button>
+              <button type="button" onClick={() => { if (campaignBoard) boardApiRef.current?.zoomBy(1.3); else zoomBy(1.3); }} aria-label="Zoom the map in">+</button>
+              <button type="button" onClick={() => { if (campaignBoard) boardApiRef.current?.zoomBy(1 / 1.3); else zoomBy(1 / 1.3); }} aria-label="Zoom the map out">−</button>
+              <button type="button" onClick={() => { if (campaignBoard) boardApiRef.current?.resetView(); else setView({ zoom: 1, pan: { x: 0, y: 0 } }); }} aria-label="Reset the map view">⌂</button>
             </div>
             </div>
+            {campaignBoard && (you?.veil ?? 0) > 0 && (
+              <div className="veil-overlay" style={{ opacity: you?.veil ?? 0 }} aria-hidden="true" />
+            )}
+            {consoleVisible && you && (
+              <StorytellerConsole
+                shared={shared}
+                you={you}
+                send={send}
+                isStoryteller={!!you.storytender}
+                stTool={stTool}
+                onArmTool={(t) => { setStTool(t); if (t) setDmLight(null); }}
+                dmLight={dmLight}
+                onArmLight={(v) => { setDmLight(v); if (v !== null) setStTool(null); }}
+                radial={stRadial}
+                onCloseRadial={() => setStRadial(null)}
+              />
+            )}
             {/* THE TENDER CONTROLLER (Nigel, 2026-10-19): popped
                 by tapping your own figure on a touch hand — the
                 glide pad on the left, the wheel's button beside
@@ -4248,6 +4369,7 @@ export default function Table() {
           </div>
         </section>
 
+        {!consoleVisible && (
         <aside className="panel dark-panel">
           <h3>The Dark</h3>
           <div className="roster">
@@ -4288,6 +4410,7 @@ export default function Table() {
             </details>
           )}
         </aside>
+        )}
       </main>
 
       {/* THE BAG (the loot table fix, Nigel, ruled
