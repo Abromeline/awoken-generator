@@ -2667,16 +2667,32 @@ body.defeat-flash {
 }
 
 /* THE BEACON SWITCH (Nigel, 2026-10-26): the Lighthouse
-   panel is gone; the light's one switch stands BESIDE the
+   panel is gone; the light's one switch stands beside the
    Terrain/Return button, in both its stands — a small
-   companion pill at the deck button's left hand, centred
-   on its mark. Its seat mirrors the deck button's own
-   anchor (bottom 200px, right 90px, mark 324 wide): the
-   pill's right edge stands 16px left of the deck button's
-   box (90 + 324 + 16 = 430), its centre on the mark's
-   centre. The lit stand wears the panel's old gold. */
+   companion pill. The lit stand wears the panel's old
+   gold.
+   ITS FIRST SEAT (right:430px, bottom:417px — the pill's
+   right edge 16px left of the deck button's box, its
+   centre on the mark's centre, both measured when the
+   mark stood 324 wide) is SUPERSEDED.
+   RE-SEATED 2026-10-27 (Nigel: "move light the beacon
+   over to the button after moving it up above the
+   inventory bag"): the deck button's mark now stands
+   162 wide, so the pill caps the bottom-right cluster —
+   directly above the deck button's box, sharing its
+   right anchor (right:90px), its underside 12px clear
+   of the box's top (the box stands bottom:200px and
+   ≈218 tall, so its top reaches ≈418; the pill's
+   bottom stands at 430). From there the pill also
+   stands well clear above the inventory bag (right:20,
+   bottom:208, 112x128 — its top edge reaches 336)
+   and the champion button beneath it: the pill covers
+   nothing in the cluster. The refusal note rides above
+   the pill (its bottom at 473 = the pill's 430 + its
+   ≈33 height + 10), so it never falls across the
+   button it speaks for. */
 .beacon-switch{
-  position:fixed;right:430px;bottom:417px;z-index:1000;
+  position:fixed;right:90px;bottom:430px;z-index:1000;
   display:flex;align-items:center;gap:8px;white-space:nowrap;
   background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:999px;
   padding:10px 16px;font-size:15px;font-weight:600;letter-spacing:0.04em;
@@ -2686,7 +2702,7 @@ body.defeat-flash {
 .beacon-switch.lit{border-color:#ffd700;box-shadow:0 0 14px rgba(255,215,0,0.35);color:#ffd98a}
 .beacon-switch:disabled{opacity:0.6;cursor:wait}
 .beacon-switch-note{
-  position:fixed;right:430px;bottom:368px;z-index:1000;max-width:300px;
+  position:fixed;right:90px;bottom:473px;z-index:1000;max-width:300px;
   background:rgba(24,19,10,0.92);border:1px solid #8a6f35;border-radius:6px;
   padding:8px 10px;font-size:12.5px;color:#e5cf9a;letter-spacing:0.3px;
 }
@@ -2707,9 +2723,20 @@ body.defeat-flash {
      hit-tests at both centres). Its centre sits on the
      mark's centre (deck bottom 140 + padding 30 + label
      ≈47 + gap 6 + half the mark 30 ≈ 253; 253 - 22 = 231).
-     The refusal note stands just above the pill. */
-  .beacon-switch{right:186px;bottom:231px;font-size:13px;padding:8px 12px}
-  .beacon-switch-note{right:186px;bottom:283px;max-width:230px}
+     The refusal note stands just above the pill.
+     That seat is SUPERSEDED by the 2026-10-27 re-seat
+     (Nigel: "move light the beacon over to the button
+     after moving it up above the inventory bag"): at
+     phone width the bag is the cluster's tall element
+     (bottom:208, 128 tall — its top edge reaches 336),
+     so the pill caps the cluster in the bag's own
+     column — right:20, its underside 8px clear above
+     the bag's top edge (bottom:344) — covering neither
+     bag, deck box (its top reaches ≈229) nor champion.
+     The refusal note rides above the pill (bottom:396 =
+     344 + the pill's ≈44 height + 8). */
+  .beacon-switch{right:20px;bottom:344px;font-size:13px;padding:8px 12px}
+  .beacon-switch-note{right:20px;bottom:396px;max-width:230px}
   /* The homeland bag, lowered into the champion button's
      column by the backpack build, stands over the deck
      mark's centre at this width. Let the bag ride below
