@@ -25,16 +25,17 @@
  *  base turned onto the shoulder's outer edge — the draw sheet's
  *  law: draw each face once, the grid turns it.
  *
- *  THE WALL FACES seat by similarity on their edge, corner to
+ *  THE WALL FACES are chosen by THE WALL PERSPECTIVES (the table
+ *  at the foot of this file): the drawing that is the edge's own
+ *  stance × facing, seated by similarity on its edge, corner to
  *  corner — the grammar of wallArt.ts: (x1,y1)-(x2,y2) is the
  *  face's base segment in its own pixels (measured off the
  *  drawing: the panel's bottom edge, jamb foot to jamb foot),
- *  mapped onto the edge's ends; if that seating would stand the
- *  face upside down, it seats from the other end instead. His
- *  walls stand at HIS drawn height — seated by base, the frontal
- *  pair rises ≈75 land units, the slants ≈63–67 — not the
- *  placeholder's 30. Nothing is squashed or redrawn: one uniform
- *  scale per face, anchored on its base line.
+ *  mapped onto the edge's ends by the seating law stated with the
+ *  table. His walls stand at HIS drawn height — seated by base,
+ *  the frontal pair rises ≈75 land units, the slants ≈63–67 —
+ *  not the placeholder's 30. Nothing is squashed or redrawn: one
+ *  uniform scale per face, anchored on its base line.
  *
  *  NOT HERE: the square foundation's face (not among the pieces
  *  he sent — squares keep their standing geometry until it
@@ -166,51 +167,233 @@ export function affineFor(src: [number, number][], dst: [number, number][]): str
   return `matrix(${f(A)} ${f(B)} ${f(C2)} ${f(D)} ${f(tx)} ${f(ty)})`;
 }
 
+/* ── THE WALL PERSPECTIVES ──────────────────────────────────────────
+ * Nigel's correction (2026-10-26): "some of the walls in your
+ * example were turned the wrong way and i think you must have left
+ * a few views out of your calculations" — his word for the views is
+ * PERSPECTIVES. The first wiring seated a wall by its edge's angle
+ * alone, one drawing per direction family, and never asked which
+ * way the edge FACES. But he drew TWINS for the slanted edges —
+ * two slant walls and two slant doorways — because a construction
+ * edge is seen from the SOUTH (the camera never moves), and its
+ * two ends are not alike from there: on a slanted edge the
+ * SOUTHERN end is the near end, close to the viewer, and the
+ * perspective answering to the stance is the drawing whose near
+ * (thick, frontal) jamb stands at that end.
+ *
+ * THE COMPLETE TABLE, derived from the ground up. Every
+ * construction edge runs on one of five straight lines on screen
+ * (the plate geometry squashed by the board's isometric basis —
+ * buildGeometry.ts + hexBoard.ts):
+ *   · the LONG line, level (0°) — the hex's top and bottom edges;
+ *   · the two SLANT lines (±47.7°) — the hex's four slanted edges;
+ *   · the SHALLOW lines (±20.2°) and the UPRIGHT line (90°) — the
+ *     side edges of squares and shoulder pieces, which run along
+ *     the hex's edge NORMALS (buildGeometry's EDGE_NORMALS).
+ *     Square and shoulder edges can also fall on the long and
+ *     slant lines themselves; those stances are the hex stances.
+ *
+ * A stance = a line × the way the edge faces along it. On the long
+ * line the facing is which edge of the hex it is (back/top or
+ * front/bottom); on a slant line the facing is which end is south.
+ * For each stance wallPerspectiveFor names the drawing that is its
+ * TRUE perspective, and seatWallFace presents it truly (its law is
+ * stated there). The drawings, each cut from its own layer of his
+ * PSD "Untitled_Artwork.psd", never from a flattened image:
+ *   · the frontal wall and frontal doorway are flat elevations —
+ *     the SAME elevation answers to both facings of the long line
+ *     (a flat front reads the same stood on the back edge as on
+ *     the front edge; the seat never mirrors his drawing — a
+ *     mirror is never the true perspective of any stance here —
+ *     it only turns the drawing to its edge);
+ *   · the slant twins are true isometric parallelograms, jambs
+ *     upright, brick courses running with the edge's lean. In
+ *     BOTH twins, and in both doorway twins, the near jamb — the
+ *     thick frontal jamb, painted at the end where the dark
+ *     inner-jamb strip stands — sits at the base end that lies
+ *     LOWER in the drawing's own frame. So the seating law for a
+ *     slant stance is one sentence: THE DRAWING'S LOWER BASE END
+ *     MEETS THE EDGE'S SOUTHERN END, in either stored direction.
+ *     That is what the twins are for: the descending line (E–NE,
+ *     W–SW) is dressed by the descending twin, whose low end is
+ *     its base END; the ascending line (NW–W, SE–E) by the
+ *     ascending twin, whose low end is its base START. The old
+ *     wiring reached the same seats on hex edges only by accident
+ *     of the stored windings; the law is stated outright now, so
+ *     the same edge seats the same way whoever stored it.
+ *
+ * STANCES WITH NO TRUE DRAWING — FLAGGED, NOT FAKED: the shallow
+ * side lines (±20.2°) and the upright side line (90°) are real
+ * stances — a square or shoulder piece standing on a long or slant
+ * edge presents them — but NO drawing among his pieces is their
+ * perspective, and no mirror of a drawn face supplies one (a
+ * mirror keeps the drawing's own lean; these lines lean at
+ * angles he has not drawn). Their rows say drawn: false and name
+ * the nearest honest seating the game uses meanwhile: the frontal
+ * elevation on the shallow lines (≈20° off true), a slant twin
+ * turned ≈43° on the upright line — the stance of the tap-built
+ * wall that stood turned against its edge in Nigel's example.
+ * The template sheet (hex-building-pieces/make-draw-sheet.cjs,
+ * sheet v4) carries a frame for every stance in this table, the
+ * undrawn ones marked as frames awaiting his hand; sheet and
+ * table agree stance for stance. When he draws them, their rows
+ * take the new faces and the flags come off. */
 export interface WallFace {
   src: string; w: number; h: number;
   /** The base segment in the face's own pixels. */
   x1: number; y1: number; x2: number; y2: number;
 }
 
-const WALL_FACE_TABLE: Record<"long" | "downRight" | "downLeft", { wall: WallFace; door: WallFace }> = {
-  long: {
-    wall: { src: wallLong, w: 347, h: 441, x1: 3, y1: 440, x2: 344, y2: 440 },
-    door: { src: doorLong, w: 347, h: 440, x1: 3, y1: 439, x2: 344, y2: 439 },
-  },
-  downRight: {
-    wall: { src: wallDownRight, w: 200, h: 621, x1: 3, y1: 421, x2: 176, y2: 615 },
-    door: { src: doorDownRight, w: 215, h: 621, x1: 3, y1: 421, x2: 189, y2: 615 },
-  },
-  downLeft: {
-    wall: { src: wallDownLeft, w: 200, h: 621, x1: 23, y1: 615, x2: 199, y2: 419 },
-    door: { src: doorDownLeft, w: 215, h: 621, x1: 15, y1: 630, x2: 195, y2: 425 },
-  },
+/* The six drawings, each named for the run of its base line in its
+ * own frame, with the PSD layer each was cut from. */
+const WALL_LONG: WallFace = { src: wallLong, w: 347, h: 441, x1: 3, y1: 440, x2: 344, y2: 440 }; // PSD layer L07 — the frontal wall
+const WALL_DOWN_RIGHT: WallFace = { src: wallDownRight, w: 200, h: 621, x1: 3, y1: 421, x2: 176, y2: 615 }; // PSD layer L04 — base descends to the right; near jamb at its END
+const WALL_DOWN_LEFT: WallFace = { src: wallDownLeft, w: 200, h: 621, x1: 23, y1: 615, x2: 199, y2: 419 }; // PSD layer L03 — base descends to the left; near jamb at its START
+const DOOR_LONG: WallFace = { src: doorLong, w: 347, h: 440, x1: 3, y1: 439, x2: 344, y2: 439 }; // PSD layer L08 — the frontal doorway
+const DOOR_DOWN_RIGHT: WallFace = { src: doorDownRight, w: 215, h: 621, x1: 3, y1: 421, x2: 189, y2: 615 }; // PSD layer L05 — near jamb at its END
+const DOOR_DOWN_LEFT: WallFace = { src: doorDownLeft, w: 215, h: 621, x1: 15, y1: 630, x2: 195, y2: 425 }; // PSD layer L06 — near jamb at its START
+
+/** One row of the perspective table. */
+export interface WallPerspective {
+  /** the stance's name — the template sheet labels its frames
+   *  with these same names */
+  stance: string;
+  /** the drawing that dresses this stance (the nearest honest
+   *  seating while `drawn` is false) */
+  face: WallFace;
+  /** the drawing's name and the PSD layer it was cut from */
+  drawing: string;
+  /** true when `face` IS this stance's own perspective among the
+   *  pieces Nigel has drawn; false marks a stance he has not
+   *  drawn yet — the row seats the nearest honest face and says so */
+  drawn: boolean;
+  /** the edges that present this stance, in plain words */
+  edges: string;
+}
+
+const WALL_PERSPECTIVES: Record<"long" | "slantDescending" | "slantAscending", { wall: WallFace; door: WallFace; drawing: string }> = {
+  long: { wall: WALL_LONG, door: DOOR_LONG, drawing: "the frontal pair (wall: PSD layer L07; doorway: L08)" },
+  slantDescending: { wall: WALL_DOWN_RIGHT, door: DOOR_DOWN_RIGHT, drawing: "the descending twin (wall: PSD layer L04; doorway: L05)" },
+  slantAscending: { wall: WALL_DOWN_LEFT, door: DOOR_DOWN_LEFT, drawing: "the ascending twin (wall: PSD layer L03; doorway: L06)" },
 };
 
-/** The face a wall or door wears, by the stance of its edge on
- *  screen: the tiling's edges run in three lines — the long
- *  (near-horizontal) edges wear the frontal faces, the two slant
- *  families their leaning twins. */
-export function wallFaceFor(kind: string, ax: number, ay: number, bx: number, by: number): WallFace {
-  let ang = Math.atan2(by - ay, bx - ax) * 180 / Math.PI;
-  if (ang > 90) ang -= 180;
-  if (ang <= -90) ang += 180;
-  const fam = Math.abs(ang) <= 24 ? "long" : ang > 24 ? "downRight" : "downLeft";
-  return WALL_FACE_TABLE[fam][kind === "door" ? "door" : "wall"];
+/** The perspective answering to an edge. Keys on the edge's LINE
+ *  and, through seatWallFace's south-end law, on its FACING —
+ *  never on the direction the edge happens to be stored in, and
+ *  never on which floor carries it (a square's edges wind opposite
+ *  to a wedge's; the stance is a fact about the edge on screen,
+ *  not about its floor). */
+export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: number, by: number): WallPerspective {
+  const isDoor = kind === "door";
+  const pick = (row: { wall: WallFace; door: WallFace }) => (isDoor ? row.door : row.wall);
+  // the edge's undirected line angle on screen, folded to (−90, 90]
+  let line = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
+  if (line > 90) line -= 180;
+  if (line <= -90) line += 180;
+  if (Math.abs(line) <= 10) {
+    // The long line. Both facings — the hex's back (top) edge and
+    // its front (bottom) edge — take the frontal elevation: the
+    // one flat front he drew, reading the same from either edge.
+    const row = WALL_PERSPECTIVES.long;
+    return {
+      stance: "long (back and front edges)",
+      face: pick(row),
+      drawing: row.drawing,
+      drawn: true,
+      edges: "the hex's top and bottom edges; a square's or shoulder's edge lying on the same level line",
+    };
+  }
+  if (Math.abs(line) <= 35) {
+    // FLAGGED — NOT DRAWN: the shallow side lines of squares and
+    // shoulders (±20.2°, along the hex's edge normals). No drawing
+    // is this perspective and no mirror supplies it; the frontal
+    // elevation is the nearest honest seating (≈20° off true).
+    const row = WALL_PERSPECTIVES.long;
+    return {
+      stance: "shallow side line — NOT DRAWN",
+      face: pick(row),
+      drawing: `${row.drawing} — nearest honest seating only; this stance's own perspective is not among his drawings`,
+      drawn: false,
+      edges: "the side edges of a square or shoulder piece standing on a slanted hex edge (the sides run along the edge normals, ±20.2° on screen)",
+    };
+  }
+  if (Math.abs(line) < 65) {
+    // The slant lines (±47.7°). Two lines, two twins: the line
+    // descending to the right takes the descending twin, the line
+    // ascending to the right takes the ascending twin, and
+    // seatWallFace lays each twin's lower (near-jamb) base end on
+    // the edge's southern end — the facing is answered in the seat.
+    const descending = line > 0;
+    const row = descending ? WALL_PERSPECTIVES.slantDescending : WALL_PERSPECTIVES.slantAscending;
+    return {
+      stance: descending ? "slant descending right" : "slant ascending right",
+      face: pick(row),
+      drawing: row.drawing,
+      drawn: true,
+      edges: descending
+        ? "the hex edges E–NE and W–SW (and any square or shoulder edge on the same descending line)"
+        : "the hex edges NW–W and SE–E (and any square or shoulder edge on the same ascending line)",
+    };
+  }
+  // FLAGGED — NOT DRAWN: the upright side line (90°) — the side
+  // edges of a square or shoulder piece standing on a long edge run
+  // straight up on screen, the wall seen edge-on. No drawing is
+  // this perspective; the nearest by angle is a slant twin turned
+  // ≈43°, seated by the same south-end law — on an upright line the
+  // two twins differ only in which end carries the near jamb, and
+  // the law puts this twin's near jamb at the southern end, as
+  // everywhere. A wall standing thus is the turned wall of Nigel's
+  // example; its own drawing is awaited, not invented.
+  const row = WALL_PERSPECTIVES.slantDescending;
+  return {
+    stance: "upright side line (edge-on) — NOT DRAWN",
+    face: pick(row),
+    drawing: `${row.drawing} — nearest honest seating only; this stance's own perspective is not among his drawings`,
+    drawn: false,
+    edges: "the side edges of a square or shoulder piece standing on a long (level) hex edge — the sides run straight up on screen",
+  };
 }
 
 /** Seat a wall face on its edge by similarity — base corner to
- *  base corner, the wallArt grammar — keeping the face upright:
- *  if the seating would turn the drawing's up down-screen, it
- *  seats from the edge's other end. */
+ *  base corner, the wallArt grammar — the wall standing at Nigel's
+ *  drawn height (the piece scales so its base length equals the
+ *  edge, and the height follows). Nothing is squashed or redrawn:
+ *  one uniform scale per face, and the drawing is never mirrored —
+ *  a turn of the whole drawing is the only transform it ever takes.
+ *
+ *  THE SEATING LAW — the facing, answered. Which end of the edge
+ *  receives the drawing's base START is named from the edge's own
+ *  run on screen, so the same edge seats the same way whoever
+ *  stored it:
+ *   · a face whose base line is SLANTED in its own frame (the
+ *     slant twins, and the slant twin serving the upright line):
+ *     the base end that sits LOWER in the drawing's frame — the
+ *     near jamb's foot — meets the edge's SOUTHERN end (the end
+ *     lower on screen), in either stored direction;
+ *   · a face whose base line is LEVEL in its frame (the frontal
+ *     pair): the seating that keeps the elevation standing
+ *     upright, its base start (the drawing's left) toward the
+ *     west — the face as read from the south. */
 export function seatWallFace(face: WallFace, A: { x: number; y: number }, B: { x: number; y: number }): string {
-  const baseAng = Math.atan2(face.y2 - face.y1, face.x2 - face.x1);
-  let P = A, Q = B;
-  let rot = Math.atan2(Q.y - P.y, Q.x - P.x) - baseAng;
-  if (Math.cos(rot) < 0) {
-    P = B; Q = A;
-    rot = Math.atan2(Q.y - P.y, Q.x - P.x) - baseAng;
+  const baseSlanted = Math.abs(face.y2 - face.y1) > 0.05 * Math.abs(face.x2 - face.x1);
+  let P: { x: number; y: number }, Q: { x: number; y: number };
+  if (baseSlanted) {
+    // the drawing's lower base end meets the edge's southern end
+    const startIsLower = face.y1 > face.y2;
+    const aIsSouthern = A.y > B.y;
+    const startAtA = startIsLower === aIsSouthern;
+    P = startAtA ? A : B;
+    Q = startAtA ? B : A;
+  } else {
+    // the level rule: keep the elevation upright, base start first
+    const baseAng = Math.atan2(face.y2 - face.y1, face.x2 - face.x1);
+    const rot = Math.atan2(B.y - A.y, B.x - A.x) - baseAng;
+    const flip = Math.cos(rot) < 0;
+    P = flip ? B : A;
+    Q = flip ? A : B;
   }
+  const baseAng = Math.atan2(face.y2 - face.y1, face.x2 - face.x1);
+  const rot = Math.atan2(Q.y - P.y, Q.x - P.x) - baseAng;
   const sc = Math.hypot(Q.x - P.x, Q.y - P.y) / Math.hypot(face.x2 - face.x1, face.y2 - face.y1);
   return `translate(${P.x.toFixed(2)} ${P.y.toFixed(2)}) rotate(${(rot * 180 / Math.PI).toFixed(2)}) scale(${sc.toFixed(4)}) translate(${(-face.x1).toFixed(1)} ${(-face.y1).toFixed(1)})`;
 }

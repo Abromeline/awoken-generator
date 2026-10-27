@@ -49,6 +49,17 @@
 //      on its near side; with the wall taken away, he arrives.
 //   §F PERSISTENCE: after a reload the pieces stand as laid,
 //      the browser's count agreeing with the server's.
+//   §P EVERY WALL PERSPECTIVE (Nigel's correction, 2026-10-26):
+//      two fresh construction hexes are ringed — one with six
+//      WALLS, one with six DOORS, one piece on every outer edge —
+//      and every ring piece is read back off the real map: the
+//      drawing that stands on the edge (its cut PNG's name), the
+//      stance the node names (data-perspective), and the seat's
+//      translate point and turn, checked against the seating law
+//      reckoned here from the drawings' own measured base lines
+//      (the south-end law: a slanted face's lower base end meets
+//      the edge's southern end; a level face stands upright with
+//      its left toward the west). Screenshots ring by ring.
 // Run after `npm run build`:
 //   PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-hex-build.mjs
 import { createRequire } from "node:module";
@@ -838,6 +849,223 @@ ok("§F after a reload, the browser draws the same construction the server holds
   && apiAfter === countBeforeReload && afterReload.floors > 0,
   JSON.stringify({ dom: afterReload, api: apiAfter, before: countBeforeReload }));
 await page.screenshot({ path: join(SHOTS, "04-after-reload.png") });
+
+/* ── §P EVERY WALL PERSPECTIVE ─────────────────────────────── */
+console.log("§P every wall perspective — two hexes ringed, every stance read off the real map");
+// The drawings' base lines, measured off the cut PNGs (the same
+// numbers the perspective table in buildingFaces.ts is built on —
+// kept here as the independent record the seat is checked against).
+const DRAWING_BASES = {
+  "wall-long-edge": [3, 440, 344, 440], "doorway-long-edge": [3, 439, 344, 439],
+  "wall-slant-down-right": [3, 421, 176, 615], "doorway-slant-down-right": [3, 421, 189, 615],
+  "wall-slant-down-left": [23, 615, 199, 419], "doorway-slant-down-left": [15, 630, 195, 425],
+};
+const landPtOfAxial = (q, r) => { const k = 54 / 796; return { x: 250 + q * 1292 * k, y: 170 + q * 470 * k + r * 948 * k }; };
+// The stance a line presents, and the drawing that is its true
+// perspective (the perspective table, restated for the proof).
+function expectedPerspective(kind, A, B) {
+  let line = Math.atan2(B.y - A.y, B.x - A.x) * 180 / Math.PI;
+  if (line > 90) line -= 180;
+  if (line <= -90) line += 180;
+  const door = kind === "door";
+  if (Math.abs(line) <= 10) return { stance: "long (back and front edges)", drawing: door ? "doorway-long-edge" : "wall-long-edge", line };
+  if (line > 35 && line < 65) return { stance: "slant descending right", drawing: door ? "doorway-slant-down-right" : "wall-slant-down-right", line };
+  if (line < -35 && line > -65) return { stance: "slant ascending right", drawing: door ? "doorway-slant-down-left" : "wall-slant-down-left", line };
+  return { stance: "?", drawing: "?", line };
+}
+// The seating law, reckoned from the drawing's own base line: the
+// point the base START lands on, and the seat's turn.
+function expectedSeat(drawing, A, B) {
+  const [x1, y1, x2, y2] = DRAWING_BASES[drawing];
+  const baseAng = Math.atan2(y2 - y1, x2 - x1);
+  let P, Q;
+  if (Math.abs(y2 - y1) > 0.05 * Math.abs(x2 - x1)) {
+    const startAtA = (y1 > y2) === (A.y > B.y); // the drawing's lower end meets the southern end
+    P = startAtA ? A : B; Q = startAtA ? B : A;
+  } else {
+    const flip = Math.cos(Math.atan2(B.y - A.y, B.x - A.x) - baseAng) < 0;
+    P = flip ? B : A; Q = flip ? A : B;
+  }
+  let deg = (Math.atan2(Q.y - P.y, Q.x - P.x) - baseAng) * 180 / Math.PI;
+  while (deg > 180) deg -= 360;
+  while (deg < -180) deg += 360;
+  return { P, deg, southEnd: P === A || Q === A ? (A.y > B.y ? A : B) : null, startAt: P };
+}
+// Two ring anchors: land tiles whose construction hexes can
+// take a full ring (see ringable below) and whose centres fall
+// inside the entry frame — because the photographs are taken in
+// that framing: the drive's later battles raise a Hold panel
+// over the land and camera drags under it cannot be trusted, so
+// the rings stand where the settled camera already looks
+// instead of being dragged to.
+// §P works in ONE framing throughout: a fresh entry whose
+// camera is waited out until it settles (two readings of the
+// Tender's own stand, half a second apart, agreeing). The ring
+// anchors are measured in this framing, the rings are placed
+// and read in it, and the photographs are taken in it — no
+// second entry, no drag (the drive's later battles raise a
+// Hold panel the drags cannot be trusted under).
+await enterTerritory();
+await clearOverlays();
+const centreClientP = (lx, ly) => page.evaluate((x, y) => {
+  const g = document.querySelector(".land-cam");
+  const p = new DOMPoint(x, y).matrixTransform(g.getScreenCTM());
+  return { x: p.x, y: p.y };
+}, lx, ly);
+{
+  let prev = null;
+  for (let i = 0; i < 20; i++) {
+    const c = await centreClientP(tenderLand.x, tenderLand.y);
+    if (prev && Math.hypot(c.x - prev.x, c.y - prev.y) < 2) break;
+    prev = c;
+    await sleep(500);
+  }
+}
+const standingKeys = new Set((await servedPieces()).map(p => p.pieceKey));
+const ringCandidates = land.tiles
+  .filter(t => t.id !== tenderTile.id && t.id !== westTile.id)
+  .map(t => {
+    const ap = axialToPlate(t.q, t.r);
+    const [fm, fn] = GEO.centerAddress(ap);
+    const m = Math.round(fm), n = Math.round(fn);
+    const hexPieces = piecesOfHex(m, n);
+    // Two tiles can name the SAME construction hex, and two
+    // neighbouring hexes share an outer edge — either way the
+    // second ring would find its edges already walled. The
+    // anchors are therefore chosen as hexes, not tiles: distinct
+    // centres, at least two lattice steps apart.
+    return { t, hexPieces, m, n, overlap: hexPieces.filter(p => standingKeys.has(p.key)).length, clear: Math.min(hexDist(t, tenderTile), hexDist(t, westTile)), distT: hexDist(t, tenderTile) };
+  })
+  .sort((a, b) => a.overlap - b.overlap || b.clear - a.clear);
+// The pool is measured, not reckoned: each clear candidate's
+// hex centre is carried to client coordinates through the land's
+// own transform in §P's settled framing, and only candidates
+// whose centres fall inside the safe window are eligible.
+const landPtOfPlate = (plate) => { const ax = plateToAxial(plate); return landPtOfAxial(ax[0], ax[1]); };
+for (const c of ringCandidates) {
+  const [fm, fn] = GEO.centerAddress(axialToPlate(c.t.q, c.t.r));
+  const centreLand = landPtOfPlate(GEO.hexCenter(Math.round(fm), Math.round(fn)));
+  c.client = await centreClientP(centreLand.x, centreLand.y).catch(() => null);
+}
+const inFrame = (c) => !!c.client && c.client.x > 320 && c.client.x < 1080 && c.client.y > 180 && c.client.y < 720;
+// A hex is RINGABLE when every one of its wedges either already
+// stands or has clear ground to stand on, and no wall or door
+// yet stands on any of its six outer edges. (Neighbouring
+// construction hexes SHARE pieces — a compound's shoulders are
+// its neighbours' wedges — so a bare piece-overlap count is the
+// wrong test; this is the test the ring itself will meet.)
+const floorsStanding = (await servedPieces()).filter(p => p.kind === "triangle" || p.kind === "square");
+const walledKeysStanding = new Set((await servedPieces()).filter(p => p.kind === "wall" || p.kind === "door").map(p => edgeKeyOf(p.verts[0], p.verts[1])));
+function ringable(c) {
+  const [fm, fn] = GEO.centerAddress(axialToPlate(c.t.q, c.t.r));
+  const centre = GEO.hexCenter(Math.round(fm), Math.round(fn));
+  const atCentre = (v) => Math.abs(v[0] - centre[0]) < 1e-9 && Math.abs(v[1] - centre[1]) < 1e-9;
+  const wedges = c.hexPieces.filter(p => p.kind === "triangle" && p.verts.some(atCentre));
+  if (wedges.length !== 6) return false;
+  for (const w of wedges) {
+    if (!standingKeys.has(w.key) && floorsStanding.some(f => polygonsOverlap(f.verts, w.verts))) return false;
+    const outer = edgesOf(w.verts).find(e => !e.some(atCentre));
+    if (!outer || walledKeysStanding.has(edgeKeyOf(outer[0], outer[1]))) return false;
+  }
+  return true;
+}
+const ringPool = ringCandidates.filter(c => inFrame(c) && ringable(c))
+  .sort((a, b) => Math.hypot(a.client.x - 700, a.client.y - 475) - Math.hypot(b.client.x - 700, b.client.y - 475));
+const apartFromA = (c) => c !== ringA && (c.m !== ringA.m || c.n !== ringA.n) && hexDist({ q: c.m, r: c.n }, { q: ringA.m, r: ringA.n }) >= 2;
+// Fallbacks walk the candidates by measured centrality (nearest
+// the frame's middle first) — never by clearance, which walks
+// them off the land's far edge.
+const byCentrality = [...ringCandidates].sort((a, b) =>
+  Math.hypot((a.client?.x ?? 1e9) - 700, (a.client?.y ?? 1e9) - 475) - Math.hypot((b.client?.x ?? 1e9) - 700, (b.client?.y ?? 1e9) - 475));
+const ringA = ringPool[0] ?? byCentrality.find(c => ringable(c)) ?? ringCandidates[0];
+const ringB = ringPool.find(c => apartFromA(c) && Math.hypot(c.client.x - ringA.client.x, c.client.y - ringA.client.y) >= 200)
+  ?? ringPool.find(c => apartFromA(c))
+  ?? byCentrality.find(c => apartFromA(c) && ringable(c)) ?? byCentrality.find(c => apartFromA(c)) ?? ringCandidates[1];
+ok("§P two ring anchors stand clear of the compounds, inside the frame", !!ringA && !!ringB && ringA !== ringB,
+  JSON.stringify({ pool: ringPool.length, a: ringA && [ringA.t.q, ringA.t.r], b: ringB && [ringB.t.q, ringB.t.r] }));
+const ringPieces = []; // {label, kind, edgePlate, edgeAx}
+for (const [ring, kind] of [[ringA, "wall"], [ringB, "door"]]) {
+  if (!ring) continue;
+  const [rfm, rfn] = GEO.centerAddress(axialToPlate(ring.t.q, ring.t.r));
+  const centre = GEO.hexCenter(Math.round(rfm), Math.round(rfn));
+  for (const p of ring.hexPieces) if (p.kind === "triangle") await call("placeBuildPiece", { kind: "triangle", verts: p.verts }, token);
+  // The hex's own wedges only: the triangles carrying the centre
+  // (the shoulders of piecesOfHex carry a corner, not the centre).
+  const wedges = ring.hexPieces.filter(p => p.kind === "triangle"
+    && p.verts.some(v => Math.abs(v[0] - centre[0]) < 1e-9 && Math.abs(v[1] - centre[1]) < 1e-9));
+  for (const w of wedges) {
+    const outer = edgesOf(w.verts).find(e => !e.some(v => Math.abs(v[0] - centre[0]) < 1e-9 && Math.abs(v[1] - centre[1]) < 1e-9));
+    if (!outer) continue;
+    const r = await call("placeBuildPiece", { kind, verts: outer }, token);
+    if (r.status === 200) ringPieces.push({ label: kind === "wall" ? "walls" : "doors", kind, edgePlate: outer, edgeAx: outer.map(v => plateToAxial(v)) });
+  }
+}
+ok("§P both hexes stand ringed — six walls on one, six doors on the other", ringPieces.length === 12, `${ringPieces.length} ring pieces`);
+await sleep(3500); // the read loop carries the rings onto the map
+const domWalls = await page.evaluate(() => [...document.querySelectorAll(".build-wall-piece")].map(g => {
+  const img = g.querySelector("image");
+  const line = g.querySelector("line");
+  const tr = img?.closest("g")?.getAttribute("transform") ?? "";
+  const m = tr.match(/translate\(([-\d.]+)[ ,]+([-\d.]+)\)\s*rotate\(([-\d.]+)\)/);
+  return {
+    stance: g.getAttribute("data-perspective"), kind: g.getAttribute("data-kind"),
+    href: img?.getAttribute("href") ?? "",
+    ax: line ? +line.getAttribute("x1") : NaN, ay: line ? +line.getAttribute("y1") : NaN,
+    bx: line ? +line.getAttribute("x2") : NaN, by: line ? +line.getAttribute("y2") : NaN,
+    px: m ? +m[1] : NaN, py: m ? +m[2] : NaN, deg: m ? +m[3] : NaN,
+  };
+}));
+let ringFound = 0;
+for (const rp of ringPieces) {
+  const A = landPtOfAxial(rp.edgeAx[0][0], rp.edgeAx[0][1]);
+  const B = landPtOfAxial(rp.edgeAx[1][0], rp.edgeAx[1][1]);
+  const exp = expectedPerspective(rp.kind, A, B);
+  if (!DRAWING_BASES[exp.drawing]) {
+    ok(`§P ${rp.label} ring, line ${exp.line.toFixed(1)}°: a stance the ring hexes never present`, false, JSON.stringify({ edgeAx: rp.edgeAx }));
+    continue;
+  }
+  const seat = expectedSeat(exp.drawing, A, B);
+  const node = domWalls.find(d => d.kind === rp.kind
+    && ((Math.hypot(d.ax - A.x, d.ay - A.y) < 1.5 && Math.hypot(d.bx - B.x, d.by - B.y) < 1.5)
+      || (Math.hypot(d.ax - B.x, d.ay - B.y) < 1.5 && Math.hypot(d.bx - A.x, d.by - A.y) < 1.5)));
+  if (node) ringFound++;
+  const seatOk = !!node && Math.hypot(node.px - seat.P.x, node.py - seat.P.y) < 0.75 && Math.abs(node.deg - seat.deg) < 0.75;
+  const south = A.y > B.y ? "first end" : "second end";
+  ok(`§P ${rp.label} ring, line ${exp.line.toFixed(1)}°: ${exp.drawing} stands for "${exp.stance}", its base start seated at the edge's ${seat.P === A ? "first" : "second"} end (the southern end is the ${south})`,
+    !!node && node.href.includes(exp.drawing) && node.stance === exp.stance && seatOk,
+    JSON.stringify({ node: node && { href: node.href.split("/").pop(), stance: node.stance, px: node.px, py: node.py, deg: node.deg }, exp, seatP: seat.P }));
+}
+ok("§P every ring piece was found standing on the map", ringFound === 12, `${ringFound}/12`);
+// The rings photographed in §P's settled framing — the same
+// framing the anchors were measured in; no second entry, no
+// camera drag (the drive's later battles raise a Hold panel
+// over the land, and drags begun under it select text or fling
+// the land into the void — §S's own photograph suffers it in
+// this run). Each ring's portrait is a clip centred on the
+// ring; the full frame is kept too.
+let pOpenedBuild = false;
+if (!(await page.$(".build-bar"))) {
+  const tglP = await page.$(".buildmode-toggle");
+  if (tglP) { await tglP.click(); await sleep(400); pOpenedBuild = true; }
+}
+await page.screenshot({ path: join(SHOTS, "11-perspectives-frame.png") });
+for (const [ring, shot, label] of [[ringA, "09-perspectives-walls.png", "walls"], [ringB, "10-perspectives-doors.png", "doors"]]) {
+  if (!ring) continue;
+  const cLand = landPtOfAxial(ring.t.q, ring.t.r);
+  const c = await centreClientP(cLand.x, cLand.y);
+  ok(`§P the ${label} ring stands inside the entry frame for its photograph`,
+    c.x > 80 && c.x < 1320 && c.y > 60 && c.y < 890, JSON.stringify(c));
+  const clip = {
+    x: Math.max(0, Math.min(1400 - 820, Math.round(c.x - 410))),
+    y: Math.max(0, Math.min(950 - 640, Math.round(c.y - 320))),
+    width: 820, height: 640,
+  };
+  await page.screenshot({ path: join(SHOTS, shot), clip });
+}
+if (pOpenedBuild) {
+  const tglP2 = await page.$(".buildmode-toggle");
+  if (tglP2) { await tglP2.click(); await sleep(400); }
+}
 
 /* ── §S THE PHOTOGRAPH ─────────────────────────────────────── */
 console.log("§S the photograph — the far compound, panned to the middle of the frame");

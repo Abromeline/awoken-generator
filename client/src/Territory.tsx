@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
 import { WALL_STYLES } from "./wallArt";
-import { triangleFaceFor, affineFor, wallFaceFor, seatWallFace, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
+import { triangleFaceFor, affineFor, wallPerspectiveFor, seatWallFace, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
@@ -5377,18 +5377,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const [fa, fb] = p.footprint;
           const A = landPt(fa[0], fa[1]), B = landPt(fb[0], fb[1]);
           // HIS FACE (2026-10-26): the wall wears the face drawn
-          // for its edge's stance — the frontal pair on the long
-          // edges, the leaning twins on the slants — seated by
-          // similarity on its base line, corner to corner, at his
-          // drawn height. A door wears its arch face across the
-          // whole edge: the opening is the drawing's own
-          // transparency, while the door's collision keeps its
-          // two standing parts in collisionSegments, untouched.
-          // The ground line speaks the derivation now — gold
-          // while the ground beneath is the Tender's own.
-          const face = wallFaceFor(p.kind, A.x, A.y, B.x, B.y);
+          // for its edge's PERSPECTIVE — the stance × facing row
+          // of the table in buildingFaces.ts: the frontal pair on
+          // the long edges, the leaning twins on the slants with
+          // the near jamb seated on the edge's southern end, and
+          // the flagged nearest-honest faces on the side lines no
+          // drawing serves yet — seated by similarity on its base
+          // line, corner to corner, at his drawn height. A door
+          // wears its arch face across the whole edge: the opening
+          // is the drawing's own transparency, while the door's
+          // collision keeps its two standing parts in
+          // collisionSegments, untouched. The ground line speaks
+          // the derivation now — gold while the ground beneath is
+          // the Tender's own. The node names its stance
+          // (data-perspective) so a proof can read which
+          // perspective stands on each edge.
+          const perspective = wallPerspectiveFor(p.kind, A.x, A.y, B.x, B.y);
+          const face = perspective.face;
           return (
-            <g key={p.id}>
+            <g key={p.id} className="build-wall-piece" data-perspective={perspective.stance} data-kind={p.kind}>
               <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={p.protected ? "#e8c766" : "#4a3a20"} strokeWidth={1.4 / zoom} opacity={0.6} />
               <g transform={seatWallFace(face, A, B)}>
                 <image href={face.src} x={0} y={0} width={face.w} height={face.h} />
