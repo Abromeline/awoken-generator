@@ -574,6 +574,97 @@ export const ENEMY_STATS: Record<string, { power: number; hp: number }> = {
  *  curse is possible too, it's just damage over time until
  *  purified"). Tile ids are "q,r" — the client draws the
  *  identical lattice from Territory's iso geometry. */
+/** THE CAMPAIGN BOARD'S TILE POOL (Twelve #12, Build 2 —
+ *  Nigel, 2026-10-21; built 2026-10-26): his hand-sculpted
+ *  3D hex tiles, the decimated working set of record
+ *  (~/workspace/hex-tiles/light/), by the keys the client
+ *  board renders them under. A storyteller's placement on a
+ *  campaign hex names one of these keys — or gives the hex
+ *  back to the curse, the default tile of every map. Mtn 2
+ *  stands OUT of the pool by his word (it rests in
+ *  quarantine); Dougie is a multi-hex scenic prop, not a
+ *  floor tile, and is no key here — he waits for the
+ *  building step. The client's board keeps the same list
+ *  (CampaignBoard3D's TILE3D_POOL) — the two must move
+ *  together. */
+export const TILE3D_POOL: Record<string, { name: string; file: string }> = {
+  blank: { name: "Blank Rocky Hex", file: "blank rocky hex.obj" },
+  cobble1: { name: "Cobblestone Slab", file: "Cobblestone 1.obj" },
+  cobblehex: { name: "Cobblestone Hex", file: "cobblestone hex .obj" },
+  elev: { name: "Elevated Blank", file: "elevated blank_copy.obj" },
+  cave: { name: "Hill Cave", file: "hill cave.obj" },
+  largehill: { name: "Large Hill", file: "large hill_copy.obj" },
+  mtn1: { name: "Mountain I", file: "Mtn 1.obj" },
+  mtnhex1: { name: "Mountain Hex I", file: "mtn hex 1_copy.obj" },
+  mud: { name: "Mud Hex", file: "mud hex 1.obj" },
+  rockshill: { name: "Rocks Hill", file: "rocks hill 1.obj" },
+  rocky2: { name: "Rocky Hill II", file: "rocky hill 2.obj" },
+};
+/** THE BUILDING PIECES OF RECORD (the storyteller screen
+ *  spec, 2026-10-21): the six sheets — walls stand as wall
+ *  forms, foundations & ceilings as slab forms, in the
+ *  family's own skin (dark brick, stone, earth). Honest
+ *  block forms in this build, as the proof stood them; the
+ *  pieces' own models belong to the building step. */
+export const BLD3D_PIECES: Record<string, { name: string; form: "wall" | "slab" | "wedge" | "hexfloor" | "square" | "slantwall" | "doorwall" | "halfwall" | "post" | "hexcap" | "sqcap" | "step" | "bridge"; mat: "brick" | "stone" | "earth" | "dark" }> = {
+  brickwall: { name: "Dark Brick Walls", form: "wall", mat: "brick" },
+  brickfound: { name: "Dark Brick Foundations & Ceilings", form: "slab", mat: "brick" },
+  stonewall: { name: "Stone Walls", form: "wall", mat: "stone" },
+  stonefound: { name: "Stone Foundations & Ceilings", form: "slab", mat: "stone" },
+  earthwall: { name: "Earth Walls", form: "wall", mat: "earth" },
+  earthfound: { name: "Earth Foundations & Ceilings", form: "slab", mat: "earth" },
+  /* THE FULLER KIT (Nigel, 2026-10-27 01:43: "also
+   * include the new 2d/3d pieces i drew today in the
+   * campaign mode as well") — the twelve faces of his
+   * building draw sheet, the same kit the homeland
+   * builds with (the one-map law), standing here as
+   * placeable forms in a dark neutral skin. Their DRAWN
+   * faces ride his deliveries: the sheet faces delivered
+   * 2026-10-26 and the fuller "Build 1.psd" set of today
+   * skin these forms when the PSD intake lands — the
+   * intake is blocked at this build's writing (the file
+   * is safe on the File Post; its layers cannot yet be
+   * written to disk), so no face is invented for them
+   * here. The forms, their names and their places in the
+   * menu are wired now; the faces are flagged in the
+   * build report as awaiting intake. */
+  trifloor: { name: "Triangle Floor", form: "wedge", mat: "dark" },
+  hexfloor: { name: "Whole-Hex Floor", form: "hexfloor", mat: "dark" },
+  sqfound: { name: "Square Foundation", form: "square", mat: "dark" },
+  longwall: { name: "Full Wall — Long Edge", form: "wall", mat: "dark" },
+  slantwall: { name: "Full Wall — Slant Edge", form: "slantwall", mat: "dark" },
+  doorwall: { name: "Doorway Wall", form: "doorwall", mat: "dark" },
+  halfwall: { name: "Half Wall", form: "halfwall", mat: "dark" },
+  post: { name: "Corner Post", form: "post", mat: "dark" },
+  hexcap: { name: "Six-Slope Roof Cap", form: "hexcap", mat: "dark" },
+  sqcap: { name: "Square Pitched Cap", form: "sqcap", mat: "dark" },
+  step: { name: "Terrace Step", form: "step", mat: "dark" },
+  bridge: { name: "Bridge Deck", form: "bridge", mat: "dark" },
+};
+/** THE BOARD'S BACKDROPS (Build 2, steered in from the
+ *  map-builder spec: "the storyteller can apply a
+ *  BACKGROUND to the screen and lay the hex map over
+ *  it"): a small standing set the storyteller chooses
+ *  between; the choice is the campaign's, rests with its
+ *  saved state, and every seat's board wears the same
+ *  sky. Colours are the board client's to render. */
+export const BOARD_BACKDROPS: Record<string, { name: string }> = {
+  dusk: { name: "The Dusk (as the light stands)" },
+  starfield: { name: "Starfield Deep" },
+  emberdark: { name: "Ember Dark" },
+  deepwood: { name: "Deepwood Gloom" },
+  voidblack: { name: "The Void Black" },
+  dawnmist: { name: "Dawn Mist" },
+};
+/** The storyteller's own uploaded pieces ride the campaign
+ *  as scenic props (Build 2): the .obj text itself, capped,
+ *  so every seat's board stands the same model. Dougie is
+ *  the standing built-in of the pool — a multi-hex scenic
+ *  prop of Nigel's own hand, served from the client assets,
+ *  never a floor tile. */
+export const PROP3D_BUILTIN = "dougie";
+export const PROP3D_OBJ_CAP = 1500000;
+
 const MAP_RADIUS = 6;
 const TILE_DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 interface TileDef { id: string; q: number; r: number }
@@ -920,6 +1011,23 @@ interface CampaignState {
    *  the holder's to give and to take back. The grants fall
    *  when the seat itself falls vacant. */
   panelAccess: string[];
+  /** THE DICE BOX (Build 2): the Storytender's last cast —
+   *  the die, how many, the faces as they fell, and their
+   *  sum. Served only inside her own payload; the Tale
+   *  carries the cast to the room in one line. */
+  lastDice: { sides: number; count: number; faces: number[]; total: number; at: number } | null;
+  /** THE BOARD'S BACKDROP (Build 2): a BOARD_BACKDROPS key
+   *  or null for the dusk the lighting gives. */
+  backdrop: string | null;
+  /** THE VEILS (Build 2): seat key → 0..1 — how far that
+   *  player's story screen stands faded toward black, as
+   *  the storyteller's party-card sliders set it. Served
+   *  per seat; the seat's own screen wears it. */
+  veils: Record<string, number>;
+  /** THE STORYTELLER'S OWN POOL (Build 2): models she
+   *  uploaded through the console's door, standing in her
+   *  campaign as placeable scenic props. */
+  propsPool: { key: string; name: string; objText: string }[];
 }
 
 /** MANIFEST (Phase C): copies of a Tender's wielded weapon,
@@ -1105,6 +1213,23 @@ interface Room {
    *  The overrides rest with the campaign at adjournment
    *  (saveCampaign), as the seed's growth rests. */
   lightOverrides?: Map<string, number>;
+  /** THE CAMPAIGN BOARD'S LAID LAND (Twelve #12, Build 2):
+   *  the storyteller's placements — hex → a TILE3D_POOL key
+   *  for the ground she laid there, and hex → a
+   *  BLD3D_PIECES key for the building standing on it. A
+   *  hex absent from tile3d wears the default: the cursed
+   *  glass while the curse holds it, the bare slab once
+   *  held back. Campaign rooms only — a casual room's land
+   *  is dealt, never laid. The placements rest with the
+   *  campaign at adjournment (saveCampaign), as the light
+   *  overrides rest. */
+  tile3d?: Map<string, string>;
+  bld3d?: Map<string, string>;
+  /** hex → prop pool key (Build 2): the storyteller's
+   *  scenic pieces standing on the board — Dougie or her
+   *  own uploads. Scenic only in this build: they stand,
+   *  they do not fight. */
+  props3d?: Map<string, string>;
   /** THE FELL LEDGER (the battle port — Twelve #1): damage
    *  each standing Awokin has dealt each dark thing, kept
    *  off the enemy itself (a Map would not survive the state
@@ -2108,6 +2233,21 @@ async function saveProfile(player: Player): Promise<void> {
     });
 }
 
+/** A Tender's AC as the Table's one reckoning knows it:
+ *  10, plus the runic weapon's guard read live (the Sword &
+ *  Shield's Signature adds its one on the bare path), plus
+ *  the zodiac's tenderAc clauses, plus a prepared bastion's
+ *  walls for its host. The bare-Tender strike path below
+ *  rolls against this same number, and the storyteller's
+ *  party cards read it — one helper, so the card can never
+ *  promise a different number than the blow will meet. */
+function tenderAcFor(room: Room, p: Player): number {
+  const wac = (WEAPON_AC[p.weaponKey ?? ""] ?? 0)
+    + (p.weaponKey === "swordshield" && p.weaponSignature ? 1 : 0);
+  return 10 + wac + (p.expKey ? fxSum(p.expKey, "tenderAc") : 0)
+    + (room.bastion?.prepared && p.expKey === room.bastion.hostKey ? 3 : 0);
+}
+
 function sharedState(room: Room) {
   const seated = [...room.players.values()].filter(p => !p.watcher);
   // Held seats stand in the party too (marked away), so an
@@ -2125,7 +2265,7 @@ function sharedState(room: Room) {
     sky: room.campaign?.skyNote ? { ...room.sky, description: room.campaign.skyNote } : room.sky,
     round: room.roundNo,
     threat: [...room.dark.values()].reduce((sum, e) => sum + e.power, 0),
-    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, companyCount: (p.company ?? []).length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null, weaponLevel: p.weaponLevel ?? 1, weaponElement: p.weaponElement ?? null, weaponDepth: p.weaponDepth ?? 0, weaponManifest: !!p.weaponManifest, weaponSignature: !!p.weaponSignature })),
+    players: [...seated, ...awaySeated].map(p => ({ key: p.key, name: p.name, companyCount: (p.company ?? []).length, energy: Math.floor(room.campaign && !room.campaign.over && room.campaign.seeded ? room.campaign.bank : p.energy), maxEnergy: p.maxEnergy, tenderHp: p.tenderHp, maxTenderHp: p.maxTenderHp, fallen: p.fallen, storytender: !!p.storytender, hex: p.hex ?? null, pos: p.pos ? roundPos(p.pos) : null, tgt: p.target ? roundPos(p.target) : null, moving: p.pos ? isMoving(p as any) : false, weaponKills: p.weaponKills ?? 0, castAt: p.castAt ?? 0, away: awayKeys.has(p.key), classKey: p.classKey ?? null, weaponKey: p.weaponKey ?? null, weaponLevel: p.weaponLevel ?? 1, weaponElement: p.weaponElement ?? null, weaponDepth: p.weaponDepth ?? 0, weaponManifest: !!p.weaponManifest, weaponSignature: !!p.weaponSignature, ac: tenderAcFor(room, p) })),
     watcherCount: [...room.players.values()].filter(p => p.watcher).length,
     campaign: room.campaign ? {
       bank: Math.floor(room.campaign.bank),
@@ -2154,6 +2294,18 @@ function sharedState(room: Room) {
     // Storytender set. A casual room serves null — it holds
     // no override and exposes no hand on the light.
     lightOverrides: room.campaign ? [...(room.lightOverrides ?? new Map<string, number>()).entries()] : null,
+    // THE LAID LAND, served in a campaign room and nowhere
+    // else (Build 2): hex → the pool tile laid there, and
+    // hex → the building piece standing on it. Every seat
+    // sees the board — the placements are the room's shared
+    // ground, not the storyteller's private furniture. A
+    // casual room serves null: its land is dealt, never laid.
+    tile3d: room.campaign ? [...(room.tile3d ?? new Map<string, string>()).entries()] : null,
+    bld3d: room.campaign ? [...(room.bld3d ?? new Map<string, string>()).entries()] : null,
+    props3d: room.campaign ? [...(room.props3d ?? new Map<string, string>()).entries()] : null,
+    backdrop: room.campaign ? room.campaign.backdrop : null,
+    veils: room.campaign ? { ...room.campaign.veils } : null,
+    propsPool: room.campaign ? room.campaign.propsPool.map(e => ({ key: e.key, name: e.name, objText: e.objText })) : null,
     // THE STARSEED AT THE TABLE (the battle port): the
     // room's seed and its growth by feeding — the level, the
     // stage the level wears, the fed energy banked, and the
@@ -2229,6 +2381,11 @@ function sendState(room: Room): void {
       you: player.watcher ? null : {
         key: player.key,
         name: player.name,
+        // THE VEIL ON THIS SEAT (Build 2): how far the
+        // Storytender's party-card slider has faded this
+        // player's story screen toward black — 0 clear,
+        // 1 blacked out. The seat's own screen wears it.
+        veil: room.campaign ? (room.campaign.veils[player.key] ?? 0) : 0,
         // HOSTED LAND (Twelve #2): this seat is the standing
         // land's keeper (the light and the door answer to
         // their hand alone); the keeper's lighthouse purse
@@ -2270,6 +2427,10 @@ function sendState(room: Room): void {
           bank: Math.floor(room.campaign.bank),
           seeded: room.campaign.seeded,
           over: room.campaign.over,
+          // THE DICE BOX (Build 2): her last cast, served to
+          // her alone — the console's furniture is hers; the
+          // room hears the cast in the Tale's one line.
+          dice: room.campaign.lastDice ?? null,
         } : null,
         yourCall: (() => {
           if (!player.expKey) return null;
@@ -4782,7 +4943,7 @@ function freshCampaign(): CampaignState {
   return {
     bank: 0, bankStart: 0, seeded: false, reserve: [], deals: 0,
     stage: null, skyNote: null, over: null, recasts: {}, storytenderName: null,
-    storytellerKey: null, panelAccess: [],
+    storytellerKey: null, panelAccess: [], lastDice: null, backdrop: null, veils: {}, propsPool: [],
   };
 }
 
@@ -4807,6 +4968,13 @@ function saveCampaign(room: Room): void {
       // (2026-10-26): the light the Storytender set by hand
       // is the campaign land's state, and rests as it does.
       lightOverrides: room.lightOverrides ? [...room.lightOverrides.entries()] : [],
+      // THE LAID LAND rides the rest beside them (Build 2):
+      // the board the storyteller built hex by hex is the
+      // campaign's own ground, and stands again when the
+      // room reopens.
+      tile3d: room.tile3d ? [...room.tile3d.entries()] : [],
+      bld3d: room.bld3d ? [...room.bld3d.entries()] : [],
+      props3d: room.props3d ? [...room.props3d.entries()] : [],
     };
     sqlite.prepare("INSERT INTO ui_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
       .run(`table.campaign.${room.id}`, JSON.stringify(snap), Date.now());
@@ -4823,6 +4991,15 @@ function loadCampaign(id: string): CampaignState {
       Object.assign(c, snap);
       delete (c as any).tale;
       delete (c as any).wave;
+      // The laid land is the ROOM's state, not the
+      // campaign's own body — restoreCampaignTale reads it
+      // off the same snapshot into the room (Build 2).
+      delete (c as any).tile3d;
+      delete (c as any).bld3d;
+      delete (c as any).props3d;
+      c.backdrop = typeof c.backdrop === "string" && c.backdrop in BOARD_BACKDROPS ? c.backdrop : null;
+      c.veils = c.veils && typeof c.veils === "object" ? Object.fromEntries(Object.entries(c.veils).filter(([, v]) => typeof v === "number" && v > 0 && v <= 1)) : {};
+      c.propsPool = Array.isArray(c.propsPool) ? c.propsPool.filter((e: any) => e && typeof e.key === "string" && typeof e.name === "string" && typeof e.objText === "string" && e.objText.length <= PROP3D_OBJ_CAP).slice(0, 12) : [];
       // The seed's growth is the ROOM's state, not the
       // campaign's own body — restoreCampaignTale reads it
       // off the same snapshot into the room.
@@ -4862,6 +5039,31 @@ function restoreCampaignTale(room: Room): void {
       if (Array.isArray(snap.lightOverrides)) {
         room.lightOverrides = new Map(
           snap.lightOverrides.filter((e: any) => Array.isArray(e) && typeof e[0] === "string" && [LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING].includes(e[1])) as [string, number][],
+        );
+      }
+      // THE LAID LAND stands again (Build 2): the room's
+      // map is dealt fresh — born cursed entire — so a hex
+      // the storyteller laid land on is held back again
+      // here: the placement IS the holding, by the law that
+      // a placed tile holds the curse back on its hex.
+      if (Array.isArray(snap.tile3d)) {
+        room.tile3d = new Map(
+          snap.tile3d.filter((e: any) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string" && e[1] in TILE3D_POOL) as [string, string][],
+        );
+        for (const hex of room.tile3d.keys()) {
+          const t = room.map.get(hex);
+          if (t) { t.cursed = false; t.curseHp = 0; }
+        }
+      }
+      if (Array.isArray(snap.bld3d)) {
+        room.bld3d = new Map(
+          snap.bld3d.filter((e: any) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string" && e[1] in BLD3D_PIECES) as [string, string][],
+        );
+      }
+      if (Array.isArray(snap.props3d)) {
+        const poolKeys = new Set([...(room.campaign?.propsPool ?? []).map(e => e.key), PROP3D_BUILTIN]);
+        room.props3d = new Map(
+          snap.props3d.filter((e: any) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string" && poolKeys.has(e[1])) as [string, string][],
         );
       }
     }
@@ -6040,19 +6242,15 @@ async function runRound(room: Room): Promise<void> {
         // strikes against the Tender are blunted by the
         // stars' tenderSkin clauses, never below 1.
         const skinAmt = tender.expKey ? heartEffects(tender.expKey).skinAmount : 0;
-        // The bare Tender's AC: 10 plus the runic weapon's
-        // guard, its key read LIVE (Phase B) — plus one more
-        // for AEGIS, the Sword & Shield's Signature (Phase C;
-        // this bare-Tender path only, never acBonusOf).
-        const wac = (WEAPON_AC[tender.weaponKey ?? ""] ?? 0)
-          + (tender.weaponKey === "swordshield" && tender.weaponSignature ? 1 : 0);
         const roll = dN(20);
         // THE PREPARED BASTION (Station 4): the host himself
         // stands behind the same walls as his Awokin. THE
         // ZODIAC (Recovery #1): his Tender AC clauses stand
         // here too — this path never read acBonusOf (that
         // sum is his Awokin's), it reads tenderAc by name.
-        const ac = 10 + wac + (tender.expKey ? fxSum(tender.expKey, "tenderAc") : 0) + (room.bastion?.prepared && tender.expKey === room.bastion.hostKey ? 3 : 0);
+        // The reckoning itself is tenderAcFor's, above — the
+        // one helper the storyteller's party cards read too.
+        const ac = tenderAcFor(room, tender);
         const hit = roll === 20 || (roll !== 1 && roll + fateLevelBonus(enemy.lvl) >= ac);
         if (tender.pos) witness(enemy.pos, tender.pos, "dark", "dark", hit, false);
         if (hit) {
@@ -6495,6 +6693,18 @@ function handleConnection(ws: WebSocket): void {
         maxEnergy = 12;
       }
       player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      // THE HOLDER'S FLAG, RESTORED (Build 2's drive found
+      // this seam): the reclaim roads above return the
+      // holder's own seat object, flag and all — but when
+      // the room itself emptied and was struck, a returning
+      // holder takes a FRESH seat here, and the campaign
+      // record still names her as the seat's holder. The
+      // record is the truth: her flag is re-applied from
+      // it, so the console stands for her when the room
+      // reopens, as the seat's law promises. (Without it
+      // she was locked out whole — the claim door saw the
+      // seat as held, by her, and returned silently.)
+      if (!watcher && room.campaign && room.campaign.storytellerKey === key) player.storytender = true;
       room.players.set(ws, player);
       assignLanding(room, player);
       ensureTenderHex(room, player);
@@ -6632,7 +6842,7 @@ function handleConnection(ws: WebSocket): void {
         return;
       }
       const c = room.campaign;
-      if (c.storytellerKey === player.key) { sendState(room); return; }
+      if (c.storytellerKey === player.key) { player.storytender = true; sendState(room); return; }
       if (c.storytellerKey) {
         ws.send(JSON.stringify({ type: "error", message: `The Storyteller's seat is held by ${c.storytenderName ?? "another"} — it stands claimed until its holder's seat lapses.` }));
         return;
@@ -8491,9 +8701,177 @@ function handleConnection(ws: WebSocket): void {
       return;
     }
 
+    // ── THE BOARD'S LAYING (Twelve #12, Build 2): the
+    // storyteller lays the campaign's land — a pool tile on
+    // a hex, a building piece standing on it, or the hex
+    // given back to the curse. The hand is hers, and those
+    // she has opened the panel to (Build 1's grant: "they
+    // build this encounter together") — the laying is the
+    // building the grant names. Every other instrument
+    // below stays the seated Storytender's alone. A placed
+    // tile HOLDS THE CURSE BACK on its hex (the map law,
+    // 2026-10-21): the hex stands purified ground while
+    // the tile stands, and giving it back restores the
+    // curse whole — corruption by ring, as it was dealt. A
+    // building on a reclaimed hex keeps standing, on its
+    // held plot, as the proof stood it. ──
+    if ((msg.type === "stTile" || msg.type === "stFill" || msg.type === "stBackdrop" || msg.type === "stVeil" || msg.type === "stPropUpload" || msg.type === "stProp" || msg.type === "stPlaceFoe") && room.campaign) {
+      if (!room || !player) return;
+      const R: Room = room;
+      const c = R.campaign as CampaignState;
+      const canBuild = !!player.storytender || (c.panelAccess ?? []).includes(player.key);
+      if (!canBuild) { ws.send(JSON.stringify({ type: "error", message: "Only the Storytender — and those she opens the panel to — may lay the land." })); return; }
+      if (c.over) { ws.send(JSON.stringify({ type: "error", message: "The campaign is over — its tale is told." })); return; }
+      R.tile3d ??= new Map();
+      R.bld3d ??= new Map();
+      R.props3d ??= new Map();
+      if (msg.type === "stBackdrop") {
+        // THE BOARD'S BACKDROP: the storyteller dresses the
+        // screen the map is laid over; every seat's board
+        // wears the same sky, and the choice rests with the
+        // campaign's saved state.
+        const key = msg.key === null ? null : String(msg.key ?? "");
+        if (key !== null && !(key in BOARD_BACKDROPS)) { ws.send(JSON.stringify({ type: "error", message: "That is no backdrop the board knows." })); return; }
+        c.backdrop = key;
+        tell(R, key ? `The board's backdrop turns: ${BOARD_BACKDROPS[key].name}.` : "The board's backdrop returns to the dusk.");
+        saveCampaign(R);
+        sendState(R);
+        return;
+      }
+      if (msg.type === "stVeil") {
+        // THE PARTY-CARD SLIDERS: the storyteller fades one
+        // player's story screen toward black (or clears it).
+        const target = String(msg.target ?? "");
+        const v = Math.max(0, Math.min(1, Number(msg.value) || 0));
+        if (![...R.players.values()].some(p => p.key === target)) { ws.send(JSON.stringify({ type: "error", message: "That is no seat at this table." })); return; }
+        if (v <= 0) delete c.veils[target]; else c.veils[target] = v;
+        saveCampaign(R);
+        sendState(R);
+        return;
+      }
+      if (msg.type === "stPropUpload") {
+        // THE UPLOAD DOOR: the storyteller's own model joins
+        // her personal pool. Single-file .obj text, capped —
+        // the board parses it for real on every seat; a file
+        // that will not parse stands as a named marker there,
+        // in the proof's own honesty.
+        const name = String(msg.name ?? "Uploaded piece").trim().slice(0, 60) || "Uploaded piece";
+        const objText = String(msg.objText ?? "");
+        if (!objText || objText.length > PROP3D_OBJ_CAP || !/^v\s/m.test(objText)) { ws.send(JSON.stringify({ type: "error", message: "That file does not read as an .obj model." })); return; }
+        if (c.propsPool.length >= 12) { ws.send(JSON.stringify({ type: "error", message: "Your pool is full — twelve pieces of your own is the shelf's width." })); return; }
+        const key = `up${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+        c.propsPool.push({ key, name, objText });
+        tell(R, `A new piece joins the Storyteller's pool: ${name}.`);
+        saveCampaign(R);
+        sendState(R);
+        return;
+      }
+      if (msg.type === "stProp") {
+        const hex = String(msg.hex ?? "");
+        if (!R.map.get(hex)) { ws.send(JSON.stringify({ type: "error", message: "That is no hex of this land." })); return; }
+        if (msg.prop === null) { R.props3d.delete(hex); }
+        else {
+          const key = String(msg.prop ?? "");
+          if (key !== PROP3D_BUILTIN && !c.propsPool.some(e => e.key === key)) { ws.send(JSON.stringify({ type: "error", message: "That is no piece your pool holds." })); return; }
+          R.props3d.set(hex, key);
+          const nm = key === PROP3D_BUILTIN ? "Dougie" : c.propsPool.find(e => e.key === key)!.name;
+          tell(R, `${nm} stands on hex ${hex}.`);
+        }
+        saveCampaign(R);
+        sendState(R);
+        return;
+      }
+      if (msg.type === "stPlaceFoe") {
+        // ADVERSARIES WHERE SHE PUTS THEM (the 15:57
+        // staging's own Build 2): a roster foe stands on the
+        // hex she names, whole — the Table's own enemy body
+        // (ENEMY_STATS, the workshop AC, the deal's level),
+        // standing in room.dark, where the battle engine
+        // strikes it and it strikes back exactly as a dealt
+        // foe does. Commanding it — marching orders, waves —
+        // is the war hand's build, not this one.
+        const kind = String(msg.kind ?? "");
+        const hex = String(msg.hex ?? "");
+        if (!(kind in ENEMY_STATS)) { ws.send(JSON.stringify({ type: "error", message: "That is no dark the roster knows." })); return; }
+        if (!R.map.get(hex)) { ws.send(JSON.stringify({ type: "error", message: "That is no hex of this land." })); return; }
+        if (darkOn(R, hex)) { ws.send(JSON.stringify({ type: "error", message: "The dark already stands on that hex." })); return; }
+        const lvl = 1 + Math.floor(c.deals / 3);
+        const base = ENEMY_STATS[kind];
+        const face = R.enemies.find(e => e.name === kind);
+        const foe: EnemyUnit = {
+          id: nextDarkId(), hex, kind, label: face?.label ?? kind, art: face?.art ?? null,
+          power: base.power + Math.floor((lvl - 1) / 3), hp: base.hp + (lvl - 1), maxHp: base.hp + (lvl - 1),
+          pinnedUntil: 0, pos: { ...tileCenter(hex)! }, target: null, lastTile: hex,
+          armor: enemyACFor(kind) + Math.floor((lvl - 1) / 2), lvl, speedGauge: 0,
+        };
+        R.dark.set(foe.id, foe);
+        springHex(R, hex, new Set());
+        if (!R.battle.active && [...R.players.values()].some(p => !p.watcher)) { R.battle.active = true; startBattleTimer(R); }
+        tell(R, `${foe.label} rises where the Storyteller puts it — hex ${hex}.`);
+        sendState(R);
+        return;
+      }
+      if (msg.type === "stFill") {
+        // THE RANDOM FILL: the whole map dressed from the
+        // pool in one casting — but only ground the curse
+        // still holds is dressed. Held-back ground keeps
+        // what holds it: the seed's own hex, the party's
+        // arrival landings, ground already laid or cleansed
+        // in play, and any hex a building stands on.
+        const keys = Object.keys(TILE3D_POOL);
+        let laid = 0;
+        for (const t of R.map.values()) {
+          if (!t.cursed) continue;
+          if (t.id === SEED_TILE) continue;
+          if (t.landingFor) continue;
+          if (R.bld3d.has(t.id)) continue;
+          R.tile3d.set(t.id, keys[Math.floor(Math.random() * keys.length)]);
+          t.cursed = false;
+          t.curseHp = 0;
+          laid++;
+        }
+        tell(R, `🎲 ${player.name} dreams a land whole — ${laid} hexes rise from the tile pool, and the curse is held back where they stand.`);
+        saveCampaign(R);
+        sendState(R);
+        return;
+      }
+      const hex = String(msg.hex ?? "");
+      const t = R.map.get(hex);
+      if (!t) { ws.send(JSON.stringify({ type: "error", message: "That is no hex of this land." })); return; }
+      if (msg.ground !== undefined) {
+        if (msg.ground === null || msg.ground === "curse") {
+          // Given back: the default tile of every map.
+          R.tile3d.delete(hex);
+          t.cursed = true;
+          t.element = null;
+          t.points = {};
+          t.attuneAcc = {};
+          t.curseHp = curseHpForRing(ringOf(hex));
+          t.curseMaxHp = t.curseHp;
+          tell(R, `The curse holds hex ${hex} again — glass over a dark heart.`);
+        } else if (typeof msg.ground === "string" && msg.ground in TILE3D_POOL) {
+          R.tile3d.set(hex, msg.ground);
+          t.cursed = false;
+          t.curseHp = 0;
+          tell(R, `${TILE3D_POOL[msg.ground].name} is laid on hex ${hex} — the curse is held back there.`);
+        } else { ws.send(JSON.stringify({ type: "error", message: "That is no tile the pool holds." })); return; }
+      }
+      if (msg.building !== undefined) {
+        if (msg.building === null) {
+          if (R.bld3d.delete(hex)) tell(R, `The building on hex ${hex} is struck — the ground keeps what it holds.`);
+        } else if (typeof msg.building === "string" && msg.building in BLD3D_PIECES) {
+          R.bld3d.set(hex, msg.building);
+          tell(R, `${BLD3D_PIECES[msg.building].name} stands on hex ${hex}.`);
+        } else { ws.send(JSON.stringify({ type: "error", message: "That is no piece the building menu holds." })); return; }
+      }
+      saveCampaign(R);
+      sendState(R);
+      return;
+    }
+
     // ── THE STORYTENDER'S INSTRUMENTS (campaign rooms,
     // Phase B) — and the campaign's own way home. ──
-    if (["stAdd", "stRemove", "stClear", "stDeal", "stNarrate", "stScene", "stSky", "stRest", "stRevive", "stDissipate", "stAdjourn", "stEnd", "stLight"].includes(msg.type) && room.campaign) {
+    if (["stAdd", "stRemove", "stClear", "stDeal", "stNarrate", "stScene", "stSky", "stRest", "stRevive", "stDissipate", "stAdjourn", "stEnd", "stLight", "stRoll"].includes(msg.type) && room.campaign) {
       if (!room || !player) return;
       const R: Room = room;
       const c = R.campaign as CampaignState;
@@ -8643,6 +9021,21 @@ function handleConnection(ws: WebSocket): void {
             R.lightOverrides.set(hex, level);
             tell(R, `The Storytender sets the light at ${hex}: ${level === LIGHT_FIGHTING ? "fighting bright" : level === LIGHT_FAINT ? "a faint glow" : "dark"}.`);
           }
+          break;
+        }
+        case "stRoll": {
+          // THE DICE BOX (Build 2): the Storytender chooses
+          // a die and how many, and casts — the faces are
+          // rolled here, by the referee, and served back to
+          // her alone in her payload; the room hears the
+          // cast in the Tale's one line.
+          const sides = [4, 6, 8, 10, 12, 20, 100].includes(Number(msg.sides)) ? Number(msg.sides) : 20;
+          const count = Math.max(1, Math.min(12, Math.floor(Number(msg.count)) || 1));
+          const faces: number[] = [];
+          for (let i = 0; i < count; i++) faces.push(dN(sides));
+          const total = faces.reduce((s, f) => s + f, 0);
+          c.lastDice = { sides, count, faces, total, at: Date.now() };
+          tell(R, `🎲 ${player.name} casts ${count}d${sides} — ${faces.join(", ")} — ${total}.`);
           break;
         }
         default: return;
