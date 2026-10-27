@@ -34,6 +34,18 @@
 //   §F4 the dark land's DOM: zero glow ellipses, zero
 //       shadow shapes, zero .light-hex, the dusk path
 //       still standing.
+//   §G  THE AMENDMENT (Nigel, 2026-10-27): the beacon's
+//       heart and the glow's reach grew (asserted as
+//       ratios against the hex face width in §F2), and
+//       the walls block the light itself — a second land
+//       wears a wall run with a doorway at its middle:
+//       the server's throw is barred behind the solid
+//       wall and threads the archway; the face answers
+//       with blocking volumes for the five solid edges
+//       and for the door's two standing parts only — no
+//       volume spans the open middle — and the pixels
+//       behind the arch sample brighter and warmer than
+//       the pixels behind the wall.
 //
 // Run after `npm run build`:
 //   PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-lighting-face.mjs
@@ -183,26 +195,27 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1400, height: 950, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.log("[pageerror:lighting-face]", String(e).slice(0, 200)));
 await page.evaluateOnNewDocument((tok) => { window.localStorage.setItem("awoken-tender-token", tok); }, T.token);
-const evalRetry = async (fn, tries = 4) => {
+const makeEvalRetry = (pg) => async (fn, tries = 4) => {
   let lastErr = null;
   for (let i = 0; i < tries; i++) {
-    try { return await page.evaluate(fn); }
+    try { return await pg.evaluate(fn); }
     catch (e) { lastErr = e; if (!/detached Frame|Execution context was destroyed|Cannot find context/i.test(String(e))) throw e; await sleep(1000); }
   }
   throw lastErr;
 };
-async function enterHomeland() {
-  await page.goto(BASE + "/", { waitUntil: "domcontentloaded", timeout: 60000 });
+const evalRetry = makeEvalRetry(page);
+async function enterHomelandOn(pg, retry) {
+  await pg.goto(BASE + "/", { waitUntil: "domcontentloaded", timeout: 60000 });
   await sleep(2500);
-  const door = await page.$(".deck-button");
+  const door = await pg.$(".deck-button");
   if (door) await door.click();
-  await page.waitForSelector(".light-layer", { timeout: 30000 }).catch(() => {});
+  await pg.waitForSelector(".light-layer", { timeout: 30000 }).catch(() => {});
   await sleep(600);
   // Dismiss the ceremony and the lessons until they stop
   // coming — the First Seed's tale ("Tend on") rises a few
   // seconds after a grown seed is first seen, over the map.
   for (let i = 0; i < 12; i++) {
-    const acted = await evalRetry(() => {
+    const acted = await retry(() => {
       let hit = false;
       const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "Skip");
       if (b) { b.click(); hit = true; }
@@ -217,16 +230,33 @@ async function enterHomeland() {
   }
   await sleep(600);
   // Play zoom: two wheel-ins over the map's heart.
-  await page.mouse.move(700, 475);
-  await page.mouse.wheel({ deltaY: -900 });
+  await pg.mouse.move(700, 475);
+  await pg.mouse.wheel({ deltaY: -900 });
   await sleep(500);
-  await page.mouse.wheel({ deltaY: -900 });
+  await pg.mouse.wheel({ deltaY: -900 });
   await sleep(900);
 }
-const probeLayer = () => evalRetry(() => {
+const enterHomeland = () => enterHomelandOn(page, evalRetry);
+const probeLayerOn = (retry) => retry(() => {
   const layer = document.querySelector(".light-layer");
   if (!layer) return { layer: false };
   const rectOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; };
+  const duskD = layer.querySelector(".light-dusk")?.getAttribute("d") ?? "";
+  const subpaths = duskD.split("M").map((s) => s.trim()).filter(Boolean).map((s) => {
+    const pts = [];
+    const re = /(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g;
+    let m;
+    while ((m = re.exec(s)) !== null) pts.push([Number(m[1]), Number(m[2])]);
+    return pts;
+  }).filter((pts) => pts.length >= 6);
+  const centroids = subpaths.map((pts) => ({
+    x: pts.reduce((a, p) => a + p[0], 0) / pts.length,
+    y: pts.reduce((a, p) => a + p[1], 0) / pts.length,
+  }));
+  const faceW = subpaths.length ? Math.max(...subpaths[0].map((p) => p[0])) - Math.min(...subpaths[0].map((p) => p[0])) : 0;
+  const coreEls = [...layer.querySelectorAll('.light-glow[data-glow="core"]')];
+  const doorG = document.querySelector('.build-wall-piece[data-kind="door"]');
+  const doorLineEl = doorG ? doorG.querySelector("line") : null;
   return {
     layer: true,
     hexes: layer.querySelectorAll(".light-hex").length,
@@ -235,14 +265,25 @@ const probeLayer = () => evalRetry(() => {
     glowFighting: layer.querySelectorAll('.light-glow[data-glow="fighting"]').length,
     glowCore: layer.querySelectorAll('.light-glow[data-glow="core"]').length,
     glowFaint: layer.querySelectorAll('.light-glow[data-glow="faint"]').length,
+    glowRx: [...layer.querySelectorAll('.light-glow[data-glow="fighting"]')].map((e) => Number(e.getAttribute("rx"))),
+    coreRx: coreEls.map((e) => Number(e.getAttribute("rx"))),
+    coreLand: coreEls.map((e) => ({ x: Number(e.getAttribute("cx")), y: Number(e.getAttribute("cy")) })),
     shadows: layer.querySelectorAll(".light-shadow").length,
     shadowEllipses: layer.querySelectorAll("ellipse.light-shadow").length,
     shadowPolys: layer.querySelectorAll("polygon.light-shadow").length,
+    blocks: [...layer.querySelectorAll(".light-block")].map((e) => ({
+      block: e.getAttribute("data-block"), src: e.getAttribute("data-src"),
+      seg: (e.getAttribute("data-seg") ?? "").split(",").map(Number),
+    })),
+    doorLine: doorLineEl ? { x1: Number(doorLineEl.getAttribute("x1")), y1: Number(doorLineEl.getAttribute("y1")), x2: Number(doorLineEl.getAttribute("x2")), y2: Number(doorLineEl.getAttribute("y2")) } : null,
+    centroids,
+    faceW,
     nodes: layer.querySelectorAll("*").length,
-    cores: [...layer.querySelectorAll('.light-glow[data-glow="core"]')].map(rectOf),
+    cores: coreEls.map(rectOf),
     shadowRects: [...layer.querySelectorAll(".light-shadow")].map(rectOf),
   };
 });
+const probeLayer = () => probeLayerOn(evalRetry);
 
 await enterHomeland();
 const lit = await probeLayer();
@@ -253,6 +294,12 @@ ok("§F2 no per-tile light shapes remain ([data-light] nodes)", lit.dataLight ==
 ok("§F2 the dusk is ONE continuous wash (a single .light-dusk path)", lit.dusk === 1, `n=${lit.dusk}`);
 ok("§F2 both FIGHTING sources draw their glow (seed + Bastion building = 2 wide glows)", lit.glowFighting === 2, `n=${lit.glowFighting}`);
 ok("§F2 both FIGHTING sources draw their bright core", lit.glowCore === 2, `n=${lit.glowCore}`);
+const glowRatio = lit.faceW && lit.glowRx?.[0] ? lit.glowRx[0] / lit.faceW : 0;
+const coreRatio = lit.faceW && lit.coreRx?.[0] ? lit.coreRx[0] / lit.faceW : 0;
+ok("§F2 AMENDED MEASURE (Nigel, 2026-10-27): the FIGHTING glow's rim stands ~3 hex widths out — rx is 1.32–1.48 × the hex face width (the first face reached ~2 widths, 0.99×)",
+  glowRatio >= 1.32 && glowRatio <= 1.48, `ratio=${glowRatio.toFixed(3)} rx=${lit.glowRx?.[0]} faceW=${lit.faceW?.toFixed(1)}`);
+ok("§F2 AMENDED MEASURE: the beacon's heart — the bright core — spans ~1.45 hex measures, rx 0.60–0.73 × the face width (it was ~0.95 measures, 0.44×)",
+  coreRatio >= 0.60 && coreRatio <= 0.73, `ratio=${coreRatio.toFixed(3)} rx=${lit.coreRx?.[0]}`);
 ok("§F2 the Dream Shroom draws its small faint glow", (lit.glowFaint ?? 0) >= 1, `n=${lit.glowFaint}`);
 ok("§F2 shadows stand for what the light meets (tower, walls, figures — at least 3 shapes)", (lit.shadows ?? 0) >= 3, `n=${lit.shadows} (ellipses=${lit.shadowEllipses}, sweeps=${lit.shadowPolys})`);
 console.log(`  layer node count (lit land): ${lit.nodes}`);
@@ -286,6 +333,178 @@ if (lit.cores?.length && lit.shadowRects?.length) {
   } else console.log("  FAIL - §F3 no wall shadow rect west of the seed's core to crop");
   ok("§F3 the shadow crops were taken (tower east, walls west of the beacon's core)", !!towerShadow && !!wallShadow);
 }
+
+/* ══ §G THE WALL-AND-ARCHWAY LAND (Nigel's example) ═══
+   A second land arranged for the picture he asked to
+   see: a beacon-stage seed; down its east side, a wall
+   run of five solid edges with a DOOR PIECE at the run's
+   middle (on the beacon's lower-east edge); a watchtower
+   and a standing Awoken on the lit side. The server's
+   reckoning must agree with the face: the hex behind the
+   solid wall reads DARK (its throw is barred), the hex
+   behind the archway reads FIGHTING (the throw threads
+   the gap at the edge's midpoint — the standing parts
+   flank [0, 0.3] and [0.7, 1] of the edge). */
+console.log("§G the wall-and-archway land — a run across the glow, a doorway at its middle");
+const claim2 = await callOk("claimTender", { password: PW, tenderName: "Arch Tender" });
+const tenderId2 = db.prepare("SELECT id FROM tenders WHERE code = ?").get(claim2.tender.code).id;
+const ownerKey2 = `tender:${tenderId2}`;
+db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, class_key, weapon_key, hp, updated_at) VALUES (?, 3800, 3, 'warden', NULL, 100, ?) ON CONFLICT(owner_key) DO UPDATE SET class_key = 'warden', weapon_key = NULL, total_exp = 3800, hp = 100")
+  .run(ownerKey2, now);
+db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 900, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 900").run(ownerKey2, now);
+await callOk("ensureFirstSeed", {}, claim2.token);
+const T2 = { token: claim2.token, ownerKey: ownerKey2 };
+const freeze2 = () => db.prepare("UPDATE tender_progress SET battle_watermark = ? WHERE owner_key = ?").run(Date.now(), ownerKey2);
+const tilesOf2 = async () => (await callOk("getTerritory", {}, T2.token)).tiles;
+db.prepare("UPDATE star_seeds SET level = 3 WHERE owner_key = ?").run(ownerKey2);
+freeze2();
+let tiles2 = await tilesOf2();
+const seedTile2 = tiles2.find((t) => t.id === db.prepare("SELECT tile_id AS id FROM star_seeds WHERE owner_key = ?").get(ownerKey2).id);
+ok("§G the beacon seed stands on the second land", !!seedTile2);
+const S2 = { q: seedTile2.q, r: seedTile2.r };
+// The run's own hexes are purified (the walls stand on
+// clean ground); the land beyond the run stays cursed.
+for (const [dq, dr] of [[0, -1], [0, 0], [0, 1], [-1, 0]]) {
+  const t = tileAt(tiles2, S2.q + dq, S2.r + dr);
+  if (t) purify(t);
+}
+// Five solid edges down the beacon's east side, under
+// their canonical keys (the server's bar reads the key;
+// the client draws the stored row's own edge).
+const WD6 = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
+const WOPP6 = [3, 4, 5, 0, 1, 2];
+const insWall2 = (q, r, dir) => {
+  const nq = q + WD6[dir][0], nr = r + WD6[dir][1];
+  const flip = nq < q || (nq === q && nr < r);
+  const row = flip ? { q: nq, r: nr, dir: WOPP6[dir] } : { q, r, dir };
+  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, style, created_at) VALUES (?, ?, ?, ?, ?, 10, 10, 'wall', 1, NULL, 'stone', ?)")
+    .run(ownerKey2, `${row.q},${row.r},${row.dir}`, row.q, row.r, row.dir, now);
+};
+insWall2(S2.q, S2.r - 1, 1); insWall2(S2.q, S2.r - 1, 2);
+insWall2(S2.q, S2.r, 1);
+insWall2(S2.q, S2.r + 1, 1); insWall2(S2.q, S2.r + 1, 2);
+// THE ARCHWAY at the run's middle: a door piece on the
+// beacon's lower-east edge — vertex R (2/3, −1/3) to
+// vertex BR (1/3, 1/3), in axial fractions.
+const SQ3 = Math.sqrt(3);
+const axialToPlate2 = ([q, r]) => [3 * q / 2, -SQ3 * r - (SQ3 / 2) * q];
+const doorA = [S2.q + 2 / 3, S2.r - 1 / 3], doorB = [S2.q + 1 / 3, S2.r + 1 / 3];
+const doorId = Number(db.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, 'door', 'door#seeded-arch', ?, ?, ?)")
+  .run(ownerKey2, JSON.stringify([axialToPlate2(doorA), axialToPlate2(doorB)]), JSON.stringify([doorA, doorB]), now).lastInsertRowid);
+ok("§G the archway piece stands in the run (a build_pieces door row)", doorId > 0, `id=${doorId}`);
+// A watchtower on the lit side, south of the beacon and
+// west of the run; a standing Awoken to the west.
+const towerTile2 = tileAt(tiles2, S2.q, S2.r + 1);
+db.prepare("INSERT INTO territory_buildings (owner_key, tile_id, building_type, placed_at) VALUES (?, ?, 'watchtower', ?)").run(ownerKey2, towerTile2.id, now);
+const figTile2 = tileAt(tiles2, S2.q - 1, S2.r);
+const partEl2 = (nm, cat) => Number(db.prepare(
+  "INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', 2, 2, 'sky', ?, 'image/png', ?)")
+  .run(nm, cat, `lighting-face/${nm}.png`, now).lastInsertRowid);
+const comp2 = JSON.stringify([["body", "sky"], ["arms", "sky"], ["head", "sky"]].map(([cat, el]) => ({
+  source_id: `db:${partEl2(`Archkin ${cat}`, cat)}`, name: `Archkin ${cat}`, category: cat, rarity: "common", power: 2, toughness: 2, element: el,
+})));
+const kinId2 = Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES ('Archkin', 'Archkin', 'lighting-face/kin2.png', ?, 'tender', 'Arch Tender', ?, ?)")
+  .run(comp2, ownerKey2, now).lastInsertRowid);
+db.prepare("INSERT INTO field_placements (owner_key, awakened_id, tile_id, stance, placed_at, last_moved_at) VALUES (?, ?, ?, 'defense', ?, ?)")
+  .run(ownerKey2, kinId2, figTile2.id, now, now);
+db.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(figTile2.id, ownerKey2);
+freeze2();
+tiles2 = await tilesOf2();
+const behindWallT = tileAt(tiles2, S2.q + 1, S2.r - 1);
+const behindArchT = tileAt(tiles2, S2.q + 1, S2.r);
+ok("§G the server's reckoning AGREES: the hex behind the solid wall reads DARK (0) — the throw is barred at the wall",
+  behindWallT?.light === 0, `light=${behindWallT?.light}`);
+ok("§G the server's reckoning AGREES: the hex behind the ARCHWAY reads FIGHTING (2) — the throw threads the open middle",
+  behindArchT?.light === 2, `light=${behindArchT?.light}`);
+
+const page2 = await browser.newPage();
+await page2.setViewport({ width: 1400, height: 950, deviceScaleFactor: 1 });
+page2.on("pageerror", (e) => console.log("[pageerror:lighting-face-G]", String(e).slice(0, 200)));
+await page2.evaluateOnNewDocument((tok) => { window.localStorage.setItem("awoken-tender-token", tok); }, T2.token);
+const retry2 = makeEvalRetry(page2);
+await enterHomelandOn(page2, retry2);
+const g = await probeLayerOn(retry2);
+console.log("  G probe:", JSON.stringify({ blocks: g.blocks?.length, doorLine: g.doorLine, nodes: g.nodes, centroids: g.centroids?.length }));
+ok("§G the light layer stands on the wall-and-archway land", g.layer === true);
+const edgeBlocks = (g.blocks ?? []).filter((b) => (b.block ?? "").startsWith("edgewall-"));
+const doorBlocks = (g.blocks ?? []).filter((b) => (b.block ?? "").startsWith(`piece-${doorId}:`));
+ok("§G blocking volumes stand for the run's five solid edges", edgeBlocks.length >= 5, `n=${edgeBlocks.length} of ${g.blocks?.length} volumes`);
+ok("§G the archway blocks by its TWO standing parts only — one volume per part", doorBlocks.length === 2, `n=${doorBlocks.length}`);
+// Geometry, read off the emitted shapes themselves: the
+// door volumes' segments must be the standing parts
+// [0, 0.3] and [0.7, 1] of the door's own edge (its drawn
+// ground line), and neither may cover the open middle.
+let doorGeomOk = false;
+if (g.doorLine && doorBlocks.length === 2) {
+  const A = [g.doorLine.x1, g.doorLine.y1], B = [g.doorLine.x2, g.doorLine.y2];
+  const lerp = (t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+  const near = (p, q2, tol = 3) => Math.hypot(p[0] - q2[0], p[1] - q2[1]) <= tol;
+  const parts = [[A, lerp(0.3)], [lerp(0.7), B]];
+  const matched = parts.map(([pa, pb]) => doorBlocks.some((bl) => {
+    const s = bl.seg;
+    return (near([s[0], s[1]], pa) && near([s[2], s[3]], pb)) || (near([s[0], s[1]], pb) && near([s[2], s[3]], pa));
+  }));
+  const M = lerp(0.5);
+  const coversMid = doorBlocks.some((bl) => {
+    const [ax, ay, bx, by] = bl.seg;
+    const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy || 1;
+    const t = ((M[0] - ax) * vx + (M[1] - ay) * vy) / L2;
+    const px = ax + vx * t, py = ay + vy * t;
+    return t > 0.02 && t < 0.98 && Math.hypot(M[0] - px, M[1] - py) < 3;
+  });
+  doorGeomOk = matched.every(Boolean) && !coversMid;
+}
+ok("§G NO blocking volume spans the archway's open middle — the volumes' segments are exactly the door's standing parts", doorGeomOk);
+const shotBuf = await page2.screenshot({ path: join(SHOTS, "d-wall-archway.png") });
+// Pixel sampling: the ground behind a wall segment
+// against the ground behind the arch, from the shot
+// itself (the screenshot drawn into a canvas in-page).
+let sampleOk = false, sampleNote = "";
+try {
+  const coreRect = g.cores?.[0], coreLand = g.coreLand?.[0];
+  if (coreRect && coreLand && g.faceW && g.centroids?.length && g.coreRx?.[0]) {
+    const scale = coreRect.w / (2 * g.coreRx[0]);
+    const toScreen = (p) => [coreRect.cx + (p.x - coreLand.x) * scale, coreRect.cy + (p.y - coreLand.y) * scale];
+    const nearestC = (p) => g.centroids.reduce((best, c) => (Math.hypot(c.x - p.x, c.y - p.y) < Math.hypot(best.x - p.x, best.y - p.y) ? c : best), g.centroids[0]);
+    const seedC = nearestC(coreLand);
+    const fw = g.faceW;
+    const wallC = nearestC({ x: seedC.x + 0.7464 * fw, y: seedC.y - 0.2762 * fw });
+    const archC = nearestC({ x: seedC.x + 0.7464 * fw, y: seedC.y + 0.2716 * fw });
+    const pts = [toScreen(wallC), toScreen(archC)];
+    const samples = await page2.evaluate(async (data, sp) => {
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = "data:image/png;base64," + data; });
+      const cv = document.createElement("canvas");
+      cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      return sp.map(([x, y]) => {
+        const d = ctx.getImageData(Math.max(0, Math.round(x) - 3), Math.max(0, Math.round(y) - 3), 7, 7).data;
+        let r = 0, gg = 0, b = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+        return { r: r / n, g: gg / n, b: b / n };
+      });
+    }, shotBuf.toString("base64"), pts);
+    const lum = (s) => 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b;
+    const warm = (s) => s.r - s.b;
+    sampleNote = `wall rgb=${samples[0].r.toFixed(0)},${samples[0].g.toFixed(0)},${samples[0].b.toFixed(0)} lum=${lum(samples[0]).toFixed(1)} warm=${warm(samples[0]).toFixed(1)} · arch rgb=${samples[1].r.toFixed(0)},${samples[1].g.toFixed(0)},${samples[1].b.toFixed(0)} lum=${lum(samples[1]).toFixed(1)} warm=${warm(samples[1]).toFixed(1)}`;
+    console.log("  samples:", sampleNote);
+    sampleOk = lum(samples[1]) > lum(samples[0]) + 8 && warm(samples[1]) > warm(samples[0]) + 4;
+  } else sampleNote = "probe geometry missing (core/centroids)";
+} catch (e) { sampleNote = "sampling failed: " + String(e).slice(0, 140); }
+ok("§G PIXELS: the ground behind the arch is brighter and warmer than the ground behind the solid wall", sampleOk, sampleNote);
+if (g.cores?.[0] && g.doorLine) {
+  const core = g.cores[0];
+  const xs = [core.x, core.x + core.w, g.doorLine.x1, g.doorLine.x2];
+  const ys = [core.y, core.y + core.h, g.doorLine.y1, g.doorLine.y2];
+  const x = Math.max(0, Math.min(...xs) - 90), y = Math.max(0, Math.min(...ys) - 110);
+  const w = Math.min(1400 - x, Math.max(...xs) + 300 - x), h = Math.min(950 - y, Math.max(...ys) + 150 - y);
+  await page2.screenshot({ path: join(SHOTS, "d2-wall-archway-crop.png"), clip: { x, y, width: w, height: h } });
+  console.log(`  crop d2 (archway): ${JSON.stringify({ x, y, w, h })}`);
+  ok("§G the archway crop was taken", w > 200 && h > 200);
+}
+console.log(`  layer node count (wall-and-archway land): ${g.nodes}`);
+await page2.close();
 
 /* ══ §F4 THE SAME LAND, SOURCES STRUCK ════════════════ */
 console.log("§F4 the same land with the light sources struck — no glow, no shadows, no pale hexes");

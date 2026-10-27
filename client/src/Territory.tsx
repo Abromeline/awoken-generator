@@ -5012,6 +5012,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // reckoning (t.light — 0 dark · 1 faint · 2 fighting;
     // the burn, the spawn and walk bars) stays the truth,
     // and the client computes no light levels of its own.
+    // THE AMENDMENT (Nigel, 2026-10-27, on seeing the
+    // first face): the beacon's heart grows, the glow
+    // reaches wider and burns stronger — and the WALLS
+    // BLOCK THE LIGHT ITSELF, the dynamic behaviour of
+    // the 3D example: a wall run between a source and the
+    // ground beyond throws the ground into shade, because
+    // the glow is clipped by the wall's own shadow volume;
+    // a doorway in the run blocks only its standing parts
+    // (collisionSegments — the middle is no segment at
+    // all), so the light threads the open arch and spreads
+    // on the far side, as a step does and as the server's
+    // own throw reckons (computeTileLight bars a throw at
+    // the same segments).
     // What the client derives here is only WHERE the
     // standing sources stand — read from the same served
     // record the server reckons from (grown seeds, the
@@ -5071,6 +5084,41 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         if (w.q != null && w.r != null) addFaintAt(w.q, w.r, `work-${w.id}`);
         else if (w.tileId != null) { const t = tileById.get(w.tileId); if (t) addFaintAt(t.q, t.r, `work-${w.id}`); }
       }
+      // THE GLOW'S MEASURE (Nigel's amendment, 2026-10-27:
+      // bigger, wider, stronger): the FIGHTING glow's rim
+      // stands ~3 hex widths from its heart (it was ~2),
+      // the heart itself — the bright core — spans ~1.45
+      // (it was ~0.95), and the dusk's answering hole
+      // feathers out to ~2.9, so the two rims meet.
+      const GLOW_RX = size * 3.05, GLOW_RY = GLOW_RX * 0.55;
+      const CORE_RX = size * 1.45, CORE_RY = CORE_RX * 0.58;
+      const FAINT_RX = size * 0.95, FAINT_RY = FAINT_RX * 0.55;
+      const HOLE_RX = size * 2.9, HOLE_RY = HOLE_RX * 0.55;
+      // THE BLOCKING SEGMENTS — the standing geometry the
+      // light may not cross, read from the same records
+      // the server's throw reads: the edge works' walls
+      // and wards stand on their whole edge; the
+      // construction's walls and doors stand by
+      // collisionSegments — a door's two standing parts,
+      // its open middle no segment at all.
+      type BlockSeg = { ax: number; ay: number; bx: number; by: number; key: string };
+      const blockSegs: BlockSeg[] = [];
+      for (const w of walls) {
+        if (w.kind !== "wall" && w.kind !== "ward") continue;
+        const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
+        const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
+        const verts = hexCellVertices(c.cx, c.cy, size);
+        const a = verts[w.dir], b = verts[(w.dir + 1) % 6];
+        blockSegs.push({ ax: a[0], ay: a[1], bx: b[0], by: b[1], key: `edgewall-${w.edgeKey}` });
+      }
+      for (const p of buildPieces) {
+        if (p.kind !== "wall" && p.kind !== "door") continue;
+        const fp = (pt: [number, number]) => { const { px, py } = isoOffset(pt[0], pt[1], size); return { x: originX + px, y: originY + py }; };
+        collisionSegments(p.kind, p.footprint).forEach(([a, b], i) => {
+          const A = fp(a), B = fp(b);
+          blockSegs.push({ ax: A.x, ay: A.y, bx: B.x, by: B.y, key: `piece-${p.id}:${i}` });
+        });
+      }
       // THE DUSK: one continuous wash over the whole land —
       // every tile's face as a subpath of a SINGLE path, so
       // no hex edge can ever show inside it — with the
@@ -5095,14 +5143,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // SHADOWS: what stands in the light throws its shade
       // on the ground behind it, away from the nearest
       // strong source — towers at their drawn seats (the
-      // pillar derivation), wall runs along their segments
-      // (edge works and the construction's walls), and the
-      // standing figures (the field, the dark, the Tender).
+      // pillar derivation) and the standing figures (the
+      // field, the dark, the Tender). WALL RUNS are not
+      // casters here any more: their shade is the blocking
+      // volume below, thrown from the light itself.
       // h is the caster's height in hex measures; the shade
       // lengthens with the light's closeness.
       type OccPoint = { kind: "point"; x: number; y: number; h: number; w: number; key: string };
-      type OccSeg = { kind: "seg"; ax: number; ay: number; bx: number; by: number; h: number; key: string };
-      const occ: (OccPoint | OccSeg)[] = [];
+      const occ: OccPoint[] = [];
       {
         const seatsByTile = new Map<number, typeof buildings>();
         for (const b of buildings) {
@@ -5124,24 +5172,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           });
         }
       }
-      for (const w of walls) {
-        if (w.kind !== "wall" && w.kind !== "ward") continue;
-        const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
-        const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
-        const verts = hexCellVertices(c.cx, c.cy, size);
-        const a = verts[w.dir], b = verts[(w.dir + 1) % 6];
-        occ.push({ kind: "seg", ax: a[0], ay: a[1], bx: b[0], by: b[1], h: 0.85, key: `edgewall-${w.edgeKey}` });
-      }
-      for (const p of buildPieces) {
-        if (p.kind !== "wall" && p.kind !== "door") continue;
-        // The footprint's ends in land points (landPt's own
-        // reckoning, inlined — landPt is declared further
-        // down renderGrid, past this layer).
-        const fp = (pt: [number, number]) => { const { px, py } = isoOffset(pt[0], pt[1], size); return { x: originX + px, y: originY + py }; };
-        const A = fp(p.footprint[0]);
-        const B = fp(p.footprint[1]);
-        occ.push({ kind: "seg", ax: A.x, ay: A.y, bx: B.x, by: B.y, h: 0.85, key: `piece-${p.id}` });
-      }
       for (const row of figureRows) {
         occ.push({ kind: "point", x: row.fx, y: row.fy, h: 0.7, w: size * 0.20, key: `fig-${row.placement.id}` });
       }
@@ -5157,64 +5187,123 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         occ.push({ kind: "point", x: landX(tenderFig.x), y: landY(tenderFig.y), h: 0.7, w: size * 0.22, key: "tender" });
       }
       const shadowNodes: ReactNode[] = [];
-      const sweepDefs: ReactNode[] = [];
       if (strong.length) {
         for (const o of occ) {
-          const mx = o.kind === "point" ? o.x : (o.ax + o.bx) / 2;
-          const my = o.kind === "point" ? o.y : (o.ay + o.by) / 2;
           let best: GlowSource | null = null, bestD = Infinity;
           for (const s of strong) {
-            const d = Math.hypot(mx - s.x, my - s.y);
+            const d = Math.hypot(o.x - s.x, o.y - s.y);
             if (d < bestD) { bestD = d; best = s; }
           }
           if (!best || bestD > size * 3 || bestD < size * 0.2) continue;
-          const dx = (mx - best.x) / bestD, dy = (my - best.y) / bestD;
+          const dx = (o.x - best.x) / bestD, dy = (o.y - best.y) / bestD;
           const prox = Math.max(0, 1 - bestD / (size * 3));
           const len = o.h * size * (0.5 + 0.8 * prox);
-          if (o.kind === "point") {
-            const cxp = o.x + dx * len * 0.55, cyp = o.y + dy * len * 0.55;
-            const deg = Math.atan2(dy, dx) * 180 / Math.PI;
-            shadowNodes.push(
-              <ellipse key={`shadow-${o.key}`} className="light-shadow" cx={cxp} cy={cyp}
-                rx={len * 0.72 + o.w * 0.5} ry={Math.max(o.w * 0.62, len * 0.20)}
-                transform={`rotate(${deg.toFixed(1)} ${cxp.toFixed(1)} ${cyp.toFixed(1)})`}
-                fill="url(#land-shadow-soft)" />,
-            );
-          } else {
-            const gid = `land-sweep-${o.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-            sweepDefs.push(
+          const cxp = o.x + dx * len * 0.55, cyp = o.y + dy * len * 0.55;
+          const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+          shadowNodes.push(
+            <ellipse key={`shadow-${o.key}`} className="light-shadow" cx={cxp} cy={cyp}
+              rx={len * 0.72 + o.w * 0.5} ry={Math.max(o.w * 0.62, len * 0.20)}
+              transform={`rotate(${deg.toFixed(1)} ${cxp.toFixed(1)} ${cyp.toFixed(1)})`}
+              fill="url(#land-shadow-soft)" />,
+          );
+          if (shadowNodes.length >= 80) break;
+        }
+      }
+      // THE WALLS BLOCK THE LIGHT (Nigel's amendment): for
+      // every strong source, each blocking segment throws a
+      // SHADOW VOLUME — the segment's two ends carried along
+      // their own rays from the source out to the glow's
+      // rim. The volume works twice: it is cut out of the
+      // source's glow (an even-odd clip: the whole plane
+      // minus the volumes — the glow does not cross the
+      // wall), and it is laid back over the ground as soft
+      // shade, so the ground the glow may not reach reads
+      // dark, feathering out at the rim. A doorway's gap
+      // has no segment, so it cuts no volume: the glow
+      // threads it in a widening tongue, exactly the
+      // passage the server's throw allows. The dusk's own
+      // radial lift is not wall-aware — the shade volume
+      // carries the darkness behind the wall (an honest
+      // approximation where two sources' lights overlap:
+      // one source's shade can dim another's glow).
+      const blockNodes: ReactNode[] = [];
+      const blockDefs: ReactNode[] = [];
+      const clipDefs: ReactNode[] = [];
+      const clipIdFor = new Map<string, string>();
+      if (strong.length && blockSegs.length) {
+        // The glow ellipse's boundary distance along a ray.
+        const rimAt = (ux: number, uy: number) =>
+          1 / Math.sqrt((ux / GLOW_RX) ** 2 + (uy / GLOW_RY) ** 2);
+        const clipX = minX - size * 4, clipY = minY - size * 4;
+        const clipW = (maxX - minX) + size * 8, clipH = (maxY - minY) + size * 8;
+        const plane = `M${clipX.toFixed(1)} ${clipY.toFixed(1)} H${(clipX + clipW).toFixed(1)} V${(clipY + clipH).toFixed(1)} H${clipX.toFixed(1)} Z`;
+        for (const s of strong) {
+          const sid = s.key.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const vols: string[] = [];
+          for (const g of blockSegs) {
+            if (blockNodes.length + shadowNodes.length >= 128) break;
+            const ext = (x: number, y: number) => {
+              const vx = x - s.x, vy = y - s.y;
+              const L = Math.hypot(vx, vy) || 1;
+              const reach = rimAt(vx / L, vy / L) * 1.12;
+              const d = Math.max(L, reach);
+              return [s.x + (vx / L) * d, s.y + (vy / L) * d] as const;
+            };
+            const tOf = (x: number, y: number) =>
+              Math.sqrt(((x - s.x) / GLOW_RX) ** 2 + ((y - s.y) / GLOW_RY) ** 2);
+            const tA = tOf(g.ax, g.ay), tB = tOf(g.bx, g.by);
+            if (Math.min(tA, tB) > 1.12 || Math.max(tA, tB) < 0.1) continue;
+            const [ax2, ay2] = ext(g.ax, g.ay);
+            const [bx2, by2] = ext(g.bx, g.by);
+            const dPath = `M${g.ax.toFixed(1)} ${g.ay.toFixed(1)} L${g.bx.toFixed(1)} ${g.by.toFixed(1)} L${bx2.toFixed(1)} ${by2.toFixed(1)} L${ax2.toFixed(1)} ${ay2.toFixed(1)} Z`;
+            vols.push(dPath);
+            const gid = `land-block-${sid}-${g.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+            const mx = (g.ax + g.bx) / 2, my = (g.ay + g.by) / 2;
+            const fx = (ax2 + bx2) / 2, fy = (ay2 + by2) / 2;
+            blockDefs.push(
               <linearGradient key={gid} id={gid} gradientUnits="userSpaceOnUse"
-                x1={mx} y1={my} x2={mx + dx * len} y2={my + dy * len}>
-                <stop offset="0%" stopColor="#04060e" stopOpacity={0.36} />
+                x1={mx} y1={my} x2={fx} y2={fy}>
+                <stop offset="0%" stopColor="#04060e" stopOpacity={0.52} />
+                <stop offset="55%" stopColor="#04060e" stopOpacity={0.27} />
                 <stop offset="100%" stopColor="#04060e" stopOpacity={0} />
               </linearGradient>,
             );
-            shadowNodes.push(
-              <polygon key={`shadow-${o.key}`} className="light-shadow"
-                points={`${o.ax},${o.ay} ${o.bx},${o.by} ${o.bx + dx * len},${o.by + dy * len} ${o.ax + dx * len},${o.ay + dy * len}`}
+            blockNodes.push(
+              <polygon key={`block-${sid}-${g.key}`} className="light-block"
+                data-block={g.key} data-src={s.key}
+                data-seg={`${g.ax.toFixed(1)},${g.ay.toFixed(1)},${g.bx.toFixed(1)},${g.by.toFixed(1)}`}
+                points={`${g.ax.toFixed(1)},${g.ay.toFixed(1)} ${g.bx.toFixed(1)},${g.by.toFixed(1)} ${bx2.toFixed(1)},${by2.toFixed(1)} ${ax2.toFixed(1)},${ay2.toFixed(1)}`}
                 fill={`url(#${gid})`} />,
             );
           }
-          if (shadowNodes.length >= 80) break;
+          if (vols.length) {
+            const cid = `land-clip-${sid}`;
+            clipIdFor.set(s.key, cid);
+            clipDefs.push(
+              <clipPath key={cid} id={cid}>
+                <path d={`${plane} ${vols.join(" ")}`} clipRule="evenodd" />
+              </clipPath>,
+            );
+          }
         }
       }
       return (
         <g key="land-light" className="light-layer" pointerEvents="none">
           <defs>
             <radialGradient id="land-glow-strong">
-              <stop offset="0%" stopColor="#ffe9b2" stopOpacity={0.50} />
-              <stop offset="42%" stopColor="#ffd88f" stopOpacity={0.30} />
-              <stop offset="72%" stopColor="#ffc670" stopOpacity={0.13} />
+              <stop offset="0%" stopColor="#ffe9b2" stopOpacity={0.62} />
+              <stop offset="40%" stopColor="#ffd88f" stopOpacity={0.42} />
+              <stop offset="70%" stopColor="#ffc670" stopOpacity={0.20} />
               <stop offset="100%" stopColor="#ffbe64" stopOpacity={0} />
             </radialGradient>
             <radialGradient id="land-glow-core">
-              <stop offset="0%" stopColor="#fff4cd" stopOpacity={0.48} />
-              <stop offset="60%" stopColor="#ffecb4" stopOpacity={0.22} />
+              <stop offset="0%" stopColor="#fff4cd" stopOpacity={0.60} />
+              <stop offset="60%" stopColor="#ffecb4" stopOpacity={0.32} />
               <stop offset="100%" stopColor="#ffecb4" stopOpacity={0} />
             </radialGradient>
             <radialGradient id="land-glow-faint">
-              <stop offset="0%" stopColor="#fff0c8" stopOpacity={0.17} />
-              <stop offset="55%" stopColor="#ffeec3" stopOpacity={0.08} />
+              <stop offset="0%" stopColor="#fff0c8" stopOpacity={0.19} />
+              <stop offset="55%" stopColor="#ffeec3" stopOpacity={0.09} />
               <stop offset="100%" stopColor="#ffeec3" stopOpacity={0} />
             </radialGradient>
             <radialGradient id="land-shadow-soft">
@@ -5236,24 +5325,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <mask id="land-dusk-mask" maskUnits="userSpaceOnUse" x={maskX} y={maskY} width={maskW} height={maskH}>
               <rect x={maskX} y={maskY} width={maskW} height={maskH} fill="#ffffff" />
               {strong.map(s => (
-                <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={size * 2.0} ry={size * 2.0 * 0.55} fill="url(#land-dusk-hole-strong)" />
+                <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={HOLE_RX} ry={HOLE_RY} fill="url(#land-dusk-hole-strong)" />
               ))}
               {faint.map(s => (
-                <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={size * 0.95} ry={size * 0.95 * 0.55} fill="url(#land-dusk-hole-faint)" />
+                <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={FAINT_RX} ry={FAINT_RY} fill="url(#land-dusk-hole-faint)" />
               ))}
             </mask>
-            {sweepDefs}
+            {blockDefs}
+            {clipDefs}
           </defs>
           <path className="light-dusk" d={duskPath} fill="rgba(7,9,22,0.44)" mask="url(#land-dusk-mask)" />
           {strong.map(s => (
-            <g key={`glow-${s.key}`}>
-              <ellipse className="light-glow" data-glow="fighting" cx={s.x} cy={s.y} rx={size * 2.15} ry={size * 2.15 * 0.55} fill="url(#land-glow-strong)" />
-              <ellipse className="light-glow" data-glow="core" cx={s.x} cy={s.y} rx={size * 0.95} ry={size * 0.95 * 0.58} fill="url(#land-glow-core)" />
+            <g key={`glow-${s.key}`} clipPath={clipIdFor.get(s.key) ? `url(#${clipIdFor.get(s.key)})` : undefined}>
+              <ellipse className="light-glow" data-glow="fighting" cx={s.x} cy={s.y} rx={GLOW_RX} ry={GLOW_RY} fill="url(#land-glow-strong)" />
+              <ellipse className="light-glow" data-glow="core" cx={s.x} cy={s.y} rx={CORE_RX} ry={CORE_RY} fill="url(#land-glow-core)" />
             </g>
           ))}
           {faint.map(s => (
-            <ellipse key={`glow-${s.key}`} className="light-glow" data-glow="faint" cx={s.x} cy={s.y} rx={size * 0.85} ry={size * 0.85 * 0.55} fill="url(#land-glow-faint)" />
+            <ellipse key={`glow-${s.key}`} className="light-glow" data-glow="faint" cx={s.x} cy={s.y} rx={FAINT_RX} ry={FAINT_RY} fill="url(#land-glow-faint)" />
           ))}
+          {blockNodes}
           {shadowNodes}
         </g>
       );
