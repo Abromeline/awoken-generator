@@ -231,7 +231,7 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
   const pl = seedPlacement(me, aw, mother, 10);
   const res = await castUntilStands(token, { spellKey: "springleaf", hue: "root", tileId: mother });
   ok("the Springleaf was planted by the cast", !!res?.id, JSON.stringify(res));
-  ok("her size is the tender-cast measure read into hexes (Lv 3 → radius 3)", res?.radiusHexes === 3, `radius=${res?.radiusHexes}`);
+  ok("her size is the tender-cast measure read into hexes, QUARTERED since Nigel's 2026-10-27 ruling (Lv 3 → 0.75, a Binder's hand doubles it → 1.5)", res?.radiusHexes === 1.5, `radius=${res?.radiusHexes}`);
   ok("she promises 1d4 saplings", (res?.saplings ?? 0) >= 1 && (res?.saplings ?? 9) <= 4, `saplings=${res?.saplings}`);
   ok("the raising burst healed by the wounded one's own die (root d6: 10 → 10+burst, burst 1–6)",
     (res?.burst ?? 0) >= 1 && (res?.burst ?? 9) <= 6 && placementHp(pl) === 10 + (res?.burst ?? 0),

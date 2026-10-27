@@ -7858,7 +7858,12 @@ function handleConnection(ws: WebSocket): void {
         // the second hex the client names, its anchor hexA
         // held ground by this handler's existing law. Its
         // radius is the tender ward size: (66 + 12 × level)
-        // × 2.75, read in Table pixels (× 69/80).
+        // × 2.75, read in Table pixels (× 69/80), QUARTERED
+        // by Nigel's 2026-10-27 ruling ("the range of spring
+        // leaf needs reduces to 25% all around", every
+        // ground) — the Table's radius was already continuous,
+        // so the quartering is arithmetic here, as the
+        // homeland's is fractional in bindingRadiusFor.
         // The grove stands where the player pointed when
         // the cast carries a point (2026-10-24); the hex
         // road stands at the named tile's heart, as ever.
@@ -7870,7 +7875,7 @@ function handleConnection(ws: WebSocket): void {
         // and the doubled radius is what stands on the
         // working the tick reads (its saplings' spread and
         // half-glow derive from it there, as for every hand).
-        const radiusPx = bindingHealRangeFor(caster.classKey, (66 + 12 * caster.tenderLevel) * 2.75 * (69 / 80));
+        const radiusPx = bindingHealRangeFor(caster.classKey, (66 + 12 * caster.tenderLevel) * 2.75 * (69 / 80)) * 0.25;
         const groveHue = hue === "unaligned" ? "root" : hue;
         // The BURST: every ally in the glow rolls its own
         // element die once, hp-then-shield — a Binder's

@@ -32,6 +32,7 @@ import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } fr
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { deckWindow, nextDeckPage } from "./deckWindow";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpFlipped, jumpRuned, jumpHoverTick, jumpHovering, jumpCurseExempt, ladderTable, JPHYS, type JumpEngine } from "./jump";
+import twinTreesImg from "./assets/glyphs/trees.png";
 import glyphEngine from "./assets/glyphs/engine.png";
 import glyphStandard from "./assets/glyphs/standard.png";
 import glyphBeacon from "./assets/glyphs/beacon.png";
@@ -3004,6 +3005,28 @@ export default function Table() {
     figures.push({ key: `d-${e.id}`, gy: ay, node: renderDarkFigure(e, ax, ay, e.moving) });
     lightCasters.push({ x: ax, y: ay, h: 0.6, w: TILE_SIZE * 0.20, key: `dark-${e.id}` });
   }
+  // THE GROVE'S TREES STAND (Nigel, 2026-10-27: "spring
+  // leaf is using the wrong sprite. i much prefer my
+  // twin tree sprigs with the srites"): the mother and
+  // every sapling wear his Twin Trees art STANDING among
+  // the figures — base at the grove's heart (w.pos),
+  // sorted by that ground line with the rest of the
+  // standing things. Her glow stays on the ground in
+  // the workings layer; nothing of the grove is drawn
+  // flat any more.
+  for (const w of shared.workings) {
+    if (w.kind !== "grove" || !w.pos || !w.radiusPx) continue;
+    const tw = TILE_SIZE * (w.mother ? 1.6 : 0.95);
+    const th = tw * (491 / 607);
+    figures.push({
+      key: `grove-tree-${w.id}`, gy: w.pos.y,
+      node: (
+        <g key={`grove-tree-${w.id}`} className="grove-trees" pointerEvents="none">
+          <image className="grove-tree" data-grove-tree={w.mother ? "mother" : "sapling"} href={twinTreesImg} x={w.pos.x - tw / 2} y={w.pos.y - th} width={tw} height={th} preserveAspectRatio="xMidYMax meet" />
+        </g>
+      ),
+    });
+  }
   // ── THE TENDERS THEMSELVES, standing on the stage ──────────
   // Every seated tender has a figure: their class sprite,
   // standing where the SERVER says they stand — the Tender
@@ -4198,18 +4221,23 @@ export default function Table() {
                 const img = defs[w.root]?.glyph ?? GLYPHS[w.root] ?? null;
                 const filter = `${HUE_FILTERS[w.hue] ?? "none"} drop-shadow(0 0 6px ${HUE_GLOWS[w.hue] ?? "#ffd98a"})`;
                 if (w.kind === "grove" && w.pos && w.radiusPx) {
-                  // THE SPRINGLEAF'S GROVE (Phase C): a soft
-                  // green root-glow circle on the ground (the
-                  // Root aspect's colour language), the drawn
-                  // Trees glyph at its heart, fading as its
-                  // lent time runs out.
+                  // THE SPRINGLEAF'S GROVE (Phase C): ONLY
+                  // her living glow lies on the ground here —
+                  // a soft green root-glow ELLIPSE (the Root
+                  // aspect's colour language) squashed to the
+                  // map's own angle, the light face's 0.55
+                  // family ("all range calculation displays
+                  // should match the map angle", Nigel
+                  // 2026-10-27 — no true circles), fading as
+                  // its lent time runs out. The Twin Trees
+                  // themselves STAND in the figures pass
+                  // below — never a flat glyph at the heart.
                   const left = w.expiresAt ? Math.max(0, w.expiresAt - nowMs) : 20000;
                   const fade = Math.min(1, left / 6000);
                   return (
                     <g key={w.id} pointerEvents="none" className="grove-glow">
-                      <circle cx={w.pos.x} cy={w.pos.y} r={w.radiusPx} fill="#7dd069" opacity={0.10 + 0.05 * fade} />
-                      <circle cx={w.pos.x} cy={w.pos.y} r={w.radiusPx} fill="none" stroke="#7dd069" strokeWidth={1.6} opacity={0.28 + 0.25 * fade} style={{ filter: "drop-shadow(0 0 7px #7dd069)" }} />
-                      <image href={ANIMATED_GLYPH.trees} x={w.pos.x - 17} y={w.pos.y - 17} width={34} height={34} opacity={0.55 + 0.4 * fade} />
+                      <ellipse className="grove-ring" data-grove-ring={w.mother ? "mother" : "sapling"} cx={w.pos.x} cy={w.pos.y} rx={w.radiusPx} ry={w.radiusPx * 0.55} fill="#7dd069" opacity={0.10 + 0.05 * fade} />
+                      <ellipse cx={w.pos.x} cy={w.pos.y} rx={w.radiusPx} ry={w.radiusPx * 0.55} fill="none" stroke="#7dd069" strokeWidth={1.6} opacity={0.28 + 0.25 * fade} style={{ filter: "drop-shadow(0 0 7px #7dd069)" }} />
                       <text className="ts-tag" x={w.pos.x} y={w.pos.y + 27}>{w.mother ? "🌿" : "🌱"} {Math.max(0, Math.ceil(left / 1000))}s</text>
                     </g>
                   );

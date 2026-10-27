@@ -16,6 +16,7 @@ import meteorGif from "./assets/meteor-rain.gif";
 // a Bastion-stage seed wears the Beacon's face on the map
 // until his hand delivers its own (flagged in the build
 // report, never silently invented).
+import glyphTreesImg from "./assets/glyphs/trees.png";
 import seedSaplingArt from "./assets/starseed/sapling.png";
 import seedBeaconArt from "./assets/starseed/beacon.png";
 
@@ -5390,27 +5391,32 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             drawCx = cx + (dpA.px - dcA.px); drawCy = cy + (dpA.py - dcA.py);
           }
           if (w.engine === "springleaf") {
-            // THE GROVE (Homeland Casting): the mother drawn
-            // as her living glow — the radius the server
-            // reckons her mending over — with each rooted
-            // sapling a smaller light of its own. Nothing is
-            // drawn the server did not plant.
+            // THE GROVE (Homeland Casting): this layer draws
+            // ONLY her living glow on the ground — the radius
+            // the server reckons her mending over, an ELLIPSE
+            // squashed to the map's own angle (the light
+            // face's 0.55 family: "all range calculation
+            // displays should match the map angle", Nigel
+            // 2026-10-27 — no true circles), its radius the
+            // quartered truth with no padding. The Twin
+            // Trees themselves STAND in the depth pass
+            // below — Nigel's twin tree
+            // sprigs, standing as trees, never a flat glyph
+            // laid on the ground. Each rooted sapling keeps
+            // its smaller glow likewise, half the mother's.
             const gNums = (w.nums ?? {}) as any;
-            const radiusPx = size * (0.95 + Math.max(1, gNums.radiusHexes ?? 1) * 1.45);
+            const radiusPx = size * (typeof gNums.radiusHexes === "number" ? gNums.radiusHexes : 0.5) * 1.45;
             const saps: { tileId: number; rooted?: boolean }[] = Array.isArray(gNums.saplings) ? gNums.saplings : [];
             return (
               <g key={w.id} opacity={0.92}>
                 <title>{`${title} — a living grove; the company standing in her glow mends.`}</title>
-                <circle cx={drawCx} cy={drawCy} r={radiusPx} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1 / zoom} pointerEvents="none" />
+                <ellipse className="grove-ring" data-grove-ring="mother" cx={drawCx} cy={drawCy} rx={radiusPx} ry={radiusPx * 0.55} fill="rgba(125,208,105,0.10)" stroke="rgba(125,208,105,0.35)" strokeWidth={1 / zoom} pointerEvents="none" />
                 {saps.filter(s => s.rooted).map((s, i) => {
                   const st = tiles.find((tt) => tt.id === s.tileId);
                   if (!st) return null;
                   const sp2 = tilePos(st);
-                  return <circle key={i} cx={sp2.cx} cy={sp2.cy} r={radiusPx / 2} fill="rgba(125,208,105,0.08)" stroke="rgba(125,208,105,0.25)" strokeWidth={0.7 / zoom} pointerEvents="none" />;
+                  return <ellipse className="grove-ring" data-grove-ring="sapling" key={i} cx={sp2.cx} cy={sp2.cy} rx={radiusPx / 2} ry={(radiusPx / 2) * 0.55} fill="rgba(125,208,105,0.08)" stroke="rgba(125,208,105,0.25)" strokeWidth={0.7 / zoom} pointerEvents="none" />;
                 })}
-                {img
-                  ? <image href={img} x={drawCx - size * 0.34} y={drawCy - size * 0.34} width={size * 0.68} height={size * 0.68} style={{ filter }} pointerEvents="none" />
-                  : <text x={drawCx} y={drawCy + size * 0.22} textAnchor="middle" fontSize={size * 0.62} pointerEvents="none">🌿</text>}
               </g>
             );
           }
@@ -6440,6 +6446,45 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         front = Math.max(front, originY + dp.py);
       }
       standingItems.push({ key: `standing-work-${wk.id}`, baseY: (front === Number.NEGATIVE_INFINITY ? 0 : front) + size * 0.08, node: <g key={`standing-work-${wk.id}`} pointerEvents="none">{node}</g> });
+    });
+    // THE GROVE'S TREES STAND (Nigel, 2026-10-27: "spring
+    // leaf is using the wrong sprite. i much prefer my
+    // twin tree sprigs with the srites"): the mother and
+    // every rooted sapling wear his Twin Trees art
+    // STANDING in this pass — base at the grove's anchor
+    // (her planted point when the cast carried one, read
+    // by the same iso delta the workings layer draws her
+    // glow by; else her tile's heart), sorted with the
+    // other standing things. The glow itself stays on
+    // the ground in the workings layer; nothing of the
+    // grove is drawn flat any more.
+    workings.filter((w) => w.engine === "springleaf").forEach((w) => {
+      const gNums = (w.nums ?? {}) as any;
+      const t = w.tileId != null ? tiles.find((tt) => tt.id === w.tileId) : null;
+      if (!t) return;
+      const base0 = tilePos(t);
+      let bx = base0.cx, by = base0.cy;
+      if (typeof gNums.aimQ === "number" && typeof gNums.aimR === "number") {
+        const dp = isoOffset(gNums.aimQ, gNums.aimR, size);
+        const dc = isoOffset(t.q, t.r, size);
+        bx += dp.px - dc.px; by += dp.py - dc.py;
+      }
+      const treeNode = (keyStr: string, cxp: number, cyp: number, wdt: number, kind: "mother" | "sapling") => {
+        const hgt = wdt * (491 / 607);
+        return (
+          <g key={keyStr} className="grove-trees" pointerEvents="none">
+            <image className="grove-tree" data-grove-tree={kind} href={glyphTreesImg} x={cxp - wdt / 2} y={cyp - hgt} width={wdt} height={hgt} preserveAspectRatio="xMidYMax meet" />
+          </g>
+        );
+      };
+      standingItems.push({ key: `standing-grove-${w.id}`, baseY: by, node: treeNode(`standing-grove-${w.id}`, bx, by, size * 0.95, "mother") });
+      const saps: { tileId: number; rooted?: boolean }[] = Array.isArray(gNums.saplings) ? gNums.saplings : [];
+      saps.filter((s) => s.rooted).forEach((s, i) => {
+        const st = tiles.find((tt) => tt.id === s.tileId);
+        if (!st) return;
+        const sp = tilePos(st);
+        standingItems.push({ key: `standing-grove-${w.id}-sap-${i}`, baseY: sp.cy, node: treeNode(`standing-grove-${w.id}-sap-${i}`, sp.cx, sp.cy, size * 0.55, "sapling") });
+      });
     });
     // Back to front by base line. The sort is stable: things
     // sharing a base line keep the order the strata gave

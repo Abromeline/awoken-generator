@@ -5207,9 +5207,17 @@ export function runeDiameterFor(runecastLevel: number): number { return bulwarkS
  *  Binder's hand doubles it in bindingHealRangeFor, as it
  *  always has. Heal carries NO extent: it mends one named
  *  Awokin, and its reach is its range, not a size — said
- *  plainly rather than invented for it. */
+ *  plainly rather than invented for it.
+ *  THE REACH QUARTERS (Nigel, 2026-10-27): "the range of
+ *  spring leaf needs reduces to 25% all around" — the
+ *  standing measure is quartered, and the quartered radius
+ *  is FRACTIONAL (Lv 1 → 0.5 hex, Lv 10 → 1.5): the grove
+ *  mends part-way into the next hexes, reckoned by a
+ *  stander's standing POINT against the grove's anchor —
+ *  never by whole-hex membership. No floor, no whole-hex
+ *  clamp: the fraction IS the measure. */
 export function bindingRadiusFor(bindingLevel: number): number {
-  return Math.max(1, Math.floor(((66 + 12 * Math.max(1, Math.floor(bindingLevel) || 1)) * 2.75) / 80));
+  return Math.floor(((66 + 12 * Math.max(1, Math.floor(bindingLevel) || 1)) * 2.75) / 80) * 0.25;
 }
 /** A SPELL'S SIZE (Nigel, 2026-10-24 22:37), by the spell's
  *  own geometry: Shard Rain is the book's AREA spell — the
@@ -6752,13 +6760,32 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
   const now = Date.now();
   const byId = new Map<number, any>((tiles as any[]).map(t => [t.id, t]));
   const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+  // A stander's point (the fractional mend, Nigel
+  // 2026-10-27): her free standing point when she carries
+  // one, else her tile's heart. (A marching figure's
+  // walked point lives on her march columns, which this
+  // record does not carry — the homeland's standing
+  // pattern, unchanged.)
+  const standerPoint = (p: any): { q: number; r: number } | null => {
+    if (typeof p.posQ === "number" && typeof p.posR === "number") return { q: p.posQ, r: p.posR };
+    const t = byId.get(p.tileId);
+    return t ? { q: t.q, r: t.r } : null;
+  };
   for (const w of rows) {
     let nums: any = {};
     try { nums = JSON.parse(w.nums ?? "{}"); } catch { nums = {}; }
     const motherTile = byId.get(w.tile_id);
     if (!motherTile) { sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id); continue; }
-    const radius = Math.max(1, Math.floor(nums.radiusHexes ?? 1));
-    const sapRadius = Math.max(1, Math.floor(radius / 2));
+    // THE QUARTERED REACH, READ AS IT STANDS (Nigel,
+    // 2026-10-27): the stored radius is fractional now
+    // (bindingRadiusFor quarters it at the planting) and
+    // the settle reads the fraction itself; a sapling's
+    // glow is the mother's half, fraction and all. A
+    // grove planted before the quartering keeps its
+    // stored whole measure until it fades — under a
+    // minute (the mother's life and the saplings').
+    const radius = typeof nums.radiusHexes === "number" ? nums.radiusHexes : 0.5;
+    const sapRadius = radius / 2;
     const healPerBreath = nums.healPerBreath ?? 1;
     const saplings: any[] = Array.isArray(nums.saplings) ? nums.saplings : [];
     let dirty = false;
@@ -6771,9 +6798,10 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
         dirty = true;
         const st = byId.get(s.tileId);
         if (st) {
+          const sapAnchor = { q: st.q, r: st.r };
           for (const p of placements) {
-            const pt = byId.get(p.tileId);
-            if (pt && hexDistTiles(pt, st) <= sapRadius) await groveBurstHealPlacement(p.id, p.awakenedId, true, groveBinderBonus);
+            const stand = standerPoint(p);
+            if (stand && axialDist(stand, sapAnchor) <= sapRadius + 1e-9) await groveBurstHealPlacement(p.id, p.awakenedId, true, groveBinderBonus);
           }
         }
       }
@@ -6785,20 +6813,32 @@ async function settleHomelandGroves(ownerKey: string, tiles: any[]): Promise<voi
     if (beats > 0) {
       nums.lastMendAt = lastMend + beats * 2800;
       dirty = true;
-      const zones: { tile: any; radius: number }[] = [];
-      if (now <= (nums.motherExpiresAt ?? 0)) zones.push({ tile: motherTile, radius });
+      // The zones are ANCHORS now, not tiles (the
+      // fractional mend): the mother's anchor is her
+      // planted point when the cast carried one (aimQ/
+      // aimR in her numbers), else her tile's heart; a
+      // sapling's anchor is its tile's heart. A stander
+      // is covered by a zone when her standing POINT
+      // lies within the zone's radius of its anchor.
+      const zones: { anchor: { q: number; r: number }; radius: number }[] = [];
+      if (now <= (nums.motherExpiresAt ?? 0)) {
+        const anchor = typeof nums.aimQ === "number" && typeof nums.aimR === "number"
+          ? { q: nums.aimQ, r: nums.aimR }
+          : { q: motherTile.q, r: motherTile.r };
+        zones.push({ anchor, radius });
+      }
       for (const s of saplings) {
         if (s.rooted && now <= (s.expiresAt ?? 0)) {
           const st = byId.get(s.tileId);
-          if (st) zones.push({ tile: st, radius: sapRadius });
+          if (st) zones.push({ anchor: { q: st.q, r: st.r }, radius: sapRadius });
         }
       }
       if (zones.length) {
         for (const p of placements) {
-          const pt = byId.get(p.tileId);
-          if (!pt) continue;
+          const stand = standerPoint(p);
+          if (!stand) continue;
           let cover = 0;
-          for (const z of zones) if (hexDistTiles(pt, z.tile) <= z.radius) cover++;
+          for (const z of zones) if (axialDist(stand, z.anchor) <= z.radius + 1e-9) cover++;
           if (cover > 0) await mendPlacement(p.id, beats * (healPerBreath + groveBinderBonus) * cover);
         }
       }
@@ -11702,7 +11742,9 @@ export const handlers = {
     // tongue: the Table's grove spans (66 + 12 × Tender level)
     // px at 2.75× an Awokin's casting; a homeland hex is 80 px
     // of that same measure — so her glow covers that many
-    // hexes of radius (Lv 1 → 2, Lv 10 → 6).
+    // hexes of radius, QUARTERED by Nigel's 2026-10-27 ruling
+    // (Lv 1 → 0.5, Lv 10 → 1.5 — fractional, mending part-way
+    // into the next hexes).
     if (spell.engine === "springleaf") {
       if (!progress.wardRuneUnlocked) {
         badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
@@ -11736,16 +11778,22 @@ export const handlers = {
       let burst = 0;
       const castBinderBonus = bindingHealBonusFor(progress.classKey, ownerKey);
       const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+      // THE FRACTIONAL MEND (Nigel, 2026-10-27): the burst
+      // is judged by where each one STANDS — her standing
+      // point (posQ/posR) when she carries one, her tile's
+      // heart when she does not — against the grove's
+      // anchor: the tapped point when the cast carried one,
+      // the planted tile's heart on the hex road. The
+      // quartered radius is fractional, so a stander
+      // part-way into the next hex stands inside the glow.
+      const groveAnchor = aimPoint ?? { q: (tile as any).q, r: (tile as any).r };
       for (const p of placements as any[]) {
         const pt = castTileById.get(p.tileId);
         if (!pt) continue;
-        // The burst is judged from where the grove was
-        // planted: the tapped point when the cast carried
-        // one, the tile's heart on the hex road (2026-10-24).
-        const inGlow = aimPoint
-          ? axialDist({ q: (pt as any).q, r: (pt as any).r }, aimPoint) <= radiusHexes + 1e-9
-          : hexDistTiles(pt as any, tile) <= radiusHexes;
-        if (inGlow) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false, castBinderBonus);
+        const stand = typeof (p as any).posQ === "number" && typeof (p as any).posR === "number"
+          ? { q: (p as any).posQ, r: (p as any).posR }
+          : { q: (pt as any).q, r: (pt as any).r };
+        if (axialDist(stand, groveAnchor) <= radiusHexes + 1e-9) burst += await groveBurstHealPlacement(p.id, p.awakenedId, false, castBinderBonus);
       }
       // The saplings: 1d4, on distinct ground within 0.55 of
       // her radius (the Table's spacing), her own hex filling
